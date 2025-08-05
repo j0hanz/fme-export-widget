@@ -10,6 +10,8 @@ import {
   type ErrorState,
   type AreaTemplate,
   type StateData,
+  type WorkspaceItem,
+  type WorkspaceParameter,
   type SetViewModeAction,
   type SetAreaTemplatesAction,
   type SetFormValuesAction,
@@ -95,6 +97,30 @@ export const fmeActions = {
     type: FmeActionType.FINISH_TEMPLATE_EXPORT,
   }),
 
+  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
+    type: FmeActionType.SET_WORKSPACE_ITEMS,
+    workspaceItems,
+  }),
+
+  setWorkspaceParameters: (
+    workspaceParameters: readonly WorkspaceParameter[],
+    workspaceName: string
+  ) => ({
+    type: FmeActionType.SET_WORKSPACE_PARAMETERS,
+    workspaceParameters,
+    workspaceName,
+  }),
+
+  setSelectedWorkspace: (workspaceName: string | null) => ({
+    type: FmeActionType.SET_SELECTED_WORKSPACE,
+    workspaceName,
+  }),
+
+  setWorkspaceItem: (workspaceItem: any) => ({
+    type: FmeActionType.SET_WORKSPACE_ITEM,
+    workspaceItem,
+  }),
+
   setUiState: (uiState: StateType): SetUiStateAction => ({
     type: FmeActionType.SET_UI_STATE,
     uiState,
@@ -126,13 +152,16 @@ export const initialFmeState: FmeWidgetState = {
   selectedTemplateId: null,
 
   // Export state
-  activeExportType: null,
   formValues: {},
   orderResult: null,
 
-  // Data source state
-  selectedRecords: [],
-  dataSourceId: null,
+  // Workspace state
+  workspaceItems: [],
+  selectedWorkspace: null,
+  workspaceParameters: [],
+  workspaceItem: null, // Full workspace item from server
+  isLoadingWorkspaces: false,
+  isLoadingParameters: false,
 
   // Loading states
   isModulesLoading: false,
@@ -180,10 +209,6 @@ const fmeReducer = (
     case FmeActionType.SET_TEMPLATE_NAME:
       return state.set("templateName", action.templateName)
 
-    case FmeActionType.SET_ACTIVE_EXPORT_TYPE:
-      console.log("FME Export - Export type selected:", action.exportType)
-      return state.set("activeExportType", action.exportType)
-
     case FmeActionType.SET_LOADING_FLAGS:
       return state
         .set(
@@ -227,12 +252,6 @@ const fmeReducer = (
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)
 
-    case FmeActionType.SET_SELECTED_RECORDS:
-      return state.set("selectedRecords", action.records)
-
-    case FmeActionType.SET_DATA_SOURCE:
-      return state.set("dataSourceId", action.dataSource)
-
     case FmeActionType.SET_FORM_VALUES:
       return state.set("formValues", action.formValues)
 
@@ -270,6 +289,20 @@ const fmeReducer = (
 
     case FmeActionType.FINISH_TEMPLATE_EXPORT:
       return state.set("isExportingTemplates", false).set("exportError", null)
+
+    case FmeActionType.SET_WORKSPACE_ITEMS:
+      return state.set("workspaceItems", action.workspaceItems)
+
+    case FmeActionType.SET_WORKSPACE_PARAMETERS:
+      return state
+        .set("workspaceParameters", action.workspaceParameters)
+        .set("selectedWorkspace", action.workspaceName)
+
+    case FmeActionType.SET_SELECTED_WORKSPACE:
+      return state.set("selectedWorkspace", action.workspaceName)
+
+    case FmeActionType.SET_WORKSPACE_ITEM:
+      return state.set("workspaceItem", action.workspaceItem)
 
     case FmeActionType.RESET_STATE:
       return (state as any).merge(
