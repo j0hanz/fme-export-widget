@@ -33,16 +33,6 @@ import importIcon from "../../assets/icons/import.svg"
 import { STYLES } from "../../shared/css"
 import { Export } from "./exports"
 
-// Constants
-const EXPORT_TOOLTIP_KEYS = {
-  export3dModel: "export3dModelTooltip",
-  exportActs: "exportActsTooltip",
-  exportPlanDocuments: "exportPlanDocumentsTooltip",
-  exportRaster: "exportRasterTooltip",
-  exportVectorData: "exportVectorDataTooltip",
-  exportOther: "exportOtherTooltip",
-} as const
-
 const noOp = (): void => {
   // No operation - intentionally empty
 }
@@ -50,13 +40,10 @@ const noOp = (): void => {
 export const Content: React.FC<ContentProps> = ({
   state,
   instructionText,
-  exportOptions = [],
   onAngeUtbredning,
-  onExportOption,
   isModulesLoading,
   canStartDrawing,
   error,
-  activeExportType,
   onFormBack,
   onFormSubmit,
   orderResult,
@@ -97,11 +84,27 @@ export const Content: React.FC<ContentProps> = ({
   isExportingTemplates = false,
   importError,
   exportError,
+  // Workspace-related props
+  widgetId,
+  config,
+  onWorkspaceSelected,
+  onWorkspaceBack,
+  selectedWorkspace,
+  workspaceParameters,
+  workspaceItem,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const makeCancelable = hooks.useCancelablePromiseMaker()
+
+  // Workspace selection state - moved to top level to avoid hook usage in render functions
+  const [workspaces, setWorkspaces] = React.useState<readonly any[]>([])
+  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = React.useState(false)
+  const [workspaceError, setWorkspaceError] = React.useState<string | null>(
+    null
+  )
 
   // Generate stable animation ID based on current state
-  const playId = `${state}-${!!error}-${activeExportType || "none"}`.length
+  const playId = `${state}-${!!error}-none`.length
 
   // Template validation logic using utility function
   const name = (templateName || "").trim()
@@ -176,6 +179,94 @@ export const Content: React.FC<ContentProps> = ({
   const triggerFileImport = hooks.useEventCallback(() => {
     fileInputRef.current?.click()
   })
+
+  // Load workspaces function - moved to top level
+  const loadWorkspaces = hooks.useEventCallback(async () => {
+    if (!config) return
+
+    setIsLoadingWorkspaces(true)
+    setWorkspaceError(null)
+
+    try {
+      const { createFmeFlowClient } = await import("../../shared/api")
+      const client = createFmeFlowClient(config)
+
+      const response = await makeCancelable(
+        client.getRepositoryItems(config.repository, "WORKSPACE")
+      )
+
+      if (response.status === 200 && response.data.items) {
+        const workspaceItems = response.data.items.filter(
+          (item) => item.type === "WORKSPACE"
+        )
+
+        setWorkspaces(workspaceItems)
+      } else {
+        throw new Error(translate("failedToLoadWorkspaces"))
+      }
+    } catch (err) {
+      // Handle both API errors and cancellation
+      if (err.name !== "CancelledPromiseError") {
+        const errorMessage =
+          err instanceof Error ? err.message : translate("unknownErrorOccurred")
+        setWorkspaceError(
+          `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
+        )
+      }
+    } finally {
+      setIsLoadingWorkspaces(false)
+    }
+  })
+
+  // Handle workspace selection - moved to top level
+  const handleWorkspaceSelect = hooks.useEventCallback(
+    async (workspaceName: string) => {
+      if (!config) return
+
+      try {
+        // Get workspace item details (includes parameters)
+        const { createFmeFlowClient } = await import("../../shared/api")
+        const client = createFmeFlowClient(config)
+
+        const response = await makeCancelable(
+          client.getWorkspaceItem(workspaceName, config.repository)
+        )
+
+        if (response.status === 200 && response.data?.parameters) {
+          onWorkspaceSelected?.(
+            workspaceName,
+            response.data.parameters,
+            response.data
+          )
+        } else {
+          throw new Error(translate("failedToLoadWorkspaceDetails"))
+        }
+      } catch (err) {
+        // Handle both API errors and cancellation
+        if (err.name !== "CancelledPromiseError") {
+          const errorMessage =
+            err instanceof Error
+              ? err.message
+              : translate("unknownErrorOccurred")
+          setWorkspaceError(
+            `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
+          )
+        }
+      }
+    }
+  )
+
+  // Load workspaces when needed - only when transitioning to export options
+  hooks.useUpdateEffect(() => {
+    if (
+      state === ViewMode.EXPORT_OPTIONS ||
+      state === ViewMode.WORKSPACE_SELECTION
+    ) {
+      if (workspaces.length === 0 && !isLoadingWorkspaces && !workspaceError) {
+        loadWorkspaces()
+      }
+    }
+  }, [state])
 
   // Header component for widget actions
   const renderHeader = () => {
@@ -484,7 +575,8 @@ export const Content: React.FC<ContentProps> = ({
           />
           <div id="template-name-help" style={STYLES.typography.caption}>
             {(templateName || "").length}/
-            {TEMPLATE_VALIDATION_RULES.MAX_NAME_LENGTH} tecken
+            {TEMPLATE_VALIDATION_RULES.MAX_NAME_LENGTH}{" "}
+            {translate("characters")}
           </div>
           {/* Validation error messages */}
           <div id="template-name-error" role="alert" aria-live="polite">
@@ -555,50 +647,106 @@ export const Content: React.FC<ContentProps> = ({
     )
   }
 
-  const onExportOptionSelect = hooks.useEventCallback((optionId: string) => {
-    onExportOption(optionId)
-  })
+  const renderWorkspaceSelection = () => {
+    // Show loading state while loading workspaces
+    if (isLoadingWorkspaces) {
+      return (
+        <StateRenderer
+          state={StateType.LOADING}
+          data={{
+            message: translate("loadingWorkspaces") || "Loading workspaces...",
+          }}
+        />
+      )
+    }
 
-  const renderExportOptions = () => {
+    // Show error state if failed to load workspaces
+    if (workspaceError) {
+      return (
+        <StateRenderer
+          state={StateType.ERROR}
+          data={{
+            message: workspaceError,
+            actions: [
+              {
+                label: translate("retry") || "Retry",
+                onClick: loadWorkspaces,
+              },
+              {
+                label: translate("back") || "Back",
+                onClick: onBack || noOp,
+              },
+            ],
+          }}
+        />
+      )
+    }
+
+    // Show empty state if no workspaces found
+    if (workspaces.length === 0) {
+      return (
+        <StateRenderer
+          state={StateType.EMPTY}
+          data={{
+            message: translate("noWorkspacesFound"),
+            actions: [
+              {
+                label: translate("retry"),
+                onClick: loadWorkspaces,
+              },
+              {
+                label: translate("back"),
+                onClick: onBack || noOp,
+              },
+            ],
+          }}
+        />
+      )
+    }
+
+    // Render workspace options (replacing the old hardcoded export options)
     return (
       <div style={STYLES.button.column}>
-        {exportOptions.map((option) => {
-          const tooltipKey = EXPORT_TOOLTIP_KEYS[option.id]
-          return (
-            <Button
-              key={option.id}
-              text={option.label}
-              icon={listIcon}
-              style={STYLES.button.text}
-              onClick={() => onExportOptionSelect(option.id)}
-              tooltip={tooltipKey ? translate(tooltipKey) : undefined}
-              tooltipDisabled={true}
-              logging={{ enabled: true, prefix: "FME-Export" }}
-            />
-          )
-        })}
+        {workspaces.map((workspace) => (
+          <Button
+            key={workspace.name}
+            text={workspace.title || workspace.name}
+            icon={listIcon}
+            style={STYLES.button.text}
+            onClick={() => handleWorkspaceSelect(workspace.name)}
+            tooltip={workspace.description}
+            tooltipDisabled={true}
+            logging={{ enabled: true, prefix: "FME-Export-WorkspaceSelection" }}
+          />
+        ))}
       </div>
     )
   }
 
   const renderExportForm = () => {
-    if (!activeExportType || !onFormBack || !onFormSubmit) {
+    if (!onFormBack || !onFormSubmit) {
       return (
-        <>
-          Error loading export form - Missing:{" "}
-          {[
-            !activeExportType && "activeExportType",
-            !onFormBack && "onFormBack",
-            !onFormSubmit && "onFormSubmit",
-          ]
-            .filter(Boolean)
-            .join(", ")}
-        </>
+        <StateRenderer
+          state={StateType.ERROR}
+          data={{
+            message: "Export form configuration missing",
+            actions: [
+              {
+                label: translate("back") || "Back",
+                onClick: onBack || noOp,
+              },
+            ],
+          }}
+        />
       )
     }
+
+    // Use the integrated Export component that handles both static and dynamic forms
     return (
       <Export
-        variant={activeExportType}
+        workspaceParameters={workspaceParameters}
+        workspaceName={selectedWorkspace}
+        workspaceItem={workspaceItem}
         onBack={onFormBack}
         onSubmit={onFormSubmit}
         isSubmitting={isSubmittingOrder}
@@ -800,7 +948,8 @@ export const Content: React.FC<ContentProps> = ({
       case ViewMode.DRAWING:
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
-        return renderExportOptions()
+      case ViewMode.WORKSPACE_SELECTION:
+        return renderWorkspaceSelection()
       case ViewMode.EXPORT_FORM:
         return renderExportForm()
       case ViewMode.ORDER_RESULT:
