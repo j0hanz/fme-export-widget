@@ -72,6 +72,7 @@ export class FmeFlowApiClient {
 
   private normalizeServerUrl(): string {
     let serverRoot = this.config.serverUrl
+    // Remove /fmeserver path as FME Flow REST API v3 doesn't use it
     if (serverRoot.endsWith("/fmeserver"))
       serverRoot = serverRoot.replace("/fmeserver", "")
     if (serverRoot.endsWith("/fmerest"))
@@ -223,6 +224,23 @@ export class FmeFlowApiClient {
     return this.request<WorkspaceParameter>(
       `/repositories/${repo}/items/${workspace}/parameters/${parameter}`,
       { signal, cacheHint: true }
+    )
+  }
+
+  async getWorkspaceItem(
+    workspace: string,
+    repository?: string,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<any>> {
+    const repo = this.resolveRepository(repository)
+    return this.handleApiError(
+      () =>
+        this.request<any>(`/repositories/${repo}/items/${workspace}`, {
+          signal,
+          cacheHint: true,
+        }),
+      "Failed to get workspace item details",
+      "WORKSPACE_ITEM_ERROR"
     )
   }
 
@@ -618,7 +636,7 @@ export class FmeFlowApiClient {
 
   downloadResourceFile(resource: string, path: string): string {
     const encodedPath = this.encodeResourcePath(path)
-    return `${this.config.serverUrl}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents&token=${this.config.token}`
+    return `${this.normalizeServerUrl()}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents&token=${this.config.token}`
   }
 
   async uploadResourceFile(
@@ -897,16 +915,26 @@ export class FmeFlowApiClient {
     if (endpoint.startsWith("http")) {
       url = endpoint
     } else if (endpoint.startsWith("/fme")) {
-      url = `${this.config.serverUrl}${endpoint}`
+      url = `${this.normalizeServerUrl()}${endpoint}`
     } else {
-      url = `${this.config.serverUrl}${this.basePath}${endpoint}`
+      url = `${this.normalizeServerUrl()}${this.basePath}${endpoint}`
     }
 
+    console.log("FME API - Making request to:", url)
+
     try {
+      const headers: { [key: string]: string } = {}
+
+      // Add FME Flow authentication token (fallback if interceptor doesn't work)
+      if (this.config.token) {
+        headers.Authorization = `fmetoken token=${this.config.token}`
+      }
+
       const response = await esriRequest(url, {
         method: (options.method?.toLowerCase() as any) || "get",
         query: options.query,
         responseType: "json",
+        headers,
         signal: options.signal,
         ...(options.cacheHint !== undefined && {
           cacheHint: options.cacheHint,
@@ -922,6 +950,17 @@ export class FmeFlowApiClient {
       let errorMessage = `Request failed: ${error.message}`
       let errorCode = "NETWORK_ERROR"
       const status = error.httpStatus || 0
+
+      // Check if we got an HTML response instead of JSON
+      if (error.message && error.message.includes("Unexpected token")) {
+        console.error(
+          "FME API - Received HTML response instead of JSON. URL:",
+          url
+        )
+        console.error("FME API - Full error:", error)
+        errorMessage = `Server returned HTML instead of JSON. This usually indicates an authentication or endpoint issue. URL: ${url}`
+        errorCode = "INVALID_RESPONSE_FORMAT"
+      }
 
       if (error.details?.error) {
         errorMessage = error.details.error.message || errorMessage
