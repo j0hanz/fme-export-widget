@@ -89,7 +89,7 @@ interface BaseComponentProps {
 
 // Tooltip config props (ArcGIS pattern)
 interface TooltipProps {
-  readonly tooltip?: React.ReactNode
+  readonly tooltip?: React.ReactNode // Support FormattedMessage
   readonly tooltipDisabled?: boolean
   readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
   readonly tooltipEnterDelay?: number
@@ -116,21 +116,12 @@ export const enum DrawingTool {
 export const enum ViewMode {
   INITIAL = "initial",
   DRAWING = "drawing",
+  WORKSPACE_SELECTION = "workspaceSelection",
   EXPORT_OPTIONS = "exportOptions",
   EXPORT_FORM = "exportForm",
   TEMPLATE_MANAGER = "templateManager",
   SAVE_TEMPLATE = "saveTemplate",
   ORDER_RESULT = "orderResult",
-}
-
-// FME export types for workspace operations
-export const enum ExportType {
-  AKTER = "akter",
-  PLANDOKUMENT = "plandokument",
-  EXPORTERA_RASTER = "exportera_raster",
-  EXPORT_3D_MODEL = "export_3d_model",
-  EXPORT_VECTOR_DATA = "export_vector_data",
-  EXPORT_OTHER = "export_other",
 }
 
 // Supported coordinate systems for export
@@ -219,13 +210,14 @@ export enum FmeActionType {
   FINISH_TEMPLATE_EXPORT = "FME_FINISH_TEMPLATE_EXPORT",
 
   // Export & Form Actions
-  SET_ACTIVE_EXPORT_TYPE = "FME_SET_ACTIVE_EXPORT_TYPE",
   SET_FORM_VALUES = "FME_SET_FORM_VALUES",
   SET_ORDER_RESULT = "FME_SET_ORDER_RESULT",
 
-  // Data Source Actions
-  SET_SELECTED_RECORDS = "FME_SET_SELECTED_RECORDS",
-  SET_DATA_SOURCE = "FME_SET_DATA_SOURCE",
+  // Workspace & Parameter Actions
+  SET_WORKSPACE_ITEMS = "FME_SET_WORKSPACE_ITEMS",
+  SET_WORKSPACE_PARAMETERS = "FME_SET_WORKSPACE_PARAMETERS",
+  SET_SELECTED_WORKSPACE = "FME_SET_SELECTED_WORKSPACE",
+  SET_WORKSPACE_ITEM = "FME_SET_WORKSPACE_ITEM",
 
   // Loading & Error Actions
   SET_LOADING_FLAGS = "FME_SET_LOADING_FLAGS",
@@ -312,11 +304,6 @@ export interface FinishTemplateExportAction
   extends BaseAction<FmeActionType.FINISH_TEMPLATE_EXPORT> {}
 
 // Export & Form Actions
-export interface SetActiveExportTypeAction
-  extends BaseAction<FmeActionType.SET_ACTIVE_EXPORT_TYPE> {
-  exportType: ExportType | null
-}
-
 export interface SetFormValuesAction
   extends BaseAction<FmeActionType.SET_FORM_VALUES> {
   formValues: { [key: string]: string | number | boolean | readonly string[] }
@@ -327,17 +314,29 @@ export interface SetOrderResultAction
   orderResult: ExportResult | null
 }
 
+// Workspace & Parameter Actions
+export interface SetWorkspaceItemsAction
+  extends BaseAction<FmeActionType.SET_WORKSPACE_ITEMS> {
+  workspaceItems: readonly WorkspaceItem[]
+}
+
+export interface SetWorkspaceParametersAction
+  extends BaseAction<FmeActionType.SET_WORKSPACE_PARAMETERS> {
+  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceName: string
+}
+
+export interface SetSelectedWorkspaceAction
+  extends BaseAction<FmeActionType.SET_SELECTED_WORKSPACE> {
+  workspaceName: string | null
+}
+
+export interface SetWorkspaceItemAction
+  extends BaseAction<FmeActionType.SET_WORKSPACE_ITEM> {
+  workspaceItem: any
+}
+
 // Data Source Actions
-export interface SetSelectedRecordsAction
-  extends BaseAction<FmeActionType.SET_SELECTED_RECORDS> {
-  records: unknown[]
-}
-
-export interface SetDataSourceAction
-  extends BaseAction<FmeActionType.SET_DATA_SOURCE> {
-  dataSource: string | null
-}
-
 // Loading & Error Actions
 export interface SetLoadingFlagsAction
   extends BaseAction<FmeActionType.SET_LOADING_FLAGS> {
@@ -392,12 +391,13 @@ export type FmeTemplateActions =
   | FinishTemplateImportAction
   | FinishTemplateExportAction
 
-export type FmeExportActions =
-  | SetActiveExportTypeAction
-  | SetFormValuesAction
-  | SetOrderResultAction
+export type FmeExportActions = SetFormValuesAction | SetOrderResultAction
 
-export type FmeDataActions = SetSelectedRecordsAction | SetDataSourceAction
+export type FmeWorkspaceActions =
+  | SetWorkspaceItemsAction
+  | SetWorkspaceParametersAction
+  | SetSelectedWorkspaceAction
+  | SetWorkspaceItemAction
 
 export type FmeLoadingErrorActions =
   | SetLoadingFlagsAction
@@ -413,39 +413,9 @@ export type FmeActions =
   | FmeDrawingActions
   | FmeTemplateActions
   | FmeExportActions
-  | FmeDataActions
+  | FmeWorkspaceActions
   | FmeLoadingErrorActions
   | FmeUiActions
-
-// Configuration Constants
-export const EXPORT_OPTIONS = [
-  { id: "export3dModel", key: "export3dModel" },
-  { id: "exportActs", key: "exportActs" },
-  { id: "exportPlanDocuments", key: "exportPlanDocuments" },
-  { id: "exportRaster", key: "exportRaster" },
-  { id: "exportVectorData", key: "exportVectorData" },
-  { id: "exportOther", key: "exportOther" },
-] as const
-
-// Export option IDs to workspace names
-export const EXPORT_MAP = {
-  exportActs: "akter",
-  exportPlanDocuments: "plandokument",
-  exportRaster: "exportera_raster",
-  export3dModel: "export_3d_model",
-  exportVectorData: "export_vector_data",
-  exportOther: "export_other",
-} as const
-
-// Workspace names to translation keys
-export const DISPLAY_MAP = {
-  akter: "akterTitle",
-  plandokument: "plandokumentTitle",
-  exportera_raster: "exportRasterTitle",
-  export_3d_model: "export3dModel",
-  export_vector_data: "exportVectorData",
-  export_other: "exportOther",
-} as const
 
 // Template validation rules
 export const TEMPLATE_VALIDATION_RULES = {
@@ -529,9 +499,6 @@ export const TOOLTIP_CONFIG = {
 } as const
 
 // Freeze config objects to prevent mutation
-Object.freeze(EXPORT_OPTIONS)
-Object.freeze(EXPORT_MAP)
-Object.freeze(DISPLAY_MAP)
 Object.freeze(TEMPLATE_VALIDATION_RULES)
 Object.freeze(LAYER_CONFIG)
 Object.freeze(SIMULATION_DELAYS)
@@ -616,11 +583,22 @@ export interface WorkspaceItem {
   readonly title: string
   readonly description: string
   readonly type: "WORKSPACE" | "CUSTOM_FORMAT" | "CUSTOM_TRANSFORMER"
-  readonly lastModified: string
-  readonly services: readonly string[]
-  readonly isRunnable: boolean
+  readonly lastModified?: string
+  readonly services?: readonly string[]
+  readonly isRunnable?: boolean
   readonly category?: string
-  readonly userName: string
+  readonly userName?: string
+  // Additional fields from FME Flow API response
+  readonly lastSaveDate?: string
+  readonly lastPublishDate?: string
+  readonly repositoryName?: string
+  readonly fileCount?: number
+  readonly totalFileSize?: number
+  readonly totalRuns?: number
+  readonly avgCpuTime?: number
+  readonly avgCpuPct?: number
+  readonly avgElapsedTime?: number
+  readonly avgPeakMemUsage?: number
 }
 
 // Repository collection with pagination
@@ -680,7 +658,7 @@ export interface WorkspaceParameter {
   readonly description: string
   readonly type: ParameterType
   readonly defaultValue?: string | number | boolean | readonly string[]
-  readonly model: ParameterModel
+  readonly model: string // Changed from ParameterModel enum to string to match API response
   readonly optional?: boolean
   readonly listOptions?: readonly ParameterChoice[]
   readonly featuregrouping?: boolean
@@ -869,17 +847,20 @@ export interface FmeTemplateState {
 
 // Export workflow and form data state
 export interface FmeExportState {
-  readonly activeExportType: ExportType | null
   readonly formValues: {
     [key: string]: string | number | boolean | readonly string[]
   }
   readonly orderResult: ExportResult | null
 }
 
-// External data source integration state
-export interface FmeDataSourceState {
-  readonly selectedRecords: unknown[]
-  readonly dataSourceId: string | null
+// Workspace and parameter management state
+export interface FmeWorkspaceState {
+  readonly workspaceItems: readonly WorkspaceItem[]
+  readonly selectedWorkspace: string | null
+  readonly workspaceParameters: readonly WorkspaceParameter[]
+  readonly workspaceItem: any // Full workspace item from server
+  readonly isLoadingWorkspaces: boolean
+  readonly isLoadingParameters: boolean
 }
 
 // Loading states for async operations
@@ -910,7 +891,7 @@ export interface FmeWidgetState
     FmeDrawingState,
     FmeTemplateState,
     FmeExportState,
-    FmeDataSourceState,
+    FmeWorkspaceState,
     FmeLoadingState,
     FmeErrorState,
     FmeUiState {}
@@ -922,7 +903,7 @@ export interface IMStateWithFmeExport extends IMState {
 // UI Components
 // Button Components
 export interface GroupButtonConfig extends TooltipProps {
-  readonly text: string
+  readonly text: React.ReactNode // Support FormattedMessage
   readonly onClick: () => void
   readonly variant?: JimuButtonProps["variant"]
   readonly color?: JimuButtonProps["color"]
@@ -934,7 +915,7 @@ export interface ButtonProps
   extends Omit<JimuButtonProps, "onClick" | "icon">,
     TooltipProps,
     BaseComponentProps {
-  readonly text?: string
+  readonly text?: React.ReactNode // Support FormattedMessage
   readonly icon?: JimuButtonProps["icon"] | IconResult | string
   readonly iconPosition?: "left" | "right"
   readonly loading?: boolean
@@ -974,12 +955,6 @@ export interface ContentDrawingProps {
 
 // Export-related content properties
 export interface ContentExportProps {
-  readonly exportOptions?: ReadonlyArray<{
-    readonly id: string
-    readonly label: string
-  }>
-  readonly activeExportType: ExportType | null
-  readonly onExportOption: (type: string) => void
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (data: unknown) => void
   readonly orderResult?: ExportResult | null
@@ -1030,6 +1005,7 @@ export interface ContentProps
     Partial<ContentExportProps>,
     Partial<ContentTemplateProps>,
     Partial<ContentHeaderProps>,
+    Partial<ContentWorkspaceProps>,
     ContentLoadingProps {}
 
 // Dropdown Components
@@ -1058,7 +1034,6 @@ export interface DropdownProps
 
 // Export Form Components
 export interface ExportFormProps {
-  readonly variant: ExportType
   readonly onBack: () => void
   readonly onSubmit: (data: unknown) => void
   readonly isSubmitting?: boolean
@@ -1091,8 +1066,8 @@ interface BaseFormProps {
 
 interface LayoutFormProps extends BaseFormProps {
   readonly variant: "layout"
-  readonly title: string
-  readonly subtitle: string
+  readonly title: React.ReactNode
+  readonly subtitle: React.ReactNode
   readonly onBack?: () => void
   readonly onSubmit?: () => void
   readonly isValid?: boolean
@@ -1101,11 +1076,11 @@ interface LayoutFormProps extends BaseFormProps {
 
 interface FieldFormProps extends BaseFormProps {
   readonly variant: "field"
-  readonly label: string
-  readonly helper?: string
+  readonly label: React.ReactNode
+  readonly helper?: React.ReactNode
   readonly required?: boolean
   readonly readOnly?: boolean
-  readonly error?: string
+  readonly error?: React.ReactNode
 }
 
 export type FormProps = LayoutFormProps | FieldFormProps
@@ -1128,7 +1103,10 @@ export interface HeaderProps {
 
 // Input Components
 export interface InputProps
-  extends Omit<JimuTextInputProps, "pattern" | "value" | "defaultValue">,
+  extends Omit<
+      JimuTextInputProps,
+      "pattern" | "value" | "defaultValue" | "type"
+    >,
     BaseComponentProps {
   readonly value?: string
   readonly defaultValue?: string
@@ -1136,6 +1114,7 @@ export interface InputProps
   readonly maxLength?: number
   readonly pattern?: RegExp
   readonly validationMessage?: string
+  readonly type?: "text" | "password" | "email" | "tel" | "url" | "file"
 }
 
 // Select Components
@@ -1187,6 +1166,7 @@ export interface CustomTooltipProps {
 export interface NotificationState {
   readonly severity: "success" | "error" | "warning" | "info"
   readonly message: string
+  readonly formattedMessage?: React.ReactElement // Optional FormattedMessage component
 }
 
 // Measurement display component props
@@ -1239,9 +1219,10 @@ export const HIGHLIGHT_SYMBOL = {
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
-  [ViewMode.SAVE_TEMPLATE]: ViewMode.EXPORT_OPTIONS,
-  [ViewMode.TEMPLATE_MANAGER]: ViewMode.EXPORT_OPTIONS,
-  [ViewMode.EXPORT_FORM]: ViewMode.EXPORT_OPTIONS,
+  [ViewMode.SAVE_TEMPLATE]: ViewMode.WORKSPACE_SELECTION,
+  [ViewMode.TEMPLATE_MANAGER]: ViewMode.WORKSPACE_SELECTION,
+  [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
+  [ViewMode.WORKSPACE_SELECTION]: ViewMode.INITIAL,
   [ViewMode.EXPORT_OPTIONS]: ViewMode.INITIAL,
   [ViewMode.ORDER_RESULT]: ViewMode.INITIAL,
   [ViewMode.DRAWING]: ViewMode.INITIAL,
@@ -1251,3 +1232,17 @@ export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
 // Freeze widget constants to prevent mutation
 Object.freeze(HIGHLIGHT_SYMBOL)
 Object.freeze(VIEW_ROUTES)
+
+// Workspace-related content properties
+export interface ContentWorkspaceProps {
+  readonly config: FmeExportConfig
+  readonly onWorkspaceSelected?: (
+    workspaceName: string,
+    parameters: readonly WorkspaceParameter[],
+    workspaceItem: any
+  ) => void
+  readonly onWorkspaceBack?: () => void
+  readonly selectedWorkspace?: string | null
+  readonly workspaceParameters?: readonly WorkspaceParameter[]
+  readonly workspaceItem?: any // Full workspace item from server
+}
