@@ -1,0 +1,5 @@
+{
+  "fmeServerUrl": "{{YourFmeServerUrl}}",
+  "fmeServerToken": "{{YourFmeServerToken}}",
+  "repository": "{{YourFmeRepository}}"
+}

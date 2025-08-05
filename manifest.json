@@ -1,0 +1,34 @@
+{
+  "name": "fme-export",
+  "label": "FME Export",
+  "type": "widget",
+  "description": "A widget for exporting data to FME.",
+  "author": "",
+  "dependencies": ["jimu-core", "jimu-ui", "jimu-arcgis"],
+  "version": "1.18.0",
+  "exbVersion": "1.18.0",
+  "requireLicense": "Premium",
+  "icon": "client/jimu-icons/svg/outlined/application/data-download.svg",
+  "properties": {
+    "hasSettingPage": true,
+    "hasConfig": true
+  },
+  "useDataSources": [
+    {
+      "type": "MapDataSource",
+      "isRequire": true
+    }
+  ],
+  "extensions": [
+    {
+      "name": "FME State Store",
+      "point": "REDUX_STORE",
+      "uri": "extensions/store"
+    }
+  ],
+  "publishMessages": ["EXTENT_CHANGE", "DATA_RECORDS_SELECTION_CHANGE"],
+  "defaultSize": {
+    "width": 290,
+    "autoHeight": true
+  }
+}
