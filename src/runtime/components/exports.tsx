@@ -1,278 +1,145 @@
-import { React, hooks, FormattedMessage, getAppStore } from "jimu-core"
-import { Select, TextArea, Form } from "./ui"
+import { React, hooks, getAppStore } from "jimu-core"
+import { Select, TextArea, Form, Input } from "./ui"
+import { Checkbox } from "jimu-ui"
 import { STYLES } from "../../shared/css"
-import type {
-  ExportFormProps,
-  FieldConfig,
-  ExportConfig,
-  SelectOption,
-} from "../../shared/types"
-import { ExportType } from "../../shared/types"
 import defaultMessages from "../../translations/default"
+import type { WorkspaceParameter } from "../../shared/types"
 import { fmeActions } from "../../extensions/store"
+import {
+  ParameterFormService,
+  type DynamicFieldConfig,
+  FormFieldType,
+} from "../../shared/services"
 
-const makeOptions = (translate: any, keys: string[]): SelectOption[] =>
-  keys.map((key) => ({
-    value: key,
-    label: translate(key),
-  }))
+// Dynamic export component interface
+interface ExportProps {
+  readonly workspaceParameters?: readonly WorkspaceParameter[]
+  readonly workspaceName?: string
+  readonly workspaceItem?: any // Full workspace item from server with title, description, etc.
+  readonly onBack: () => void
+  readonly onSubmit: (data: unknown) => void
+  readonly isSubmitting?: boolean
+}
 
-const createSelectOptions = (translate: any) => {
-  return {
-    coordinateSystems: makeOptions(translate, [
-      "sweref99_1330",
-      "sweref99_1500",
-      "sweref99_1800",
-      "wgs84",
-    ]),
-    coordinateSystemsWithNone: makeOptions(translate, [
-      "utan_koordinater",
-      "sweref99_1330",
-    ]),
-    formats: makeOptions(translate, ["geotiff", "jpeg", "png"]),
-    cadFormats: makeOptions(translate, ["dwg", "dxf"]),
-    allFormats: makeOptions(translate, [
-      "dwg",
-      "dxf",
-      "geopackage",
-      "esri_shape_directory",
-    ]),
-    dataPackages: {
-      raster: makeOptions(translate, ["ortofoto", "flygfoto", "hojddata"]),
-      model3d: makeOptions(translate, ["med_hojdmodell", "utan_hojdmodell"]),
-      vector: makeOptions(translate, ["trackronor", "baskarta"]),
-    },
+// Main Export component that handles both static and dynamic forms
+export const Export: React.FC<ExportProps> = ({
+  workspaceParameters,
+  workspaceName,
+  workspaceItem,
+  onBack,
+  onSubmit,
+  isSubmitting = false,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages)
+
+  // If workspace parameters are provided, use dynamic form
+  if (workspaceParameters && workspaceName) {
+    return (
+      <ExportWithWorkspaceParameters
+        workspaceParameters={workspaceParameters}
+        workspaceName={workspaceName}
+        workspaceItem={workspaceItem}
+        onBack={onBack}
+        onSubmit={onSubmit}
+        isSubmitting={isSubmitting}
+      />
+    )
   }
-}
 
-const createStrings = (translate: any, stringIds: string[]) => {
-  return Object.fromEntries(stringIds.map((id) => [id, translate(id)]))
-}
-
-// Redux-based form management hook
-const useReduxForm = <T extends { [key: string]: any }>(
-  initialValues: T,
-  exportType: string,
-  requiredFields: Array<keyof T> = []
-) => {
-  const [values, setValues] = React.useState<{ [key: string]: any }>(
-    initialValues
+  // Error state - neither workspace parameters nor variant provided
+  return (
+    <Form
+      variant="layout"
+      title={translate("configurationError") || "Configuration Error"}
+      subtitle={
+        translate("missingExportConfiguration") ||
+        "Missing export configuration"
+      }
+      onBack={onBack}
+      onSubmit={onBack}
+      isValid={false}
+      loading={false}
+    >
+      <div style={STYLES.typography.caption}>
+        {translate("exportFormRequiresConfiguration") ||
+          "Export form requires either workspace parameters or export variant."}
+      </div>
+    </Form>
   )
+}
 
-  // Initialize form values only once
+// Dynamic export component for workspace-based forms
+const ExportWithWorkspaceParameters: React.FC<{
+  readonly workspaceParameters: readonly WorkspaceParameter[]
+  readonly workspaceName: string
+  readonly workspaceItem?: any
+  readonly onBack: () => void
+  readonly onSubmit: (data: unknown) => void
+  readonly isSubmitting: boolean
+}> = ({
+  workspaceParameters,
+  workspaceName,
+  workspaceItem,
+  onBack,
+  onSubmit,
+  isSubmitting,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages)
+  const [parameterService] = React.useState(() => new ParameterFormService())
+
+  // Generate form configuration from parameters
+  const formConfig = React.useMemo(() => {
+    const config = parameterService.generateFormConfig(
+      workspaceParameters,
+      workspaceName
+    )
+    return config
+  }, [parameterService, workspaceParameters, workspaceName])
+
+  // Initialize form values from parameter defaults - using useState lazy initialization
+  const [values, setValues] = React.useState(() => {
+    const initialValues: { [key: string]: any } = {}
+    formConfig.fields.forEach((field) => {
+      if (field.defaultValue !== undefined) {
+        initialValues[field.field] = field.defaultValue
+      }
+    })
+    return initialValues
+  })
+  const [isValid, setIsValid] = React.useState(true)
+
+  // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
-    setValues(initialValues)
-    getAppStore().dispatch(fmeActions.setFormValues(initialValues) as any)
+    getAppStore().dispatch(fmeActions.setFormValues(values) as any)
   })
 
-  const onChange = hooks.useEventCallback((field: keyof T, value: any) => {
+  // Validate form whenever values change
+  hooks.useUpdateEffect(() => {
+    const validation = parameterService.validateFormValues(
+      values,
+      workspaceParameters
+    )
+    setIsValid(validation.isValid)
+  }, [values, parameterService, workspaceParameters])
+
+  const onChange = hooks.useEventCallback((field: string, value: any) => {
     const newValues = { ...values, [field]: value }
     setValues(newValues)
     getAppStore().dispatch(fmeActions.setFormValues(newValues) as any)
   })
 
-  const submitForm = hooks.useEventCallback(
-    (onSubmit: (data: any) => void) => () => {
-      onSubmit({ type: exportType, data: values })
-    }
-  )
-
-  const isValid = requiredFields.every((field) => !!values[field as string])
-
-  return { values, onChange, submitForm, isValid }
-}
-
-const config = (variant: ExportFormProps["variant"]): ExportConfig => {
-  const configs: { [K in ExportFormProps["variant"]]: ExportConfig } = {
-    [ExportType.AKTER]: {
-      titleId: "akterTitle",
-      subtitleId: "akterSubtitle",
-      fields: [
-        { field: "PARAMETER", labelId: "messageToAuthority", required: true },
-      ],
-      requiredFields: ["PARAMETER"], // PARAMETER is required for AKTER
-    },
-    [ExportType.PLANDOKUMENT]: {
-      titleId: "plandokumentTitle",
-      subtitleId: "plandokumentSubtitle",
-      fields: [],
-      instructions: "plandokumentInstructions1",
-      requiredFields: [], // No required fields for PLANDOKUMENT
-    },
-    [ExportType.EXPORTERA_RASTER]: {
-      titleId: "exportRasterTitle",
-      subtitleId: "exportRasterSubtitle",
-      fields: [
-        {
-          field: "COORD_SYS",
-          labelId: "desiredCoordinateSystem",
-          helperId: "coordinateSystemHelper",
-          required: true,
-          optionsKey: "coordinateSystems",
-        },
-        {
-          field: "OUTPUT_FORMAT",
-          labelId: "desiredFormat",
-          required: true,
-          optionsKey: "formats",
-        },
-        {
-          field: "DATA_PACKAGE",
-          labelId: "dataPackage",
-          required: true,
-          optionsKey: "dataPackages.raster",
-        },
-      ],
-      requiredFields: ["COORD_SYS", "OUTPUT_FORMAT", "DATA_PACKAGE"],
-    },
-    [ExportType.EXPORT_3D_MODEL]: {
-      titleId: "export3dModel",
-      subtitleId: "export3dModelInstructions",
-      fields: [
-        {
-          field: "DATA_PACKAGE",
-          labelId: "dataPackage",
-          required: true,
-          optionsKey: "dataPackages.model3d",
-        },
-        {
-          field: "COORD_SYS",
-          labelId: "coordinateSystem",
-          helperId: "sweref99_1330",
-          readOnly: true,
-          defaultValue: "sweref99_1330",
-          optionsKey: "coordinateSystems",
-        },
-        {
-          field: "OUTPUT_FORMAT",
-          labelId: "format",
-          helperId: "sketchup",
-          readOnly: true,
-          defaultValue: "sketchup",
-          optionsKey: "formats",
-        },
-      ],
-      requiredFields: ["DATA_PACKAGE"],
-    },
-    [ExportType.EXPORT_VECTOR_DATA]: {
-      titleId: "exportVectorData",
-      subtitleId: "exportVectorDataInstructions",
-      fields: [
-        {
-          field: "DATA_PACKAGE",
-          labelId: "dataPackage",
-          required: true,
-          optionsKey: "dataPackages.vector",
-        },
-        {
-          field: "COORD_SYS",
-          labelId: "coordinateSystem",
-          required: true,
-          optionsKey: "coordinateSystemsWithNone",
-        },
-        {
-          field: "OUTPUT_FORMAT",
-          labelId: "format",
-          required: true,
-          optionsKey: "cadFormats",
-        },
-        {
-          field: "DESTINATION",
-          labelId: "destination",
-          helperId: "esri_shape_directory",
-          readOnly: true,
-          defaultValue: "esri_shape_directory",
-        },
-      ],
-      requiredFields: ["DATA_PACKAGE", "COORD_SYS", "OUTPUT_FORMAT"],
-    },
-    [ExportType.EXPORT_OTHER]: {
-      titleId: "exportOther",
-      subtitleId: "exportOtherInstructions",
-      fields: [
-        {
-          field: "COORD_SYS",
-          labelId: "coordinateSystem",
-          required: true,
-          optionsKey: "coordinateSystems",
-        },
-        {
-          field: "OUTPUT_FORMAT",
-          labelId: "format",
-          required: true,
-          optionsKey: "allFormats",
-        },
-      ],
-      requiredFields: ["COORD_SYS", "OUTPUT_FORMAT"],
-    },
-  }
-
-  return configs[variant]
-}
-
-// Helper function to get options based on optionsKey
-const fieldOptions = (
-  optionsKey: string | undefined,
-  allOptions: ReturnType<typeof createSelectOptions>
-): SelectOption[] => {
-  if (!optionsKey) return []
-
-  const keyParts = optionsKey.split(".")
-  if (keyParts.length === 1) {
-    return allOptions[keyParts[0] as keyof typeof allOptions] as SelectOption[]
-  } else if (keyParts.length === 2) {
-    const [parent, child] = keyParts
-    const parentObj = allOptions[parent as keyof typeof allOptions] as any
-    return parentObj?.[child] || []
-  }
-
-  return []
-}
-
-export const Export: React.FC<ExportFormProps> = ({
-  variant,
-  onBack,
-  onSubmit,
-  isSubmitting = false,
-}) => {
-  const cfg = config(variant)
-  const translate = hooks.useTranslation(defaultMessages)
-
-  // Create options once with the translation function
-  const options = createSelectOptions(translate)
-
-  const initialValues = () => {
-    const initial: { [key: string]: any } = {}
-    cfg.fields.forEach((field) => {
-      initial[field.field] = field.defaultValue || ""
-    })
-    return initial
-  }
-
-  const { values, onChange, submitForm, isValid } = useReduxForm(
-    initialValues(),
-    variant,
-    [...(cfg.requiredFields || [])]
-  )
-
-  // Handle form submission state with Redux loading flags
-  hooks.useUpdateEffect(() => {
-    if (isSubmitting) {
-      getAppStore().dispatch(
-        fmeActions.setLoadingFlags({ isSubmittingOrder: true }) as any
-      )
-    } else {
-      getAppStore().dispatch(
-        fmeActions.setLoadingFlags({ isSubmittingOrder: false }) as any
-      )
-    }
-  }, [isSubmitting])
-
   const handleSubmit = hooks.useEventCallback(() => {
-    if (!isValid) {
+    // Validate form before submission
+    const validation = parameterService.validateFormValues(
+      values,
+      workspaceParameters
+    )
+
+    if (!validation.isValid) {
+      const errorMessages = Object.values(validation.errors).join(", ")
       getAppStore().dispatch(
         fmeActions.setError({
-          message: "Form validation failed. Please check required fields.",
+          message: `Form validation failed: ${errorMessages}`,
           severity: "error" as any,
           type: "VALIDATION" as any,
           timestamp: new Date(),
@@ -281,113 +148,143 @@ export const Export: React.FC<ExportFormProps> = ({
       return
     }
 
-    submitForm(onSubmit)()
+    onSubmit({ type: workspaceName, data: values })
   })
 
-  // String IDs computation
-  const stringIds = [cfg.titleId, cfg.subtitleId]
-  cfg.fields.forEach((field) => {
-    stringIds.push(field.labelId)
-    if (field.helperId) stringIds.push(field.helperId)
-  })
-  if (cfg.instructions) stringIds.push(cfg.instructions)
-  if (variant === "akter") stringIds.push("messagePlaceholder")
+  // Render field based on parameter type
+  const renderField = (field: DynamicFieldConfig) => {
+    const fieldValue = values[field.field] || ""
 
-  const texts = createStrings(translate, stringIds)
-
-  // Event callbacks using jimu-core hooks for better performance
-  const onFieldChange = hooks.useEventCallback(
-    (field: string) => (value: string) => {
-      onChange(field, value)
-    }
-  )
-
-  const onTextChange = hooks.useEventCallback(
-    (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
-      onChange(field, event.target.value)
-    }
-  )
-
-  const renderField = (fieldConfig: FieldConfig) => {
-    const {
-      field,
-      labelId,
-      helperId,
-      required = true,
-      readOnly = false,
-    } = fieldConfig
-
-    if (field === "PARAMETER") {
-      return (
-        <Form
-          variant="field"
-          key={field}
-          label={texts[labelId]}
-          required={required}
-        >
-          <TextArea
-            value={values[field] || ""}
-            onChange={onTextChange(field)}
-            placeholder={texts.messagePlaceholder}
-            logging={{
-              enabled: true,
-              prefix: `FME-Export-${variant}`,
-            }}
+    switch (field.type) {
+      case FormFieldType.SELECT:
+        return (
+          <Select
+            value={fieldValue}
+            options={field.options || []}
+            placeholder={`Välj ${field.labelId}...`}
+            onChange={(value) => onChange(field.field, value)}
+            ariaLabel={field.labelId}
+            disabled={field.readOnly}
           />
-        </Form>
-      )
-    }
+        )
 
-    if (readOnly) {
-      return (
-        <Form
-          variant="field"
-          key={field}
-          label={texts[labelId]}
-          helper={helperId ? texts[helperId] : undefined}
-          readOnly
-        />
-      )
-    }
+      case FormFieldType.MULTI_SELECT:
+        return (
+          <Select
+            value={fieldValue}
+            options={field.options || []}
+            placeholder={`Välj ${field.labelId}...`}
+            onChange={(value) => onChange(field.field, value)}
+            ariaLabel={field.labelId}
+            disabled={field.readOnly}
+            // TODO: Add multi-select support to Select component
+          />
+        )
 
-    const opts = fieldOptions(fieldConfig.optionsKey, options)
-    return (
-      <Form
-        variant="field"
-        key={field}
-        label={texts[labelId]}
-        helper={helperId ? texts[helperId] : undefined}
-        required={required}
-      >
-        <Select
-          options={opts}
-          value={values[field] || ""}
-          onChange={onFieldChange(field)}
-          logging={{ enabled: true, prefix: `FME-Export-${variant}` }}
-        />
-      </Form>
-    )
+      case FormFieldType.TEXTAREA:
+        return (
+          <TextArea
+            value={fieldValue}
+            placeholder={`Ange ${field.labelId}...`}
+            onChange={(e) => onChange(field.field, e.target.value)}
+            disabled={field.readOnly}
+          />
+        )
+
+      case FormFieldType.NUMBER:
+        return (
+          <Input
+            value={String(fieldValue)}
+            placeholder={`Ange ${field.labelId}...`}
+            onChange={(e) => {
+              const numValue =
+                e.target.value === "" ? "" : Number(e.target.value)
+              onChange(field.field, numValue)
+            }}
+            disabled={field.readOnly}
+          />
+        )
+
+      case FormFieldType.CHECKBOX:
+        return (
+          <Checkbox
+            checked={Boolean(fieldValue)}
+            onChange={(evt) => onChange(field.field, evt.target.checked)}
+            disabled={field.readOnly}
+            aria-label={field.labelId}
+          />
+        )
+
+      case FormFieldType.PASSWORD:
+        return (
+          <Input
+            type="password"
+            value={String(fieldValue)}
+            placeholder={`Ange ${field.labelId}...`}
+            onChange={(e) => onChange(field.field, e.target.value)}
+            disabled={field.readOnly}
+          />
+        )
+
+      case FormFieldType.FILE:
+        return (
+          <Input
+            type="file"
+            onChange={(evt) => {
+              const files = evt.target.files
+              onChange(field.field, files ? files[0] : null)
+            }}
+            disabled={field.readOnly}
+            aria-label={field.labelId}
+          />
+        )
+
+      case FormFieldType.TEXT:
+        return (
+          <Input
+            value={String(fieldValue)}
+            placeholder={`Ange ${field.labelId}...`}
+            onChange={(e) => onChange(field.field, e.target.value)}
+            disabled={field.readOnly}
+          />
+        )
+    }
+  }
+
+  // Helper function to strip HTML tags from text
+  const stripHtml = (html: string): string => {
+    if (!html) return ""
+    // Create a temporary div element to parse HTML
+    const temp = document.createElement("div")
+    temp.innerHTML = html
+    return temp.textContent || temp.innerText || ""
   }
 
   return (
     <Form
       variant="layout"
-      title={texts[cfg.titleId]}
-      subtitle={texts[cfg.subtitleId]}
+      title={workspaceItem?.title || workspaceName}
+      subtitle={
+        workspaceItem?.description
+          ? stripHtml(workspaceItem.description)
+          : translate("configureWorkspaceParameters", { workspaceName })
+      }
       onBack={onBack}
       onSubmit={handleSubmit}
       isValid={isValid}
       loading={isSubmitting}
     >
-      {cfg.instructions && (
-        <div style={STYLES.typography.caption}>
-          <FormattedMessage
-            id={cfg.instructions}
-            defaultMessage={defaultMessages[cfg.instructions]}
-          />
-        </div>
-      )}
-      {cfg.fields.map(renderField)}
+      {formConfig.fields.map((field) => (
+        <Form
+          key={field.field}
+          variant="field"
+          label={field.labelId} // Use parameter description directly
+          required={field.required}
+          helper={field.helperId || undefined} // Only set helper if helperId exists
+        >
+          {renderField(field)}
+        </Form>
+      ))}
     </Form>
   )
 }
