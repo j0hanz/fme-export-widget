@@ -4,6 +4,7 @@ import {
   hooks,
   type ImmutableObject,
   MutableStoreManager,
+  FormattedMessage,
 } from "jimu-core"
 import { SVG, Message } from "jimu-ui"
 import {
@@ -19,18 +20,18 @@ import areaIcon from "../assets/icons/polygon.svg"
 import centroidIcon from "../assets/icons/pin-esri.svg"
 import defaultMessages from "../translations/default"
 import {
-  getWorkspaceFromExportType,
   formatArea,
   createGeometryFromTemplate,
   downloadJSON,
   createLoadingWrapper,
+  createMeasurementGraphics,
+  configureMeasurementWidget,
 } from "../shared/utils"
 import { STYLES } from "../shared/css"
 import type {
   FmeExportConfig,
   EsriModules,
   AreaTemplate,
-  ExportType,
   ExportResult,
   RealTimeMeasurements,
   IMStateWithFmeExport,
@@ -45,12 +46,8 @@ import {
   ErrorSeverity,
   StateType,
   FmeActionType,
-  EXPORT_OPTIONS,
-  EXPORT_MAP,
   LAYER_CONFIG,
   TEMPLATE_ID_CONFIG,
-  VIEW_ROUTES,
-  HIGHLIGHT_SYMBOL,
 } from "../shared/types"
 import { fmeActions } from "../extensions/store"
 import {
@@ -59,104 +56,6 @@ import {
   ErrorHandlingService,
   AppStateService,
 } from "../shared/services"
-
-// Create function for measurement graphics using modern geometry operators
-const createMeasurementGraphics = (
-  geometry: __esri.Geometry,
-  measurements: RealTimeMeasurements,
-  measurementLayer: __esri.GraphicsLayer,
-  modules: EsriModules,
-  _isUpdate = false // Prefix with underscore to indicate it's intentionally unused
-) => {
-  if (!geometry || !measurements.area || !measurementLayer || !modules) return
-
-  try {
-    if (geometry.type !== "polygon") return
-
-    const { Graphic, TextSymbol, SimpleMarkerSymbol, centroidOperator } =
-      modules
-
-    // Use centroid operator to get the center point
-    const centroid = centroidOperator.execute(geometry as __esri.Polygon)
-    if (!centroid) return
-
-    // Clear all existing measurement graphics first to ensure no leftover labels
-    measurementLayer.removeAll()
-
-    // Create marker symbol
-    const markerSymbol = new SimpleMarkerSymbol({
-      style: "circle",
-      color: STYLES.colors.blackTransparent,
-      size: 8,
-      outline: {
-        color: STYLES.colors.white,
-        width: 2,
-      },
-    })
-
-    // Create text symbol with formatted area
-    const textSymbol = new TextSymbol({
-      text: formatArea(measurements.area),
-      color: STYLES.measurementLabel.color,
-      font: {
-        size: STYLES.measurementLabel.fontSize,
-        weight: STYLES.measurementLabel.fontWeight,
-        family: STYLES.measurementLabel.fontFamily,
-      },
-      haloColor: STYLES.measurementLabel.haloColor,
-      haloSize: STYLES.measurementLabel.haloSize,
-      xoffset: 0,
-      yoffset: 15, // Offset text above the marker
-      horizontalAlignment: STYLES.measurementLabel.horizontalAlignment,
-      verticalAlignment: STYLES.measurementLabel.verticalAlignment,
-    })
-
-    // Create and add marker and text graphics
-    const markerGraphic = new Graphic({
-      geometry: centroid,
-      symbol: markerSymbol,
-      attributes: {
-        isMeasurementGraphic: true,
-        type: "centroid-marker",
-      },
-    })
-
-    const textGraphic = new Graphic({
-      geometry: centroid,
-      symbol: textSymbol,
-      attributes: {
-        isMeasurementGraphic: true,
-        type: "area-label",
-      },
-    })
-
-    measurementLayer.addMany([markerGraphic, textGraphic])
-  } catch (error) {
-    console.warn("Failed to create/update measurement graphics:", error)
-  }
-}
-
-// Utility function to programmatically manage measurement widget visibility
-const configureMeasurementWidget = (
-  view: __esri.MapView,
-  geometry: __esri.Geometry | null,
-  measurementWidget: __esri.Measurement | null
-) => {
-  if (!view || !geometry || !measurementWidget) return
-
-  try {
-    // Show measurement widget and set appropriate tool based on geometry type
-    measurementWidget.visible = true
-
-    if (geometry.type === "polygon") {
-      measurementWidget.activeTool = "area"
-    } else if (geometry.type === "polyline") {
-      measurementWidget.activeTool = "distance"
-    }
-  } catch (error) {
-    console.warn("Error using measurement widget:", error)
-  }
-}
 
 // Measurement display component for UI consistency
 const MeasurementOverlay: React.FC<MeasurementProps> = ({
@@ -231,9 +130,17 @@ const MeasurementOverlay: React.FC<MeasurementProps> = ({
   if (data.drawingProgress) {
     const { pointsAdded } = data.drawingProgress
     const statusText =
-      pointsAdded === 1
-        ? "Click to add second point"
-        : "Double-click to finish drawing"
+      pointsAdded === 1 ? (
+        <FormattedMessage
+          id="secondPointInstruction"
+          defaultMessage="Click to add second point"
+        />
+      ) : (
+        <FormattedMessage
+          id="finishDrawingInstruction"
+          defaultMessage="Double-click to finish drawing"
+        />
+      )
 
     items.push(
       <div key="progress" style={STYLES.measureItem}>
@@ -249,14 +156,20 @@ const MeasurementOverlay: React.FC<MeasurementProps> = ({
   ) : null
 }
 
-// Custom hook for loading ArcGIS modules
+// Custom hook for loading ArcGIS modules - simplified and optimized
 const useArcGISModules = (widgetId?: string, dispatch?: any) => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<any>(null)
+
   const makeCancelable = hooks.useCancelablePromiseMaker()
+
   const loadModules = hooks.useEventCallback(async () => {
-    if (widgetId) {
+    if (widgetId && dispatch) {
       dispatch(fmeActions.setLoadingFlags({ isModulesLoading: true }))
     }
+    setLoading(true)
+    setError(null)
 
     try {
       const [
@@ -348,20 +261,24 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
         geodesicBufferOperator,
         convexHullOperator,
       }
+
       setModules(loadedModules)
+      setLoading(false)
 
       // Store modules in MutableStoreManager
-      MutableStoreManager.getInstance().updateStateValue(
-        widgetId,
-        "loadedModules",
-        loadedModules
-      )
-
       if (widgetId) {
+        MutableStoreManager.getInstance().updateStateValue(
+          widgetId,
+          "loadedModules",
+          loadedModules
+        )
         dispatch(fmeActions.setLoadingFlags({ isModulesLoading: false }))
       }
-    } catch (error) {
-      if (widgetId) {
+    } catch (err) {
+      setError(err)
+      setLoading(false)
+
+      if (widgetId && dispatch) {
         const errorService = new ErrorHandlingService()
         dispatch(
           fmeActions.setError(
@@ -385,15 +302,11 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
   hooks.useEffectOnce(() => {
     loadModules()
   })
-  return {
-    modules,
-    loading: false,
-    error: null,
-  }
+
+  return { modules, loading, error }
 }
 
-// Template persistence using centralized service
-// Centralized mutable state access hook
+// Centralized mutable state access hook - optimized with lazy evaluation
 const useMutableState = (widgetId: string) => {
   const store = MutableStoreManager.getInstance()
 
@@ -405,52 +318,93 @@ const useMutableState = (widgetId: string) => {
     store.updateStateValue(widgetId, key, value)
   })
 
-  return {
-    jimuMapView: getMutableValue("jimuMapView") as JimuMapView,
-    sketchWidget: getMutableValue("sketchWidget") as __esri.Sketch,
-    graphicsLayer: getMutableValue("graphicsLayer") as __esri.GraphicsLayer,
-    measurementGraphicsLayer: getMutableValue(
-      "measurementGraphicsLayer"
-    ) as __esri.GraphicsLayer,
-    measurementWidget: getMutableValue(
-      "measurementWidget"
-    ) as __esri.Measurement,
-    currentGeometry: getMutableValue("currentGeometry") as __esri.Geometry,
-    loadedModules: getMutableValue("loadedModules") as EsriModules,
-    setMutableValue,
-  }
+  // Use lazy getters to avoid calling getMutableValue on every render
+  return React.useMemo(
+    () => ({
+      get jimuMapView() {
+        return getMutableValue("jimuMapView") as JimuMapView
+      },
+      get sketchWidget() {
+        return getMutableValue("sketchWidget") as __esri.Sketch
+      },
+      get graphicsLayer() {
+        return getMutableValue("graphicsLayer") as __esri.GraphicsLayer
+      },
+      get measurementGraphicsLayer() {
+        return getMutableValue(
+          "measurementGraphicsLayer"
+        ) as __esri.GraphicsLayer
+      },
+      get measurementWidget() {
+        return getMutableValue("measurementWidget") as __esri.Measurement
+      },
+      get currentGeometry() {
+        return getMutableValue("currentGeometry") as __esri.Geometry
+      },
+      get loadedModules() {
+        return getMutableValue("loadedModules") as EsriModules
+      },
+      setMutableValue,
+    }),
+    [getMutableValue, setMutableValue]
+  )
 }
 
-// Main widget component
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
   const { id: widgetId, useMapWidgetIds, dispatch, state: reduxState } = props
 
   const translate = hooks.useTranslation(defaultMessages)
-  const currentViewMode = reduxState.viewMode
 
-  // Notification state for user feedback
+  // Centralized cancelable promise maker for better async operation handling
+  const makeCancelable = hooks.useCancelablePromiseMaker()
+
+  // Centralized state management
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
-
-  // Initialize AppStateManager service for automatic state restoration
-  const [appStateService] = React.useState(() => new AppStateService(widgetId))
   const [isRestoreReady, setIsRestoreReady] = React.useState(false)
+  const [isTemplateServiceInitialized, setIsTemplateServiceInitialized] =
+    React.useState(false)
+  const [geometryOperatorsService, setGeometryOperatorsService] =
+    React.useState<GeometryOperatorsService | null>(null)
 
-  // Load ArcGIS modules and get centralized state access
-  const { modules } = useArcGISModules(widgetId, dispatch)
-  const mutableState = useMutableState(widgetId)
-
-  // Create loading wrapper with dispatch context
-  const withLoadingFlags = createLoadingWrapper(dispatch)
-
-  // Initialize template persistence service
+  // Service initialization - using useState with lazy initialization for stable references
+  const [appStateService] = React.useState(() => new AppStateService(widgetId))
   const [templatePersistence] = React.useState(
     () => new TemplatePersistenceService(widgetId)
   )
-  const [isTemplateServiceInitialized, setIsTemplateServiceInitialized] =
-    React.useState(false)
+  const [errorService] = React.useState(() => new ErrorHandlingService())
+  const [withLoadingFlags] = React.useState(() =>
+    createLoadingWrapper(dispatch)
+  )
+
+  // Load ArcGIS modules and get centralized state access
+  const {
+    modules,
+    loading: modulesLoading,
+    error: modulesError,
+  } = useArcGISModules(widgetId, dispatch)
+  const mutableState = useMutableState(widgetId)
+
+  // Access mutable state values
+  const {
+    jimuMapView,
+    sketchWidget,
+    graphicsLayer,
+    measurementGraphicsLayer,
+    setMutableValue,
+  } = mutableState
+
+  // Utility function to clear all graphics layers consistently
+  const clearAllGraphics = hooks.useEventCallback(() => {
+    if (graphicsLayer) {
+      graphicsLayer.removeAll()
+    }
+    if (measurementGraphicsLayer) {
+      measurementGraphicsLayer.removeAll()
+    }
+  })
 
   // Initialize template service
   hooks.useEffectOnce(() => {
@@ -481,24 +435,88 @@ export default function Widget(
       })
   })
 
-  // Access mutable state values
-  const {
-    jimuMapView,
-    sketchWidget,
-    graphicsLayer,
-    measurementGraphicsLayer,
-    setMutableValue,
-  } = mutableState
-
-  // Initialize centralized error handling service
-  const errorService = new ErrorHandlingService()
-
-  // Enhanced error creation helper using service
-
   // Centralized error dispatch helper
   const raiseError = hooks.useEventCallback((error: any) => {
     dispatch(fmeActions.setError(error))
   })
+
+  // Enhanced notification helper using FormattedMessage for i18n consistency
+  const showNotification = hooks.useEventCallback(
+    (
+      severity: "success" | "warning" | "error" | "info",
+      messageId: string,
+      defaultMessage: string,
+      values?: { [key: string]: any }
+    ) => {
+      const formattedMessage = React.createElement(FormattedMessage, {
+        id: messageId,
+        defaultMessage,
+        values,
+      })
+
+      setNotification({
+        severity,
+        message: translate(messageId, values) || defaultMessage, // Fallback for components that need string
+        formattedMessage, // Store FormattedMessage component for UI
+      })
+    }
+  )
+
+  // Enhanced export helper with support for multiple formats
+  const exportData = hooks.useEventCallback(
+    (
+      data: any,
+      filename: string,
+      format: "json" | "geojson" | "csv" = "json"
+    ): void => {
+      try {
+        let exportContent: string
+
+        if (format === "json") {
+          exportContent =
+            typeof data === "string" ? data : JSON.stringify(data, null, 2)
+        } else if (format === "geojson" && data.geometry) {
+          // Convert Esri geometry to GeoJSON format
+          const geoJsonFeature = {
+            type: "Feature",
+            geometry: data.geometry,
+            properties: data.properties || {},
+          }
+          exportContent = JSON.stringify(geoJsonFeature, null, 2)
+        } else if (format === "csv" && Array.isArray(data)) {
+          // Convert structured data to CSV
+          const headers = Object.keys(data[0] || {})
+          const csvContent = [
+            headers.join(","),
+            ...data.map((row) =>
+              headers.map((h) => `"${row[h] || ""}"`).join(",")
+            ),
+          ].join("\n")
+          exportContent = csvContent
+        } else {
+          // Fallback to JSON
+          exportContent = JSON.stringify(data, null, 2)
+        }
+
+        // Use the built-in downloadJSON utility for consistency
+        downloadJSON(exportContent, filename)
+
+        // Show success notification with FormattedMessage
+        showNotification(
+          "success",
+          "exportSuccess",
+          "Data exported successfully",
+          { filename, format }
+        )
+      } catch (error) {
+        console.error("Export failed:", error)
+        showNotification("error", "exportError", "Export failed", {
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error instanceof Error ? error : new Error(String(error))
+      }
+    }
+  )
 
   // Initialize AppStateService and setup state restoration
   hooks.useEffectOnce(() => {
@@ -511,14 +529,8 @@ export default function Widget(
     }
   })
 
-  // Handle notification display
-
-  // Modern geometry operators service
-  const [geometryOperatorsService, setGeometryOperatorsService] =
-    React.useState<GeometryOperatorsService | null>(null)
-
-  // Initialize geometry operators service when modules are loaded
-  React.useEffect(() => {
+  // Initialize geometry operators service when modules are loaded - using useUpdateEffect for better performance
+  hooks.useUpdateEffect(() => {
     if (modules && !geometryOperatorsService) {
       const service = new GeometryOperatorsService({
         areaOperator: modules.areaOperator,
@@ -545,13 +557,15 @@ export default function Widget(
     }
   }, [modules, geometryOperatorsService])
 
-  // Template management with centralized persistence
+  // Template management with centralized persistence and enhanced cancellation
   const loadTemplates = hooks.useEventCallback(() => {
     if (!isTemplateServiceInitialized) return Promise.resolve()
 
     return withLoadingFlags("isTemplateLoading", async () => {
       try {
-        const templates = await templatePersistence.loadTemplates()
+        const templates = await makeCancelable(
+          templatePersistence.loadTemplates()
+        )
         dispatch(fmeActions.setAreaTemplates(templates))
       } catch (error) {
         dispatch(fmeActions.setAreaTemplates([]))
@@ -586,20 +600,20 @@ export default function Widget(
           createdDate: new Date(),
         }
 
-        await templatePersistence.saveTemplate(template)
+        await makeCancelable(templatePersistence.saveTemplate(template))
 
         const newTemplates = [...reduxState.areaTemplates, template]
         dispatch(fmeActions.setAreaTemplates(newTemplates))
 
-        // Show success notification
-        setNotification({
-          severity: "success",
-          message:
-            translate("templateSaved") ||
-            `Template "${name}" saved successfully`,
-        })
+        // Show success notification with enhanced i18n
+        showNotification(
+          "success",
+          "templateSaved",
+          `Template "${name}" saved successfully`,
+          { templateName: name }
+        )
 
-        dispatch(fmeActions.setViewMode(ViewMode.EXPORT_OPTIONS))
+        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
         raiseError(
           errorService.createTemplateError("Failed to save template", "SAVE")
@@ -621,19 +635,19 @@ export default function Widget(
 
     return withLoadingFlags("isTemplateLoading", async () => {
       try {
-        await templatePersistence.deleteTemplate(templateId)
+        await makeCancelable(templatePersistence.deleteTemplate(templateId))
 
         const newTemplates = reduxState.areaTemplates.filter(
           (t: AreaTemplate) => t.id !== templateId
         )
         dispatch(fmeActions.setAreaTemplates(newTemplates))
 
-        // Show success notification
-        setNotification({
-          severity: "success",
-          message:
-            translate("templateDeleted") || "Template deleted successfully",
-        })
+        // Show success notification with enhanced i18n
+        showNotification(
+          "success",
+          "templateDeleted",
+          "Template deleted successfully"
+        )
       } catch (error) {
         raiseError(
           errorService.createTemplateError(
@@ -653,19 +667,14 @@ export default function Widget(
 
     return withLoadingFlags("isExportingTemplates", async () => {
       try {
-        const jsonString = await templatePersistence.exportTemplates()
-        // Trigger download using helper
-        downloadJSON(
+        const jsonString = await makeCancelable(
+          templatePersistence.exportTemplates()
+        )
+        // Use enhanced export helper
+        exportData(
           jsonString,
           `fme-templates-${new Date().toISOString().split("T")[0]}.json`
         )
-
-        // Show success notification
-        setNotification({
-          severity: "success",
-          message:
-            translate("templatesExported") || "Templates exported successfully",
-        })
       } catch (error) {
         dispatch(
           fmeActions.setExportError(
@@ -696,8 +705,8 @@ export default function Widget(
           )
           const templateName = template?.name || "template"
 
-          // Trigger download using helper
-          downloadJSON(
+          // Use enhanced export helper
+          exportData(
             jsonString,
             `${templateName}-${new Date().toISOString().split("T")[0]}.json`
           )
@@ -831,12 +840,21 @@ export default function Widget(
         )
 
         if (graphicsLayer && jimuMapView) {
-          graphicsLayer.removeAll()
+          // Clear all existing graphics before loading template
+          clearAllGraphics()
 
           const { Graphic } = modules
           const graphic = new (Graphic as any)({
             geometry,
-            symbol: HIGHLIGHT_SYMBOL,
+            symbol: {
+              type: "simple-fill",
+              color: STYLES.colors.orangeFill,
+              outline: {
+                color: STYLES.colors.orangeOutline,
+                width: 2,
+                style: "solid",
+              },
+            },
           })
           graphicsLayer.add(graphic)
 
@@ -892,8 +910,8 @@ export default function Widget(
           }
         }
 
-        // Transition to export options view
-        dispatch(fmeActions.setViewMode(ViewMode.EXPORT_OPTIONS))
+        // Transition to workspace selection view
+        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
         raiseError(
           errorService.createError(
@@ -941,7 +959,15 @@ export default function Widget(
 
       // Update the graphics layer with the drawn polygon
       if (evt.graphic && modules) {
-        evt.graphic.symbol = HIGHLIGHT_SYMBOL
+        evt.graphic.symbol = {
+          type: "simple-fill",
+          color: STYLES.colors.orangeFill,
+          outline: {
+            color: STYLES.colors.orangeOutline,
+            width: 2,
+            style: "solid",
+          },
+        }
       }
 
       // Add measurement label inside the polygon if we have a valid graphic
@@ -988,19 +1014,17 @@ export default function Widget(
         type: FmeActionType.SET_REAL_TIME_MEASUREMENTS,
         measurements: finalMeasurements,
       })
-      dispatch(fmeActions.setViewMode(ViewMode.EXPORT_OPTIONS))
+      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
 
       setMutableValue("currentGeometry", processedGeometry)
     } catch (error) {
-      dispatch(
-        fmeActions.setError(
-          errorService.createError(
-            "Failed to process drawn area",
-            ErrorType.GEOMETRY,
-            {
-              code: "GEOMETRY_PROCESS_ERROR",
-            }
-          )
+      raiseError(
+        errorService.createError(
+          "Failed to process drawn area",
+          ErrorType.GEOMETRY,
+          {
+            code: "GEOMETRY_PROCESS_ERROR",
+          }
         )
       )
     }
@@ -1092,10 +1116,10 @@ export default function Widget(
 
     const hasGeometry =
       !!reduxState.geometryJson || !!mutableState.currentGeometry
-    if (!hasGeometry || !reduxState.activeExportType) {
-      console.log("FME Export - Missing geometry or export type:", {
+    if (!hasGeometry || !reduxState.selectedWorkspace) {
+      console.log("FME Export - Missing geometry or selected workspace:", {
         hasGeometry,
-        activeExportType: reduxState.activeExportType,
+        selectedWorkspace: reduxState.selectedWorkspace,
       })
       return
     }
@@ -1103,21 +1127,25 @@ export default function Widget(
     console.log("FME Export - Starting job submission with configuration:", {
       serverUrl: props.config.fmeServerUrl,
       repository: props.config.repository,
-      exportType: reduxState.activeExportType,
+      selectedWorkspace: reduxState.selectedWorkspace,
       hasToken: !!props.config.fmeServerToken,
     })
 
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      // Get user email for FME notification
+      // Get user email for FME notification with cancellable promises
       let userEmail = "no-reply@example.com"
       try {
-        const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
+        const [Portal] = await makeCancelable(
+          loadArcGISJSAPIModules(["esri/portal/Portal"])
+        )
         const portal = new Portal()
-        await portal.load()
+        await makeCancelable(portal.load())
         userEmail =
-          portal.user?.email || (await portal.getSelf()).email || userEmail
+          portal.user?.email ||
+          ((await makeCancelable(portal.getSelf())) as any)?.email ||
+          userEmail
         console.log("FME Export - User email retrieved:", userEmail)
       } catch (emailError) {
         console.log(
@@ -1128,10 +1156,12 @@ export default function Widget(
 
       // Create FME Flow client and get workspace name
       const fmeClient = createFmeFlowClient(props.config)
-      const workspace = getWorkspaceFromExportType(reduxState.activeExportType)
 
-      console.log("FME Export - Workspace mapping:", {
-        exportType: reduxState.activeExportType,
+      // Use the selected workspace directly from Redux state (already includes .fmw extension)
+      const workspace = reduxState.selectedWorkspace
+
+      console.log("FME Export - Using selected workspace:", {
+        selectedWorkspace: reduxState.selectedWorkspace,
         workspace: workspace,
       })
 
@@ -1190,10 +1220,9 @@ export default function Widget(
         parameterValues: fmeParameters,
       })
 
-      // Submit the actual FME job
-      const fmeResponse = await fmeClient.runDataDownload(
-        workspace,
-        fmeParameters
+      // Submit the actual FME job with cancellable promise for better error handling
+      const fmeResponse = await makeCancelable(
+        fmeClient.runDataDownload(workspace, fmeParameters)
       )
 
       // Process FME response based on the documented response format
@@ -1379,7 +1408,7 @@ export default function Widget(
     reduxState.geometryJson,
     reduxState.drawnArea,
     reduxState.templateName,
-    reduxState.activeExportType,
+    reduxState.selectedWorkspace,
     reduxState.formValues,
     reduxState.drawingTool,
     widgetId,
@@ -1560,12 +1589,15 @@ export default function Widget(
       }
 
       sketchWidget.on("create", (evt: __esri.SketchCreateEvent) => {
-        console.log(
-          "FME Export - Sketch create event:",
-          evt.state,
-          "Tool:",
-          evt.tool
-        )
+        // Only log significant events to reduce console noise
+        if (evt.state === "start" || evt.state === "complete") {
+          console.log(
+            "FME Export - Sketch create event:",
+            evt.state,
+            "Tool:",
+            evt.tool
+          )
+        }
         if (evt.state === "active" || evt.state === "start") {
           handleDrawingUpdate(evt)
         } else if (evt.state === "complete") {
@@ -1583,16 +1615,10 @@ export default function Widget(
 
       setMutableValue("sketchWidget", sketchWidget)
     } catch (error) {
-      dispatch(
-        fmeActions.setError(
-          errorService.createError(
-            "Failed to initialize map",
-            ErrorType.MODULE,
-            {
-              code: "MAP_INIT_ERROR",
-            }
-          )
-        )
+      raiseError(
+        errorService.createError("Failed to initialize map", ErrorType.MODULE, {
+          code: "MAP_INIT_ERROR",
+        })
       )
     }
   })
@@ -1630,11 +1656,8 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
 
     // Clear existing graphics
-    if (graphicsLayer) {
-      console.log("FME Export - Clearing existing graphics")
-      graphicsLayer.removeAll()
-    }
-    if (measurementGraphicsLayer) measurementGraphicsLayer.removeAll()
+    clearAllGraphics()
+    console.log("FME Export - Cleared all graphics before drawing")
 
     // Use the modern Sketch widget's programmatic creation
     if (tool === DrawingTool.RECTANGLE) {
@@ -1649,23 +1672,11 @@ export default function Widget(
     }
   })
 
-  // Export option handler
-  const handleExportOption = hooks.useEventCallback((optionId: string) => {
-    const exportType = EXPORT_MAP[
-      optionId as keyof typeof EXPORT_MAP
-    ] as ExportType
-
-    dispatch({
-      type: FmeActionType.SET_ACTIVE_EXPORT_TYPE,
-      exportType: exportType,
-    })
-    dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM))
-  })
-
   // Reset handler - updated for Sketch widget
   const handleReset = hooks.useEventCallback(() => {
-    if (graphicsLayer) graphicsLayer.removeAll()
-    if (measurementGraphicsLayer) measurementGraphicsLayer.removeAll()
+    // Clear all graphics layers
+    clearAllGraphics()
+
     if (sketchWidget) sketchWidget.cancel()
 
     // Reset measurement widget if it exists
@@ -1677,7 +1688,23 @@ export default function Widget(
     dispatch({ type: FmeActionType.RESET_STATE })
   })
 
-  // Navigation handler - simplified with routing table
+  // Workspace selection handlers
+  const handleWorkspaceSelected = hooks.useEventCallback(
+    (workspaceName: string, parameters: readonly any[], workspaceItem: any) => {
+      // Store the selected workspace parameters in Redux
+      dispatch(fmeActions.setSelectedWorkspace(workspaceName))
+      dispatch(fmeActions.setWorkspaceParameters(parameters, workspaceName))
+      dispatch(fmeActions.setWorkspaceItem(workspaceItem))
+
+      // Transition to dynamic export form
+      dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM))
+    }
+  )
+
+  const handleWorkspaceBack = hooks.useEventCallback(() => {
+    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
+  })
+
   const handleGoBack = hooks.useEventCallback(() => {
     const currentView = reduxState.viewMode
     const previousView = reduxState.previousViewMode
@@ -1693,10 +1720,21 @@ export default function Widget(
                 currentView === ViewMode.TEMPLATE_MANAGER) &&
               reduxState.drawnArea > 0
             ) {
-              return ViewMode.EXPORT_OPTIONS
+              return ViewMode.WORKSPACE_SELECTION
             }
-            // Default routing
-            return VIEW_ROUTES[currentView] ?? ViewMode.INITIAL
+            // Default routing logic - go back to appropriate previous view
+            switch (currentView) {
+              case ViewMode.EXPORT_FORM:
+                return ViewMode.WORKSPACE_SELECTION
+              case ViewMode.WORKSPACE_SELECTION:
+                return ViewMode.INITIAL
+              case ViewMode.ORDER_RESULT:
+                return ViewMode.INITIAL
+              case ViewMode.DRAWING:
+                return ViewMode.INITIAL
+              default:
+                return ViewMode.INITIAL
+            }
           })()
 
     dispatch({
@@ -1706,7 +1744,7 @@ export default function Widget(
   })
 
   // Render loading state with StateRenderer
-  if (reduxState.isModulesLoading || !modules) {
+  if (modulesLoading || !modules) {
     return (
       <StateRenderer
         state={StateType.LOADING}
@@ -1718,17 +1756,24 @@ export default function Widget(
   }
 
   // Render error state with StateRenderer
-  if (reduxState.error && reduxState.error.severity === "error") {
+  if (
+    modulesError ||
+    (reduxState.error && reduxState.error.severity === "error")
+  ) {
     return (
       <StateRenderer
         state={StateType.ERROR}
         data={{
-          error: reduxState.error,
+          error: reduxState.error || modulesError,
           actions: [
             {
               label: translate("retry"),
               onClick: () => {
-                dispatch({ type: FmeActionType.SET_ERROR, error: null })
+                if (reduxState.error?.retry) {
+                  reduxState.error.retry()
+                } else {
+                  dispatch({ type: FmeActionType.SET_ERROR, error: null })
+                }
               },
               variant: "primary" as const,
             },
@@ -1749,22 +1794,17 @@ export default function Widget(
 
       <Content
         widgetId={widgetId}
-        state={currentViewMode}
+        config={props.config}
+        state={reduxState.viewMode}
         error={reduxState.error}
         instructionText={getInstructionText(reduxState.drawingTool)}
-        exportOptions={EXPORT_OPTIONS.map((option) => ({
-          id: option.id,
-          label: translate(option.key), // Translate the key to get proper label
-        }))}
         onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
-        onExportOption={handleExportOption}
-        isModulesLoading={reduxState.isModulesLoading}
+        isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchWidget}
-        activeExportType={reduxState.activeExportType}
         onFormBack={() => {
           dispatch({
             type: FmeActionType.SET_VIEW_MODE,
-            viewMode: ViewMode.EXPORT_OPTIONS,
+            viewMode: ViewMode.WORKSPACE_SELECTION, // Go back to workspace selection
           })
         }}
         onFormSubmit={handleFormSubmit}
@@ -1772,11 +1812,11 @@ export default function Widget(
         onReuseGeography={() => {
           dispatch({
             type: FmeActionType.SET_VIEW_MODE,
-            viewMode: ViewMode.EXPORT_OPTIONS,
+            viewMode: ViewMode.WORKSPACE_SELECTION, // Go back to workspace selection
           })
         }}
         isSubmittingOrder={reduxState.isSubmittingOrder}
-        templates={reduxState.areaTemplates}
+        templates={[...reduxState.areaTemplates]}
         templateName={reduxState.templateName}
         onLoadTemplate={loadTemplate}
         onSaveTemplate={saveTemplate}
@@ -1803,7 +1843,7 @@ export default function Widget(
         showHeaderActions={
           (reduxState.isDrawing || reduxState.drawnArea > 0) &&
           !reduxState.isSubmittingOrder &&
-          !reduxState.isModulesLoading &&
+          !modulesLoading &&
           !reduxState.isTemplateLoading
         }
         onReset={handleReset}
@@ -1846,6 +1886,11 @@ export default function Widget(
         isExportingTemplates={reduxState.isExportingTemplates}
         importError={reduxState.importError}
         exportError={reduxState.exportError}
+        onWorkspaceSelected={handleWorkspaceSelected}
+        onWorkspaceBack={handleWorkspaceBack}
+        selectedWorkspace={reduxState.selectedWorkspace}
+        workspaceParameters={reduxState.workspaceParameters}
+        workspaceItem={reduxState.workspaceItem}
       />
       {notification && (
         <Message
@@ -1902,11 +1947,11 @@ export default function Widget(
       areaTemplates: [],
       templateName: "",
       selectedTemplateId: null,
-      activeExportType: null,
+      selectedWorkspace: null,
+      workspaceParameters: [],
+      workspaceItem: null,
       formValues: {},
       orderResult: null,
-      selectedRecords: [],
-      dataSourceId: null,
       isModulesLoading: false,
       isTemplateLoading: false,
       isSubmittingOrder: false,
