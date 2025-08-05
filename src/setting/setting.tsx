@@ -79,33 +79,6 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
             placeholder="MyRepository"
           />
         </SettingRow>
-        <SettingRow label={translate("apiUrl")}>
-          <TextInput
-            value={getConfigValue("api")}
-            onChange={(e) => {
-              handlePropertyChange("api", e.target.value)
-            }}
-            placeholder="https://geoportal.lund.se:9443/api/"
-          />
-        </SettingRow>
-        <SettingRow label={translate("geometryService")}>
-          <TextInput
-            value={getConfigValue("geometryServiceUrl", "geometryService")}
-            onChange={(e) => {
-              handlePropertyChange("geometryServiceUrl", e.target.value)
-            }}
-            placeholder="Geometry service URL"
-          />
-        </SettingRow>
-        <SettingRow label={translate("maxArea")}>
-          <NumericInput
-            value={getConfigValue("maxArea", undefined, 1000000) as number}
-            onChange={(value) => {
-              handlePropertyChange("maxArea", value)
-            }}
-            placeholder="1000000"
-          />
-        </SettingRow>
       </SettingSection>
     </div>
   )
