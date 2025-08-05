@@ -1,41 +1,15 @@
 import type {
   RealTimeMeasurements,
-  FmeExportConfig,
   AreaTemplate,
   ErrorState,
   FmeWidgetState,
+  WorkspaceParameter,
 } from "./types"
-import { ErrorType, ErrorSeverity, FmeActionType } from "./types"
+import { ErrorType, ErrorSeverity, FmeActionType, ParameterType } from "./types"
 
-// Import esriRequest for making HTTP requests with built-in ArcGIS support.  Using esriRequest enables automatic
-// GET-to-POST switching based on URL length, consistent parameter encoding and abort signal handling.
-import esriRequest from "esri/request"
-import { getAppStore, AppStateManager } from "jimu-core"
+import { AppStateManager } from "jimu-core"
 import { validateTemplateImport } from "./utils"
 import { fmeActions } from "../extensions/store"
-
-// Constants
-const USER_EMAIL = {
-  DEFAULT_DOMAIN: "@lund.se",
-  FALLBACK: "kartor@lund.se",
-} as const
-
-const API_CONFIG = {
-  HEADERS: {
-    "Content-Type": "application/json",
-  },
-  METHODS: {
-    GET: "GET" as const,
-    POST: "POST" as const,
-    PUT: "PUT" as const,
-    DELETE: "DELETE" as const,
-  },
-} as const
-
-const USER_DATA_FIELDS = {
-  EMAIL: ["mail", "email"],
-  USERNAME: ["username", "user", "name"],
-} as const
 
 // Modern geometry operators service - replaces deprecated MeasurementService
 export class GeometryOperatorsService {
@@ -236,117 +210,6 @@ export class GeometryOperatorsService {
 
   destroy(): void {
     this.initialized = false
-  }
-}
-
-// Private cache for user email lookups
-const emailCache = new Map<string, { email: string; timestamp: number }>()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes cache
-
-// Fetch user email from API based on username
-async function fetchUserEmailFromApi(
-  username: string,
-  apiUrl: string
-): Promise<string | null> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => {
-    controller.abort()
-  }, 5000)
-
-  try {
-    // Use esriRequest to perform the API call.  esriRequest automatically adds f=json,
-    // handles URL encoding and supports AbortSignal cancellation.  We specify
-    // responseType: "json" to get parsed JSON data.
-    const request = esriRequest(`${apiUrl}/user/${username}`, {
-      responseType: "json",
-      signal: controller.signal,
-      headers: API_CONFIG.HEADERS,
-    })
-    const response = await request
-
-    clearTimeout(timeoutId)
-
-    // esriRequest returns an object with a `data` property containing the parsed JSON.
-    const userData: any = response.data
-    if (userData) {
-      // Enhanced field checking with priority order
-      for (const field of USER_DATA_FIELDS.EMAIL) {
-        const emailValue = userData[field]
-        if (
-          emailValue &&
-          typeof emailValue === "string" &&
-          emailValue.includes("@")
-        ) {
-          return emailValue
-        }
-      }
-    }
-    return null
-  } catch (error) {
-    clearTimeout(timeoutId)
-    // esriRequest will throw a generic Error on abort or network error.  Check error.name for AbortError.
-    if (error.name === "AbortError") {
-      console.warn("API request timed out")
-    } else {
-      console.warn("Failed to fetch user email from API:", error)
-    }
-    return null
-  }
-}
-
-// Public function to get user email
-export async function getUserEmail(config?: FmeExportConfig): Promise<string> {
-  try {
-    const appStore = getAppStore()
-    const user = appStore.getState().user
-
-    // Primary: Direct email from user state
-    if (user?.email) {
-      return user.email
-    }
-
-    // Secondary: Check username-based resolution
-    if (user?.username) {
-      const username = user.username.split("@")[0]
-      const cacheKey = `${username}-${config?.api || "default"}`
-
-      // Check cache first
-      const cached = emailCache.get(cacheKey)
-      if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        return cached.email
-      }
-
-      // API-based email resolution with improved error handling
-      const apiUrl = config?.api
-      if (apiUrl && username) {
-        try {
-          const email = await fetchUserEmailFromApi(username, apiUrl)
-          if (email) {
-            // Cache successful result
-            emailCache.set(cacheKey, { email, timestamp: Date.now() })
-            return email
-          }
-        } catch (apiError) {
-          console.warn("API email fetch failed, using fallback:", apiError)
-        }
-      }
-
-      // Construct from username with domain
-      if (username) {
-        const constructedEmail = `${username}${USER_EMAIL.DEFAULT_DOMAIN}`
-        // Cache constructed email
-        emailCache.set(cacheKey, {
-          email: constructedEmail,
-          timestamp: Date.now(),
-        })
-        return constructedEmail
-      }
-    }
-
-    return USER_EMAIL.FALLBACK
-  } catch (error) {
-    console.warn("Failed to get user email:", error)
-    return USER_EMAIL.FALLBACK
   }
 }
 
@@ -766,8 +629,9 @@ export class AppStateService {
 
       // Check if local state is supported
       if (!AppStateManager.isSupportLocalState()) {
-        console.warn(
-          "Local state persistence not supported in this environment"
+        // Use debug level logging instead of warn to reduce noise
+        console.debug(
+          "FME Export: Local state persistence not available - templates will use memory storage only"
         )
         this.isRestoreReady = true
         return this.getRestoreResult()
@@ -824,13 +688,6 @@ export class AppStateService {
         })
       }
 
-      if (widgetState.activeExportType) {
-        dispatch({
-          type: FmeActionType.SET_ACTIVE_EXPORT_TYPE,
-          exportType: widgetState.activeExportType,
-        })
-      }
-
       if (widgetState.formValues) {
         dispatch(fmeActions.setFormValues(widgetState.formValues))
       }
@@ -878,7 +735,7 @@ export class AppStateService {
         state.geometryJson !== null ||
         state.drawnArea > 0 ||
         state.templateName !== "" ||
-        state.activeExportType !== null ||
+        state.selectedWorkspace !== null ||
         Object.keys(state.formValues).length > 0
 
       if (shouldSave) {
@@ -887,7 +744,7 @@ export class AppStateService {
           geometryJson: state.geometryJson,
           drawnArea: state.drawnArea,
           templateName: state.templateName,
-          activeExportType: state.activeExportType,
+          selectedWorkspace: state.selectedWorkspace,
           formValues: state.formValues,
           drawingTool: state.drawingTool,
           selectedTemplateId: state.selectedTemplateId,
@@ -921,4 +778,239 @@ export class AppStateService {
     this.hasRestoredState = false
     this.appStateManager = null
   }
+}
+
+// Parameter Form Service - generates dynamic forms from FME workspace parameters
+export class ParameterFormService {
+  private readonly skipParameters = [
+    "MAXX",
+    "MINX",
+    "MAXY",
+    "MINY",
+    "AreaOfInterest",
+  ]
+
+  // Generate dynamic form configuration from workspace parameters
+  generateFormConfig(
+    parameters: readonly WorkspaceParameter[],
+    workspaceName: string
+  ): DynamicFormConfig {
+    const filteredParams = parameters.filter(
+      (param) => !this.skipParameters.includes(param.name)
+    )
+
+    const fields = filteredParams.map((param) => this.createFieldConfig(param))
+    const requiredFields = filteredParams
+      .filter((p) => !p.optional)
+      .map((p) => p.name)
+
+    return {
+      workspaceName,
+      titleId: this.generateTitleId(workspaceName),
+      subtitleId: this.generateSubtitleId(workspaceName),
+      fields,
+      requiredFields,
+    }
+  }
+
+  // Create field configuration from workspace parameter
+  private createFieldConfig(param: WorkspaceParameter): DynamicFieldConfig {
+    let fieldConfig: DynamicFieldConfig = {
+      field: param.name,
+      labelId: param.description || param.name, // Use description directly as label
+      required: !param.optional,
+      type: this.mapParameterType(param.type),
+      defaultValue: param.defaultValue,
+    }
+
+    // Note: param.model typically contains type information like "string"
+    // rather than helpful text, so we don't use it for helperId
+
+    // Add options for choice-based parameters
+    if (param.listOptions && param.listOptions.length > 0) {
+      fieldConfig = {
+        ...fieldConfig,
+        options: param.listOptions.map((option) => ({
+          value: option.value,
+          label: option.caption || option.value,
+        })),
+      }
+    }
+
+    return fieldConfig
+  }
+
+  // Map FME parameter types to form field types
+  private mapParameterType(fmeType: ParameterType): FormFieldType {
+    switch (fmeType) {
+      case ParameterType.CHOICE:
+      case ParameterType.LOOKUP_CHOICE:
+      case ParameterType.STRING_OR_CHOICE:
+        return FormFieldType.SELECT
+      case ParameterType.LISTBOX:
+      case ParameterType.LOOKUP_LISTBOX:
+        return FormFieldType.MULTI_SELECT
+      case ParameterType.TEXT_EDIT:
+        return FormFieldType.TEXTAREA
+      case ParameterType.BOOLEAN:
+        return FormFieldType.CHECKBOX
+      case ParameterType.INTEGER:
+      case ParameterType.FLOAT:
+        return FormFieldType.NUMBER
+      case ParameterType.PASSWORD:
+        return FormFieldType.PASSWORD
+      case ParameterType.FILE_OR_URL:
+      case ParameterType.FILENAME:
+      case ParameterType.FILENAME_MUSTEXIST:
+        return FormFieldType.FILE
+      default:
+        return FormFieldType.TEXT
+    }
+  }
+
+  // Generate title ID for translation
+  private generateTitleId(workspaceName: string): string {
+    return `${workspaceName.toLowerCase().replace(/\W+/g, "_")}_title`
+  }
+
+  // Generate subtitle ID for translation
+  private generateSubtitleId(workspaceName: string): string {
+    return `${workspaceName.toLowerCase().replace(/\W+/g, "_")}_subtitle`
+  }
+
+  // Validate form values against parameter definitions
+  validateFormValues(
+    formValues: { [key: string]: any },
+    parameters: readonly WorkspaceParameter[]
+  ): FormValidationResult {
+    const errors: { [field: string]: string } = {}
+    let isValid = true
+
+    for (const param of parameters) {
+      const value = formValues[param.name]
+
+      // Check required fields
+      if (
+        !param.optional &&
+        (value === undefined || value === null || value === "")
+      ) {
+        errors[param.name] = `${param.description || param.name} is required`
+        isValid = false
+        continue
+      }
+
+      // Type-specific validation
+      if (value !== undefined && value !== null && value !== "") {
+        const typeError = this.validateParameterType(value, param)
+        if (typeError) {
+          errors[param.name] = typeError
+          isValid = false
+        }
+      }
+    }
+
+    return { isValid, errors }
+  }
+
+  // Validate individual parameter value against its type
+  private validateParameterType(
+    value: any,
+    param: WorkspaceParameter
+  ): string | null {
+    switch (param.type) {
+      case ParameterType.INTEGER:
+        if (!Number.isInteger(Number(value))) {
+          return `${param.description || param.name} must be an integer`
+        }
+        break
+      case ParameterType.FLOAT:
+        if (isNaN(Number(value))) {
+          return `${param.description || param.name} must be a number`
+        }
+        break
+      case ParameterType.BOOLEAN:
+        if (typeof value !== "boolean") {
+          return `${param.description || param.name} must be true or false`
+        }
+        break
+      case ParameterType.CHOICE:
+      case ParameterType.LOOKUP_CHOICE:
+      case ParameterType.STRING_OR_CHOICE:
+        if (
+          param.listOptions &&
+          !param.listOptions.some((opt) => opt.value === value)
+        ) {
+          return `${param.description || param.name} must be one of the available options`
+        }
+        break
+      default:
+        // Handle other parameter types (TEXT, LISTBOX, FILENAME, etc.)
+        // For most text-based parameters, basic validation is sufficient
+        if (
+          param.type === ParameterType.TEXT ||
+          param.type === ParameterType.LISTBOX ||
+          param.type === ParameterType.FILENAME ||
+          param.type === ParameterType.FILENAME_MUSTEXIST ||
+          param.type === ParameterType.FOLDER ||
+          param.type === ParameterType.PASSWORD ||
+          param.type === ParameterType.COORDINATE_SYSTEM ||
+          param.type === ParameterType.RANGE ||
+          param.type === ParameterType.LOOKUP_LISTBOX ||
+          param.type === ParameterType.STRING_OR_ATTR_LIST ||
+          param.type === ParameterType.ATTR_LIST ||
+          param.type === ParameterType.FEATURE_TYPE_LIST ||
+          param.type === ParameterType.GEOMETRY ||
+          param.type === ParameterType.FILE_OR_URL ||
+          param.type === ParameterType.TEXT_EDIT
+        ) {
+          // Basic validation - most parameter types accept string values
+          if (
+            value !== null &&
+            value !== undefined &&
+            typeof value !== "string" &&
+            typeof value !== "number"
+          ) {
+            return `${param.description || param.name} must be a valid value`
+          }
+        }
+        break
+    }
+    return null
+  }
+}
+
+// Dynamic form configuration types
+export interface DynamicFormConfig {
+  readonly workspaceName: string
+  readonly titleId: string
+  readonly subtitleId: string
+  readonly fields: readonly DynamicFieldConfig[]
+  readonly requiredFields: readonly string[]
+}
+
+export interface DynamicFieldConfig {
+  readonly field: string
+  readonly labelId: string
+  readonly required: boolean
+  readonly type: FormFieldType
+  readonly defaultValue?: any
+  readonly options?: ReadonlyArray<{ value: string; label: string }>
+  readonly helperId?: string
+  readonly readOnly?: boolean
+}
+
+export enum FormFieldType {
+  TEXT = "text",
+  TEXTAREA = "textarea",
+  SELECT = "select",
+  MULTI_SELECT = "multi_select",
+  CHECKBOX = "checkbox",
+  NUMBER = "number",
+  PASSWORD = "password",
+  FILE = "file",
+}
+
+export interface FormValidationResult {
+  readonly isValid: boolean
+  readonly errors: { [field: string]: string }
 }
