@@ -1,23 +1,13 @@
-import { getAppStore, MutableStoreManager } from "jimu-core"
 import type { IMState } from "jimu-core"
 import type {
   FmeExportConfig,
   FmeWidgetState,
-  StateActionButton,
   AreaTemplate,
   LoadingFlags,
+  RealTimeMeasurements,
+  EsriModules,
 } from "./types"
 import { TEMPLATE_VALIDATION_RULES, StateType } from "./types"
-
-// FME Workspace filename mapping based on actual server response
-const WORKSPACE_FILENAME_MAP = {
-  akter: "AtgardsakterFastighetLm.fmw",
-  plandokument: "Plandokument.fmw",
-  exportera_raster: "raster2export.fmw",
-  export_3d_model: "3D2export.fmw",
-  export_vector_data: "Vector2export.fmw",
-  export_other: "ZOvrigaVectorExporter.fmw",
-} as const
 
 // Constants
 const CONFIG_ERRORS = {
@@ -195,190 +185,6 @@ export function validateConfig(config: FmeExportConfig): {
   }
 }
 
-// Get workspace name from export type
-export function getWorkspaceFromExportType(exportType: string): string {
-  // The exportType coming from the widget should already be the workspace name (like "akter")
-  // Return the actual .fmw filename from the mapping
-  const workspaceFilename =
-    WORKSPACE_FILENAME_MAP[exportType as keyof typeof WORKSPACE_FILENAME_MAP]
-
-  if (workspaceFilename) {
-    // Return the full workspace filename WITH .fmw extension as required by FME Flow documentation
-    return workspaceFilename
-  }
-
-  // Fallback to original exportType with .fmw extension if no mapping found
-  return exportType.endsWith(".fmw") ? exportType : `${exportType}.fmw`
-}
-
-// Retry with backoff utility for network resilience
-export async function retryWithBackoff<T>(
-  operation: () => Promise<T>,
-  options: {
-    maxRetries?: number
-    initialDelay?: number
-    backoffFactor?: number
-    maxDelay?: number
-    shouldRetry?: (error: any) => boolean
-    onRetry?: (attempt: number, delay: number, error: any) => void
-  } = {}
-): Promise<T> {
-  const {
-    maxRetries = 3,
-    initialDelay = 300,
-    backoffFactor = 2,
-    maxDelay = 10000,
-    shouldRetry = (error) => true,
-    onRetry = () => {
-      // No-op callback for retry notifications
-    },
-  } = options
-
-  let attempt = 0
-  let delay = initialDelay
-
-  while (true) {
-    try {
-      return await operation()
-    } catch (error) {
-      attempt++
-
-      // If we've reached max retries or shouldn't retry this error, throw
-      if (attempt >= maxRetries || !shouldRetry(error)) {
-        throw error instanceof Error ? error : new Error(String(error))
-      }
-
-      // Calculate next delay with exponential backoff
-      delay = Math.min(delay * backoffFactor, maxDelay)
-
-      // Add some jitter to prevent synchronized retry storms (±20%)
-      const jitter = delay * 0.2 * (Math.random() - 0.5)
-      const actualDelay = Math.floor(delay + jitter)
-
-      // Call the onRetry callback if provided
-      onRetry(attempt, actualDelay, error)
-
-      // Wait before next attempt
-      await new Promise((resolve) => setTimeout(resolve, actualDelay))
-    }
-  }
-}
-
-// Parameter cache utility to reduce redundant network requests
-export class ParameterCache {
-  private readonly cache = new Map<string, { data: any; timestamp: number }>()
-  private readonly ttl: number
-
-  constructor(ttlMs = 300000) {
-    // Default TTL: 5 minutes
-    this.ttl = ttlMs
-  }
-
-  get(key: string): any {
-    const entry = this.cache.get(key)
-    if (!entry) return null
-
-    const isExpired = Date.now() > entry.timestamp + this.ttl
-    if (isExpired) {
-      this.cache.delete(key)
-      return null
-    }
-
-    return entry.data
-  }
-
-  set(key: string, data: any): void {
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now(),
-    })
-  }
-
-  invalidate(key: string): void {
-    this.cache.delete(key)
-  }
-
-  clear(): void {
-    this.cache.clear()
-  }
-}
-
-// Connection monitor for API health checks
-export class ConnectionMonitor {
-  private isOnline: boolean = true
-  private lastCheckTime: number = 0
-  private readonly checkInterval: number
-  private statusListeners: Array<(online: boolean) => void> = []
-  private checkPromise: Promise<boolean> | null = null
-
-  constructor(
-    private readonly checkFn: () => Promise<boolean>,
-    options?: { checkInterval?: number }
-  ) {
-    this.checkInterval = options?.checkInterval || 30000 // 30 seconds
-  }
-
-  async checkConnection(force: boolean = false): Promise<boolean> {
-    const now = Date.now()
-
-    // Return cached result if not forced and within interval
-    if (!force && now - this.lastCheckTime < this.checkInterval) {
-      return this.isOnline
-    }
-
-    // If there's already a check in progress, wait for it
-    if (this.checkPromise) {
-      return this.checkPromise
-    }
-
-    try {
-      // Start new check
-      this.checkPromise = this.checkFn()
-      const online = await this.checkPromise
-
-      // Only notify if status changed
-      if (online !== this.isOnline) {
-        this.isOnline = online
-        this.notifyListeners()
-      }
-
-      this.lastCheckTime = Date.now()
-      return online
-    } catch (error) {
-      console.error("Connection check failed:", error)
-      // If check fails, assume offline
-      if (this.isOnline) {
-        this.isOnline = false
-        this.notifyListeners()
-      }
-      return false
-    } finally {
-      this.checkPromise = null
-    }
-  }
-
-  onStatusChange(listener: (online: boolean) => void): () => void {
-    this.statusListeners.push(listener)
-    return () => {
-      this.statusListeners = this.statusListeners.filter((l) => l !== listener)
-    }
-  }
-
-  private notifyListeners(): void {
-    for (const listener of this.statusListeners) {
-      try {
-        listener(this.isOnline)
-      } catch (err) {
-        console.error("Error in connection status listener:", err)
-      }
-    }
-  }
-
-  get status(): boolean {
-    return this.isOnline
-  }
-}
-
 // State Management Utilities
 export const getFmeWidgetState = (
   state: IMState,
@@ -393,88 +199,6 @@ export const getUiStateSlice = (state: IMState, widgetId: string) => {
     uiState: fmeState?.uiState || StateType.IDLE,
     uiStateData: fmeState?.uiStateData || {},
   }
-}
-
-// Redux State Manager - For simple state management
-export const ReduxStateManager = {
-  dispatch: (action: any) => {
-    try {
-      getAppStore().dispatch(action)
-    } catch (error) {
-      console.error("Redux dispatch error:", error)
-    }
-  },
-
-  getState: () => {
-    try {
-      const globalState = getAppStore().getState()
-      const storeKey = "fme-state" // Match the simple store key from extension
-      const fmeState = globalState[storeKey]
-      return (
-        fmeState || {
-          viewMode: "initial",
-          previousViewMode: null,
-          isDrawing: false,
-          drawingTool: "polygon",
-          clickCount: 0,
-          geometryJson: null,
-          drawnArea: 0,
-          realTimeMeasurements: {},
-          areaTemplates: [],
-          templateName: "",
-          selectedTemplateId: null,
-          activeExportType: null,
-          formValues: {},
-          orderResult: null,
-          selectedRecords: [],
-          dataSourceId: null,
-          isModulesLoading: false,
-          isTemplateLoading: false,
-          isSubmittingOrder: false,
-          error: null,
-          templateValidation: null,
-        }
-      )
-    } catch (error) {
-      console.error("Redux getState error:", error)
-      return null
-    }
-  },
-}
-
-// Mutable State Manager - For mutable state management
-export const MutableStateManager = {
-  set: (widgetId: string, key: string, value: any) => {
-    try {
-      MutableStoreManager.getInstance().updateStateValue(widgetId, key, value)
-    } catch (error) {
-      console.error(`Failed to set mutable state ${key}:`, error)
-    }
-  },
-
-  get: (widgetId: string, key: string, mutableStateProps?: any) => {
-    try {
-      // Use mutableStateProps if available, otherwise fall back to MutableStoreManager
-      return (
-        mutableStateProps?.[key] ||
-        MutableStoreManager.getInstance().getStateValue([widgetId])?.[key]
-      )
-    } catch (error) {
-      console.error(`Failed to get mutable state ${key}:`, error)
-      return null
-    }
-  },
-
-  // Batch operations for performance
-  setBatch: (widgetId: string, updates: { [key: string]: any }) => {
-    try {
-      Object.entries(updates).forEach(([key, value]) => {
-        MutableStoreManager.getInstance().updateStateValue(widgetId, key, value)
-      })
-    } catch (error) {
-      console.error("Failed to batch set mutable state:", error)
-    }
-  },
 }
 
 // Template Validation Utilities
@@ -735,17 +459,6 @@ export function validateSingleTemplateName(
   return { isValid, errors }
 }
 
-// UI State Utilities
-export const createStateAction = (
-  label: string,
-  onClick: () => void,
-  options: Partial<Omit<StateActionButton, "label" | "onClick">> = {}
-): StateActionButton => ({
-  label,
-  onClick,
-  ...options,
-})
-
 // Widget utility functions from widget.tsx
 export const createGeometryFromTemplate = async (
   template: AreaTemplate
@@ -786,5 +499,106 @@ export const createLoadingWrapper = (dispatch: any) => {
     return fn().finally(() =>
       dispatch(fmeActions.setLoadingFlags({ [flag]: false }))
     )
+  }
+}
+
+// Map graphics and measurement utilities
+export const createMeasurementGraphics = (
+  geometry: __esri.Geometry,
+  measurements: RealTimeMeasurements,
+  measurementLayer: __esri.GraphicsLayer,
+  modules: EsriModules,
+  _isUpdate = false // Prefix with underscore to indicate it's intentionally unused
+) => {
+  if (!geometry || !measurements.area || !measurementLayer || !modules) return
+
+  try {
+    if (geometry.type !== "polygon") return
+
+    const { Graphic, TextSymbol, SimpleMarkerSymbol, centroidOperator } =
+      modules
+
+    // Use centroid operator to get the center point
+    const centroid = centroidOperator.execute(geometry as __esri.Polygon)
+    if (!centroid) return
+
+    // Clear all existing measurement graphics first to ensure no leftover labels
+    measurementLayer.removeAll()
+
+    // Import STYLES here to avoid circular dependency
+    const { STYLES } = require("./css")
+
+    // Create marker symbol
+    const markerSymbol = new SimpleMarkerSymbol({
+      style: "circle",
+      color: STYLES.colors.blackTransparent,
+      size: 8,
+      outline: {
+        color: STYLES.colors.white,
+        width: 2,
+      },
+    })
+
+    // Create text symbol with formatted area
+    const textSymbol = new TextSymbol({
+      text: formatArea(measurements.area),
+      color: STYLES.measurementLabel.color,
+      font: {
+        size: STYLES.measurementLabel.fontSize,
+        weight: STYLES.measurementLabel.fontWeight,
+        family: STYLES.measurementLabel.fontFamily,
+      },
+      haloColor: STYLES.measurementLabel.haloColor,
+      haloSize: STYLES.measurementLabel.haloSize,
+      xoffset: 0,
+      yoffset: 15, // Offset text above the marker
+      horizontalAlignment: STYLES.measurementLabel.horizontalAlignment,
+      verticalAlignment: STYLES.measurementLabel.verticalAlignment,
+    })
+
+    // Create and add marker and text graphics
+    const markerGraphic = new Graphic({
+      geometry: centroid,
+      symbol: markerSymbol,
+      attributes: {
+        isMeasurementGraphic: true,
+        type: "centroid-marker",
+      },
+    })
+
+    const textGraphic = new Graphic({
+      geometry: centroid,
+      symbol: textSymbol,
+      attributes: {
+        isMeasurementGraphic: true,
+        type: "area-label",
+      },
+    })
+
+    measurementLayer.addMany([markerGraphic, textGraphic])
+  } catch (error) {
+    console.warn("Failed to create/update measurement graphics:", error)
+  }
+}
+
+// Utility function to programmatically manage measurement widget visibility
+export const configureMeasurementWidget = (
+  view: __esri.MapView,
+  geometry: __esri.Geometry | null,
+  measurementWidget: __esri.Measurement | null
+) => {
+  if (!view || !geometry || !measurementWidget) return
+
+  try {
+    // Show measurement widget and set appropriate tool based on geometry type
+    measurementWidget.visible = true
+
+    if (geometry.type === "polygon") {
+      measurementWidget.activeTool = "area"
+    } else if (geometry.type === "polyline") {
+      measurementWidget.activeTool = "distance"
+    }
+  } catch (error) {
+    console.warn("Error using measurement widget:", error)
   }
 }
