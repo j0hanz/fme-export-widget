@@ -17,6 +17,7 @@ import {
   Tooltip as JimuTooltip,
 } from "jimu-ui"
 import { STYLES } from "../../shared/css"
+import defaultMessages from "../../translations/default"
 import type {
   ButtonProps,
   ButtonGroupProps,
@@ -36,10 +37,9 @@ import {
   TOOLTIP_PLACEMENTS,
   TOOLTIP_STYLES,
 } from "../../shared/types"
-import defaultMessages from "../../translations/default"
 import handleDotVerticalIcon from "../../assets/icons/handle-dot-vertical.svg"
 
-// Shared controlled value hook
+// Shared controlled value hook with enhanced jimu patterns
 const useControlledValue = <T = string,>(
   controlledValue?: T,
   defaultValue?: T,
@@ -49,21 +49,27 @@ const useControlledValue = <T = string,>(
     controlled: controlledValue,
     default: defaultValue,
   })
+
+  // Use useEventCallback for performance optimization
   const handleChange = hooks.useEventCallback((newValue: T) => {
     setValue(newValue)
     onChange?.(newValue)
   })
+
   return [value, handleChange] as const
 }
 
-// Shared logging hook
+// Enhanced logging hook with jimu patterns
 const useComponentLogger = (
   logging?: { enabled?: boolean; prefix?: string },
   defaultPrefix = "Component"
 ) => {
+  // Use useEventCallback for consistent event handling
   const logAction = hooks.useEventCallback(
     (action: string, data?: { [key: string]: unknown }) => {
-      // Logging disabled for production
+      if (logging?.enabled) {
+        console.log(`[${logging.prefix || defaultPrefix}] ${action}`, data)
+      }
     }
   )
   return logAction
@@ -181,7 +187,7 @@ export const Button: React.FC<ButtonProps> = ({
     logAction,
     jimuProps.disabled || false,
     loading,
-    text || jimuProps.title || "Button"
+    typeof text === "string" ? text : jimuProps.title || "Button"
   )
 
   const renderButtonContent = () => {
@@ -265,7 +271,9 @@ export const Button: React.FC<ButtonProps> = ({
       aria-describedby={
         tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
       }
-      title={tooltip ? undefined : text || jimuProps.title}
+      title={
+        tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
+      }
       style={{ position: "relative", ...jimuProps.style }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
@@ -338,6 +346,7 @@ export const Input: React.FC<InputProps> = ({
   maxLength,
   pattern,
   validationMessage,
+  type = "text",
   logging = { enabled: false, prefix: "Input" },
   onChange,
   ...props
@@ -363,6 +372,7 @@ export const Input: React.FC<InputProps> = ({
   return (
     <TextInput
       {...props}
+      type={type as any}
       value={value}
       onChange={handleChange}
       required={required}
@@ -635,8 +645,8 @@ export const Dropdown: React.FC<DropdownProps> = ({
 
 // Form component with layout and field variants
 const FormHeader: React.FC<{
-  title: string
-  subtitle: string
+  title: React.ReactNode
+  subtitle: React.ReactNode
   className?: string
 }> = ({ title, subtitle, className }) => (
   <div className={className}>
@@ -700,7 +710,7 @@ export const Form: React.FC<FormProps> = (props) => {
             <Tooltip content={translate("requiredField")} placement="bottom">
               <span
                 style={STYLES.typography.required}
-                aria-label={translate("required")}
+                aria-label="required"
                 role="img"
                 aria-hidden="false"
               >
