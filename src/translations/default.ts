@@ -8,8 +8,6 @@ export default {
   back: "Tillbaka",
   submit: "Beställ",
 
-  // State restoration messages
-  stateRestoredFromPrevious: "Tidigare ritning och inställningar återställda",
   submittingOrder: "Beställning skickas...",
   savingTemplate: "Sparar mall...",
   reuseGeography: "Ny beställning",
@@ -69,6 +67,13 @@ export default {
   loadingTemplates: "Laddar mallar",
   loadingTemplate: "Laddar mall",
   noTemplatesFound: "Inga mallar hittades",
+  // Enhanced loading messages for different scenarios
+  loadingWorkspaceDetails: "Laddar arbetsytedetaljer...",
+  loadingWorkspaceParameters: "Laddar arbetsyteparametrar...",
+  preparingExportRequest: "Förbereder exportförfrågan...",
+  connectingToFmeServer: "Ansluter till FME Server...",
+  initializingSketchTools: "Initialiserar ritverktyg...",
+  loadingMapServices: "Laddar karttjänster...",
   drawInstruction: "Rita ett område på kartan",
   // Template import/export functionality
   exportTemplates: "Exportera",

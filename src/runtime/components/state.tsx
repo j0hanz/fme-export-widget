@@ -165,7 +165,6 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
         {(data.message || data.detail) && (
           <div style={STYLES.state.text} aria-label="Loading details">
             {data.message && <div>{data.message}</div>}
-            {data.detail && <div>{data.detail}</div>}
           </div>
         )}
       </div>

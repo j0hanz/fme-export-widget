@@ -35,7 +35,7 @@ import {
   LAYER_CONFIG,
 } from "../shared/types"
 import { fmeActions } from "../extensions/store"
-import { ErrorHandlingService, AppStateService } from "../shared/services"
+import { ErrorHandlingService } from "../shared/services"
 
 // Custom hook for loading ArcGIS modules - simplified and optimized
 const useArcGISModules = (widgetId?: string, dispatch?: any) => {
@@ -213,10 +213,8 @@ export default function Widget(
   // Centralized state management
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
-  const [isRestoreReady, setIsRestoreReady] = React.useState(false)
 
   // Service initialization - using useState with lazy initialization for stable references
-  const [appStateService] = React.useState(() => new AppStateService(widgetId))
   const [errorService] = React.useState(() => new ErrorHandlingService())
 
   // Load ArcGIS modules and get centralized state access
@@ -243,17 +241,6 @@ export default function Widget(
     }
     if (measurementGraphicsLayer) {
       measurementGraphicsLayer.removeAll()
-    }
-  })
-
-  // Initialize AppStateService and setup state restoration
-  hooks.useEffectOnce(() => {
-    try {
-      appStateService.initialize(dispatch, setNotification, translate)
-      setIsRestoreReady(true)
-    } catch (error) {
-      console.warn("Failed to initialize AppStateService:", error)
-      setIsRestoreReady(true) // Allow widget to continue even if restore fails
     }
   })
 
@@ -365,6 +352,13 @@ export default function Widget(
       hasToken: !!props.config.fmeServerToken,
     })
 
+    // Set initial loading state with preparing message
+    dispatch(fmeActions.setUiState(StateType.LOADING))
+    dispatch(
+      fmeActions.setUiStateData({
+        message: translate("preparingExportRequest"),
+      })
+    )
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
@@ -389,6 +383,11 @@ export default function Widget(
       }
 
       // Create FME Flow client and get workspace name
+      dispatch(
+        fmeActions.setUiStateData({
+          message: translate("connectingToFmeServer"),
+        })
+      )
       const fmeClient = createFmeFlowClient(props.config)
 
       // Use the selected workspace directly from Redux state (already includes .fmw extension)
@@ -453,6 +452,13 @@ export default function Widget(
         parameters: Object.keys(fmeParameters),
         parameterValues: fmeParameters,
       })
+
+      // Update loading state before submitting
+      dispatch(
+        fmeActions.setUiStateData({
+          message: translate("submittingOrder"),
+        })
+      )
 
       // Submit the actual FME job with cancellable promise for better error handling
       const fmeResponse = await makeCancelable(
@@ -607,30 +613,6 @@ export default function Widget(
       handleMapViewReady(jimuMapView)
     }
   }, [modules, jimuMapView, sketchViewModel])
-
-  // Automatic state persistence - save state when critical changes occur
-  hooks.useUpdateEffect(() => {
-    // Only save state if restore is ready and we have meaningful state to persist
-    if (!isRestoreReady || !reduxState) return
-
-    // Add a small delay to batch state changes and ensure map is ready
-    const timeoutId = setTimeout(() => {
-      appStateService.saveState(reduxState)
-    }, 1000) // 1 second delay to ensure map readiness
-
-    return () => {
-      clearTimeout(timeoutId)
-    }
-  }, [
-    isRestoreReady,
-    reduxState.viewMode,
-    reduxState.geometryJson,
-    reduxState.drawnArea,
-    reduxState.selectedWorkspace,
-    reduxState.formValues,
-    reduxState.drawingTool,
-    widgetId,
-  ])
 
   // Cleanup on unmount
   hooks.useEffectOnce(() => {
@@ -929,11 +911,16 @@ export default function Widget(
 
   // Render loading state with StateRenderer
   if (modulesLoading || !modules) {
+    // Show more specific loading message based on what's being loaded
+    const loadingMessage = modules
+      ? translate("preparingMapTools")
+      : translate("loadingMapServices")
+
     return (
       <StateRenderer
         state={StateType.LOADING}
         data={{
-          message: translate("loadingWidget"),
+          message: loadingMessage,
         }}
       />
     )

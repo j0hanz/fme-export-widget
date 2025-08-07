@@ -99,7 +99,6 @@ export class ParameterFormService {
         type: this.getFieldTypeFromParameter(param),
         required: !param.optional,
         readOnly: false, // Default to editable
-        helperId: param.description, // Use description as helper text
         description: param.description,
         defaultValue: param.defaultValue,
       }
@@ -300,38 +299,6 @@ export class ParameterFormService {
     return {
       isValid: Object.keys(errors).length === 0,
       errors,
-    }
-  }
-}
-
-// App state service for saving/restoring widget state (non-template parts only)
-export class AppStateService {
-  constructor(private readonly widgetId: string) {}
-
-  initialize(dispatch: any, setNotification: any, translate: any): void {
-    // Initialize app state service for managing widget state
-    // This would handle restoring non-template widget state
-  }
-
-  saveState(state: any): void {
-    // Save current widget state (excluding template data)
-    try {
-      const stateToSave = {
-        viewMode: state.viewMode,
-        geometryJson: state.geometryJson,
-        drawnArea: state.drawnArea,
-        selectedWorkspace: state.selectedWorkspace,
-        formValues: state.formValues,
-        drawingTool: state.drawingTool,
-        // Explicitly exclude template-related state
-      }
-
-      localStorage.setItem(
-        `fme-widget-state-${this.widgetId}`,
-        JSON.stringify(stateToSave)
-      )
-    } catch (error) {
-      console.warn("Failed to save widget state:", error)
     }
   }
 }

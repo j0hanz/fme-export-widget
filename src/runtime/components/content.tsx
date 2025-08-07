@@ -113,6 +113,10 @@ export const Content: React.FC<ContentProps> = ({
     async (workspaceName: string) => {
       if (!config) return
 
+      // Set specific loading state for workspace details
+      setIsLoadingWorkspaces(true)
+      setWorkspaceError(null)
+
       try {
         // Get workspace item details (includes parameters)
         const { createFmeFlowClient } = await import("../../shared/api")
@@ -142,6 +146,8 @@ export const Content: React.FC<ContentProps> = ({
             `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
           )
         }
+      } finally {
+        setIsLoadingWorkspaces(false)
       }
     }
   )
@@ -277,11 +283,18 @@ export const Content: React.FC<ContentProps> = ({
   const renderWorkspaceSelection = () => {
     // Show loading state while loading workspaces
     if (isLoadingWorkspaces) {
+      // Different loading messages based on whether we're loading the list or details
+      const loadingMessage =
+        workspaces.length > 0
+          ? translate("loadingWorkspaceDetails") ||
+            "Loading workspace details..."
+          : translate("loadingWorkspaces") || "Loading workspaces..."
+
       return (
         <StateRenderer
           state={StateType.LOADING}
           data={{
-            message: translate("loadingWorkspaces") || "Loading workspaces...",
+            message: loadingMessage,
           }}
         />
       )

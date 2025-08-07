@@ -277,7 +277,6 @@ const ExportWithWorkspaceParameters: React.FC<{
           variant="field"
           label={field.labelId} // Use parameter description directly
           required={field.required}
-          helper={field.helperId || undefined} // Only set helper if helperId exists
         >
           {renderField(field)}
         </Form>
