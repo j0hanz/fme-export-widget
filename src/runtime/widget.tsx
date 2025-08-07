@@ -262,9 +262,6 @@ export default function Widget(
     dispatch(fmeActions.setError(error))
   })
 
-  // Handle modules loading state
-  hooks.useUpdateEffect(() => {}, [modules])
-
   // Drawing complete handler for Sketch widget
   const handleDrawingComplete = hooks.useEventCallback((evt: any) => {
     const geometry = evt.graphic?.geometry
@@ -787,8 +784,6 @@ export default function Widget(
     switch (tool) {
       case DrawingTool.RECTANGLE:
         return translate("rectangleDrawingInstructions")
-      case DrawingTool.FREEHAND:
-        return translate("freehandDrawingInstructions")
       case DrawingTool.POLYGON:
         return translate("drawInstruction")
     }
@@ -848,9 +843,6 @@ export default function Widget(
     if (tool === DrawingTool.RECTANGLE) {
       console.log("FME Export - Creating rectangle")
       sketchViewModel.create("rectangle")
-    } else if (tool === DrawingTool.FREEHAND) {
-      console.log("FME Export - Creating freehand polygon")
-      sketchViewModel.create("polygon", { mode: "freehand" })
     } else {
       console.log("FME Export - Creating polygon")
       sketchViewModel.create("polygon")

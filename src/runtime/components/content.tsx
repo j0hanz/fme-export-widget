@@ -13,7 +13,6 @@ import type { ContentProps, DropdownItemConfig } from "../../shared/types"
 import { ViewMode, DrawingTool, StateType } from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
-import freehandIcon from "../../assets/icons/edit.svg"
 import resetIcon from "../../assets/icons/clear-selection-general.svg"
 import listIcon from "../../assets/icons/menu.svg"
 import plusIcon from "../../assets/icons/plus.svg"
@@ -238,12 +237,6 @@ export const Content: React.FC<ContentProps> = ({
                 value: DrawingTool.RECTANGLE,
                 label: translate("drawingModeRectangle"),
                 icon: rectangleIcon,
-                hideLabel: true,
-              },
-              {
-                value: DrawingTool.FREEHAND,
-                label: translate("drawingModeFreehand"),
-                icon: freehandIcon,
                 hideLabel: true,
               },
             ]}

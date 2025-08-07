@@ -109,7 +109,6 @@ interface ControlledProps<T = string> {
 export const enum DrawingTool {
   POLYGON = "polygon",
   RECTANGLE = "rectangle",
-  FREEHAND = "freehand",
 }
 
 // Widget view modes for UI states/workflows
