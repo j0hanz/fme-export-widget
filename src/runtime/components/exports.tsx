@@ -89,12 +89,9 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   // Generate form configuration from parameters
   const formConfig = React.useMemo(() => {
-    const config = parameterService.generateFormConfig(
-      workspaceParameters,
-      workspaceName
-    )
+    const config = parameterService.generateFormConfig(workspaceParameters)
     return config
-  }, [parameterService, workspaceParameters, workspaceName])
+  }, [parameterService, workspaceParameters])
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState(() => {
@@ -117,10 +114,10 @@ const ExportWithWorkspaceParameters: React.FC<{
   hooks.useUpdateEffect(() => {
     const validation = parameterService.validateFormValues(
       values,
-      workspaceParameters
+      formConfig.fields
     )
     setIsValid(validation.isValid)
-  }, [values, parameterService, workspaceParameters])
+  }, [values, parameterService, formConfig.fields])
 
   const onChange = hooks.useEventCallback((field: string, value: any) => {
     const newValues = { ...values, [field]: value }
@@ -132,7 +129,7 @@ const ExportWithWorkspaceParameters: React.FC<{
     // Validate form before submission
     const validation = parameterService.validateFormValues(
       values,
-      workspaceParameters
+      formConfig.fields
     )
 
     if (!validation.isValid) {

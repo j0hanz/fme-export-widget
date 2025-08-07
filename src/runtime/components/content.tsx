@@ -6,30 +6,17 @@ import {
   AnimationTriggerType,
   AnimationEffectType,
 } from "jimu-core"
-import { Label } from "jimu-ui"
-import { Button, ButtonGroup, Input, Select, Tooltip, Dropdown } from "./ui"
+import { Button, Select, Dropdown } from "./ui"
 import { StateRenderer } from "./state"
 import defaultMessages from "../../translations/default"
 import type { ContentProps, DropdownItemConfig } from "../../shared/types"
-import {
-  ViewMode,
-  DrawingTool,
-  StateType,
-  TEMPLATE_VALIDATION_RULES,
-} from "../../shared/types"
-import { validateSingleTemplateName } from "../../shared/utils"
+import { ViewMode, DrawingTool, StateType } from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
-import saveIcon from "../../assets/icons/save.svg"
-import trashIcon from "../../assets/icons/trash.svg"
-import plusIcon from "../../assets/icons/plus.svg"
-import folderIcon from "../../assets/icons/folder.svg"
-import backIcon from "../../assets/icons/arrow-left.svg"
-import listIcon from "../../assets/icons/menu.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import freehandIcon from "../../assets/icons/edit.svg"
 import resetIcon from "../../assets/icons/clear-selection-general.svg"
-import exportIcon from "../../assets/icons/export.svg"
-import importIcon from "../../assets/icons/import.svg"
+import listIcon from "../../assets/icons/menu.svg"
+import plusIcon from "../../assets/icons/plus.svg"
 import { STYLES } from "../../shared/css"
 import { Export } from "./exports"
 
@@ -49,17 +36,9 @@ export const Content: React.FC<ContentProps> = ({
   orderResult,
   onReuseGeography,
   isSubmittingOrder = false,
-  // Template-related props
-  templates = [],
-  templateName = "",
-  onLoadTemplate,
-  onSaveTemplate,
-  onDeleteTemplate,
-  onTemplateNameChange,
   onBack,
   drawnArea,
   formatArea,
-  isTemplateLoading = false,
   // Drawing mode props
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
@@ -69,21 +48,7 @@ export const Content: React.FC<ContentProps> = ({
   // Header props
   showHeaderActions = false,
   onReset,
-  showSaveButton = false,
-  showFolderButton = false,
-  onSaveTemplateFromHeader,
-  onShowTemplateFolder,
-  canSaveTemplate = true,
-  canLoadTemplate = true,
   canReset = true,
-  // Template import/export props
-  onExportTemplates,
-  onExportSingleTemplate,
-  onImportTemplates,
-  isImportingTemplates = false,
-  isExportingTemplates = false,
-  importError,
-  exportError,
   // Workspace-related props
   widgetId,
   config,
@@ -105,80 +70,6 @@ export const Content: React.FC<ContentProps> = ({
 
   // Generate stable animation ID based on current state
   const playId = `${state}-${!!error}-none`.length
-
-  // Template validation logic using utility function
-  const name = (templateName || "").trim()
-  const validationResult = validateSingleTemplateName(name, [...templates])
-  const validation = {
-    ...validationResult.errors,
-    hasMaxTemplates:
-      templates.length >= TEMPLATE_VALIDATION_RULES.MAX_TEMPLATES,
-    name,
-  }
-
-  const isValid = validationResult.isValid && !validation.hasMaxTemplates
-
-  const onChange = hooks.useEventCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onTemplateNameChange?.(event.target.value)
-    }
-  )
-
-  const onLoad = hooks.useEventCallback((templateId: string) => {
-    onLoadTemplate?.(templateId)
-  })
-
-  const onDelete = hooks.useEventCallback((templateId: string) => {
-    if (onDeleteTemplate) {
-      onDeleteTemplate(templateId)
-    }
-  })
-
-  const onClick = hooks.useEventCallback(() => {
-    onBack?.()
-  })
-
-  const onCancel = hooks.useEventCallback(() => {
-    onBack?.()
-  })
-
-  const onSave = hooks.useEventCallback(() => {
-    if (!isValid) {
-      return
-    }
-
-    if (drawnArea === null || drawnArea === undefined) {
-      return
-    }
-
-    onSaveTemplate?.(validation.name)
-  })
-
-  // Handle export templates
-  const handleExportTemplates = hooks.useEventCallback(() => {
-    if (onExportTemplates) {
-      onExportTemplates()
-    }
-  })
-
-  // Handle import templates via file input
-  const handleImportTemplates = hooks.useEventCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (file && onImportTemplates) {
-        onImportTemplates(file)
-        // Clear the file input so the same file can be selected again
-        event.target.value = ""
-      }
-    }
-  )
-
-  // Create a hidden file input ref for import functionality
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
-
-  const triggerFileImport = hooks.useEventCallback(() => {
-    fileInputRef.current?.click()
-  })
 
   // Load workspaces function - moved to top level
   const loadWorkspaces = hooks.useEventCallback(async () => {
@@ -270,56 +161,7 @@ export const Content: React.FC<ContentProps> = ({
 
   // Header component for widget actions
   const renderHeader = () => {
-    // Check if template functionality is available
-    const canUseTemplates = templates.length > 0 || canSaveTemplate
-
     const dropdownItems: DropdownItemConfig[] = [
-      {
-        id: "load-template",
-        label: translate("loadTemplate"),
-        icon: folderIcon,
-        onClick: onShowTemplateFolder || noOp,
-        disabled:
-          !canLoadTemplate ||
-          !onShowTemplateFolder ||
-          !showFolderButton ||
-          !canUseTemplates,
-        tooltip: canUseTemplates
-          ? translate("tooltipLoadTemplate")
-          : translate("templateStorageUnavailable"),
-      },
-      {
-        id: "save-template",
-        label: translate("saveTemplateName"),
-        icon: saveIcon,
-        onClick: onSaveTemplateFromHeader || noOp,
-        disabled:
-          !canSaveTemplate || !onSaveTemplateFromHeader || !showSaveButton,
-        tooltip: canSaveTemplate
-          ? translate("tooltipSaveTemplate")
-          : translate("templateStorageUnavailable"),
-      },
-      {
-        id: "export-templates",
-        label: translate("exportTemplates"),
-        icon: exportIcon,
-        onClick: handleExportTemplates,
-        disabled: templates.length === 0,
-        tooltip:
-          templates.length === 0
-            ? translate("noTemplatesFound")
-            : translate("downloadTemplates"),
-      },
-      {
-        id: "import-templates",
-        label: translate("importTemplates"),
-        icon: importIcon,
-        onClick: triggerFileImport,
-        disabled: validation.hasMaxTemplates,
-        tooltip: validation.hasMaxTemplates
-          ? translate("templateLimitReached")
-          : translate("selectTemplateFile"),
-      },
       {
         id: "reset",
         label: translate("cancel"),
@@ -417,214 +259,6 @@ export const Content: React.FC<ContentProps> = ({
             logging={{ enabled: true, prefix: "FME-Export" }}
           />
         </div>
-      </>
-    )
-  }
-
-  const renderTemplateManager = () => {
-    // Show loading state with StateRenderer for template operations
-    if (isTemplateLoading) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: translate("loadingTemplates"),
-          }}
-        />
-      )
-    }
-
-    // Show empty state with StateRenderer when no templates exist
-    if (templates.length === 0) {
-      return (
-        <StateRenderer
-          state={StateType.EMPTY}
-          data={{
-            message: translate("noTemplatesFound"),
-            detail: translate("createYourFirstTemplate"),
-            actions: [
-              {
-                label: translate("back"),
-                onClick: onClick,
-                variant: "secondary" as const,
-              },
-            ],
-          }}
-        />
-      )
-    }
-
-    return (
-      <>
-        <div style={STYLES.typography.title}>{translate("loadTemplate")}</div>
-        <Label style={STYLES.typography.label} className="d-block">
-          {translate("availableTemplates")}: {templates.length}/
-          {TEMPLATE_VALIDATION_RULES.MAX_TEMPLATES}
-        </Label>
-        <div style={STYLES.button.column}>
-          {templates.map((template) => (
-            <div key={template.id} style={STYLES.button.row}>
-              <Button
-                text={template.name}
-                icon={folderIcon}
-                onClick={() => onLoad(template.id)}
-                logging={{
-                  enabled: true,
-                  prefix: "FME-Export-Template",
-                }}
-                style={STYLES.button.text}
-                tooltip={`${translate("loadTemplate")}: ${template.name}`}
-                tooltipPlacement="bottom"
-              />
-              <Dropdown
-                items={[
-                  {
-                    id: "export",
-                    label: translate("exportTemplate"),
-                    icon: exportIcon,
-                    onClick: () => {
-                      onExportSingleTemplate?.(template.id)
-                    },
-                    disabled: !onExportSingleTemplate,
-                    tooltip: translate("downloadTemplate"),
-                  },
-                  {
-                    id: "delete",
-                    label: translate("deleteTemplate"),
-                    icon: trashIcon,
-                    onClick: () => {
-                      onDelete(template.id)
-                    },
-                    tooltip: translate("deleteTemplate"),
-                  },
-                ]}
-                buttonIcon={listIcon}
-                logging={{
-                  enabled: true,
-                  prefix: "FME-Export-Template",
-                }}
-                style={STYLES.button.select}
-              />
-            </div>
-          ))}
-        </div>
-
-        <Button
-          text={translate("back")}
-          icon={backIcon}
-          onClick={onClick}
-          className="mt-5"
-          logging={{ enabled: true, prefix: "FME-Export-Template" }}
-        />
-      </>
-    )
-  }
-
-  const renderSaveTemplate = () => {
-    if (isTemplateLoading) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: translate("savingTemplate"),
-          }}
-        />
-      )
-    }
-
-    return (
-      <>
-        <div style={STYLES.typography.title}>
-          {translate("saveTemplateName")}
-        </div>
-        <>
-          <Label
-            style={STYLES.typography.label}
-            className="d-block"
-            for="template-name-input"
-          >
-            {translate("templateName")}
-            <Tooltip content={translate("requiredField")} placement="bottom">
-              <span
-                style={STYLES.typography.required}
-                aria-label={translate("required")}
-                role="img"
-                aria-hidden="false"
-              >
-                *
-              </span>
-            </Tooltip>
-          </Label>
-          <Input
-            id="template-name-input"
-            placeholder={translate("templateNamePlaceholder")}
-            value={templateName || ""}
-            onChange={onChange}
-            required={true}
-            maxLength={TEMPLATE_VALIDATION_RULES.MAX_NAME_LENGTH}
-            logging={{ enabled: true, prefix: "FME-Export-Template" }}
-            style={
-              !validation.nameEmpty && !isValid
-                ? STYLES.form.inputInvalid
-                : STYLES.form.input
-            }
-            aria-describedby="template-name-help template-name-error"
-            aria-invalid={!isValid}
-            // Add visual feedback for validation state
-            className={!validation.nameEmpty && !isValid ? "is-invalid" : ""}
-          />
-          <div id="template-name-help" style={STYLES.typography.caption}>
-            {(templateName || "").length}/
-            {TEMPLATE_VALIDATION_RULES.MAX_NAME_LENGTH}{" "}
-            {translate("characters")}
-          </div>
-          {/* Validation error messages */}
-          <div id="template-name-error" role="alert" aria-live="polite">
-            {validation.nameEmpty && (templateName || "").length > 0 && (
-              <div style={STYLES.typography.caption}>
-                {translate("templateNameRequired")}
-              </div>
-            )}
-            {validation.nameTooLong && (
-              <div style={STYLES.typography.caption}>
-                {translate("templateNameTooLong")}
-              </div>
-            )}
-            {validation.nameExists &&
-              !validation.nameEmpty &&
-              !validation.nameTooLong && (
-                <div style={STYLES.typography.caption}>
-                  {translate("templateNameExists")}
-                </div>
-              )}
-            {validation.hasInvalidChars &&
-              !validation.nameEmpty &&
-              !validation.nameTooLong && (
-                <div style={STYLES.typography.caption}>
-                  {translate("templateNameInvalidChars")}
-                </div>
-              )}
-            {validation.hasMaxTemplates && (
-              <div style={STYLES.typography.caption}>
-                {translate("maxTemplatesError")}
-              </div>
-            )}
-          </div>
-        </>
-
-        <ButtonGroup
-          className="mt-5"
-          leftButton={{
-            text: translate("back"),
-            onClick: onCancel,
-          }}
-          rightButton={{
-            text: translate("saveTemplateName"),
-            onClick: onSave,
-            disabled: validation.hasMaxTemplates || !isValid,
-          }}
-          logging={{ enabled: true, prefix: "FME-Export-Template" }}
-        />
       </>
     )
   }
@@ -840,80 +474,6 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
-    // Handle template loading state
-    if (isTemplateLoading) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: translate("loadingTemplate"),
-          }}
-        />
-      )
-    }
-
-    // Handle template export state
-    if (isExportingTemplates) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: translate("exportingTemplates"),
-          }}
-        />
-      )
-    }
-
-    // Handle template import state
-    if (isImportingTemplates) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: translate("importingTemplates"),
-          }}
-        />
-      )
-    }
-
-    // Handle export error state
-    if (exportError) {
-      return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            error: exportError,
-            actions: [
-              {
-                label: translate("retry"),
-                onClick: handleExportTemplates,
-                variant: "primary" as const,
-              },
-            ],
-          }}
-        />
-      )
-    }
-
-    // Handle import error state
-    if (importError) {
-      return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            error: importError,
-            actions: [
-              {
-                label: translate("retry"),
-                onClick: triggerFileImport,
-                variant: "primary" as const,
-              },
-            ],
-          }}
-        />
-      )
-    }
-
     // Handle general error states
     if (error) {
       if (error.severity === "info") {
@@ -941,10 +501,6 @@ export const Content: React.FC<ContentProps> = ({
     switch (state) {
       case ViewMode.INITIAL:
         return renderInitial()
-      case ViewMode.TEMPLATE_MANAGER:
-        return renderTemplateManager()
-      case ViewMode.SAVE_TEMPLATE:
-        return renderSaveTemplate()
       case ViewMode.DRAWING:
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
@@ -971,18 +527,6 @@ export const Content: React.FC<ContentProps> = ({
       >
         {renderContent()}
       </AnimationComponent>
-      {/* Hidden file input for template import */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".json"
-        onChange={handleImportTemplates}
-        style={{ display: "none" }}
-        aria-label={
-          translate("selectTemplateFile") || "Select template file for import"
-        }
-        tabIndex={-1}
-      />
     </div>
   )
 }

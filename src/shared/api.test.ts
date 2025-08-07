@@ -49,14 +49,23 @@ jest.mock("esri/config", () => ({
 
 const mockEsriConfig = esriConfig
 
-// Mock geometry operators
-jest.mock("esri/geometry/operators/geodeticAreaOperator", () => ({
+// Mock geometry engine for 4.29 compatibility
+jest.mock("jimu-arcgis", () => ({
   __esModule: true,
-  default: {
-    execute: jest.fn(),
-    isLoaded: jest.fn(() => true),
-    load: jest.fn(() => Promise.resolve()),
-  },
+  loadArcGISJSAPIModules: jest.fn(() =>
+    Promise.resolve([
+      {
+        geodesicArea: jest.fn(() => 1000000), // Mock 1 square km
+        planarArea: jest.fn(() => 1000000),
+        geodesicLength: jest.fn(() => 1000),
+        planarLength: jest.fn(() => 1000),
+        simplify: jest.fn((geom) => geom),
+        buffer: jest.fn((geom) => geom),
+        geodesicBuffer: jest.fn((geom) => geom),
+        convexHull: jest.fn((geom) => geom),
+      },
+    ])
+  ),
 }))
 
 jest.mock("esri/geometry/support/webMercatorUtils", () => ({
@@ -65,12 +74,6 @@ jest.mock("esri/geometry/support/webMercatorUtils", () => ({
     webMercatorToGeographic: jest.fn(),
     geographicToWebMercator: jest.fn(),
   },
-}))
-
-// Mock jimu-arcgis loadArcGISJSAPIModules
-jest.mock("jimu-arcgis", () => ({
-  __esModule: true,
-  loadArcGISJSAPIModules: jest.fn(() => Promise.resolve({})),
 }))
 
 // TEST SETUP & CONFIGURATION

@@ -5,7 +5,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import { TextInput, NumericInput } from "jimu-ui"
+import { TextInput } from "jimu-ui"
 import defaultMessages from "../translations/default"
 
 export default function Setting(props: AllWidgetSettingProps<any>) {

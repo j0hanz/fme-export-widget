@@ -1,6 +1,5 @@
 import esriRequest from "esri/request"
 import esriConfig from "esri/config"
-import * as geodeticAreaOperator from "esri/geometry/operators/geodeticAreaOperator"
 import * as projection from "esri/geometry/support/webMercatorUtils"
 
 import type {
@@ -866,8 +865,14 @@ export class FmeFlowApiClient {
     const polygon = geometry as __esri.Polygon
     let area = 0
     try {
-      if (!geodeticAreaOperator.isLoaded()) await geodeticAreaOperator.load()
-      area = geodeticAreaOperator.execute(polygon, { unit: "square-meters" })
+      // Use legacy geometryEngine for 4.29 compatibility
+      const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
+      const [geometryEngine] = await loadArcGISJSAPIModules([
+        "esri/geometry/geometryEngine",
+      ])
+
+      // Use geodesic area for more accurate calculations
+      area = Math.abs(geometryEngine.geodesicArea(polygon, "square-meters"))
     } catch (error) {
       console.warn(
         "Failed to calculate geodetic area, using extent area",

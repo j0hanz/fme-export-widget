@@ -4,9 +4,8 @@ import {
   hooks,
   type ImmutableObject,
   MutableStoreManager,
-  FormattedMessage,
 } from "jimu-core"
-import { SVG, Message } from "jimu-ui"
+import { Message } from "jimu-ui"
 import {
   JimuMapViewComponent,
   type JimuMapView,
@@ -15,29 +14,16 @@ import {
 import { Content } from "./components/content"
 import { StateRenderer } from "./components/state"
 import { createFmeFlowClient } from "../shared/api"
-import distanceIcon from "../assets/icons/trace-path.svg"
-import areaIcon from "../assets/icons/polygon.svg"
-import centroidIcon from "../assets/icons/pin-esri.svg"
 import defaultMessages from "../translations/default"
-import {
-  formatArea,
-  createGeometryFromTemplate,
-  downloadJSON,
-  createLoadingWrapper,
-  createMeasurementGraphics,
-  configureMeasurementWidget,
-} from "../shared/utils"
+import { formatArea } from "../shared/utils"
 import { STYLES } from "../shared/css"
 import type {
   FmeExportConfig,
   EsriModules,
-  AreaTemplate,
   ExportResult,
-  RealTimeMeasurements,
   IMStateWithFmeExport,
   FmeWidgetState,
   NotificationState,
-  MeasurementProps,
 } from "../shared/types"
 import {
   DrawingTool,
@@ -47,114 +33,9 @@ import {
   StateType,
   FmeActionType,
   LAYER_CONFIG,
-  TEMPLATE_ID_CONFIG,
 } from "../shared/types"
 import { fmeActions } from "../extensions/store"
-import {
-  GeometryOperatorsService,
-  TemplatePersistenceService,
-  ErrorHandlingService,
-  AppStateService,
-} from "../shared/services"
-
-// Measurement display component for UI consistency
-const MeasurementOverlay: React.FC<MeasurementProps> = ({
-  data,
-  translate,
-}) => {
-  if (!data) return null
-
-  const items: React.ReactNode[] = []
-
-  // Distance display
-  if (data.distance !== undefined) {
-    const distance = data.distance
-    let distanceText: string
-
-    if (distance === 0) {
-      distanceText = "0 m"
-    } else if (distance >= 1000) {
-      distanceText = `${(distance / 1000).toFixed(2)} km`
-    } else {
-      distanceText = `${distance.toFixed(1)} m`
-    }
-
-    items.push(
-      <div key="distance" style={STYLES.measureItem}>
-        <SVG
-          src={distanceIcon}
-          size={18}
-          currentColor={true}
-          aria-label={translate?.("distanceMeasurement") || "Distance"}
-        />
-        <div style={STYLES.measureGroup}>
-          <div style={STYLES.measureValue}>{distanceText}</div>
-        </div>
-      </div>
-    )
-  }
-
-  // Area display using the formatArea utility
-  if (data.area !== undefined) {
-    items.push(
-      <div key="area" style={STYLES.measureItem}>
-        <SVG src={areaIcon} size={18} currentColor={true} aria-label="Area" />
-        <div style={STYLES.measureGroup}>
-          <div style={STYLES.measureValue}>{formatArea(data.area)}</div>
-        </div>
-      </div>
-    )
-  }
-
-  // Centroid display
-  if (data.centroid) {
-    const { x, y } = data.centroid
-    items.push(
-      <div key="centroid" style={STYLES.measureItem}>
-        <SVG
-          src={centroidIcon}
-          size={18}
-          currentColor={true}
-          aria-label="Centroid"
-        />
-        <div style={STYLES.measureGroup}>
-          <div style={STYLES.measureValue}>
-            {x.toFixed(1)}, {y.toFixed(1)}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Drawing progress status
-  if (data.drawingProgress) {
-    const { pointsAdded } = data.drawingProgress
-    const statusText =
-      pointsAdded === 1 ? (
-        <FormattedMessage
-          id="secondPointInstruction"
-          defaultMessage="Click to add second point"
-        />
-      ) : (
-        <FormattedMessage
-          id="finishDrawingInstruction"
-          defaultMessage="Double-click to finish drawing"
-        />
-      )
-
-    items.push(
-      <div key="progress" style={STYLES.measureItem}>
-        <div style={STYLES.measureGroup}>
-          <div style={STYLES.typography.caption}>{statusText}</div>
-        </div>
-      </div>
-    )
-  }
-
-  return items.length > 0 ? (
-    <div style={STYLES.measureGroup}>{items}</div>
-  ) : null
-}
+import { ErrorHandlingService, AppStateService } from "../shared/services"
 
 // Custom hook for loading ArcGIS modules - simplified and optimized
 const useArcGISModules = (widgetId?: string, dispatch?: any) => {
@@ -173,7 +54,7 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
 
     try {
       const [
-        Sketch,
+        SketchViewModel,
         GraphicsLayer,
         Graphic,
         Polygon,
@@ -185,24 +66,12 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
         SimpleMarkerSymbol,
         SimpleLineSymbol,
         PictureMarkerSymbol,
-        Measurement,
-        Search,
-        LayerList,
-        BasemapGallery,
-        Compass,
-        Home,
-        areaOperator,
-        geodeticAreaOperator,
-        lengthOperator,
-        geodeticLengthOperator,
-        centroidOperator,
-        simplifyOperator,
-        bufferOperator,
-        geodesicBufferOperator,
-        convexHullOperator,
+        AreaMeasurement2D,
+        DistanceMeasurement2D,
+        geometryEngine,
       ] = await makeCancelable(
         loadArcGISJSAPIModules([
-          "esri/widgets/Sketch",
+          "esri/widgets/Sketch/SketchViewModel",
           "esri/layers/GraphicsLayer",
           "esri/Graphic",
           "esri/geometry/Polygon",
@@ -214,26 +83,14 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
           "esri/symbols/SimpleMarkerSymbol",
           "esri/symbols/SimpleLineSymbol",
           "esri/symbols/PictureMarkerSymbol",
-          "esri/widgets/Measurement",
-          "esri/widgets/Search",
-          "esri/widgets/LayerList",
-          "esri/widgets/BasemapGallery",
-          "esri/widgets/Compass",
-          "esri/widgets/Home",
-          "esri/geometry/operators/areaOperator",
-          "esri/geometry/operators/geodeticAreaOperator",
-          "esri/geometry/operators/lengthOperator",
-          "esri/geometry/operators/geodeticLengthOperator",
-          "esri/geometry/operators/centroidOperator",
-          "esri/geometry/operators/simplifyOperator",
-          "esri/geometry/operators/bufferOperator",
-          "esri/geometry/operators/geodesicBufferOperator",
-          "esri/geometry/operators/convexHullOperator",
+          "esri/widgets/AreaMeasurement2D",
+          "esri/widgets/DistanceMeasurement2D",
+          "esri/geometry/geometryEngine",
         ])
       )
 
       const loadedModules: EsriModules = {
-        Sketch,
+        SketchViewModel,
         GraphicsLayer,
         Graphic,
         Polygon,
@@ -245,21 +102,9 @@ const useArcGISModules = (widgetId?: string, dispatch?: any) => {
         SimpleMarkerSymbol,
         SimpleLineSymbol,
         PictureMarkerSymbol,
-        Measurement,
-        Search,
-        LayerList,
-        BasemapGallery,
-        Compass,
-        Home,
-        areaOperator,
-        geodeticAreaOperator,
-        lengthOperator,
-        geodeticLengthOperator,
-        centroidOperator,
-        simplifyOperator,
-        bufferOperator,
-        geodesicBufferOperator,
-        convexHullOperator,
+        AreaMeasurement2D,
+        DistanceMeasurement2D,
+        geometryEngine,
       }
 
       setModules(loadedModules)
@@ -324,8 +169,8 @@ const useMutableState = (widgetId: string) => {
       get jimuMapView() {
         return getMutableValue("jimuMapView") as JimuMapView
       },
-      get sketchWidget() {
-        return getMutableValue("sketchWidget") as __esri.Sketch
+      get sketchViewModel() {
+        return getMutableValue("sketchViewModel") as __esri.SketchViewModel
       },
       get graphicsLayer() {
         return getMutableValue("graphicsLayer") as __esri.GraphicsLayer
@@ -335,8 +180,13 @@ const useMutableState = (widgetId: string) => {
           "measurementGraphicsLayer"
         ) as __esri.GraphicsLayer
       },
-      get measurementWidget() {
-        return getMutableValue("measurementWidget") as __esri.Measurement
+      get areaMeasurement2D() {
+        return getMutableValue("areaMeasurement2D") as __esri.AreaMeasurement2D
+      },
+      get distanceMeasurement2D() {
+        return getMutableValue(
+          "distanceMeasurement2D"
+        ) as __esri.DistanceMeasurement2D
       },
       get currentGeometry() {
         return getMutableValue("currentGeometry") as __esri.Geometry
@@ -364,20 +214,10 @@ export default function Widget(
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
   const [isRestoreReady, setIsRestoreReady] = React.useState(false)
-  const [isTemplateServiceInitialized, setIsTemplateServiceInitialized] =
-    React.useState(false)
-  const [geometryOperatorsService, setGeometryOperatorsService] =
-    React.useState<GeometryOperatorsService | null>(null)
 
   // Service initialization - using useState with lazy initialization for stable references
   const [appStateService] = React.useState(() => new AppStateService(widgetId))
-  const [templatePersistence] = React.useState(
-    () => new TemplatePersistenceService(widgetId)
-  )
   const [errorService] = React.useState(() => new ErrorHandlingService())
-  const [withLoadingFlags] = React.useState(() =>
-    createLoadingWrapper(dispatch)
-  )
 
   // Load ArcGIS modules and get centralized state access
   const {
@@ -387,10 +227,10 @@ export default function Widget(
   } = useArcGISModules(widgetId, dispatch)
   const mutableState = useMutableState(widgetId)
 
-  // Access mutable state values
+  // Access mutable state values with default values
   const {
     jimuMapView,
-    sketchWidget,
+    sketchViewModel = null,
     graphicsLayer,
     measurementGraphicsLayer,
     setMutableValue,
@@ -406,118 +246,6 @@ export default function Widget(
     }
   })
 
-  // Initialize template service
-  hooks.useEffectOnce(() => {
-    console.log(
-      "FME Export Widget - Initializing template service for widget:",
-      widgetId
-    )
-    console.log("FME Export Widget - Configuration:", {
-      serverUrl: props.config.fmeServerUrl,
-      repository: props.config.repository,
-      hasToken: !!props.config.fmeServerToken,
-    })
-
-    templatePersistence
-      .initialize()
-      .then(() => {
-        console.log(
-          "FME Export Widget - Template service initialized successfully"
-        )
-        setIsTemplateServiceInitialized(true)
-      })
-      .catch((error) => {
-        console.error(
-          "FME Export Widget - Template service initialization failed:",
-          error
-        )
-        setIsTemplateServiceInitialized(true) // Still set to true to not block the widget
-      })
-  })
-
-  // Centralized error dispatch helper
-  const raiseError = hooks.useEventCallback((error: any) => {
-    dispatch(fmeActions.setError(error))
-  })
-
-  // Enhanced notification helper using FormattedMessage for i18n consistency
-  const showNotification = hooks.useEventCallback(
-    (
-      severity: "success" | "warning" | "error" | "info",
-      messageId: string,
-      defaultMessage: string,
-      values?: { [key: string]: any }
-    ) => {
-      const formattedMessage = React.createElement(FormattedMessage, {
-        id: messageId,
-        defaultMessage,
-        values,
-      })
-
-      setNotification({
-        severity,
-        message: translate(messageId, values) || defaultMessage, // Fallback for components that need string
-        formattedMessage, // Store FormattedMessage component for UI
-      })
-    }
-  )
-
-  // Enhanced export helper with support for multiple formats
-  const exportData = hooks.useEventCallback(
-    (
-      data: any,
-      filename: string,
-      format: "json" | "geojson" | "csv" = "json"
-    ): void => {
-      try {
-        let exportContent: string
-
-        if (format === "json") {
-          exportContent =
-            typeof data === "string" ? data : JSON.stringify(data, null, 2)
-        } else if (format === "geojson" && data.geometry) {
-          // Convert Esri geometry to GeoJSON format
-          const geoJsonFeature = {
-            type: "Feature",
-            geometry: data.geometry,
-            properties: data.properties || {},
-          }
-          exportContent = JSON.stringify(geoJsonFeature, null, 2)
-        } else if (format === "csv" && Array.isArray(data)) {
-          // Convert structured data to CSV
-          const headers = Object.keys(data[0] || {})
-          const csvContent = [
-            headers.join(","),
-            ...data.map((row) =>
-              headers.map((h) => `"${row[h] || ""}"`).join(",")
-            ),
-          ].join("\n")
-          exportContent = csvContent
-        } else {
-          // Fallback to JSON
-          exportContent = JSON.stringify(data, null, 2)
-        }
-
-        // Use the built-in downloadJSON utility for consistency
-        downloadJSON(exportContent, filename)
-
-        // Show success notification with FormattedMessage
-        showNotification(
-          "success",
-          "exportSuccess",
-          "Data exported successfully",
-          { filename, format }
-        )
-      } catch (error) {
-        console.error("Export failed:", error)
-        showNotification("error", "exportError", "Export failed", {
-          error: error instanceof Error ? error.message : String(error),
-        })
-        throw error instanceof Error ? error : new Error(String(error))
-      }
-    }
-  )
-
   // Initialize AppStateService and setup state restoration
   hooks.useEffectOnce(() => {
     try {
@@ -529,402 +257,13 @@ export default function Widget(
     }
   })
 
-  // Initialize geometry operators service when modules are loaded - using useUpdateEffect for better performance
-  hooks.useUpdateEffect(() => {
-    if (modules && !geometryOperatorsService) {
-      const service = new GeometryOperatorsService({
-        areaOperator: modules.areaOperator,
-        geodeticAreaOperator: modules.geodeticAreaOperator,
-        lengthOperator: modules.lengthOperator,
-        geodeticLengthOperator: modules.geodeticLengthOperator,
-        centroidOperator: modules.centroidOperator,
-        simplifyOperator: modules.simplifyOperator,
-        bufferOperator: modules.bufferOperator,
-        geodesicBufferOperator: modules.geodesicBufferOperator,
-        convexHullOperator: modules.convexHullOperator,
-      })
-      service
-        .initialize()
-        .then(() => {
-          setGeometryOperatorsService(service)
-        })
-        .catch((error) => {
-          console.error(
-            "Failed to initialize geometry operators service:",
-            error
-          )
-        })
-    }
-  }, [modules, geometryOperatorsService])
-
-  // Template management with centralized persistence and enhanced cancellation
-  const loadTemplates = hooks.useEventCallback(() => {
-    if (!isTemplateServiceInitialized) return Promise.resolve()
-
-    return withLoadingFlags("isTemplateLoading", async () => {
-      try {
-        const templates = await makeCancelable(
-          templatePersistence.loadTemplates()
-        )
-        dispatch(fmeActions.setAreaTemplates(templates))
-      } catch (error) {
-        dispatch(fmeActions.setAreaTemplates([]))
-        raiseError(
-          errorService.createTemplateError("Failed to load templates", "LOAD")
-        )
-      }
-    })
+  // Centralized error dispatch helper
+  const raiseError = hooks.useEventCallback((error: any) => {
+    dispatch(fmeActions.setError(error))
   })
 
-  const saveTemplate = hooks.useEventCallback(async (name: string) => {
-    if (!templatePersistence.available) {
-      raiseError(
-        errorService.createError(
-          "Template storage not available",
-          ErrorType.TEMPLATE
-        )
-      )
-      return
-    }
-
-    const hasGeometry = reduxState.geometryJson || mutableState.currentGeometry
-    if (!hasGeometry || !reduxState.drawnArea) return
-
-    return withLoadingFlags("isTemplateLoading", async () => {
-      try {
-        const template: AreaTemplate = {
-          id: `${TEMPLATE_ID_CONFIG.prefix}${Date.now()}`,
-          name,
-          geometry: reduxState.geometryJson,
-          area: reduxState.drawnArea,
-          createdDate: new Date(),
-        }
-
-        await makeCancelable(templatePersistence.saveTemplate(template))
-
-        const newTemplates = [...reduxState.areaTemplates, template]
-        dispatch(fmeActions.setAreaTemplates(newTemplates))
-
-        // Show success notification with enhanced i18n
-        showNotification(
-          "success",
-          "templateSaved",
-          `Template "${name}" saved successfully`,
-          { templateName: name }
-        )
-
-        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
-      } catch (error) {
-        raiseError(
-          errorService.createTemplateError("Failed to save template", "SAVE")
-        )
-      }
-    })
-  })
-
-  const deleteTemplate = hooks.useEventCallback(async (templateId: string) => {
-    if (!templatePersistence.available) {
-      raiseError(
-        errorService.createError(
-          "Template storage not available",
-          ErrorType.TEMPLATE
-        )
-      )
-      return
-    }
-
-    return withLoadingFlags("isTemplateLoading", async () => {
-      try {
-        await makeCancelable(templatePersistence.deleteTemplate(templateId))
-
-        const newTemplates = reduxState.areaTemplates.filter(
-          (t: AreaTemplate) => t.id !== templateId
-        )
-        dispatch(fmeActions.setAreaTemplates(newTemplates))
-
-        // Show success notification with enhanced i18n
-        showNotification(
-          "success",
-          "templateDeleted",
-          "Template deleted successfully"
-        )
-      } catch (error) {
-        raiseError(
-          errorService.createTemplateError(
-            "Failed to delete template",
-            "DELETE",
-            templateId
-          )
-        )
-      }
-    })
-  })
-
-  // Template import/export handlers
-  const handleExportTemplates = hooks.useEventCallback(async () => {
-    // Skip export if persistence is unavailable
-    if (!templatePersistence.available) return
-
-    return withLoadingFlags("isExportingTemplates", async () => {
-      try {
-        const jsonString = await makeCancelable(
-          templatePersistence.exportTemplates()
-        )
-        // Use enhanced export helper
-        exportData(
-          jsonString,
-          `fme-templates-${new Date().toISOString().split("T")[0]}.json`
-        )
-      } catch (error) {
-        dispatch(
-          fmeActions.setExportError(
-            errorService.createError(
-              translate("exportError"),
-              ErrorType.TEMPLATE,
-              {
-                code: "TEMPLATE_EXPORT_ERROR",
-              }
-            )
-          )
-        )
-      }
-    })
-  })
-
-  const handleExportSingleTemplate = hooks.useEventCallback(
-    async (templateId: string) => {
-      // Skip export if persistence is unavailable
-      if (!templatePersistence.available) return
-
-      return withLoadingFlags("isExportingTemplates", async () => {
-        try {
-          const jsonString =
-            await templatePersistence.exportSingleTemplate(templateId)
-          const template = reduxState.areaTemplates.find(
-            (t: AreaTemplate) => t.id === templateId
-          )
-          const templateName = template?.name || "template"
-
-          // Use enhanced export helper
-          exportData(
-            jsonString,
-            `${templateName}-${new Date().toISOString().split("T")[0]}.json`
-          )
-        } catch (error) {
-          dispatch(
-            fmeActions.setExportError(
-              errorService.createError(
-                translate("exportError"),
-                ErrorType.TEMPLATE,
-                {
-                  code: "TEMPLATE_EXPORT_ERROR",
-                }
-              )
-            )
-          )
-        }
-      })
-    }
-  )
-
-  const handleImportTemplates = hooks.useEventCallback(async (file: File) => {
-    if (!templatePersistence.available) return
-
-    return withLoadingFlags("isImportingTemplates", async () => {
-      try {
-        const text = await file.text()
-        const importedTemplates =
-          await templatePersistence.importTemplates(text)
-
-        if (importedTemplates.length === 0) {
-          dispatch(
-            fmeActions.setImportError(
-              errorService.createError(
-                translate("noValidTemplates"),
-                ErrorType.TEMPLATE,
-                {
-                  code: "NO_VALID_TEMPLATES",
-                }
-              )
-            )
-          )
-        } else {
-          // Merge with existing templates
-          const allTemplates = [
-            ...reduxState.areaTemplates,
-            ...importedTemplates,
-          ]
-          dispatch(fmeActions.finishTemplateImport(allTemplates))
-
-          // Show success notification
-          setNotification({
-            severity: "success",
-            message:
-              translate("templatesImported") ||
-              `${importedTemplates.length} template(s) imported successfully`,
-          })
-        }
-      } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : String(error)
-
-        // Check if it's a validation error with detailed feedback
-        if (errorMessage.includes("Import validation failed:")) {
-          dispatch(
-            fmeActions.setImportError(
-              errorService.createError(errorMessage, ErrorType.VALIDATION, {
-                code: "TEMPLATE_VALIDATION_ERROR",
-                severity: ErrorSeverity.ERROR,
-              })
-            )
-          )
-        } else if (errorMessage.includes("Maximum limit")) {
-          dispatch(
-            fmeActions.setImportError(
-              errorService.createError(errorMessage, ErrorType.VALIDATION, {
-                code: "TEMPLATE_LIMIT_EXCEEDED",
-                severity: ErrorSeverity.WARNING,
-              })
-            )
-          )
-        } else if (errorMessage.includes("Invalid JSON format")) {
-          dispatch(
-            fmeActions.setImportError(
-              errorService.createError(
-                translate("invalidTemplateFile"),
-                ErrorType.VALIDATION,
-                { code: "INVALID_JSON_FORMAT" }
-              )
-            )
-          )
-        } else {
-          dispatch(
-            fmeActions.setImportError(
-              errorService.createError(
-                translate("importError"),
-                ErrorType.TEMPLATE,
-                {
-                  code: "TEMPLATE_IMPORT_ERROR",
-                }
-              )
-            )
-          )
-        }
-      }
-    })
-  })
-
-  const loadTemplate = hooks.useEventCallback(async (templateId: string) => {
-    const template = reduxState.areaTemplates.find(
-      (t: AreaTemplate) => t.id === templateId
-    )
-    if (!template || !modules) return
-
-    return withLoadingFlags("isTemplateLoading", async () => {
-      try {
-        const geometry = await createGeometryFromTemplate(template)
-        if (!geometry) return
-
-        const geometryJson = geometry.toJSON()
-
-        dispatch({
-          type: FmeActionType.SET_GEOMETRY,
-          geometry: geometryJson,
-          drawnArea: template.area,
-        })
-
-        MutableStoreManager.getInstance().updateStateValue(
-          widgetId,
-          "currentGeometry",
-          geometry
-        )
-
-        if (graphicsLayer && jimuMapView) {
-          // Clear all existing graphics before loading template
-          clearAllGraphics()
-
-          const { Graphic } = modules
-          const graphic = new (Graphic as any)({
-            geometry,
-            symbol: {
-              type: "simple-fill",
-              color: STYLES.colors.orangeFill,
-              outline: {
-                color: STYLES.colors.orangeOutline,
-                width: 2,
-                style: "solid",
-              },
-            },
-          })
-          graphicsLayer.add(graphic)
-
-          if (jimuMapView.view && !jimuMapView.view.destroyed) {
-            // Navigation state - this is where StateRenderer will show loading
-            try {
-              await jimuMapView.view.goTo(geometry)
-            } catch (error) {
-              // Ignore navigation errors - they're usually not critical
-              console.debug("Navigation to geometry failed:", error)
-            }
-          }
-
-          // Add measurement label if applicable
-          if (
-            graphic &&
-            geometryOperatorsService &&
-            jimuMapView?.view &&
-            measurementGraphicsLayer &&
-            modules
-          ) {
-            try {
-              const measurements =
-                geometryOperatorsService.calculateMeasurements(
-                  geometry,
-                  jimuMapView.view.spatialReference
-                )
-              if (measurements.area) {
-                createMeasurementGraphics(
-                  geometry,
-                  measurements,
-                  measurementGraphicsLayer,
-                  modules,
-                  false // _isUpdate = false for final display (keeping for clarity)
-                )
-
-                // Use measurement widget if available for the loaded template
-                const { measurementWidget } = mutableState
-                if (jimuMapView?.view.type === "2d") {
-                  configureMeasurementWidget(
-                    jimuMapView.view,
-                    geometry,
-                    measurementWidget
-                  )
-                }
-              }
-            } catch (error) {
-              console.warn(
-                "Failed to add measurement label for template:",
-                error
-              )
-            }
-          }
-        }
-
-        // Transition to workspace selection view
-        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
-      } catch (error) {
-        raiseError(
-          errorService.createError(
-            "Failed to load template",
-            ErrorType.TEMPLATE,
-            {
-              code: "TEMPLATE_LOAD_ERROR",
-            }
-          )
-        )
-      }
-    })
-  })
+  // Handle modules loading state
+  hooks.useUpdateEffect(() => {}, [modules])
 
   // Drawing complete handler for Sketch widget
   const handleDrawingComplete = hooks.useEventCallback((evt: any) => {
@@ -933,29 +272,6 @@ export default function Widget(
 
     try {
       if (geometry.type === "polygon" && !geometry.rings?.length) return
-
-      // Process geometry for measurements and simplification
-      let processedGeometry = geometry
-      if (geometryOperatorsService) {
-        const simplified = geometryOperatorsService.simplifyGeometry(geometry)
-        if (simplified) {
-          processedGeometry = simplified
-        }
-      }
-
-      // Calculate final measurements using processed geometry
-      let finalMeasurements: RealTimeMeasurements = { area: 0 }
-      if (geometryOperatorsService && jimuMapView?.view) {
-        try {
-          finalMeasurements = geometryOperatorsService.calculateMeasurements(
-            processedGeometry,
-            jimuMapView.view.spatialReference
-          )
-        } catch (error) {
-          console.warn("Measurement calculation failed:", error)
-        }
-      }
-      const calculatedArea = finalMeasurements.area || 0
 
       // Update the graphics layer with the drawn polygon
       if (evt.graphic && modules) {
@@ -970,39 +286,31 @@ export default function Widget(
         }
       }
 
-      // Add measurement label inside the polygon if we have a valid graphic
-      if (
-        evt.graphic &&
-        finalMeasurements.area &&
-        measurementGraphicsLayer &&
-        modules
-      ) {
-        // Use the modern measurement graphics function instead of legacy addMeasurementLabel
-        createMeasurementGraphics(
-          processedGeometry,
-          finalMeasurements,
-          measurementGraphicsLayer,
-          modules,
-          false // _isUpdate = false for final display (keeping for clarity)
-        )
+      const geometryJson = geometry.toJSON()
 
-        // Use measurement widget if available
-        const { measurementWidget } = mutableState
-        if (jimuMapView?.view.type === "2d") {
-          configureMeasurementWidget(
-            jimuMapView.view,
-            processedGeometry,
-            measurementWidget
+      // Calculate area using GeometryEngine for display
+      let calculatedArea = 0
+      if (modules.geometryEngine && geometry.type === "polygon") {
+        try {
+          // Calculate area in square meters
+          calculatedArea = modules.geometryEngine.planarArea(
+            geometry,
+            "square-meters"
           )
+          console.log(
+            "FME Export - Calculated area:",
+            calculatedArea,
+            "square meters"
+          )
+        } catch (error) {
+          console.warn("FME Export - Failed to calculate area:", error)
         }
       }
-
-      const geometryJson = processedGeometry.toJSON()
 
       dispatch({
         type: FmeActionType.SET_GEOMETRY,
         geometry: geometryJson,
-        drawnArea: calculatedArea,
+        drawnArea: Math.abs(calculatedArea), // Ensure positive value
       })
       dispatch({
         type: FmeActionType.SET_DRAWING_STATE,
@@ -1010,103 +318,32 @@ export default function Widget(
         clickCount: 0,
       })
 
-      dispatch({
-        type: FmeActionType.SET_REAL_TIME_MEASUREMENTS,
-        measurements: finalMeasurements,
-      })
-      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+      MutableStoreManager.getInstance().updateStateValue(
+        widgetId,
+        "currentGeometry",
+        geometry
+      )
 
-      setMutableValue("currentGeometry", processedGeometry)
+      // Show measurement information after drawing is complete
+      console.log(
+        "FME Export - Drawing completed with area:",
+        Math.abs(calculatedArea),
+        "square meters"
+      )
+
+      // Transition to workspace selection view after drawing
+      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
     } catch (error) {
       raiseError(
         errorService.createError(
-          "Failed to process drawn area",
-          ErrorType.GEOMETRY,
+          "Failed to complete drawing",
+          ErrorType.VALIDATION,
           {
-            code: "GEOMETRY_PROCESS_ERROR",
+            code: "DRAWING_COMPLETE_ERROR",
+            details: { error: error.message },
           }
         )
       )
-    }
-  })
-
-  // Direct measurement graphics creation without debouncing or memoization
-  const createMeasurementGraphicsDirectly = (
-    geometry: __esri.Geometry,
-    measurements: RealTimeMeasurements,
-    measurementLayer: __esri.GraphicsLayer,
-    modules: EsriModules
-  ) => {
-    createMeasurementGraphics(
-      geometry,
-      measurements,
-      measurementLayer,
-      modules,
-      true
-    )
-  }
-
-  const handleDrawingUpdate = hooks.useEventCallback((evt: any) => {
-    let geometry =
-      evt?.geometry || evt?.graphic?.geometry || evt?.graphics?.[0]?.geometry
-
-    if (!geometry && evt?.target?.geometry) {
-      geometry = evt.target.geometry
-    }
-
-    if (!geometry && evt?.coordinates && graphicsLayer?.graphics?.length > 0) {
-      const activeGraphic = graphicsLayer.graphics.getItemAt(0)
-      geometry = activeGraphic?.geometry
-    }
-
-    if (!geometry || !modules || !jimuMapView || !geometryOperatorsService)
-      return
-
-    try {
-      // Calculate measurements using modern geometry operators
-      const measurements = geometryOperatorsService.calculateMeasurements(
-        geometry,
-        jimuMapView.view.spatialReference
-      )
-
-      // Always dispatch measurements for UI display (including 0 values)
-      dispatch({
-        type: FmeActionType.SET_REAL_TIME_MEASUREMENTS,
-        measurements,
-      })
-
-      // Only show map graphics if we have a meaningful area and it's a polygon
-      if (
-        geometry.type === "polygon" &&
-        measurements.area &&
-        measurements.area > 0 &&
-        measurementGraphicsLayer
-      ) {
-        // Use our modernized graphics creation function directly without debouncing
-        createMeasurementGraphicsDirectly(
-          geometry,
-          measurements,
-          measurementGraphicsLayer,
-          modules
-        )
-
-        // Use measurement widget if available for real-time feedback
-        const { measurementWidget } = mutableState
-        if (jimuMapView.view.type === "2d") {
-          configureMeasurementWidget(
-            jimuMapView.view,
-            geometry,
-            measurementWidget
-          )
-        }
-      }
-    } catch (error) {
-      // Fallback to basic measurements on error
-      console.warn("Error in handleDrawingUpdate:", error)
-      dispatch({
-        type: FmeActionType.SET_REAL_TIME_MEASUREMENTS,
-        measurements: { area: 0 },
-      })
     }
   })
 
@@ -1368,26 +605,11 @@ export default function Widget(
     }
   })
 
-  // Load templates on initial render or when persistence is ready
   hooks.useUpdateEffect(() => {
-    if (
-      isTemplateServiceInitialized &&
-      templatePersistence.available &&
-      reduxState.areaTemplates.length === 0
-    ) {
-      loadTemplates()
-    }
-  }, [
-    isTemplateServiceInitialized,
-    templatePersistence.available,
-    reduxState.areaTemplates.length,
-  ])
-
-  hooks.useUpdateEffect(() => {
-    if (modules && jimuMapView && !sketchWidget) {
+    if (modules && jimuMapView && !sketchViewModel) {
       handleMapViewReady(jimuMapView)
     }
-  }, [modules, jimuMapView, sketchWidget])
+  }, [modules, jimuMapView, sketchViewModel])
 
   // Automatic state persistence - save state when critical changes occur
   hooks.useUpdateEffect(() => {
@@ -1407,7 +629,6 @@ export default function Widget(
     reduxState.viewMode,
     reduxState.geometryJson,
     reduxState.drawnArea,
-    reduxState.templateName,
     reduxState.selectedWorkspace,
     reduxState.formValues,
     reduxState.drawingTool,
@@ -1450,81 +671,40 @@ export default function Widget(
       jmv.view.map.add(measurementLayer)
       setMutableValue("measurementGraphicsLayer", measurementLayer)
 
-      const { Sketch } = modules
-      if (!Sketch) throw new Error("Sketch widget not loaded in modules")
-
-      // Initialize measurement widgets if we have a MapView (not SceneView)
+      // Create a new graphic for the measurement labels
       if (jmv.view.type === "2d") {
-        // Create unified measurement widget (modern approach)
-        let measurementWidget
-        if (modules.Measurement) {
-          measurementWidget = new modules.Measurement({
+        // Create dedicated AreaMeasurement2D widget (ArcGIS 4.29 compatible) - but don't add to UI
+        let areaMeasurement2D
+        if (modules.AreaMeasurement2D) {
+          areaMeasurement2D = new modules.AreaMeasurement2D({
             view: jmv.view,
-            activeTool: "area", // Default to area measurement for polygons
-            areaUnit: "metric",
-            linearUnit: "metric",
+            unit: "metric",
+            visible: false,
           })
-          setMutableValue("measurementWidget", measurementWidget)
+          setMutableValue("areaMeasurement2D", areaMeasurement2D)
+          console.log(
+            "FME Export - AreaMeasurement2D widget created (not added to UI)"
+          )
+        }
+
+        // Create dedicated DistanceMeasurement2D widget (ArcGIS 4.29 compatible) - but don't add to UI
+        let distanceMeasurement2D
+        if (modules.DistanceMeasurement2D) {
+          distanceMeasurement2D = new modules.DistanceMeasurement2D({
+            view: jmv.view,
+            unit: "metric",
+            visible: false,
+          })
+          setMutableValue("distanceMeasurement2D", distanceMeasurement2D)
+          console.log(
+            "FME Export - DistanceMeasurement2D widget created (not added to UI)"
+          )
         }
       }
 
-      // Search widget for finding locations and features
-      let searchWidget
-      if (modules.Search) {
-        searchWidget = new modules.Search({
-          view: jmv.view,
-          includeDefaultSources: true,
-          locationEnabled: true,
-          searchAllEnabled: true,
-          suggestionsEnabled: true,
-        } as any) // Use 'as any' to bypass TypeScript issues
-        setMutableValue("searchWidget", searchWidget)
-      }
-
-      // LayerList widget for managing map layers
-      let layerListWidget
-      if (modules.LayerList) {
-        layerListWidget = new modules.LayerList({
-          view: jmv.view,
-          selectionMode: "single",
-          visibleElements: {
-            statusIndicators: true,
-            filter: true,
-            collapseButton: true,
-          },
-        })
-        setMutableValue("layerListWidget", layerListWidget)
-      }
-
-      // BasemapGallery widget for changing basemaps during export planning
-      let basemapGalleryWidget
-      if (modules.BasemapGallery) {
-        basemapGalleryWidget = new modules.BasemapGallery({
-          view: jmv.view,
-        })
-        setMutableValue("basemapGalleryWidget", basemapGalleryWidget)
-      }
-
-      // Navigation widgets for map interaction
-      let compassWidget, homeWidget
-      if (modules.Compass) {
-        compassWidget = new modules.Compass({
-          view: jmv.view,
-        })
-        setMutableValue("compassWidget", compassWidget)
-      }
-
-      if (modules.Home) {
-        homeWidget = new modules.Home({
-          view: jmv.view,
-        })
-        setMutableValue("homeWidget", homeWidget)
-      }
-
-      const sketchWidget = new Sketch({
+      const sketchViewModel = new modules.SketchViewModel({
         view: jmv.view,
         layer,
-        creationMode: "single",
         defaultCreateOptions: {
           hasZ: false,
           mode: "click",
@@ -1541,25 +721,11 @@ export default function Widget(
           selfEnabled: true,
           featureEnabled: true,
         },
-        visibleElements: {
-          createTools: {
-            point: false,
-            polyline: false,
-            polygon: true,
-            rectangle: true,
-            circle: false,
-          },
-          selectionTools: {
-            "lasso-selection": false,
-            "rectangle-selection": false,
-          },
-          settingsMenu: false,
-        },
       })
 
-      // Store the sketch widget in mutable state
-      if (sketchWidget.viewModel) {
-        sketchWidget.viewModel.polygonSymbol = {
+      // Configure the sketch view model symbols
+      if (sketchViewModel) {
+        sketchViewModel.polygonSymbol = {
           type: "simple-fill",
           color: STYLES.colors.orangeFill,
           outline: {
@@ -1569,14 +735,14 @@ export default function Widget(
           },
         }
 
-        sketchWidget.viewModel.polylineSymbol = {
+        sketchViewModel.polylineSymbol = {
           type: "simple-line",
           color: STYLES.colors.orangeOutline,
           width: 2,
           style: "solid",
         }
 
-        sketchWidget.viewModel.pointSymbol = {
+        sketchViewModel.pointSymbol = {
           type: "simple-marker",
           style: "circle",
           size: 8,
@@ -1588,7 +754,7 @@ export default function Widget(
         }
       }
 
-      sketchWidget.on("create", (evt: __esri.SketchCreateEvent) => {
+      sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
         // Only log significant events to reduce console noise
         if (evt.state === "start" || evt.state === "complete") {
           console.log(
@@ -1598,9 +764,7 @@ export default function Widget(
             evt.tool
           )
         }
-        if (evt.state === "active" || evt.state === "start") {
-          handleDrawingUpdate(evt)
-        } else if (evt.state === "complete") {
+        if (evt.state === "complete") {
           console.log(
             "FME Export - Drawing completed, geometry:",
             evt.graphic?.geometry
@@ -1608,12 +772,7 @@ export default function Widget(
           handleDrawingComplete(evt)
         }
       })
-      sketchWidget.on("update", (evt: __esri.SketchUpdateEvent) => {
-        console.log("FME Export - Sketch update event:", evt.state)
-        handleDrawingUpdate(evt)
-      })
-
-      setMutableValue("sketchWidget", sketchWidget)
+      setMutableValue("sketchViewModel", sketchViewModel)
     } catch (error) {
       raiseError(
         errorService.createError("Failed to initialize map", ErrorType.MODULE, {
@@ -1635,12 +794,12 @@ export default function Widget(
     }
   })
 
-  // Drawing start handler - now using Sketch widget
+  // Start drawing handler - initializes sketch view model and starts drawing
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     console.log("FME Export - Starting drawing with tool:", tool)
 
-    if (!sketchWidget) {
-      console.warn("FME Export - Sketch widget not available")
+    if (!sketchViewModel) {
+      console.warn("FME Export - Sketch view model not available")
       return
     }
 
@@ -1659,30 +818,74 @@ export default function Widget(
     clearAllGraphics()
     console.log("FME Export - Cleared all graphics before drawing")
 
-    // Use the modern Sketch widget's programmatic creation
+    // Ensure measurement widgets are hidden during drawing
+    const { areaMeasurement2D, distanceMeasurement2D } = mutableState
+    if (areaMeasurement2D) {
+      try {
+        areaMeasurement2D.visible = false
+        areaMeasurement2D.viewModel.clear()
+        console.log(
+          "FME Export - Ensured area measurement widget is hidden during drawing"
+        )
+      } catch (error) {
+        console.warn("FME Export - Failed to hide area measurement:", error)
+      }
+    }
+
+    if (distanceMeasurement2D) {
+      try {
+        distanceMeasurement2D.visible = false
+        distanceMeasurement2D.viewModel.clear()
+        console.log(
+          "FME Export - Ensured distance measurement widget is hidden during drawing"
+        )
+      } catch (error) {
+        console.warn("FME Export - Failed to hide distance measurement:", error)
+      }
+    }
+
+    // Start the sketch drawing based on the selected tool
     if (tool === DrawingTool.RECTANGLE) {
       console.log("FME Export - Creating rectangle")
-      sketchWidget.create("rectangle")
+      sketchViewModel.create("rectangle")
     } else if (tool === DrawingTool.FREEHAND) {
       console.log("FME Export - Creating freehand polygon")
-      sketchWidget.create("polygon", { mode: "freehand" })
+      sketchViewModel.create("polygon", { mode: "freehand" })
     } else {
       console.log("FME Export - Creating polygon")
-      sketchWidget.create("polygon")
+      sketchViewModel.create("polygon")
     }
   })
 
-  // Reset handler - updated for Sketch widget
+  // Reset handler - clears all graphics and resets drawing state
   const handleReset = hooks.useEventCallback(() => {
-    // Clear all graphics layers
+    // Reset the widget state
     clearAllGraphics()
 
-    if (sketchWidget) sketchWidget.cancel()
+    if (sketchViewModel) sketchViewModel.cancel()
 
-    // Reset measurement widget if it exists
-    const { measurementWidget } = mutableState
-    if (measurementWidget) {
-      measurementWidget.visible = false
+    // Reset drawing state
+    const { areaMeasurement2D, distanceMeasurement2D } = mutableState
+    if (areaMeasurement2D) {
+      try {
+        areaMeasurement2D.viewModel.clear()
+        areaMeasurement2D.visible = false
+        console.log("FME Export - Cleared area measurement widget")
+      } catch (error) {
+        console.warn("FME Export - Failed to clear area measurement:", error)
+      }
+    }
+    if (distanceMeasurement2D) {
+      try {
+        distanceMeasurement2D.viewModel.clear()
+        distanceMeasurement2D.visible = false
+        console.log("FME Export - Cleared distance measurement widget")
+      } catch (error) {
+        console.warn(
+          "FME Export - Failed to clear distance measurement:",
+          error
+        )
+      }
     }
 
     dispatch({ type: FmeActionType.RESET_STATE })
@@ -1691,12 +894,9 @@ export default function Widget(
   // Workspace selection handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
     (workspaceName: string, parameters: readonly any[], workspaceItem: any) => {
-      // Store the selected workspace parameters in Redux
       dispatch(fmeActions.setSelectedWorkspace(workspaceName))
       dispatch(fmeActions.setWorkspaceParameters(parameters, workspaceName))
       dispatch(fmeActions.setWorkspaceItem(workspaceItem))
-
-      // Transition to dynamic export form
       dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM))
     }
   )
@@ -1714,14 +914,6 @@ export default function Widget(
       previousView && previousView !== currentView
         ? previousView
         : (() => {
-            // Special case for template/save views with drawn area
-            if (
-              (currentView === ViewMode.SAVE_TEMPLATE ||
-                currentView === ViewMode.TEMPLATE_MANAGER) &&
-              reduxState.drawnArea > 0
-            ) {
-              return ViewMode.WORKSPACE_SELECTION
-            }
             // Default routing logic - go back to appropriate previous view
             switch (currentView) {
               case ViewMode.EXPORT_FORM:
@@ -1800,7 +992,7 @@ export default function Widget(
         instructionText={getInstructionText(reduxState.drawingTool)}
         onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
         isModulesLoading={modulesLoading}
-        canStartDrawing={!!sketchWidget}
+        canStartDrawing={!!sketchViewModel}
         onFormBack={() => {
           dispatch({
             type: FmeActionType.SET_VIEW_MODE,
@@ -1816,76 +1008,23 @@ export default function Widget(
           })
         }}
         isSubmittingOrder={reduxState.isSubmittingOrder}
-        templates={[...reduxState.areaTemplates]}
-        templateName={reduxState.templateName}
-        onLoadTemplate={loadTemplate}
-        onSaveTemplate={saveTemplate}
-        onDeleteTemplate={deleteTemplate}
-        onTemplateNameChange={(name) =>
-          dispatch({
-            type: FmeActionType.SET_TEMPLATE_NAME,
-            templateName: name,
-          })
-        }
         onBack={handleGoBack}
         drawnArea={reduxState.drawnArea}
         formatArea={formatArea}
-        isTemplateLoading={reduxState.isTemplateLoading}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) =>
           dispatch({ type: FmeActionType.SET_DRAWING_TOOL, drawingTool: tool })
         }
         realTimeMeasurements={reduxState.realTimeMeasurements}
-        formatRealTimeMeasurements={(measurements) => (
-          <MeasurementOverlay data={measurements} translate={translate} />
-        )}
+        formatRealTimeMeasurements={() => null} // Measurement widgets handle their own display
         // Header props
         showHeaderActions={
           (reduxState.isDrawing || reduxState.drawnArea > 0) &&
           !reduxState.isSubmittingOrder &&
-          !modulesLoading &&
-          !reduxState.isTemplateLoading
+          !modulesLoading
         }
         onReset={handleReset}
-        showSaveButton={
-          reduxState.drawnArea > 0 &&
-          !reduxState.isSubmittingOrder &&
-          !reduxState.isModulesLoading &&
-          !reduxState.isTemplateLoading
-        }
-        showFolderButton={
-          reduxState.areaTemplates.length > 0 &&
-          !reduxState.orderResult &&
-          !reduxState.isSubmittingOrder &&
-          !reduxState.isModulesLoading &&
-          !reduxState.isTemplateLoading
-        }
-        onSaveTemplateFromHeader={() => {
-          dispatch({
-            type: FmeActionType.SET_VIEW_MODE,
-            viewMode: ViewMode.SAVE_TEMPLATE,
-          })
-        }}
-        onShowTemplateFolder={() => {
-          const newMode =
-            reduxState.viewMode === ViewMode.TEMPLATE_MANAGER
-              ? ViewMode.INITIAL
-              : ViewMode.TEMPLATE_MANAGER
-          dispatch({
-            type: FmeActionType.SET_VIEW_MODE,
-            viewMode: newMode,
-          })
-        }}
-        canSaveTemplate={reduxState.drawnArea > 0}
-        canLoadTemplate={reduxState.areaTemplates.length > 0}
         canReset={true}
-        onExportTemplates={handleExportTemplates}
-        onExportSingleTemplate={handleExportSingleTemplate}
-        onImportTemplates={handleImportTemplates}
-        isImportingTemplates={reduxState.isImportingTemplates}
-        isExportingTemplates={reduxState.isExportingTemplates}
-        importError={reduxState.importError}
-        exportError={reduxState.exportError}
         onWorkspaceSelected={handleWorkspaceSelected}
         onWorkspaceBack={handleWorkspaceBack}
         selectedWorkspace={reduxState.selectedWorkspace}
@@ -1924,9 +1063,9 @@ export default function Widget(
   const jimuMapView = MutableStoreManager.getInstance().getStateValue([
     widgetId,
   ])?.jimuMapView
-  const sketchWidget = MutableStoreManager.getInstance().getStateValue([
+  const sketchViewModel = MutableStoreManager.getInstance().getStateValue([
     widgetId,
-  ])?.sketchWidget
+  ])?.sketchViewModel
   const graphicsLayer = MutableStoreManager.getInstance().getStateValue([
     widgetId,
   ])?.graphicsLayer
@@ -1944,29 +1083,20 @@ export default function Widget(
       geometryJson: null,
       drawnArea: 0,
       realTimeMeasurements: {},
-      areaTemplates: [],
-      templateName: "",
-      selectedTemplateId: null,
       selectedWorkspace: null,
       workspaceParameters: [],
       workspaceItem: null,
       formValues: {},
       orderResult: null,
       isModulesLoading: false,
-      isTemplateLoading: false,
       isSubmittingOrder: false,
-      isImportingTemplates: false,
-      isExportingTemplates: false,
       error: null,
-      importError: null,
-      exportError: null,
       uiState: StateType.IDLE,
       uiStateData: {},
-      templateValidation: null,
     },
     mutableStateProps: {
       jimuMapView,
-      sketchWidget,
+      sketchViewModel,
       graphicsLayer,
       currentGeometry,
     },

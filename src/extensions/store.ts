@@ -8,12 +8,10 @@ import {
   type FmeWidgetState,
   type FmeActions,
   type ErrorState,
-  type AreaTemplate,
   type StateData,
   type WorkspaceItem,
   type WorkspaceParameter,
   type SetViewModeAction,
-  type SetAreaTemplatesAction,
   type SetFormValuesAction,
   type SetDrawingStateAction,
   type SetLoadingFlagsAction,
@@ -29,13 +27,6 @@ export const fmeActions = {
   setViewMode: (viewMode: ViewMode): SetViewModeAction => ({
     type: FmeActionType.SET_VIEW_MODE,
     viewMode,
-  }),
-
-  setAreaTemplates: (
-    areaTemplates: readonly AreaTemplate[]
-  ): SetAreaTemplatesAction => ({
-    type: FmeActionType.SET_AREA_TEMPLATES,
-    areaTemplates,
   }),
 
   setFormValues: (formValues: { [key: string]: any }): SetFormValuesAction => ({
@@ -56,10 +47,7 @@ export const fmeActions = {
 
   setLoadingFlags: (flags: {
     isModulesLoading?: boolean
-    isTemplateLoading?: boolean
     isSubmittingOrder?: boolean
-    isImportingTemplates?: boolean
-    isExportingTemplates?: boolean
   }): SetLoadingFlagsAction => ({
     type: FmeActionType.SET_LOADING_FLAGS,
     ...flags,
@@ -78,23 +66,6 @@ export const fmeActions = {
   setExportError: (error: ErrorState | null) => ({
     type: FmeActionType.SET_EXPORT_ERROR,
     error,
-  }),
-
-  startTemplateImport: () => ({
-    type: FmeActionType.START_TEMPLATE_IMPORT,
-  }),
-
-  startTemplateExport: () => ({
-    type: FmeActionType.START_TEMPLATE_EXPORT,
-  }),
-
-  finishTemplateImport: (templates?: AreaTemplate[]) => ({
-    type: FmeActionType.FINISH_TEMPLATE_IMPORT,
-    templates,
-  }),
-
-  finishTemplateExport: () => ({
-    type: FmeActionType.FINISH_TEMPLATE_EXPORT,
   }),
 
   setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
@@ -146,11 +117,6 @@ export const initialFmeState: FmeWidgetState = {
   drawnArea: 0,
   realTimeMeasurements: {} as RealTimeMeasurements,
 
-  // Template management
-  areaTemplates: [],
-  templateName: "",
-  selectedTemplateId: null,
-
   // Export state
   formValues: {},
   orderResult: null,
@@ -165,10 +131,7 @@ export const initialFmeState: FmeWidgetState = {
 
   // Loading states
   isModulesLoading: false,
-  isTemplateLoading: false,
   isSubmittingOrder: false,
-  isImportingTemplates: false,
-  isExportingTemplates: false,
 
   // Error handling
   error: null,
@@ -178,9 +141,6 @@ export const initialFmeState: FmeWidgetState = {
   // UI state management (moved from local state.tsx)
   uiState: StateType.IDLE,
   uiStateData: {} as any, // Will be properly typed as StateData
-
-  // Template validation
-  templateValidation: null,
 }
 
 // Reducer function to handle FME widget state updates
@@ -203,12 +163,6 @@ const fmeReducer = (
     case FmeActionType.SET_REAL_TIME_MEASUREMENTS:
       return state.set("realTimeMeasurements", action.measurements)
 
-    case FmeActionType.SET_AREA_TEMPLATES:
-      return state.set("areaTemplates", action.areaTemplates)
-
-    case FmeActionType.SET_TEMPLATE_NAME:
-      return state.set("templateName", action.templateName)
-
     case FmeActionType.SET_LOADING_FLAGS:
       return state
         .set(
@@ -216,20 +170,8 @@ const fmeReducer = (
           action.isModulesLoading ?? state.isModulesLoading
         )
         .set(
-          "isTemplateLoading",
-          action.isTemplateLoading ?? state.isTemplateLoading
-        )
-        .set(
           "isSubmittingOrder",
           action.isSubmittingOrder ?? state.isSubmittingOrder
-        )
-        .set(
-          "isImportingTemplates",
-          action.isImportingTemplates ?? state.isImportingTemplates
-        )
-        .set(
-          "isExportingTemplates",
-          action.isExportingTemplates ?? state.isExportingTemplates
         )
 
     case FmeActionType.SET_ORDER_RESULT:
@@ -255,9 +197,6 @@ const fmeReducer = (
     case FmeActionType.SET_FORM_VALUES:
       return state.set("formValues", action.formValues)
 
-    case FmeActionType.SET_TEMPLATE_VALIDATION:
-      return state.set("templateValidation", action.validation)
-
     case FmeActionType.SET_UI_STATE:
       return state.set("uiState", action.uiState)
 
@@ -269,26 +208,6 @@ const fmeReducer = (
 
     case FmeActionType.SET_EXPORT_ERROR:
       return state.set("exportError", action.error)
-
-    case FmeActionType.START_TEMPLATE_IMPORT:
-      return state.set("isImportingTemplates", true).set("importError", null)
-
-    case FmeActionType.START_TEMPLATE_EXPORT:
-      return state.set("isExportingTemplates", true).set("exportError", null)
-
-    case FmeActionType.FINISH_TEMPLATE_IMPORT:
-      let newState = state
-        .set("isImportingTemplates", false)
-        .set("importError", null)
-
-      if (action.templates) {
-        newState = newState.set("areaTemplates", action.templates)
-      }
-
-      return newState
-
-    case FmeActionType.FINISH_TEMPLATE_EXPORT:
-      return state.set("isExportingTemplates", false).set("exportError", null)
 
     case FmeActionType.SET_WORKSPACE_ITEMS:
       return state.set("workspaceItems", action.workspaceItems)

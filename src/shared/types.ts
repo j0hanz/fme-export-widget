@@ -119,8 +119,6 @@ export const enum ViewMode {
   WORKSPACE_SELECTION = "workspaceSelection",
   EXPORT_OPTIONS = "exportOptions",
   EXPORT_FORM = "exportForm",
-  TEMPLATE_MANAGER = "templateManager",
-  SAVE_TEMPLATE = "saveTemplate",
   ORDER_RESULT = "orderResult",
 }
 
@@ -158,7 +156,6 @@ export const enum ErrorType {
   NETWORK = "NetworkError",
   MODULE = "ModuleError",
   GEOMETRY = "GeometryError",
-  TEMPLATE = "TemplateError",
   API = "ApiError",
   CONFIG = "ConfigError",
   AREA_TOO_LARGE = "AreaTooLarge",
@@ -176,18 +173,8 @@ export interface ErrorState {
   readonly details?: { [key: string]: unknown }
 }
 
-// Template validation result flags
-export interface TemplateValidationResult {
-  readonly nameEmpty: boolean
-  readonly nameTooLong: boolean
-  readonly nameExists: boolean
-  readonly hasInvalidChars: boolean
-  readonly hasMaxTemplates: boolean
-  readonly name: string
-}
-
 // State Management
-// Redux Action Types by domain: view, drawing, template, export, data, loading, error, UI
+// Redux Action Types by domain: view, drawing, export, data, loading, error, UI
 export enum FmeActionType {
   // View & Navigation Actions
   SET_VIEW_MODE = "FME_SET_VIEW_MODE",
@@ -199,15 +186,6 @@ export enum FmeActionType {
   SET_DRAWING_TOOL = "FME_SET_DRAWING_TOOL",
   SET_CLICK_COUNT = "FME_SET_CLICK_COUNT",
   SET_REAL_TIME_MEASUREMENTS = "FME_SET_REAL_TIME_MEASUREMENTS",
-
-  // Template Management Actions
-  SET_AREA_TEMPLATES = "FME_SET_AREA_TEMPLATES",
-  SET_TEMPLATE_NAME = "FME_SET_TEMPLATE_NAME",
-  SET_TEMPLATE_VALIDATION = "FME_SET_TEMPLATE_VALIDATION",
-  START_TEMPLATE_IMPORT = "FME_START_TEMPLATE_IMPORT",
-  START_TEMPLATE_EXPORT = "FME_START_TEMPLATE_EXPORT",
-  FINISH_TEMPLATE_IMPORT = "FME_FINISH_TEMPLATE_IMPORT",
-  FINISH_TEMPLATE_EXPORT = "FME_FINISH_TEMPLATE_EXPORT",
 
   // Export & Form Actions
   SET_FORM_VALUES = "FME_SET_FORM_VALUES",
@@ -273,36 +251,6 @@ export interface SetRealTimeMeasurementsAction
   measurements: RealTimeMeasurements
 }
 
-// Template Management Actions
-export interface SetAreaTemplatesAction
-  extends BaseAction<FmeActionType.SET_AREA_TEMPLATES> {
-  areaTemplates: readonly AreaTemplate[]
-}
-
-export interface SetTemplateNameAction
-  extends BaseAction<FmeActionType.SET_TEMPLATE_NAME> {
-  templateName: string
-}
-
-export interface SetTemplateValidationAction
-  extends BaseAction<FmeActionType.SET_TEMPLATE_VALIDATION> {
-  validation: TemplateValidationResult
-}
-
-export interface StartTemplateImportAction
-  extends BaseAction<FmeActionType.START_TEMPLATE_IMPORT> {}
-
-export interface StartTemplateExportAction
-  extends BaseAction<FmeActionType.START_TEMPLATE_EXPORT> {}
-
-export interface FinishTemplateImportAction
-  extends BaseAction<FmeActionType.FINISH_TEMPLATE_IMPORT> {
-  templates?: AreaTemplate[]
-}
-
-export interface FinishTemplateExportAction
-  extends BaseAction<FmeActionType.FINISH_TEMPLATE_EXPORT> {}
-
 // Export & Form Actions
 export interface SetFormValuesAction
   extends BaseAction<FmeActionType.SET_FORM_VALUES> {
@@ -341,10 +289,7 @@ export interface SetWorkspaceItemAction
 export interface SetLoadingFlagsAction
   extends BaseAction<FmeActionType.SET_LOADING_FLAGS> {
   isModulesLoading?: boolean
-  isTemplateLoading?: boolean
   isSubmittingOrder?: boolean
-  isImportingTemplates?: boolean
-  isExportingTemplates?: boolean
 }
 
 export interface SetErrorAction extends BaseAction<FmeActionType.SET_ERROR> {
@@ -382,15 +327,6 @@ export type FmeDrawingActions =
   | SetClickCountAction
   | SetRealTimeMeasurementsAction
 
-export type FmeTemplateActions =
-  | SetAreaTemplatesAction
-  | SetTemplateNameAction
-  | SetTemplateValidationAction
-  | StartTemplateImportAction
-  | StartTemplateExportAction
-  | FinishTemplateImportAction
-  | FinishTemplateExportAction
-
 export type FmeExportActions = SetFormValuesAction | SetOrderResultAction
 
 export type FmeWorkspaceActions =
@@ -411,18 +347,10 @@ export type FmeUiActions = SetUiStateAction | SetUiStateDataAction
 export type FmeActions =
   | FmeViewActions
   | FmeDrawingActions
-  | FmeTemplateActions
   | FmeExportActions
   | FmeWorkspaceActions
   | FmeLoadingErrorActions
   | FmeUiActions
-
-// Template validation rules
-export const TEMPLATE_VALIDATION_RULES = {
-  MAX_NAME_LENGTH: 20,
-  MAX_TEMPLATES: 5,
-  INVALID_CHARS_REGEX: /[<>:"\/\\|?*]/,
-} as const
 
 // Drawing and UI config constants
 export const DRAWING_LAYER_TITLE = "Drawing Layer"
@@ -435,11 +363,6 @@ export const LAYER_CONFIG = {
 
 export const SIMULATION_DELAYS = {
   ORDER_SUBMIT: 2000,
-} as const
-
-export const TEMPLATE_ID_CONFIG = {
-  prefix: "template_",
-  randomLength: 9,
 } as const
 
 // UI Configuration Constants
@@ -499,10 +422,8 @@ export const TOOLTIP_CONFIG = {
 } as const
 
 // Freeze config objects to prevent mutation
-Object.freeze(TEMPLATE_VALIDATION_RULES)
 Object.freeze(LAYER_CONFIG)
 Object.freeze(SIMULATION_DELAYS)
-Object.freeze(TEMPLATE_ID_CONFIG)
 Object.freeze(UI_CONSTANTS)
 Object.freeze(TOOLTIP_CONFIG)
 
@@ -738,18 +659,10 @@ export interface UploadWorkspaceParams {
   readonly params?: string
 }
 
-export interface AreaTemplate {
-  readonly id: string
-  readonly name: string
-  readonly geometry: __esri.Geometry
-  readonly area: number
-  readonly createdDate: Date
-}
-
 // ArcGIS JS API module collection
 export interface EsriModules {
   // Core geometry and drawing modules
-  readonly Sketch: typeof __esri.Sketch
+  readonly SketchViewModel: typeof __esri.SketchViewModel
   readonly GraphicsLayer: typeof __esri.GraphicsLayer
   readonly Graphic: typeof __esri.Graphic
   readonly Polygon: typeof __esri.Polygon
@@ -762,26 +675,12 @@ export interface EsriModules {
   readonly SimpleLineSymbol: typeof __esri.SimpleLineSymbol
   readonly PictureMarkerSymbol: typeof __esri.PictureMarkerSymbol
 
-  // Measurement widgets - using modern unified widget
-  readonly Measurement: typeof __esri.Measurement
+  // Measurement widgets (ArcGIS 4.29 compatible - both since 4.10)
+  readonly AreaMeasurement2D: typeof __esri.AreaMeasurement2D
+  readonly DistanceMeasurement2D: typeof __esri.DistanceMeasurement2D
 
-  // Essential UI widgets for enhanced functionality
-  readonly Search: typeof __esri.Search
-  readonly LayerList: typeof __esri.LayerList
-  readonly BasemapGallery: typeof __esri.BasemapGallery
-  readonly Compass: typeof __esri.Compass
-  readonly Home: typeof __esri.Home
-
-  // ArcGIS 4.32+ Geometry Operators - using __esri namespace for consistency
-  readonly areaOperator: typeof __esri.areaOperator
-  readonly geodeticAreaOperator: typeof __esri.geodeticAreaOperator
-  readonly lengthOperator: typeof __esri.lengthOperator
-  readonly geodeticLengthOperator: typeof __esri.geodeticLengthOperator
-  readonly centroidOperator: typeof __esri.centroidOperator
-  readonly simplifyOperator: typeof __esri.simplifyOperator
-  readonly bufferOperator: typeof __esri.bufferOperator
-  readonly geodesicBufferOperator: typeof __esri.geodesicBufferOperator
-  readonly convexHullOperator: typeof __esri.convexHullOperator
+  // ArcGIS 4.29-compatible GeometryEngine (legacy methods available in 4.29)
+  readonly geometryEngine: typeof __esri.geometryEngine
 }
 
 // Result from FME export job submission
@@ -837,14 +736,6 @@ export interface FmeDrawingState {
   readonly realTimeMeasurements: RealTimeMeasurements
 }
 
-// Template management state
-export interface FmeTemplateState {
-  readonly areaTemplates: readonly AreaTemplate[]
-  readonly templateName: string
-  readonly selectedTemplateId: string | null
-  readonly templateValidation: TemplateValidationResult | null
-}
-
 // Export workflow and form data state
 export interface FmeExportState {
   readonly formValues: {
@@ -866,10 +757,7 @@ export interface FmeWorkspaceState {
 // Loading states for async operations
 export interface FmeLoadingState {
   readonly isModulesLoading: boolean
-  readonly isTemplateLoading: boolean
   readonly isSubmittingOrder: boolean
-  readonly isImportingTemplates: boolean
-  readonly isExportingTemplates: boolean
 }
 
 // Error state management
@@ -889,7 +777,6 @@ export interface FmeUiState {
 export interface FmeWidgetState
   extends FmeViewState,
     FmeDrawingState,
-    FmeTemplateState,
     FmeExportState,
     FmeWorkspaceState,
     FmeLoadingState,
@@ -962,34 +849,10 @@ export interface ContentExportProps {
   readonly isSubmittingOrder?: boolean
 }
 
-// Template-related content properties
-export interface ContentTemplateProps {
-  readonly templates?: readonly AreaTemplate[]
-  readonly templateName?: string
-  readonly onLoadTemplate?: (templateId: string) => void
-  readonly onSaveTemplate?: (name: string) => void
-  readonly onDeleteTemplate?: (templateId: string) => void
-  readonly onTemplateNameChange?: (name: string) => void
-  readonly isTemplateLoading?: boolean
-  readonly onExportTemplates?: () => void
-  readonly onExportSingleTemplate?: (templateId: string) => void
-  readonly onImportTemplates?: (file: File) => void
-  readonly isImportingTemplates?: boolean
-  readonly isExportingTemplates?: boolean
-  readonly importError?: ErrorState | null
-  readonly exportError?: ErrorState | null
-}
-
 // Header-related content properties
 export interface ContentHeaderProps {
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
-  readonly showSaveButton?: boolean
-  readonly showFolderButton?: boolean
-  readonly onSaveTemplateFromHeader?: () => void
-  readonly onShowTemplateFolder?: () => void
-  readonly canSaveTemplate?: boolean
-  readonly canLoadTemplate?: boolean
   readonly canReset?: boolean
 }
 
@@ -1003,7 +866,6 @@ export interface ContentProps
   extends ContentBaseProps,
     Partial<ContentDrawingProps>,
     Partial<ContentExportProps>,
-    Partial<ContentTemplateProps>,
     Partial<ContentHeaderProps>,
     Partial<ContentWorkspaceProps>,
     ContentLoadingProps {}
@@ -1219,8 +1081,6 @@ export const HIGHLIGHT_SYMBOL = {
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
-  [ViewMode.SAVE_TEMPLATE]: ViewMode.WORKSPACE_SELECTION,
-  [ViewMode.TEMPLATE_MANAGER]: ViewMode.WORKSPACE_SELECTION,
   [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
   [ViewMode.WORKSPACE_SELECTION]: ViewMode.INITIAL,
   [ViewMode.EXPORT_OPTIONS]: ViewMode.INITIAL,
