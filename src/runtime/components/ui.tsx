@@ -39,6 +39,106 @@ import {
 } from "../../shared/types"
 import handleDotVerticalIcon from "../../assets/icons/handle-dot-vertical.svg"
 
+// UI CSS constants styles
+export const UI_CSS = {
+  ICON_SIZES: {
+    SMALL: 14,
+    DEFAULT: UI_CONSTANTS.DEFAULT_ICON_SIZE,
+    MEDIUM: 16,
+  },
+  SPACING: {
+    ICON_OFFSET: "10px",
+    ICON_MARGIN: "mr-2",
+  },
+  ACCESSIBILITY: {
+    DEFAULT_BUTTON_LABEL: "Button",
+    DEFAULT_MENU_LABEL: "Options menu",
+    REQUIRED_INDICATOR: "*",
+  },
+  BTN: {
+    GROUP: {
+      display: "flex" as const,
+      gap: "1rem",
+      marginTop: "1rem",
+    } as React.CSSProperties,
+    DEFAULT: {
+      display: "flex",
+      flexFlow: "column",
+      width: "100%",
+      gap: "1rem",
+    } as React.CSSProperties,
+    ROW: {
+      display: "flex" as const,
+      width: "100%",
+      flexDirection: "row",
+      gap: 0,
+    } as React.CSSProperties,
+    TEXT: {
+      flex: 1,
+      textAlign: "end",
+    } as React.CSSProperties,
+    SELECT: {
+      width: 50,
+      height: 32,
+      minWidth: 50,
+      padding: 0,
+    } as React.CSSProperties,
+  },
+  STYLES: {
+    BUTTON_RELATIVE: { position: "relative" as const },
+    TEXTAREA_RESIZE: { resize: "vertical" as const },
+    DROPDOWN_FLEX: "d-flex align-items-center",
+    DISABLED_CURSOR: {
+      display: "contents" as const,
+      cursor: "not-allowed" as const,
+    },
+  },
+} as const
+
+// Helper functions for common UI patterns
+const createIconElement = (
+  icon: string,
+  size: number = UI_CSS.ICON_SIZES.DEFAULT,
+  className?: string,
+  ariaLabel?: string
+) => (
+  <SVG
+    src={icon}
+    size={size}
+    className={className}
+    currentColor={true}
+    role="img"
+    aria-hidden={!ariaLabel}
+    aria-label={ariaLabel}
+  />
+)
+
+const createAccessibilityLabel = (
+  ...fallbacks: Array<string | undefined>
+): string => {
+  return (
+    fallbacks.find(
+      (label) => typeof label === "string" && label.trim() !== ""
+    ) || UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
+  )
+}
+
+const withConditionalTooltip = (
+  element: React.ReactElement,
+  tooltip?: React.ReactNode,
+  disabled = false,
+  placement: "top" | "bottom" | "left" | "right" = "top",
+  enterDelay: number = UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER
+): React.ReactElement => {
+  return tooltip && !disabled ? (
+    <Tooltip content={tooltip} placement={placement} enterDelay={enterDelay}>
+      {element}
+    </Tooltip>
+  ) : (
+    element
+  )
+}
+
 // Shared controlled value hook with enhanced jimu patterns
 const useControlledValue = <T = string,>(
   controlledValue?: T,
@@ -84,21 +184,6 @@ const resolveTooltipContent = (
   return title || content || childProps?.title || childProps?.["aria-label"]
 }
 
-// Event handler creator
-const createEventHandler = (
-  onClick?: () => void,
-  logAction?: (action: string, data?: { [key: string]: unknown }) => void,
-  disabled = false,
-  loading = false,
-  label = "Action"
-) => {
-  return hooks.useEventCallback(() => {
-    if (disabled || loading || !onClick) return
-    logAction?.("clicked", { label, disabled, loading })
-    onClick()
-  })
-}
-
 // Button config resolver
 const resolveButtonConfig = (config: any, side: "left" | "right") => {
   const isLeft = side === "left"
@@ -139,7 +224,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   }
 
   const child = isDisabled ? (
-    <span style={{ display: "contents", cursor: "not-allowed" }}>
+    <span style={UI_CSS.STYLES.DISABLED_CURSOR}>
       {React.cloneElement(children, childProps)}
     </span>
   ) : (
@@ -163,7 +248,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   )
 }
 
-// Button component with centralized event handling and content rendering
+// Button component - simplified while preserving core features
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
@@ -181,74 +266,70 @@ export const Button: React.FC<ButtonProps> = ({
   block = UI_CONSTANTS.BUTTON_DEFAULTS.BLOCK,
   ...jimuProps
 }) => {
-  const logAction = useComponentLogger(logging, "Button")
-  const handleClick = createEventHandler(
-    onClick,
-    logAction,
-    jimuProps.disabled || false,
-    loading,
-    typeof text === "string" ? text : jimuProps.title || "Button"
-  )
+  // Handle click with logging
+  const handleClick = hooks.useEventCallback(() => {
+    if (jimuProps.disabled || loading || !onClick) return
 
-  const renderButtonContent = () => {
+    if (logging?.enabled) {
+      const label =
+        typeof text === "string" ? text : jimuProps.title || "Button"
+      console.log(`[${logging.prefix}] clicked`, {
+        label,
+        disabled: jimuProps.disabled,
+        loading,
+      })
+    }
+
+    onClick()
+  })
+
+  // Render button content based on props
+  const renderContent = () => {
     if (loading) return <Loading type={LoadingType.Donut} />
     if (children) return children
-    if (!text && !icon) return null
 
     const hasIcon = !!icon
     const hasText = !!text
 
+    if (!hasIcon && !hasText) return null
+
+    // Icon only
     if (hasIcon && !hasText) {
-      return (
-        <SVG
-          src={icon as string}
-          size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
-          currentColor={true}
-          role="img"
-          aria-hidden="true"
-        />
-      )
+      return createIconElement(icon as string, UI_CSS.ICON_SIZES.DEFAULT)
     }
 
+    // Text only
     if (hasText && !hasIcon) {
-      return <span style={{ flex: 1 }}>{text}</span>
+      return <>{text}</>
     }
 
-    if (hasText && hasIcon) {
-      const iconStyle: React.CSSProperties = {
+    // Icon and text
+    const iconEl = createIconElement(icon as string, UI_CSS.ICON_SIZES.SMALL)
+    const iconWithPosition = React.cloneElement(iconEl, {
+      style: {
         position: "absolute",
-        [iconPosition]: "10px",
+        [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
         zIndex: 1,
-      }
+      },
+    })
 
-      return (
-        <>
-          {iconPosition === "left" && (
-            <SVG
-              src={icon as string}
-              size={14}
-              style={iconStyle}
-              currentColor={true}
-              role="img"
-              aria-hidden="true"
-            />
-          )}
-          <span style={{ flex: 1 }}>{text}</span>
-          {iconPosition === "right" && (
-            <SVG
-              src={icon as string}
-              size={14}
-              style={iconStyle}
-              currentColor={true}
-              role="img"
-              aria-hidden="true"
-            />
-          )}
-        </>
-      )
-    }
+    return (
+      <>
+        {iconPosition === "left" && iconWithPosition}
+        <span style={UI_CSS.BTN.TEXT}>{text}</span>
+        {iconPosition === "right" && iconWithPosition}
+      </>
+    )
+  }
 
-    return null
+  // Create accessible label for icon-only buttons
+  const getAriaLabel = () => {
+    if (text || !icon) return jimuProps["aria-label"]
+    return createAccessibilityLabel(
+      typeof text === "string" ? text : "",
+      jimuProps["aria-label"],
+      typeof tooltip === "string" ? tooltip : ""
+    )
   }
 
   const buttonElement = (
@@ -258,36 +339,30 @@ export const Button: React.FC<ButtonProps> = ({
       onClick={handleClick}
       disabled={jimuProps.disabled || loading}
       aria-busy={loading}
-      aria-label={
-        !text && !!icon
-          ? (typeof text === "string" ? text : "") ||
-            (typeof jimuProps["aria-label"] === "string"
-              ? jimuProps["aria-label"]
-              : "") ||
-            (typeof tooltip === "string" ? tooltip : "") ||
-            "Button"
-          : jimuProps["aria-label"] || undefined
-      }
+      aria-label={getAriaLabel()}
       aria-describedby={
         tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
       }
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
-      style={{ position: "relative", ...jimuProps.style }}
+      style={{
+        ...UI_CSS.STYLES.BUTTON_RELATIVE,
+        ...jimuProps.style,
+      }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
-      {renderButtonContent()}
+      {renderContent()}
     </JimuButton>
   )
 
+  // Apply tooltip if provided and not disabled
   return tooltip && !tooltipDisabled ? (
     <Tooltip
       content={tooltip}
       placement={tooltipPlacement}
       enterDelay={tooltipEnterDelay}
-      leaveDelay={tooltipLeaveDelay}
     >
       {buttonElement}
     </Tooltip>
@@ -331,7 +406,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   }
 
   return (
-    <div className={className} style={{ ...STYLES.button.group, ...style }}>
+    <div className={className} style={UI_CSS.BTN.GROUP}>
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -433,7 +508,10 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      style={{ resize: "vertical", ...props.style }}
+      style={{
+        ...UI_CSS.STYLES.TEXTAREA_RESIZE,
+        ...props.style,
+      }}
       aria-required={props.required}
       aria-invalid={!!(props as any).validationMessage}
       aria-describedby={
@@ -511,15 +589,8 @@ export const Select: React.FC<SelectProps> = ({
           disabled={option.disabled}
           aria-label={option.label}
         >
-          {option.icon && (
-            <SVG
-              src={option.icon}
-              size={16}
-              currentColor={true}
-              role="img"
-              aria-hidden="true"
-            />
-          )}
+          {option.icon &&
+            createIconElement(option.icon, UI_CSS.ICON_SIZES.MEDIUM)}
           {!option.hideLabel && option.label}
         </Option>
       ))}
@@ -556,38 +627,31 @@ export const Dropdown: React.FC<DropdownProps> = ({
   const renderButtonContent = () => {
     if (buttonText && buttonIcon) {
       return (
-        <div className="d-flex align-items-center">
-          <SVG
-            src={buttonIcon}
-            size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
-            className="mr-2"
-            currentColor={true}
-            role="img"
-            aria-hidden="true"
-          />
+        <div className={UI_CSS.STYLES.DROPDOWN_FLEX}>
+          {createIconElement(
+            buttonIcon,
+            UI_CSS.ICON_SIZES.DEFAULT,
+            UI_CSS.SPACING.ICON_MARGIN
+          )}
           {buttonText}
         </div>
       )
     }
-    if (buttonIcon)
-      return (
-        <SVG
-          src={buttonIcon}
-          size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
-          currentColor={true}
-          role="img"
-          aria-label={ariaLabel || buttonTitle || "Menu"}
-        />
+    if (buttonIcon) {
+      return createIconElement(
+        buttonIcon,
+        UI_CSS.ICON_SIZES.DEFAULT,
+        undefined,
+        ariaLabel || buttonTitle || "Menu"
       )
+    }
     if (buttonText) return buttonText
-    return (
-      <SVG
-        src={handleDotVerticalIcon}
-        size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
-        currentColor={true}
-        role="img"
-        aria-label={ariaLabel || "Options menu"}
-      />
+
+    return createIconElement(
+      handleDotVerticalIcon,
+      UI_CSS.ICON_SIZES.DEFAULT,
+      undefined,
+      ariaLabel || UI_CSS.ACCESSIBILITY.DEFAULT_MENU_LABEL
     )
   }
 
@@ -618,32 +682,22 @@ export const Dropdown: React.FC<DropdownProps> = ({
               aria-label={item.label}
               role="menuitem"
             >
-              {item.icon && (
-                <SVG
-                  src={item.icon}
-                  size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
-                  className="mr-2"
-                  currentColor={true}
-                  role="img"
-                  aria-hidden="true"
-                />
-              )}
+              {item.icon &&
+                createIconElement(
+                  item.icon,
+                  UI_CSS.ICON_SIZES.DEFAULT,
+                  UI_CSS.SPACING.ICON_MARGIN
+                )}
               {item.label}
             </JimuDropdownItem>
           )
 
-          return item.tooltip && !item.disabled ? (
-            <Tooltip
-              key={item.id}
-              title={item.tooltip}
-              placement={item.tooltipPlacement || "top"}
-              enterDelay={UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER}
-              enterNextDelay={UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER_NEXT}
-            >
-              {itemElement}
-            </Tooltip>
-          ) : (
-            itemElement
+          return withConditionalTooltip(
+            itemElement,
+            item.tooltip,
+            item.disabled,
+            item.tooltipPlacement || "top",
+            UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER
           )
         })}
       </JimuDropdownMenu>
@@ -722,7 +776,7 @@ export const Form: React.FC<FormProps> = (props) => {
                 role="img"
                 aria-hidden="false"
               >
-                *
+                {UI_CSS.ACCESSIBILITY.REQUIRED_INDICATOR}
               </span>
             </Tooltip>
           )}

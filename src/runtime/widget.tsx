@@ -15,7 +15,6 @@ import { Content } from "./components/content"
 import { StateRenderer } from "./components/state"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "../translations/default"
-import { formatArea } from "../shared/utils"
 import { STYLES } from "../shared/css"
 import type {
   FmeExportConfig,
@@ -130,6 +129,300 @@ const useMutableState = (widgetId: string) => {
   }
 }
 
+// Helper functions for error handling and state management
+const createError = (message: string, type: ErrorType, code?: string) => ({
+  message,
+  type,
+  code,
+  severity: ErrorSeverity.ERROR,
+  timestamp: new Date(),
+})
+
+const updateLoadingState = (dispatch: any, message: string) => {
+  dispatch(fmeActions.setUiStateData({ message }))
+}
+
+// Helper function to calculate polygon area
+const calculatePolygonArea = (
+  geometry: __esri.Geometry,
+  modules: EsriModules
+): number => {
+  if (!modules.geometryEngine || geometry.type !== "polygon") return 0
+
+  try {
+    const area = modules.geometryEngine.planarArea(
+      geometry as __esri.Polygon,
+      "square-meters"
+    )
+    console.log("FME Export - Calculated area:", area, "square meters")
+    return area
+  } catch (error) {
+    console.warn("FME Export - Failed to calculate area:", error)
+    return 0
+  }
+}
+
+// Helper functions for form submission
+const getUserEmail = async (): Promise<string> => {
+  try {
+    const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
+    const portal = new Portal()
+    await portal.load()
+    return portal.user?.email || "no-reply@example.com"
+  } catch (error) {
+    console.log("Failed to get user email, using default:", error)
+    return "no-reply@example.com"
+  }
+}
+
+const prepareFmeParameters = (
+  formData: any,
+  userEmail: string,
+  geometryJson: any,
+  currentGeometry: __esri.Geometry
+) => {
+  const fmeParameters: { [key: string]: any } = {
+    ...formData.data,
+    opt_requesteremail: userEmail,
+    opt_servicemode: "async",
+    opt_responseformat: "json",
+    opt_showresult: "true",
+  }
+
+  // Add geometry if available
+  if (geometryJson?.rings) {
+    fmeParameters.AreaOfInterest = JSON.stringify(geometryJson)
+  } else if (currentGeometry) {
+    const geometryData = currentGeometry.toJSON()
+    if (geometryData.rings) {
+      fmeParameters.AreaOfInterest = JSON.stringify(geometryData)
+    }
+  }
+
+  return fmeParameters
+}
+
+// Helper functions for map initialization
+const createGraphicsLayers = (
+  jmv: JimuMapView,
+  modules: EsriModules,
+  setMutableValue: (key: string, value: any) => void
+) => {
+  // Create main graphics layer for sketch operations
+  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
+  jmv.view.map.add(layer)
+  setMutableValue("graphicsLayer", layer)
+
+  // Create measurement graphics layer for labels
+  const measurementLayer = new modules.GraphicsLayer({
+    id: "measurement-labels-layer",
+    title: "Measurement Labels",
+  })
+  jmv.view.map.add(measurementLayer)
+  setMutableValue("measurementGraphicsLayer", measurementLayer)
+
+  return layer // Return the main layer for sketch setup
+}
+
+const createMeasurementWidgets = (
+  jmv: JimuMapView,
+  modules: EsriModules,
+  setMutableValue: (key: string, value: any) => void
+) => {
+  if (jmv.view.type !== "2d") return
+
+  if (modules.AreaMeasurement2D) {
+    const areaMeasurement2D = new modules.AreaMeasurement2D({
+      view: jmv.view,
+      unit: "metric",
+      visible: false,
+    })
+    setMutableValue("areaMeasurement2D", areaMeasurement2D)
+    console.log(
+      "FME Export - AreaMeasurement2D widget created (not added to UI)"
+    )
+  }
+
+  if (modules.DistanceMeasurement2D) {
+    const distanceMeasurement2D = new modules.DistanceMeasurement2D({
+      view: jmv.view,
+      unit: "metric",
+      visible: false,
+    })
+    setMutableValue("distanceMeasurement2D", distanceMeasurement2D)
+    console.log(
+      "FME Export - DistanceMeasurement2D widget created (not added to UI)"
+    )
+  }
+}
+
+const createSketchViewModel = (
+  jmv: JimuMapView,
+  modules: EsriModules,
+  layer: __esri.GraphicsLayer,
+  handleDrawingComplete: (evt: any) => void
+) => {
+  const sketchViewModel = new modules.SketchViewModel({
+    view: jmv.view,
+    layer,
+    defaultCreateOptions: {
+      hasZ: false,
+      mode: "click",
+    },
+    defaultUpdateOptions: {
+      tool: "reshape",
+      toggleToolOnClick: false,
+      enableRotation: true,
+      enableScaling: true,
+      preserveAspectRatio: false,
+    },
+    snappingOptions: {
+      enabled: true,
+      selfEnabled: true,
+      featureEnabled: true,
+    },
+  })
+
+  // Configure symbols
+  sketchViewModel.polygonSymbol = {
+    type: "simple-fill",
+    color: STYLES.colors.orangeFill,
+    outline: {
+      color: STYLES.colors.orangeOutline,
+      width: 2,
+      style: "solid",
+    },
+  }
+
+  sketchViewModel.polylineSymbol = {
+    type: "simple-line",
+    color: STYLES.colors.orangeOutline,
+    width: 2,
+    style: "solid",
+  }
+
+  sketchViewModel.pointSymbol = {
+    type: "simple-marker",
+    style: "circle",
+    size: 8,
+    color: STYLES.colors.orangeOutline,
+    outline: {
+      color: STYLES.colors.white,
+      width: 1,
+    },
+  }
+
+  // Add event handler
+  sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
+    if (evt.state === "start" || evt.state === "complete") {
+      console.log(
+        "FME Export - Sketch create event:",
+        evt.state,
+        "Tool:",
+        evt.tool
+      )
+    }
+    if (evt.state === "complete") {
+      console.log(
+        "FME Export - Drawing completed, geometry:",
+        evt.graphic?.geometry
+      )
+      handleDrawingComplete(evt)
+    }
+  })
+
+  return sketchViewModel
+}
+
+// Helper function to hide measurement widgets
+const hideMeasurementWidgets = (mutableState: any) => {
+  const { areaMeasurement2D, distanceMeasurement2D } = mutableState
+
+  if (areaMeasurement2D) {
+    try {
+      areaMeasurement2D.visible = false
+      areaMeasurement2D.viewModel.clear()
+      console.log("FME Export - Ensured area measurement widget is hidden")
+    } catch (error) {
+      console.warn("FME Export - Failed to hide area measurement:", error)
+    }
+  }
+
+  if (distanceMeasurement2D) {
+    try {
+      distanceMeasurement2D.visible = false
+      distanceMeasurement2D.viewModel.clear()
+      console.log("FME Export - Ensured distance measurement widget is hidden")
+    } catch (error) {
+      console.warn("FME Export - Failed to hide distance measurement:", error)
+    }
+  }
+}
+
+const processFmeResponse = (
+  fmeResponse: any,
+  workspace: string,
+  userEmail: string
+): ExportResult => {
+  if (!fmeResponse?.data) {
+    return {
+      success: false,
+      message: "Unexpected response from FME server",
+      code: "INVALID_RESPONSE",
+    }
+  }
+
+  const responseData = fmeResponse.data
+  const serviceResp = responseData.serviceResponse || responseData
+  const status = serviceResp.statusInfo?.status || serviceResp.status
+  const jobId = serviceResp.jobID || serviceResp.id || Date.now()
+
+  if (status === "success") {
+    return {
+      success: true,
+      message: "Export order submitted successfully",
+      jobId,
+      workspaceName: workspace,
+      email: userEmail,
+      downloadUrl: serviceResp.url,
+    }
+  } else {
+    const errorMessage =
+      serviceResp.statusInfo?.message ||
+      serviceResp.message ||
+      "FME job submission failed"
+    return {
+      success: false,
+      message: errorMessage,
+      code: "FME_JOB_FAILURE",
+    }
+  }
+}
+
+// Format area utility function
+export function formatArea(area: number): string {
+  if (!area || isNaN(area) || area <= 0) return "0 m²"
+
+  const AREA_THRESHOLD_SQKM = 1000000
+  const AREA_CONVERSION_FACTOR = 1000000
+  const AREA_DECIMAL_PLACES = 2
+
+  if (area >= AREA_THRESHOLD_SQKM) {
+    const areaInSqKm = area / AREA_CONVERSION_FACTOR
+    const formattedKmNumber = new Intl.NumberFormat("sv-SE", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: AREA_DECIMAL_PLACES,
+    }).format(areaInSqKm)
+    return `${formattedKmNumber} km²`
+  }
+
+  const formattedNumber = new Intl.NumberFormat("sv-SE", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(area))
+  return `${formattedNumber} m²`
+}
+
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
@@ -185,30 +478,12 @@ export default function Widget(
       }
 
       const geometryJson = geometry.toJSON()
-
-      // Calculate area using GeometryEngine for display
-      let calculatedArea = 0
-      if (modules.geometryEngine && geometry.type === "polygon") {
-        try {
-          // Calculate area in square meters
-          calculatedArea = modules.geometryEngine.planarArea(
-            geometry,
-            "square-meters"
-          )
-          console.log(
-            "FME Export - Calculated area:",
-            calculatedArea,
-            "square meters"
-          )
-        } catch (error) {
-          console.warn("FME Export - Failed to calculate area:", error)
-        }
-      }
+      const calculatedArea = calculatePolygonArea(geometry, modules)
 
       dispatch({
         type: FmeActionType.SET_GEOMETRY,
         geometry: geometryJson,
-        drawnArea: Math.abs(calculatedArea), // Ensure positive value
+        drawnArea: Math.abs(calculatedArea),
       })
       dispatch({
         type: FmeActionType.SET_DRAWING_STATE,
@@ -222,24 +497,22 @@ export default function Widget(
         geometry
       )
 
-      // Show measurement information after drawing is complete
       console.log(
         "FME Export - Drawing completed with area:",
         Math.abs(calculatedArea),
         "square meters"
       )
 
-      // Transition to workspace selection view after drawing
       dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
     } catch (error) {
       dispatch(
-        fmeActions.setError({
-          message: "Failed to complete drawing",
-          type: ErrorType.VALIDATION,
-          code: "DRAWING_COMPLETE_ERROR",
-          severity: ErrorSeverity.ERROR,
-          timestamp: new Date(),
-        })
+        fmeActions.setError(
+          createError(
+            "Failed to complete drawing",
+            ErrorType.VALIDATION,
+            "DRAWING_COMPLETE_ERROR"
+          )
+        )
       )
     }
   })
@@ -253,117 +526,37 @@ export default function Widget(
     }
 
     dispatch(fmeActions.setUiState(StateType.LOADING))
-    dispatch(
-      fmeActions.setUiStateData({
-        message: translate("preparingExportRequest"),
-      })
-    )
+    updateLoadingState(dispatch, translate("preparingExportRequest"))
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      // Get user email for FME notification
-      let userEmail = "no-reply@example.com"
-      try {
-        const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
-        const portal = new Portal()
-        await portal.load()
-        userEmail = portal.user?.email || userEmail
-      } catch (emailError) {
-        console.log("Failed to get user email, using default:", emailError)
-      }
+      updateLoadingState(dispatch, translate("connectingToFmeServer"))
 
-      // Create FME Flow client
-      dispatch(
-        fmeActions.setUiStateData({
-          message: translate("connectingToFmeServer"),
-        })
-      )
+      const userEmail = await getUserEmail()
       const fmeClient = createFmeFlowClient(props.config)
       const workspace = reduxState.selectedWorkspace
-
-      // Prepare FME parameters
-      const fmeParameters: { [key: string]: any } = {
-        ...formData.data,
-        opt_requesteremail: userEmail,
-        opt_servicemode: "async",
-        opt_responseformat: "json",
-        opt_showresult: "true",
-      }
-
-      // Add geometry if available
-      if (reduxState.geometryJson) {
-        const polygonGeometry = reduxState.geometryJson as any
-        if (polygonGeometry.rings) {
-          fmeParameters.AreaOfInterest = JSON.stringify(polygonGeometry)
-        }
-      } else if (mutableState.currentGeometry) {
-        const geometryJson = mutableState.currentGeometry.toJSON()
-        if (geometryJson.rings) {
-          fmeParameters.AreaOfInterest = JSON.stringify(geometryJson)
-        }
-      }
-
-      dispatch(
-        fmeActions.setUiStateData({ message: translate("submittingOrder") })
+      const fmeParameters = prepareFmeParameters(
+        formData,
+        userEmail,
+        reduxState.geometryJson,
+        mutableState.currentGeometry
       )
 
-      // Submit the FME job
+      updateLoadingState(dispatch, translate("submittingOrder"))
       const fmeResponse = await fmeClient.runDataDownload(
         workspace,
         fmeParameters
       )
+      const result = processFmeResponse(fmeResponse, workspace, userEmail)
 
-      // Process response
-      let result: ExportResult
-      if (fmeResponse?.data) {
-        const responseData = fmeResponse.data as any
-        const serviceResp = responseData.serviceResponse || responseData
-        const status = serviceResp.statusInfo?.status || serviceResp.status
-        const jobId = serviceResp.jobID || serviceResp.id || Date.now()
-
-        if (status === "success") {
-          result = {
-            success: true,
-            message: "Export order submitted successfully",
-            jobId,
-            workspaceName: workspace,
-            email: userEmail,
-            downloadUrl: serviceResp.url,
-          }
-          setNotification({
-            severity: "success",
-            message:
-              translate("orderSubmitted") ||
-              `Export order submitted successfully. Job ID: ${jobId}`,
-          })
-        } else {
-          const errorMessage =
-            serviceResp.statusInfo?.message ||
-            serviceResp.message ||
-            "FME job submission failed"
-          result = {
-            success: false,
-            message: errorMessage,
-            code: "FME_JOB_FAILURE",
-          }
-          setNotification({
-            severity: "error",
-            message:
-              translate("orderFailed") || `Export failed: ${errorMessage}`,
-          })
-        }
-      } else {
-        result = {
-          success: false,
-          message: "Unexpected response from FME server",
-          code: "INVALID_RESPONSE",
-        }
-        setNotification({
-          severity: "error",
-          message:
-            translate("orderFailed") || "Export failed: Unexpected response",
-        })
-      }
+      // Set notification based on result
+      setNotification({
+        severity: result.success ? "success" : "error",
+        message: result.success
+          ? translate("orderSubmitted") ||
+            `Export order submitted successfully. Job ID: ${result.jobId}`
+          : translate("orderFailed") || `Export failed: ${result.message}`,
+      })
 
       dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
@@ -415,130 +608,25 @@ export default function Widget(
       console.log("FME Export - Setting up graphics layers and sketch widget")
       setMutableValue("jimuMapView", jmv)
 
-      // Create main graphics layer for sketch operations
-      const layer = new modules.GraphicsLayer(LAYER_CONFIG)
-      jmv.view.map.add(layer)
-      setMutableValue("graphicsLayer", layer)
+      const layer = createGraphicsLayers(jmv, modules, setMutableValue)
+      createMeasurementWidgets(jmv, modules, setMutableValue)
 
-      // Create measurement graphics layer for labels
-      const measurementLayer = new modules.GraphicsLayer({
-        id: "measurement-labels-layer",
-        title: "Measurement Labels",
-      })
-      jmv.view.map.add(measurementLayer)
-      setMutableValue("measurementGraphicsLayer", measurementLayer)
-
-      // Create a new graphic for the measurement labels
-      if (jmv.view.type === "2d") {
-        // Create dedicated AreaMeasurement2D widget (ArcGIS 4.29 compatible) - but don't add to UI
-        let areaMeasurement2D
-        if (modules.AreaMeasurement2D) {
-          areaMeasurement2D = new modules.AreaMeasurement2D({
-            view: jmv.view,
-            unit: "metric",
-            visible: false,
-          })
-          setMutableValue("areaMeasurement2D", areaMeasurement2D)
-          console.log(
-            "FME Export - AreaMeasurement2D widget created (not added to UI)"
-          )
-        }
-
-        // Create dedicated DistanceMeasurement2D widget (ArcGIS 4.29 compatible) - but don't add to UI
-        let distanceMeasurement2D
-        if (modules.DistanceMeasurement2D) {
-          distanceMeasurement2D = new modules.DistanceMeasurement2D({
-            view: jmv.view,
-            unit: "metric",
-            visible: false,
-          })
-          setMutableValue("distanceMeasurement2D", distanceMeasurement2D)
-          console.log(
-            "FME Export - DistanceMeasurement2D widget created (not added to UI)"
-          )
-        }
-      }
-
-      const sketchViewModel = new modules.SketchViewModel({
-        view: jmv.view,
+      const sketchViewModel = createSketchViewModel(
+        jmv,
+        modules,
         layer,
-        defaultCreateOptions: {
-          hasZ: false,
-          mode: "click",
-        },
-        defaultUpdateOptions: {
-          tool: "reshape",
-          toggleToolOnClick: false,
-          enableRotation: true,
-          enableScaling: true,
-          preserveAspectRatio: false,
-        },
-        snappingOptions: {
-          enabled: true,
-          selfEnabled: true,
-          featureEnabled: true,
-        },
-      })
-
-      // Configure the sketch view model symbols
-      if (sketchViewModel) {
-        sketchViewModel.polygonSymbol = {
-          type: "simple-fill",
-          color: STYLES.colors.orangeFill,
-          outline: {
-            color: STYLES.colors.orangeOutline,
-            width: 2,
-            style: "solid",
-          },
-        }
-
-        sketchViewModel.polylineSymbol = {
-          type: "simple-line",
-          color: STYLES.colors.orangeOutline,
-          width: 2,
-          style: "solid",
-        }
-
-        sketchViewModel.pointSymbol = {
-          type: "simple-marker",
-          style: "circle",
-          size: 8,
-          color: STYLES.colors.orangeOutline,
-          outline: {
-            color: STYLES.colors.white,
-            width: 1,
-          },
-        }
-      }
-
-      sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-        // Only log significant events to reduce console noise
-        if (evt.state === "start" || evt.state === "complete") {
-          console.log(
-            "FME Export - Sketch create event:",
-            evt.state,
-            "Tool:",
-            evt.tool
-          )
-        }
-        if (evt.state === "complete") {
-          console.log(
-            "FME Export - Drawing completed, geometry:",
-            evt.graphic?.geometry
-          )
-          handleDrawingComplete(evt)
-        }
-      })
+        handleDrawingComplete
+      )
       setMutableValue("sketchViewModel", sketchViewModel)
     } catch (error) {
       dispatch(
-        fmeActions.setError({
-          message: "Failed to initialize map",
-          type: ErrorType.MODULE,
-          code: "MAP_INIT_ERROR",
-          severity: ErrorSeverity.ERROR,
-          timestamp: new Date(),
-        })
+        fmeActions.setError(
+          createError(
+            "Failed to initialize map",
+            ErrorType.MODULE,
+            "MAP_INIT_ERROR"
+          )
+        )
       )
     }
   })
@@ -578,30 +666,7 @@ export default function Widget(
     console.log("FME Export - Cleared all graphics before drawing")
 
     // Ensure measurement widgets are hidden during drawing
-    const { areaMeasurement2D, distanceMeasurement2D } = mutableState
-    if (areaMeasurement2D) {
-      try {
-        areaMeasurement2D.visible = false
-        areaMeasurement2D.viewModel.clear()
-        console.log(
-          "FME Export - Ensured area measurement widget is hidden during drawing"
-        )
-      } catch (error) {
-        console.warn("FME Export - Failed to hide area measurement:", error)
-      }
-    }
-
-    if (distanceMeasurement2D) {
-      try {
-        distanceMeasurement2D.visible = false
-        distanceMeasurement2D.viewModel.clear()
-        console.log(
-          "FME Export - Ensured distance measurement widget is hidden during drawing"
-        )
-      } catch (error) {
-        console.warn("FME Export - Failed to hide distance measurement:", error)
-      }
-    }
+    hideMeasurementWidgets(mutableState)
 
     // Start the sketch drawing based on the selected tool
     if (tool === DrawingTool.RECTANGLE) {
@@ -615,34 +680,12 @@ export default function Widget(
 
   // Reset handler - clears all graphics and resets drawing state
   const handleReset = hooks.useEventCallback(() => {
-    // Reset the widget state
     clearAllGraphics()
 
     if (sketchViewModel) sketchViewModel.cancel()
 
-    // Reset drawing state
-    const { areaMeasurement2D, distanceMeasurement2D } = mutableState
-    if (areaMeasurement2D) {
-      try {
-        areaMeasurement2D.viewModel.clear()
-        areaMeasurement2D.visible = false
-        console.log("FME Export - Cleared area measurement widget")
-      } catch (error) {
-        console.warn("FME Export - Failed to clear area measurement:", error)
-      }
-    }
-    if (distanceMeasurement2D) {
-      try {
-        distanceMeasurement2D.viewModel.clear()
-        distanceMeasurement2D.visible = false
-        console.log("FME Export - Cleared distance measurement widget")
-      } catch (error) {
-        console.warn(
-          "FME Export - Failed to clear distance measurement:",
-          error
-        )
-      }
-    }
+    // Reset measurement widgets
+    hideMeasurementWidgets(mutableState)
 
     dispatch({ type: FmeActionType.RESET_STATE })
   })

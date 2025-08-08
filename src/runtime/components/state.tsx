@@ -1,4 +1,5 @@
 import { React, hooks, ReactRedux, getAppStore } from "jimu-core"
+import type { IMState } from "jimu-core"
 import { Loading, LoadingType } from "jimu-ui"
 import type {
   ErrorState,
@@ -6,6 +7,7 @@ import type {
   StateActionButton,
   StateControllerReturn,
   StateRendererProps,
+  FmeWidgetState,
 } from "../../shared/types"
 import {
   ErrorType,
@@ -14,16 +16,75 @@ import {
 } from "../../shared/types"
 import { Button } from "./ui"
 import { fmeActions } from "../../extensions/store"
-import { getUiStateSlice } from "../../shared/utils"
 import { STYLES } from "../../shared/css"
 
+// State Management Utilities
+export const getFmeWidgetState = (
+  state: IMState,
+  widgetId: string
+): FmeWidgetState | undefined => {
+  return state.widgetsState?.[widgetId]?.["fme-state"]
+}
+
+export const getUiStateSlice = (state: IMState, widgetId: string) => {
+  const fmeState = getFmeWidgetState(state, widgetId)
+  return {
+    uiState: fmeState?.uiState || StateTypeEnum.IDLE,
+    uiStateData: fmeState?.uiStateData || {},
+  }
+}
+
+// Helper function to create error state from string or ErrorState
+const createErrorState = (error: ErrorState | string): ErrorState => {
+  return typeof error === "string"
+    ? {
+        message: error,
+        severity: ErrorSeverity.ERROR,
+        type: ErrorType.API,
+        timestamp: new Date(),
+      }
+    : error
+}
+
+// Helper function to combine actions with retry action if available
+const combineActionsWithRetry = (
+  actions: StateActionButton[] = [],
+  isRecoverable: boolean,
+  retryFn?: () => void
+): StateActionButton[] => {
+  const combinedActions = [...actions]
+  if (isRecoverable && retryFn) {
+    combinedActions.push({
+      label: "Retry",
+      onClick: retryFn,
+      variant: "primary",
+    })
+  }
+  return combinedActions
+}
+
+// Helper function to render severity indicators
+const SeverityIndicator: React.FC<{ severity: ErrorSeverity }> = ({
+  severity,
+}) => {
+  if (severity === ErrorSeverity.WARNING) {
+    return (
+      <div role="status">
+        Warning: This operation may have partially succeeded.
+      </div>
+    )
+  }
+  if (severity === ErrorSeverity.INFO) {
+    return <div role="status">Info: This is an informational message.</div>
+  }
+  return null
+}
+
 export const useStateController = (widgetId: string): StateControllerReturn => {
-  // Get current state from Redux store using optimized selector
   const { uiState, uiStateData } = ReactRedux.useSelector((state: any) =>
     getUiStateSlice(state, widgetId)
   )
 
-  // Use getAppStore for proper dispatch typing in Experience Builder
   const dispatch = hooks.useEventCallback((action: any) => {
     getAppStore().dispatch(action)
   })
@@ -41,70 +102,8 @@ export const useStateController = (widgetId: string): StateControllerReturn => {
   )
 
   const setError = hooks.useEventCallback(
-    (
-      error: ErrorState | string,
-      actions?: StateActionButton[],
-      context?: {
-        details?: { [key: string]: any }
-        userAction?: string
-        troubleshooting?: string
-        recoverable?: boolean
-        retry?: () => void
-      }
-    ) => {
-      let errorState: ErrorState
-
-      if (typeof error === "string") {
-        // Create an enhanced error with context if provided
-        if (context) {
-          errorState = {
-            message: error,
-            severity: ErrorSeverity.ERROR,
-            type: ErrorType.API,
-            timestamp: new Date(),
-            details: context.details || {},
-            recoverable: context.recoverable || false,
-            retry: context.retry,
-          }
-        } else {
-          // Simple string error with no context
-          errorState = {
-            message: error,
-            severity: ErrorSeverity.ERROR,
-            type: ErrorType.API,
-            timestamp: new Date(),
-          }
-        }
-      } else {
-        // We already have an ErrorState object
-        errorState = error
-
-        // If context is provided, enhance the existing error
-        if (context) {
-          const { details, userAction, troubleshooting } = context
-          let enhancedMessage = errorState.message
-
-          if (userAction) {
-            enhancedMessage += `\n\nRecommended action: ${userAction}`
-          }
-
-          if (troubleshooting) {
-            enhancedMessage += `\n\nTroubleshooting: ${troubleshooting}`
-          }
-
-          errorState = {
-            ...errorState,
-            message: enhancedMessage,
-            details: details || {},
-            recoverable:
-              context.recoverable !== undefined
-                ? context.recoverable
-                : errorState.recoverable,
-            retry: context.retry || errorState.retry,
-          }
-        }
-      }
-
+    (error: ErrorState | string, actions?: StateActionButton[]) => {
+      const errorState = createErrorState(error)
       dispatch(fmeActions.setUiState(StateTypeEnum.ERROR))
       dispatch(fmeActions.setUiStateData({ error: errorState, actions }))
     }
@@ -140,8 +139,6 @@ export const useStateController = (widgetId: string): StateControllerReturn => {
     isEmpty: uiState === StateTypeEnum.EMPTY,
     isSuccess: uiState === StateTypeEnum.SUCCESS,
     hasContent: uiState === StateTypeEnum.CONTENT,
-
-    // Actions
     setIdle,
     setLoading,
     setError,
@@ -179,7 +176,6 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
   }
 
   if (state === StateTypeEnum.ERROR) {
-    // Extract error details
     const errorState = data.error
     const message = errorState?.message || "An error occurred"
     const code = errorState?.code
@@ -187,60 +183,19 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
     const isRecoverable = errorState?.recoverable || false
     const retryFn = errorState?.retry
 
-    // Generate dynamic action buttons based on error properties
-    const dynamicActions: StateActionButton[] = []
-
-    // Add retry action if the error is recoverable
-    if (isRecoverable && retryFn) {
-      dynamicActions.push({
-        label: "Retry",
-        onClick: retryFn,
-        variant: "primary",
-      })
-    }
-
-    // Combine provided actions with dynamic actions
-    const combinedActions = [...(data.actions || []), ...dynamicActions]
-
-    // Parse message to extract contextual information
-    const hasNewLines = message.includes("\n")
-    const messageLines = hasNewLines
-      ? message.split("\n").filter(Boolean)
-      : [message]
-
-    // First line is always the main error message
-    const mainMessage = messageLines[0]
-
-    // Find recommended action if present
-    const recommendedActionLine = messageLines.find((line) =>
-      line.toLowerCase().includes("recommended action:")
-    )
-
-    // Find troubleshooting info if present
-    const troubleshootingLine = messageLines.find((line) =>
-      line.toLowerCase().includes("troubleshooting:")
+    const combinedActions = combineActionsWithRetry(
+      data.actions,
+      isRecoverable,
+      retryFn
     )
 
     return (
       <div role="alert" aria-live="assertive" style={STYLES.state.centered}>
-        <div>{mainMessage}</div>
+        <div>{message}</div>
         {code && <div>Error code: {code}</div>}
 
-        {/* Severity indicators */}
-        {severity === ErrorSeverity.WARNING && (
-          <div role="status">
-            Warning: This operation may have partially succeeded.
-          </div>
-        )}
-        {severity === ErrorSeverity.INFO && (
-          <div role="status">Info: This is an informational message.</div>
-        )}
+        <SeverityIndicator severity={severity} />
 
-        {/* Enhanced contextual information */}
-        {recommendedActionLine && <div>{recommendedActionLine}</div>}
-        {troubleshootingLine && <div>{troubleshootingLine}</div>}
-
-        {/* Action buttons */}
         {combinedActions.length > 0 && (
           <div role="group" aria-label="Error recovery actions">
             {combinedActions.map((action, index) => (

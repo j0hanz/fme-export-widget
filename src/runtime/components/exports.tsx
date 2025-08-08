@@ -91,20 +91,19 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   // Generate form configuration from parameters
   const formConfig = React.useMemo(() => {
-    const config = parameterService.generateFormConfig(workspaceParameters)
-    return config
+    return parameterService.generateFormConfig(workspaceParameters)
   }, [parameterService, workspaceParameters])
 
   // Helper to build initial values from field defaults
   const buildInitialValues = React.useCallback(() => {
     const initialValues: { [key: string]: any } = {}
-    formConfig.fields.forEach((field) => {
+    formConfig.forEach((field) => {
       if (field.defaultValue !== undefined) {
-        initialValues[field.field] = field.defaultValue
+        initialValues[field.name] = field.defaultValue
       }
     })
     return initialValues
-  }, [formConfig.fields])
+  }, [formConfig])
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState(buildInitialValues)
@@ -117,12 +116,9 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   // Validate form whenever values change
   hooks.useUpdateEffect(() => {
-    const validation = parameterService.validateFormValues(
-      values,
-      formConfig.fields
-    )
+    const validation = parameterService.validateFormValues(values, formConfig)
     setIsValid(validation.isValid)
-  }, [values, parameterService, formConfig.fields])
+  }, [values, parameterService, formConfig])
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
   hooks.useUpdateEffect(() => {
@@ -139,10 +135,7 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   const handleSubmit = hooks.useEventCallback(() => {
     // Validate form before submission
-    const validation = parameterService.validateFormValues(
-      values,
-      formConfig.fields
-    )
+    const validation = parameterService.validateFormValues(values, formConfig)
 
     if (!validation.isValid) {
       // Create a generic error message without including field labels
@@ -169,7 +162,7 @@ const ExportWithWorkspaceParameters: React.FC<{
   // Render field based on parameter type
   const renderField = React.useCallback(
     (field: DynamicFieldConfig) => {
-      const fieldValue = values[field.field] || ""
+      const fieldValue = values[field.name] || ""
 
       switch (field.type) {
         case FormFieldType.SELECT:
@@ -177,9 +170,9 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Select
               value={fieldValue}
               options={field.options || []}
-              placeholder={`Välj ${field.labelId}...`}
-              onChange={(value) => onChange(field.field, value)}
-              ariaLabel={field.labelId}
+              placeholder={`Välj ${field.label}...`}
+              onChange={(value) => onChange(field.name, value)}
+              ariaLabel={field.label}
               disabled={field.readOnly}
             />
           )
@@ -189,9 +182,9 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Select
               value={fieldValue}
               options={field.options || []}
-              placeholder={`Välj ${field.labelId}...`}
-              onChange={(value) => onChange(field.field, value)}
-              ariaLabel={field.labelId}
+              placeholder={`Välj ${field.label}...`}
+              onChange={(value) => onChange(field.name, value)}
+              ariaLabel={field.label}
               disabled={field.readOnly}
               // TODO: Add multi-select support to Select component
             />
@@ -201,8 +194,8 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <TextArea
               value={fieldValue}
-              placeholder={`Ange ${field.labelId}...`}
-              onChange={(value) => onChange(field.field, value)}
+              placeholder={`Ange ${field.label}...`}
+              onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
           )
@@ -211,10 +204,10 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Input
               value={String(fieldValue)}
-              placeholder={`Ange ${field.labelId}...`}
+              placeholder={`Ange ${field.label}...`}
               onChange={(value) => {
                 const numValue = value === "" ? "" : Number(value)
-                onChange(field.field, numValue)
+                onChange(field.name, numValue)
               }}
               disabled={field.readOnly}
             />
@@ -224,9 +217,9 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Checkbox
               checked={Boolean(fieldValue)}
-              onChange={(evt) => onChange(field.field, evt.target.checked)}
+              onChange={(evt) => onChange(field.name, evt.target.checked)}
               disabled={field.readOnly}
-              aria-label={field.labelId}
+              aria-label={field.label}
             />
           )
 
@@ -235,8 +228,8 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Input
               type="password"
               value={String(fieldValue)}
-              placeholder={`Ange ${field.labelId}...`}
-              onChange={(value) => onChange(field.field, value)}
+              placeholder={`Ange ${field.label}...`}
+              onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
           )
@@ -247,10 +240,10 @@ const ExportWithWorkspaceParameters: React.FC<{
               type="file"
               onFileChange={(evt) => {
                 const files = evt.target.files
-                onChange(field.field, files ? files[0] : null)
+                onChange(field.name, files ? files[0] : null)
               }}
               disabled={field.readOnly}
-              aria-label={field.labelId}
+              aria-label={field.label}
             />
           )
 
@@ -258,8 +251,8 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Input
               value={String(fieldValue)}
-              placeholder={`Ange ${field.labelId}...`}
-              onChange={(value) => onChange(field.field, value)}
+              placeholder={`Ange ${field.label}...`}
+              onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
           )
@@ -291,11 +284,11 @@ const ExportWithWorkspaceParameters: React.FC<{
       isValid={isValid}
       loading={isSubmitting}
     >
-      {formConfig.fields.map((field) => (
+      {formConfig.map((field) => (
         <Form
-          key={field.field}
+          key={field.name}
           variant="field"
-          label={field.labelId} // Use parameter description directly
+          label={field.label}
           required={field.required}
         >
           {renderField(field)}

@@ -1,6 +1,27 @@
 import type { ErrorState, WorkspaceParameter } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType } from "./types"
 
+// Helper function to check if a value is empty
+const isEmpty = (value: any): boolean => {
+  return value === undefined || value === null || value === ""
+}
+
+// Helper function to filter UI parameters
+const filterUIParameters = (
+  parameters: readonly WorkspaceParameter[],
+  skipParameters: readonly string[]
+): readonly WorkspaceParameter[] => {
+  return parameters.filter((param) => !skipParameters.includes(param.name))
+}
+
+// Helper function to create field options from parameter list
+const createFieldOptions = (param: WorkspaceParameter) => {
+  return param.listOptions?.map((option) => ({
+    label: option.caption || option.value,
+    value: option.value,
+  }))
+}
+
 // Error handling service - non-template functionality only
 export class ErrorHandlingService {
   createError(
@@ -49,15 +70,13 @@ export enum FormFieldType {
 
 // Dynamic field configuration for form generation
 export interface DynamicFieldConfig {
-  readonly id: string
-  readonly field: string // Field identifier for form data
-  readonly label: string
-  readonly labelId: string // Label identifier for UI display
+  readonly name: string // Single identifier for both field and id
+  readonly label: string // Single label for both display and UI
   readonly type: FormFieldType
   readonly required?: boolean
-  readonly readOnly?: boolean // Optional readonly property
+  readonly readOnly?: boolean
   readonly placeholder?: string
-  readonly helperId?: string // Optional helper text identifier
+  readonly helpText?: string // Simplified helper text
   readonly options?: ReadonlyArray<{ label: string; value: string | number }>
   readonly min?: number
   readonly max?: number
@@ -79,81 +98,42 @@ export class ParameterFormService {
     "AreaOfInterest", // Geometry parameter - handled by drawing workflow
   ]
 
-  /**
-   * Converts FME workspace parameters to dynamic field configurations
-   */
+  // Converts workspace parameters to dynamic field configurations
   convertParametersToFields(
     parameters: readonly WorkspaceParameter[]
   ): readonly DynamicFieldConfig[] {
-    // Filter out parameters that should not be displayed in UI
-    const filteredParams = parameters.filter(
-      (param) => !this.skipParameters.includes(param.name)
-    )
+    const filteredParams = filterUIParameters(parameters, this.skipParameters)
 
-    return filteredParams.map((param) => {
-      const baseField: DynamicFieldConfig = {
-        id: param.name,
-        field: param.name, // Field identifier for form data
-        label: param.description || param.name,
-        labelId: param.description || param.name, // Label identifier for UI display
-        type: this.getFieldTypeFromParameter(param),
-        required: !param.optional,
-        readOnly: false, // Default to editable
-        description: param.description,
-        defaultValue: param.defaultValue,
-      }
+    return filteredParams.map((param) => this.createFieldFromParameter(param))
+  }
 
-      // Add field-specific configurations
-      if (param.listOptions && param.listOptions.length > 0) {
-        return {
-          ...baseField,
-          type: FormFieldType.SELECT,
-          options: param.listOptions.map((option) => ({
-            label: option.caption || option.value,
-            value: option.value,
-          })),
-        }
-      }
+  // Creates a dynamic field configuration from a workspace parameter
+  private createFieldFromParameter(
+    param: WorkspaceParameter
+  ): DynamicFieldConfig {
+    const baseField: DynamicFieldConfig = {
+      name: param.name,
+      label: param.description || param.name,
+      type: this.getFieldTypeFromParameter(param),
+      required: !param.optional,
+      readOnly: false,
+      description: param.description,
+      defaultValue: param.defaultValue,
+      placeholder: param.description || `Enter ${param.name}`,
+    }
 
-      if (
-        param.type === ParameterType.FLOAT ||
-        param.type === ParameterType.INTEGER
-      ) {
-        return {
-          ...baseField,
-          type: FormFieldType.NUMBER,
-        }
-      }
+    // Add options for list parameters
+    const options = createFieldOptions(param)
+    if (options) {
+      return { ...baseField, type: FormFieldType.SELECT, options }
+    }
 
-      if (param.type === ParameterType.TEXT_EDIT) {
-        return {
-          ...baseField,
-          type: FormFieldType.TEXTAREA,
-          rows: 3,
-        }
-      }
+    // Add textarea rows for text edit fields
+    if (param.type === ParameterType.TEXT_EDIT) {
+      return { ...baseField, rows: 3 }
+    }
 
-      if (param.type === "PASSWORD") {
-        return {
-          ...baseField,
-          type: FormFieldType.PASSWORD,
-        }
-      }
-
-      if (param.type === "BOOLEAN") {
-        return {
-          ...baseField,
-          type: FormFieldType.CHECKBOX,
-        }
-      }
-
-      // Default to text input
-      return {
-        ...baseField,
-        type: FormFieldType.TEXT,
-        placeholder: param.description || `Enter ${param.name}`,
-      }
-    })
+    return baseField
   }
 
   private getFieldTypeFromParameter(param: WorkspaceParameter): FormFieldType {
@@ -179,58 +159,36 @@ export class ParameterFormService {
     }
   }
 
-  /**
-   * Validates form data against parameter requirements
-   */
-  validateFormData(
+  // Validates data against workspace parameters
+  validateParameters(
     data: { [key: string]: any },
     parameters: readonly WorkspaceParameter[]
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
-
-    // Filter out parameters that should not be validated in UI
-    const filteredParams = parameters.filter(
-      (param) => !this.skipParameters.includes(param.name)
-    )
+    const filteredParams = filterUIParameters(parameters, this.skipParameters)
 
     for (const param of filteredParams) {
       const value = data[param.name]
 
-      // Check required fields
-      if (
-        !param.optional &&
-        (value === undefined || value === null || value === "")
-      ) {
+      if (!param.optional && isEmpty(value)) {
         errors.push(`${param.name} is required`)
         continue
       }
 
-      // Skip validation for empty optional fields
-      if (
-        param.optional &&
-        (value === undefined || value === null || value === "")
-      ) {
+      if (param.optional && isEmpty(value)) {
         continue
       }
 
       // Type-specific validation
-      if (
-        param.type === ParameterType.INTEGER &&
-        !Number.isInteger(Number(value))
-      ) {
-        errors.push(`${param.name} must be an integer`)
-      }
-
-      if (param.type === ParameterType.FLOAT && isNaN(Number(value))) {
-        errors.push(`${param.name} must be a number`)
+      const typeError = this.validateParameterType(param, value)
+      if (typeError) {
+        errors.push(typeError)
       }
 
       // List validation
-      if (param.listOptions && param.listOptions.length > 0) {
-        const validValues = param.listOptions.map((opt) => opt.value)
-        if (!validValues.includes(value)) {
-          errors.push(`${param.name} must be one of: ${validValues.join(", ")}`)
-        }
+      const listError = this.validateParameterList(param, value)
+      if (listError) {
+        errors.push(listError)
       }
     }
 
@@ -240,24 +198,47 @@ export class ParameterFormService {
     }
   }
 
-  /**
-   * Generates form configuration from workspace parameters
-   */
-  generateFormConfig(parameters: readonly WorkspaceParameter[]): {
-    fields: readonly DynamicFieldConfig[]
-    validation: any
-  } {
-    // Use filtered parameters for form generation
-    const fields = this.convertParametersToFields(parameters)
-    return {
-      fields,
-      validation: null, // Basic validation handled by validateFormValues
+  // Validates individual parameter type constraints
+  private validateParameterType(
+    param: WorkspaceParameter,
+    value: any
+  ): string | null {
+    if (
+      param.type === ParameterType.INTEGER &&
+      !Number.isInteger(Number(value))
+    ) {
+      return `${param.name} must be an integer`
     }
+
+    if (param.type === ParameterType.FLOAT && isNaN(Number(value))) {
+      return `${param.name} must be a number`
+    }
+
+    return null
   }
 
-  /**
-   * Validates form values against field configuration
-   */
+  // Validates parameter list options
+  private validateParameterList(
+    param: WorkspaceParameter,
+    value: any
+  ): string | null {
+    if (param.listOptions && param.listOptions.length > 0) {
+      const validValues = param.listOptions.map((opt) => opt.value)
+      if (!validValues.includes(value)) {
+        return `${param.name} must be one of: ${validValues.join(", ")}`
+      }
+    }
+    return null
+  }
+
+  // Generates form configuration from workspace parameters
+  generateFormConfig(
+    parameters: readonly WorkspaceParameter[]
+  ): readonly DynamicFieldConfig[] {
+    return this.convertParametersToFields(parameters)
+  }
+
+  // Validates form values against dynamic field configurations
   validateFormValues(
     values: { [key: string]: any },
     fields: readonly DynamicFieldConfig[]
@@ -265,40 +246,42 @@ export class ParameterFormService {
     const errors: { [key: string]: string } = {}
 
     for (const field of fields) {
-      const value = values[field.field]
+      const value = values[field.name]
 
-      // Check required fields
-      if (
-        field.required &&
-        (value === undefined || value === null || value === "")
-      ) {
-        errors[field.field] = `${field.label} is required`
+      if (field.required && isEmpty(value)) {
+        errors[field.name] = `${field.label} is required`
         continue
       }
 
-      // Skip validation for empty optional fields
-      if (
-        !field.required &&
-        (value === undefined || value === null || value === "")
-      ) {
+      if (!field.required && isEmpty(value)) {
         continue
       }
 
       // Type-specific validation
-      if (
-        field.type === FormFieldType.NUMBER &&
-        value !== "" &&
-        isNaN(Number(value))
-      ) {
-        errors[field.field] = `${field.label} must be a number`
+      const typeError = this.validateFieldType(field, value)
+      if (typeError) {
+        errors[field.name] = typeError
       }
-
-      // Add more validation as needed for specific field types
     }
 
     return {
       isValid: Object.keys(errors).length === 0,
       errors,
     }
+  }
+
+  // Validates individual field type constraints
+  private validateFieldType(
+    field: DynamicFieldConfig,
+    value: any
+  ): string | null {
+    if (
+      field.type === FormFieldType.NUMBER &&
+      value !== "" &&
+      isNaN(Number(value))
+    ) {
+      return `${field.label} must be a number`
+    }
+    return null
   }
 }

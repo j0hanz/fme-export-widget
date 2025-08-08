@@ -6,7 +6,7 @@ import {
   AnimationTriggerType,
   AnimationEffectType,
 } from "jimu-core"
-import { Button, Select, Dropdown } from "./ui"
+import { Button, Select, Dropdown, UI_CSS } from "./ui"
 import { StateRenderer } from "./state"
 import defaultMessages from "../../translations/default"
 import type {
@@ -28,6 +28,101 @@ const noOp = (): void => {
   // No operation - intentionally empty
 }
 
+// Helper function to get translation with fallback
+const getTranslation = (
+  translate: (key: string) => string,
+  key: string,
+  fallback: string
+): string => {
+  return translate(key) || fallback
+}
+
+// Helper function to create error state for workspace operations
+const createWorkspaceErrorState = (
+  message: string,
+  loadWorkspaces: () => void,
+  onBack?: () => void
+) => ({
+  state: StateType.ERROR,
+  data: {
+    message,
+    actions: [
+      { label: "Retry", onClick: loadWorkspaces },
+      ...(onBack ? [{ label: "Back", onClick: onBack }] : []),
+    ],
+  },
+})
+
+// Helper function to render order success details
+const renderOrderSuccess = (
+  orderResult: any,
+  translate: (key: string) => string,
+  onReuseGeography?: () => void
+) => (
+  <>
+    <div style={STYLES.typography.title}>{translate("orderConfirmation")}</div>
+    <div style={STYLES.typography.caption}>
+      {translate("jobId")}: {orderResult.jobId}
+    </div>
+    {orderResult.workspaceName && (
+      <div style={STYLES.typography.caption}>
+        {translate("workspace")}: {orderResult.workspaceName}
+      </div>
+    )}
+    {orderResult.email && (
+      <div style={STYLES.typography.caption}>
+        {translate("notificationEmail")}: {orderResult.email}
+      </div>
+    )}
+    {orderResult.downloadUrl && (
+      <div style={STYLES.typography.caption}>
+        <a
+          href={orderResult.downloadUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {translate("downloadResult")}
+        </a>
+      </div>
+    )}
+    <div style={STYLES.typography.caption}>
+      {translate("emailNotificationSent")}
+    </div>
+    <Button
+      text={translate("reuseGeography")}
+      onClick={onReuseGeography}
+      logging={{ enabled: true, prefix: "FME-Export" }}
+    />
+  </>
+)
+
+// Helper function to render order failure details
+const renderOrderFailure = (
+  orderResult: any,
+  translate: (key: string) => string,
+  onBack?: () => void
+) => (
+  <>
+    <div style={STYLES.typography.title}>{translate("orderSentError")}</div>
+    <div style={STYLES.typography.caption}>{orderResult.message}</div>
+    {orderResult.code && (
+      <div style={STYLES.typography.caption}>
+        {translate("errorCode")}: {orderResult.code}
+      </div>
+    )}
+    {orderResult.workspaceName && (
+      <div style={STYLES.typography.caption}>
+        {translate("workspace")}: {orderResult.workspaceName}
+      </div>
+    )}
+    <Button
+      text={translate("retry")}
+      onClick={onBack || noOp}
+      logging={{ enabled: true, prefix: "FME-Export" }}
+    />
+  </>
+)
+
 export const Content: React.FC<ContentProps> = ({
   state,
   instructionText,
@@ -41,29 +136,29 @@ export const Content: React.FC<ContentProps> = ({
   onReuseGeography,
   isSubmittingOrder = false,
   onBack,
-  drawnArea,
-  formatArea,
   // Drawing mode props
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
   // Real-time measurement props
   realTimeMeasurements,
   formatRealTimeMeasurements,
-  // Header props
-  showHeaderActions = false,
+  // Reset props
   onReset,
   canReset = true,
   // Workspace-related props
-  widgetId,
   config,
   onWorkspaceSelected,
-  onWorkspaceBack,
   selectedWorkspace,
   workspaceParameters,
   workspaceItem,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
+
+  // Memoized FME client to avoid recreation on every render
+  const fmeClient = React.useMemo(() => {
+    return config ? createFmeFlowClient(config) : null
+  }, [config])
 
   // Workspace selection state - moved to top level to avoid hook usage in render functions
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
@@ -85,59 +180,50 @@ export const Content: React.FC<ContentProps> = ({
   // Generate stable animation ID based on current state
   const playId = `${state}-${!!error}-none`.length
 
-  // Load workspaces function - moved to top level
+  // Load workspaces function - simplified with helper
   const loadWorkspaces = hooks.useEventCallback(async () => {
-    if (!config) return
+    if (!fmeClient || !config) return
 
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
 
     try {
-      const client = createFmeFlowClient(config)
-
       const response = await makeCancelable(
-        client.getRepositoryItems(config.repository, "WORKSPACE")
+        fmeClient.getRepositoryItems(config.repository, "WORKSPACE")
       )
 
       if (response.status === 200 && response.data.items) {
         const workspaceItems = response.data.items.filter(
           (item) => item.type === "WORKSPACE"
         )
-
         if (isMountedRef.current) setWorkspaces(workspaceItems)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
-      // Handle both API errors and cancellation
-      if (err.name !== "CancelledPromiseError") {
+      if (err.name !== "CancelledPromiseError" && isMountedRef.current) {
         const errorMessage =
           err instanceof Error ? err.message : translate("unknownErrorOccurred")
-        if (isMountedRef.current)
-          setWorkspaceError(
-            `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
-          )
+        setWorkspaceError(
+          `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
+        )
       }
     } finally {
       if (isMountedRef.current) setIsLoadingWorkspaces(false)
     }
   })
 
-  // Handle workspace selection - moved to top level
+  // Handle workspace selection - simplified
   const handleWorkspaceSelect = hooks.useEventCallback(
     async (workspaceName: string) => {
-      if (!config) return
+      if (!fmeClient || !config) return
 
-      // Set specific loading state for workspace details
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
 
       try {
-        // Get workspace item details (includes parameters)
-        const client = createFmeFlowClient(config)
-
         const response = await makeCancelable(
-          client.getWorkspaceItem(workspaceName, config.repository)
+          fmeClient.getWorkspaceItem(workspaceName, config.repository)
         )
 
         if (response.status === 200 && response.data?.parameters) {
@@ -150,16 +236,14 @@ export const Content: React.FC<ContentProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err) {
-        // Handle both API errors and cancellation
-        if (err.name !== "CancelledPromiseError") {
+        if (err.name !== "CancelledPromiseError" && isMountedRef.current) {
           const errorMessage =
             err instanceof Error
               ? err.message
               : translate("unknownErrorOccurred")
-          if (isMountedRef.current)
-            setWorkspaceError(
-              `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
-            )
+          setWorkspaceError(
+            `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
+          )
         }
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
@@ -238,13 +322,13 @@ export const Content: React.FC<ContentProps> = ({
     return (
       <>
         {/* Drawing Mode Selector */}
-        <div style={STYLES.button.row}>
+        <div style={UI_CSS.BTN.ROW}>
           <Select
             value={drawingMode}
             onChange={(value) => {
               onDrawingModeChange?.(value as DrawingTool)
             }}
-            style={STYLES.button.select}
+            style={UI_CSS.BTN.SELECT}
             placeholder={translate("drawingModeTooltip")}
             options={[
               {
@@ -297,19 +381,23 @@ export const Content: React.FC<ContentProps> = ({
   const renderWorkspaceSelection = () => {
     // Show loading state while loading workspaces
     if (isLoadingWorkspaces) {
-      // Different loading messages based on whether we're loading the list or details
       const loadingMessage =
         workspaces.length > 0
-          ? translate("loadingWorkspaceDetails") ||
-            "Loading workspace details..."
-          : translate("loadingWorkspaces") || "Loading workspaces..."
+          ? getTranslation(
+              translate,
+              "loadingWorkspaceDetails",
+              "Loading workspace details..."
+            )
+          : getTranslation(
+              translate,
+              "loadingWorkspaces",
+              "Loading workspaces..."
+            )
 
       return (
         <StateRenderer
           state={StateType.LOADING}
-          data={{
-            message: loadingMessage,
-          }}
+          data={{ message: loadingMessage }}
         />
       )
     }
@@ -318,20 +406,7 @@ export const Content: React.FC<ContentProps> = ({
     if (workspaceError) {
       return (
         <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            message: workspaceError,
-            actions: [
-              {
-                label: translate("retry") || "Retry",
-                onClick: loadWorkspaces,
-              },
-              {
-                label: translate("back") || "Back",
-                onClick: onBack || noOp,
-              },
-            ],
-          }}
+          {...createWorkspaceErrorState(workspaceError, loadWorkspaces, onBack)}
         />
       )
     }
@@ -344,29 +419,22 @@ export const Content: React.FC<ContentProps> = ({
           data={{
             message: translate("noWorkspacesFound"),
             actions: [
-              {
-                label: translate("retry"),
-                onClick: loadWorkspaces,
-              },
-              {
-                label: translate("back"),
-                onClick: onBack || noOp,
-              },
+              { label: translate("retry"), onClick: loadWorkspaces },
+              { label: translate("back"), onClick: onBack || noOp },
             ],
           }}
         />
       )
     }
 
-    // Render workspace options (replacing the old hardcoded export options)
+    // Render workspace options
     return (
-      <div style={STYLES.button.column}>
+      <div style={UI_CSS.BTN.DEFAULT}>
         {workspaces.map((workspace) => (
           <Button
             key={workspace.name}
             text={workspace.title || workspace.name}
             icon={listIcon}
-            style={STYLES.button.text}
             onClick={() => handleWorkspaceSelect(workspace.name)}
             tooltip={workspace.description}
             tooltipDisabled={true}
@@ -384,18 +452,12 @@ export const Content: React.FC<ContentProps> = ({
           state={StateType.ERROR}
           data={{
             message: "Export form configuration missing",
-            actions: [
-              {
-                label: translate("back") || "Back",
-                onClick: onBack || noOp,
-              },
-            ],
+            actions: [{ label: translate("back"), onClick: onBack || noOp }],
           }}
         />
       )
     }
 
-    // Use the integrated Export component that handles both static and dynamic forms
     return (
       <Export
         workspaceParameters={workspaceParameters}
@@ -414,71 +476,10 @@ export const Content: React.FC<ContentProps> = ({
       console.log("FME Export - Displaying order result:", orderResult)
 
       if (orderResult.success) {
-        return (
-          <>
-            <div style={STYLES.typography.title}>
-              {translate("orderConfirmation")}
-            </div>
-            <div style={STYLES.typography.caption}>
-              {translate("jobId")}: {orderResult.jobId}
-            </div>
-            {orderResult.workspaceName && (
-              <div style={STYLES.typography.caption}>
-                {translate("workspace")}: {orderResult.workspaceName}
-              </div>
-            )}
-            {orderResult.email && (
-              <div style={STYLES.typography.caption}>
-                {translate("notificationEmail")}: {orderResult.email}
-              </div>
-            )}
-            {orderResult.downloadUrl && (
-              <div style={STYLES.typography.caption}>
-                <a
-                  href={orderResult.downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {translate("downloadResult")}
-                </a>
-              </div>
-            )}
-            <div style={STYLES.typography.caption}>
-              {translate("emailNotificationSent")}
-            </div>
-            <Button
-              text={translate("reuseGeography")}
-              onClick={onReuseGeography}
-              logging={{ enabled: true, prefix: "FME-Export" }}
-            />
-          </>
-        )
+        return renderOrderSuccess(orderResult, translate, onReuseGeography)
       } else {
         console.error("FME Export - Order failed:", orderResult)
-
-        return (
-          <>
-            <div style={STYLES.typography.title}>
-              {translate("orderSentError")}
-            </div>
-            <div style={STYLES.typography.caption}>{orderResult.message}</div>
-            {orderResult.code && (
-              <div style={STYLES.typography.caption}>
-                {translate("errorCode")}: {orderResult.code}
-              </div>
-            )}
-            {orderResult.workspaceName && (
-              <div style={STYLES.typography.caption}>
-                {translate("workspace")}: {orderResult.workspaceName}
-              </div>
-            )}
-            <Button
-              text={translate("retry")}
-              onClick={onBack || noOp}
-              logging={{ enabled: true, prefix: "FME-Export" }}
-            />
-          </>
-        )
+        return renderOrderFailure(orderResult, translate, onBack)
       }
     }
 
@@ -487,35 +488,25 @@ export const Content: React.FC<ContentProps> = ({
       return (
         <StateRenderer
           state={StateType.LOADING}
-          data={{
-            message: translate("submittingOrder"),
-          }}
+          data={{ message: translate("submittingOrder") }}
         />
       )
     }
 
-    // Handle general error states
+    // Handle general error states with consistent StateRenderer pattern
     if (error) {
-      if (error.severity === "info") {
-        return (
-          <>
-            <div style={STYLES.typography.caption}>{error.message}</div>
-          </>
-        )
-      } else {
-        return (
-          <>
-            <div style={STYLES.typography.caption}>{error.message}</div>
-            <Button
-              text={translate("retry")}
-              onClick={() => {
-                onBack?.()
-              }}
-              logging={{ enabled: true, prefix: "FME-Export" }}
-            />
-          </>
-        )
-      }
+      return (
+        <StateRenderer
+          state={StateType.ERROR}
+          data={{
+            message: error.message,
+            actions:
+              error.severity !== "info"
+                ? [{ label: translate("retry"), onClick: onBack || noOp }]
+                : undefined,
+          }}
+        />
+      )
     }
 
     switch (state) {

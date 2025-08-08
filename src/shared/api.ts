@@ -16,14 +16,63 @@ import type {
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 
+// Constants for API configuration
+const API_CONSTANTS = {
+  BASE_PATH: "/fmerest/v3",
+  MAX_URL_LENGTH: 4000,
+  SESSION_ID_RANGE: 1000000000,
+  WEBHOOK_EXCLUDE_KEYS: [
+    "opt_servicemode",
+    "opt_responseformat",
+    "opt_showresult",
+  ],
+  DEFAULT_UPLOAD_OPTIONS: {
+    opt_extractarchive: "false",
+    opt_pathlevel: "3",
+    opt_fullpath: "true",
+  },
+  COMMON_HEADERS: {
+    "User-Agent": "ArcGIS-Experience-Builder-FME-Widget/1.0",
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+} as const
+
+// Helper function to normalize server URL
+const normalizeServerUrl = (serverUrl: string): string => {
+  return serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
+}
+
+// Helper function to create API endpoints
+const createEndpoint = (basePath: string, ...segments: string[]): string => {
+  const cleanSegments = segments.filter(Boolean)
+  return `${basePath}/${cleanSegments.join("/")}`
+}
+
+// Helper function to build query parameters
+const buildQueryParams = (
+  params: { [key: string]: any } = {},
+  excludeKeys: string[] = []
+): URLSearchParams => {
+  const urlParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && !excludeKeys.includes(key)) {
+      urlParams.append(key, String(value))
+    }
+  })
+  return urlParams
+}
+
 function configureFmeApiSettings(config: FmeFlowConfig): void {
-  esriConfig.request.maxUrlLength = 4000
+  esriConfig.request.maxUrlLength = API_CONSTANTS.MAX_URL_LENGTH
   const serverDomain = new URL(config.serverUrl).origin
+
+  // Add to trusted servers if not already present
   if (!esriConfig.request.trustedServers.includes(serverDomain)) {
     esriConfig.request.trustedServers.push(serverDomain)
   }
 
-  const existingInterceptor = esriConfig.request.interceptors.find(
+  // Check for existing interceptor to avoid duplicates
+  const hasExistingInterceptor = esriConfig.request.interceptors.some(
     (interceptor) =>
       interceptor.urls &&
       Array.isArray(interceptor.urls) &&
@@ -32,7 +81,7 @@ function configureFmeApiSettings(config: FmeFlowConfig): void {
       )
   )
 
-  if (!existingInterceptor) {
+  if (!hasExistingInterceptor) {
     esriConfig.request.interceptors.push({
       urls: [serverDomain],
       before: (params) => {
@@ -50,7 +99,7 @@ function configureFmeApiSettings(config: FmeFlowConfig): void {
 
 export class FmeFlowApiClient {
   private config: FmeFlowConfig
-  private readonly basePath = "/fmerest/v3"
+  private readonly basePath = API_CONSTANTS.BASE_PATH
   private abortController: AbortController | null = null
 
   constructor(config: FmeFlowConfig) {
@@ -67,27 +116,18 @@ export class FmeFlowApiClient {
     repository: string,
     workspace: string
   ): string {
-    return `${this.normalizeServerUrl()}/${service}/${repository}/${workspace}`
+    return `${normalizeServerUrl(this.config.serverUrl)}/${service}/${repository}/${workspace}`
   }
 
   private normalizeServerUrl(): string {
-    let serverRoot = this.config.serverUrl
-    // Remove /fmeserver path as FME Flow REST API v3 doesn't use it
-    if (serverRoot.endsWith("/fmeserver"))
-      serverRoot = serverRoot.replace("/fmeserver", "")
-    if (serverRoot.endsWith("/fmerest"))
-      serverRoot = serverRoot.replace("/fmerest", "")
-    return serverRoot
+    return normalizeServerUrl(this.config.serverUrl)
   }
 
   private buildEndpointWithQuery(
     baseEndpoint: string,
     queryParams: { [key: string]: string | boolean }
   ): string {
-    const params = new URLSearchParams()
-    Object.entries(queryParams).forEach(([key, value]) => {
-      params.append(key, String(value))
-    })
+    const params = buildQueryParams(queryParams)
     return `${baseEndpoint}?${params.toString()}`
   }
 
@@ -95,13 +135,7 @@ export class FmeFlowApiClient {
     parameters: { [key: string]: any } = {},
     excludeKeys: string[] = []
   ): URLSearchParams {
-    const params = new URLSearchParams()
-    Object.entries(parameters).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && !excludeKeys.includes(key)) {
-        params.append(key, String(value))
-      }
-    })
-    return params
+    return buildQueryParams(parameters, excludeKeys)
   }
 
   private createFormData(files: File[] | FileList): FormData {
@@ -125,6 +159,34 @@ export class FmeFlowApiClient {
 
   private encodeResourcePath(path: string): string {
     return encodeURIComponent(path).replace(/%2F/g, "/")
+  }
+
+  // Helper method to build repository-based endpoints
+  private buildRepositoryEndpoint(
+    repository: string,
+    ...segments: string[]
+  ): string {
+    return createEndpoint(
+      this.basePath,
+      "repositories",
+      repository,
+      ...segments
+    )
+  }
+
+  // Helper method to build transformation endpoints
+  private buildTransformationEndpoint(
+    action: string,
+    repository: string,
+    workspace: string
+  ): string {
+    return createEndpoint(
+      this.basePath,
+      "transformations",
+      action,
+      repository,
+      workspace
+    )
   }
 
   private async handleApiError<T>(
@@ -159,7 +221,8 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<{ name: string }>> {
     const repo = this.resolveRepository(repository)
-    return this.request<{ name: string }>(`/repositories/${repo}`, { signal })
+    const endpoint = this.buildRepositoryEndpoint(repo)
+    return this.request<{ name: string }>(endpoint, { signal })
   }
 
   async getRepositories(
@@ -167,10 +230,10 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<Array<{ name: string }>>> {
     return this.handleApiError(
       () =>
-        this.request<Array<{ name: string }>>("/repositories", {
-          signal,
-          cacheHint: true,
-        }),
+        this.request<Array<{ name: string }>>(
+          this.buildRepositoryEndpoint(""),
+          { signal, cacheHint: true }
+        ),
       "Failed to get repositories",
       "REPOSITORIES_ERROR"
     )
@@ -184,13 +247,11 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<RepositoryItems>> {
     const repo = this.resolveRepository(repository)
-    const query: { [key: string]: any } = {}
-    if (type) query.type = type
-    if (limit) query.limit = limit
-    if (offset) query.offset = offset
+    const query = buildQueryParams({ type, limit, offset })
+    const endpoint = this.buildRepositoryEndpoint(repo, "items")
 
-    return this.request<RepositoryItems>(`/repositories/${repo}/items`, {
-      query,
+    return this.request<RepositoryItems>(endpoint, {
+      query: Object.fromEntries(query),
       signal,
       cacheHint: true,
     })
@@ -202,7 +263,12 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter[]>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = `/repositories/${repo}/items/${workspace}/parameters`
+    const endpoint = this.buildRepositoryEndpoint(
+      repo,
+      "items",
+      workspace,
+      "parameters"
+    )
     return this.handleApiError(
       () =>
         this.request<WorkspaceParameter[]>(endpoint, {
@@ -221,10 +287,17 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter>> {
     const repo = this.resolveRepository(repository)
-    return this.request<WorkspaceParameter>(
-      `/repositories/${repo}/items/${workspace}/parameters/${parameter}`,
-      { signal, cacheHint: true }
+    const endpoint = this.buildRepositoryEndpoint(
+      repo,
+      "items",
+      workspace,
+      "parameters",
+      parameter
     )
+    return this.request<WorkspaceParameter>(endpoint, {
+      signal,
+      cacheHint: true,
+    })
   }
 
   async getWorkspaceItem(
@@ -233,9 +306,10 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<any>> {
     const repo = this.resolveRepository(repository)
+    const endpoint = this.buildRepositoryEndpoint(repo, "items", workspace)
     return this.handleApiError(
       () =>
-        this.request<any>(`/repositories/${repo}/items/${workspace}`, {
+        this.request<any>(endpoint, {
           signal,
           cacheHint: true,
         }),
@@ -251,7 +325,7 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResponse>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = `/transformations/submit/${repo}/${workspace}`
+    const endpoint = this.buildTransformationEndpoint("submit", repo, workspace)
     const jobRequest = this.formatJobParameters(parameters)
     return this.handleApiError(
       () =>
@@ -273,15 +347,17 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
     const repo = this.resolveRepository(repository)
-    const jobRequest = this.formatJobParameters(parameters)
-    return this.request<JobResult>(
-      `/transformations/transact/${repo}/${workspace}`,
-      {
-        method: HttpMethod.POST,
-        query: jobRequest,
-        signal,
-      }
+    const endpoint = this.buildTransformationEndpoint(
+      "transact",
+      repo,
+      workspace
     )
+    const jobRequest = this.formatJobParameters(parameters)
+    return this.request<JobResult>(endpoint, {
+      method: HttpMethod.POST,
+      query: jobRequest,
+      signal,
+    })
   }
 
   async submitGeometryJob(
@@ -304,20 +380,30 @@ export class FmeFlowApiClient {
     jobId: number,
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
-    return this.request<JobResult>(`/transformations/jobs/${jobId}`, { signal })
+    const endpoint = createEndpoint(
+      this.basePath,
+      "transformations",
+      "jobs",
+      jobId.toString()
+    )
+    return this.request<JobResult>(endpoint, { signal })
   }
 
   async cancelJob(
     jobId: number,
     signal?: AbortSignal
   ): Promise<ApiResponse<{ success: boolean }>> {
-    return this.request<{ success: boolean }>(
-      `/transformations/jobs/${jobId}/cancel`,
-      {
-        method: HttpMethod.POST,
-        signal,
-      }
+    const endpoint = createEndpoint(
+      this.basePath,
+      "transformations",
+      "jobs",
+      jobId.toString(),
+      "cancel"
     )
+    return this.request<{ success: boolean }>(endpoint, {
+      method: HttpMethod.POST,
+      signal,
+    })
   }
 
   async runDataDownload(
@@ -387,13 +473,11 @@ export class FmeFlowApiClient {
         repository,
         workspace
       )
-      const webhookExcludeKeys = [
-        "opt_servicemode",
-        "opt_responseformat",
-        "opt_showresult",
-      ]
-      const params = this.createUrlSearchParams(parameters, webhookExcludeKeys)
+      const params = this.createUrlSearchParams(parameters, [
+        ...API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS,
+      ])
 
+      // Add standard webhook parameters
       params.append("opt_responseformat", "json")
       params.append("opt_showresult", "true")
       params.append("opt_servicemode", parameters.opt_servicemode || "async")
@@ -409,7 +493,7 @@ export class FmeFlowApiClient {
         headers: {
           Accept: "application/json",
           Authorization: `fmetoken token=${this.config.token}`,
-          "User-Agent": "ArcGIS-Experience-Builder-FME-Widget/1.0",
+          "User-Agent": API_CONSTANTS.COMMON_HEADERS["User-Agent"],
         },
       })
 
@@ -433,16 +517,19 @@ export class FmeFlowApiClient {
       console.log(
         "FME Export - Using REST API job submission for data download"
       )
-      const jobParameters: { [key: string]: any } = { ...parameters }
-      delete jobParameters.opt_servicemode
-      delete jobParameters.opt_responseformat
-      delete jobParameters.opt_showresult
+
+      // Clean parameters by removing webhook-specific options
+      const jobParameters = { ...parameters }
+      API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS.forEach((key) => {
+        delete jobParameters[key]
+      })
 
       const jobResponse = await this.submitJob(
         workspace,
         jobParameters,
         repository
       )
+
       return {
         data: {
           status: "success",
@@ -476,19 +563,21 @@ export class FmeFlowApiClient {
       targetRepository,
       workspace
     )
+
     return this.handleApiError(
       async () => {
-        const sessionId = Math.floor(Math.random() * 1000000000) + 1
+        const sessionId =
+          Math.floor(Math.random() * API_CONSTANTS.SESSION_ID_RANGE) + 1
         const params = this.createUrlSearchParams({
-          opt_extractarchive: "false",
-          opt_pathlevel: "3",
-          opt_fullpath: "true",
+          ...API_CONSTANTS.DEFAULT_UPLOAD_OPTIONS,
           opt_namespace: sessionId.toString(),
         })
 
         const response = await this.request(endpoint, {
           method: HttpMethod.POST,
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          headers: {
+            "Content-Type": API_CONSTANTS.COMMON_HEADERS["Content-Type"],
+          },
           body: params.toString(),
         })
 

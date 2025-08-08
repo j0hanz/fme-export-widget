@@ -64,42 +64,6 @@ export const STYLES = {
     fontVariantNumeric: "tabular-nums",
   } as React.CSSProperties,
 
-  button: {
-    group: {
-      display: "flex",
-      gap: "1rem",
-      marginTop: "0.5rem",
-    } as React.CSSProperties,
-    column: {
-      display: "flex",
-      flexFlow: "column",
-      width: "100%",
-      gap: "0.7rem",
-    } as React.CSSProperties,
-    row: {
-      display: "flex",
-      width: "100%",
-      flexDirection: "row",
-      gap: 0,
-    } as React.CSSProperties,
-    text: {
-      flex: 1,
-      textAlign: "end",
-    } as React.CSSProperties,
-    icon: {
-      width: 32,
-      height: 32,
-      minWidth: 32,
-      padding: 0,
-    } as React.CSSProperties,
-    select: {
-      width: 50,
-      height: 32,
-      minWidth: 50,
-      padding: 0,
-    } as React.CSSProperties,
-  },
-
   icon: {
     muted: {
       opacity: 0.2,
