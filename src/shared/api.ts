@@ -1,6 +1,7 @@
 import esriRequest from "esri/request"
 import esriConfig from "esri/config"
 import * as projection from "esri/geometry/support/webMercatorUtils"
+import { loadArcGISJSAPIModules } from "jimu-arcgis"
 
 import type {
   FmeFlowConfig,
@@ -866,7 +867,6 @@ export class FmeFlowApiClient {
     let area = 0
     try {
       // Use legacy geometryEngine for 4.29 compatibility
-      const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
       const [geometryEngine] = await loadArcGISJSAPIModules([
         "esri/geometry/geometryEngine",
       ])
@@ -884,14 +884,10 @@ export class FmeFlowApiClient {
 
     const extent = polygon.extent
     let projectedGeometry = geometry
-    if (
-      geometry.spatialReference.wkid !== 4326 &&
-      geometry.spatialReference.wkid !== 3857
-    ) {
-      if (geometry.spatialReference.wkid === 3857) {
-        projectedGeometry =
-          projection.webMercatorToGeographic(polygon) || geometry
-      }
+    // Project from Web Mercator to WGS84 if needed; leave other SRs as-is
+    if (geometry.spatialReference?.wkid === 3857) {
+      projectedGeometry =
+        projection.webMercatorToGeographic(polygon) || geometry
     }
 
     const geoJsonPolygon = {

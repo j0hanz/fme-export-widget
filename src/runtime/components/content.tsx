@@ -22,6 +22,7 @@ import listIcon from "../../assets/icons/menu.svg"
 import plusIcon from "../../assets/icons/plus.svg"
 import { STYLES } from "../../shared/css"
 import { Export } from "./exports"
+import { createFmeFlowClient } from "../../shared/api"
 
 const noOp = (): void => {
   // No operation - intentionally empty
@@ -92,7 +93,6 @@ export const Content: React.FC<ContentProps> = ({
     setWorkspaceError(null)
 
     try {
-      const { createFmeFlowClient } = await import("../../shared/api")
       const client = createFmeFlowClient(config)
 
       const response = await makeCancelable(
@@ -134,7 +134,6 @@ export const Content: React.FC<ContentProps> = ({
 
       try {
         // Get workspace item details (includes parameters)
-        const { createFmeFlowClient } = await import("../../shared/api")
         const client = createFmeFlowClient(config)
 
         const response = await makeCancelable(
