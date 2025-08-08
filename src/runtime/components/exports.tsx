@@ -202,7 +202,7 @@ const ExportWithWorkspaceParameters: React.FC<{
             <TextArea
               value={fieldValue}
               placeholder={`Ange ${field.labelId}...`}
-              onChange={(e) => onChange(field.field, e.target.value)}
+              onChange={(value) => onChange(field.field, value)}
               disabled={field.readOnly}
             />
           )
@@ -212,9 +212,8 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Input
               value={String(fieldValue)}
               placeholder={`Ange ${field.labelId}...`}
-              onChange={(e) => {
-                const numValue =
-                  e.target.value === "" ? "" : Number(e.target.value)
+              onChange={(value) => {
+                const numValue = value === "" ? "" : Number(value)
                 onChange(field.field, numValue)
               }}
               disabled={field.readOnly}
@@ -237,7 +236,7 @@ const ExportWithWorkspaceParameters: React.FC<{
               type="password"
               value={String(fieldValue)}
               placeholder={`Ange ${field.labelId}...`}
-              onChange={(e) => onChange(field.field, e.target.value)}
+              onChange={(value) => onChange(field.field, value)}
               disabled={field.readOnly}
             />
           )
@@ -246,7 +245,7 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Input
               type="file"
-              onChange={(evt) => {
+              onFileChange={(evt) => {
                 const files = evt.target.files
                 onChange(field.field, files ? files[0] : null)
               }}
@@ -260,7 +259,7 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Input
               value={String(fieldValue)}
               placeholder={`Ange ${field.labelId}...`}
-              onChange={(e) => onChange(field.field, e.target.value)}
+              onChange={(value) => onChange(field.field, value)}
               disabled={field.readOnly}
             />
           )

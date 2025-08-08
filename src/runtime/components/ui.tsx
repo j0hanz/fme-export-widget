@@ -349,6 +349,7 @@ export const Input: React.FC<InputProps> = ({
   type = "text",
   logging = { enabled: false, prefix: "Input" },
   onChange,
+  onFileChange,
   ...props
 }) => {
   const logAction = useComponentLogger(logging, "Input")
@@ -361,7 +362,14 @@ export const Input: React.FC<InputProps> = ({
     (evt: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = evt.target.value
       handleValueChange(newValue)
-      onChange?.(evt)
+
+      // Handle file input differently
+      if (type === "file" && onFileChange) {
+        onFileChange(evt)
+      } else if (onChange) {
+        onChange(newValue)
+      }
+
       logAction("changed", {
         value: newValue,
         controlled: controlledValue !== undefined,
@@ -410,7 +418,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = event.target.value
       handleValueChange(newValue)
-      onChange?.(event)
+      onChange?.(newValue)
       logAction("changed", {
         value: newValue,
         length: newValue.length,
@@ -505,7 +513,7 @@ export const Select: React.FC<SelectProps> = ({
         >
           {option.icon && (
             <SVG
-              src={option.icon as string}
+              src={option.icon}
               size={16}
               currentColor={true}
               role="img"
@@ -550,7 +558,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
       return (
         <div className="d-flex align-items-center">
           <SVG
-            src={buttonIcon as string}
+            src={buttonIcon}
             size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
             className="mr-2"
             currentColor={true}
@@ -564,7 +572,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
     if (buttonIcon)
       return (
         <SVG
-          src={buttonIcon as string}
+          src={buttonIcon}
           size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
           currentColor={true}
           role="img"
@@ -612,7 +620,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             >
               {item.icon && (
                 <SVG
-                  src={item.icon as string}
+                  src={item.icon}
                   size={UI_CONSTANTS.DEFAULT_ICON_SIZE}
                   className="mr-2"
                   currentColor={true}

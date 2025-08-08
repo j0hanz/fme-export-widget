@@ -35,194 +35,113 @@ import {
   LAYER_CONFIG,
 } from "../shared/types"
 import { fmeActions } from "../extensions/store"
-import { ErrorHandlingService } from "../shared/services"
 
-// Custom hook for loading ArcGIS modules - simplified and optimized
-const useArcGISModules = (widgetId?: string, dispatch?: any) => {
+// Simplified ArcGIS modules loading
+const useArcGISModules = () => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
   const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<any>(null)
-
-  const makeCancelable = hooks.useCancelablePromiseMaker()
-
-  const loadModules = hooks.useEventCallback(async () => {
-    if (widgetId && dispatch) {
-      dispatch(fmeActions.setLoadingFlags({ isModulesLoading: true }))
-    }
-    setLoading(true)
-    setError(null)
-
-    try {
-      const [
-        SketchViewModel,
-        GraphicsLayer,
-        Graphic,
-        Polygon,
-        Polyline,
-        Point,
-        Extent,
-        SpatialReference,
-        TextSymbol,
-        SimpleMarkerSymbol,
-        SimpleLineSymbol,
-        PictureMarkerSymbol,
-        AreaMeasurement2D,
-        DistanceMeasurement2D,
-        geometryEngine,
-      ] = await makeCancelable(
-        loadArcGISJSAPIModules([
-          "esri/widgets/Sketch/SketchViewModel",
-          "esri/layers/GraphicsLayer",
-          "esri/Graphic",
-          "esri/geometry/Polygon",
-          "esri/geometry/Polyline",
-          "esri/geometry/Point",
-          "esri/geometry/Extent",
-          "esri/geometry/SpatialReference",
-          "esri/symbols/TextSymbol",
-          "esri/symbols/SimpleMarkerSymbol",
-          "esri/symbols/SimpleLineSymbol",
-          "esri/symbols/PictureMarkerSymbol",
-          "esri/widgets/AreaMeasurement2D",
-          "esri/widgets/DistanceMeasurement2D",
-          "esri/geometry/geometryEngine",
-        ])
-      )
-
-      const loadedModules: EsriModules = {
-        SketchViewModel,
-        GraphicsLayer,
-        Graphic,
-        Polygon,
-        Polyline,
-        Point,
-        Extent,
-        SpatialReference,
-        TextSymbol,
-        SimpleMarkerSymbol,
-        SimpleLineSymbol,
-        PictureMarkerSymbol,
-        AreaMeasurement2D,
-        DistanceMeasurement2D,
-        geometryEngine,
-      }
-
-      setModules(loadedModules)
-      setLoading(false)
-
-      // Store modules in MutableStoreManager
-      if (widgetId) {
-        MutableStoreManager.getInstance().updateStateValue(
-          widgetId,
-          "loadedModules",
-          loadedModules
-        )
-        dispatch(fmeActions.setLoadingFlags({ isModulesLoading: false }))
-      }
-    } catch (err) {
-      setError(err)
-      setLoading(false)
-
-      if (widgetId && dispatch) {
-        const errorService = new ErrorHandlingService()
-        dispatch(
-          fmeActions.setError(
-            errorService.createError(
-              "Failed to load mapping modules",
-              ErrorType.MODULE,
-              {
-                code: "MODULE_LOAD_ERROR",
-                severity: ErrorSeverity.ERROR,
-                recoverable: true,
-                retry: loadModules,
-              }
-            )
-          )
-        )
-        dispatch(fmeActions.setLoadingFlags({ isModulesLoading: false }))
-      }
-    }
-  })
 
   hooks.useEffectOnce(() => {
-    loadModules()
+    loadArcGISJSAPIModules([
+      "esri/widgets/Sketch/SketchViewModel",
+      "esri/layers/GraphicsLayer",
+      "esri/Graphic",
+      "esri/geometry/Polygon",
+      "esri/geometry/Polyline",
+      "esri/geometry/Point",
+      "esri/geometry/Extent",
+      "esri/geometry/SpatialReference",
+      "esri/symbols/TextSymbol",
+      "esri/symbols/SimpleMarkerSymbol",
+      "esri/symbols/SimpleLineSymbol",
+      "esri/symbols/PictureMarkerSymbol",
+      "esri/widgets/AreaMeasurement2D",
+      "esri/widgets/DistanceMeasurement2D",
+      "esri/geometry/geometryEngine",
+    ])
+      .then(
+        ([
+          SketchViewModel,
+          GraphicsLayer,
+          Graphic,
+          Polygon,
+          Polyline,
+          Point,
+          Extent,
+          SpatialReference,
+          TextSymbol,
+          SimpleMarkerSymbol,
+          SimpleLineSymbol,
+          PictureMarkerSymbol,
+          AreaMeasurement2D,
+          DistanceMeasurement2D,
+          geometryEngine,
+        ]) => {
+          setModules({
+            SketchViewModel,
+            GraphicsLayer,
+            Graphic,
+            Polygon,
+            Polyline,
+            Point,
+            Extent,
+            SpatialReference,
+            TextSymbol,
+            SimpleMarkerSymbol,
+            SimpleLineSymbol,
+            PictureMarkerSymbol,
+            AreaMeasurement2D,
+            DistanceMeasurement2D,
+            geometryEngine,
+          })
+          setLoading(false)
+        }
+      )
+      .catch((error) => {
+        console.error("Failed to load ArcGIS modules:", error)
+        setLoading(false)
+      })
   })
 
-  return { modules, loading, error }
+  return { modules, loading }
 }
 
-// Centralized mutable state access hook - optimized with lazy evaluation
+// Simplified mutable state access
 const useMutableState = (widgetId: string) => {
   const store = MutableStoreManager.getInstance()
 
-  const getMutableValue = hooks.useEventCallback((key: string) => {
-    return store.getStateValue([widgetId])?.[key]
-  })
-
-  const setMutableValue = hooks.useEventCallback((key: string, value: any) => {
-    store.updateStateValue(widgetId, key, value)
-  })
-
-  // Use lazy getters to avoid calling getMutableValue on every render
-  return React.useMemo(
-    () => ({
-      get jimuMapView() {
-        return getMutableValue("jimuMapView") as JimuMapView
-      },
-      get sketchViewModel() {
-        return getMutableValue("sketchViewModel") as __esri.SketchViewModel
-      },
-      get graphicsLayer() {
-        return getMutableValue("graphicsLayer") as __esri.GraphicsLayer
-      },
-      get measurementGraphicsLayer() {
-        return getMutableValue(
-          "measurementGraphicsLayer"
-        ) as __esri.GraphicsLayer
-      },
-      get areaMeasurement2D() {
-        return getMutableValue("areaMeasurement2D") as __esri.AreaMeasurement2D
-      },
-      get distanceMeasurement2D() {
-        return getMutableValue(
-          "distanceMeasurement2D"
-        ) as __esri.DistanceMeasurement2D
-      },
-      get currentGeometry() {
-        return getMutableValue("currentGeometry") as __esri.Geometry
-      },
-      get loadedModules() {
-        return getMutableValue("loadedModules") as EsriModules
-      },
-      setMutableValue,
-    }),
-    [getMutableValue, setMutableValue]
-  )
+  return {
+    jimuMapView: store.getStateValue([widgetId])?.jimuMapView as JimuMapView,
+    sketchViewModel: store.getStateValue([widgetId])
+      ?.sketchViewModel as __esri.SketchViewModel,
+    graphicsLayer: store.getStateValue([widgetId])
+      ?.graphicsLayer as __esri.GraphicsLayer,
+    measurementGraphicsLayer: store.getStateValue([widgetId])
+      ?.measurementGraphicsLayer as __esri.GraphicsLayer,
+    areaMeasurement2D: store.getStateValue([widgetId])
+      ?.areaMeasurement2D as __esri.AreaMeasurement2D,
+    distanceMeasurement2D: store.getStateValue([widgetId])
+      ?.distanceMeasurement2D as __esri.DistanceMeasurement2D,
+    currentGeometry: store.getStateValue([widgetId])
+      ?.currentGeometry as __esri.Geometry,
+    setMutableValue: (key: string, value: any) => {
+      store.updateStateValue(widgetId, key, value)
+    },
+  }
 }
 
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
   const { id: widgetId, useMapWidgetIds, dispatch, state: reduxState } = props
-
   const translate = hooks.useTranslation(defaultMessages)
 
-  // Centralized cancelable promise maker for better async operation handling
-  const makeCancelable = hooks.useCancelablePromiseMaker()
-
-  // Centralized state management
+  // Simple notification state
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
 
-  // Service initialization - using useState with lazy initialization for stable references
-  const [errorService] = React.useState(() => new ErrorHandlingService())
-
-  // Load ArcGIS modules and get centralized state access
-  const {
-    modules,
-    loading: modulesLoading,
-    error: modulesError,
-  } = useArcGISModules(widgetId, dispatch)
+  // Load ArcGIS modules and get state access
+  const { modules, loading: modulesLoading } = useArcGISModules()
   const mutableState = useMutableState(widgetId)
 
   // Access mutable state values with default values
@@ -242,11 +161,6 @@ export default function Widget(
     if (measurementGraphicsLayer) {
       measurementGraphicsLayer.removeAll()
     }
-  })
-
-  // Centralized error dispatch helper
-  const raiseError = hooks.useEventCallback((error: any) => {
-    dispatch(fmeActions.setError(error))
   })
 
   // Drawing complete handler for Sketch widget
@@ -318,41 +232,26 @@ export default function Widget(
       // Transition to workspace selection view after drawing
       dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
     } catch (error) {
-      raiseError(
-        errorService.createError(
-          "Failed to complete drawing",
-          ErrorType.VALIDATION,
-          {
-            code: "DRAWING_COMPLETE_ERROR",
-            details: { error: error.message },
-          }
-        )
+      dispatch(
+        fmeActions.setError({
+          message: "Failed to complete drawing",
+          type: ErrorType.VALIDATION,
+          code: "DRAWING_COMPLETE_ERROR",
+          severity: ErrorSeverity.ERROR,
+          timestamp: new Date(),
+        })
       )
     }
   })
 
   // Form submission handler with FME export
   const handleFormSubmit = hooks.useEventCallback(async (formData: any) => {
-    console.log("FME Export - handleFormSubmit started:", formData)
-
     const hasGeometry =
       !!reduxState.geometryJson || !!mutableState.currentGeometry
     if (!hasGeometry || !reduxState.selectedWorkspace) {
-      console.log("FME Export - Missing geometry or selected workspace:", {
-        hasGeometry,
-        selectedWorkspace: reduxState.selectedWorkspace,
-      })
       return
     }
 
-    console.log("FME Export - Starting job submission with configuration:", {
-      serverUrl: props.config.fmeServerUrl,
-      repository: props.config.repository,
-      selectedWorkspace: reduxState.selectedWorkspace,
-      hasToken: !!props.config.fmeServerToken,
-    })
-
-    // Set initial loading state with preparing message
     dispatch(fmeActions.setUiState(StateType.LOADING))
     dispatch(
       fmeActions.setUiStateData({
@@ -362,233 +261,113 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      // Get user email for FME notification with cancellable promises
+      // Get user email for FME notification
       let userEmail = "no-reply@example.com"
       try {
-        const [Portal] = await makeCancelable(
-          loadArcGISJSAPIModules(["esri/portal/Portal"])
-        )
+        const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
         const portal = new Portal()
-        await makeCancelable(portal.load())
-        userEmail =
-          portal.user?.email ||
-          ((await makeCancelable(portal.getSelf())) as any)?.email ||
-          userEmail
-        console.log("FME Export - User email retrieved:", userEmail)
+        await portal.load()
+        userEmail = portal.user?.email || userEmail
       } catch (emailError) {
-        console.log(
-          "FME Export - Failed to get user email, using default:",
-          emailError
-        )
+        console.log("Failed to get user email, using default:", emailError)
       }
 
-      // Create FME Flow client and get workspace name
+      // Create FME Flow client
       dispatch(
         fmeActions.setUiStateData({
           message: translate("connectingToFmeServer"),
         })
       )
       const fmeClient = createFmeFlowClient(props.config)
-
-      // Use the selected workspace directly from Redux state (already includes .fmw extension)
       const workspace = reduxState.selectedWorkspace
-
-      console.log("FME Export - Using selected workspace:", {
-        selectedWorkspace: reduxState.selectedWorkspace,
-        workspace: workspace,
-      })
 
       // Prepare FME parameters
       const fmeParameters: { [key: string]: any } = {
-        ...formData.data, // Form field values (PARAMETER, COORD_SYS, OUTPUT_FORMAT, etc.)
+        ...formData.data,
         opt_requesteremail: userEmail,
-        opt_servicemode: "async", // Async mode with email notification
+        opt_servicemode: "async",
         opt_responseformat: "json",
         opt_showresult: "true",
       }
 
-      // Add geometry if available - FME Flow expects Esri JSON format (not GeoJSON)
+      // Add geometry if available
       if (reduxState.geometryJson) {
-        console.log("FME Export - Adding geometry from Redux state")
-        // Use Esri JSON format directly as expected by FME Flow workspace parameters
-        try {
-          const polygonGeometry = reduxState.geometryJson as any
-          if (polygonGeometry.rings) {
-            // Pass the Esri JSON geometry directly as a string (not converted to GeoJSON)
-            fmeParameters.AreaOfInterest = JSON.stringify(polygonGeometry)
-            console.log(
-              "FME Export - Geometry added as AreaOfInterest parameter (Esri JSON format)"
-            )
-          }
-        } catch (error) {
-          console.warn(
-            "FME Export - Failed to serialize Esri JSON geometry:",
-            error
-          )
+        const polygonGeometry = reduxState.geometryJson as any
+        if (polygonGeometry.rings) {
+          fmeParameters.AreaOfInterest = JSON.stringify(polygonGeometry)
         }
       } else if (mutableState.currentGeometry) {
-        console.log("FME Export - Adding geometry from mutable state")
-        try {
-          const geometryJson = mutableState.currentGeometry.toJSON()
-          if (geometryJson.rings) {
-            // Use Esri JSON format directly as expected by FME Flow workspace parameters
-            fmeParameters.AreaOfInterest = JSON.stringify(geometryJson)
-            console.log(
-              "FME Export - Geometry added as AreaOfInterest parameter (Esri JSON format)"
-            )
-          }
-        } catch (error) {
-          console.warn(
-            "FME Export - Failed to serialize Esri JSON geometry:",
-            error
-          )
+        const geometryJson = mutableState.currentGeometry.toJSON()
+        if (geometryJson.rings) {
+          fmeParameters.AreaOfInterest = JSON.stringify(geometryJson)
         }
-      } else {
-        console.warn("FME Export - No geometry available for export")
       }
 
-      console.log("FME Export - Submitting job with parameters:", {
-        workspace,
-        parameters: Object.keys(fmeParameters),
-        parameterValues: fmeParameters,
-      })
-
-      // Update loading state before submitting
       dispatch(
-        fmeActions.setUiStateData({
-          message: translate("submittingOrder"),
-        })
+        fmeActions.setUiStateData({ message: translate("submittingOrder") })
       )
 
-      // Submit the actual FME job with cancellable promise for better error handling
-      const fmeResponse = await makeCancelable(
-        fmeClient.runDataDownload(workspace, fmeParameters)
+      // Submit the FME job
+      const fmeResponse = await fmeClient.runDataDownload(
+        workspace,
+        fmeParameters
       )
 
-      // Process FME response based on the documented response format
+      // Process response
       let result: ExportResult
-
-      console.log("FME Export - FME API response received:", fmeResponse)
-
-      if (fmeResponse && fmeResponse.data) {
+      if (fmeResponse?.data) {
         const responseData = fmeResponse.data as any
-
-        // Handle FME Flow Data Download response format with serviceResponse wrapper
         const serviceResp = responseData.serviceResponse || responseData
         const status = serviceResp.statusInfo?.status || serviceResp.status
-        const jobId = serviceResp.jobID || serviceResp.id
-        const url = serviceResp.url
-        const mode = serviceResp.statusInfo?.mode || serviceResp.mode
+        const jobId = serviceResp.jobID || serviceResp.id || Date.now()
 
-        console.log("FME Export - Processing response data:", {
-          status: status,
-          jobID: jobId,
-          mode: mode,
-          statusInfo: serviceResp.statusInfo,
-          hasServiceResponse: !!responseData.serviceResponse,
-        })
-
-        // Check for success based on FME Flow Data Download response format
         if (status === "success") {
-          // Ensure we have a proper job ID from either response format
-          const finalJobId = jobId || Date.now()
-
           result = {
             success: true,
             message: "Export order submitted successfully",
-            jobId: finalJobId,
+            jobId,
             workspaceName: workspace,
             email: userEmail,
-            downloadUrl: url || undefined,
+            downloadUrl: serviceResp.url,
           }
-
-          console.log("FME Export - Job submitted successfully:", {
-            jobId: result.jobId,
-            downloadUrl: result.downloadUrl,
-          })
-
-          // Show success notification
           setNotification({
             severity: "success",
             message:
               translate("orderSubmitted") ||
-              `Export order submitted successfully. Job ID: ${result.jobId}`,
+              `Export order submitted successfully. Job ID: ${jobId}`,
           })
         } else {
-          // FME reported failure - check both response formats
           const errorMessage =
             serviceResp.statusInfo?.message ||
             serviceResp.message ||
-            responseData.statusInfo?.message ||
-            responseData.message ||
             "FME job submission failed"
-          console.error("FME Export - FME job failed:", errorMessage)
-
           result = {
             success: false,
             message: errorMessage,
             code: "FME_JOB_FAILURE",
           }
-
           setNotification({
             severity: "error",
             message:
               translate("orderFailed") || `Export failed: ${errorMessage}`,
           })
         }
-      } else if (
-        fmeResponse &&
-        fmeResponse.status >= 200 &&
-        fmeResponse.status < 300
-      ) {
-        // Handle cases where response doesn't have structured data but HTTP status is OK
-        console.log(
-          "FME Export - HTTP success but no structured data, treating as success"
-        )
-
-        result = {
-          success: true,
-          message: "Export order submitted successfully",
-          jobId: Date.now(),
-          workspaceName: workspace,
-          email: userEmail,
-        }
-
-        setNotification({
-          severity: "success",
-          message:
-            translate("orderSubmitted") ||
-            "Export order submitted successfully",
-        })
       } else {
-        // HTTP error or unexpected response format
-        console.error(
-          "FME Export - Unexpected response format or HTTP error:",
-          fmeResponse
-        )
-
-        const errorMessage =
-          fmeResponse?.error?.error?.message ||
-          fmeResponse?.statusText ||
-          "Unexpected response from FME server"
-
         result = {
           success: false,
-          message: errorMessage,
+          message: "Unexpected response from FME server",
           code: "INVALID_RESPONSE",
         }
-
         setNotification({
           severity: "error",
-          message: translate("orderFailed") || `Export failed: ${errorMessage}`,
+          message:
+            translate("orderFailed") || "Export failed: Unexpected response",
         })
       }
 
       dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
     } catch (error) {
-      console.error("FME Export - Job submission error:", error)
-
       const errorMessage = error.message || "Unknown error occurred"
       const result: ExportResult = {
         success: false,
@@ -600,7 +379,6 @@ export default function Widget(
         severity: "error",
         message: translate("orderFailed") || `Export failed: ${errorMessage}`,
       })
-
       dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
     } finally {
@@ -753,9 +531,13 @@ export default function Widget(
       })
       setMutableValue("sketchViewModel", sketchViewModel)
     } catch (error) {
-      raiseError(
-        errorService.createError("Failed to initialize map", ErrorType.MODULE, {
+      dispatch(
+        fmeActions.setError({
+          message: "Failed to initialize map",
+          type: ErrorType.MODULE,
           code: "MAP_INIT_ERROR",
+          severity: ErrorSeverity.ERROR,
+          timestamp: new Date(),
         })
       )
     }
@@ -927,15 +709,12 @@ export default function Widget(
   }
 
   // Render error state with StateRenderer
-  if (
-    modulesError ||
-    (reduxState.error && reduxState.error.severity === "error")
-  ) {
+  if (reduxState.error && reduxState.error.severity === "error") {
     return (
       <StateRenderer
         state={StateType.ERROR}
         data={{
-          error: reduxState.error || modulesError,
+          error: reduxState.error,
           actions: [
             {
               label: translate("retry"),

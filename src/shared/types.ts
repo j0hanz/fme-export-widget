@@ -1,13 +1,6 @@
-import type { IconResult, IMState, ImmutableObject, hooks } from "jimu-core"
-import type {
-  ButtonProps as JimuButtonProps,
-  DropdownProps as JimuDropdownProps,
-  TextInputProps as JimuTextInputProps,
-  TextAreaProps as JimuTextAreaProps,
-} from "jimu-ui"
+import type { IMState, ImmutableObject } from "jimu-core"
 
 // Base Types & Utilities
-// State types for UI state management and rendering
 export enum StateType {
   IDLE = "idle",
   LOADING = "loading",
@@ -17,31 +10,29 @@ export enum StateType {
   EMPTY = "empty",
 }
 
-// Loading indicator config (legacy compatible)
-export interface LoadingConfig {
-  readonly type?: "DONUT" | "PRIMARY" | "SECONDARY"
-  readonly size?: number
-}
-
-// State renderer action button config
 export interface StateActionButton {
   readonly label: string
   readonly onClick: () => void
   readonly variant?: "primary" | "secondary" | "danger"
   readonly disabled?: boolean
-  readonly loading?: boolean
-  readonly icon?: IconResult | string
 }
 
-// State renderer data structure
 export interface StateData {
   readonly message?: string
   readonly detail?: string
   readonly error?: ErrorState
   readonly actions?: StateActionButton[]
+  readonly children?: React.ReactNode
   readonly config?: LoadingConfig
 }
 
+// Loading indicator config
+export interface LoadingConfig {
+  readonly type?: "DONUT" | "PRIMARY" | "SECONDARY"
+  readonly size?: number
+}
+
+// State controller return type
 export interface StateControllerReturn {
   readonly currentState: StateType
   readonly data: StateData
@@ -72,46 +63,209 @@ export interface StateControllerReturn {
 
 export interface StateRendererProps {
   readonly state: StateType
-  readonly data?: StateData & {
-    readonly children?: React.ReactNode
-  }
+  readonly data?: StateData
   readonly children?: React.ReactNode
 }
 
-// Base component interfaces - shared patterns used across components
-// Base component props with optional logging
-interface BaseComponentProps {
-  readonly logging?: {
-    readonly enabled?: boolean
-    readonly prefix?: string
-  }
-}
-
-// Tooltip config props (ArcGIS pattern)
-interface TooltipProps {
-  readonly tooltip?: React.ReactNode // Support FormattedMessage
+// UI Component Interfaces
+export interface ButtonProps {
+  readonly text?: React.ReactNode
+  readonly icon?: string | boolean
+  readonly iconPosition?: "left" | "right"
+  readonly loading?: boolean
+  readonly onClick?: () => void
+  readonly tooltip?: string
   readonly tooltipDisabled?: boolean
   readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
   readonly tooltipEnterDelay?: number
   readonly tooltipEnterNextDelay?: number
   readonly tooltipLeaveDelay?: number
+  readonly logging?: { enabled: boolean; prefix: string }
+  readonly children?: React.ReactNode
+  readonly block?: boolean
+  readonly style?: React.CSSProperties
+  readonly tabIndex?: number
+  readonly title?: string
+  readonly variant?: any
+  readonly color?: any
+  readonly size?: "sm" | "default" | "lg"
+  readonly disabled?: boolean
+  readonly className?: string
+  readonly id?: string
+  readonly type?: any
+  // Allow any other jimu-ui Button props
+  readonly [key: string]: any
 }
 
-// Controlled component pattern for form inputs
-interface ControlledProps<T = string> {
-  readonly value?: T
-  readonly defaultValue?: T
-  readonly onChange?: (value: T) => void
+export interface GroupButtonConfig {
+  readonly text: React.ReactNode
+  readonly onClick: () => void
+  readonly variant?: any
+  readonly color?: any
+  readonly disabled?: boolean
+  readonly loading?: boolean
+  readonly tooltip?: string
+  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
 }
 
-// Core Domain Types
-// Drawing tools for geometry creation
+export interface ButtonGroupProps {
+  readonly leftButton?: GroupButtonConfig
+  readonly rightButton?: GroupButtonConfig
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  readonly logging?: { enabled: boolean; prefix: string }
+}
+
+export interface SelectOption {
+  readonly value: string | number
+  readonly label: string
+  readonly disabled?: boolean
+  readonly icon?: string
+  readonly hideLabel?: boolean
+}
+
+export interface SelectProps {
+  readonly value?: string | number
+  readonly defaultValue?: string | number
+  readonly onChange?: (value: string | number) => void
+  readonly options?: readonly SelectOption[]
+  readonly placeholder?: string
+  readonly disabled?: boolean
+  readonly ariaLabel?: string
+  readonly ariaDescribedBy?: string
+  readonly style?: React.CSSProperties
+  readonly logging?: { enabled: boolean; prefix: string }
+}
+
+export interface InputProps {
+  readonly value?: string
+  readonly defaultValue?: string
+  readonly onChange?: (value: string) => void
+  readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
+  readonly required?: boolean
+  readonly maxLength?: number
+  readonly pattern?: RegExp
+  readonly validationMessage?: string
+  readonly type?: "text" | "password" | "email" | "tel" | "url" | "file"
+  readonly logging?: { enabled: boolean; prefix: string }
+  readonly placeholder?: string
+  readonly disabled?: boolean
+  readonly id?: string
+}
+
+export interface TextAreaProps {
+  readonly value?: string
+  readonly defaultValue?: string
+  readonly onChange?: (value: string) => void
+  readonly placeholder?: string
+  readonly disabled?: boolean
+  readonly rows?: number
+  readonly logEvent?: boolean
+  readonly logPrefix?: string
+  readonly style?: React.CSSProperties
+  readonly required?: boolean
+  readonly id?: string
+}
+
+export interface DropdownItemConfig {
+  readonly id: string
+  readonly label: string
+  readonly icon?: string
+  readonly onClick: () => void
+  readonly disabled?: boolean
+  readonly hidden?: boolean
+  readonly tooltip?: string
+  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
+}
+
+export interface DropdownProps {
+  readonly items: readonly DropdownItemConfig[]
+  readonly buttonIcon?: string
+  readonly buttonText?: string
+  readonly buttonTitle?: string
+  readonly buttonVariant?: "primary" | "secondary" | "tertiary"
+  readonly buttonSize?: "sm" | "default" | "lg"
+  readonly openMode?: "click" | "hover"
+  readonly "aria-label"?: string
+  readonly "a11y-description"?: string
+  readonly logging?: { enabled: boolean; prefix: string }
+}
+
+export interface CustomTooltipProps {
+  readonly content?: React.ReactNode
+  readonly children: React.ReactElement
+  readonly showArrow?: boolean
+  readonly placement?: "top" | "bottom" | "left" | "right"
+  readonly enterDelay?: number
+  readonly enterNextDelay?: number
+  readonly enterTouchDelay?: number
+  readonly leaveDelay?: number
+  readonly disabled?: boolean
+  readonly title?: React.ReactNode
+  readonly id?: string
+}
+
+export interface FormProps {
+  readonly variant?: "layout" | "field"
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  readonly children?: React.ReactNode
+  // Layout variant props
+  readonly title?: string
+  readonly subtitle?: string
+  readonly onBack?: () => void
+  readonly onSubmit?: () => void
+  readonly isValid?: boolean
+  readonly loading?: boolean
+  // Field variant props
+  readonly label?: string
+  readonly helper?: string
+  readonly required?: boolean
+  readonly readOnly?: boolean
+  readonly error?: string
+}
+
+// UI Constants
+export const UI_CONSTANTS = {
+  DEFAULT_ICON_SIZE: 16,
+  DEFAULT_LOADING_SIZE: 16,
+  BUTTON_DEFAULTS: {
+    BLOCK: true,
+    ICON_POSITION: "left" as const,
+    TOOLTIP_PLACEMENT: "top" as const,
+  },
+  SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
+  DEFAULT_TOOLTIP_DELAYS: {
+    ENTER: 1000,
+    ENTER_NEXT: 500,
+    LEAVE: 100,
+    TOUCH: 500,
+  },
+} as const
+
+export const TOOLTIP_DELAYS = {
+  ENTER: 1000,
+  NEXT: 500,
+  LEAVE: 100,
+  TOUCH: 500,
+} as const
+
+export const TOOLTIP_PLACEMENTS = {
+  TOP: "top" as const,
+  BOTTOM: "bottom" as const,
+  LEFT: "left" as const,
+  RIGHT: "right" as const,
+} as const
+
+export const TOOLTIP_STYLES = {
+  showArrow: true,
+  disabled: false,
+} as const
 export const enum DrawingTool {
   POLYGON = "polygon",
   RECTANGLE = "rectangle",
 }
 
-// Widget view modes for UI states/workflows
 export const enum ViewMode {
   INITIAL = "initial",
   DRAWING = "drawing",
@@ -121,35 +275,12 @@ export const enum ViewMode {
   ORDER_RESULT = "orderResult",
 }
 
-// Supported coordinate systems for export
-export const enum CoordinateSystem {
-  SWEREF99_1330 = "sweref99_1330",
-  SWEREF99_1500 = "sweref99_1500",
-  SWEREF99_1800 = "sweref99_1800",
-  WGS84 = "wgs84",
-  UTAN_KOORDINATER = "utan_koordinater",
-}
-
-// Export formats for data output
-export const enum ExportFormat {
-  DWG = "dwg",
-  DXF = "dxf",
-  GEOPACKAGE = "geopackage",
-  ESRI_SHAPE = "esri_shape_directory",
-  GEOTIFF = "geotiff",
-  JPEG = "jpeg",
-  PNG = "png",
-  SKETCHUP = "sketchup",
-}
-
-// Error severity levels
 export const enum ErrorSeverity {
   ERROR = "error",
   WARNING = "warning",
   INFO = "info",
 }
 
-// Error type categories
 export const enum ErrorType {
   VALIDATION = "ValidationError",
   NETWORK = "NetworkError",
@@ -157,10 +288,8 @@ export const enum ErrorType {
   GEOMETRY = "GeometryError",
   API = "ApiError",
   CONFIG = "ConfigError",
-  AREA_TOO_LARGE = "AreaTooLarge",
 }
 
-// Standardized error state with recovery options
 export interface ErrorState {
   readonly message: string
   readonly code?: string
@@ -352,79 +481,11 @@ export type FmeActions =
   | FmeUiActions
 
 // Drawing and UI config constants
-export const DRAWING_LAYER_TITLE = "Drawing Layer"
-
 export const LAYER_CONFIG = {
-  title: DRAWING_LAYER_TITLE,
+  title: "Drawing Layer",
   listMode: "hide",
   elevationInfo: { mode: "on-the-ground" },
 } as const
-
-export const SIMULATION_DELAYS = {
-  ORDER_SUBMIT: 2000,
-} as const
-
-// UI Configuration Constants
-export const UI_CONSTANTS = {
-  DEFAULT_ICON_SIZE: 16,
-  DEFAULT_LOADING_SIZE: 16,
-  BUTTON_DEFAULTS: {
-    BLOCK: true,
-    ICON_POSITION: "left" as const,
-    TOOLTIP_PLACEMENT: "top" as const,
-  },
-  SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
-  DEFAULT_TOOLTIP_DELAYS: {
-    ENTER: 1000,
-    ENTER_NEXT: 500,
-    LEAVE: 100,
-    TOUCH: 500,
-  },
-} as const
-
-export const TOOLTIP_DELAYS = {
-  ENTER: 1000,
-  NEXT: 500,
-  LEAVE: 100,
-  TOUCH: 500,
-} as const
-
-export const TOOLTIP_PLACEMENTS = {
-  TOP: "top" as const,
-  BOTTOM: "bottom" as const,
-  LEFT: "left" as const,
-  RIGHT: "right" as const,
-} as const
-
-export const TOOLTIP_STYLES = {
-  showArrow: true,
-  disabled: false,
-} as const
-
-export const TOOLTIP_CONFIG = {
-  DELAYS: {
-    ENTER: 1000,
-    LEAVE: 100,
-    TOUCH: 500,
-    NEXT: 500,
-  },
-  PLACEMENTS: {
-    TOP: "top",
-    BOTTOM: "bottom",
-    LEFT: "left",
-    RIGHT: "right",
-  },
-  STYLES: {
-    showArrow: true,
-    disabled: false,
-  },
-} as const
-
-// Freeze config objects to prevent mutation
-Object.freeze(LAYER_CONFIG)
-Object.freeze(SIMULATION_DELAYS)
-Object.freeze(UI_CONSTANTS)
-Object.freeze(TOOLTIP_CONFIG)
 
 // API & Configuration
 // FME Flow API config
@@ -786,35 +847,6 @@ export interface IMStateWithFmeExport extends IMState {
   fmeExport: ImmutableObject<FmeWidgetState>
 }
 
-// UI Components
-// Button Components
-export interface GroupButtonConfig extends TooltipProps {
-  readonly text: React.ReactNode // Support FormattedMessage
-  readonly onClick: () => void
-  readonly variant?: JimuButtonProps["variant"]
-  readonly color?: JimuButtonProps["color"]
-  readonly disabled?: boolean
-  readonly loading?: boolean
-}
-
-export interface ButtonProps
-  extends Omit<JimuButtonProps, "onClick" | "icon">,
-    TooltipProps,
-    BaseComponentProps {
-  readonly text?: React.ReactNode // Support FormattedMessage
-  readonly icon?: JimuButtonProps["icon"] | IconResult | string
-  readonly iconPosition?: "left" | "right"
-  readonly loading?: boolean
-  readonly onClick?: () => void
-}
-
-export interface ButtonGroupProps extends BaseComponentProps {
-  readonly leftButton?: GroupButtonConfig
-  readonly rightButton?: GroupButtonConfig
-  readonly className?: string
-  readonly style?: React.CSSProperties
-}
-
 // Content Components - broken down into focused interfaces
 // Base content properties that all content views need
 export interface ContentBaseProps {
@@ -869,210 +901,32 @@ export interface ContentProps
     Partial<ContentWorkspaceProps>,
     ContentLoadingProps {}
 
-// Dropdown Components
-export interface DropdownItemConfig extends TooltipProps {
-  readonly id: string
-  readonly label: string
-  readonly icon?: IconResult | string
-  readonly onClick: () => void
-  readonly disabled?: boolean
-  readonly hidden?: boolean
+// Workspace-related content properties
+export interface ContentWorkspaceProps {
+  readonly config: FmeExportConfig
+  readonly onWorkspaceSelected?: (
+    workspaceName: string,
+    parameters: readonly WorkspaceParameter[],
+    workspaceItem: any
+  ) => void
+  readonly onWorkspaceBack?: () => void
+  readonly selectedWorkspace?: string | null
+  readonly workspaceParameters?: readonly WorkspaceParameter[]
+  readonly workspaceItem?: any // Full workspace item from server
 }
 
-export interface DropdownProps
-  extends Omit<JimuDropdownProps, "children">,
-    BaseComponentProps {
-  readonly items: readonly DropdownItemConfig[]
-  readonly buttonIcon?: IconResult | string
-  readonly buttonText?: string
-  readonly buttonTitle?: string
-  readonly buttonVariant?: "primary" | "secondary" | "tertiary"
-  readonly buttonSize?: "sm" | "default" | "lg"
-  readonly openMode?: "click" | "hover"
-  readonly "aria-label"?: string
-  readonly "a11y-description"?: string
-}
-
-// Export Form Components
-export interface ExportFormProps {
-  readonly onBack: () => void
-  readonly onSubmit: (data: unknown) => void
-  readonly isSubmitting?: boolean
-}
-
-export interface FieldConfig {
-  readonly field: string
-  readonly labelId: string
-  readonly helperId?: string
-  readonly required?: boolean
-  readonly readOnly?: boolean
-  readonly defaultValue?: string
-  readonly optionsKey?: string
-}
-
-export interface ExportConfig {
-  readonly titleId: string
-  readonly subtitleId: string
-  readonly fields: readonly FieldConfig[]
-  readonly requiredFields?: readonly string[]
-  readonly instructions?: string
-}
-
-// Form Components
-interface BaseFormProps {
-  readonly children?: React.ReactNode
-  readonly className?: string
-  readonly style?: React.CSSProperties
-}
-
-interface LayoutFormProps extends BaseFormProps {
-  readonly variant: "layout"
-  readonly title: React.ReactNode
-  readonly subtitle: React.ReactNode
-  readonly onBack?: () => void
-  readonly onSubmit?: () => void
-  readonly isValid?: boolean
-  readonly loading?: boolean
-}
-
-interface FieldFormProps extends BaseFormProps {
-  readonly variant: "field"
-  readonly label: React.ReactNode
-  readonly helper?: React.ReactNode
-  readonly required?: boolean
-  readonly readOnly?: boolean
-  readonly error?: React.ReactNode
-}
-
-export type FormProps = LayoutFormProps | FieldFormProps
-
-// Header Component
-export interface HeaderProps {
-  readonly showActions: boolean
-  readonly onReset: () => void
-  readonly resetIcon: IconResult | string
-  readonly showSaveButton?: boolean
-  readonly showFolderButton?: boolean
-  readonly onSaveTemplate?: () => void
-  readonly onShowTemplateFolder?: () => void
-  readonly saveIcon?: IconResult | string
-  readonly folderIcon?: IconResult | string
-  readonly canSaveTemplate?: boolean
-  readonly canLoadTemplate?: boolean
-  readonly canReset?: boolean
-}
-
-// Input Components
-export interface InputProps
-  extends Omit<
-      JimuTextInputProps,
-      "pattern" | "value" | "defaultValue" | "type"
-    >,
-    BaseComponentProps {
-  readonly value?: string
-  readonly defaultValue?: string
-  readonly required?: boolean
-  readonly maxLength?: number
-  readonly pattern?: RegExp
-  readonly validationMessage?: string
-  readonly type?: "text" | "password" | "email" | "tel" | "url" | "file"
-}
-
-// Select Components
-export interface SelectOption {
-  readonly value: string | number
-  readonly label: string
-  readonly disabled?: boolean
-  readonly icon?: IconResult | string
-  readonly hideLabel?: boolean
-}
-
-export interface SelectProps
-  extends ControlledProps<string | number>,
-    BaseComponentProps {
-  readonly options?: readonly SelectOption[]
-  readonly placeholder?: string
-  readonly disabled?: boolean
-  readonly ariaLabel?: string
-  readonly ariaDescribedBy?: string
-  readonly style?: React.CSSProperties
-}
-
-// TextArea Components
-export interface TextAreaProps
-  extends Omit<JimuTextAreaProps, "value" | "defaultValue">,
-    BaseComponentProps {
-  readonly value?: string
-  readonly defaultValue?: string
-  readonly logEvent?: boolean
-  readonly logPrefix?: string
-}
-
-export interface CustomTooltipProps {
-  readonly content?: React.ReactNode
-  readonly children: React.ReactElement
-  readonly showArrow?: boolean
-  readonly placement?: "top" | "bottom" | "left" | "right"
-  readonly enterDelay?: number
-  readonly enterNextDelay?: number
-  readonly enterTouchDelay?: number
-  readonly leaveDelay?: number
-  readonly disabled?: boolean
-  readonly title?: React.ReactNode
-  readonly id?: string
-}
-
-// Widget-specific component types and utilities
-// Notification state for user feedback
+// Widget-specific types
 export interface NotificationState {
   readonly severity: "success" | "error" | "warning" | "info"
   readonly message: string
-  readonly formattedMessage?: React.ReactElement // Optional FormattedMessage component
 }
 
-// Measurement display component props
-export interface MeasurementProps {
-  readonly data?: RealTimeMeasurements
-  readonly translate: ReturnType<typeof hooks.useTranslation>
-}
-
-// Loading state flags for async operations
-export interface LoadingFlags {
-  readonly isModulesLoading?: boolean
-  readonly isTemplateLoading?: boolean
-  readonly isSubmittingOrder?: boolean
-  readonly isImportingTemplates?: boolean
-  readonly isExportingTemplates?: boolean
-}
-
-// Widget Constants & Symbols
-// Standard color definitions for ArcGIS symbols
-export const COLOR_BLACK_TRANSPARENT = [0, 0, 0, 0.8] as [
-  number,
-  number,
-  number,
-  number,
-]
-export const COLOR_WHITE = [255, 255, 255, 1] as [
-  number,
-  number,
-  number,
-  number,
-]
-export const COLOR_ORANGE_FILL = [255, 165, 0, 0.2] as [
-  number,
-  number,
-  number,
-  number,
-]
-export const COLOR_ORANGE_OUTLINE = [255, 140, 0] as [number, number, number]
-
-// Standard highlight symbol for drawn geometries
+// Widget Constants & Symbols - Simplified
 export const HIGHLIGHT_SYMBOL = {
   type: "simple-fill" as const,
-  color: COLOR_ORANGE_FILL,
+  color: [255, 165, 0, 0.2] as [number, number, number, number],
   outline: {
-    color: COLOR_ORANGE_OUTLINE,
+    color: [255, 140, 0] as [number, number, number],
     width: 2,
     style: "solid" as const,
   },
@@ -1086,22 +940,4 @@ export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
   [ViewMode.ORDER_RESULT]: ViewMode.INITIAL,
   [ViewMode.DRAWING]: ViewMode.INITIAL,
   [ViewMode.INITIAL]: ViewMode.INITIAL,
-}
-
-// Freeze widget constants to prevent mutation
-Object.freeze(HIGHLIGHT_SYMBOL)
-Object.freeze(VIEW_ROUTES)
-
-// Workspace-related content properties
-export interface ContentWorkspaceProps {
-  readonly config: FmeExportConfig
-  readonly onWorkspaceSelected?: (
-    workspaceName: string,
-    parameters: readonly WorkspaceParameter[],
-    workspaceItem: any
-  ) => void
-  readonly onWorkspaceBack?: () => void
-  readonly selectedWorkspace?: string | null
-  readonly workspaceParameters?: readonly WorkspaceParameter[]
-  readonly workspaceItem?: any // Full workspace item from server
 }
