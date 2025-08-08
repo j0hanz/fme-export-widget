@@ -20,11 +20,11 @@ export const STYLES = {
   } as React.CSSProperties,
 
   state: {
-    detail: {
+    centered: {
       display: "flex",
       flexDirection: "column",
-      alignItems: "center",
       justifyContent: "center",
+      gap: "0.5rem",
       height: "100%",
     } as React.CSSProperties,
     text: {

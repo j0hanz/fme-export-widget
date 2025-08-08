@@ -103,4 +103,7 @@ export default {
   unknownErrorOccurred: "Okänt fel inträffade",
   characters: "tecken",
   configureWorkspaceParameters: "Konfigurera {workspaceName} parametrar",
+  // Form validation error messages
+  formValidationSingleError: "Vänligen fyll i det obligatoriska fältet.",
+  formValidationMultipleErrors: "Vänligen fyll i alla obligatoriska fält.",
 }

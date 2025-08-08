@@ -12,6 +12,7 @@ import {
   ErrorSeverity,
   StateType as StateTypeEnum,
 } from "../../shared/types"
+import { Button } from "./ui"
 import { fmeActions } from "../../extensions/store"
 import { getUiStateSlice } from "../../shared/utils"
 import { STYLES } from "../../shared/css"
@@ -160,7 +161,7 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
     const loadingType = LoadingType.Donut
 
     return (
-      <div style={STYLES.state.detail} role="status" aria-live="polite">
+      <div style={STYLES.state.centered} role="status" aria-live="polite">
         <Loading type={loadingType} width={200} height={200} />
         {(data.message || data.detail) && (
           <div style={STYLES.state.text} aria-label="Loading details">
@@ -221,39 +222,36 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
     )
 
     return (
-      <div role="alert" aria-live="assertive">
-        <div>
-          <div>{mainMessage}</div>
-          {code && <div>Error code: {code}</div>}
+      <div role="alert" aria-live="assertive" style={STYLES.state.centered}>
+        <div>{mainMessage}</div>
+        {code && <div>Error code: {code}</div>}
 
-          {/* Severity indicators */}
-          {severity === ErrorSeverity.WARNING && (
-            <div role="status">
-              Warning: This operation may have partially succeeded.
-            </div>
-          )}
-          {severity === ErrorSeverity.INFO && (
-            <div role="status">Info: This is an informational message.</div>
-          )}
+        {/* Severity indicators */}
+        {severity === ErrorSeverity.WARNING && (
+          <div role="status">
+            Warning: This operation may have partially succeeded.
+          </div>
+        )}
+        {severity === ErrorSeverity.INFO && (
+          <div role="status">Info: This is an informational message.</div>
+        )}
 
-          {/* Enhanced contextual information */}
-          {recommendedActionLine && <div>{recommendedActionLine}</div>}
-          {troubleshootingLine && <div>{troubleshootingLine}</div>}
-        </div>
+        {/* Enhanced contextual information */}
+        {recommendedActionLine && <div>{recommendedActionLine}</div>}
+        {troubleshootingLine && <div>{troubleshootingLine}</div>}
 
         {/* Action buttons */}
         {combinedActions.length > 0 && (
           <div role="group" aria-label="Error recovery actions">
             {combinedActions.map((action, index) => (
-              <button
+              <Button
                 key={index}
                 onClick={action.onClick}
                 disabled={action.disabled}
                 aria-label={`${action.label} - ${action.disabled ? "disabled" : "available"}`}
                 tabIndex={action.disabled ? -1 : 0}
-              >
-                {action.label}
-              </button>
+                text={action.label}
+              />
             ))}
           </div>
         )}
@@ -267,15 +265,14 @@ export const StateRenderer: React.FC<StateRendererProps> = ({
         {data.actions && data.actions.length > 0 && (
           <div role="group" aria-label="Success actions">
             {data.actions.map((action, index) => (
-              <button
+              <Button
                 key={index}
                 onClick={action.onClick}
                 disabled={action.disabled}
                 aria-label={`${action.label} - ${action.disabled ? "disabled" : "available"}`}
                 tabIndex={action.disabled ? -1 : 0}
-              >
-                {action.label}
-              </button>
+                text={action.label}
+              />
             ))}
           </div>
         )}

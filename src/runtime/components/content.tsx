@@ -9,7 +9,11 @@ import {
 import { Button, Select, Dropdown } from "./ui"
 import { StateRenderer } from "./state"
 import defaultMessages from "../../translations/default"
-import type { ContentProps, DropdownItemConfig } from "../../shared/types"
+import type {
+  ContentProps,
+  DropdownItemConfig,
+  WorkspaceItem,
+} from "../../shared/types"
 import { ViewMode, DrawingTool, StateType } from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
@@ -61,11 +65,21 @@ export const Content: React.FC<ContentProps> = ({
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Workspace selection state - moved to top level to avoid hook usage in render functions
-  const [workspaces, setWorkspaces] = React.useState<readonly any[]>([])
+  const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
+    []
+  )
   const [isLoadingWorkspaces, setIsLoadingWorkspaces] = React.useState(false)
   const [workspaceError, setWorkspaceError] = React.useState<string | null>(
     null
   )
+
+  // Guard against setState on unmounted component during async flows
+  const isMountedRef = React.useRef(true)
+  hooks.useEffectOnce(() => {
+    return () => {
+      isMountedRef.current = false
+    }
+  })
 
   // Generate stable animation ID based on current state
   const playId = `${state}-${!!error}-none`.length
@@ -90,7 +104,7 @@ export const Content: React.FC<ContentProps> = ({
           (item) => item.type === "WORKSPACE"
         )
 
-        setWorkspaces(workspaceItems)
+        if (isMountedRef.current) setWorkspaces(workspaceItems)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
@@ -99,12 +113,13 @@ export const Content: React.FC<ContentProps> = ({
       if (err.name !== "CancelledPromiseError") {
         const errorMessage =
           err instanceof Error ? err.message : translate("unknownErrorOccurred")
-        setWorkspaceError(
-          `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
-        )
+        if (isMountedRef.current)
+          setWorkspaceError(
+            `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
+          )
       }
     } finally {
-      setIsLoadingWorkspaces(false)
+      if (isMountedRef.current) setIsLoadingWorkspaces(false)
     }
   })
 
@@ -142,12 +157,13 @@ export const Content: React.FC<ContentProps> = ({
             err instanceof Error
               ? err.message
               : translate("unknownErrorOccurred")
-          setWorkspaceError(
-            `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
-          )
+          if (isMountedRef.current)
+            setWorkspaceError(
+              `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
+            )
         }
       } finally {
-        setIsLoadingWorkspaces(false)
+        if (isMountedRef.current) setIsLoadingWorkspaces(false)
       }
     }
   )
@@ -222,7 +238,6 @@ export const Content: React.FC<ContentProps> = ({
 
     return (
       <>
-        <div style={STYLES.typography.caption}>{instructionText}</div>
         {/* Drawing Mode Selector */}
         <div style={STYLES.button.row}>
           <Select
