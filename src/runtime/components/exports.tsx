@@ -2,7 +2,7 @@ import { React, hooks, getAppStore } from "jimu-core"
 import { Select, TextArea, Form, Input } from "./ui"
 import { Checkbox } from "jimu-ui"
 import { STYLES } from "../../shared/css"
-import defaultMessages from "../../translations/default"
+import defaultMessages from "./translations/default"
 import type { WorkspaceParameter, WorkspaceItem } from "../../shared/types"
 import { fmeActions } from "../../extensions/store"
 import {

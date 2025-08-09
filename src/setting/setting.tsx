@@ -6,7 +6,7 @@ import {
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
 import { TextInput } from "jimu-ui"
-import defaultMessages from "../translations/default"
+import defaultMessages from "./translations/default"
 
 export default function Setting(props: AllWidgetSettingProps<any>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props

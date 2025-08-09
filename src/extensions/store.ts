@@ -45,6 +45,11 @@ export const fmeActions = {
     drawingTool,
   }),
 
+  setClickCount: (clickCount: number) => ({
+    type: FmeActionType.SET_CLICK_COUNT,
+    clickCount,
+  }),
+
   setLoadingFlags: (flags: {
     isModulesLoading?: boolean
     isSubmittingOrder?: boolean

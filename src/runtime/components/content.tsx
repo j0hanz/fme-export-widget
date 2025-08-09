@@ -8,7 +8,7 @@ import {
 } from "jimu-core"
 import { Button, Select, Dropdown, UI_CSS } from "./ui"
 import { StateRenderer } from "./state"
-import defaultMessages from "../../translations/default"
+import defaultMessages from "./translations/default"
 import type {
   ContentProps,
   DropdownItemConfig,
@@ -92,6 +92,8 @@ const renderOrderSuccess = (
       text={translate("reuseGeography")}
       onClick={onReuseGeography}
       logging={{ enabled: true, prefix: "FME-Export" }}
+      tooltip={translate("tooltipReuseGeography")}
+      tooltipPlacement="bottom"
     />
   </>
 )

@@ -17,7 +17,7 @@ import {
   Tooltip as JimuTooltip,
 } from "jimu-ui"
 import { STYLES } from "../../shared/css"
-import defaultMessages from "../../translations/default"
+import defaultMessages from "./translations/default"
 import type {
   ButtonProps,
   ButtonGroupProps,

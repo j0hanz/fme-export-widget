@@ -14,7 +14,8 @@ import {
 import { Content } from "./components/content"
 import { StateRenderer } from "./components/state"
 import { createFmeFlowClient } from "../shared/api"
-import defaultMessages from "../translations/default"
+import defaultMessages from "./translations/default"
+import componentMessages from "./components/translations/default"
 import { STYLES } from "../shared/css"
 import type {
   FmeExportConfig,
@@ -150,14 +151,12 @@ const calculatePolygonArea = (
   if (!modules.geometryEngine || geometry.type !== "polygon") return 0
 
   try {
-    const area = modules.geometryEngine.planarArea(
+    return modules.geometryEngine.planarArea(
       geometry as __esri.Polygon,
       "square-meters"
     )
-    console.log("FME Export - Calculated area:", area, "square meters")
-    return area
   } catch (error) {
-    console.warn("FME Export - Failed to calculate area:", error)
+    console.warn("Failed to calculate polygon area:", error)
     return 0
   }
 }
@@ -170,7 +169,6 @@ const getUserEmail = async (): Promise<string> => {
     await portal.load()
     return portal.user?.email || "no-reply@example.com"
   } catch (error) {
-    console.log("Failed to get user email, using default:", error)
     return "no-reply@example.com"
   }
 }
@@ -238,9 +236,6 @@ const createMeasurementWidgets = (
       visible: false,
     })
     setMutableValue("areaMeasurement2D", areaMeasurement2D)
-    console.log(
-      "FME Export - AreaMeasurement2D widget created (not added to UI)"
-    )
   }
 
   if (modules.DistanceMeasurement2D) {
@@ -250,9 +245,6 @@ const createMeasurementWidgets = (
       visible: false,
     })
     setMutableValue("distanceMeasurement2D", distanceMeasurement2D)
-    console.log(
-      "FME Export - DistanceMeasurement2D widget created (not added to UI)"
-    )
   }
 }
 
@@ -260,7 +252,8 @@ const createSketchViewModel = (
   jmv: JimuMapView,
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
-  handleDrawingComplete: (evt: any) => void
+  handleDrawingComplete: (evt: any) => void,
+  dispatch: any
 ) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -312,22 +305,51 @@ const createSketchViewModel = (
     },
   }
 
-  // Add event handler
+  // Track user clicks for dynamic instruction text
+  let clickCount = 0
+
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    if (evt.state === "start" || evt.state === "complete") {
-      console.log(
-        "FME Export - Sketch create event:",
-        evt.state,
-        "Tool:",
-        evt.tool
-      )
-    }
-    if (evt.state === "complete") {
-      console.log(
-        "FME Export - Drawing completed, geometry:",
-        evt.graphic?.geometry
-      )
+    if (evt.state === "start") {
+      clickCount = 0
+      dispatch(fmeActions.setDrawingState(true, 0, undefined))
+    } else if (
+      evt.state === "active" &&
+      evt.tool === "polygon" &&
+      evt.graphic?.geometry
+    ) {
+      const geometry = evt.graphic.geometry as __esri.Polygon
+      if (geometry?.rings?.[0]?.length >= 2) {
+        const vertices = geometry.rings[0]
+        const vertexCount = vertices.length
+
+        // Check if polygon is auto-closed by comparing first and last points
+        const firstPoint = vertices[0]
+        const lastPoint = vertices[vertexCount - 1]
+        const isAutoClosed =
+          Array.isArray(firstPoint) &&
+          Array.isArray(lastPoint) &&
+          Math.abs(firstPoint[0] - lastPoint[0]) < 0.001 &&
+          Math.abs(firstPoint[1] - lastPoint[1]) < 0.001
+
+        // Calculate actual user clicks (subtract auto-close duplicate if present)
+        const actualClicks = isAutoClosed ? vertexCount - 1 : vertexCount
+
+        // Only update if click count increased
+        if (actualClicks > clickCount) {
+          clickCount = actualClicks
+          dispatch(fmeActions.setClickCount(clickCount))
+        }
+      }
+    } else if (evt.tool === "rectangle" && clickCount !== 1) {
+      clickCount = 1
+      dispatch(fmeActions.setClickCount(1))
+    } else if (evt.state === "complete") {
+      clickCount = 0
+      dispatch(fmeActions.setDrawingState(false, 0, undefined))
       handleDrawingComplete(evt)
+    } else if (evt.state === "cancel") {
+      clickCount = 0
+      dispatch(fmeActions.setDrawingState(false, 0, undefined))
     }
   })
 
@@ -342,9 +364,8 @@ const hideMeasurementWidgets = (mutableState: any) => {
     try {
       areaMeasurement2D.visible = false
       areaMeasurement2D.viewModel.clear()
-      console.log("FME Export - Ensured area measurement widget is hidden")
     } catch (error) {
-      console.warn("FME Export - Failed to hide area measurement:", error)
+      console.warn("Failed to hide area measurement widget:", error)
     }
   }
 
@@ -352,9 +373,8 @@ const hideMeasurementWidgets = (mutableState: any) => {
     try {
       distanceMeasurement2D.visible = false
       distanceMeasurement2D.viewModel.clear()
-      console.log("FME Export - Ensured distance measurement widget is hidden")
     } catch (error) {
-      console.warn("FME Export - Failed to hide distance measurement:", error)
+      console.warn("Failed to hide distance measurement widget:", error)
     }
   }
 }
@@ -427,7 +447,15 @@ export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
   const { id: widgetId, useMapWidgetIds, dispatch, state: reduxState } = props
-  const translate = hooks.useTranslation(defaultMessages)
+  const translateWidget = hooks.useTranslation(defaultMessages)
+  const translateComponent = hooks.useTranslation(componentMessages)
+
+  // Combined translation function that tries widget translations first, then component translations
+  const translate = (key: string) => {
+    return translateWidget(key) !== key
+      ? translateWidget(key)
+      : translateComponent(key)
+  }
 
   // Simple notification state
   const [notification, setNotification] =
@@ -495,12 +523,6 @@ export default function Widget(
         widgetId,
         "currentGeometry",
         geometry
-      )
-
-      console.log(
-        "FME Export - Drawing completed with area:",
-        Math.abs(calculatedArea),
-        "square meters"
       )
 
       dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
@@ -594,18 +616,12 @@ export default function Widget(
 
   // JimuMapView ready handler with sketch setup
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
-    console.log("FME Export - MapView ready, initializing sketch widget")
-
     if (!modules) {
-      console.log(
-        "FME Export - ArcGIS modules not yet loaded, storing map view"
-      )
       setMutableValue("jimuMapView", jmv)
       return
     }
 
     try {
-      console.log("FME Export - Setting up graphics layers and sketch widget")
       setMutableValue("jimuMapView", jmv)
 
       const layer = createGraphicsLayers(jmv, modules, setMutableValue)
@@ -615,7 +631,8 @@ export default function Widget(
         jmv,
         modules,
         layer,
-        handleDrawingComplete
+        handleDrawingComplete,
+        dispatch
       )
       setMutableValue("sketchViewModel", sketchViewModel)
     } catch (error) {
@@ -631,49 +648,53 @@ export default function Widget(
     }
   })
 
-  // Helper function to get instruction text based on drawing tool
-  const getInstructionText = hooks.useEventCallback((tool: DrawingTool) => {
-    switch (tool) {
-      case DrawingTool.RECTANGLE:
+  // Helper function to get dynamic instruction text based on drawing tool, state, and click count
+  const getDynamicInstructionText = hooks.useEventCallback(
+    (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
+      // For rectangle tool, instruction is always the same
+      if (tool === DrawingTool.RECTANGLE) {
         return translate("rectangleDrawingInstructions")
-      case DrawingTool.POLYGON:
-        return translate("drawInstruction")
+      }
+
+      // For polygon tool, provide dynamic instructions based on drawing state and click count
+      if (tool === DrawingTool.POLYGON) {
+        if (!isDrawing || clickCount === 0) {
+          // Initial state - no drawing started yet
+          return translate("polygonDrawingStart")
+        } else if (clickCount === 1) {
+          // First point placed, need to continue drawing
+          return translate("polygonDrawingContinue")
+        } else if (clickCount === 2) {
+          // Second point placed - still need at least one more point for a valid polygon
+          // Don't suggest finishing yet, need minimum 3 points for a polygon
+          return translate("polygonDrawingContinue")
+        } else if (clickCount >= 3) {
+          // Three or more points placed - now can complete the polygon
+          return translate("polygonDrawingComplete")
+        }
+      }
+
+      // Fallback to generic instruction
+      return translate("drawInstruction")
     }
-  })
+  )
 
   // Start drawing handler - initializes sketch view model and starts drawing
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
-    console.log("FME Export - Starting drawing with tool:", tool)
+    if (!sketchViewModel) return
 
-    if (!sketchViewModel) {
-      console.warn("FME Export - Sketch view model not available")
-      return
-    }
-
-    dispatch({
-      type: FmeActionType.SET_DRAWING_TOOL,
-      drawingTool: tool,
-    })
-    dispatch({
-      type: FmeActionType.SET_DRAWING_STATE,
-      isDrawing: true,
-      clickCount: 0,
-    })
+    // Set drawing tool and initialize drawing state
+    dispatch(fmeActions.setDrawingState(true, 0, tool))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
 
-    // Clear existing graphics
+    // Clear existing graphics and hide measurement widgets
     clearAllGraphics()
-    console.log("FME Export - Cleared all graphics before drawing")
-
-    // Ensure measurement widgets are hidden during drawing
     hideMeasurementWidgets(mutableState)
 
     // Start the sketch drawing based on the selected tool
     if (tool === DrawingTool.RECTANGLE) {
-      console.log("FME Export - Creating rectangle")
       sketchViewModel.create("rectangle")
     } else {
-      console.log("FME Export - Creating polygon")
       sketchViewModel.create("polygon")
     }
   })
@@ -790,7 +811,11 @@ export default function Widget(
         config={props.config}
         state={reduxState.viewMode}
         error={reduxState.error}
-        instructionText={getInstructionText(reduxState.drawingTool)}
+        instructionText={getDynamicInstructionText(
+          reduxState.drawingTool,
+          reduxState.isDrawing,
+          reduxState.clickCount
+        )}
         onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
         isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchViewModel}
