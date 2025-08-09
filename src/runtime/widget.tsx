@@ -24,6 +24,7 @@ import type {
   IMStateWithFmeExport,
   FmeWidgetState,
   NotificationState,
+  ErrorState,
 } from "../shared/types"
 import {
   DrawingTool,
@@ -36,13 +37,13 @@ import {
 } from "../shared/types"
 import { fmeActions } from "../extensions/store"
 
-// Simplified ArcGIS modules loading
+// Simplified ArcGIS modules loading hook
 const useArcGISModules = () => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   hooks.useEffectOnce(() => {
-    loadArcGISJSAPIModules([
+    const moduleNames = [
       "esri/widgets/Sketch/SketchViewModel",
       "esri/layers/GraphicsLayer",
       "esri/Graphic",
@@ -58,9 +59,11 @@ const useArcGISModules = () => {
       "esri/widgets/AreaMeasurement2D",
       "esri/widgets/DistanceMeasurement2D",
       "esri/geometry/geometryEngine",
-    ])
-      .then(
-        ([
+    ]
+
+    loadArcGISJSAPIModules(moduleNames)
+      .then((loadedModules) => {
+        const [
           SketchViewModel,
           GraphicsLayer,
           Graphic,
@@ -76,27 +79,27 @@ const useArcGISModules = () => {
           AreaMeasurement2D,
           DistanceMeasurement2D,
           geometryEngine,
-        ]) => {
-          setModules({
-            SketchViewModel,
-            GraphicsLayer,
-            Graphic,
-            Polygon,
-            Polyline,
-            Point,
-            Extent,
-            SpatialReference,
-            TextSymbol,
-            SimpleMarkerSymbol,
-            SimpleLineSymbol,
-            PictureMarkerSymbol,
-            AreaMeasurement2D,
-            DistanceMeasurement2D,
-            geometryEngine,
-          })
-          setLoading(false)
-        }
-      )
+        ] = loadedModules
+
+        setModules({
+          SketchViewModel,
+          GraphicsLayer,
+          Graphic,
+          Polygon,
+          Polyline,
+          Point,
+          Extent,
+          SpatialReference,
+          TextSymbol,
+          SimpleMarkerSymbol,
+          SimpleLineSymbol,
+          PictureMarkerSymbol,
+          AreaMeasurement2D,
+          DistanceMeasurement2D,
+          geometryEngine,
+        })
+        setLoading(false)
+      })
       .catch((error) => {
         console.error("Failed to load ArcGIS modules:", error)
         setLoading(false)
@@ -106,32 +109,34 @@ const useArcGISModules = () => {
   return { modules, loading }
 }
 
-// Simplified mutable state access
+// Simplified mutable state access hook
 const useMutableState = (widgetId: string) => {
   const store = MutableStoreManager.getInstance()
+  const stateValue = store.getStateValue([widgetId])
 
   return {
-    jimuMapView: store.getStateValue([widgetId])?.jimuMapView as JimuMapView,
-    sketchViewModel: store.getStateValue([widgetId])
-      ?.sketchViewModel as __esri.SketchViewModel,
-    graphicsLayer: store.getStateValue([widgetId])
-      ?.graphicsLayer as __esri.GraphicsLayer,
-    measurementGraphicsLayer: store.getStateValue([widgetId])
-      ?.measurementGraphicsLayer as __esri.GraphicsLayer,
-    areaMeasurement2D: store.getStateValue([widgetId])
-      ?.areaMeasurement2D as __esri.AreaMeasurement2D,
-    distanceMeasurement2D: store.getStateValue([widgetId])
-      ?.distanceMeasurement2D as __esri.DistanceMeasurement2D,
-    currentGeometry: store.getStateValue([widgetId])
-      ?.currentGeometry as __esri.Geometry,
-    setMutableValue: (key: string, value: any) => {
+    jimuMapView: stateValue?.jimuMapView as JimuMapView,
+    sketchViewModel: stateValue?.sketchViewModel as __esri.SketchViewModel,
+    graphicsLayer: stateValue?.graphicsLayer as __esri.GraphicsLayer,
+    measurementGraphicsLayer:
+      stateValue?.measurementGraphicsLayer as __esri.GraphicsLayer,
+    areaMeasurement2D:
+      stateValue?.areaMeasurement2D as __esri.AreaMeasurement2D,
+    distanceMeasurement2D:
+      stateValue?.distanceMeasurement2D as __esri.DistanceMeasurement2D,
+    currentGeometry: stateValue?.currentGeometry as __esri.Geometry,
+    setMutableValue: (key: string, value: unknown) => {
       store.updateStateValue(widgetId, key, value)
     },
   }
 }
 
 // Helper functions for error handling and state management
-const createError = (message: string, type: ErrorType, code?: string) => ({
+const createError = (
+  message: string,
+  type: ErrorType,
+  code?: string
+): ErrorState => ({
   message,
   type,
   code,
@@ -139,11 +144,14 @@ const createError = (message: string, type: ErrorType, code?: string) => ({
   timestamp: new Date(),
 })
 
-const updateLoadingState = (dispatch: any, message: string) => {
+const updateLoadingState = (
+  dispatch: (action: unknown) => void,
+  message: string
+) => {
   dispatch(fmeActions.setUiStateData({ message }))
 }
 
-// Helper function to calculate polygon area
+// Helper function to calculate polygon area using geometry engine
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
@@ -161,7 +169,7 @@ const calculatePolygonArea = (
   }
 }
 
-// Helper functions for form submission
+// Helper to get user email for FME job submissions
 const getUserEmail = async (): Promise<string> => {
   try {
     const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
@@ -169,42 +177,42 @@ const getUserEmail = async (): Promise<string> => {
     await portal.load()
     return portal.user?.email || "no-reply@example.com"
   } catch (error) {
+    console.warn("Failed to get user email:", error)
     return "no-reply@example.com"
   }
 }
 
+// Prepare FME parameters for job submission with geometry
 const prepareFmeParameters = (
-  formData: any,
+  formData: unknown,
   userEmail: string,
-  geometryJson: any,
-  currentGeometry: __esri.Geometry
-) => {
-  const fmeParameters: { [key: string]: any } = {
-    ...formData.data,
+  geometryJson: unknown,
+  currentGeometry: __esri.Geometry | undefined
+): { [key: string]: unknown } => {
+  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
+
+  const baseParams: { [key: string]: unknown } = {
+    ...data,
     opt_requesteremail: userEmail,
     opt_servicemode: "async",
     opt_responseformat: "json",
     opt_showresult: "true",
   }
 
-  // Add geometry if available
-  if (geometryJson?.rings) {
-    fmeParameters.AreaOfInterest = JSON.stringify(geometryJson)
-  } else if (currentGeometry) {
-    const geometryData = currentGeometry.toJSON()
-    if (geometryData.rings) {
-      fmeParameters.AreaOfInterest = JSON.stringify(geometryData)
-    }
+  // Add geometry if available - prefer geometryJson, fallback to currentGeometry
+  const geometryToUse = geometryJson || currentGeometry?.toJSON()
+  if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
+    baseParams.AreaOfInterest = JSON.stringify(geometryToUse)
   }
 
-  return fmeParameters
+  return baseParams
 }
 
-// Helper functions for map initialization
+// Create graphics layers for sketch operations and measurements
 const createGraphicsLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setMutableValue: (key: string, value: any) => void
+  setMutableValue: (key: string, value: unknown) => void
 ) => {
   // Create main graphics layer for sketch operations
   const layer = new modules.GraphicsLayer(LAYER_CONFIG)
@@ -222,10 +230,11 @@ const createGraphicsLayers = (
   return layer // Return the main layer for sketch setup
 }
 
+// Create measurement widgets for 2D map views
 const createMeasurementWidgets = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setMutableValue: (key: string, value: any) => void
+  setMutableValue: (key: string, value: unknown) => void
 ) => {
   if (jmv.view.type !== "2d") return
 
@@ -248,12 +257,13 @@ const createMeasurementWidgets = (
   }
 }
 
+// Create and configure SketchViewModel for drawing operations
 const createSketchViewModel = (
   jmv: JimuMapView,
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
-  handleDrawingComplete: (evt: any) => void,
-  dispatch: any
+  handleDrawingComplete: (evt: __esri.SketchCreateEvent) => void,
+  dispatch: (action: unknown) => void
 ) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -276,7 +286,7 @@ const createSketchViewModel = (
     },
   })
 
-  // Configure symbols
+  // Configure symbols for drawing
   sketchViewModel.polygonSymbol = {
     type: "simple-fill",
     color: STYLES.colors.orangeFill,
@@ -356,8 +366,10 @@ const createSketchViewModel = (
   return sketchViewModel
 }
 
-// Helper function to hide measurement widgets
-const hideMeasurementWidgets = (mutableState: any) => {
+// Hide measurement widgets to avoid conflicts with sketch operations
+const hideMeasurementWidgets = (
+  mutableState: ReturnType<typeof useMutableState>
+) => {
   const { areaMeasurement2D, distanceMeasurement2D } = mutableState
 
   if (areaMeasurement2D) {
@@ -379,12 +391,17 @@ const hideMeasurementWidgets = (mutableState: any) => {
   }
 }
 
+// Process FME response and create standardized result
 const processFmeResponse = (
-  fmeResponse: any,
+  fmeResponse: unknown,
   workspace: string,
   userEmail: string
 ): ExportResult => {
-  if (!fmeResponse?.data) {
+  const response = fmeResponse as {
+    data?: { serviceResponse?: unknown; status?: string }
+  }
+
+  if (!response?.data) {
     return {
       success: false,
       message: "Unexpected response from FME server",
@@ -392,10 +409,19 @@ const processFmeResponse = (
     }
   }
 
-  const responseData = fmeResponse.data
+  const responseData = response.data
   const serviceResp = responseData.serviceResponse || responseData
-  const status = serviceResp.statusInfo?.status || serviceResp.status
-  const jobId = serviceResp.jobID || serviceResp.id || Date.now()
+  const serviceInfo = serviceResp as {
+    statusInfo?: { status?: string; message?: string }
+    status?: string
+    jobID?: number
+    id?: number
+    url?: string
+    message?: string
+  }
+
+  const status = serviceInfo.statusInfo?.status || serviceInfo.status
+  const jobId = serviceInfo.jobID || serviceInfo.id || Date.now()
 
   if (status === "success") {
     return {
@@ -404,18 +430,19 @@ const processFmeResponse = (
       jobId,
       workspaceName: workspace,
       email: userEmail,
-      downloadUrl: serviceResp.url,
+      downloadUrl: serviceInfo.url,
     }
-  } else {
-    const errorMessage =
-      serviceResp.statusInfo?.message ||
-      serviceResp.message ||
-      "FME job submission failed"
-    return {
-      success: false,
-      message: errorMessage,
-      code: "FME_JOB_FAILURE",
-    }
+  }
+
+  const errorMessage =
+    serviceInfo.statusInfo?.message ||
+    serviceInfo.message ||
+    "FME job submission failed"
+
+  return {
+    success: false,
+    message: errorMessage,
+    code: "FME_JOB_FAILURE",
   }
 }
 
@@ -485,62 +512,65 @@ export default function Widget(
   })
 
   // Drawing complete handler for Sketch widget
-  const handleDrawingComplete = hooks.useEventCallback((evt: any) => {
-    const geometry = evt.graphic?.geometry
-    if (!geometry) return
+  const handleDrawingComplete = hooks.useEventCallback(
+    (evt: __esri.SketchCreateEvent) => {
+      const geometry = evt.graphic?.geometry
+      if (!geometry) return
 
-    try {
-      if (geometry.type === "polygon" && !geometry.rings?.length) return
+      try {
+        // Validate polygon has rings
+        if (geometry.type === "polygon" && !geometry.rings?.length) return
 
-      // Update the graphics layer with the drawn polygon
-      if (evt.graphic && modules) {
-        evt.graphic.symbol = {
-          type: "simple-fill",
-          color: STYLES.colors.orangeFill,
-          outline: {
-            color: STYLES.colors.orangeOutline,
-            width: 2,
-            style: "solid",
-          },
+        // Update the graphics layer with the drawn polygon
+        if (evt.graphic && modules) {
+          evt.graphic.symbol = {
+            type: "simple-fill",
+            color: STYLES.colors.orangeFill,
+            outline: {
+              color: STYLES.colors.orangeOutline,
+              width: 2,
+              style: "solid",
+            },
+          }
         }
-      }
 
-      const geometryJson = geometry.toJSON()
-      const calculatedArea = calculatePolygonArea(geometry, modules)
+        const geometryJson = geometry.toJSON()
+        const calculatedArea = calculatePolygonArea(geometry, modules)
 
-      dispatch({
-        type: FmeActionType.SET_GEOMETRY,
-        geometryJson: geometryJson,
-        drawnArea: Math.abs(calculatedArea),
-      })
-      dispatch({
-        type: FmeActionType.SET_DRAWING_STATE,
-        isDrawing: false,
-        clickCount: 0,
-      })
+        dispatch({
+          type: FmeActionType.SET_GEOMETRY,
+          geometryJson: geometryJson,
+          drawnArea: Math.abs(calculatedArea),
+        })
+        dispatch({
+          type: FmeActionType.SET_DRAWING_STATE,
+          isDrawing: false,
+          clickCount: 0,
+        })
 
-      MutableStoreManager.getInstance().updateStateValue(
-        widgetId,
-        "currentGeometry",
-        geometry
-      )
+        MutableStoreManager.getInstance().updateStateValue(
+          widgetId,
+          "currentGeometry",
+          geometry
+        )
 
-      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
-    } catch (error) {
-      dispatch(
-        fmeActions.setError(
-          createError(
-            "Failed to complete drawing",
-            ErrorType.VALIDATION,
-            "DRAWING_COMPLETE_ERROR"
+        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+      } catch (error) {
+        dispatch(
+          fmeActions.setError(
+            createError(
+              "Failed to complete drawing",
+              ErrorType.VALIDATION,
+              "DRAWING_COMPLETE_ERROR"
+            )
           )
         )
-      )
+      }
     }
-  })
+  )
 
   // Form submission handler with FME export
-  const handleFormSubmit = hooks.useEventCallback(async (formData: any) => {
+  const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
     const hasGeometry =
       !!reduxState.geometryJson || !!mutableState.currentGeometry
     if (!hasGeometry || !reduxState.selectedWorkspace) {
@@ -583,11 +613,11 @@ export default function Widget(
       dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
     } catch (error) {
-      const errorMessage = error.message || "Unknown error occurred"
+      const errorMessage = (error as Error).message || "Unknown error occurred"
       const result: ExportResult = {
         success: false,
         message: `Failed to submit export order: ${errorMessage}`,
-        code: error.code || "SUBMISSION_ERROR",
+        code: (error as { code?: string }).code || "SUBMISSION_ERROR",
       }
 
       setNotification({
@@ -876,28 +906,12 @@ export default function Widget(
 }
 
 // Map extra state props for the widget
-;(Widget as any).mapExtraStateProps = (
+;(Widget as unknown as { mapExtraStateProps: unknown }).mapExtraStateProps = (
   state: IMStateWithFmeExport,
-  ownProps: AllWidgetProps<any>
+  _ownProps: AllWidgetProps<FmeExportConfig>
 ) => {
-  const widgetId = ownProps.id
   const storeKey = "fme-state"
-
   const widgetState = state[storeKey] as ImmutableObject<FmeWidgetState>
-
-  // Get mutable state objects from MutableStoreManager
-  const jimuMapView = MutableStoreManager.getInstance().getStateValue([
-    widgetId,
-  ])?.jimuMapView
-  const sketchViewModel = MutableStoreManager.getInstance().getStateValue([
-    widgetId,
-  ])?.sketchViewModel
-  const graphicsLayer = MutableStoreManager.getInstance().getStateValue([
-    widgetId,
-  ])?.graphicsLayer
-  const currentGeometry = MutableStoreManager.getInstance().getStateValue([
-    widgetId,
-  ])?.currentGeometry
 
   return {
     state: widgetState || {
@@ -919,12 +933,6 @@ export default function Widget(
       error: null,
       uiState: StateType.IDLE,
       uiStateData: {},
-    },
-    mutableStateProps: {
-      jimuMapView,
-      sketchViewModel,
-      graphicsLayer,
-      currentGeometry,
     },
   }
 }
