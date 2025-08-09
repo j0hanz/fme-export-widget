@@ -353,7 +353,8 @@ export interface ResetStateAction
 // Drawing & Geometry Actions
 export interface SetGeometryAction
   extends BaseAction<FmeActionType.SET_GEOMETRY> {
-  geometry: __esri.Geometry | null
+  // Use plain JSON for geometry.
+  geometryJson: EsriGeometryJson | null
   drawnArea?: number
 }
 
@@ -779,6 +780,21 @@ export interface GeometryValidationResult {
   readonly extent?: __esri.Extent
 }
 
+// Minimal Esri JSON geometry structure (polygon focused, extend as needed)
+export interface EsriGeometryJson {
+  readonly type?: string
+  readonly rings?: number[][][]
+  readonly paths?: number[][][]
+  readonly x?: number
+  readonly y?: number
+  readonly spatialReference?: {
+    readonly wkid?: number
+    readonly latestWkid?: number
+  }
+  // Allow additional properties without being overly permissive
+  readonly [key: string]: any
+}
+
 // Widget State Management
 // View and navigation state
 export interface FmeViewState {
@@ -791,7 +807,8 @@ export interface FmeDrawingState {
   readonly isDrawing: boolean
   readonly drawingTool: DrawingTool
   readonly clickCount: number
-  readonly geometryJson: __esri.Geometry | null
+  // Plain JSON geometry representation; avoid storing ArcGIS API objects in Redux.
+  readonly geometryJson: EsriGeometryJson | null
   readonly drawnArea: number
   readonly realTimeMeasurements: RealTimeMeasurements
 }

@@ -1,3 +1,4 @@
+import { Immutable } from "jimu-core"
 import type { extensionSpec, ImmutableObject, IMState } from "jimu-core"
 import {
   ViewMode,
@@ -11,70 +12,73 @@ import {
   type StateData,
   type WorkspaceItem,
   type WorkspaceParameter,
-  type SetViewModeAction,
-  type SetFormValuesAction,
-  type SetDrawingStateAction,
-  type SetLoadingFlagsAction,
-  type SetErrorAction,
-  type SetUiStateAction,
-  type SetUiStateDataAction,
+  type ExportResult,
 } from "../shared/types"
 
-/**
- * FME Action Creators - Redux action creators for state management
- */
-export const fmeActions = {
-  setViewMode: (viewMode: ViewMode): SetViewModeAction => ({
-    type: FmeActionType.SET_VIEW_MODE,
+// View and navigation action creators
+const viewActions = {
+  setViewMode: (viewMode: ViewMode) => ({
+    type: FmeActionType.SET_VIEW_MODE as const,
     viewMode,
   }),
 
-  setFormValues: (formValues: { [key: string]: any }): SetFormValuesAction => ({
-    type: FmeActionType.SET_FORM_VALUES,
-    formValues,
+  resetState: () => ({
+    type: FmeActionType.RESET_STATE as const,
+  }),
+}
+
+// Drawing and geometry action creators
+const drawingActions = {
+  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) => ({
+    type: FmeActionType.SET_GEOMETRY as const,
+    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+    drawnArea,
   }),
 
   setDrawingState: (
     isDrawing: boolean,
     clickCount?: number,
     drawingTool?: DrawingTool
-  ): SetDrawingStateAction => ({
-    type: FmeActionType.SET_DRAWING_STATE,
+  ) => ({
+    type: FmeActionType.SET_DRAWING_STATE as const,
     isDrawing,
     clickCount,
     drawingTool,
   }),
 
+  setDrawingTool: (drawingTool: DrawingTool) => ({
+    type: FmeActionType.SET_DRAWING_TOOL as const,
+    drawingTool,
+  }),
+
   setClickCount: (clickCount: number) => ({
-    type: FmeActionType.SET_CLICK_COUNT,
+    type: FmeActionType.SET_CLICK_COUNT as const,
     clickCount,
   }),
 
-  setLoadingFlags: (flags: {
-    isModulesLoading?: boolean
-    isSubmittingOrder?: boolean
-  }): SetLoadingFlagsAction => ({
-    type: FmeActionType.SET_LOADING_FLAGS,
-    ...flags,
+  setRealTimeMeasurements: (measurements: RealTimeMeasurements) => ({
+    type: FmeActionType.SET_REAL_TIME_MEASUREMENTS as const,
+    measurements,
+  }),
+}
+
+// Export and form action creators
+const exportActions = {
+  setFormValues: (formValues: { [key: string]: unknown }) => ({
+    type: FmeActionType.SET_FORM_VALUES as const,
+    formValues,
   }),
 
-  setError: (error: ErrorState | null): SetErrorAction => ({
-    type: FmeActionType.SET_ERROR,
-    error,
+  setOrderResult: (orderResult: ExportResult | null) => ({
+    type: FmeActionType.SET_ORDER_RESULT as const,
+    orderResult,
   }),
+}
 
-  setImportError: (error: ErrorState | null) => ({
-    type: FmeActionType.SET_IMPORT_ERROR,
-    error,
-  }),
-
-  setExportError: (error: ErrorState | null) => ({
-    type: FmeActionType.SET_EXPORT_ERROR,
-    error,
-  }),
-
+// Workspace and parameter action creators
+const workspaceActions = {
   setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
-    type: FmeActionType.SET_WORKSPACE_ITEMS,
+    type: FmeActionType.SET_WORKSPACE_ITEMS as const,
     workspaceItems,
   }),
 
@@ -82,55 +86,98 @@ export const fmeActions = {
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
   ) => ({
-    type: FmeActionType.SET_WORKSPACE_PARAMETERS,
+    type: FmeActionType.SET_WORKSPACE_PARAMETERS as const,
     workspaceParameters,
     workspaceName,
   }),
 
   setSelectedWorkspace: (workspaceName: string | null) => ({
-    type: FmeActionType.SET_SELECTED_WORKSPACE,
+    type: FmeActionType.SET_SELECTED_WORKSPACE as const,
     workspaceName,
   }),
 
-  setWorkspaceItem: (workspaceItem: any) => ({
-    type: FmeActionType.SET_WORKSPACE_ITEM,
+  setWorkspaceItem: (workspaceItem: WorkspaceItem) => ({
+    type: FmeActionType.SET_WORKSPACE_ITEM as const,
     workspaceItem,
   }),
+}
 
-  setUiState: (uiState: StateType): SetUiStateAction => ({
-    type: FmeActionType.SET_UI_STATE,
+// Loading state action creators
+const loadingActions = {
+  setLoadingFlags: (flags: {
+    isModulesLoading?: boolean
+    isSubmittingOrder?: boolean
+  }) => ({
+    type: FmeActionType.SET_LOADING_FLAGS as const,
+    ...flags,
+  }),
+}
+
+// Error handling action creators
+const errorActions = {
+  setError: (error: ErrorState | null) => ({
+    type: FmeActionType.SET_ERROR as const,
+    error,
+  }),
+
+  setImportError: (error: ErrorState | null) => ({
+    type: FmeActionType.SET_IMPORT_ERROR as const,
+    error,
+  }),
+
+  setExportError: (error: ErrorState | null) => ({
+    type: FmeActionType.SET_EXPORT_ERROR as const,
+    error,
+  }),
+}
+
+// UI state action creators
+const uiActions = {
+  setUiState: (uiState: StateType) => ({
+    type: FmeActionType.SET_UI_STATE as const,
     uiState,
   }),
 
-  setUiStateData: (data: StateData): SetUiStateDataAction => ({
-    type: FmeActionType.SET_UI_STATE_DATA,
+  setUiStateData: (data: StateData) => ({
+    type: FmeActionType.SET_UI_STATE_DATA as const,
     data,
   }),
 }
 
-// Initial state for the FME widget
+// Combined action creators object - organized by domain
+export const fmeActions = {
+  // Spread all domain-specific actions into a flat structure for easy access
+  ...viewActions,
+  ...drawingActions,
+  ...exportActions,
+  ...workspaceActions,
+  ...loadingActions,
+  ...errorActions,
+  ...uiActions,
+}
+
 export const initialFmeState: FmeWidgetState = {
-  // View state
+  // View and navigation
   viewMode: ViewMode.INITIAL,
-  previousViewMode: null, // Initialize with no previous view
+  previousViewMode: null,
+
+  // Drawing and geometry
   isDrawing: false,
   drawingTool: DrawingTool.POLYGON,
   clickCount: 0,
-
-  // Serialized geometry data
   geometryJson: null,
   drawnArea: 0,
   realTimeMeasurements: {} as RealTimeMeasurements,
 
-  // Export state
+  // Export workflow
   formValues: {},
   orderResult: null,
 
-  // Workspace state
+  // Workspace management
   workspaceItems: [],
   selectedWorkspace: null,
   workspaceParameters: [],
-  workspaceItem: null, // Full workspace item from server
+  workspaceItem: null,
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
 
@@ -143,84 +190,117 @@ export const initialFmeState: FmeWidgetState = {
   importError: null,
   exportError: null,
 
-  // UI state management (moved from local state.tsx)
+  // UI state management
   uiState: StateType.IDLE,
-  uiStateData: {} as any, // Will be properly typed as StateData
+  uiStateData: {} as StateData,
 }
 
-// Reducer function to handle FME widget state updates
+// Helper function to handle view mode changes with proper state tracking
+const handleViewModeChange = (
+  state: ImmutableObject<FmeWidgetState>,
+  newViewMode: ViewMode
+): ImmutableObject<FmeWidgetState> => {
+  return state
+    .set("previousViewMode", state.viewMode)
+    .set("viewMode", newViewMode)
+}
+
+// Helper function to handle loading flag updates
+const handleLoadingFlags = (
+  state: ImmutableObject<FmeWidgetState>,
+  flags: { isModulesLoading?: boolean; isSubmittingOrder?: boolean }
+): ImmutableObject<FmeWidgetState> => {
+  let newState = state
+
+  if (flags.isModulesLoading !== undefined) {
+    newState = newState.set("isModulesLoading", flags.isModulesLoading)
+  }
+
+  if (flags.isSubmittingOrder !== undefined) {
+    newState = newState.set("isSubmittingOrder", flags.isSubmittingOrder)
+  }
+
+  return newState
+}
+
+// Helper function to handle drawing state updates
+const handleDrawingState = (
+  state: ImmutableObject<FmeWidgetState>,
+  action: {
+    isDrawing: boolean
+    clickCount?: number
+    drawingTool?: DrawingTool
+  }
+): ImmutableObject<FmeWidgetState> => {
+  return state
+    .set("isDrawing", action.isDrawing)
+    .set("clickCount", action.clickCount ?? state.clickCount)
+    .set("drawingTool", action.drawingTool ?? state.drawingTool)
+}
+
+// Helper function to handle workspace parameter updates
+const handleWorkspaceParameters = (
+  state: ImmutableObject<FmeWidgetState>,
+  workspaceParameters: readonly WorkspaceParameter[],
+  workspaceName: string
+): ImmutableObject<FmeWidgetState> => {
+  return state
+    .set("workspaceParameters", workspaceParameters)
+    .set("selectedWorkspace", workspaceName)
+}
+
+// Main reducer function
 const fmeReducer = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeActions,
   _appState: IMState
 ): ImmutableObject<FmeWidgetState> => {
   switch (action.type) {
+    // View and navigation
     case FmeActionType.SET_VIEW_MODE:
-      return state
-        .set("previousViewMode", state.viewMode) // Track current as previous
-        .set("viewMode", action.viewMode)
+      return handleViewModeChange(state, action.viewMode)
 
+    case FmeActionType.RESET_STATE:
+      // Return a fresh immutable instance to ensure removed keys don't linger
+      return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
+
+    // Drawing and geometry
     case FmeActionType.SET_GEOMETRY:
       return state
-        .set("geometryJson", action.geometry)
+        .set("geometryJson", action.geometryJson)
         .set("drawnArea", action.drawnArea ?? 0)
+
+    case FmeActionType.SET_DRAWING_STATE:
+      return handleDrawingState(state, action)
+
+    case FmeActionType.SET_DRAWING_TOOL:
+      return state.set("drawingTool", action.drawingTool)
+
+    case FmeActionType.SET_CLICK_COUNT:
+      return state.set("clickCount", action.clickCount)
 
     case FmeActionType.SET_REAL_TIME_MEASUREMENTS:
       return state.set("realTimeMeasurements", action.measurements)
 
-    case FmeActionType.SET_LOADING_FLAGS:
-      return state
-        .set(
-          "isModulesLoading",
-          action.isModulesLoading ?? state.isModulesLoading
-        )
-        .set(
-          "isSubmittingOrder",
-          action.isSubmittingOrder ?? state.isSubmittingOrder
-        )
+    // Export workflow
+    case FmeActionType.SET_FORM_VALUES:
+      return state.set("formValues", action.formValues)
 
     case FmeActionType.SET_ORDER_RESULT:
       return state
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    case FmeActionType.SET_ERROR:
-      return state.set("error", action.error)
-
-    case FmeActionType.SET_DRAWING_STATE:
-      return state
-        .set("isDrawing", action.isDrawing)
-        .set("clickCount", action.clickCount ?? state.clickCount)
-        .set("drawingTool", action.drawingTool ?? state.drawingTool)
-
-    case FmeActionType.SET_CLICK_COUNT:
-      return state.set("clickCount", action.clickCount)
-
-    case FmeActionType.SET_DRAWING_TOOL:
-      return state.set("drawingTool", action.drawingTool)
-
-    case FmeActionType.SET_FORM_VALUES:
-      return state.set("formValues", action.formValues)
-
-    case FmeActionType.SET_UI_STATE:
-      return state.set("uiState", action.uiState)
-
-    case FmeActionType.SET_UI_STATE_DATA:
-      return state.set("uiStateData", action.data)
-
-    case FmeActionType.SET_IMPORT_ERROR:
-      return state.set("importError", action.error)
-
-    case FmeActionType.SET_EXPORT_ERROR:
-      return state.set("exportError", action.error)
-
+    // Workspace management
     case FmeActionType.SET_WORKSPACE_ITEMS:
       return state.set("workspaceItems", action.workspaceItems)
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS:
-      return state
-        .set("workspaceParameters", action.workspaceParameters)
-        .set("selectedWorkspace", action.workspaceName)
+      return handleWorkspaceParameters(
+        state,
+        action.workspaceParameters,
+        action.workspaceName
+      )
 
     case FmeActionType.SET_SELECTED_WORKSPACE:
       return state.set("selectedWorkspace", action.workspaceName)
@@ -228,18 +308,34 @@ const fmeReducer = (
     case FmeActionType.SET_WORKSPACE_ITEM:
       return state.set("workspaceItem", action.workspaceItem)
 
-    case FmeActionType.RESET_STATE:
-      return (state as any).merge(
-        initialFmeState
-      ) as ImmutableObject<FmeWidgetState>
+    // Loading states
+    case FmeActionType.SET_LOADING_FLAGS:
+      return handleLoadingFlags(state, action)
+
+    // Error handling
+    case FmeActionType.SET_ERROR:
+      return state.set("error", action.error)
+
+    case FmeActionType.SET_IMPORT_ERROR:
+      return state.set("importError", action.error)
+
+    case FmeActionType.SET_EXPORT_ERROR:
+      return state.set("exportError", action.error)
+
+    // UI state management
+    case FmeActionType.SET_UI_STATE:
+      return state.set("uiState", action.uiState)
+
+    case FmeActionType.SET_UI_STATE_DATA:
+      return state.set("uiStateData", action.data)
   }
 }
 
-// This extension provides the Redux store for the FME Export widget.
+// FME Redux Store Extension - Provides centralized state management for the FME Export widget
 export default class FmeReduxStoreExtension
   implements extensionSpec.ReduxStoreExtension
 {
-  readonly id = "fme-export_store" // widgetId + extensionName pattern
+  readonly id = "fme-export_store"
 
   getActions() {
     return Object.values(FmeActionType)
@@ -253,8 +349,7 @@ export default class FmeReduxStoreExtension
     return fmeReducer
   }
 
-  // This is the key used to access the FME state in the Redux store
   getStoreKey() {
-    return "fme-state" // Store key where state lives in Redux store
+    return "fme-state"
   }
 }

@@ -510,7 +510,7 @@ export default function Widget(
 
       dispatch({
         type: FmeActionType.SET_GEOMETRY,
-        geometry: geometryJson,
+        geometryJson: geometryJson,
         drawnArea: Math.abs(calculatedArea),
       })
       dispatch({

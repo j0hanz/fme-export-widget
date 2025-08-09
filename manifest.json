@@ -13,15 +13,9 @@
     "hasSettingPage": true,
     "hasConfig": true
   },
-  "useDataSources": [
-    {
-      "type": "MapDataSource",
-      "isRequire": true
-    }
-  ],
   "extensions": [
     {
-      "name": "FME State Store",
+      "name": "Fme Store",
       "point": "REDUX_STORE",
       "uri": "extensions/store"
     }
