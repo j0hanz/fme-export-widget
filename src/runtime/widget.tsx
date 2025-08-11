@@ -25,17 +25,18 @@ import type {
   FmeWidgetState,
   NotificationState,
   ErrorState,
+  WorkspaceParameter,
+  WorkspaceItemDetail,
 } from "../shared/types"
 import {
   DrawingTool,
   ViewMode,
   ErrorType,
-  ErrorSeverity,
   StateType,
-  FmeActionType,
   LAYER_CONFIG,
 } from "../shared/types"
-import { fmeActions } from "../extensions/store"
+import { ErrorHandlingService } from "../shared/services"
+import { fmeActions, initialFmeState } from "../extensions/store"
 
 // Simplified ArcGIS modules loading hook
 const useArcGISModules = () => {
@@ -48,14 +49,7 @@ const useArcGISModules = () => {
       "esri/layers/GraphicsLayer",
       "esri/Graphic",
       "esri/geometry/Polygon",
-      "esri/geometry/Polyline",
-      "esri/geometry/Point",
       "esri/geometry/Extent",
-      "esri/geometry/SpatialReference",
-      "esri/symbols/TextSymbol",
-      "esri/symbols/SimpleMarkerSymbol",
-      "esri/symbols/SimpleLineSymbol",
-      "esri/symbols/PictureMarkerSymbol",
       "esri/widgets/AreaMeasurement2D",
       "esri/widgets/DistanceMeasurement2D",
       "esri/geometry/geometryEngine",
@@ -68,14 +62,7 @@ const useArcGISModules = () => {
           GraphicsLayer,
           Graphic,
           Polygon,
-          Polyline,
-          Point,
           Extent,
-          SpatialReference,
-          TextSymbol,
-          SimpleMarkerSymbol,
-          SimpleLineSymbol,
-          PictureMarkerSymbol,
           AreaMeasurement2D,
           DistanceMeasurement2D,
           geometryEngine,
@@ -86,18 +73,11 @@ const useArcGISModules = () => {
           GraphicsLayer,
           Graphic,
           Polygon,
-          Polyline,
-          Point,
           Extent,
-          SpatialReference,
-          TextSymbol,
-          SimpleMarkerSymbol,
-          SimpleLineSymbol,
-          PictureMarkerSymbol,
           AreaMeasurement2D,
           DistanceMeasurement2D,
           geometryEngine,
-        })
+        } as unknown as EsriModules)
         setLoading(false)
       })
       .catch((error) => {
@@ -131,41 +111,109 @@ const useMutableState = (widgetId: string) => {
   }
 }
 
-// Helper functions for error handling and state management
-const createError = (
-  message: string,
-  type: ErrorType,
-  code?: string
-): ErrorState => ({
-  message,
-  type,
-  code,
-  severity: ErrorSeverity.ERROR,
-  timestamp: new Date(),
-})
+// Central error service (replaces local createError duplication)
+const errorService = new ErrorHandlingService()
 
 const updateLoadingState = (
-  dispatch: (action: unknown) => void,
-  message: string
+  _dispatch: (action: unknown) => void,
+  _message: string
 ) => {
-  dispatch(fmeActions.setUiStateData({ message }))
+  // uiState removed; retain placeholder to minimize diff surface
 }
 
-// Helper function to calculate polygon area using geometry engine
+// Geometry utilities
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
 ): number => {
   if (!modules.geometryEngine || geometry.type !== "polygon") return 0
-
+  const poly = geometry as __esri.Polygon
   try {
-    return modules.geometryEngine.planarArea(
-      geometry as __esri.Polygon,
-      "square-meters"
-    )
-  } catch (error) {
-    console.warn("Failed to calculate polygon area:", error)
+    const geodFn = (modules.geometryEngine as any).geodesicArea
+    if (geodFn) {
+      const geod = geodFn(poly, "square-meters")
+      if (isFinite(geod) && geod > 0) return Math.abs(geod)
+    }
+  } catch (_) {}
+  try {
+    const planar = modules.geometryEngine.planarArea(poly, "square-meters")
+    return Math.abs(planar)
+  } catch (e) {
+    console.warn("Failed to calculate polygon area (planar)", e)
     return 0
+  }
+}
+
+// Basic polygon validation (ring count, minimum vertices, closure)
+const validatePolygonGeometry = (
+  geometry: __esri.Geometry | undefined,
+  modules: EsriModules
+): { valid: boolean; error?: ErrorState } => {
+  if (!geometry)
+    return {
+      valid: false,
+      error: errorService.createError("Geometry missing", ErrorType.GEOMETRY, {
+        code: "GEOM_MISSING",
+      }),
+    }
+  if (geometry.type !== "polygon")
+    return {
+      valid: false,
+      error: errorService.createError(
+        "Only polygon geometry supported",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_TYPE_INVALID" }
+      ),
+    }
+  const poly = geometry as __esri.Polygon
+  if (!poly.rings?.length)
+    return {
+      valid: false,
+      error: errorService.createError(
+        "Polygon has no rings",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_NO_RINGS" }
+      ),
+    }
+  const ring = poly.rings[0]
+  const uniquePoints = new Set(ring.map((p) => `${p[0]}:${p[1]}`))
+  if (uniquePoints.size < 3)
+    return {
+      valid: false,
+      error: errorService.createError(
+        "Polygon requires at least 3 vertices",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_MIN_VERTICES" }
+      ),
+    }
+  try {
+    if ((modules.geometryEngine as any)?.simplify) {
+      const simplified = (modules.geometryEngine as any).simplify(poly)
+      if (!simplified)
+        return {
+          valid: false,
+          error: errorService.createError(
+            "Self-intersecting polygon",
+            ErrorType.GEOMETRY,
+            { code: "GEOM_SELF_INTERSECT" }
+          ),
+        }
+    }
+  } catch (_) {}
+  return { valid: true }
+}
+
+const enforceMaxArea = (
+  area: number,
+  maxArea?: number,
+  formatFn?: (a: number) => string
+): { ok: boolean; message?: string; code?: string } => {
+  if (!maxArea || area <= maxArea) return { ok: true }
+  const fmt = (n: number) => (formatFn ? formatFn(n) : `${Math.round(n)} m²`)
+  return {
+    ok: false,
+    message: `Area exceeds maximum allowed (${fmt(area)} > ${fmt(maxArea)})`,
+    code: "AREA_TOO_LARGE",
   }
 }
 
@@ -287,15 +335,7 @@ const createSketchViewModel = (
   })
 
   // Configure symbols for drawing
-  sketchViewModel.polygonSymbol = {
-    type: "simple-fill",
-    color: STYLES.colors.orangeFill,
-    outline: {
-      color: STYLES.colors.orangeOutline,
-      width: 2,
-      style: "solid",
-    },
-  }
+  sketchViewModel.polygonSymbol = STYLES.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
@@ -491,6 +531,8 @@ export default function Widget(
   // Load ArcGIS modules and get state access
   const { modules, loading: modulesLoading } = useArcGISModules()
   const mutableState = useMutableState(widgetId)
+  // Abort controller ref for export submission
+  const submissionAbortRef = React.useRef<AbortController | null>(null)
 
   // Access mutable state values with default values
   const {
@@ -518,35 +560,45 @@ export default function Widget(
       if (!geometry) return
 
       try {
-        // Validate polygon has rings
-        if (geometry.type === "polygon" && !geometry.rings?.length) return
+        // Validate polygon geometry
+        const validation = validatePolygonGeometry(geometry, modules)
+        if (!validation.valid) {
+          if (validation.error) {
+            dispatch(fmeActions.setError(validation.error))
+          }
+          return
+        }
 
         // Update the graphics layer with the drawn polygon
         if (evt.graphic && modules) {
-          evt.graphic.symbol = {
-            type: "simple-fill",
-            color: STYLES.colors.orangeFill,
-            outline: {
-              color: STYLES.colors.orangeOutline,
-              width: 2,
-              style: "solid",
-            },
-          }
+          evt.graphic.symbol = STYLES.symbols.highlight as any
         }
 
-        const geometryJson = geometry.toJSON()
         const calculatedArea = calculatePolygonArea(geometry, modules)
 
-        dispatch({
-          type: FmeActionType.SET_GEOMETRY,
-          geometryJson: geometryJson,
-          drawnArea: Math.abs(calculatedArea),
-        })
-        dispatch({
-          type: FmeActionType.SET_DRAWING_STATE,
-          isDrawing: false,
-          clickCount: 0,
-        })
+        // Validate max area if configured
+        const maxCheck = enforceMaxArea(
+          calculatedArea,
+          props.config?.maxArea,
+          formatArea
+        )
+        if (!maxCheck.ok) {
+          if (maxCheck.message) {
+            dispatch(
+              fmeActions.setError(
+                errorService.createError(
+                  maxCheck.message,
+                  ErrorType.VALIDATION,
+                  { code: maxCheck.code }
+                )
+              )
+            )
+          }
+          return
+        }
+
+        dispatch(fmeActions.setGeometry(geometry, Math.abs(calculatedArea)))
+        dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         MutableStoreManager.getInstance().updateStateValue(
           widgetId,
@@ -558,10 +610,10 @@ export default function Widget(
       } catch (error) {
         dispatch(
           fmeActions.setError(
-            createError(
+            errorService.createError(
               "Failed to complete drawing",
               ErrorType.VALIDATION,
-              "DRAWING_COMPLETE_ERROR"
+              { code: "DRAWING_COMPLETE_ERROR" }
             )
           )
         )
@@ -577,7 +629,27 @@ export default function Widget(
       return
     }
 
-    dispatch(fmeActions.setUiState(StateType.LOADING))
+    // Re-validate area against maxArea before submission (guard against config changes or stale state)
+    const maxCheck = enforceMaxArea(
+      reduxState.drawnArea,
+      props.config?.maxArea,
+      formatArea
+    )
+    if (!maxCheck.ok) {
+      if (maxCheck.message) {
+        setNotification({ severity: "error", message: maxCheck.message })
+        dispatch(
+          fmeActions.setError(
+            errorService.createError(maxCheck.message, ErrorType.VALIDATION, {
+              code: maxCheck.code,
+            })
+          )
+        )
+      }
+      return
+    }
+
+    // uiState removed – using local notification instead
     updateLoadingState(dispatch, translate("preparingExportRequest"))
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
@@ -594,10 +666,18 @@ export default function Widget(
         mutableState.currentGeometry
       )
 
+      // Abort any in-flight submission
+      if (submissionAbortRef.current) {
+        submissionAbortRef.current.abort()
+      }
+      submissionAbortRef.current = new AbortController()
+
       updateLoadingState(dispatch, translate("submittingOrder"))
       const fmeResponse = await fmeClient.runDataDownload(
         workspace,
-        fmeParameters
+        fmeParameters,
+        undefined,
+        submissionAbortRef.current.signal
       )
       const result = processFmeResponse(fmeResponse, workspace, userEmail)
 
@@ -610,7 +690,7 @@ export default function Widget(
           : translate("orderFailed") || `Export failed: ${result.message}`,
       })
 
-      dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
+      dispatch(fmeActions.setOrderResult(result))
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
     } catch (error) {
       const errorMessage = (error as Error).message || "Unknown error occurred"
@@ -624,7 +704,7 @@ export default function Widget(
         severity: "error",
         message: translate("orderFailed") || `Export failed: ${errorMessage}`,
       })
-      dispatch({ type: FmeActionType.SET_ORDER_RESULT, orderResult: result })
+      dispatch(fmeActions.setOrderResult(result))
       dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
     } finally {
       dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: false }))
@@ -641,6 +721,9 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Widget cleanup handled by Experience Builder
+      if (submissionAbortRef.current) {
+        submissionAbortRef.current.abort()
+      }
     }
   })
 
@@ -668,10 +751,10 @@ export default function Widget(
     } catch (error) {
       dispatch(
         fmeActions.setError(
-          createError(
+          errorService.createError(
             "Failed to initialize map",
             ErrorType.MODULE,
-            "MAP_INIT_ERROR"
+            { code: "MAP_INIT_ERROR" }
           )
         )
       )
@@ -738,12 +821,16 @@ export default function Widget(
     // Reset measurement widgets
     hideMeasurementWidgets(mutableState)
 
-    dispatch({ type: FmeActionType.RESET_STATE })
+    dispatch(fmeActions.resetState())
   })
 
   // Workspace selection handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
-    (workspaceName: string, parameters: readonly any[], workspaceItem: any) => {
+    (
+      workspaceName: string,
+      parameters: readonly WorkspaceParameter[],
+      workspaceItem: WorkspaceItemDetail
+    ) => {
       dispatch(fmeActions.setSelectedWorkspace(workspaceName))
       dispatch(fmeActions.setWorkspaceParameters(parameters, workspaceName))
       dispatch(fmeActions.setWorkspaceItem(workspaceItem))
@@ -779,10 +866,7 @@ export default function Widget(
             }
           })()
 
-    dispatch({
-      type: FmeActionType.SET_VIEW_MODE,
-      viewMode: targetView,
-    })
+    dispatch(fmeActions.setViewMode(targetView))
   })
 
   // Render loading state with StateRenderer
@@ -816,7 +900,7 @@ export default function Widget(
                 if (reduxState.error?.retry) {
                   reduxState.error.retry()
                 } else {
-                  dispatch({ type: FmeActionType.SET_ERROR, error: null })
+                  dispatch(fmeActions.setError(null))
                 }
               },
               variant: "primary" as const,
@@ -849,30 +933,22 @@ export default function Widget(
         onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
         isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchViewModel}
-        onFormBack={() => {
-          dispatch({
-            type: FmeActionType.SET_VIEW_MODE,
-            viewMode: ViewMode.WORKSPACE_SELECTION, // Go back to workspace selection
-          })
-        }}
+        onFormBack={() =>
+          dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+        }
         onFormSubmit={handleFormSubmit}
         orderResult={reduxState.orderResult}
-        onReuseGeography={() => {
-          dispatch({
-            type: FmeActionType.SET_VIEW_MODE,
-            viewMode: ViewMode.WORKSPACE_SELECTION, // Go back to workspace selection
-          })
-        }}
+        onReuseGeography={() =>
+          dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+        }
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={handleGoBack}
         drawnArea={reduxState.drawnArea}
         formatArea={formatArea}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) =>
-          dispatch({ type: FmeActionType.SET_DRAWING_TOOL, drawingTool: tool })
+          dispatch(fmeActions.setDrawingTool(tool))
         }
-        realTimeMeasurements={reduxState.realTimeMeasurements}
-        formatRealTimeMeasurements={() => null} // Measurement widgets handle their own display
         // Header props
         showHeaderActions={
           (reduxState.isDrawing || reduxState.drawnArea > 0) &&
@@ -914,25 +990,7 @@ export default function Widget(
   const widgetState = state[storeKey] as ImmutableObject<FmeWidgetState>
 
   return {
-    state: widgetState || {
-      viewMode: ViewMode.INITIAL,
-      previousViewMode: null,
-      isDrawing: false,
-      drawingTool: DrawingTool.POLYGON,
-      clickCount: 0,
-      geometryJson: null,
-      drawnArea: 0,
-      realTimeMeasurements: {},
-      selectedWorkspace: null,
-      workspaceParameters: [],
-      workspaceItem: null,
-      formValues: {},
-      orderResult: null,
-      isModulesLoading: false,
-      isSubmittingOrder: false,
-      error: null,
-      uiState: StateType.IDLE,
-      uiStateData: {},
-    },
+    // Reuse canonical initialFmeState to avoid configuration drift
+    state: widgetState || initialFmeState,
   }
 }

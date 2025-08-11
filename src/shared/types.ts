@@ -226,6 +226,7 @@ export interface FormProps {
 }
 
 // UI Constants
+// Consolidated UI constants - removes duplication
 export const UI_CONSTANTS = {
   DEFAULT_ICON_SIZE: 16,
   DEFAULT_LOADING_SIZE: 16,
@@ -235,32 +236,30 @@ export const UI_CONSTANTS = {
     TOOLTIP_PLACEMENT: "top" as const,
   },
   SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
-  DEFAULT_TOOLTIP_DELAYS: {
-    ENTER: 1000,
-    ENTER_NEXT: 500,
-    LEAVE: 100,
-    TOUCH: 500,
+  TOOLTIP: {
+    DELAYS: {
+      ENTER: 1000,
+      ENTER_NEXT: 500,
+      LEAVE: 100,
+      TOUCH: 500,
+    },
+    PLACEMENTS: {
+      TOP: "top" as const,
+      BOTTOM: "bottom" as const,
+      LEFT: "left" as const,
+      RIGHT: "right" as const,
+    },
+    STYLES: {
+      showArrow: true,
+      disabled: false,
+    },
   },
 } as const
 
-export const TOOLTIP_DELAYS = {
-  ENTER: 1000,
-  NEXT: 500,
-  LEAVE: 100,
-  TOUCH: 500,
-} as const
-
-export const TOOLTIP_PLACEMENTS = {
-  TOP: "top" as const,
-  BOTTOM: "bottom" as const,
-  LEFT: "left" as const,
-  RIGHT: "right" as const,
-} as const
-
-export const TOOLTIP_STYLES = {
-  showArrow: true,
-  disabled: false,
-} as const
+// Aliases for backward compatibility
+export const TOOLTIP_DELAYS = UI_CONSTANTS.TOOLTIP.DELAYS
+export const TOOLTIP_PLACEMENTS = UI_CONSTANTS.TOOLTIP.PLACEMENTS
+export const TOOLTIP_STYLES = UI_CONSTANTS.TOOLTIP.STYLES
 export const enum DrawingTool {
   POLYGON = "polygon",
   RECTANGLE = "rectangle",
@@ -313,7 +312,6 @@ export enum FmeActionType {
   SET_DRAWING_STATE = "FME_SET_DRAWING_STATE",
   SET_DRAWING_TOOL = "FME_SET_DRAWING_TOOL",
   SET_CLICK_COUNT = "FME_SET_CLICK_COUNT",
-  SET_REAL_TIME_MEASUREMENTS = "FME_SET_REAL_TIME_MEASUREMENTS",
 
   // Export & Form Actions
   SET_FORM_VALUES = "FME_SET_FORM_VALUES",
@@ -330,10 +328,6 @@ export enum FmeActionType {
   SET_ERROR = "FME_SET_ERROR",
   SET_IMPORT_ERROR = "FME_SET_IMPORT_ERROR",
   SET_EXPORT_ERROR = "FME_SET_EXPORT_ERROR",
-
-  // UI State Actions
-  SET_UI_STATE = "FME_SET_UI_STATE",
-  SET_UI_STATE_DATA = "FME_SET_UI_STATE_DATA",
 }
 
 // Base Redux action interface
@@ -375,11 +369,6 @@ export interface SetClickCountAction
   clickCount: number
 }
 
-export interface SetRealTimeMeasurementsAction
-  extends BaseAction<FmeActionType.SET_REAL_TIME_MEASUREMENTS> {
-  measurements: RealTimeMeasurements
-}
-
 // Export & Form Actions
 export interface SetFormValuesAction
   extends BaseAction<FmeActionType.SET_FORM_VALUES> {
@@ -410,7 +399,7 @@ export interface SetSelectedWorkspaceAction
 
 export interface SetWorkspaceItemAction
   extends BaseAction<FmeActionType.SET_WORKSPACE_ITEM> {
-  workspaceItem: any
+  workspaceItem: WorkspaceItemDetail | null
 }
 
 // Data Source Actions
@@ -435,17 +424,6 @@ export interface SetExportErrorAction
   error: ErrorState | null
 }
 
-// UI State Actions
-export interface SetUiStateAction
-  extends BaseAction<FmeActionType.SET_UI_STATE> {
-  uiState: StateType
-}
-
-export interface SetUiStateDataAction
-  extends BaseAction<FmeActionType.SET_UI_STATE_DATA> {
-  data: StateData
-}
-
 // Grouped action union types
 export type FmeViewActions = SetViewModeAction | ResetStateAction
 
@@ -454,7 +432,6 @@ export type FmeDrawingActions =
   | SetDrawingStateAction
   | SetDrawingToolAction
   | SetClickCountAction
-  | SetRealTimeMeasurementsAction
 
 export type FmeExportActions = SetFormValuesAction | SetOrderResultAction
 
@@ -470,16 +447,13 @@ export type FmeLoadingErrorActions =
   | SetImportErrorAction
   | SetExportErrorAction
 
-export type FmeUiActions = SetUiStateAction | SetUiStateDataAction
-
-// Complete union of all FME actions
+// Complete union of all FME actions (ui state removed for simplicity)
 export type FmeActions =
   | FmeViewActions
   | FmeDrawingActions
   | FmeExportActions
   | FmeWorkspaceActions
   | FmeLoadingErrorActions
-  | FmeUiActions
 
 // Drawing and UI config constants
 export const LAYER_CONFIG = {
@@ -581,6 +555,12 @@ export interface WorkspaceItem {
   readonly avgCpuPct?: number
   readonly avgElapsedTime?: number
   readonly avgPeakMemUsage?: number
+}
+// Detailed workspace item (single workspace fetch) including parameters & optional metadata
+export interface WorkspaceItemDetail extends WorkspaceItem {
+  readonly parameters?: readonly WorkspaceParameter[]
+  readonly tags?: readonly string[]
+  readonly size?: number
 }
 
 // Repository collection with pagination
@@ -722,25 +702,13 @@ export interface UploadWorkspaceParams {
 
 // ArcGIS JS API module collection
 export interface EsriModules {
-  // Core geometry and drawing modules
   readonly SketchViewModel: typeof __esri.SketchViewModel
   readonly GraphicsLayer: typeof __esri.GraphicsLayer
   readonly Graphic: typeof __esri.Graphic
   readonly Polygon: typeof __esri.Polygon
-  readonly Polyline: typeof __esri.Polyline
-  readonly Point: typeof __esri.Point
   readonly Extent: typeof __esri.Extent
-  readonly SpatialReference: typeof __esri.SpatialReference
-  readonly TextSymbol: typeof __esri.TextSymbol
-  readonly SimpleMarkerSymbol: typeof __esri.SimpleMarkerSymbol
-  readonly SimpleLineSymbol: typeof __esri.SimpleLineSymbol
-  readonly PictureMarkerSymbol: typeof __esri.PictureMarkerSymbol
-
-  // Measurement widgets (ArcGIS 4.29 compatible - both since 4.10)
   readonly AreaMeasurement2D: typeof __esri.AreaMeasurement2D
   readonly DistanceMeasurement2D: typeof __esri.DistanceMeasurement2D
-
-  // ArcGIS 4.29-compatible GeometryEngine (legacy methods available in 4.29)
   readonly geometryEngine: typeof __esri.geometryEngine
 }
 
@@ -810,7 +778,6 @@ export interface FmeDrawingState {
   // Plain JSON geometry representation; avoid storing ArcGIS API objects in Redux.
   readonly geometryJson: EsriGeometryJson | null
   readonly drawnArea: number
-  readonly realTimeMeasurements: RealTimeMeasurements
 }
 
 // Export workflow and form data state
@@ -826,7 +793,7 @@ export interface FmeWorkspaceState {
   readonly workspaceItems: readonly WorkspaceItem[]
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
-  readonly workspaceItem: any // Full workspace item from server
+  readonly workspaceItem: WorkspaceItemDetail | null // Full workspace item from server
   readonly isLoadingWorkspaces: boolean
   readonly isLoadingParameters: boolean
 }
@@ -844,12 +811,6 @@ export interface FmeErrorState {
   readonly exportError: ErrorState | null
 }
 
-// Generic UI state management
-export interface FmeUiState {
-  readonly uiState: StateType
-  readonly uiStateData: StateData
-}
-
 // Complete widget state composed from focused sub-states
 export interface FmeWidgetState
   extends FmeViewState,
@@ -857,39 +818,32 @@ export interface FmeWidgetState
     FmeExportState,
     FmeWorkspaceState,
     FmeLoadingState,
-    FmeErrorState,
-    FmeUiState {}
+    FmeErrorState {}
 
 export interface IMStateWithFmeExport extends IMState {
   fmeExport: ImmutableObject<FmeWidgetState>
 }
 
-// Content Components - broken down into focused interfaces
-// Base content properties that all content views need
-export interface ContentBaseProps {
+// Optimized content props interfaces with better composition
+interface ContentCoreProps {
   readonly widgetId?: string
   readonly state: ViewMode
   readonly instructionText: string
   readonly error?: ErrorState | null
   readonly onBack?: () => void
+  readonly isModulesLoading: boolean
 }
 
-// Drawing-related content properties
-export interface ContentDrawingProps {
+interface ContentDrawingFeatures {
   readonly canStartDrawing: boolean
   readonly onAngeUtbredning: () => void
   readonly drawnArea?: number | null
   readonly formatArea?: (area: number) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
-  readonly realTimeMeasurements?: RealTimeMeasurements
-  readonly formatRealTimeMeasurements?: (
-    measurements: RealTimeMeasurements
-  ) => React.ReactNode
 }
 
-// Export-related content properties
-export interface ContentExportProps {
+interface ContentExportFeatures {
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (data: unknown) => void
   readonly orderResult?: ExportResult | null
@@ -897,39 +851,41 @@ export interface ContentExportProps {
   readonly isSubmittingOrder?: boolean
 }
 
-// Header-related content properties
-export interface ContentHeaderProps {
+interface ContentHeaderFeatures {
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
   readonly canReset?: boolean
 }
 
-// Loading-related content properties
-export interface ContentLoadingProps {
-  readonly isModulesLoading: boolean
-}
-
-// Complete content props interface using composition
-export interface ContentProps
-  extends ContentBaseProps,
-    Partial<ContentDrawingProps>,
-    Partial<ContentExportProps>,
-    Partial<ContentHeaderProps>,
-    Partial<ContentWorkspaceProps>,
-    ContentLoadingProps {}
-
-// Workspace-related content properties
-export interface ContentWorkspaceProps {
+interface ContentWorkspaceFeatures {
   readonly config: FmeExportConfig
   readonly onWorkspaceSelected?: (
     workspaceName: string,
     parameters: readonly WorkspaceParameter[],
-    workspaceItem: any
+    workspaceItem: WorkspaceItemDetail
   ) => void
   readonly onWorkspaceBack?: () => void
   readonly selectedWorkspace?: string | null
   readonly workspaceParameters?: readonly WorkspaceParameter[]
-  readonly workspaceItem?: any // Full workspace item from server
+  readonly workspaceItem?: WorkspaceItemDetail | null
+}
+
+// Optimized final content props with selective feature composition
+export interface ContentProps
+  extends ContentCoreProps,
+    Partial<ContentDrawingFeatures>,
+    Partial<ContentExportFeatures>,
+    Partial<ContentHeaderFeatures>,
+    Partial<ContentWorkspaceFeatures> {}
+
+// Legacy interfaces maintained for backward compatibility
+export interface ContentBaseProps extends ContentCoreProps {}
+export interface ContentDrawingProps extends ContentDrawingFeatures {}
+export interface ContentExportProps extends ContentExportFeatures {}
+export interface ContentHeaderProps extends ContentHeaderFeatures {}
+export interface ContentWorkspaceProps extends ContentWorkspaceFeatures {}
+export interface ContentLoadingProps {
+  readonly isModulesLoading: boolean
 }
 
 // Widget-specific types
@@ -939,6 +895,7 @@ export interface NotificationState {
 }
 
 // Widget Constants & Symbols - Simplified
+// Deprecated duplicate symbol constants (kept for backward compatibility); prefer STYLES.symbols.highlight
 export const HIGHLIGHT_SYMBOL = {
   type: "simple-fill" as const,
   color: [255, 165, 0, 0.2] as [number, number, number, number],
@@ -948,6 +905,7 @@ export const HIGHLIGHT_SYMBOL = {
     style: "solid" as const,
   },
 }
+export const DRAW_POLYGON_SYMBOL = HIGHLIGHT_SYMBOL
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {

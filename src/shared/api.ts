@@ -409,14 +409,16 @@ export class FmeFlowApiClient {
   async runDataDownload(
     workspace: string,
     parameters: { [key: string]: any } = {},
-    repository?: string
+    repository?: string,
+    signal?: AbortSignal
   ): Promise<ApiResponse> {
     const targetRepository = this.resolveRepository(repository)
     try {
       return await this.runDataDownloadWebhook(
         workspace,
         parameters,
-        targetRepository
+        targetRepository,
+        signal
       )
     } catch (error) {
       if (
@@ -429,7 +431,8 @@ export class FmeFlowApiClient {
         return await this.runDataDownloadViaRestApi(
           workspace,
           parameters,
-          targetRepository
+          targetRepository,
+          signal
         )
       }
       throw error instanceof Error ? error : new Error(String(error))
@@ -465,7 +468,8 @@ export class FmeFlowApiClient {
   private async runDataDownloadWebhook(
     workspace: string,
     parameters: { [key: string]: any } = {},
-    repository: string
+    repository: string,
+    signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
       const webhookUrl = this.buildServiceUrl(
@@ -495,6 +499,7 @@ export class FmeFlowApiClient {
           Authorization: `fmetoken token=${this.config.token}`,
           "User-Agent": API_CONSTANTS.COMMON_HEADERS["User-Agent"],
         },
+        signal,
       })
 
       return this.parseWebhookResponse(response)
@@ -511,7 +516,8 @@ export class FmeFlowApiClient {
   private async runDataDownloadViaRestApi(
     workspace: string,
     parameters: { [key: string]: any } = {},
-    repository: string
+    repository: string,
+    signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
       console.log(
@@ -527,7 +533,8 @@ export class FmeFlowApiClient {
       const jobResponse = await this.submitJob(
         workspace,
         jobParameters,
-        repository
+        repository,
+        signal
       )
 
       return {

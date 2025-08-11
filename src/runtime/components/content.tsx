@@ -53,77 +53,64 @@ const createWorkspaceErrorState = (
   },
 })
 
-// Helper function to render order success details
-const renderOrderSuccess = (
+// Unified order result renderer (replaces separate success/failure functions)
+const renderOrderResult = (
   orderResult: any,
-  translate: (key: string) => string,
-  onReuseGeography?: () => void
-) => (
-  <>
-    <div style={STYLES.typography.title}>{translate("orderConfirmation")}</div>
-    <div style={STYLES.typography.caption}>
-      {translate("jobId")}: {orderResult.jobId}
-    </div>
-    {orderResult.workspaceName && (
-      <div style={STYLES.typography.caption}>
-        {translate("workspace")}: {orderResult.workspaceName}
+  translate: (k: string) => string,
+  opts: { onReuseGeography?: () => void; onBack?: () => void }
+) => {
+  const isSuccess = !!orderResult.success
+  const rows: React.ReactNode[] = []
+  const addRow = (label?: string, value?: any) => {
+    if (value === undefined || value === null || value === "") return
+    rows.push(
+      <div style={STYLES.typography.caption} key={`${label}-${value}`}>
+        {label ? `${label}: ${value}` : value}
       </div>
-    )}
-    {orderResult.email && (
-      <div style={STYLES.typography.caption}>
-        {translate("notificationEmail")}: {orderResult.email}
+    )
+  }
+  addRow(translate("jobId"), orderResult.jobId)
+  addRow(translate("workspace"), orderResult.workspaceName)
+  addRow(translate("notificationEmail"), orderResult.email)
+  if (orderResult.code && !isSuccess)
+    addRow(translate("errorCode"), orderResult.code)
+  return (
+    <>
+      <div style={STYLES.typography.title}>
+        {isSuccess
+          ? translate("orderConfirmation")
+          : translate("orderSentError")}
       </div>
-    )}
-    {orderResult.downloadUrl && (
-      <div style={STYLES.typography.caption}>
-        <a
-          href={orderResult.downloadUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {translate("downloadResult")}
-        </a>
-      </div>
-    )}
-    <div style={STYLES.typography.caption}>
-      {translate("emailNotificationSent")}
-    </div>
-    <Button
-      text={translate("reuseGeography")}
-      onClick={onReuseGeography}
-      logging={{ enabled: true, prefix: "FME-Export" }}
-      tooltip={translate("tooltipReuseGeography")}
-      tooltipPlacement="bottom"
-    />
-  </>
-)
-
-// Helper function to render order failure details
-const renderOrderFailure = (
-  orderResult: any,
-  translate: (key: string) => string,
-  onBack?: () => void
-) => (
-  <>
-    <div style={STYLES.typography.title}>{translate("orderSentError")}</div>
-    <div style={STYLES.typography.caption}>{orderResult.message}</div>
-    {orderResult.code && (
-      <div style={STYLES.typography.caption}>
-        {translate("errorCode")}: {orderResult.code}
-      </div>
-    )}
-    {orderResult.workspaceName && (
-      <div style={STYLES.typography.caption}>
-        {translate("workspace")}: {orderResult.workspaceName}
-      </div>
-    )}
-    <Button
-      text={translate("retry")}
-      onClick={onBack || noOp}
-      logging={{ enabled: true, prefix: "FME-Export" }}
-    />
-  </>
-)
+      {!isSuccess && (
+        <div style={STYLES.typography.caption}>{orderResult.message}</div>
+      )}
+      {rows}
+      {isSuccess && orderResult.downloadUrl && (
+        <div style={STYLES.typography.caption}>
+          <a
+            href={orderResult.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {translate("downloadResult")}
+          </a>
+        </div>
+      )}
+      {isSuccess && (
+        <div style={STYLES.typography.caption}>
+          {translate("emailNotificationSent")}
+        </div>
+      )}
+      <Button
+        text={isSuccess ? translate("reuseGeography") : translate("retry")}
+        onClick={isSuccess ? opts.onReuseGeography : opts.onBack || noOp}
+        logging={{ enabled: true, prefix: "FME-Export" }}
+        tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
+        tooltipPlacement="bottom"
+      />
+    </>
+  )
+}
 
 export const Content: React.FC<ContentProps> = ({
   state,
@@ -142,8 +129,6 @@ export const Content: React.FC<ContentProps> = ({
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
   // Real-time measurement props
-  realTimeMeasurements,
-  formatRealTimeMeasurements,
   // Reset props
   onReset,
   canReset = true,
@@ -157,7 +142,8 @@ export const Content: React.FC<ContentProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
-  // Memoized FME client to avoid recreation on every render
+  // Create FME client when config changes - this is a legitimate use of useMemo
+  // since creating the client involves API configuration setup
   const fmeClient = React.useMemo(() => {
     return config ? createFmeFlowClient(config) : null
   }, [config])
@@ -362,23 +348,9 @@ export const Content: React.FC<ContentProps> = ({
     )
   }
 
-  const renderDrawing = () => {
-    const hasStartedDrawing =
-      realTimeMeasurements && Object.keys(realTimeMeasurements).length > 0
-
-    return (
-      <>
-        {!hasStartedDrawing && (
-          <div style={STYLES.typography.instructionText}>{instructionText}</div>
-        )}
-        {hasStartedDrawing && formatRealTimeMeasurements && (
-          <div style={STYLES.measureField}>
-            {formatRealTimeMeasurements(realTimeMeasurements)}
-          </div>
-        )}
-      </>
-    )
-  }
+  const renderDrawing = () => (
+    <div style={STYLES.typography.instructionText}>{instructionText}</div>
+  )
 
   const renderWorkspaceSelection = () => {
     // Show loading state while loading workspaces
@@ -477,12 +449,10 @@ export const Content: React.FC<ContentProps> = ({
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       console.log("FME Export - Displaying order result:", orderResult)
 
-      if (orderResult.success) {
-        return renderOrderSuccess(orderResult, translate, onReuseGeography)
-      } else {
-        console.error("FME Export - Order failed:", orderResult)
-        return renderOrderFailure(orderResult, translate, onBack)
-      }
+      return renderOrderResult(orderResult, translate, {
+        onReuseGeography,
+        onBack,
+      })
     }
 
     // Handle submission loading with StateRenderer

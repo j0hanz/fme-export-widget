@@ -128,7 +128,7 @@ const withConditionalTooltip = (
   tooltip?: React.ReactNode,
   disabled = false,
   placement: "top" | "bottom" | "left" | "right" = "top",
-  enterDelay: number = UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER
+  enterDelay: number = UI_CONSTANTS.TOOLTIP.DELAYS.ENTER
 ): React.ReactElement => {
   return tooltip && !disabled ? (
     <Tooltip content={tooltip} placement={placement} enterDelay={enterDelay}>
@@ -202,7 +202,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   showArrow = TOOLTIP_STYLES.showArrow,
   placement = TOOLTIP_PLACEMENTS.TOP,
   enterDelay = TOOLTIP_DELAYS.ENTER,
-  enterNextDelay = TOOLTIP_DELAYS.NEXT,
+  enterNextDelay = TOOLTIP_DELAYS.ENTER_NEXT,
   enterTouchDelay = TOOLTIP_DELAYS.TOUCH,
   leaveDelay = TOOLTIP_DELAYS.LEAVE,
   disabled = TOOLTIP_STYLES.disabled,
@@ -256,8 +256,8 @@ export const Button: React.FC<ButtonProps> = ({
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
-  tooltipEnterDelay = UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER,
-  tooltipEnterNextDelay = UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER_NEXT,
+  tooltipEnterDelay = UI_CONSTANTS.TOOLTIP.DELAYS.ENTER,
+  tooltipEnterNextDelay = UI_CONSTANTS.TOOLTIP.DELAYS.ENTER_NEXT,
   tooltipLeaveDelay,
   logging = { enabled: false, prefix: "Button" },
   loading = false,
@@ -697,7 +697,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
             item.tooltip,
             item.disabled,
             item.tooltipPlacement || "top",
-            UI_CONSTANTS.DEFAULT_TOOLTIP_DELAYS.ENTER
+            UI_CONSTANTS.TOOLTIP.DELAYS.ENTER
           )
         })}
       </JimuDropdownMenu>
