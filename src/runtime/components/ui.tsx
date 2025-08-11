@@ -17,6 +17,7 @@ import {
   TextArea as JimuTextArea,
   TextInput,
   Tooltip as JimuTooltip,
+  Message as JimuMessage,
 } from "jimu-ui"
 import { STYLES } from "../../shared/css"
 import defaultMessages from "./translations/default"
@@ -34,12 +35,16 @@ import type {
   TextAreaProps,
   TabsProps,
   TabItem,
+  StateActionButton,
+  StateRendererProps,
 } from "../../shared/types"
 import {
   UI_CONSTANTS,
   TOOLTIP_DELAYS,
   TOOLTIP_PLACEMENTS,
   TOOLTIP_STYLES,
+  ErrorSeverity,
+  StateType,
 } from "../../shared/types"
 import handleDotVerticalIcon from "../../assets/icons/handle-dot-vertical.svg"
 
@@ -100,51 +105,17 @@ export const UI_CSS = {
   },
 } as const
 
-// Create icon element
-const createIconElement = (
-  icon: string,
-  size: number = UI_CSS.ICON_SIZES.DEFAULT,
-  className?: string,
-  ariaLabel?: string
-) => (
-  <SVG
-    src={icon}
-    size={size}
-    className={className}
-    currentColor
-    role="img"
-    aria-hidden={!ariaLabel}
-    aria-label={ariaLabel}
-  />
-)
-
-const withConditionalTooltip = (
-  el: React.ReactElement,
-  tooltip?: React.ReactNode,
-  disabled = false,
-  placement: "top" | "bottom" | "left" | "right" = "top",
-  enterDelay = UI_CONSTANTS.TOOLTIP.DELAYS.ENTER
-): React.ReactElement =>
-  tooltip && !disabled ? (
-    <Tooltip content={tooltip} placement={placement} enterDelay={enterDelay}>
-      {el}
-    </Tooltip>
-  ) : (
-    el
-  )
-
-// Controlled value hook
+// Utility Hooks
 const useControlledValue = <T = string,>(
-  controlledValue?: T,
+  controlled?: T,
   defaultValue?: T,
   onChange?: (value: T) => void
 ) => {
   const [value, setValue] = hooks.useControlled({
-    controlled: controlledValue,
+    controlled,
     default: defaultValue,
   })
 
-  // Event callback for change
   const handleChange = hooks.useEventCallback((newValue: T) => {
     setValue(newValue)
     onChange?.(newValue)
@@ -153,39 +124,146 @@ const useControlledValue = <T = string,>(
   return [value, handleChange] as const
 }
 
-// Logging hook
-const useComponentLogger = (
-  logging?: { enabled?: boolean; prefix?: string },
-  defaultPrefix = "Component"
-) => {
-  // Event callback
-  const logAction = hooks.useEventCallback(
-    (action: string, data?: { [key: string]: unknown }) => {
-      if (logging?.enabled) {
-        console.log(`[${logging.prefix || defaultPrefix}] ${action}`, data)
-      }
-    }
+// State Components
+
+// Actions renderer for state components
+const StateActions: React.FC<{
+  actions?: StateActionButton[]
+  recoverable?: boolean
+  retry?: () => void
+  label?: string
+}> = ({ actions = [], recoverable, retry, label = "Actions" }) => {
+  const allActions =
+    recoverable && retry
+      ? [
+          ...actions,
+          { label: "Retry", onClick: retry, variant: "primary" as const },
+        ]
+      : actions
+
+  if (!allActions.length) return null
+
+  return (
+    <div role="group" aria-label={label}>
+      {allActions.map((action, index) => (
+        <Button
+          key={index}
+          onClick={action.onClick}
+          disabled={action.disabled}
+          variant={action.variant}
+          aria-label={`${action.label} - ${action.disabled ? "disabled" : "available"}`}
+          tabIndex={action.disabled ? -1 : 0}
+          text={action.label}
+        />
+      ))}
+    </div>
   )
-  return logAction
 }
 
-// Resolve tooltip content
-const resolveTooltipContent = (
-  title?: React.ReactNode,
-  content?: React.ReactNode,
-  childProps?: any
-): React.ReactNode =>
-  title || content || childProps?.title || childProps?.["aria-label"]
+// State renderer component
+const StateRenderer: React.FC<StateRendererProps> = React.memo(
+  ({ state, data = {}, children }) => {
+    if (state === StateType.LOADING) {
+      return (
+        <div style={STYLES.state.centered} role="status" aria-live="polite">
+          <Loading type={LoadingType.Donut} width={200} height={200} />
+          {(data.message || data.detail) && (
+            <div style={STYLES.state.text} aria-label="Loading details">
+              {data.message && <div>{data.message}</div>}
+            </div>
+          )}
+        </div>
+      )
+    }
 
-// Normalize button config
-const resolveButtonConfig = (config: any, side: "left" | "right") => ({
-  ...config,
-  variant: config.variant || (side === "left" ? "outlined" : "contained"),
-  color: config.color || (side === "left" ? "default" : "primary"),
-  key: side,
-})
+    if (state === StateType.CONTENT) return <>{children || data.children}</>
 
-// Tooltip wrapper
+    if (state === StateType.ERROR) {
+      const error = data.error
+      const severity = error?.severity || ErrorSeverity.ERROR
+
+      return (
+        <div role="alert" aria-live="assertive">
+          <div style={STYLES.typography.title}>
+            {error?.userFriendlyMessage ||
+              error?.message ||
+              "An error occurred"}
+          </div>
+          {error?.userFriendlyMessage && error?.message && (
+            <div style={STYLES.typography.caption}>
+              Details: {error.message}
+            </div>
+          )}
+          {error?.code && (
+            <div style={STYLES.typography.caption}>Code: {error.code}</div>
+          )}
+          {error?.suggestion && (
+            <div style={STYLES.typography.caption}>{error.suggestion}</div>
+          )}
+          {severity === ErrorSeverity.WARNING && (
+            <div role="status" style={STYLES.typography.caption}>
+              Warning: Partial success.
+            </div>
+          )}
+          <StateActions
+            actions={data.actions}
+            recoverable={!!error?.recoverable}
+            retry={error?.retry}
+            label="Error actions"
+          />
+        </div>
+      )
+    }
+
+    if (state === StateType.SUCCESS) {
+      return (
+        <div role="status" aria-live="polite">
+          <StateActions actions={data.actions} label="Success actions" />
+        </div>
+      )
+    }
+
+    if (state === StateType.EMPTY) {
+      return (
+        <div role="status" aria-live="polite">
+          <div>{data.message || "No data available"}</div>
+        </div>
+      )
+    }
+
+    return null
+  }
+)
+
+// Icon component
+export interface IconProps {
+  src: string
+  size?: number
+  className?: string
+  ariaLabel?: string
+  style?: React.CSSProperties
+}
+
+export const Icon: React.FC<IconProps> = ({
+  src,
+  size = UI_CSS.ICON_SIZES.DEFAULT,
+  className,
+  ariaLabel,
+  style,
+}) => (
+  <SVG
+    src={src}
+    size={size}
+    className={className}
+    currentColor
+    role="img"
+    aria-hidden={!ariaLabel}
+    aria-label={ariaLabel}
+    style={style}
+  />
+)
+
+// Tooltip component
 export const Tooltip: React.FC<CustomTooltipProps> = ({
   content,
   children,
@@ -199,26 +277,27 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   title,
   ...otherProps
 }) => {
-  const tooltipContent = resolveTooltipContent(title, content, children.props)
+  const tooltipContent =
+    title || content || children.props?.title || children.props?.["aria-label"]
 
-  if (!tooltipContent || disabled) {
-    return children
-  }
+  if (!tooltipContent || disabled) return children
 
   const isDisabled =
     children.props?.disabled || children.props?.["aria-disabled"]
-  const childProps = {
-    ...children.props,
-    title: undefined,
-    "aria-describedby": otherProps.id,
-  }
-
   const child = isDisabled ? (
     <span style={UI_CSS.STYLES.DISABLED_CURSOR}>
-      {React.cloneElement(children, childProps)}
+      {React.cloneElement(children, {
+        ...children.props,
+        title: undefined,
+        "aria-describedby": otherProps.id,
+      })}
     </span>
   ) : (
-    React.cloneElement(children, childProps)
+    React.cloneElement(children, {
+      ...children.props,
+      title: undefined,
+      "aria-describedby": otherProps.id,
+    })
   )
 
   return (
@@ -238,192 +317,53 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   )
 }
 
-// Button
-export const Button: React.FC<ButtonProps> = ({
-  text,
-  icon,
-  iconPosition = UI_CONSTANTS.BUTTON_DEFAULTS.ICON_POSITION,
-  alignText = "end",
-  tooltip,
-  tooltipDisabled = false,
-  tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
-  tooltipEnterDelay = UI_CONSTANTS.TOOLTIP.DELAYS.ENTER,
-  logging = { enabled: false, prefix: "Button" },
-  loading = false,
-  onClick,
-  children,
-  block = UI_CONSTANTS.BUTTON_DEFAULTS.BLOCK,
-  ...jimuProps
-}) => {
-  // Click handler
-  const handleClick = hooks.useEventCallback(() => {
-    if (jimuProps.disabled || loading || !onClick) return
-    if (logging?.enabled) {
-      const label =
-        typeof text === "string" ? text : jimuProps.title || "Button"
-      console.log(`[${logging.prefix}] clicked`, {
-        label,
-        disabled: jimuProps.disabled,
-        loading,
-      })
-    }
-    onClick()
-  })
-
-  // Get text alignment style
-  const getTextAlignment = (align: "start" | "center" | "end") => {
-    switch (align) {
-      case "start":
-        return "start"
-      case "center":
-        return "center"
-      case "end":
-        return "end"
-    }
-  }
-
-  // Render content
-  const renderContent = () => {
-    if (loading) return <Loading type={LoadingType.Donut} />
-    if (children) return children
-
-    const hasIcon = !!icon
-    const hasText = !!text
-
-    if (!hasIcon && !hasText) return null
-    if (hasIcon && !hasText)
-      return createIconElement(icon as string, UI_CSS.ICON_SIZES.DEFAULT)
-    if (hasText && !hasIcon) return <>{text}</>
-    const iconEl = createIconElement(icon as string, UI_CSS.ICON_SIZES.SMALL)
-    const iconWithPosition = React.cloneElement(iconEl, {
-      style: {
-        position: "absolute",
-        [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
-        zIndex: 1,
-      },
-    })
-
-    return (
-      <>
-        {iconPosition === "left" && iconWithPosition}
-        <span
-          style={{
-            ...UI_CSS.BTN.TEXT,
-            textAlign: getTextAlignment(alignText),
-          }}
-        >
-          {text}
-        </span>
-        {iconPosition === "right" && iconWithPosition}
-      </>
-    )
-  }
-
-  // ARIA label
-  const getAriaLabel = () =>
-    text || !icon
-      ? jimuProps["aria-label"]
-      : (typeof tooltip === "string" && tooltip) ||
-        UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
-
-  const buttonElement = (
-    <JimuButton
-      {...jimuProps}
-      icon={!text && !!icon}
-      onClick={handleClick}
-      disabled={jimuProps.disabled || loading}
-      aria-busy={loading}
-      aria-label={getAriaLabel()}
-      aria-describedby={
-        tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
-      }
-      title={
-        tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
-      }
-      style={{
-        ...UI_CSS.STYLES.BUTTON_RELATIVE,
-        ...jimuProps.style,
-      }}
-      block={block}
-      tabIndex={jimuProps.tabIndex ?? 0}
-    >
-      {renderContent()}
-    </JimuButton>
-  )
-
-  // Optional tooltip
-  return tooltip && !tooltipDisabled ? (
-    <Tooltip
-      content={tooltip}
-      placement={tooltipPlacement}
-      enterDelay={tooltipEnterDelay}
-    >
-      {buttonElement}
-    </Tooltip>
-  ) : (
-    buttonElement
-  )
+// Message component
+export interface AppMessageProps {
+  message: string
+  severity?: "info" | "warning" | "error" | "success"
+  autoHideDuration?: number | null
+  withIcon?: boolean
+  className?: string
+  style?: React.CSSProperties
+  onClose?: () => void
 }
 
-// Button group
-export const ButtonGroup: React.FC<ButtonGroupProps> = ({
-  leftButton,
-  rightButton,
+export const Message: React.FC<AppMessageProps> = ({
+  message,
+  severity = "info",
+  autoHideDuration = null,
+  withIcon = false,
   className,
   style,
-  logging = { enabled: false, prefix: "ButtonGroup" },
-}) => {
-  if (!leftButton && !rightButton) {
-    console.warn(
-      "ButtonGroup requires at least one button (leftButton or rightButton)"
-    )
-    return null
-  }
+  onClose,
+}) => (
+  <JimuMessage
+    className={className}
+    style={style}
+    severity={severity}
+    message={message}
+    withIcon={withIcon}
+    autoHideDuration={autoHideDuration}
+    open
+    onClose={onClose}
+  />
+)
 
-  const createButton = (
-    buttonConfig: GroupButtonConfig,
-    side: "left" | "right"
-  ) => {
-    const config = resolveButtonConfig(buttonConfig, side)
-
-    return (
-      <Button
-        {...config}
-        logging={{
-          enabled: logging?.enabled,
-          prefix: `${logging?.prefix}.${side}`,
-        }}
-        block={false}
-        style={{ flex: 1 }}
-      />
-    )
-  }
-
-  return (
-    <div className={className} style={UI_CSS.BTN.GROUP}>
-      {leftButton && createButton(leftButton, "left")}
-      {rightButton && createButton(rightButton, "right")}
-    </div>
-  )
-}
-
-// Input
+// Input Component
 export const Input: React.FC<InputProps> = ({
-  value: controlledValue,
+  value: controlled,
   defaultValue,
   required = false,
   maxLength,
   pattern,
   validationMessage,
   type = "text",
-  logging = { enabled: false, prefix: "Input" },
   onChange,
   onFileChange,
   ...props
 }) => {
-  const logAction = useComponentLogger(logging, "Input")
   const [value, handleValueChange] = useControlledValue(
-    controlledValue,
+    controlled,
     defaultValue || ""
   )
 
@@ -432,17 +372,11 @@ export const Input: React.FC<InputProps> = ({
       const newValue = evt.target.value
       handleValueChange(newValue)
 
-      // File input branch
       if (type === "file" && onFileChange) {
         onFileChange(evt)
       } else if (onChange) {
         onChange(newValue)
       }
-
-      logAction("changed", {
-        value: newValue,
-        controlled: controlledValue !== undefined,
-      })
     }
   )
 
@@ -465,21 +399,15 @@ export const Input: React.FC<InputProps> = ({
   )
 }
 
-// TextArea
+// TextArea component
 export const TextArea: React.FC<TextAreaProps> = ({
-  value: controlledValue,
+  value: controlled,
   defaultValue,
-  logEvent = false,
-  logPrefix = "TextArea",
   onChange,
   ...props
 }) => {
-  const logAction = useComponentLogger(
-    { enabled: logEvent, prefix: logPrefix },
-    "TextArea"
-  )
   const [value, handleValueChange] = useControlledValue(
-    controlledValue,
+    controlled,
     defaultValue || ""
   )
 
@@ -488,12 +416,6 @@ export const TextArea: React.FC<TextAreaProps> = ({
       const newValue = event.target.value
       handleValueChange(newValue)
       onChange?.(newValue)
-      logAction("changed", {
-        value: newValue,
-        length: newValue.length,
-        controlled: controlledValue !== undefined,
-        disabled: props.disabled,
-      })
     }
   )
 
@@ -517,50 +439,33 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
-// Select
+// Select component
 export const Select: React.FC<SelectProps> = ({
   options = [],
-  value: controlledValue,
+  value: controlled,
   defaultValue,
   onChange,
   placeholder = UI_CONSTANTS.SELECT_DEFAULTS.PLACEHOLDER,
   disabled = false,
-  logging = { enabled: false, prefix: "Select" },
   ariaLabel,
   ariaDescribedBy,
   style,
 }) => {
-  const logAction = useComponentLogger(logging, "Select")
   const [value, handleValueChange] = useControlledValue(
-    controlledValue,
+    controlled,
     defaultValue
   )
 
   const handleChange = hooks.useEventCallback(
-    (
-      evt: React.ChangeEvent<HTMLSelectElement> | string | number,
-      selectedValue?: string | number
-    ) => {
-      const rawValue =
-        typeof evt === "object"
-          ? evt.target.value
-          : (evt ?? selectedValue ?? "")
+    (evt: React.ChangeEvent<HTMLSelectElement> | string | number) => {
+      const rawValue = typeof evt === "object" ? evt.target.value : evt
       const finalValue =
-        typeof controlledValue === "number" && !isNaN(Number(rawValue))
+        typeof controlled === "number" && !isNaN(Number(rawValue))
           ? Number(rawValue)
           : rawValue
 
       handleValueChange(finalValue)
       onChange?.(finalValue)
-
-      const option = options.find(
-        (opt) => String(opt.value) === String(finalValue)
-      )
-      logAction("changed", {
-        value: finalValue,
-        label: option?.label,
-        controlled: controlledValue !== undefined,
-      })
     }
   )
 
@@ -583,8 +488,9 @@ export const Select: React.FC<SelectProps> = ({
           disabled={option.disabled}
           aria-label={option.label}
         >
-          {option.icon &&
-            createIconElement(option.icon, UI_CSS.ICON_SIZES.MEDIUM)}
+          {option.icon && (
+            <Icon src={option.icon} size={UI_CSS.ICON_SIZES.MEDIUM} />
+          )}
           {!option.hideLabel && option.label}
         </Option>
       ))}
@@ -592,32 +498,118 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
+// Button component
+export const Button: React.FC<ButtonProps> = ({
+  text,
+  icon,
+  iconPosition = UI_CONSTANTS.BUTTON_DEFAULTS.ICON_POSITION,
+  alignText = "end",
+  tooltip,
+  tooltipDisabled = false,
+  tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
+  loading = false,
+  onClick,
+  children,
+  block = UI_CONSTANTS.BUTTON_DEFAULTS.BLOCK,
+  ...jimuProps
+}) => {
+  const handleClick = hooks.useEventCallback(() => {
+    if (jimuProps.disabled || loading || !onClick) return
+    onClick()
+  })
+
+  const renderContent = () => {
+    if (loading) return <Loading type={LoadingType.Donut} />
+    if (children) return children
+
+    const hasIcon = !!icon
+    const hasText = !!text
+
+    if (!hasIcon && !hasText) return null
+    if (hasIcon && !hasText)
+      return <Icon src={icon as string} size={UI_CSS.ICON_SIZES.DEFAULT} />
+    if (hasText && !hasIcon) return <>{text}</>
+
+    const iconEl = <Icon src={icon as string} size={UI_CSS.ICON_SIZES.SMALL} />
+    const iconWithPosition = React.cloneElement(iconEl, {
+      style: {
+        position: "absolute",
+        [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
+        zIndex: 1,
+      },
+    })
+
+    return (
+      <>
+        {iconPosition === "left" && iconWithPosition}
+        <span style={{ ...UI_CSS.BTN.TEXT, textAlign: alignText }}>{text}</span>
+        {iconPosition === "right" && iconWithPosition}
+      </>
+    )
+  }
+
+  const getAriaLabel = () =>
+    text || !icon
+      ? jimuProps["aria-label"]
+      : (typeof tooltip === "string" && tooltip) ||
+        UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
+
+  const buttonElement = (
+    <JimuButton
+      {...jimuProps}
+      icon={!text && !!icon}
+      onClick={handleClick}
+      disabled={jimuProps.disabled || loading}
+      aria-busy={loading}
+      aria-live={loading ? "polite" : undefined}
+      aria-label={getAriaLabel()}
+      aria-describedby={
+        tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
+      }
+      title={
+        tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
+      }
+      style={{
+        ...UI_CSS.STYLES.BUTTON_RELATIVE,
+        ...jimuProps.style,
+      }}
+      block={block}
+      tabIndex={jimuProps.tabIndex ?? 0}
+    >
+      {renderContent()}
+    </JimuButton>
+  )
+
+  return tooltip && !tooltipDisabled ? (
+    <Tooltip content={tooltip} placement={tooltipPlacement}>
+      {buttonElement}
+    </Tooltip>
+  ) : (
+    buttonElement
+  )
+}
+
 // Tabs component
 export const Tabs: React.FC<TabsProps> = ({
   items,
-  value: controlledValue,
+  value: controlled,
   defaultValue,
   onChange,
   ariaLabel,
   style,
   fill = true,
   type = "default",
-  logging = { enabled: false, prefix: "Tabs" },
 }) => {
-  const logAction = useComponentLogger(logging, "Tabs")
   const [value, handleValueChange] = useControlledValue(
-    controlledValue,
+    controlled,
     defaultValue || items[0]?.value
   )
 
   const handleTabChange = hooks.useEventCallback((tabValue: string) => {
     const newValue =
-      typeof controlledValue === "number" ? Number(tabValue) : tabValue
+      typeof controlled === "number" ? Number(tabValue) : tabValue
     handleValueChange(newValue)
     onChange?.(newValue)
-
-    const item = items.find((item) => String(item.value) === tabValue)
-    logAction("changed", { value: newValue, label: item?.label })
   })
 
   const normalizedValue = value !== undefined ? String(value) : undefined
@@ -635,7 +627,9 @@ export const Tabs: React.FC<TabsProps> = ({
       {items.map((item) => {
         const tabContent = (
           <>
-            {item.icon && createIconElement(item.icon, UI_CSS.ICON_SIZES.LARGE)}
+            {item.icon && (
+              <Icon src={item.icon} size={UI_CSS.ICON_SIZES.LARGE} />
+            )}
             {!item.hideLabel && item.label}
           </>
         )
@@ -667,7 +661,44 @@ export const Tabs: React.FC<TabsProps> = ({
   )
 }
 
-// Dropdown
+// ButtonGroup component
+export const ButtonGroup: React.FC<ButtonGroupProps> = ({
+  leftButton,
+  rightButton,
+  className,
+  style,
+}) => {
+  if (!leftButton && !rightButton) {
+    console.warn(
+      "ButtonGroup requires at least one button (leftButton or rightButton)"
+    )
+    return null
+  }
+
+  const createButton = (
+    buttonConfig: GroupButtonConfig,
+    side: "left" | "right"
+  ) => {
+    const config = {
+      ...buttonConfig,
+      variant:
+        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
+      color: buttonConfig.color || (side === "left" ? "default" : "primary"),
+      key: side,
+    }
+
+    return <Button {...config} block={false} style={{ flex: 1 }} />
+  }
+
+  return (
+    <div className={className} style={{ ...UI_CSS.BTN.GROUP, ...style }}>
+      {leftButton && createButton(leftButton, "left")}
+      {rightButton && createButton(rightButton, "right")}
+    </div>
+  )
+}
+
+// Dropdown component
 export const Dropdown: React.FC<DropdownProps> = ({
   items = [],
   buttonIcon,
@@ -678,18 +709,10 @@ export const Dropdown: React.FC<DropdownProps> = ({
   openMode = "hover",
   "aria-label": ariaLabel,
   "a11y-description": a11yDescription,
-  logging = { enabled: false, prefix: "Dropdown" },
   ...jimuProps
 }) => {
-  const logAction = useComponentLogger(logging, "Dropdown")
-
   const handleItemClick = hooks.useEventCallback((item: DropdownItemConfig) => {
     if (item.disabled) return
-    logAction("item clicked", {
-      itemId: item.id,
-      label: item.label,
-      disabled: item.disabled,
-    })
     item.onClick?.()
   })
 
@@ -697,27 +720,29 @@ export const Dropdown: React.FC<DropdownProps> = ({
     if (buttonText && buttonIcon)
       return (
         <div className={UI_CSS.STYLES.DROPDOWN_FLEX}>
-          {createIconElement(
-            buttonIcon,
-            UI_CSS.ICON_SIZES.DEFAULT,
-            UI_CSS.SPACING.ICON_MARGIN
-          )}
+          <Icon
+            src={buttonIcon}
+            size={UI_CSS.ICON_SIZES.DEFAULT}
+            className={UI_CSS.SPACING.ICON_MARGIN}
+          />
           {buttonText}
         </div>
       )
     if (buttonIcon)
-      return createIconElement(
-        buttonIcon,
-        UI_CSS.ICON_SIZES.DEFAULT,
-        undefined,
-        ariaLabel || buttonTitle || "Menu"
+      return (
+        <Icon
+          src={buttonIcon}
+          size={UI_CSS.ICON_SIZES.DEFAULT}
+          ariaLabel={ariaLabel || buttonTitle || "Menu"}
+        />
       )
     if (buttonText) return buttonText
-    return createIconElement(
-      handleDotVerticalIcon,
-      UI_CSS.ICON_SIZES.DEFAULT,
-      undefined,
-      ariaLabel || UI_CSS.ACCESSIBILITY.DEFAULT_MENU_LABEL
+    return (
+      <Icon
+        src={handleDotVerticalIcon}
+        size={UI_CSS.ICON_SIZES.DEFAULT}
+        ariaLabel={ariaLabel || UI_CSS.ACCESSIBILITY.DEFAULT_MENU_LABEL}
+      />
     )
   }
 
@@ -748,22 +773,28 @@ export const Dropdown: React.FC<DropdownProps> = ({
               aria-label={item.label}
               role="menuitem"
             >
-              {item.icon &&
-                createIconElement(
-                  item.icon,
-                  UI_CSS.ICON_SIZES.DEFAULT,
-                  UI_CSS.SPACING.ICON_MARGIN
-                )}
+              {item.icon && (
+                <Icon
+                  src={item.icon}
+                  size={UI_CSS.ICON_SIZES.DEFAULT}
+                  className={UI_CSS.SPACING.ICON_MARGIN}
+                />
+              )}
               {item.label}
             </JimuDropdownItem>
           )
 
-          return withConditionalTooltip(
-            itemElement,
-            item.tooltip,
-            item.disabled,
-            item.tooltipPlacement || "top",
-            UI_CONSTANTS.TOOLTIP.DELAYS.ENTER
+          return item.tooltip ? (
+            <Tooltip
+              key={item.id}
+              content={item.tooltip}
+              disabled={item.disabled}
+              placement={item.tooltipPlacement || "top"}
+            >
+              {itemElement}
+            </Tooltip>
+          ) : (
+            itemElement
           )
         })}
       </JimuDropdownMenu>
@@ -771,7 +802,7 @@ export const Dropdown: React.FC<DropdownProps> = ({
   )
 }
 
-// Form
+// Form helpers
 const FormHeader: React.FC<{
   title: React.ReactNode
   subtitle: React.ReactNode
@@ -783,6 +814,7 @@ const FormHeader: React.FC<{
   </div>
 )
 
+// Form component
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
@@ -817,7 +849,6 @@ export const Form: React.FC<FormProps> = (props) => {
             tooltip: translate("tooltipSubmitOrder"),
             tooltipPlacement: "bottom",
           }}
-          logging={{ enabled: true, prefix: "FME-Export" }}
         />
       </>
     )
@@ -857,8 +888,7 @@ export const Form: React.FC<FormProps> = (props) => {
   throw new Error(`Unknown Form variant: ${variant}`)
 }
 
-// Default export
-export { Button as default }
+export { Button as default, StateRenderer }
 
 export type {
   ButtonProps,
@@ -874,4 +904,5 @@ export type {
   TextAreaProps,
   TabsProps,
   TabItem,
+  StateRendererProps,
 }

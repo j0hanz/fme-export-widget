@@ -1,6 +1,5 @@
 import { React, hooks } from "jimu-core"
-import { Button, Tabs, Dropdown, UI_CSS } from "./ui"
-import { StateRenderer } from "./state"
+import { Button, Tabs, Dropdown, UI_CSS, StateRenderer } from "./ui"
 import defaultMessages from "./translations/default"
 import type {
   ContentProps,

@@ -12,7 +12,7 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Content } from "./components/content"
-import { StateRenderer } from "./components/state"
+import { StateRenderer } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
