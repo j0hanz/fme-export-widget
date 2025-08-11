@@ -24,7 +24,7 @@ export const STYLES = {
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: "0.5rem",
+      gap: "1rem",
       height: "100%",
     } as React.CSSProperties,
     text: {

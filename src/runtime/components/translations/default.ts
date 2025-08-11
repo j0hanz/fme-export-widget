@@ -27,8 +27,8 @@ export default {
 
   // Drawing mode related
   drawingModeTooltip: "Välj ritläge för att definiera området",
-  drawingModePolygon: "Polygon",
-  drawingModeRectangle: "Rektangel",
+  drawingModePolygonTooltip: "Rita polygon",
+  drawingModeRectangleTooltip: "Rita rektangel",
 
   // Tooltips used in ui.tsx and content.tsx
   tooltipBackToOptions: "Återgå till exportalternativ",

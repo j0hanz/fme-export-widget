@@ -12,6 +12,8 @@ import {
   LoadingType,
   Option,
   Select as JimuSelect,
+  Tab,
+  Tabs as JimuTabs,
   TextArea as JimuTextArea,
   TextInput,
   Tooltip as JimuTooltip,
@@ -30,6 +32,8 @@ import type {
   SelectOption,
   SelectProps,
   TextAreaProps,
+  TabsProps,
+  TabItem,
 } from "../../shared/types"
 import {
   UI_CONSTANTS,
@@ -45,6 +49,7 @@ export const UI_CSS = {
     SMALL: 14,
     DEFAULT: UI_CONSTANTS.DEFAULT_ICON_SIZE,
     MEDIUM: 16,
+    LARGE: 20,
   },
   SPACING: {
     ICON_OFFSET: "10px",
@@ -238,6 +243,7 @@ export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
   iconPosition = UI_CONSTANTS.BUTTON_DEFAULTS.ICON_POSITION,
+  alignText = "end",
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
@@ -264,6 +270,18 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
+  // Get text alignment style
+  const getTextAlignment = (align: "start" | "center" | "end") => {
+    switch (align) {
+      case "start":
+        return "start"
+      case "center":
+        return "center"
+      case "end":
+        return "end"
+    }
+  }
+
   // Render content
   const renderContent = () => {
     if (loading) return <Loading type={LoadingType.Donut} />
@@ -288,7 +306,14 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <>
         {iconPosition === "left" && iconWithPosition}
-        <span style={UI_CSS.BTN.TEXT}>{text}</span>
+        <span
+          style={{
+            ...UI_CSS.BTN.TEXT,
+            textAlign: getTextAlignment(alignText),
+          }}
+        >
+          {text}
+        </span>
         {iconPosition === "right" && iconWithPosition}
       </>
     )
@@ -567,6 +592,81 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
+// Tabs component
+export const Tabs: React.FC<TabsProps> = ({
+  items,
+  value: controlledValue,
+  defaultValue,
+  onChange,
+  ariaLabel,
+  style,
+  fill = true,
+  type = "default",
+  logging = { enabled: false, prefix: "Tabs" },
+}) => {
+  const logAction = useComponentLogger(logging, "Tabs")
+  const [value, handleValueChange] = useControlledValue(
+    controlledValue,
+    defaultValue || items[0]?.value
+  )
+
+  const handleTabChange = hooks.useEventCallback((tabValue: string) => {
+    const newValue =
+      typeof controlledValue === "number" ? Number(tabValue) : tabValue
+    handleValueChange(newValue)
+    onChange?.(newValue)
+
+    const item = items.find((item) => String(item.value) === tabValue)
+    logAction("changed", { value: newValue, label: item?.label })
+  })
+
+  const normalizedValue = value !== undefined ? String(value) : undefined
+
+  return (
+    <JimuTabs
+      value={normalizedValue}
+      defaultValue={defaultValue ? String(defaultValue) : undefined}
+      onChange={handleTabChange}
+      type={type}
+      fill={fill}
+      aria-label={ariaLabel}
+      style={style}
+    >
+      {items.map((item) => {
+        const tabContent = (
+          <>
+            {item.icon && createIconElement(item.icon, UI_CSS.ICON_SIZES.LARGE)}
+            {!item.hideLabel && item.label}
+          </>
+        )
+
+        const tabTitle = item.tooltip ? (
+          <Tooltip
+            content={item.tooltip}
+            placement="top"
+            disabled={item.disabled}
+          >
+            <span>{tabContent}</span>
+          </Tooltip>
+        ) : (
+          tabContent
+        )
+
+        return (
+          <Tab
+            key={String(item.value)}
+            id={String(item.value)}
+            title={tabTitle}
+            disabled={item.disabled}
+          >
+            <div />
+          </Tab>
+        )
+      })}
+    </JimuTabs>
+  )
+}
+
 // Dropdown
 export const Dropdown: React.FC<DropdownProps> = ({
   items = [],
@@ -772,4 +872,6 @@ export type {
   SelectOption,
   SelectProps,
   TextAreaProps,
+  TabsProps,
+  TabItem,
 }

@@ -1,5 +1,5 @@
 import { React, hooks } from "jimu-core"
-import { Button, Select, Dropdown, UI_CSS } from "./ui"
+import { Button, Tabs, Dropdown, UI_CSS } from "./ui"
 import { StateRenderer } from "./state"
 import defaultMessages from "./translations/default"
 import type {
@@ -255,43 +255,43 @@ export const Content: React.FC<ContentProps> = ({
     }
 
     return (
-      <>
+      <div style={STYLES.state.centered}>
         {/* Drawing mode */}
-        <div style={UI_CSS.BTN.ROW}>
-          <Select
-            value={drawingMode}
-            onChange={(value) => {
-              onDrawingModeChange?.(value as DrawingTool)
-            }}
-            style={UI_CSS.BTN.SELECT}
-            placeholder={translate("drawingModeTooltip")}
-            options={[
-              {
-                value: DrawingTool.POLYGON,
-                label: translate("drawingModePolygon"),
-                icon: polygonIcon,
-                hideLabel: true,
-              },
-              {
-                value: DrawingTool.RECTANGLE,
-                label: translate("drawingModeRectangle"),
-                icon: rectangleIcon,
-                hideLabel: true,
-              },
-            ]}
-            logging={{ enabled: true, prefix: "FME-Export-DrawingMode" }}
-          />
-          <Button
-            text={translate("specifyExtent")}
-            icon={plusIcon}
-            onClick={onAngeUtbredning}
-            disabled={!canStartDrawing}
-            tooltip={translate("tooltipSpecifyExtent")}
-            tooltipPlacement="bottom"
-            logging={{ enabled: true, prefix: "FME-Export" }}
-          />
-        </div>
-      </>
+        <Tabs
+          items={[
+            {
+              value: DrawingTool.POLYGON,
+              label: translate("drawingModePolygon"),
+              icon: polygonIcon,
+              tooltip: translate("drawingModePolygonTooltip"),
+              hideLabel: true,
+            },
+            {
+              value: DrawingTool.RECTANGLE,
+              label: translate("drawingModeRectangle"),
+              icon: rectangleIcon,
+              tooltip: translate("drawingModeRectangleTooltip"),
+              hideLabel: true,
+            },
+          ]}
+          value={drawingMode}
+          onChange={(val) => {
+            onDrawingModeChange?.(val as DrawingTool)
+          }}
+          ariaLabel={translate("drawingModeTooltip")}
+          logging={{ enabled: true, prefix: "FME-Export-DrawingMode" }}
+        />
+        <Button
+          text={translate("specifyExtent")}
+          alignText="center"
+          icon={plusIcon}
+          onClick={onAngeUtbredning}
+          disabled={!canStartDrawing}
+          tooltip={translate("tooltipSpecifyExtent")}
+          tooltipPlacement="bottom"
+          logging={{ enabled: true, prefix: "FME-Export" }}
+        />
+      </div>
     )
   }
 

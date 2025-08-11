@@ -72,6 +72,7 @@ export interface ButtonProps {
   readonly text?: React.ReactNode
   readonly icon?: string | boolean
   readonly iconPosition?: "left" | "right"
+  readonly alignText?: "start" | "center" | "end"
   readonly loading?: boolean
   readonly onClick?: () => void
   readonly tooltip?: string
@@ -134,6 +135,29 @@ export interface SelectProps {
   readonly ariaLabel?: string
   readonly ariaDescribedBy?: string
   readonly style?: React.CSSProperties
+  readonly logging?: { enabled: boolean; prefix: string }
+}
+
+// Tabs
+export interface TabItem {
+  readonly value: string | number
+  readonly label: string
+  readonly icon?: string
+  readonly disabled?: boolean
+  readonly tooltip?: string
+  readonly hideLabel?: boolean
+}
+
+export interface TabsProps {
+  readonly items: readonly TabItem[]
+  readonly value?: string | number
+  readonly defaultValue?: string | number
+  readonly onChange?: (value: string | number) => void
+  readonly ariaLabel?: string
+  readonly size?: "sm" | "default" | "lg"
+  readonly style?: React.CSSProperties
+  readonly fill?: boolean
+  readonly type?: "default" | "tabs" | "pills" | "underline"
   readonly logging?: { enabled: boolean; prefix: string }
 }
 
