@@ -16,7 +16,7 @@ import type {
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 
-// Constants for API configuration
+// API constants
 const API_CONSTANTS = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
@@ -37,18 +37,21 @@ const API_CONSTANTS = {
   },
 } as const
 
-// Helper function to normalize server URL
-const normalizeServerUrl = (serverUrl: string): string => {
-  return serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
-}
+// Normalize server URL
+const normalizeServerUrl = (serverUrl: string): string =>
+  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
 
-// Helper function to create API endpoints
+// Mask token for logs
+const maskToken = (token: string): string =>
+  token ? `${token.substring(0, 4)}***` : ""
+
+// Build endpoint path
 const createEndpoint = (basePath: string, ...segments: string[]): string => {
   const cleanSegments = segments.filter(Boolean)
   return `${basePath}/${cleanSegments.join("/")}`
 }
 
-// Helper function to build query parameters
+// Build query params
 const buildQueryParams = (
   params: { [key: string]: any } = {},
   excludeKeys: string[] = []
@@ -66,12 +69,12 @@ function configureFmeApiSettings(config: FmeFlowConfig): void {
   esriConfig.request.maxUrlLength = API_CONSTANTS.MAX_URL_LENGTH
   const serverDomain = new URL(config.serverUrl).origin
 
-  // Add to trusted servers if not already present
+  // Add trusted server
   if (!esriConfig.request.trustedServers.includes(serverDomain)) {
     esriConfig.request.trustedServers.push(serverDomain)
   }
 
-  // Check for existing interceptor to avoid duplicates
+  // Avoid duplicate interceptor
   const hasExistingInterceptor = esriConfig.request.interceptors.some(
     (interceptor) =>
       interceptor.urls &&
@@ -161,7 +164,7 @@ export class FmeFlowApiClient {
     return encodeURIComponent(path).replace(/%2F/g, "/")
   }
 
-  // Helper method to build repository-based endpoints
+  // Build repository endpoint
   private buildRepositoryEndpoint(
     repository: string,
     ...segments: string[]
@@ -174,7 +177,7 @@ export class FmeFlowApiClient {
     )
   }
 
-  // Helper method to build transformation endpoints
+  // Build transformation endpoint
   private buildTransformationEndpoint(
     action: string,
     repository: string,
@@ -481,7 +484,7 @@ export class FmeFlowApiClient {
         ...API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS,
       ])
 
-      // Add standard webhook parameters
+      // Add webhook params
       params.append("opt_responseformat", "json")
       params.append("opt_showresult", "true")
       params.append("opt_servicemode", parameters.opt_servicemode || "async")
@@ -524,7 +527,7 @@ export class FmeFlowApiClient {
         "FME Export - Using REST API job submission for data download"
       )
 
-      // Clean parameters by removing webhook-specific options
+      // Remove webhook-only params
       const jobParameters = { ...parameters }
       API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS.forEach((key) => {
         delete jobParameters[key]
@@ -1022,7 +1025,7 @@ export class FmeFlowApiClient {
     try {
       const headers: { [key: string]: string } = {}
 
-      // Add FME Flow authentication token (fallback if interceptor doesn't work)
+      // Add auth token fallback
       if (this.config.token) {
         headers.Authorization = `fmetoken token=${this.config.token}`
       }
@@ -1048,7 +1051,14 @@ export class FmeFlowApiClient {
       let errorCode = "NETWORK_ERROR"
       const status = error.httpStatus || 0
 
-      // Check if we got an HTML response instead of JSON
+      // Log masked token
+      console.error("FME API - request error", {
+        url,
+        token: maskToken(this.config.token),
+        message: error.message,
+      })
+
+      // Detect HTML response
       if (error.message && error.message.includes("Unexpected token")) {
         console.error(
           "FME API - Received HTML response instead of JSON. URL:",

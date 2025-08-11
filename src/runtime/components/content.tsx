@@ -1,11 +1,4 @@
-import {
-  React,
-  hooks,
-  AnimationComponent,
-  AnimationType,
-  AnimationTriggerType,
-  AnimationEffectType,
-} from "jimu-core"
+import { React, hooks } from "jimu-core"
 import { Button, Select, Dropdown, UI_CSS } from "./ui"
 import { StateRenderer } from "./state"
 import defaultMessages from "./translations/default"
@@ -25,35 +18,10 @@ import { Export } from "./exports"
 import { createFmeFlowClient } from "../../shared/api"
 
 const noOp = (): void => {
-  // No operation - intentionally empty
+  /* intentionally blank */
 }
 
-// Helper function to get translation with fallback
-const getTranslation = (
-  translate: (key: string) => string,
-  key: string,
-  fallback: string
-): string => {
-  return translate(key) || fallback
-}
-
-// Helper function to create error state for workspace operations
-const createWorkspaceErrorState = (
-  message: string,
-  loadWorkspaces: () => void,
-  onBack?: () => void
-) => ({
-  state: StateType.ERROR,
-  data: {
-    message,
-    actions: [
-      { label: "Retry", onClick: loadWorkspaces },
-      ...(onBack ? [{ label: "Back", onClick: onBack }] : []),
-    ],
-  },
-})
-
-// Unified order result renderer (replaces separate success/failure functions)
+// Render order result
 const renderOrderResult = (
   orderResult: any,
   translate: (k: string) => string,
@@ -81,9 +49,6 @@ const renderOrderResult = (
           ? translate("orderConfirmation")
           : translate("orderSentError")}
       </div>
-      {!isSuccess && (
-        <div style={STYLES.typography.caption}>{orderResult.message}</div>
-      )}
       {rows}
       {isSuccess && orderResult.downloadUrl && (
         <div style={STYLES.typography.caption}>
@@ -96,9 +61,10 @@ const renderOrderResult = (
           </a>
         </div>
       )}
-      {isSuccess && (
+      {/* Unified final status/message row for both success & failure */}
+      {(isSuccess || orderResult.message) && (
         <div style={STYLES.typography.caption}>
-          {translate("emailNotificationSent")}
+          {isSuccess ? translate("emailNotificationSent") : orderResult.message}
         </div>
       )}
       <Button
@@ -125,14 +91,13 @@ export const Content: React.FC<ContentProps> = ({
   onReuseGeography,
   isSubmittingOrder = false,
   onBack,
-  // Drawing mode props
+  // Drawing mode
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
-  // Real-time measurement props
-  // Reset props
+  // Reset
   onReset,
   canReset = true,
-  // Workspace-related props
+  // Workspace props
   config,
   onWorkspaceSelected,
   selectedWorkspace,
@@ -142,13 +107,12 @@ export const Content: React.FC<ContentProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
-  // Create FME client when config changes - this is a legitimate use of useMemo
-  // since creating the client involves API configuration setup
+  // FME client
   const fmeClient = React.useMemo(() => {
     return config ? createFmeFlowClient(config) : null
   }, [config])
 
-  // Workspace selection state - moved to top level to avoid hook usage in render functions
+  // Workspace selection state
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
     []
   )
@@ -157,7 +121,7 @@ export const Content: React.FC<ContentProps> = ({
     null
   )
 
-  // Guard against setState on unmounted component during async flows
+  // Track mount
   const isMountedRef = React.useRef(true)
   hooks.useEffectOnce(() => {
     return () => {
@@ -165,55 +129,41 @@ export const Content: React.FC<ContentProps> = ({
     }
   })
 
-  // Generate stable animation ID based on current state
-  const playId = `${state}-${!!error}-none`.length
-
-  // Load workspaces function - simplified with helper
+  // Load workspaces
   const loadWorkspaces = hooks.useEventCallback(async () => {
-    if (!fmeClient || !config) return
-
+    if (!fmeClient || !config || isLoadingWorkspaces) return
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
-
     try {
       const response = await makeCancelable(
         fmeClient.getRepositoryItems(config.repository, "WORKSPACE")
       )
-
       if (response.status === 200 && response.data.items) {
-        const workspaceItems = response.data.items.filter(
-          (item) => item.type === "WORKSPACE"
-        )
-        if (isMountedRef.current) setWorkspaces(workspaceItems)
+        const items = response.data.items.filter((i) => i.type === "WORKSPACE")
+        if (isMountedRef.current) setWorkspaces(items)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
-    } catch (err) {
-      if (err.name !== "CancelledPromiseError" && isMountedRef.current) {
-        const errorMessage =
-          err instanceof Error ? err.message : translate("unknownErrorOccurred")
-        setWorkspaceError(
-          `${translate("failedToLoadWorkspaces")}: ${errorMessage}`
-        )
-      }
+    } catch (err: any) {
+      if (err?.name === "CancelledPromiseError" || !isMountedRef.current) return
+      const msg =
+        err instanceof Error ? err.message : translate("unknownErrorOccurred")
+      setWorkspaceError(`${translate("failedToLoadWorkspaces")}: ${msg}`)
     } finally {
       if (isMountedRef.current) setIsLoadingWorkspaces(false)
     }
   })
 
-  // Handle workspace selection - simplified
+  // Select workspace
   const handleWorkspaceSelect = hooks.useEventCallback(
     async (workspaceName: string) => {
       if (!fmeClient || !config) return
-
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
-
       try {
         const response = await makeCancelable(
           fmeClient.getWorkspaceItem(workspaceName, config.repository)
         )
-
         if (response.status === 200 && response.data?.parameters) {
           onWorkspaceSelected?.(
             workspaceName,
@@ -223,35 +173,32 @@ export const Content: React.FC<ContentProps> = ({
         } else {
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
-      } catch (err) {
-        if (err.name !== "CancelledPromiseError" && isMountedRef.current) {
-          const errorMessage =
-            err instanceof Error
-              ? err.message
-              : translate("unknownErrorOccurred")
-          setWorkspaceError(
-            `${translate("failedToLoadWorkspaceDetails")}: ${errorMessage}`
-          )
-        }
+      } catch (err: any) {
+        if (err?.name === "CancelledPromiseError" || !isMountedRef.current)
+          return
+        const msg =
+          err instanceof Error ? err.message : translate("unknownErrorOccurred")
+        setWorkspaceError(
+          `${translate("failedToLoadWorkspaceDetails")}: ${msg}`
+        )
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
       }
     }
   )
 
-  // Load workspaces when needed - only when transitioning to export options
+  // Lazy load
   hooks.useUpdateEffect(() => {
     if (
-      state === ViewMode.EXPORT_OPTIONS ||
-      state === ViewMode.WORKSPACE_SELECTION
+      state === ViewMode.WORKSPACE_SELECTION ||
+      state === ViewMode.EXPORT_OPTIONS
     ) {
-      if (workspaces.length === 0 && !isLoadingWorkspaces && !workspaceError) {
+      if (!workspaces.length && !isLoadingWorkspaces && !workspaceError)
         loadWorkspaces()
-      }
     }
   }, [state])
 
-  // Header component for widget actions
+  // Header
   const renderHeader = () => {
     const dropdownItems: DropdownItemConfig[] = [
       {
@@ -274,7 +221,7 @@ export const Content: React.FC<ContentProps> = ({
   }
 
   const renderInitial = () => {
-    // Show loading state with StateRenderer if modules are still loading
+    // Loading state
     if (isModulesLoading) {
       return (
         <StateRenderer
@@ -286,7 +233,7 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
-    // Show error state with StateRenderer if there's an error
+    // Error state
     if (error) {
       return (
         <StateRenderer
@@ -309,7 +256,7 @@ export const Content: React.FC<ContentProps> = ({
 
     return (
       <>
-        {/* Drawing Mode Selector */}
+        {/* Drawing mode */}
         <div style={UI_CSS.BTN.ROW}>
           <Select
             value={drawingMode}
@@ -353,40 +300,33 @@ export const Content: React.FC<ContentProps> = ({
   )
 
   const renderWorkspaceSelection = () => {
-    // Show loading state while loading workspaces
     if (isLoadingWorkspaces) {
-      const loadingMessage =
-        workspaces.length > 0
-          ? getTranslation(
-              translate,
-              "loadingWorkspaceDetails",
-              "Loading workspace details..."
-            )
-          : getTranslation(
-              translate,
-              "loadingWorkspaces",
-              "Loading workspaces..."
-            )
-
       return (
         <StateRenderer
           state={StateType.LOADING}
-          data={{ message: loadingMessage }}
+          data={{
+            message: workspaces.length
+              ? translate("loadingWorkspaceDetails")
+              : translate("loadingWorkspaces"),
+          }}
         />
       )
     }
-
-    // Show error state if failed to load workspaces
     if (workspaceError) {
       return (
         <StateRenderer
-          {...createWorkspaceErrorState(workspaceError, loadWorkspaces, onBack)}
+          state={StateType.ERROR}
+          data={{
+            message: workspaceError,
+            actions: [
+              { label: translate("retry"), onClick: loadWorkspaces },
+              { label: translate("back"), onClick: onBack || noOp },
+            ],
+          }}
         />
       )
     }
-
-    // Show empty state if no workspaces found
-    if (workspaces.length === 0) {
+    if (!workspaces.length) {
       return (
         <StateRenderer
           state={StateType.EMPTY}
@@ -400,17 +340,15 @@ export const Content: React.FC<ContentProps> = ({
         />
       )
     }
-
-    // Render workspace options
     return (
       <div style={UI_CSS.BTN.DEFAULT}>
-        {workspaces.map((workspace) => (
+        {workspaces.map((w) => (
           <Button
-            key={workspace.name}
-            text={workspace.title || workspace.name}
+            key={w.name}
+            text={w.title || w.name}
             icon={listIcon}
-            onClick={() => handleWorkspaceSelect(workspace.name)}
-            tooltip={workspace.description}
+            onClick={() => handleWorkspaceSelect(w.name)}
+            tooltip={w.description}
             tooltipDisabled={true}
             logging={{ enabled: true, prefix: "FME-Export-WorkspaceSelection" }}
           />
@@ -445,7 +383,7 @@ export const Content: React.FC<ContentProps> = ({
   }
 
   const renderContent = () => {
-    // Handle order result state
+    // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       console.log("FME Export - Displaying order result:", orderResult)
 
@@ -455,7 +393,7 @@ export const Content: React.FC<ContentProps> = ({
       })
     }
 
-    // Handle submission loading with StateRenderer
+    // Submission loading
     if (isSubmittingOrder) {
       return (
         <StateRenderer
@@ -465,7 +403,7 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
-    // Handle general error states with consistent StateRenderer pattern
+    // General error
     if (error) {
       return (
         <StateRenderer
@@ -499,17 +437,7 @@ export const Content: React.FC<ContentProps> = ({
   return (
     <div style={STYLES.parent}>
       <div style={STYLES.header}>{renderHeader()}</div>
-      <AnimationComponent
-        key="fme-content-stable"
-        parentId="fme-export-content"
-        type={AnimationType.FadeIn}
-        style={STYLES.content}
-        configType={AnimationEffectType.Slow}
-        trigger={AnimationTriggerType.Manual}
-        playId={playId}
-      >
-        {renderContent()}
-      </AnimationComponent>
+      <div style={STYLES.content}> {renderContent()}</div>
     </div>
   )
 }

@@ -1,28 +1,24 @@
 import type { ErrorState, WorkspaceParameter } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType } from "./types"
 
-// Helper function to check if a value is empty
-const isEmpty = (value: any): boolean => {
-  return value === undefined || value === null || value === ""
-}
+// Blank if undefined, null, or empty string
+const isBlank = (v: unknown): boolean =>
+  v === undefined || v === null || v === ""
 
-// Helper function to filter UI parameters
+// Filter out skipped parameters
 const filterUIParameters = (
   parameters: readonly WorkspaceParameter[],
-  skipParameters: readonly string[]
-): readonly WorkspaceParameter[] => {
-  return parameters.filter((param) => !skipParameters.includes(param.name))
-}
+  skip: readonly string[]
+) => parameters.filter((p) => !skip.includes(p.name))
 
-// Helper function to create field options from parameter list
-const createFieldOptions = (param: WorkspaceParameter) => {
-  return param.listOptions?.map((option) => ({
-    label: option.caption || option.value,
-    value: option.value,
+// Build select options
+const createFieldOptions = (param: WorkspaceParameter) =>
+  param.listOptions?.map((o) => ({
+    label: o.caption || o.value,
+    value: o.value,
   }))
-}
 
-// Error handling service - non-template functionality only
+// Error helper
 export class ErrorHandlingService {
   createError(
     message: string,
@@ -33,6 +29,8 @@ export class ErrorHandlingService {
       details?: any
       recoverable?: boolean
       retry?: () => void
+      userFriendlyMessage?: string
+      suggestion?: string
     } = {}
   ): ErrorState {
     const {
@@ -56,7 +54,7 @@ export class ErrorHandlingService {
   }
 }
 
-// Form field type definitions for workspace parameters
+// Form field types
 export enum FormFieldType {
   TEXT = "text",
   NUMBER = "number",
@@ -68,15 +66,15 @@ export enum FormFieldType {
   FILE = "file",
 }
 
-// Dynamic field configuration for form generation
+// Dynamic field config
 export interface DynamicFieldConfig {
-  readonly name: string // Single identifier for both field and id
-  readonly label: string // Single label for both display and UI
+  readonly name: string // Field name
+  readonly label: string // Field label
   readonly type: FormFieldType
   readonly required?: boolean
   readonly readOnly?: boolean
   readonly placeholder?: string
-  readonly helpText?: string // Simplified helper text
+  readonly helpText?: string // Help text
   readonly options?: ReadonlyArray<{ label: string; value: string | number }>
   readonly min?: number
   readonly max?: number
@@ -166,31 +164,18 @@ export class ParameterFormService {
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
     const filteredParams = filterUIParameters(parameters, this.skipParameters)
-
-    for (const param of filteredParams) {
+    filteredParams.forEach((param) => {
       const value = data[param.name]
-
-      if (!param.optional && isEmpty(value)) {
+      if (!param.optional && isBlank(value)) {
         errors.push(`${param.name} is required`)
-        continue
+        return
       }
-
-      if (param.optional && isEmpty(value)) {
-        continue
-      }
-
-      // Type-specific validation
+      if (param.optional && isBlank(value)) return
       const typeError = this.validateParameterType(param, value)
-      if (typeError) {
-        errors.push(typeError)
-      }
-
-      // List validation
+      if (typeError) errors.push(typeError)
       const listError = this.validateParameterList(param, value)
-      if (listError) {
-        errors.push(listError)
-      }
-    }
+      if (listError) errors.push(listError)
+    })
 
     return {
       isValid: errors.length === 0,
@@ -245,24 +230,16 @@ export class ParameterFormService {
   ): { isValid: boolean; errors: { [key: string]: string } } {
     const errors: { [key: string]: string } = {}
 
-    for (const field of fields) {
+    fields.forEach((field) => {
       const value = values[field.name]
-
-      if (field.required && isEmpty(value)) {
+      if (field.required && isBlank(value)) {
         errors[field.name] = `${field.label} is required`
-        continue
+        return
       }
-
-      if (!field.required && isEmpty(value)) {
-        continue
-      }
-
-      // Type-specific validation
+      if (!field.required && isBlank(value)) return
       const typeError = this.validateFieldType(field, value)
-      if (typeError) {
-        errors[field.name] = typeError
-      }
-    }
+      if (typeError) errors[field.name] = typeError
+    })
 
     return {
       isValid: Object.keys(errors).length === 0,

@@ -34,11 +34,12 @@ import {
   ErrorType,
   StateType,
   LAYER_CONFIG,
+  VIEW_ROUTES,
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
 
-// Simplified ArcGIS modules loading hook
+// Load ArcGIS modules once
 const useArcGISModules = () => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -89,7 +90,7 @@ const useArcGISModules = () => {
   return { modules, loading }
 }
 
-// Simplified mutable state access hook
+// Access mutable state
 const useMutableState = (widgetId: string) => {
   const store = MutableStoreManager.getInstance()
   const stateValue = store.getStateValue([widgetId])
@@ -111,40 +112,38 @@ const useMutableState = (widgetId: string) => {
   }
 }
 
-// Central error service (replaces local createError duplication)
+// Error service
 const errorService = new ErrorHandlingService()
 
-const updateLoadingState = (
-  _dispatch: (action: unknown) => void,
-  _message: string
-) => {
-  // uiState removed; retain placeholder to minimize diff surface
-}
-
-// Geometry utilities
+// Polygon area
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
 ): number => {
-  if (!modules.geometryEngine || geometry.type !== "polygon") return 0
+  if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
   const poly = geometry as __esri.Polygon
+  const ge = modules.geometryEngine as any
+  // Try geodesic then planar
   try {
-    const geodFn = (modules.geometryEngine as any).geodesicArea
-    if (geodFn) {
-      const geod = geodFn(poly, "square-meters")
+    if (ge?.geodesicArea) {
+      const geod = ge.geodesicArea(poly, "square-meters")
       if (isFinite(geod) && geod > 0) return Math.abs(geod)
     }
-  } catch (_) {}
-  try {
-    const planar = modules.geometryEngine.planarArea(poly, "square-meters")
-    return Math.abs(planar)
-  } catch (e) {
-    console.warn("Failed to calculate polygon area (planar)", e)
-    return 0
+  } catch (_) {
+    /* noop */
   }
+  try {
+    if (ge?.planarArea) {
+      const planar = ge.planarArea(poly, "square-meters")
+      if (isFinite(planar) && planar !== 0) return Math.abs(planar)
+    }
+  } catch (e) {
+    console.warn("Polygon area calculation fallback failed", e)
+  }
+  return 0
 }
 
-// Basic polygon validation (ring count, minimum vertices, closure)
+// Validate polygon
 const validatePolygonGeometry = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
@@ -217,7 +216,7 @@ const enforceMaxArea = (
   }
 }
 
-// Helper to get user email for FME job submissions
+// Get user email
 const getUserEmail = async (): Promise<string> => {
   try {
     const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
@@ -230,7 +229,7 @@ const getUserEmail = async (): Promise<string> => {
   }
 }
 
-// Prepare FME parameters for job submission with geometry
+// Build FME params
 const prepareFmeParameters = (
   formData: unknown,
   userEmail: string,
@@ -247,7 +246,7 @@ const prepareFmeParameters = (
     opt_showresult: "true",
   }
 
-  // Add geometry if available - prefer geometryJson, fallback to currentGeometry
+  // Add geometry if present
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
   if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
     baseParams.AreaOfInterest = JSON.stringify(geometryToUse)
@@ -256,18 +255,18 @@ const prepareFmeParameters = (
   return baseParams
 }
 
-// Create graphics layers for sketch operations and measurements
+// Create graphics layers
 const createGraphicsLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
   setMutableValue: (key: string, value: unknown) => void
 ) => {
-  // Create main graphics layer for sketch operations
+  // Main sketch layer
   const layer = new modules.GraphicsLayer(LAYER_CONFIG)
   jmv.view.map.add(layer)
   setMutableValue("graphicsLayer", layer)
 
-  // Create measurement graphics layer for labels
+  // Measurement layer
   const measurementLayer = new modules.GraphicsLayer({
     id: "measurement-labels-layer",
     title: "Measurement Labels",
@@ -275,10 +274,10 @@ const createGraphicsLayers = (
   jmv.view.map.add(measurementLayer)
   setMutableValue("measurementGraphicsLayer", measurementLayer)
 
-  return layer // Return the main layer for sketch setup
+  return layer // Main layer
 }
 
-// Create measurement widgets for 2D map views
+// Create measurement widgets
 const createMeasurementWidgets = (
   jmv: JimuMapView,
   modules: EsriModules,
@@ -305,7 +304,7 @@ const createMeasurementWidgets = (
   }
 }
 
-// Create and configure SketchViewModel for drawing operations
+// Create sketch VM
 const createSketchViewModel = (
   jmv: JimuMapView,
   modules: EsriModules,
@@ -334,7 +333,7 @@ const createSketchViewModel = (
     },
   })
 
-  // Configure symbols for drawing
+  // Symbols
   sketchViewModel.polygonSymbol = STYLES.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
@@ -355,7 +354,7 @@ const createSketchViewModel = (
     },
   }
 
-  // Track user clicks for dynamic instruction text
+  // Track clicks
   let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
@@ -372,7 +371,7 @@ const createSketchViewModel = (
         const vertices = geometry.rings[0]
         const vertexCount = vertices.length
 
-        // Check if polygon is auto-closed by comparing first and last points
+        // Auto-close check
         const firstPoint = vertices[0]
         const lastPoint = vertices[vertexCount - 1]
         const isAutoClosed =
@@ -381,10 +380,10 @@ const createSketchViewModel = (
           Math.abs(firstPoint[0] - lastPoint[0]) < 0.001 &&
           Math.abs(firstPoint[1] - lastPoint[1]) < 0.001
 
-        // Calculate actual user clicks (subtract auto-close duplicate if present)
+        // Actual click count
         const actualClicks = isAutoClosed ? vertexCount - 1 : vertexCount
 
-        // Only update if click count increased
+        // Update if increased
         if (actualClicks > clickCount) {
           clickCount = actualClicks
           dispatch(fmeActions.setClickCount(clickCount))
@@ -406,7 +405,7 @@ const createSketchViewModel = (
   return sketchViewModel
 }
 
-// Hide measurement widgets to avoid conflicts with sketch operations
+// Hide measurement widgets
 const hideMeasurementWidgets = (
   mutableState: ReturnType<typeof useMutableState>
 ) => {
@@ -431,38 +430,26 @@ const hideMeasurementWidgets = (
   }
 }
 
-// Process FME response and create standardized result
+// Process FME response
 const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
   userEmail: string
 ): ExportResult => {
   const response = fmeResponse as {
-    data?: { serviceResponse?: unknown; status?: string }
+    data?: { serviceResponse?: any; status?: string }
   }
-
-  if (!response?.data) {
+  const data = response?.data
+  if (!data) {
     return {
       success: false,
       message: "Unexpected response from FME server",
       code: "INVALID_RESPONSE",
     }
   }
-
-  const responseData = response.data
-  const serviceResp = responseData.serviceResponse || responseData
-  const serviceInfo = serviceResp as {
-    statusInfo?: { status?: string; message?: string }
-    status?: string
-    jobID?: number
-    id?: number
-    url?: string
-    message?: string
-  }
-
-  const status = serviceInfo.statusInfo?.status || serviceInfo.status
-  const jobId = serviceInfo.jobID || serviceInfo.id || Date.now()
-
+  const serviceInfo = data.serviceResponse || data
+  const status = serviceInfo?.statusInfo?.status || serviceInfo?.status
+  const jobId = serviceInfo?.jobID || serviceInfo?.id || Date.now()
   if (status === "success") {
     return {
       success: true,
@@ -470,23 +457,20 @@ const processFmeResponse = (
       jobId,
       workspaceName: workspace,
       email: userEmail,
-      downloadUrl: serviceInfo.url,
+      downloadUrl: serviceInfo?.url,
     }
   }
-
-  const errorMessage =
-    serviceInfo.statusInfo?.message ||
-    serviceInfo.message ||
-    "FME job submission failed"
-
   return {
     success: false,
-    message: errorMessage,
+    message:
+      serviceInfo?.statusInfo?.message ||
+      serviceInfo?.message ||
+      "FME job submission failed",
     code: "FME_JOB_FAILURE",
   }
 }
 
-// Format area utility function
+// Format area
 export function formatArea(area: number): string {
   if (!area || isNaN(area) || area <= 0) return "0 m²"
 
@@ -517,24 +501,24 @@ export default function Widget(
   const translateWidget = hooks.useTranslation(defaultMessages)
   const translateComponent = hooks.useTranslation(componentMessages)
 
-  // Combined translation function that tries widget translations first, then component translations
+  // Translate helper
   const translate = (key: string) => {
     return translateWidget(key) !== key
       ? translateWidget(key)
       : translateComponent(key)
   }
 
-  // Simple notification state
+  // Notification state
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
 
-  // Load ArcGIS modules and get state access
+  // Modules and state
   const { modules, loading: modulesLoading } = useArcGISModules()
   const mutableState = useMutableState(widgetId)
-  // Abort controller ref for export submission
+  // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
 
-  // Access mutable state values with default values
+  // Mutable values
   const {
     jimuMapView,
     sketchViewModel = null,
@@ -543,7 +527,7 @@ export default function Widget(
     setMutableValue,
   } = mutableState
 
-  // Utility function to clear all graphics layers consistently
+  // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
     if (graphicsLayer) {
       graphicsLayer.removeAll()
@@ -553,14 +537,14 @@ export default function Widget(
     }
   })
 
-  // Drawing complete handler for Sketch widget
+  // Drawing complete
   const handleDrawingComplete = hooks.useEventCallback(
     (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
       if (!geometry) return
 
       try {
-        // Validate polygon geometry
+        // Validate
         const validation = validatePolygonGeometry(geometry, modules)
         if (!validation.valid) {
           if (validation.error) {
@@ -569,14 +553,14 @@ export default function Widget(
           return
         }
 
-        // Update the graphics layer with the drawn polygon
+        // Set symbol
         if (evt.graphic && modules) {
           evt.graphic.symbol = STYLES.symbols.highlight as any
         }
 
         const calculatedArea = calculatePolygonArea(geometry, modules)
 
-        // Validate max area if configured
+        // Max area
         const maxCheck = enforceMaxArea(
           calculatedArea,
           props.config?.maxArea,
@@ -649,13 +633,9 @@ export default function Widget(
       return
     }
 
-    // uiState removed – using local notification instead
-    updateLoadingState(dispatch, translate("preparingExportRequest"))
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      updateLoadingState(dispatch, translate("connectingToFmeServer"))
-
       const userEmail = await getUserEmail()
       const fmeClient = createFmeFlowClient(props.config)
       const workspace = reduxState.selectedWorkspace
@@ -666,13 +646,12 @@ export default function Widget(
         mutableState.currentGeometry
       )
 
-      // Abort any in-flight submission
+      // Abort inflight
       if (submissionAbortRef.current) {
         submissionAbortRef.current.abort()
       }
       submissionAbortRef.current = new AbortController()
 
-      updateLoadingState(dispatch, translate("submittingOrder"))
       const fmeResponse = await fmeClient.runDataDownload(
         workspace,
         fmeParameters,
@@ -717,7 +696,7 @@ export default function Widget(
     }
   }, [modules, jimuMapView, sketchViewModel])
 
-  // Cleanup on unmount
+  // Cleanup
   hooks.useEffectOnce(() => {
     return () => {
       // Widget cleanup handled by Experience Builder
@@ -727,7 +706,7 @@ export default function Widget(
     }
   })
 
-  // JimuMapView ready handler with sketch setup
+  // Map view ready
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
     if (!modules) {
       setMutableValue("jimuMapView", jmv)
@@ -761,50 +740,49 @@ export default function Widget(
     }
   })
 
-  // Helper function to get dynamic instruction text based on drawing tool, state, and click count
+  // Instruction text
   const getDynamicInstructionText = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
-      // For rectangle tool, instruction is always the same
+      // Rectangle static
       if (tool === DrawingTool.RECTANGLE) {
         return translate("rectangleDrawingInstructions")
       }
 
-      // For polygon tool, provide dynamic instructions based on drawing state and click count
+      // Polygon dynamic
       if (tool === DrawingTool.POLYGON) {
         if (!isDrawing || clickCount === 0) {
-          // Initial state - no drawing started yet
+          // Start
           return translate("polygonDrawingStart")
         } else if (clickCount === 1) {
-          // First point placed, need to continue drawing
+          // First vertex
           return translate("polygonDrawingContinue")
         } else if (clickCount === 2) {
-          // Second point placed - still need at least one more point for a valid polygon
-          // Don't suggest finishing yet, need minimum 3 points for a polygon
+          // Second vertex
           return translate("polygonDrawingContinue")
         } else if (clickCount >= 3) {
-          // Three or more points placed - now can complete the polygon
+          // Third or more
           return translate("polygonDrawingComplete")
         }
       }
 
-      // Fallback to generic instruction
+      // Fallback
       return translate("drawInstruction")
     }
   )
 
-  // Start drawing handler - initializes sketch view model and starts drawing
+  // Start drawing
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     if (!sketchViewModel) return
 
-    // Set drawing tool and initialize drawing state
+    // Set tool
     dispatch(fmeActions.setDrawingState(true, 0, tool))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
 
-    // Clear existing graphics and hide measurement widgets
+    // Clear and hide
     clearAllGraphics()
     hideMeasurementWidgets(mutableState)
 
-    // Start the sketch drawing based on the selected tool
+    // Begin create
     if (tool === DrawingTool.RECTANGLE) {
       sketchViewModel.create("rectangle")
     } else {
@@ -812,19 +790,19 @@ export default function Widget(
     }
   })
 
-  // Reset handler - clears all graphics and resets drawing state
+  // Reset
   const handleReset = hooks.useEventCallback(() => {
     clearAllGraphics()
 
     if (sketchViewModel) sketchViewModel.cancel()
 
-    // Reset measurement widgets
+    // Hide widgets
     hideMeasurementWidgets(mutableState)
 
     dispatch(fmeActions.resetState())
   })
 
-  // Workspace selection handlers
+  // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
     (
       workspaceName: string,
@@ -843,35 +821,18 @@ export default function Widget(
   })
 
   const handleGoBack = hooks.useEventCallback(() => {
-    const currentView = reduxState.viewMode
-    const previousView = reduxState.previousViewMode
-
-    // Use previous view if available and different from current
-    const targetView =
-      previousView && previousView !== currentView
-        ? previousView
-        : (() => {
-            // Default routing logic - go back to appropriate previous view
-            switch (currentView) {
-              case ViewMode.EXPORT_FORM:
-                return ViewMode.WORKSPACE_SELECTION
-              case ViewMode.WORKSPACE_SELECTION:
-                return ViewMode.INITIAL
-              case ViewMode.ORDER_RESULT:
-                return ViewMode.INITIAL
-              case ViewMode.DRAWING:
-                return ViewMode.INITIAL
-              default:
-                return ViewMode.INITIAL
-            }
-          })()
-
-    dispatch(fmeActions.setViewMode(targetView))
+    const { viewMode, previousViewMode } = reduxState
+    const fallback = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
+    const target =
+      previousViewMode && previousViewMode !== viewMode
+        ? previousViewMode
+        : fallback
+    dispatch(fmeActions.setViewMode(target))
   })
 
-  // Render loading state with StateRenderer
+  // Loading state
   if (modulesLoading || !modules) {
-    // Show more specific loading message based on what's being loaded
+    // Loading message
     const loadingMessage = modules
       ? translate("preparingMapTools")
       : translate("loadingMapServices")
@@ -886,7 +847,7 @@ export default function Widget(
     )
   }
 
-  // Render error state with StateRenderer
+  // Error state
   if (reduxState.error && reduxState.error.severity === "error") {
     return (
       <StateRenderer

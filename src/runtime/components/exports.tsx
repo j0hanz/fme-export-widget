@@ -35,7 +35,7 @@ export const Export: React.FC<ExportProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
 
   // If workspace parameters are provided, use dynamic form
-  if (workspaceParameters && workspaceName) {
+  if (workspaceParameters && workspaceName)
     return (
       <ExportWithWorkspaceParameters
         workspaceParameters={workspaceParameters}
@@ -46,7 +46,6 @@ export const Export: React.FC<ExportProps> = ({
         isSubmitting={isSubmitting}
       />
     )
-  }
 
   // Error state - neither workspace parameters nor variant provided
   return (
@@ -90,20 +89,23 @@ const ExportWithWorkspaceParameters: React.FC<{
   const [parameterService] = React.useState(() => new ParameterFormService())
 
   // Generate form configuration from parameters
-  const formConfig = React.useMemo(() => {
-    return parameterService.generateFormConfig(workspaceParameters)
-  }, [parameterService, workspaceParameters])
+  const formConfig = React.useMemo(
+    () => parameterService.generateFormConfig(workspaceParameters),
+    [parameterService, workspaceParameters]
+  )
 
   // Helper to build initial values from field defaults
-  const buildInitialValues = React.useCallback(() => {
-    const initialValues: { [key: string]: any } = {}
-    formConfig.forEach((field) => {
-      if (field.defaultValue !== undefined) {
-        initialValues[field.name] = field.defaultValue
-      }
-    })
-    return initialValues
-  }, [formConfig])
+  const buildInitialValues = React.useCallback(
+    () =>
+      formConfig.reduce<{ [key: string]: any }>(
+        (acc, f) =>
+          f.defaultValue !== undefined
+            ? { ...acc, [f.name]: f.defaultValue }
+            : acc,
+        {}
+      ),
+    [formConfig]
+  )
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState(buildInitialValues)
@@ -134,19 +136,15 @@ const ExportWithWorkspaceParameters: React.FC<{
   })
 
   const handleSubmit = hooks.useEventCallback(() => {
-    // Validate form before submission
     const validation = parameterService.validateFormValues(values, formConfig)
-
     if (!validation.isValid) {
-      // Create a generic error message without including field labels
-      const errorCount = Object.keys(validation.errors).length
+      const count = Object.keys(validation.errors).length
       const errorMessage =
-        errorCount === 1
+        count === 1
           ? translate("formValidationSingleError") ||
             "Please fill in the required field."
           : translate("formValidationMultipleErrors") ||
-            `Please fill in all ${errorCount} required fields.`
-
+            `Please fill in all ${count} required fields.`
       const error = new ErrorHandlingService().createError(
         errorMessage,
         ErrorType.VALIDATION,
@@ -155,14 +153,13 @@ const ExportWithWorkspaceParameters: React.FC<{
       getAppStore().dispatch(fmeActions.setError(error) as any)
       return
     }
-
     onSubmit({ type: workspaceName, data: values })
   })
 
   // Render field based on parameter type
   const renderField = React.useCallback(
     (field: DynamicFieldConfig) => {
-      const fieldValue = values[field.name] || ""
+      const fieldValue = values[field.name] ?? ""
 
       switch (field.type) {
         case FormFieldType.SELECT:
@@ -186,7 +183,6 @@ const ExportWithWorkspaceParameters: React.FC<{
               onChange={(value) => onChange(field.name, value)}
               ariaLabel={field.label}
               disabled={field.readOnly}
-              // TODO: Add multi-select support to Select component
             />
           )
 
@@ -262,13 +258,12 @@ const ExportWithWorkspaceParameters: React.FC<{
   )
 
   // Helper function to strip HTML tags from text
-  const stripHtml = (html: string): string => {
+  const stripHtml = React.useCallback((html: string): string => {
     if (!html) return ""
-    // Create a temporary div element to parse HTML
     const temp = document.createElement("div")
     temp.innerHTML = html
     return temp.textContent || temp.innerText || ""
-  }
+  }, [])
 
   return (
     <Form

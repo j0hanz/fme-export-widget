@@ -12,26 +12,22 @@ import {
   type ExportResult,
 } from "../shared/types"
 
-// View and navigation action creators
+// View actions
 const viewActions = {
   setViewMode: (viewMode: ViewMode) => ({
     type: FmeActionType.SET_VIEW_MODE as const,
     viewMode,
   }),
-
-  resetState: () => ({
-    type: FmeActionType.RESET_STATE as const,
-  }),
+  resetState: () => ({ type: FmeActionType.RESET_STATE as const }),
 }
 
-// Drawing and geometry action creators with improved type safety
+// Drawing actions
 const drawingActions = {
   setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) => ({
     type: FmeActionType.SET_GEOMETRY as const,
     geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
     drawnArea,
   }),
-
   setDrawingState: (
     isDrawing: boolean,
     clickCount?: number,
@@ -42,38 +38,34 @@ const drawingActions = {
     clickCount,
     drawingTool,
   }),
-
   setDrawingTool: (drawingTool: DrawingTool) => ({
     type: FmeActionType.SET_DRAWING_TOOL as const,
     drawingTool,
   }),
-
   setClickCount: (clickCount: number) => ({
     type: FmeActionType.SET_CLICK_COUNT as const,
     clickCount,
   }),
 }
 
-// Export and form action creators
+// Export actions
 const exportActions = {
   setFormValues: (formValues: { [key: string]: unknown }) => ({
     type: FmeActionType.SET_FORM_VALUES as const,
     formValues,
   }),
-
   setOrderResult: (orderResult: ExportResult | null) => ({
     type: FmeActionType.SET_ORDER_RESULT as const,
     orderResult,
   }),
 }
 
-// Workspace and parameter action creators
+// Workspace actions
 const workspaceActions = {
   setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
     type: FmeActionType.SET_WORKSPACE_ITEMS as const,
     workspaceItems,
   }),
-
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
@@ -82,50 +74,43 @@ const workspaceActions = {
     workspaceParameters,
     workspaceName,
   }),
-
   setSelectedWorkspace: (workspaceName: string | null) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE as const,
     workspaceName,
   }),
-
   setWorkspaceItem: (workspaceItem: WorkspaceItem) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM as const,
     workspaceItem,
   }),
 }
 
-// Loading state action creators
+// Loading actions
 const loadingActions = {
   setLoadingFlags: (flags: {
     isModulesLoading?: boolean
     isSubmittingOrder?: boolean
-  }) => ({
-    type: FmeActionType.SET_LOADING_FLAGS as const,
-    ...flags,
-  }),
+  }) => ({ type: FmeActionType.SET_LOADING_FLAGS as const, ...flags }),
 }
 
-// Error handling action creators
+// Error actions
 const errorActions = {
   setError: (error: ErrorState | null) => ({
     type: FmeActionType.SET_ERROR as const,
     error,
   }),
-
   setImportError: (error: ErrorState | null) => ({
     type: FmeActionType.SET_IMPORT_ERROR as const,
     error,
   }),
-
   setExportError: (error: ErrorState | null) => ({
     type: FmeActionType.SET_EXPORT_ERROR as const,
     error,
   }),
 }
 
-// Combined action creators object - organized by domain
+// All actions
 export const fmeActions = {
-  // Spread all domain-specific actions into a flat structure for easy access
+  // Flat list
   ...viewActions,
   ...drawingActions,
   ...exportActions,
@@ -135,22 +120,22 @@ export const fmeActions = {
 }
 
 export const initialFmeState: FmeWidgetState = {
-  // View and navigation
+  // View
   viewMode: ViewMode.INITIAL,
   previousViewMode: null,
 
-  // Drawing and geometry
+  // Drawing
   isDrawing: false,
   drawingTool: DrawingTool.POLYGON,
   clickCount: 0,
   geometryJson: null,
   drawnArea: 0,
 
-  // Export workflow
+  // Export
   formValues: {},
   orderResult: null,
 
-  // Workspace management
+  // Workspace
   workspaceItems: [],
   selectedWorkspace: null,
   workspaceParameters: [],
@@ -158,17 +143,17 @@ export const initialFmeState: FmeWidgetState = {
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
 
-  // Loading states
+  // Loading
   isModulesLoading: false,
   isSubmittingOrder: false,
 
-  // Error handling
+  // Errors
   error: null,
   importError: null,
   exportError: null,
 }
 
-// Consolidated reducer helper functions with better performance
+// Reducer helpers
 const reducerHelpers = {
   handleViewModeChange: (
     state: ImmutableObject<FmeWidgetState>,
@@ -221,7 +206,7 @@ const reducerHelpers = {
   },
 }
 
-// Main reducer function with optimized pattern matching
+// Reducer
 const fmeReducer = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeActions,
@@ -233,7 +218,7 @@ const fmeReducer = (
       return reducerHelpers.handleViewModeChange(state, action.viewMode)
 
     case FmeActionType.RESET_STATE:
-      // Return a fresh immutable instance to ensure removed keys don't linger
+      // Fresh state
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
 
     // Drawing and geometry
@@ -251,7 +236,7 @@ const fmeReducer = (
     case FmeActionType.SET_CLICK_COUNT:
       return state.set("clickCount", action.clickCount)
 
-    // Export workflow
+    // Export
     case FmeActionType.SET_FORM_VALUES:
       return state.set("formValues", action.formValues)
 
@@ -260,7 +245,7 @@ const fmeReducer = (
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    // Workspace management
+    // Workspace
     case FmeActionType.SET_WORKSPACE_ITEMS:
       return state.set("workspaceItems", action.workspaceItems)
 
@@ -277,11 +262,11 @@ const fmeReducer = (
     case FmeActionType.SET_WORKSPACE_ITEM:
       return state.set("workspaceItem", action.workspaceItem)
 
-    // Loading states
+    // Loading
     case FmeActionType.SET_LOADING_FLAGS:
       return reducerHelpers.handleLoadingFlags(state, action)
 
-    // Error handling
+    // Errors
     case FmeActionType.SET_ERROR:
       return state.set("error", action.error)
 
@@ -295,7 +280,7 @@ const fmeReducer = (
   }
 }
 
-// FME Redux Store Extension - Provides centralized state management for the FME Export widget
+// Store extension
 export default class FmeReduxStoreExtension
   implements extensionSpec.ReduxStoreExtension
 {

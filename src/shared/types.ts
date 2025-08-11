@@ -298,6 +298,8 @@ export interface ErrorState {
   readonly recoverable?: boolean
   readonly retry?: () => void
   readonly details?: { [key: string]: unknown }
+  readonly userFriendlyMessage?: string
+  readonly suggestion?: string
 }
 
 // State Management
