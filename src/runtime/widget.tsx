@@ -3,7 +3,6 @@ import {
   type AllWidgetProps,
   hooks,
   type ImmutableObject,
-  MutableStoreManager,
 } from "jimu-core"
 import { Message } from "jimu-ui"
 import {
@@ -98,25 +97,37 @@ const useArcGISModules = () => {
   return { modules, loading }
 }
 
-// Access mutable state
-const useMutableState = (widgetId: string) => {
-  const store = MutableStoreManager.getInstance()
-  const stateValue = store.getStateValue([widgetId])
+// Custom hook to manage local map state
+const useLocalMapState = () => {
+  const [jimuMapView, setJimuMapView] = React.useState<JimuMapView | null>(null)
+  const [sketchViewModel, setSketchViewModel] =
+    React.useState<__esri.SketchViewModel | null>(null)
+  const [graphicsLayer, setGraphicsLayer] =
+    React.useState<__esri.GraphicsLayer | null>(null)
+  const [measurementGraphicsLayer, setMeasurementGraphicsLayer] =
+    React.useState<__esri.GraphicsLayer | null>(null)
+  const [areaMeasurement2D, setAreaMeasurement2D] =
+    React.useState<__esri.AreaMeasurement2D | null>(null)
+  const [distanceMeasurement2D, setDistanceMeasurement2D] =
+    React.useState<__esri.DistanceMeasurement2D | null>(null)
+  const [currentGeometry, setCurrentGeometry] =
+    React.useState<__esri.Geometry | null>(null)
 
   return {
-    jimuMapView: stateValue?.jimuMapView as JimuMapView,
-    sketchViewModel: stateValue?.sketchViewModel as __esri.SketchViewModel,
-    graphicsLayer: stateValue?.graphicsLayer as __esri.GraphicsLayer,
-    measurementGraphicsLayer:
-      stateValue?.measurementGraphicsLayer as __esri.GraphicsLayer,
-    areaMeasurement2D:
-      stateValue?.areaMeasurement2D as __esri.AreaMeasurement2D,
-    distanceMeasurement2D:
-      stateValue?.distanceMeasurement2D as __esri.DistanceMeasurement2D,
-    currentGeometry: stateValue?.currentGeometry as __esri.Geometry,
-    setMutableValue: (key: string, value: unknown) => {
-      store.updateStateValue(widgetId, key, value)
-    },
+    jimuMapView,
+    setJimuMapView,
+    sketchViewModel,
+    setSketchViewModel,
+    graphicsLayer,
+    setGraphicsLayer,
+    measurementGraphicsLayer,
+    setMeasurementGraphicsLayer,
+    areaMeasurement2D,
+    setAreaMeasurement2D,
+    distanceMeasurement2D,
+    setDistanceMeasurement2D,
+    currentGeometry,
+    setCurrentGeometry,
   }
 }
 
@@ -257,12 +268,13 @@ const prepareFmeParameters = (
 const createGraphicsLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setMutableValue: (key: string, value: unknown) => void
+  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void,
+  setMeasurementGraphicsLayer: (layer: __esri.GraphicsLayer) => void
 ) => {
   // Main sketch layer
   const layer = new modules.GraphicsLayer(LAYER_CONFIG)
   jmv.view.map.add(layer)
-  setMutableValue("graphicsLayer", layer)
+  setGraphicsLayer(layer)
 
   // Measurement layer
   const measurementLayer = new modules.GraphicsLayer({
@@ -270,7 +282,7 @@ const createGraphicsLayers = (
     title: "Measurement Labels",
   })
   jmv.view.map.add(measurementLayer)
-  setMutableValue("measurementGraphicsLayer", measurementLayer)
+  setMeasurementGraphicsLayer(measurementLayer)
 
   return layer // Main layer
 }
@@ -279,7 +291,8 @@ const createGraphicsLayers = (
 const createMeasurementWidgets = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setMutableValue: (key: string, value: unknown) => void
+  setAreaMeasurement2D: (widget: __esri.AreaMeasurement2D) => void,
+  setDistanceMeasurement2D: (widget: __esri.DistanceMeasurement2D) => void
 ) => {
   if (jmv.view.type !== "2d") return
 
@@ -289,7 +302,7 @@ const createMeasurementWidgets = (
       unit: "metric",
       visible: false,
     })
-    setMutableValue("areaMeasurement2D", areaMeasurement2D)
+    setAreaMeasurement2D(areaMeasurement2D)
   }
 
   if (modules.DistanceMeasurement2D) {
@@ -298,7 +311,7 @@ const createMeasurementWidgets = (
       unit: "metric",
       visible: false,
     })
-    setMutableValue("distanceMeasurement2D", distanceMeasurement2D)
+    setDistanceMeasurement2D(distanceMeasurement2D)
   }
 }
 
@@ -405,10 +418,9 @@ const createSketchViewModel = (
 
 // Hide measurement widgets
 const hideMeasurementWidgets = (
-  mutableState: ReturnType<typeof useMutableState>
+  areaMeasurement2D: __esri.AreaMeasurement2D | null,
+  distanceMeasurement2D: __esri.DistanceMeasurement2D | null
 ) => {
-  const { areaMeasurement2D, distanceMeasurement2D } = mutableState
-
   if (areaMeasurement2D) {
     try {
       areaMeasurement2D.visible = false
@@ -507,20 +519,28 @@ export default function Widget(
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
 
-  // Modules and state
   const { modules, loading: modulesLoading } = useArcGISModules()
-  const mutableState = useMutableState(widgetId)
+  const localMapState = useLocalMapState()
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
 
-  // Mutable values
+  // Destructure local map state
   const {
     jimuMapView,
-    sketchViewModel = null,
+    setJimuMapView,
+    sketchViewModel,
+    setSketchViewModel,
     graphicsLayer,
+    setGraphicsLayer,
     measurementGraphicsLayer,
-    setMutableValue,
-  } = mutableState
+    setMeasurementGraphicsLayer,
+    areaMeasurement2D,
+    setAreaMeasurement2D,
+    distanceMeasurement2D,
+    setDistanceMeasurement2D,
+    currentGeometry,
+    setCurrentGeometry,
+  } = localMapState
 
   // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
@@ -575,11 +595,8 @@ export default function Widget(
         dispatch(fmeActions.setGeometry(geometry, Math.abs(calculatedArea)))
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
-        MutableStoreManager.getInstance().updateStateValue(
-          widgetId,
-          "currentGeometry",
-          geometry
-        )
+        // Store current geometry in local state (not Redux - following golden rule)
+        setCurrentGeometry(geometry)
 
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
@@ -598,8 +615,7 @@ export default function Widget(
 
   // Form submission handler with FME export
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    const hasGeometry =
-      !!reduxState.geometryJson || !!mutableState.currentGeometry
+    const hasGeometry = !!reduxState.geometryJson || !!currentGeometry
     if (!hasGeometry || !reduxState.selectedWorkspace) {
       return
     }
@@ -634,7 +650,7 @@ export default function Widget(
         formData,
         userEmail,
         reduxState.geometryJson,
-        mutableState.currentGeometry
+        currentGeometry
       )
 
       // Abort inflight
@@ -681,16 +697,26 @@ export default function Widget(
     }
   })
 
-  // Map view ready handler declared before effect to satisfy linter
+  // Map view ready handler
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
     if (!modules) {
-      setMutableValue("jimuMapView", jmv)
+      setJimuMapView(jmv)
       return
     }
     try {
-      setMutableValue("jimuMapView", jmv)
-      const layer = createGraphicsLayers(jmv, modules, setMutableValue)
-      createMeasurementWidgets(jmv, modules, setMutableValue)
+      setJimuMapView(jmv)
+      const layer = createGraphicsLayers(
+        jmv,
+        modules,
+        setGraphicsLayer,
+        setMeasurementGraphicsLayer
+      )
+      createMeasurementWidgets(
+        jmv,
+        modules,
+        setAreaMeasurement2D,
+        setDistanceMeasurement2D
+      )
       const svm = createSketchViewModel(
         jmv,
         modules,
@@ -698,7 +724,7 @@ export default function Widget(
         handleDrawingComplete,
         dispatch
       )
-      setMutableValue("sketchViewModel", svm)
+      setSketchViewModel(svm)
     } catch (error) {
       dispatch(
         fmeActions.setError(
@@ -770,7 +796,7 @@ export default function Widget(
 
     // Clear and hide
     clearAllGraphics()
-    hideMeasurementWidgets(mutableState)
+    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
 
     // Begin create
     if (tool === DrawingTool.RECTANGLE) {
@@ -787,7 +813,7 @@ export default function Widget(
     if (sketchViewModel) sketchViewModel.cancel()
 
     // Hide widgets
-    hideMeasurementWidgets(mutableState)
+    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
 
     dispatch(fmeActions.resetState())
   })
