@@ -490,10 +490,27 @@ export class FmeFlowApiClient {
       params.append("opt_servicemode", parameters.opt_servicemode || "async")
 
       const fullUrl = `${webhookUrl}?${params.toString()}`
-      console.log(
-        "FME Export - Webhook URL being called:",
-        fullUrl.replace(this.config.token, "***TOKEN***")
-      )
+      // Log the webhook call
+      try {
+        const safeParams = new URLSearchParams()
+        const whitelist = [
+          "opt_responseformat",
+          "opt_showresult",
+          "opt_servicemode",
+        ]
+        whitelist.forEach((k) => {
+          const v = params.get(k)
+          // Mask sensitive values
+          if (v !== null) safeParams.set(k, v)
+        })
+        console.log(
+          "FME Export - Webhook call",
+          webhookUrl,
+          `params=${safeParams.toString()}`
+        )
+      } catch (_) {
+        /* noop logging failure */
+      }
 
       const response = await fetch(fullUrl, {
         method: "GET",
@@ -542,13 +559,14 @@ export class FmeFlowApiClient {
 
       return {
         data: {
-          status: "success",
-          message: "Job submitted successfully via REST API",
-          jobID: jobResponse.data.id,
-          mode: "async",
-          statusInfo: {
-            status: "success",
-            message: "Job submitted for processing",
+          serviceResponse: {
+            statusInfo: {
+              status: "success",
+              message: "Job submitted for processing",
+            },
+            jobID: jobResponse.data?.id,
+            mode: "async",
+            url: undefined,
           },
         },
         status: 200,
@@ -734,8 +752,9 @@ export class FmeFlowApiClient {
   }
 
   downloadResourceFile(resource: string, path: string): string {
+    // Construct the URL for downloading a resource file
     const encodedPath = this.encodeResourcePath(path)
-    return `${this.normalizeServerUrl()}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents&token=${this.config.token}`
+    return `${this.normalizeServerUrl()}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents`
   }
 
   async uploadResourceFile(
@@ -924,6 +943,14 @@ export class FmeFlowApiClient {
     let responseData: any
     if (isJson) {
       responseData = await response.json()
+      // Check for specific error codes in JSON response
+      if (response.status === 403) {
+        throw new FmeFlowApiError(
+          "Webhook authentication failed - falling back to REST API",
+          "WEBHOOK_AUTH_ERROR",
+          response.status
+        )
+      }
     } else {
       const textContent = await response.text()
       responseData = {
@@ -931,21 +958,13 @@ export class FmeFlowApiClient {
         status: response.status,
         contentType: contentType || "text/plain",
       }
-
+      // If the response is HTML, treat it as an authentication error
       if (contentType?.includes("text/html")) {
-        if (response.status === 403) {
-          throw new FmeFlowApiError(
-            "Webhook authentication failed - falling back to REST API",
-            "WEBHOOK_AUTH_ERROR",
-            response.status
-          )
-        } else {
-          throw new FmeFlowApiError(
-            `FME Data Download service returned HTML instead of JSON. This usually means the webhook URL is incorrect or the service is not properly configured. Response: ${textContent.substring(0, 500)}...`,
-            "INVALID_WEBHOOK_RESPONSE",
-            response.status
-          )
-        }
+        throw new FmeFlowApiError(
+          "Webhook authentication failed or returned HTML - falling back to REST API",
+          "WEBHOOK_AUTH_ERROR",
+          response.status
+        )
       }
     }
 

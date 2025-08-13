@@ -407,40 +407,78 @@ export const TextArea: React.FC<TextAreaProps> = ({
 }
 
 // Select component
-export const Select: React.FC<SelectProps> = ({
-  options = [],
-  value: controlled,
-  defaultValue,
-  onChange,
-  placeholder = UI_CONSTANTS.SELECT_DEFAULTS.PLACEHOLDER,
-  disabled = false,
-  ariaLabel,
-  ariaDescribedBy,
-  style,
-}) => {
+export const Select: React.FC<SelectProps> = (props) => {
+  const {
+    options = [],
+    value: controlled,
+    defaultValue,
+    onChange,
+    placeholder = UI_CONSTANTS.SELECT_DEFAULTS.PLACEHOLDER,
+    disabled = false,
+    ariaLabel,
+    ariaDescribedBy,
+    style,
+  } = props
+
+  const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useControlledValue(
     controlled,
     defaultValue
   )
 
   const handleChange = hooks.useEventCallback(
-    (evt: React.ChangeEvent<HTMLSelectElement> | string | number) => {
-      const rawValue = typeof evt === "object" ? evt.target.value : evt
-      const finalValue =
-        typeof controlled === "number" && !isNaN(Number(rawValue))
-          ? Number(rawValue)
-          : rawValue
-
-      handleValueChange(finalValue)
-      onChange?.(finalValue)
+    (evt: React.ChangeEvent<HTMLSelectElement>) => {
+      if (isMulti) {
+        const selected = Array.from(evt.target.selectedOptions).map(
+          (o) => o.value
+        )
+        handleValueChange(selected as any)
+        onChange?.(selected as any)
+      } else {
+        const rawValue = evt.target.value
+        const finalValue =
+          typeof controlled === "number" && !isNaN(Number(rawValue))
+            ? Number(rawValue)
+            : rawValue
+        handleValueChange(finalValue as any)
+        onChange?.(finalValue as any)
+      }
     }
   )
 
-  const normalizedValue = value !== undefined ? String(value) : undefined
+  const normalizedValue = isMulti
+    ? (Array.isArray(value) ? value : []).map(String)
+    : value !== undefined
+      ? String(value)
+      : undefined
+
+  if (isMulti) {
+    return (
+      <select
+        multiple
+        value={normalizedValue as string[]}
+        onChange={handleChange}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+      >
+        {options.map((option) => (
+          <option
+            key={String(option.value)}
+            value={String(option.value)}
+            disabled={option.disabled}
+            aria-label={option.label}
+          >
+            {!option.hideLabel && option.label}
+          </option>
+        ))}
+      </select>
+    )
+  }
 
   return (
     <JimuSelect
-      value={normalizedValue}
+      value={normalizedValue as any}
       onChange={handleChange}
       disabled={disabled}
       placeholder={placeholder}

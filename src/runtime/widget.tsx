@@ -150,15 +150,20 @@ const validatePolygonGeometry = (
   if (!geometry)
     return {
       valid: false,
-      error: errorService.createError("Geometry missing", ErrorType.GEOMETRY, {
-        code: "GEOM_MISSING",
-      }),
+      error: errorService.createError(
+        // "geometryMissing" is used in content.tsx
+        "geometryMissing",
+        ErrorType.GEOMETRY,
+        {
+          code: "GEOM_MISSING",
+        }
+      ),
     }
   if (geometry.type !== "polygon")
     return {
       valid: false,
       error: errorService.createError(
-        "Only polygon geometry supported",
+        "geometryTypeInvalid",
         ErrorType.GEOMETRY,
         { code: "GEOM_TYPE_INVALID" }
       ),
@@ -167,11 +172,9 @@ const validatePolygonGeometry = (
   if (!poly.rings?.length)
     return {
       valid: false,
-      error: errorService.createError(
-        "Polygon has no rings",
-        ErrorType.GEOMETRY,
-        { code: "GEOM_NO_RINGS" }
-      ),
+      error: errorService.createError("polygonNoRings", ErrorType.GEOMETRY, {
+        code: "GEOM_NO_RINGS",
+      }),
     }
   const ring = poly.rings[0]
   const uniquePoints = new Set(ring.map((p) => `${p[0]}:${p[1]}`))
@@ -179,7 +182,7 @@ const validatePolygonGeometry = (
     return {
       valid: false,
       error: errorService.createError(
-        "Polygon requires at least 3 vertices",
+        "polygonMinVertices",
         ErrorType.GEOMETRY,
         { code: "GEOM_MIN_VERTICES" }
       ),
@@ -191,7 +194,7 @@ const validatePolygonGeometry = (
         return {
           valid: false,
           error: errorService.createError(
-            "Self-intersecting polygon",
+            "polygonSelfIntersect",
             ErrorType.GEOMETRY,
             { code: "GEOM_SELF_INTERSECT" }
           ),
@@ -207,10 +210,10 @@ const enforceMaxArea = (
   formatFn?: (a: number) => string
 ): { ok: boolean; message?: string; code?: string } => {
   if (!maxArea || area <= maxArea) return { ok: true }
-  const fmt = (n: number) => (formatFn ? formatFn(n) : `${Math.round(n)} m²`)
   return {
     ok: false,
-    message: `Area exceeds maximum allowed (${fmt(area)} > ${fmt(maxArea)})`,
+    // Use provided format function if available
+    message: "areaTooLarge",
     code: "AREA_TOO_LARGE",
   }
 }
@@ -843,7 +846,8 @@ export default function Widget(
       <StateView
         state={{
           kind: "error",
-          message: reduxState.error.message,
+          message:
+            translate(reduxState.error.message) || reduxState.error.message,
           code: reduxState.error.code,
           actions: [
             {

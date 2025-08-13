@@ -260,7 +260,7 @@ export const Content: React.FC<ContentProps> = ({
       return (
         <StateView
           state={createErrorState(
-            error.message,
+            translate(error.message) || error.message,
             error.recoverable
               ? {
                   actions: [

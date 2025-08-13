@@ -56,4 +56,10 @@ export default {
   missingExportConfiguration: "Saknar exportkonfiguration",
   exportFormRequiresConfiguration:
     "Exportformulär kräver antingen arbetsyteparametrar eller exportvariant.",
+
+  // Dynamic form placeholders
+  placeholderSelect: "Välj {field}...",
+  placeholderEnter: "Ange {field}...",
+  reuseGeometry: "Återanvänd geometri",
+  download: "Ladda ner",
 }

@@ -8,6 +8,7 @@ import {
   type FmeActions,
   type ErrorState,
   type WorkspaceItem,
+  type WorkspaceItemDetail,
   type WorkspaceParameter,
   type ExportResult,
 } from "../shared/types"
@@ -78,7 +79,8 @@ const workspaceActions = {
     type: FmeActionType.SET_SELECTED_WORKSPACE as const,
     workspaceName,
   }),
-  setWorkspaceItem: (workspaceItem: WorkspaceItem) => ({
+  // Set a specific workspace item detail
+  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM as const,
     workspaceItem,
   }),
@@ -159,6 +161,10 @@ const reducerHelpers = {
     state: ImmutableObject<FmeWidgetState>,
     newViewMode: ViewMode
   ): ImmutableObject<FmeWidgetState> => {
+    if (state.viewMode === newViewMode) {
+      // No change in view mode, return current state
+      return state
+    }
     return state
       .set("previousViewMode", state.viewMode)
       .set("viewMode", newViewMode)
@@ -275,8 +281,6 @@ const fmeReducer = (
 
     case FmeActionType.SET_EXPORT_ERROR:
       return state.set("exportError", action.error)
-
-    // (ui state removed)
   }
 }
 

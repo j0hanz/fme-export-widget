@@ -142,9 +142,9 @@ const ExportWithWorkspaceParameters: React.FC<{
       const errorMessage =
         count === 1
           ? translate("formValidationSingleError") ||
-            "Please fill in the required field."
+            "formValidationSingleError"
           : translate("formValidationMultipleErrors") ||
-            `Please fill in all ${count} required fields.`
+            "formValidationMultipleErrors"
       const error = new ErrorHandlingService().createError(
         errorMessage,
         ErrorType.VALIDATION,
@@ -167,7 +167,9 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Select
               value={fieldValue}
               options={field.options || []}
-              placeholder={`Välj ${field.label}...`}
+              placeholder={translate("placeholderSelect", {
+                field: field.label,
+              })}
               onChange={(value) => onChange(field.name, value)}
               ariaLabel={field.label}
               disabled={field.readOnly}
@@ -179,7 +181,9 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Select
               value={fieldValue}
               options={field.options || []}
-              placeholder={`Välj ${field.label}...`}
+              placeholder={translate("placeholderSelect", {
+                field: field.label,
+              })}
               onChange={(value) => onChange(field.name, value)}
               ariaLabel={field.label}
               disabled={field.readOnly}
@@ -190,7 +194,9 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <TextArea
               value={fieldValue}
-              placeholder={`Ange ${field.label}...`}
+              placeholder={translate("placeholderEnter", {
+                field: field.label,
+              })}
               onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
@@ -200,7 +206,9 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Input
               value={String(fieldValue)}
-              placeholder={`Ange ${field.label}...`}
+              placeholder={translate("placeholderEnter", {
+                field: field.label,
+              })}
               onChange={(value) => {
                 const numValue = value === "" ? "" : Number(value)
                 onChange(field.name, numValue)
@@ -224,7 +232,9 @@ const ExportWithWorkspaceParameters: React.FC<{
             <Input
               type="password"
               value={String(fieldValue)}
-              placeholder={`Ange ${field.label}...`}
+              placeholder={translate("placeholderEnter", {
+                field: field.label,
+              })}
               onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
@@ -247,14 +257,16 @@ const ExportWithWorkspaceParameters: React.FC<{
           return (
             <Input
               value={String(fieldValue)}
-              placeholder={`Ange ${field.label}...`}
+              placeholder={translate("placeholderEnter", {
+                field: field.label,
+              })}
               onChange={(value) => onChange(field.name, value)}
               disabled={field.readOnly}
             />
           )
       }
     },
-    [values, onChange]
+    [values, onChange, translate]
   )
 
   // Helper function to strip HTML tags from text

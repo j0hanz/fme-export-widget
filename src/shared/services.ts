@@ -136,6 +136,13 @@ export class ParameterFormService {
 
   private getFieldTypeFromParameter(param: WorkspaceParameter): FormFieldType {
     if (param.listOptions && param.listOptions.length > 0) {
+      // Handle list and lookup listbox types
+      if (
+        param.type === ParameterType.LISTBOX ||
+        param.type === ParameterType.LOOKUP_LISTBOX
+      ) {
+        return FormFieldType.MULTI_SELECT
+      }
       return FormFieldType.SELECT
     }
 
@@ -167,7 +174,7 @@ export class ParameterFormService {
     filteredParams.forEach((param) => {
       const value = data[param.name]
       if (!param.optional && isBlank(value)) {
-        errors.push(`${param.name} is required`)
+        errors.push(`${param.name}:required`)
         return
       }
       if (param.optional && isBlank(value)) return
@@ -192,11 +199,11 @@ export class ParameterFormService {
       param.type === ParameterType.INTEGER &&
       !Number.isInteger(Number(value))
     ) {
-      return `${param.name} must be an integer`
+      return `${param.name}:integer`
     }
 
     if (param.type === ParameterType.FLOAT && isNaN(Number(value))) {
-      return `${param.name} must be a number`
+      return `${param.name}:number`
     }
 
     return null
@@ -209,9 +216,14 @@ export class ParameterFormService {
   ): string | null {
     if (param.listOptions && param.listOptions.length > 0) {
       const validValues = param.listOptions.map((opt) => opt.value)
-      if (!validValues.includes(value)) {
-        return `${param.name} must be one of: ${validValues.join(", ")}`
-      }
+      if (
+        param.type === ParameterType.LISTBOX ||
+        param.type === ParameterType.LOOKUP_LISTBOX
+      ) {
+        const arr = Array.isArray(value) ? value : [value].filter(Boolean)
+        const invalid = arr.filter((v) => !validValues.includes(v))
+        if (invalid.length) return `${param.name}:choice`
+      } else if (!validValues.includes(value)) return `${param.name}:choice`
     }
     return null
   }
