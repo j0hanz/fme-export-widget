@@ -191,29 +191,7 @@ export interface TextAreaProps {
   readonly id?: string
 }
 
-export interface DropdownItemConfig {
-  readonly id: string
-  readonly label: string
-  readonly icon?: string
-  readonly onClick: () => void
-  readonly disabled?: boolean
-  readonly hidden?: boolean
-  readonly tooltip?: string
-  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
-}
-
-export interface DropdownProps {
-  readonly items: readonly DropdownItemConfig[]
-  readonly buttonIcon?: string
-  readonly buttonText?: string
-  readonly buttonTitle?: string
-  readonly buttonVariant?: "primary" | "secondary" | "tertiary"
-  readonly buttonSize?: "sm" | "default" | "lg"
-  readonly openMode?: "click" | "hover"
-  readonly "aria-label"?: string
-  readonly "a11y-description"?: string
-  readonly logging?: { enabled: boolean; prefix: string }
-}
+// Dropdown types removed (single header action now directly rendered)
 
 export interface CustomTooltipProps {
   readonly content?: React.ReactNode

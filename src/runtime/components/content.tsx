@@ -1,11 +1,7 @@
 import { React, hooks } from "jimu-core"
-import { Button, Tabs, Dropdown, UI_CSS, StateRenderer } from "./ui"
+import { Button, Tabs, StateRenderer, UI_CSS } from "./ui"
 import defaultMessages from "./translations/default"
-import type {
-  ContentProps,
-  DropdownItemConfig,
-  WorkspaceItem,
-} from "../../shared/types"
+import type { ContentProps, WorkspaceItem } from "../../shared/types"
 import { ViewMode, DrawingTool, StateType } from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
@@ -90,6 +86,7 @@ export const Content: React.FC<ContentProps> = ({
   onReuseGeography,
   isSubmittingOrder = false,
   onBack,
+  drawnArea,
   // Drawing mode
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
@@ -199,22 +196,28 @@ export const Content: React.FC<ContentProps> = ({
 
   // Header
   const renderHeader = () => {
-    const dropdownItems: DropdownItemConfig[] = [
-      {
-        id: "reset",
-        label: translate("cancel"),
-        icon: resetIcon,
-        onClick: onReset || noOp,
-        disabled: !canReset || !onReset,
-        tooltip: translate("tooltipCancel"),
-      },
-    ]
+    // Enable reset only when user is drawing OR a polygon has been drawn (area > 0)
+    // Disable on initial screen (no geometry yet) and on final order result screen
+    const hasArea = (drawnArea ?? 0) > 0
+    const resetEnabled =
+      !!onReset &&
+      canReset &&
+      (state === ViewMode.DRAWING ||
+        (hasArea &&
+          state !== ViewMode.ORDER_RESULT &&
+          state !== ViewMode.INITIAL))
 
     return (
-      <Dropdown
-        items={dropdownItems}
-        buttonTitle={translate("widgetActions")}
+      <Button
+        icon={resetIcon}
+        tooltip={translate("tooltipCancel")}
+        tooltipPlacement="bottom"
+        onClick={resetEnabled ? onReset : noOp}
+        variant="text"
+        disabled={!resetEnabled}
+        aria-label={translate("cancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
+        block={false}
       />
     )
   }

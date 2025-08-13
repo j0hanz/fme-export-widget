@@ -1,23 +1,18 @@
 import { React, hooks } from "jimu-core"
 import {
-  Button as JimuButton,
-  Dropdown as JimuDropdown,
-  DropdownButton as JimuDropdownButton,
-  DropdownMenu as JimuDropdownMenu,
-  DropdownItem as JimuDropdownItem,
-  FormGroup,
-  SVG,
-  Label,
-  Loading,
-  LoadingType,
-  Option,
-  Select as JimuSelect,
-  Tab,
-  Tabs as JimuTabs,
-  TextArea as JimuTextArea,
   TextInput,
   Tooltip as JimuTooltip,
   Message as JimuMessage,
+  Button as JimuButton,
+  Tabs as JimuTabs,
+  Tab,
+  Select as JimuSelect,
+  SVG,
+  FormGroup,
+  Label,
+  TextArea as JimuTextArea,
+  Loading,
+  LoadingType,
 } from "jimu-ui"
 import { STYLES } from "../../shared/css"
 import defaultMessages from "./translations/default"
@@ -25,8 +20,6 @@ import type {
   ButtonProps,
   ButtonGroupProps,
   CustomTooltipProps,
-  DropdownItemConfig,
-  DropdownProps,
   FormProps,
   GroupButtonConfig,
   InputProps,
@@ -46,7 +39,7 @@ import {
   ErrorSeverity,
   StateType,
 } from "../../shared/types"
-import handleDotVerticalIcon from "../../assets/icons/handle-dot-vertical.svg"
+// handleDotVerticalIcon removed with Dropdown elimination
 
 // UI style constants
 export const UI_CSS = {
@@ -482,17 +475,14 @@ export const Select: React.FC<SelectProps> = ({
       style={style}
     >
       {options.map((option) => (
-        <Option
+        <option
           key={String(option.value)}
           value={String(option.value)}
           disabled={option.disabled}
           aria-label={option.label}
         >
-          {option.icon && (
-            <Icon src={option.icon} size={UI_CSS.ICON_SIZES.MEDIUM} />
-          )}
           {!option.hideLabel && option.label}
-        </Option>
+        </option>
       ))}
     </JimuSelect>
   )
@@ -527,7 +517,7 @@ export const Button: React.FC<ButtonProps> = ({
 
     if (!hasIcon && !hasText) return null
     if (hasIcon && !hasText)
-      return <Icon src={icon as string} size={UI_CSS.ICON_SIZES.DEFAULT} />
+      return <Icon src={icon as string} size={UI_CSS.ICON_SIZES.LARGE} />
     if (hasText && !hasIcon) return <>{text}</>
 
     const iconEl = <Icon src={icon as string} size={UI_CSS.ICON_SIZES.SMALL} />
@@ -698,109 +688,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   )
 }
 
-// Dropdown component
-export const Dropdown: React.FC<DropdownProps> = ({
-  items = [],
-  buttonIcon,
-  buttonText,
-  buttonTitle,
-  buttonVariant = "tertiary",
-  buttonSize = "sm",
-  openMode = "hover",
-  "aria-label": ariaLabel,
-  "a11y-description": a11yDescription,
-  ...jimuProps
-}) => {
-  const handleItemClick = hooks.useEventCallback((item: DropdownItemConfig) => {
-    if (item.disabled) return
-    item.onClick?.()
-  })
-
-  const renderButtonContent = () => {
-    if (buttonText && buttonIcon)
-      return (
-        <div className={UI_CSS.STYLES.DROPDOWN_FLEX}>
-          <Icon
-            src={buttonIcon}
-            size={UI_CSS.ICON_SIZES.DEFAULT}
-            className={UI_CSS.SPACING.ICON_MARGIN}
-          />
-          {buttonText}
-        </div>
-      )
-    if (buttonIcon)
-      return (
-        <Icon
-          src={buttonIcon}
-          size={UI_CSS.ICON_SIZES.DEFAULT}
-          ariaLabel={ariaLabel || buttonTitle || "Menu"}
-        />
-      )
-    if (buttonText) return buttonText
-    return (
-      <Icon
-        src={handleDotVerticalIcon}
-        size={UI_CSS.ICON_SIZES.DEFAULT}
-        ariaLabel={ariaLabel || UI_CSS.ACCESSIBILITY.DEFAULT_MENU_LABEL}
-      />
-    )
-  }
-
-  const visibleItems = items.filter((i) => !i.hidden)
-  if (!visibleItems.length) return null
-
-  return (
-    <JimuDropdown isSubMenuItem openMode={openMode} {...jimuProps}>
-      <JimuDropdownButton
-        icon={!buttonText}
-        size={buttonSize}
-        type={buttonVariant}
-        title={buttonTitle}
-        aria-label={ariaLabel || buttonTitle || buttonText || "Options menu"}
-        a11y-description={a11yDescription}
-        aria-haspopup="menu"
-        aria-expanded="false"
-      >
-        {renderButtonContent()}
-      </JimuDropdownButton>
-      <JimuDropdownMenu>
-        {visibleItems.map((item) => {
-          const itemElement = (
-            <JimuDropdownItem
-              key={item.id}
-              onClick={() => handleItemClick(item)}
-              disabled={item.disabled}
-              aria-label={item.label}
-              role="menuitem"
-            >
-              {item.icon && (
-                <Icon
-                  src={item.icon}
-                  size={UI_CSS.ICON_SIZES.DEFAULT}
-                  className={UI_CSS.SPACING.ICON_MARGIN}
-                />
-              )}
-              {item.label}
-            </JimuDropdownItem>
-          )
-
-          return item.tooltip ? (
-            <Tooltip
-              key={item.id}
-              content={item.tooltip}
-              disabled={item.disabled}
-              placement={item.tooltipPlacement || "top"}
-            >
-              {itemElement}
-            </Tooltip>
-          ) : (
-            itemElement
-          )
-        })}
-      </JimuDropdownMenu>
-    </JimuDropdown>
-  )
-}
+// Dropdown component removed (single header action now uses standalone Button)
 
 // Form helpers
 const FormHeader: React.FC<{
@@ -894,8 +782,6 @@ export type {
   ButtonProps,
   ButtonGroupProps,
   CustomTooltipProps,
-  DropdownItemConfig,
-  DropdownProps,
   FormProps,
   GroupButtonConfig,
   InputProps,
