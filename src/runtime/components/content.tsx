@@ -197,15 +197,11 @@ export const Content: React.FC<ContentProps> = ({
   // Header
   const renderHeader = () => {
     // Enable reset only when user is drawing OR a polygon has been drawn (area > 0)
-    // Disable on initial screen (no geometry yet) and on final order result screen
     const hasArea = (drawnArea ?? 0) > 0
     const resetEnabled =
       !!onReset &&
       canReset &&
-      (state === ViewMode.DRAWING ||
-        (hasArea &&
-          state !== ViewMode.ORDER_RESULT &&
-          state !== ViewMode.INITIAL))
+      (state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL))
 
     return (
       <Button
