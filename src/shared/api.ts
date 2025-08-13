@@ -47,24 +47,8 @@ interface PrimitiveParams {
   [key: string]: unknown
 }
 
-// Extract error info from unknown error objects safely
-function stringifyUnknown(val: unknown): string {
-  if (typeof val === "string") return val
-  if (typeof val === "number" || typeof val === "boolean") return String(val)
-  if (val && typeof val === "object") {
-    try {
-      return JSON.stringify(val)
-    } catch {
-      return Object.prototype.toString.call(val)
-    }
-  }
-  return val === undefined
-    ? "undefined"
-    : val === null
-      ? "null"
-      : Object.prototype.toString.call(val)
-}
-function extractError(err: unknown): {
+// Extract error information from an unknown error object
+function extractErrorInfo(err: unknown): {
   message: string
   status?: number
   details?: any
@@ -81,6 +65,24 @@ function extractError(err: unknown): {
     }
   }
   return { message: stringifyUnknown(err) }
+}
+
+// Convert unknown values to string representation
+function stringifyUnknown(val: unknown): string {
+  if (typeof val === "string") return val
+  if (typeof val === "number" || typeof val === "boolean") return String(val)
+  if (val && typeof val === "object") {
+    try {
+      return JSON.stringify(val)
+    } catch {
+      return Object.prototype.toString.call(val)
+    }
+  }
+  return val === undefined
+    ? "undefined"
+    : val === null
+      ? "null"
+      : Object.prototype.toString.call(val)
 }
 
 // Normalize server URL
@@ -250,7 +252,7 @@ export class FmeFlowApiClient {
     try {
       return await operation()
     } catch (err) {
-      const { message, status } = extractError(err)
+      const { message, status } = extractErrorInfo(err)
       throw new FmeFlowApiError(
         `${errorMessage}: ${message}`,
         errorCode,
@@ -573,7 +575,7 @@ export class FmeFlowApiClient {
       return this.parseWebhookResponse(response)
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
-      const { message, status } = extractError(err)
+      const { message, status } = extractErrorInfo(err)
       throw new FmeFlowApiError(
         `Failed to run data download webhook: ${message}`,
         "DATA_DOWNLOAD_ERROR",
@@ -621,7 +623,7 @@ export class FmeFlowApiClient {
         statusText: "OK",
       }
     } catch (err) {
-      const { message, status } = extractError(err)
+      const { message, status } = extractErrorInfo(err)
       throw new FmeFlowApiError(
         `Failed to run data download via REST API: ${message}`,
         "REST_API_FALLBACK_ERROR",
@@ -993,7 +995,7 @@ export class FmeFlowApiClient {
     if (isJson) {
       responseData = await response.json()
       // Check for specific error codes in JSON response
-      if (response.status === 403) {
+      if (response.status === 403 || response.status === 401) {
         throw new FmeFlowApiError(
           "Webhook authentication failed - falling back to REST API",
           "WEBHOOK_AUTH_ERROR",
@@ -1115,7 +1117,7 @@ export class FmeFlowApiClient {
         statusText: "OK",
       }
     } catch (err) {
-      const { message, status, details } = extractError(err)
+      const { message, status, details } = extractErrorInfo(err)
       let errorMessage = `Request failed: ${message}`
       let errorCode = "NETWORK_ERROR"
       const httpStatus = status || 0

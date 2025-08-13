@@ -297,7 +297,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 
   const handleChange = hooks.useEventCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = event.target.value
       handleValueChange(newValue)
       onChange?.(newValue)
@@ -346,8 +346,13 @@ export const Select: React.FC<SelectProps> = (props) => {
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLSelectElement>) => {
       if (isMulti) {
-        const selected = Array.from(evt.target.selectedOptions).map(
-          (o) => o.value
+        const first = Array.isArray(controlled)
+          ? (controlled as unknown[])[0]
+          : undefined
+        const selected = Array.from(evt.target.selectedOptions).map((o) =>
+          typeof first === "number" && !isNaN(Number(o.value))
+            ? Number(o.value)
+            : o.value
         )
         handleValueChange(selected as any)
         onChange?.(selected as any)
@@ -426,34 +431,53 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  const renderContent = () => {
-    if (loading) return <Loading type={LoadingType.Donut} />
-    if (children) return children
-
-    const hasIcon = !!icon
-    const hasText = !!text
-
-    if (!hasIcon && !hasText) return null
-    if (hasIcon && !hasText)
-      return <Icon src={icon as string} size={UI_CSS.ICON_SIZES.LARGE} />
-    if (hasText && !hasIcon) return <>{text}</>
-
-    const iconEl = <Icon src={icon as string} size={UI_CSS.ICON_SIZES.SMALL} />
-    const iconWithPosition = React.cloneElement(iconEl, {
-      style: {
-        ...UI_CSS.BTN.ICON,
-        [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
-      },
-    })
-
-    return (
-      <>
-        {iconPosition === "left" && iconWithPosition}
-        <span style={{ ...UI_CSS.BTN.TEXT, textAlign: alignText }}>{text}</span>
-        {iconPosition === "right" && iconWithPosition}
-      </>
-    )
+  // Small presentational sub-element for button content
+  interface ButtonContentProps {
+    readonly loading: boolean
+    readonly children?: React.ReactNode
+    readonly text?: React.ReactNode
+    readonly icon?: string | boolean
+    readonly iconPosition: "left" | "right"
+    readonly alignText: "start" | "center" | "end"
   }
+
+  const ButtonContent = hooks.useEventCallback(
+    ({
+      loading: isLoading,
+      children: inner,
+      text: label,
+      icon: ico,
+      iconPosition: pos,
+      alignText: align,
+    }: ButtonContentProps): JSX.Element | null => {
+      if (isLoading) return <Loading type={LoadingType.Donut} />
+      if (inner) return <>{inner}</>
+
+      const hasIcon = !!ico
+      const hasText = !!label
+
+      if (!hasIcon && !hasText) return null
+      if (hasIcon && !hasText)
+        return <Icon src={ico as string} size={UI_CSS.ICON_SIZES.LARGE} />
+      if (hasText && !hasIcon) return <>{label}</>
+
+      const iconEl = <Icon src={ico as string} size={UI_CSS.ICON_SIZES.SMALL} />
+      const iconWithPosition = React.cloneElement(iconEl, {
+        style: {
+          ...UI_CSS.BTN.ICON,
+          [pos]: UI_CSS.SPACING.ICON_OFFSET,
+        },
+      })
+
+      return (
+        <>
+          {pos === "left" && iconWithPosition}
+          <span style={{ ...UI_CSS.BTN.TEXT, textAlign: align }}>{label}</span>
+          {pos === "right" && iconWithPosition}
+        </>
+      )
+    }
+  )
 
   const getAriaLabel = () =>
     text || !icon
@@ -483,7 +507,15 @@ export const Button: React.FC<ButtonProps> = ({
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
-      {renderContent()}
+      <ButtonContent
+        loading={loading}
+        text={text}
+        icon={icon}
+        iconPosition={iconPosition}
+        alignText={alignText}
+      >
+        {children}
+      </ButtonContent>
     </JimuButton>
   )
 
@@ -496,30 +528,33 @@ export const Button: React.FC<ButtonProps> = ({
   )
 }
 
-// ActionButtons component
-const ActionButtons: React.FC<{
-  actions?: readonly UiAction[]
-  ariaLabel: string
-}> = React.memo(({ actions, ariaLabel }) => {
-  if (!actions?.length) return null
-  return (
-    <div role="group" aria-label={ariaLabel}>
-      {actions.map((a, i) => (
-        <Button
-          key={i}
-          onClick={a.onClick}
-          disabled={a.disabled}
-          variant={a.variant}
-          text={a.label}
-          block
-        />
-      ))}
-    </div>
-  )
-})
-
 // StateView component
 const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
+  const Actions = hooks.useEventCallback(
+    ({
+      actions,
+      ariaLabel,
+    }: {
+      actions?: readonly UiAction[]
+      ariaLabel: string
+    }): JSX.Element | null => {
+      if (!actions?.length) return null
+      return (
+        <div role="group" aria-label={ariaLabel}>
+          {actions.map((a, i) => (
+            <Button
+              key={i}
+              onClick={a.onClick}
+              disabled={a.disabled}
+              variant={a.variant}
+              text={a.label}
+              block
+            />
+          ))}
+        </div>
+      )
+    }
+  )
   switch (state.kind) {
     case "loading":
       return (
@@ -539,14 +574,14 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
           {state.code && (
             <div style={STYLES.typography.caption}>Code: {state.code}</div>
           )}
-          <ActionButtons actions={state.actions} ariaLabel="Error actions" />
+          <Actions actions={state.actions} ariaLabel="Error actions" />
         </div>
       )
     case "empty":
       return (
         <div role="status" aria-live="polite">
           <div>{state.message}</div>
-          <ActionButtons actions={state.actions} ariaLabel="Empty actions" />
+          <Actions actions={state.actions} ariaLabel="Empty actions" />
         </div>
       )
     case "success":
@@ -558,7 +593,7 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
           {state.message && (
             <div style={STYLES.typography.caption}>{state.message}</div>
           )}
-          <ActionButtons actions={state.actions} ariaLabel="Success actions" />
+          <Actions actions={state.actions} ariaLabel="Success actions" />
         </div>
       )
     case "content":
@@ -578,6 +613,37 @@ export const Tabs: React.FC<TabsProps> = ({
   fill = true,
   type = "default",
 }) => {
+  // Presentational title for a tab item
+  const TabTitle = hooks.useEventCallback(
+    ({
+      icon,
+      label,
+      hideLabel,
+      tooltip,
+      disabled,
+    }: {
+      readonly icon?: string
+      readonly label: string
+      readonly hideLabel?: boolean
+      readonly tooltip?: string
+      readonly disabled?: boolean
+    }): JSX.Element => {
+      const content = (
+        <>
+          {icon && <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />}
+          {!hideLabel && label}
+        </>
+      )
+      return tooltip ? (
+        <Tooltip content={tooltip} placement="top" disabled={disabled}>
+          <span>{content}</span>
+        </Tooltip>
+      ) : (
+        content
+      )
+    }
+  )
+
   const [value, handleValueChange] = useControlledValue(
     controlled,
     defaultValue || items[0]?.value
@@ -602,39 +668,24 @@ export const Tabs: React.FC<TabsProps> = ({
       aria-label={ariaLabel}
       style={style}
     >
-      {items.map((item) => {
-        const tabContent = (
-          <>
-            {item.icon && (
-              <Icon src={item.icon} size={UI_CSS.ICON_SIZES.LARGE} />
-            )}
-            {!item.hideLabel && item.label}
-          </>
-        )
-
-        const tabTitle = item.tooltip ? (
-          <Tooltip
-            content={item.tooltip}
-            placement="top"
-            disabled={item.disabled}
-          >
-            <span>{tabContent}</span>
-          </Tooltip>
-        ) : (
-          tabContent
-        )
-
-        return (
-          <Tab
-            key={String(item.value)}
-            id={String(item.value)}
-            title={tabTitle}
-            disabled={item.disabled}
-          >
-            <div />
-          </Tab>
-        )
-      })}
+      {items.map((item) => (
+        <Tab
+          key={String(item.value)}
+          id={String(item.value)}
+          title={
+            <TabTitle
+              icon={item.icon}
+              label={item.label}
+              hideLabel={item.hideLabel}
+              tooltip={item.tooltip}
+              disabled={item.disabled}
+            />
+          }
+          disabled={item.disabled}
+        >
+          <div />
+        </Tab>
+      ))}
     </JimuTabs>
   )
 }
@@ -680,20 +731,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   )
 }
 
-// Dropdown component removed (single header action now uses standalone Button)
-
-// Form helpers
-const FormHeader: React.FC<{
-  title: React.ReactNode
-  subtitle: React.ReactNode
-  className?: string
-}> = ({ title, subtitle, className }) => (
-  <div className={className}>
-    <div style={STYLES.typography.title}>{title}</div>
-    <div style={STYLES.typography.caption}>{subtitle}</div>
-  </div>
-)
-
 // Form component
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
@@ -711,7 +748,10 @@ export const Form: React.FC<FormProps> = (props) => {
 
     return (
       <>
-        <FormHeader title={title} subtitle={subtitle} />
+        <div>
+          <div style={STYLES.typography.title}>{title}</div>
+          <div style={STYLES.typography.caption}>{subtitle}</div>
+        </div>
         {children}
         <ButtonGroup
           leftButton={{

@@ -102,7 +102,7 @@ export interface DynamicFieldConfig {
 // Service for handling workspace parameter forms
 export class ParameterFormService {
   // Parameters that should be hidden from UI (handled programmatically)
-  private readonly skipParameters = [
+  private readonly skipParameters: readonly string[] = [
     "MAXX",
     "MINX",
     "MAXY",

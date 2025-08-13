@@ -4,7 +4,6 @@ import defaultMessages from "./translations/default"
 import type {
   ContentProps,
   WorkspaceItem,
-  UiViewState,
   UiAction,
   ExportResult,
 } from "../../shared/types"
@@ -14,7 +13,6 @@ import {
   createLoadingState,
   createErrorState,
   createEmptyState,
-  createContentState,
 } from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
@@ -30,26 +28,28 @@ const noOp = (): void => {
   /* noop */
 }
 
-// Create actions for error or empty states
-const createActions = (
-  translate: (key: string) => string,
-  onBack?: () => void,
-  onRetry?: () => void
-): UiAction[] => {
-  const actions: UiAction[] = []
-  if (onRetry) actions.push({ label: translate("retry"), onClick: onRetry })
-  if (onBack) actions.push({ label: translate("back"), onClick: onBack })
-  return actions
+// Create workspace loading state based on current conditions
+const createWorkspaceLoadingState = (
+  isLoadingWorkspaces: boolean,
+  workspaces: readonly WorkspaceItem[],
+  state: ViewMode
+): boolean => {
+  const isRelevantState =
+    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
+
+  return isLoadingWorkspaces || (!workspaces.length && !isRelevantState)
 }
 
-// Render order result
-const renderOrderResult = (
-  orderResult: ExportResult,
-  translate: (k: string) => string,
-  opts: { onReuseGeography?: () => void; onBack?: () => void }
-) => {
+// OrderResult component to display the result of an export order
+const OrderResult: React.FC<{
+  orderResult: ExportResult
+  translate: (k: string) => string
+  onReuseGeography?: () => void
+  onBack?: () => void
+}> = ({ orderResult, translate, onReuseGeography, onBack }) => {
   const isSuccess = !!orderResult.success
   const rows: React.ReactNode[] = []
+
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
     const display =
@@ -62,6 +62,7 @@ const renderOrderResult = (
       </div>
     )
   }
+
   addRow(translate("jobId"), orderResult.jobId)
   addRow(translate("workspace"), orderResult.workspaceName)
   addRow(translate("notificationEmail"), orderResult.email)
@@ -94,9 +95,7 @@ const renderOrderResult = (
       )}
       <Button
         text={isSuccess ? translate("reuseGeography") : translate("retry")}
-        onClick={
-          isSuccess ? opts.onReuseGeography || noOp : opts.onBack || noOp
-        }
+        onClick={isSuccess ? onReuseGeography || noOp : onBack || noOp}
         logging={{ enabled: true, prefix: "FME-Export" }}
         tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
         tooltipPlacement="bottom"
@@ -134,6 +133,16 @@ export const Content: React.FC<ContentProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
+
+  // Local helper to build action arrays for StateView
+  const createActions = hooks.useEventCallback(
+    (onBack?: () => void, onRetry?: () => void): UiAction[] => {
+      const actions: UiAction[] = []
+      if (onRetry) actions.push({ label: translate("retry"), onClick: onRetry })
+      if (onBack) actions.push({ label: translate("back"), onClick: onBack })
+      return actions
+    }
+  )
 
   // FME client
   const fmeClient = React.useMemo(() => {
@@ -335,46 +344,61 @@ export const Content: React.FC<ContentProps> = ({
   )
 
   const renderWorkspaceSelection = () => {
-    const shouldShowLoading =
-      isLoadingWorkspaces ||
-      (!workspaces.length &&
-        !workspaceError &&
-        (state === ViewMode.WORKSPACE_SELECTION ||
-          state === ViewMode.EXPORT_OPTIONS))
-    const uiState: UiViewState = shouldShowLoading
-      ? createLoadingState(
-          workspaces.length
-            ? translate("loadingWorkspaceDetails")
-            : translate("loadingWorkspaces")
-        )
-      : workspaceError
-        ? createErrorState(workspaceError, {
-            actions: createActions(translate, onBack || noOp, loadWorkspaces),
-          })
-        : !workspaces.length
-          ? createEmptyState(
-              translate("noWorkspacesFound"),
-              createActions(translate, onBack || noOp, loadWorkspaces)
-            )
-          : createContentState(
-              <div style={UI_CSS.BTN.DEFAULT}>
-                {workspaces.map((w) => (
-                  <Button
-                    key={w.name}
-                    text={w.title || w.name}
-                    icon={listIcon}
-                    onClick={() => handleWorkspaceSelect(w.name)}
-                    tooltip={w.description}
-                    tooltipDisabled={true}
-                    logging={{
-                      enabled: true,
-                      prefix: "FME-Export-WorkspaceSelection",
-                    }}
-                  />
-                ))}
-              </div>
-            )
-    return <StateView state={uiState} />
+    // Loading
+    const shouldShowLoading = createWorkspaceLoadingState(
+      isLoadingWorkspaces,
+      workspaces,
+      state
+    )
+    if (shouldShowLoading) {
+      const message = workspaces.length
+        ? translate("loadingWorkspaceDetails")
+        : translate("loadingWorkspaces")
+      return <StateView state={createLoadingState(message)} />
+    }
+
+    // Error
+    if (workspaceError) {
+      return (
+        <StateView
+          state={createErrorState(workspaceError, {
+            actions: createActions(onBack || noOp, loadWorkspaces),
+          })}
+        />
+      )
+    }
+
+    // Empty
+    if (!workspaces.length) {
+      return (
+        <StateView
+          state={createEmptyState(
+            translate("noWorkspacesFound"),
+            createActions(onBack || noOp, loadWorkspaces)
+          )}
+        />
+      )
+    }
+
+    // Content
+    const workspaceButtons = workspaces.map((workspace) => (
+      <Button
+        key={workspace.name}
+        text={workspace.title || workspace.name}
+        icon={listIcon}
+        onClick={() => {
+          handleWorkspaceSelect(workspace.name)
+        }}
+        tooltip={workspace.description}
+        tooltipDisabled={true}
+        logging={{
+          enabled: true,
+          prefix: "FME-Export-WorkspaceSelection",
+        }}
+      />
+    ))
+
+    return <div style={UI_CSS.BTN.DEFAULT}>{workspaceButtons}</div>
   }
 
   const renderExportForm = () => {
@@ -382,7 +406,7 @@ export const Content: React.FC<ContentProps> = ({
       return (
         <StateView
           state={createErrorState("Export form configuration missing", {
-            actions: createActions(translate, onBack || noOp),
+            actions: createActions(onBack || noOp),
           })}
         />
       )
@@ -412,10 +436,14 @@ export const Content: React.FC<ContentProps> = ({
   const renderContent = () => {
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
-      return renderOrderResult(orderResult, translate, {
-        onReuseGeography,
-        onBack,
-      })
+      return (
+        <OrderResult
+          orderResult={orderResult}
+          translate={translate}
+          onReuseGeography={onReuseGeography}
+          onBack={onBack}
+        />
+      )
     }
 
     // Submission loading

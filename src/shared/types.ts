@@ -184,9 +184,11 @@ export interface SelectOption {
 }
 
 export interface SelectProps {
-  readonly value?: string | number
-  readonly defaultValue?: string | number
-  readonly onChange?: (value: string | number) => void
+  readonly value?: string | number | ReadonlyArray<string | number>
+  readonly defaultValue?: string | number | ReadonlyArray<string | number>
+  readonly onChange?: (
+    value: string | number | ReadonlyArray<string | number>
+  ) => void
   readonly options?: readonly SelectOption[]
   readonly placeholder?: string
   readonly disabled?: boolean

@@ -54,9 +54,13 @@ const FALLBACK_EMAIL = "no-reply@example.com"
 const AREA_THRESHOLD_SQKM = 1_000_000 // m² -> 1 km²
 const AREA_CONVERSION_FACTOR = 1_000_000
 const AREA_DECIMAL_PLACES = 2
+const COINCIDENT_EPSILON = 0.001
 
 // Load ArcGIS modules once and memoize result
-const useArcGISModules = () => {
+const useArcGISModules = (): {
+  modules: EsriModules | null
+  loading: boolean
+} => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
   const [loading, setLoading] = React.useState(true)
 
@@ -133,6 +137,33 @@ const useLocalMapState = () => {
 
 // Error service
 const errorService = new ErrorHandlingService()
+
+// Dispatch error action with message and type
+const dispatchError = (
+  dispatchFn: (action: unknown) => void,
+  message: string,
+  type: ErrorType,
+  code?: string
+) => {
+  dispatchFn(
+    fmeActions.setError(
+      errorService.createError(message, type, code ? { code } : undefined)
+    )
+  )
+}
+
+// Abort any existing submission
+const abortIfPresent = (
+  ref: React.MutableRefObject<AbortController | null>
+) => {
+  if (ref.current) {
+    try {
+      ref.current.abort()
+    } catch {
+      // noop
+    }
+  }
+}
 
 // Calculate polygon area with fallback strategies
 const calculatePolygonArea = (
@@ -230,8 +261,7 @@ const validatePolygonGeometry = (
 // Validate area constraints
 const enforceMaxArea = (
   area: number,
-  maxArea?: number,
-  formatFn?: (a: number) => string
+  maxArea?: number
 ): { ok: boolean; message?: string; code?: string } => {
   if (!maxArea || area <= maxArea) {
     return { ok: true }
@@ -242,6 +272,34 @@ const enforceMaxArea = (
     message: "areaTooLarge",
     code: "AREA_TOO_LARGE",
   }
+}
+
+// Build the base submission parameters object
+const buildBaseFmeParams = (
+  formData: unknown,
+  userEmail: string
+): { [key: string]: unknown } => {
+  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
+  return {
+    ...data,
+    opt_requesteremail: userEmail,
+    opt_servicemode: "async",
+    opt_responseformat: "json",
+    opt_showresult: "true",
+  }
+}
+
+// Attach polygon AOI if present
+const attachAreaOfInterest = (
+  base: { [key: string]: unknown },
+  geometryJson: unknown,
+  currentGeometry: __esri.Geometry | undefined
+): { [key: string]: unknown } => {
+  const geometryToUse = geometryJson || currentGeometry?.toJSON()
+  if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+  }
+  return base
 }
 
 // Get user email with fallback
@@ -264,23 +322,8 @@ const prepareFmeParameters = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
 ): { [key: string]: unknown } => {
-  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
-
-  const baseParams: { [key: string]: unknown } = {
-    ...data,
-    opt_requesteremail: userEmail,
-    opt_servicemode: "async",
-    opt_responseformat: "json",
-    opt_showresult: "true",
-  }
-
-  // Add geometry if available
-  const geometryToUse = geometryJson || currentGeometry?.toJSON()
-  if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
-    baseParams.AreaOfInterest = JSON.stringify(geometryToUse)
-  }
-
-  return baseParams
+  const base = buildBaseFmeParams(formData, userEmail)
+  return attachAreaOfInterest(base, geometryJson, currentGeometry)
 }
 
 // Initialize graphics layers for drawing and measurements
@@ -424,8 +467,8 @@ const setupSketchEventHandlers = (
     const isAutoClosed =
       Array.isArray(firstPoint) &&
       Array.isArray(lastPoint) &&
-      Math.abs(firstPoint[0] - lastPoint[0]) < 0.001 &&
-      Math.abs(firstPoint[1] - lastPoint[1]) < 0.001
+      Math.abs(firstPoint[0] - lastPoint[0]) < COINCIDENT_EPSILON &&
+      Math.abs(firstPoint[1] - lastPoint[1]) < COINCIDENT_EPSILON
 
     return isAutoClosed ? vertexCount - 1 : vertexCount
   }
@@ -523,21 +566,25 @@ const processFmeResponse = (
   }
 }
 
+// Number formatting for Swedish locale
+const NF_SV_NO_DECIMALS = new Intl.NumberFormat("sv-SE", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+})
+const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: AREA_DECIMAL_PLACES,
+})
+
 // Format area (metric; returns localized string)
 export function formatArea(area: number): string {
   if (!area || isNaN(area) || area <= 0) return "0 m²"
   if (area >= AREA_THRESHOLD_SQKM) {
     const areaInSqKm = area / AREA_CONVERSION_FACTOR
-    const formattedKm = new Intl.NumberFormat("sv-SE", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: AREA_DECIMAL_PLACES,
-    }).format(areaInSqKm)
+    const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
     return `${formattedKm} km²`
   }
-  const formatted = new Intl.NumberFormat("sv-SE", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.round(area))
+  const formatted = NF_SV_NO_DECIMALS.format(Math.round(area))
   return `${formatted} m²`
 }
 
@@ -548,15 +595,12 @@ export default function Widget(
   const translateWidget = hooks.useTranslation(defaultMessages)
   const translateComponent = hooks.useTranslation(componentMessages)
   // Translation function
-  const translate = React.useCallback(
-    (key: string): string => {
-      const w = translateWidget(key)
-      if (w && w !== key) return w
-      const c = translateComponent(key)
-      return c !== key ? c : key
-    },
-    [translateWidget, translateComponent]
-  )
+  const translate = hooks.useEventCallback((key: string): string => {
+    const w = translateWidget(key)
+    if (w && w !== key) return w
+    const c = translateComponent(key)
+    return c !== key ? c : key
+  })
 
   // Notification state
   const [notification, setNotification] =
@@ -591,6 +635,12 @@ export default function Widget(
     measurementGraphicsLayer?.removeAll()
   })
 
+  // Reset/hide measurement UI and clear layers
+  const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
+    clearAllGraphics()
+    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
+  })
+
   // Drawing complete
   const handleDrawingComplete = hooks.useEventCallback(
     (evt: __esri.SketchCreateEvent) => {
@@ -615,21 +665,14 @@ export default function Widget(
         const calculatedArea = calculatePolygonArea(geometry, modules)
 
         // Max area
-        const maxCheck = enforceMaxArea(
-          calculatedArea,
-          props.config?.maxArea,
-          formatArea
-        )
+        const maxCheck = enforceMaxArea(calculatedArea, props.config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
-            dispatch(
-              fmeActions.setError(
-                errorService.createError(
-                  maxCheck.message,
-                  ErrorType.VALIDATION,
-                  { code: maxCheck.code }
-                )
-              )
+            dispatchError(
+              dispatch,
+              maxCheck.message,
+              ErrorType.VALIDATION,
+              maxCheck.code
             )
           }
           return
@@ -643,14 +686,11 @@ export default function Widget(
 
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
-        dispatch(
-          fmeActions.setError(
-            errorService.createError(
-              "Failed to complete drawing",
-              ErrorType.VALIDATION,
-              { code: "DRAWING_COMPLETE_ERROR" }
-            )
-          )
+        dispatchError(
+          dispatch,
+          "Failed to complete drawing",
+          ErrorType.VALIDATION,
+          "DRAWING_COMPLETE_ERROR"
         )
       }
     }
@@ -664,19 +704,14 @@ export default function Widget(
     }
 
     // Re-validate area constraints before submission
-    const maxCheck = enforceMaxArea(
-      reduxState.drawnArea,
-      props.config?.maxArea,
-      formatArea
-    )
+    const maxCheck = enforceMaxArea(reduxState.drawnArea, props.config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
       setNotification({ severity: "error", message: maxCheck.message })
-      dispatch(
-        fmeActions.setError(
-          errorService.createError(maxCheck.message, ErrorType.VALIDATION, {
-            code: maxCheck.code,
-          })
-        )
+      dispatchError(
+        dispatch,
+        maxCheck.message,
+        ErrorType.VALIDATION,
+        maxCheck.code
       )
       return false
     }
@@ -685,13 +720,7 @@ export default function Widget(
   }
 
   // Handle successful submission
-  const handleSubmissionSuccess = (
-    fmeResponse: unknown,
-    workspace: string,
-    userEmail: string
-  ) => {
-    const result = processFmeResponse(fmeResponse, workspace, userEmail)
-
+  const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
     setNotification({
       severity: result.success ? "success" : "error",
       message: result.success
@@ -699,9 +728,17 @@ export default function Widget(
           `Export order submitted successfully. Job ID: ${result.jobId}`
         : translate("orderFailed") || `Export failed: ${result.message}`,
     })
-
     dispatch(fmeActions.setOrderResult(result))
     dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+  })
+
+  const handleSubmissionSuccess = (
+    fmeResponse: unknown,
+    workspace: string,
+    userEmail: string
+  ) => {
+    const result = processFmeResponse(fmeResponse, workspace, userEmail)
+    finalizeOrder(result)
   }
 
   // Handle submission error
@@ -712,13 +749,7 @@ export default function Widget(
       message: `Failed to submit export order: ${errorMessage}`,
       code: (error as { code?: string }).code || "SUBMISSION_ERROR",
     }
-
-    setNotification({
-      severity: "error",
-      message: translate("orderFailed") || `Export failed: ${errorMessage}`,
-    })
-    dispatch(fmeActions.setOrderResult(result))
-    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+    finalizeOrder(result)
   }
 
   // Form submission handler with FME export
@@ -741,9 +772,7 @@ export default function Widget(
       )
 
       // Abort any existing submission
-      if (submissionAbortRef.current) {
-        submissionAbortRef.current.abort()
-      }
+      abortIfPresent(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
       const fmeResponse = await fmeClient.runDataDownload(
@@ -790,16 +819,11 @@ export default function Widget(
       )
       setSketchViewModel(svm)
     } catch (error) {
-      dispatch(
-        fmeActions.setError(
-          errorService.createError(
-            "Failed to initialize map",
-            ErrorType.MODULE,
-            {
-              code: "MAP_INIT_ERROR",
-            }
-          )
-        )
+      dispatchError(
+        dispatch,
+        "Failed to initialize map",
+        ErrorType.MODULE,
+        "MAP_INIT_ERROR"
       )
     }
   })
@@ -814,38 +838,24 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Widget cleanup handled by Experience Builder
-      if (submissionAbortRef.current) {
-        submissionAbortRef.current.abort()
-      }
+      abortIfPresent(submissionAbortRef)
     }
   })
 
   // Instruction text
   const getDynamicInstructionText = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
-      // Rectangle static
-      if (tool === DrawingTool.RECTANGLE) {
+      if (tool === DrawingTool.RECTANGLE)
         return translate("rectangleDrawingInstructions")
-      }
 
       // Polygon dynamic
       if (tool === DrawingTool.POLYGON) {
-        if (!isDrawing || clickCount === 0) {
-          // Start
+        if (!isDrawing || clickCount === 0)
           return translate("polygonDrawingStart")
-        } else if (clickCount === 1) {
-          // First vertex
-          return translate("polygonDrawingContinue")
-        } else if (clickCount === 2) {
-          // Second vertex
-          return translate("polygonDrawingContinue")
-        } else if (clickCount >= 3) {
-          // Third or more
-          return translate("polygonDrawingComplete")
-        }
+        if (clickCount < 3) return translate("polygonDrawingContinue")
+        return translate("polygonDrawingComplete")
       }
 
-      // Fallback
       return translate("drawInstruction")
     }
   )
@@ -859,8 +869,7 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
 
     // Clear and hide
-    clearAllGraphics()
-    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
+    resetGraphicsAndMeasurements()
 
     // Begin create
     if (tool === DrawingTool.RECTANGLE) {
@@ -872,12 +881,9 @@ export default function Widget(
 
   // Reset
   const handleReset = hooks.useEventCallback(() => {
-    clearAllGraphics()
+    resetGraphicsAndMeasurements()
 
     if (sketchViewModel) sketchViewModel.cancel()
-
-    // Hide widgets
-    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
 
     dispatch(fmeActions.resetState())
   })
