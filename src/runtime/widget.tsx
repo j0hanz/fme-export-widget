@@ -134,39 +134,43 @@ const useLocalMapState = () => {
 // Error service
 const errorService = new ErrorHandlingService()
 
-// Calculate polygon area
+// Calculate polygon area with fallback strategies
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
 ): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
-  const ge = modules.geometryEngine as any
-  const poly = geometry as __esri.Polygon
-  const tryCalc = (fn: string) => {
+
+  const geometryEngine = modules.geometryEngine as any
+  const polygon = geometry as __esri.Polygon
+
+  const tryCalculation = (method: string): number | undefined => {
     try {
-      const v = ge?.[fn]?.(poly, "square-meters")
-      if (isFinite(v) && v > 0) return Math.abs(v)
+      const value = geometryEngine?.[method]?.(polygon, "square-meters")
+      return isFinite(value) && value > 0 ? Math.abs(value) : undefined
     } catch {
-      /* ignore */
+      return undefined
     }
-    return undefined
   }
-  return tryCalc("geodesicArea") ?? tryCalc("planarArea") ?? 0
+
+  return tryCalculation("geodesicArea") ?? tryCalculation("planarArea") ?? 0
 }
 
-// Validate polygon
+// Validate polygon geometry with early returns
 const validatePolygonGeometry = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
 ): { valid: boolean; error?: ErrorState } => {
-  if (!geometry)
+  if (!geometry) {
     return {
       valid: false,
       error: errorService.createError("geometryMissing", ErrorType.GEOMETRY, {
         code: "GEOM_MISSING",
       }),
     }
-  if (geometry.type !== "polygon")
+  }
+
+  if (geometry.type !== "polygon") {
     return {
       valid: false,
       error: errorService.createError(
@@ -175,17 +179,21 @@ const validatePolygonGeometry = (
         { code: "GEOM_TYPE_INVALID" }
       ),
     }
-  const poly = geometry as __esri.Polygon
-  if (!poly.rings?.length)
+  }
+
+  const polygon = geometry as __esri.Polygon
+  if (!polygon.rings?.length) {
     return {
       valid: false,
       error: errorService.createError("polygonNoRings", ErrorType.GEOMETRY, {
         code: "GEOM_NO_RINGS",
       }),
     }
-  const ring = poly.rings[0]
+  }
+
+  const ring = polygon.rings[0]
   const uniquePoints = new Set(ring.map((p) => `${p[0]}:${p[1]}`))
-  if (uniquePoints.size < 3)
+  if (uniquePoints.size < 3) {
     return {
       valid: false,
       error: errorService.createError(
@@ -194,10 +202,14 @@ const validatePolygonGeometry = (
         { code: "GEOM_MIN_VERTICES" }
       ),
     }
+  }
+
+  // Check for self-intersection if possible
   try {
-    if ((modules.geometryEngine as any)?.simplify) {
-      const simplified = (modules.geometryEngine as any).simplify(poly)
-      if (!simplified)
+    const geometryEngine = modules.geometryEngine as any
+    if (geometryEngine?.simplify) {
+      const simplified = geometryEngine.simplify(polygon)
+      if (!simplified) {
         return {
           valid: false,
           error: errorService.createError(
@@ -206,26 +218,33 @@ const validatePolygonGeometry = (
             { code: "GEOM_SELF_INTERSECT" }
           ),
         }
+      }
     }
-  } catch (_) {}
+  } catch {
+    // Silently continue if simplify fails
+  }
+
   return { valid: true }
 }
 
+// Validate area constraints
 const enforceMaxArea = (
   area: number,
   maxArea?: number,
   formatFn?: (a: number) => string
 ): { ok: boolean; message?: string; code?: string } => {
-  if (!maxArea || area <= maxArea) return { ok: true }
+  if (!maxArea || area <= maxArea) {
+    return { ok: true }
+  }
+
   return {
     ok: false,
-    // Use provided format function if available
     message: "areaTooLarge",
     code: "AREA_TOO_LARGE",
   }
 }
 
-// Get user email
+// Get user email with fallback
 const getUserEmail = async (): Promise<string> => {
   try {
     const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
@@ -238,7 +257,7 @@ const getUserEmail = async (): Promise<string> => {
   }
 }
 
-// Build FME params
+// Prepare FME parameters for submission
 const prepareFmeParameters = (
   formData: unknown,
   userEmail: string,
@@ -255,7 +274,7 @@ const prepareFmeParameters = (
     opt_showresult: "true",
   }
 
-  // Add geometry if present
+  // Add geometry if available
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
   if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
     baseParams.AreaOfInterest = JSON.stringify(geometryToUse)
@@ -264,7 +283,7 @@ const prepareFmeParameters = (
   return baseParams
 }
 
-// Create graphics layers
+// Initialize graphics layers for drawing and measurements
 const createGraphicsLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
@@ -284,10 +303,10 @@ const createGraphicsLayers = (
   jmv.view.map.add(measurementLayer)
   setMeasurementGraphicsLayer(measurementLayer)
 
-  return layer // Main layer
+  return layer
 }
 
-// Create measurement widgets
+// Initialize measurement widgets for 2D views
 const createMeasurementWidgets = (
   jmv: JimuMapView,
   modules: EsriModules,
@@ -344,7 +363,14 @@ const createSketchViewModel = (
     },
   })
 
-  // Symbols
+  configureSketchSymbols(sketchViewModel)
+  setupSketchEventHandlers(sketchViewModel, handleDrawingComplete, dispatch)
+
+  return sketchViewModel
+}
+
+// Configure sketch view model symbols
+const configureSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
   sketchViewModel.polygonSymbol = STYLES.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
@@ -364,56 +390,73 @@ const createSketchViewModel = (
       width: 1,
     },
   }
+}
 
-  // Track clicks
+// Handle sketch create events and track drawing progress
+const setupSketchEventHandlers = (
+  sketchViewModel: __esri.SketchViewModel,
+  handleDrawingComplete: (evt: __esri.SketchCreateEvent) => void,
+  dispatch: (action: unknown) => void
+) => {
   let clickCount = 0
 
+  const resetClickTracking = () => {
+    clickCount = 0
+    dispatch(fmeActions.setDrawingState(false, 0, undefined))
+  }
+
+  const updateClickCount = (newCount: number) => {
+    if (newCount > clickCount) {
+      clickCount = newCount
+      dispatch(fmeActions.setClickCount(clickCount))
+    }
+  }
+
+  const calculatePolygonClicks = (geometry: __esri.Polygon): number => {
+    const vertices = geometry.rings?.[0]
+    if (!vertices || vertices.length < 2) return 0
+
+    const vertexCount = vertices.length
+    const firstPoint = vertices[0]
+    const lastPoint = vertices[vertexCount - 1]
+
+    // Check if polygon is auto-closed
+    const isAutoClosed =
+      Array.isArray(firstPoint) &&
+      Array.isArray(lastPoint) &&
+      Math.abs(firstPoint[0] - lastPoint[0]) < 0.001 &&
+      Math.abs(firstPoint[1] - lastPoint[1]) < 0.001
+
+    return isAutoClosed ? vertexCount - 1 : vertexCount
+  }
+
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    if (evt.state === "start") {
-      clickCount = 0
-      dispatch(fmeActions.setDrawingState(true, 0, undefined))
-    } else if (
-      evt.state === "active" &&
-      evt.tool === "polygon" &&
-      evt.graphic?.geometry
-    ) {
-      const geometry = evt.graphic.geometry as __esri.Polygon
-      if (geometry?.rings?.[0]?.length >= 2) {
-        const vertices = geometry.rings[0]
-        const vertexCount = vertices.length
+    switch (evt.state) {
+      case "start":
+        clickCount = 0
+        dispatch(fmeActions.setDrawingState(true, 0, undefined))
+        break
 
-        // Auto-close check
-        const firstPoint = vertices[0]
-        const lastPoint = vertices[vertexCount - 1]
-        const isAutoClosed =
-          Array.isArray(firstPoint) &&
-          Array.isArray(lastPoint) &&
-          Math.abs(firstPoint[0] - lastPoint[0]) < 0.001 &&
-          Math.abs(firstPoint[1] - lastPoint[1]) < 0.001
-
-        // Actual click count
-        const actualClicks = isAutoClosed ? vertexCount - 1 : vertexCount
-
-        // Update if increased
-        if (actualClicks > clickCount) {
-          clickCount = actualClicks
-          dispatch(fmeActions.setClickCount(clickCount))
+      case "active":
+        if (evt.tool === "polygon" && evt.graphic?.geometry) {
+          const geometry = evt.graphic.geometry as __esri.Polygon
+          const actualClicks = calculatePolygonClicks(geometry)
+          updateClickCount(actualClicks)
+        } else if (evt.tool === "rectangle" && clickCount !== 1) {
+          updateClickCount(1)
         }
-      }
-    } else if (evt.tool === "rectangle" && clickCount !== 1) {
-      clickCount = 1
-      dispatch(fmeActions.setClickCount(1))
-    } else if (evt.state === "complete") {
-      clickCount = 0
-      dispatch(fmeActions.setDrawingState(false, 0, undefined))
-      handleDrawingComplete(evt)
-    } else if (evt.state === "cancel") {
-      clickCount = 0
-      dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        break
+
+      case "complete":
+        resetClickTracking()
+        handleDrawingComplete(evt)
+        break
+
+      case "cancel":
+        resetClickTracking()
+        break
     }
   })
-
-  return sketchViewModel
 }
 
 // Hide measurement widgets
@@ -613,30 +656,74 @@ export default function Widget(
     }
   )
 
-  // Form submission handler with FME export
-  const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
+  // Form submission guard clauses
+  const validateSubmissionRequirements = (): boolean => {
     const hasGeometry = !!reduxState.geometryJson || !!currentGeometry
     if (!hasGeometry || !reduxState.selectedWorkspace) {
-      return
+      return false
     }
 
-    // Re-validate area against maxArea before submission (guard against config changes or stale state)
+    // Re-validate area constraints before submission
     const maxCheck = enforceMaxArea(
       reduxState.drawnArea,
       props.config?.maxArea,
       formatArea
     )
-    if (!maxCheck.ok) {
-      if (maxCheck.message) {
-        setNotification({ severity: "error", message: maxCheck.message })
-        dispatch(
-          fmeActions.setError(
-            errorService.createError(maxCheck.message, ErrorType.VALIDATION, {
-              code: maxCheck.code,
-            })
-          )
+    if (!maxCheck.ok && maxCheck.message) {
+      setNotification({ severity: "error", message: maxCheck.message })
+      dispatch(
+        fmeActions.setError(
+          errorService.createError(maxCheck.message, ErrorType.VALIDATION, {
+            code: maxCheck.code,
+          })
         )
-      }
+      )
+      return false
+    }
+
+    return true
+  }
+
+  // Handle successful submission
+  const handleSubmissionSuccess = (
+    fmeResponse: unknown,
+    workspace: string,
+    userEmail: string
+  ) => {
+    const result = processFmeResponse(fmeResponse, workspace, userEmail)
+
+    setNotification({
+      severity: result.success ? "success" : "error",
+      message: result.success
+        ? translate("orderSubmitted") ||
+          `Export order submitted successfully. Job ID: ${result.jobId}`
+        : translate("orderFailed") || `Export failed: ${result.message}`,
+    })
+
+    dispatch(fmeActions.setOrderResult(result))
+    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+  }
+
+  // Handle submission error
+  const handleSubmissionError = (error: unknown) => {
+    const errorMessage = (error as Error).message || "Unknown error occurred"
+    const result: ExportResult = {
+      success: false,
+      message: `Failed to submit export order: ${errorMessage}`,
+      code: (error as { code?: string }).code || "SUBMISSION_ERROR",
+    }
+
+    setNotification({
+      severity: "error",
+      message: translate("orderFailed") || `Export failed: ${errorMessage}`,
+    })
+    dispatch(fmeActions.setOrderResult(result))
+    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+  }
+
+  // Form submission handler with FME export
+  const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
+    if (!validateSubmissionRequirements()) {
       return
     }
 
@@ -653,7 +740,7 @@ export default function Widget(
         currentGeometry
       )
 
-      // Abort inflight
+      // Abort any existing submission
       if (submissionAbortRef.current) {
         submissionAbortRef.current.abort()
       }
@@ -665,33 +752,10 @@ export default function Widget(
         undefined,
         submissionAbortRef.current.signal
       )
-      const result = processFmeResponse(fmeResponse, workspace, userEmail)
 
-      // Set notification based on result
-      setNotification({
-        severity: result.success ? "success" : "error",
-        message: result.success
-          ? translate("orderSubmitted") ||
-            `Export order submitted successfully. Job ID: ${result.jobId}`
-          : translate("orderFailed") || `Export failed: ${result.message}`,
-      })
-
-      dispatch(fmeActions.setOrderResult(result))
-      dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+      handleSubmissionSuccess(fmeResponse, workspace, userEmail)
     } catch (error) {
-      const errorMessage = (error as Error).message || "Unknown error occurred"
-      const result: ExportResult = {
-        success: false,
-        message: `Failed to submit export order: ${errorMessage}`,
-        code: (error as { code?: string }).code || "SUBMISSION_ERROR",
-      }
-
-      setNotification({
-        severity: "error",
-        message: translate("orderFailed") || `Export failed: ${errorMessage}`,
-      })
-      dispatch(fmeActions.setOrderResult(result))
-      dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+      handleSubmissionError(error)
     } finally {
       dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: false }))
     }
