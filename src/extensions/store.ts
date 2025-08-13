@@ -13,101 +13,85 @@ import {
   type ExportResult,
 } from "../shared/types"
 
+// Helper to enforce literal action types
+const act = <T extends FmeActionType, P extends object>(type: T, payload?: P) =>
+  ({ type, ...(payload as object) }) as { type: T } & P
+
+interface LoadingFlags {
+  isModulesLoading?: boolean
+  isSubmittingOrder?: boolean
+}
+
 // View actions
 const viewActions = {
-  setViewMode: (viewMode: ViewMode) => ({
-    type: FmeActionType.SET_VIEW_MODE as const,
-    viewMode,
-  }),
-  resetState: () => ({ type: FmeActionType.RESET_STATE as const }),
+  setViewMode: (viewMode: ViewMode) =>
+    act(FmeActionType.SET_VIEW_MODE, { viewMode }),
+  resetState: () => act(FmeActionType.RESET_STATE),
 }
 
 // Drawing actions
 const drawingActions = {
-  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) => ({
-    type: FmeActionType.SET_GEOMETRY as const,
-    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
-    drawnArea,
-  }),
+  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) =>
+    act(FmeActionType.SET_GEOMETRY, {
+      geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+      drawnArea,
+    }),
   setDrawingState: (
     isDrawing: boolean,
     clickCount?: number,
     drawingTool?: DrawingTool
-  ) => ({
-    type: FmeActionType.SET_DRAWING_STATE as const,
-    isDrawing,
-    clickCount,
-    drawingTool,
-  }),
-  setDrawingTool: (drawingTool: DrawingTool) => ({
-    type: FmeActionType.SET_DRAWING_TOOL as const,
-    drawingTool,
-  }),
-  setClickCount: (clickCount: number) => ({
-    type: FmeActionType.SET_CLICK_COUNT as const,
-    clickCount,
-  }),
+  ) =>
+    act(FmeActionType.SET_DRAWING_STATE, {
+      isDrawing,
+      clickCount,
+      drawingTool,
+    }),
+  setDrawingTool: (drawingTool: DrawingTool) =>
+    act(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
+  setClickCount: (clickCount: number) =>
+    act(FmeActionType.SET_CLICK_COUNT, { clickCount }),
 }
 
 // Export actions
 const exportActions = {
-  setFormValues: (formValues: { [key: string]: unknown }) => ({
-    type: FmeActionType.SET_FORM_VALUES as const,
-    formValues,
-  }),
-  setOrderResult: (orderResult: ExportResult | null) => ({
-    type: FmeActionType.SET_ORDER_RESULT as const,
-    orderResult,
-  }),
+  setFormValues: (formValues: { [key: string]: unknown }) =>
+    act(FmeActionType.SET_FORM_VALUES, { formValues }),
+  setOrderResult: (orderResult: ExportResult | null) =>
+    act(FmeActionType.SET_ORDER_RESULT, { orderResult }),
 }
 
 // Workspace actions
 const workspaceActions = {
-  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
-    type: FmeActionType.SET_WORKSPACE_ITEMS as const,
-    workspaceItems,
-  }),
+  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) =>
+    act(FmeActionType.SET_WORKSPACE_ITEMS, { workspaceItems }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
-  ) => ({
-    type: FmeActionType.SET_WORKSPACE_PARAMETERS as const,
-    workspaceParameters,
-    workspaceName,
-  }),
-  setSelectedWorkspace: (workspaceName: string | null) => ({
-    type: FmeActionType.SET_SELECTED_WORKSPACE as const,
-    workspaceName,
-  }),
-  // Set a specific workspace item detail
-  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) => ({
-    type: FmeActionType.SET_WORKSPACE_ITEM as const,
-    workspaceItem,
-  }),
+  ) =>
+    act(FmeActionType.SET_WORKSPACE_PARAMETERS, {
+      workspaceParameters,
+      workspaceName,
+    }),
+  setSelectedWorkspace: (workspaceName: string | null) =>
+    act(FmeActionType.SET_SELECTED_WORKSPACE, { workspaceName }),
+  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) =>
+    act(FmeActionType.SET_WORKSPACE_ITEM, { workspaceItem }),
 }
 
 // Loading actions
 const loadingActions = {
-  setLoadingFlags: (flags: {
-    isModulesLoading?: boolean
-    isSubmittingOrder?: boolean
-  }) => ({ type: FmeActionType.SET_LOADING_FLAGS as const, ...flags }),
+  setLoadingFlags: (flags: LoadingFlags) =>
+    act(FmeActionType.SET_LOADING_FLAGS, flags),
 }
 
 // Error actions
 const errorActions = {
-  setError: (error: ErrorState | null) => ({
-    type: FmeActionType.SET_ERROR as const,
-    error,
-  }),
-  setImportError: (error: ErrorState | null) => ({
-    type: FmeActionType.SET_IMPORT_ERROR as const,
-    error,
-  }),
-  setExportError: (error: ErrorState | null) => ({
-    type: FmeActionType.SET_EXPORT_ERROR as const,
-    error,
-  }),
+  setError: (error: ErrorState | null) =>
+    act(FmeActionType.SET_ERROR, { error }),
+  setImportError: (error: ErrorState | null) =>
+    act(FmeActionType.SET_IMPORT_ERROR, { error }),
+  setExportError: (error: ErrorState | null) =>
+    act(FmeActionType.SET_EXPORT_ERROR, { error }),
 }
 
 // All actions
@@ -172,7 +156,7 @@ const reducerHelpers = {
 
   handleLoadingFlags: (
     state: ImmutableObject<FmeWidgetState>,
-    flags: { isModulesLoading?: boolean; isSubmittingOrder?: boolean }
+    flags: LoadingFlags
   ): ImmutableObject<FmeWidgetState> => {
     let newState = state
 

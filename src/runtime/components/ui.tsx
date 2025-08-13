@@ -84,6 +84,7 @@ export const UI_CSS = {
       minWidth: 50,
       padding: 0,
     } as React.CSSProperties,
+    ICON: { position: "absolute" as const, zIndex: 1 as const },
   },
   STYLES: {
     BUTTON_RELATIVE: { position: "relative" as const },
@@ -93,10 +94,11 @@ export const UI_CSS = {
       display: "contents" as const,
       cursor: "not-allowed" as const,
     },
+    LABEL: { display: "block" as const },
   },
 } as const
 
-// Utility Hooks
+// Utility Hooks / Helpers
 const useControlledValue = <T = string,>(
   controlled?: T,
   defaultValue?: T,
@@ -114,93 +116,6 @@ const useControlledValue = <T = string,>(
 
   return [value, handleChange] as const
 }
-
-// StateView component
-const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
-  switch (state.kind) {
-    case "loading":
-      return (
-        <div style={STYLES.state.centered} role="status" aria-live="polite">
-          <Loading type={LoadingType.Donut} width={200} height={200} />
-          {(state.message || state.detail) && (
-            <div style={STYLES.state.text} aria-label="Loading details">
-              {state.message && <div>{state.message}</div>}
-            </div>
-          )}
-        </div>
-      )
-    case "error":
-      return (
-        <div role="alert" aria-live="assertive">
-          <div style={STYLES.typography.title}>{state.message}</div>
-          {state.code && (
-            <div style={STYLES.typography.caption}>Code: {state.code}</div>
-          )}
-          {state.actions?.length ? (
-            <div role="group" aria-label="Error actions">
-              {state.actions.map((a: UiAction, i) => (
-                <Button
-                  key={i}
-                  onClick={a.onClick}
-                  disabled={a.disabled}
-                  variant={a.variant}
-                  text={a.label}
-                  block
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )
-    case "empty":
-      return (
-        <div role="status" aria-live="polite">
-          <div>{state.message}</div>
-          {state.actions?.length ? (
-            <div role="group" aria-label="Empty actions">
-              {state.actions.map((a: UiAction, i) => (
-                <Button
-                  key={i}
-                  onClick={a.onClick}
-                  disabled={a.disabled}
-                  variant={a.variant}
-                  text={a.label}
-                  block
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )
-    case "success":
-      return (
-        <div role="status" aria-live="polite">
-          {state.title && (
-            <div style={STYLES.typography.title}>{state.title}</div>
-          )}
-          {state.message && (
-            <div style={STYLES.typography.caption}>{state.message}</div>
-          )}
-          {state.actions?.length ? (
-            <div role="group" aria-label="Success actions">
-              {state.actions.map((a: UiAction, i) => (
-                <Button
-                  key={i}
-                  onClick={a.onClick}
-                  disabled={a.disabled}
-                  variant={a.variant}
-                  text={a.label}
-                  block
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )
-    case "content":
-      return <>{state.node}</>
-  }
-})
 
 // Icon component
 export interface IconProps {
@@ -244,27 +159,30 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   title,
   ...otherProps
 }) => {
+  // Ensure children is a valid React element
+  if (!React.isValidElement(children)) return <>{children}</>
   const tooltipContent =
-    title || content || children.props?.title || children.props?.["aria-label"]
+    title ||
+    content ||
+    (children.props as any)?.title ||
+    (children.props as any)?.["aria-label"]
 
   if (!tooltipContent || disabled) return children
 
   const isDisabled =
-    children.props?.disabled || children.props?.["aria-disabled"]
+    (children.props as any)?.disabled ||
+    (children.props as any)?.["aria-disabled"]
+  const baseChildProps = (children.props || {}) as { [key: string]: any }
+  // Remove native title to prevent duplicate tooltip semantics
+  if ("title" in baseChildProps) delete baseChildProps.title
+  const cloned = React.cloneElement(children as any, {
+    ...baseChildProps,
+    "aria-describedby": otherProps.id,
+  })
   const child = isDisabled ? (
-    <span style={UI_CSS.STYLES.DISABLED_CURSOR}>
-      {React.cloneElement(children, {
-        ...children.props,
-        title: undefined,
-        "aria-describedby": otherProps.id,
-      })}
-    </span>
+    <span style={UI_CSS.STYLES.DISABLED_CURSOR}>{cloned}</span>
   ) : (
-    React.cloneElement(children, {
-      ...children.props,
-      title: undefined,
-      "aria-describedby": otherProps.id,
-    })
+    cloned
   )
 
   return (
@@ -419,7 +337,6 @@ export const Select: React.FC<SelectProps> = (props) => {
     ariaDescribedBy,
     style,
   } = props
-
   const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useControlledValue(
     controlled,
@@ -446,37 +363,35 @@ export const Select: React.FC<SelectProps> = (props) => {
     }
   )
 
+  const renderOption = (option: SelectOption) => (
+    <option
+      key={String(option.value)}
+      value={String(option.value)}
+      disabled={option.disabled}
+      aria-label={option.label}
+    >
+      {!option.hideLabel && option.label}
+    </option>
+  )
+
   const normalizedValue = isMulti
     ? (Array.isArray(value) ? value : []).map(String)
     : value !== undefined
       ? String(value)
       : undefined
 
-  if (isMulti) {
-    return (
-      <select
-        multiple
-        value={normalizedValue as string[]}
-        onChange={handleChange}
-        disabled={disabled}
-        aria-label={ariaLabel}
-        aria-describedby={ariaDescribedBy}
-      >
-        {options.map((option) => (
-          <option
-            key={String(option.value)}
-            value={String(option.value)}
-            disabled={option.disabled}
-            aria-label={option.label}
-          >
-            {!option.hideLabel && option.label}
-          </option>
-        ))}
-      </select>
-    )
-  }
-
-  return (
+  return isMulti ? (
+    <select
+      multiple
+      value={normalizedValue as string[]}
+      onChange={handleChange}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
+    >
+      {options.map(renderOption)}
+    </select>
+  ) : (
     <JimuSelect
       value={normalizedValue as any}
       onChange={handleChange}
@@ -486,16 +401,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       aria-describedby={ariaDescribedBy}
       style={style}
     >
-      {options.map((option) => (
-        <option
-          key={String(option.value)}
-          value={String(option.value)}
-          disabled={option.disabled}
-          aria-label={option.label}
-        >
-          {!option.hideLabel && option.label}
-        </option>
-      ))}
+      {options.map(renderOption)}
     </JimuSelect>
   )
 }
@@ -535,9 +441,8 @@ export const Button: React.FC<ButtonProps> = ({
     const iconEl = <Icon src={icon as string} size={UI_CSS.ICON_SIZES.SMALL} />
     const iconWithPosition = React.cloneElement(iconEl, {
       style: {
-        position: "absolute",
+        ...UI_CSS.BTN.ICON,
         [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
-        zIndex: 1,
       },
     })
 
@@ -556,6 +461,9 @@ export const Button: React.FC<ButtonProps> = ({
       : (typeof tooltip === "string" && tooltip) ||
         UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
 
+  const buttonStyle = jimuProps.style
+    ? { ...UI_CSS.STYLES.BUTTON_RELATIVE, ...jimuProps.style }
+    : UI_CSS.STYLES.BUTTON_RELATIVE
   const buttonElement = (
     <JimuButton
       {...jimuProps}
@@ -571,10 +479,7 @@ export const Button: React.FC<ButtonProps> = ({
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
-      style={{
-        ...UI_CSS.STYLES.BUTTON_RELATIVE,
-        ...jimuProps.style,
-      }}
+      style={buttonStyle}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -590,6 +495,77 @@ export const Button: React.FC<ButtonProps> = ({
     buttonElement
   )
 }
+
+// ActionButtons component
+const ActionButtons: React.FC<{
+  actions?: readonly UiAction[]
+  ariaLabel: string
+}> = React.memo(({ actions, ariaLabel }) => {
+  if (!actions?.length) return null
+  return (
+    <div role="group" aria-label={ariaLabel}>
+      {actions.map((a, i) => (
+        <Button
+          key={i}
+          onClick={a.onClick}
+          disabled={a.disabled}
+          variant={a.variant}
+          text={a.label}
+          block
+        />
+      ))}
+    </div>
+  )
+})
+
+// StateView component
+const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
+  switch (state.kind) {
+    case "loading":
+      return (
+        <div style={STYLES.state.centered} role="status" aria-live="polite">
+          <Loading type={LoadingType.Donut} width={200} height={200} />
+          {(state.message || state.detail) && (
+            <div style={STYLES.state.text} aria-label="Loading details">
+              {state.message && <div>{state.message}</div>}
+            </div>
+          )}
+        </div>
+      )
+    case "error":
+      return (
+        <div role="alert" aria-live="assertive">
+          <div style={STYLES.typography.title}>{state.message}</div>
+          {state.code && (
+            <div style={STYLES.typography.caption}>Code: {state.code}</div>
+          )}
+          <ActionButtons actions={state.actions} ariaLabel="Error actions" />
+        </div>
+      )
+    case "empty":
+      return (
+        <div role="status" aria-live="polite">
+          <div>{state.message}</div>
+          <ActionButtons actions={state.actions} ariaLabel="Empty actions" />
+        </div>
+      )
+    case "success":
+      return (
+        <div role="status" aria-live="polite">
+          {state.title && (
+            <div style={STYLES.typography.title}>{state.title}</div>
+          )}
+          {state.message && (
+            <div style={STYLES.typography.caption}>{state.message}</div>
+          )}
+          <ActionButtons actions={state.actions} ariaLabel="Success actions" />
+        </div>
+      )
+    case "content":
+      return <>{state.node}</>
+  }
+  return null
+})
 
 // Tabs component
 export const Tabs: React.FC<TabsProps> = ({
@@ -677,6 +653,10 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
+  const groupStyle: React.CSSProperties = style
+    ? { ...UI_CSS.BTN.GROUP, ...style }
+    : UI_CSS.BTN.GROUP
+
   const createButton = (
     buttonConfig: GroupButtonConfig,
     side: "left" | "right"
@@ -693,7 +673,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   }
 
   return (
-    <div className={className} style={{ ...UI_CSS.BTN.GROUP, ...style }}>
+    <div className={className} style={groupStyle}>
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -760,8 +740,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <FormGroup className={className} style={style}>
         <Label
-          className="d-block"
-          style={STYLES.typography.label}
+          style={{ ...UI_CSS.STYLES.LABEL, ...STYLES.typography.label }}
           check={false}
         >
           {label}

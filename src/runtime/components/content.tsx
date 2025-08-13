@@ -5,6 +5,8 @@ import type {
   ContentProps,
   WorkspaceItem,
   UiViewState,
+  UiAction,
+  ExportResult,
 } from "../../shared/types"
 import {
   ViewMode,
@@ -23,39 +25,40 @@ import { STYLES } from "../../shared/css"
 import { Export } from "./exports"
 import { createFmeFlowClient } from "../../shared/api"
 
+const CANCELLED_PROMISE_ERROR_NAME = "CancelledPromiseError"
 const noOp = (): void => {
-  /* intentionally blank */
+  /* noop */
 }
 
-// Create actions for error state
+// Create actions for error or empty states
 const createActions = (
   translate: (key: string) => string,
   onBack?: () => void,
   onRetry?: () => void
-) => {
-  const actions = []
-  if (onRetry) {
-    actions.push({ label: translate("retry"), onClick: onRetry })
-  }
-  if (onBack) {
-    actions.push({ label: translate("back"), onClick: onBack })
-  }
+): UiAction[] => {
+  const actions: UiAction[] = []
+  if (onRetry) actions.push({ label: translate("retry"), onClick: onRetry })
+  if (onBack) actions.push({ label: translate("back"), onClick: onBack })
   return actions
 }
 
 // Render order result
 const renderOrderResult = (
-  orderResult: any,
+  orderResult: ExportResult,
   translate: (k: string) => string,
   opts: { onReuseGeography?: () => void; onBack?: () => void }
 ) => {
   const isSuccess = !!orderResult.success
   const rows: React.ReactNode[] = []
-  const addRow = (label?: string, value?: any) => {
+  const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
+    const display =
+      typeof value === "string" || typeof value === "number"
+        ? String(value)
+        : JSON.stringify(value)
     rows.push(
-      <div style={STYLES.typography.caption} key={`${label}-${value}`}>
-        {label ? `${label}: ${value}` : value}
+      <div style={STYLES.typography.caption} key={`${label}-${display}`}>
+        {label ? `${label}: ${display}` : display}
       </div>
     )
   }
@@ -64,6 +67,7 @@ const renderOrderResult = (
   addRow(translate("notificationEmail"), orderResult.email)
   if (orderResult.code && !isSuccess)
     addRow(translate("errorCode"), orderResult.code)
+
   return (
     <>
       <div style={STYLES.typography.title}>
@@ -83,7 +87,6 @@ const renderOrderResult = (
           </a>
         </div>
       )}
-      {/* Unified final status/message row for both success & failure */}
       {(isSuccess || orderResult.message) && (
         <div style={STYLES.typography.caption}>
           {isSuccess ? translate("emailNotificationSent") : orderResult.message}
@@ -91,7 +94,9 @@ const renderOrderResult = (
       )}
       <Button
         text={isSuccess ? translate("reuseGeography") : translate("retry")}
-        onClick={isSuccess ? opts.onReuseGeography : opts.onBack || noOp}
+        onClick={
+          isSuccess ? opts.onReuseGeography || noOp : opts.onBack || noOp
+        }
         logging={{ enabled: true, prefix: "FME-Export" }}
         tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
         tooltipPlacement="bottom"
@@ -154,7 +159,7 @@ export const Content: React.FC<ContentProps> = ({
 
   // Load workspaces
   const loadWorkspaces = hooks.useEventCallback(async () => {
-    if (!fmeClient || !config || isLoadingWorkspaces) return
+    if (!fmeClient || !config?.repository || isLoadingWorkspaces) return
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
     try {
@@ -168,7 +173,8 @@ export const Content: React.FC<ContentProps> = ({
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: any) {
-      if (err?.name === "CancelledPromiseError" || !isMountedRef.current) return
+      if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current)
+        return
       const msg =
         err instanceof Error ? err.message : translate("unknownErrorOccurred")
       setWorkspaceError(`${translate("failedToLoadWorkspaces")}: ${msg}`)
@@ -180,7 +186,7 @@ export const Content: React.FC<ContentProps> = ({
   // Select workspace
   const handleWorkspaceSelect = hooks.useEventCallback(
     async (workspaceName: string) => {
-      if (!fmeClient || !config) return
+      if (!fmeClient || !config?.repository) return
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
       try {
@@ -197,7 +203,7 @@ export const Content: React.FC<ContentProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: any) {
-        if (err?.name === "CancelledPromiseError" || !isMountedRef.current)
+        if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current)
           return
         const msg =
           err instanceof Error ? err.message : translate("unknownErrorOccurred")
@@ -219,7 +225,13 @@ export const Content: React.FC<ContentProps> = ({
       if (!workspaces.length && !isLoadingWorkspaces && !workspaceError)
         loadWorkspaces()
     }
-  }, [state])
+  }, [
+    state,
+    workspaces.length,
+    isLoadingWorkspaces,
+    workspaceError,
+    loadWorkspaces,
+  ])
 
   // Header
   const renderHeader = () => {
@@ -323,51 +335,45 @@ export const Content: React.FC<ContentProps> = ({
   )
 
   const renderWorkspaceSelection = () => {
-    let uiState: UiViewState | null = null
-
-    // Show loading state if we are fetching workspaces or if we have no workspaces yet
     const shouldShowLoading =
       isLoadingWorkspaces ||
       (!workspaces.length &&
         !workspaceError &&
         (state === ViewMode.WORKSPACE_SELECTION ||
           state === ViewMode.EXPORT_OPTIONS))
-
-    if (shouldShowLoading) {
-      uiState = createLoadingState(
-        workspaces.length
-          ? translate("loadingWorkspaceDetails")
-          : translate("loadingWorkspaces")
-      )
-    } else if (workspaceError) {
-      uiState = createErrorState(workspaceError, {
-        actions: createActions(translate, onBack || noOp, loadWorkspaces),
-      })
-    } else if (!workspaces.length) {
-      uiState = createEmptyState(
-        translate("noWorkspacesFound"),
-        createActions(translate, onBack || noOp, loadWorkspaces)
-      )
-    } else {
-      uiState = createContentState(
-        <div style={UI_CSS.BTN.DEFAULT}>
-          {workspaces.map((w) => (
-            <Button
-              key={w.name}
-              text={w.title || w.name}
-              icon={listIcon}
-              onClick={() => handleWorkspaceSelect(w.name)}
-              tooltip={w.description}
-              tooltipDisabled={true}
-              logging={{
-                enabled: true,
-                prefix: "FME-Export-WorkspaceSelection",
-              }}
-            />
-          ))}
-        </div>
-      )
-    }
+    const uiState: UiViewState = shouldShowLoading
+      ? createLoadingState(
+          workspaces.length
+            ? translate("loadingWorkspaceDetails")
+            : translate("loadingWorkspaces")
+        )
+      : workspaceError
+        ? createErrorState(workspaceError, {
+            actions: createActions(translate, onBack || noOp, loadWorkspaces),
+          })
+        : !workspaces.length
+          ? createEmptyState(
+              translate("noWorkspacesFound"),
+              createActions(translate, onBack || noOp, loadWorkspaces)
+            )
+          : createContentState(
+              <div style={UI_CSS.BTN.DEFAULT}>
+                {workspaces.map((w) => (
+                  <Button
+                    key={w.name}
+                    text={w.title || w.name}
+                    icon={listIcon}
+                    onClick={() => handleWorkspaceSelect(w.name)}
+                    tooltip={w.description}
+                    tooltipDisabled={true}
+                    logging={{
+                      enabled: true,
+                      prefix: "FME-Export-WorkspaceSelection",
+                    }}
+                  />
+                ))}
+              </div>
+            )
     return <StateView state={uiState} />
   }
 
@@ -451,7 +457,7 @@ export const Content: React.FC<ContentProps> = ({
   return (
     <div style={STYLES.parent}>
       <div style={STYLES.header}>{renderHeader()}</div>
-      <div style={STYLES.content}> {renderContent()}</div>
+      <div style={STYLES.content}>{renderContent()}</div>
     </div>
   )
 }

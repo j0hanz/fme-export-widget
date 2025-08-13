@@ -38,25 +38,32 @@ import {
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
 
-// Load ArcGIS modules once
+const MODULE_NAMES: readonly string[] = [
+  "esri/widgets/Sketch/SketchViewModel",
+  "esri/layers/GraphicsLayer",
+  "esri/Graphic",
+  "esri/geometry/Polygon",
+  "esri/geometry/Extent",
+  "esri/widgets/AreaMeasurement2D",
+  "esri/widgets/DistanceMeasurement2D",
+  "esri/geometry/geometryEngine",
+] as const
+
+const FALLBACK_EMAIL = "no-reply@example.com"
+
+// Area formatting thresholds
+const AREA_THRESHOLD_SQKM = 1_000_000 // m² -> 1 km²
+const AREA_CONVERSION_FACTOR = 1_000_000
+const AREA_DECIMAL_PLACES = 2
+
+// Load ArcGIS modules once and memoize result
 const useArcGISModules = () => {
   const [modules, setModules] = React.useState<EsriModules | null>(null)
   const [loading, setLoading] = React.useState(true)
 
   hooks.useEffectOnce(() => {
-    const moduleNames = [
-      "esri/widgets/Sketch/SketchViewModel",
-      "esri/layers/GraphicsLayer",
-      "esri/Graphic",
-      "esri/geometry/Polygon",
-      "esri/geometry/Extent",
-      "esri/widgets/AreaMeasurement2D",
-      "esri/widgets/DistanceMeasurement2D",
-      "esri/geometry/geometryEngine",
-    ]
-
-    loadArcGISJSAPIModules(moduleNames)
-      .then((loadedModules) => {
+    loadArcGISJSAPIModules(MODULE_NAMES as any)
+      .then((loaded) => {
         const [
           SketchViewModel,
           GraphicsLayer,
@@ -66,8 +73,7 @@ const useArcGISModules = () => {
           AreaMeasurement2D,
           DistanceMeasurement2D,
           geometryEngine,
-        ] = loadedModules
-
+        ] = loaded
         setModules({
           SketchViewModel,
           GraphicsLayer,
@@ -78,14 +84,17 @@ const useArcGISModules = () => {
           DistanceMeasurement2D,
           geometryEngine,
         } as unknown as EsriModules)
-        setLoading(false)
       })
       .catch((error) => {
-        console.error("Failed to load ArcGIS modules:", error)
+        console.error(
+          "FME Export Widget - Failed to load ArcGIS modules",
+          error
+        )
+      })
+      .finally(() => {
         setLoading(false)
       })
   })
-
   return { modules, loading }
 }
 
@@ -114,32 +123,24 @@ const useMutableState = (widgetId: string) => {
 // Error service
 const errorService = new ErrorHandlingService()
 
-// Polygon area
+// Calculate polygon area
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
 ): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
-  const poly = geometry as __esri.Polygon
   const ge = modules.geometryEngine as any
-  // Try geodesic then planar
-  try {
-    if (ge?.geodesicArea) {
-      const geod = ge.geodesicArea(poly, "square-meters")
-      if (isFinite(geod) && geod > 0) return Math.abs(geod)
+  const poly = geometry as __esri.Polygon
+  const tryCalc = (fn: string) => {
+    try {
+      const v = ge?.[fn]?.(poly, "square-meters")
+      if (isFinite(v) && v > 0) return Math.abs(v)
+    } catch {
+      /* ignore */
     }
-  } catch (_) {
-    /* noop */
+    return undefined
   }
-  try {
-    if (ge?.planarArea) {
-      const planar = ge.planarArea(poly, "square-meters")
-      if (isFinite(planar) && planar !== 0) return Math.abs(planar)
-    }
-  } catch (e) {
-    console.warn("Polygon area calculation fallback failed", e)
-  }
-  return 0
+  return tryCalc("geodesicArea") ?? tryCalc("planarArea") ?? 0
 }
 
 // Validate polygon
@@ -150,14 +151,9 @@ const validatePolygonGeometry = (
   if (!geometry)
     return {
       valid: false,
-      error: errorService.createError(
-        // "geometryMissing" is used in content.tsx
-        "geometryMissing",
-        ErrorType.GEOMETRY,
-        {
-          code: "GEOM_MISSING",
-        }
-      ),
+      error: errorService.createError("geometryMissing", ErrorType.GEOMETRY, {
+        code: "GEOM_MISSING",
+      }),
     }
   if (geometry.type !== "polygon")
     return {
@@ -224,10 +220,10 @@ const getUserEmail = async (): Promise<string> => {
     const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
     const portal = new Portal()
     await portal.load()
-    return portal.user?.email || "no-reply@example.com"
+    return portal.user?.email || FALLBACK_EMAIL
   } catch (error) {
-    console.warn("Failed to get user email:", error)
-    return "no-reply@example.com"
+    console.warn("FME Export Widget - Failed to get user email", error)
+    return FALLBACK_EMAIL
   }
 }
 
@@ -472,28 +468,22 @@ const processFmeResponse = (
   }
 }
 
-// Format area
+// Format area (metric; returns localized string)
 export function formatArea(area: number): string {
   if (!area || isNaN(area) || area <= 0) return "0 m²"
-
-  const AREA_THRESHOLD_SQKM = 1000000
-  const AREA_CONVERSION_FACTOR = 1000000
-  const AREA_DECIMAL_PLACES = 2
-
   if (area >= AREA_THRESHOLD_SQKM) {
     const areaInSqKm = area / AREA_CONVERSION_FACTOR
-    const formattedKmNumber = new Intl.NumberFormat("sv-SE", {
+    const formattedKm = new Intl.NumberFormat("sv-SE", {
       minimumFractionDigits: 0,
       maximumFractionDigits: AREA_DECIMAL_PLACES,
     }).format(areaInSqKm)
-    return `${formattedKmNumber} km²`
+    return `${formattedKm} km²`
   }
-
-  const formattedNumber = new Intl.NumberFormat("sv-SE", {
+  const formatted = new Intl.NumberFormat("sv-SE", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(Math.round(area))
-  return `${formattedNumber} m²`
+  return `${formatted} m²`
 }
 
 export default function Widget(
@@ -502,13 +492,16 @@ export default function Widget(
   const { id: widgetId, useMapWidgetIds, dispatch, state: reduxState } = props
   const translateWidget = hooks.useTranslation(defaultMessages)
   const translateComponent = hooks.useTranslation(componentMessages)
-
-  // Translate helper
-  const translate = (key: string) => {
-    return translateWidget(key) !== key
-      ? translateWidget(key)
-      : translateComponent(key)
-  }
+  // Translation function
+  const translate = React.useCallback(
+    (key: string): string => {
+      const w = translateWidget(key)
+      if (w && w !== key) return w
+      const c = translateComponent(key)
+      return c !== key ? c : key
+    },
+    [translateWidget, translateComponent]
+  )
 
   // Notification state
   const [notification, setNotification] =
@@ -531,12 +524,8 @@ export default function Widget(
 
   // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
-    if (graphicsLayer) {
-      graphicsLayer.removeAll()
-    }
-    if (measurementGraphicsLayer) {
-      measurementGraphicsLayer.removeAll()
-    }
+    graphicsLayer?.removeAll()
+    measurementGraphicsLayer?.removeAll()
   })
 
   // Drawing complete
@@ -692,11 +681,44 @@ export default function Widget(
     }
   })
 
+  // Map view ready handler declared before effect to satisfy linter
+  const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
+    if (!modules) {
+      setMutableValue("jimuMapView", jmv)
+      return
+    }
+    try {
+      setMutableValue("jimuMapView", jmv)
+      const layer = createGraphicsLayers(jmv, modules, setMutableValue)
+      createMeasurementWidgets(jmv, modules, setMutableValue)
+      const svm = createSketchViewModel(
+        jmv,
+        modules,
+        layer,
+        handleDrawingComplete,
+        dispatch
+      )
+      setMutableValue("sketchViewModel", svm)
+    } catch (error) {
+      dispatch(
+        fmeActions.setError(
+          errorService.createError(
+            "Failed to initialize map",
+            ErrorType.MODULE,
+            {
+              code: "MAP_INIT_ERROR",
+            }
+          )
+        )
+      )
+    }
+  })
+
   hooks.useUpdateEffect(() => {
     if (modules && jimuMapView && !sketchViewModel) {
       handleMapViewReady(jimuMapView)
     }
-  }, [modules, jimuMapView, sketchViewModel])
+  }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
 
   // Cleanup
   hooks.useEffectOnce(() => {
@@ -705,40 +727,6 @@ export default function Widget(
       if (submissionAbortRef.current) {
         submissionAbortRef.current.abort()
       }
-    }
-  })
-
-  // Map view ready
-  const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
-    if (!modules) {
-      setMutableValue("jimuMapView", jmv)
-      return
-    }
-
-    try {
-      setMutableValue("jimuMapView", jmv)
-
-      const layer = createGraphicsLayers(jmv, modules, setMutableValue)
-      createMeasurementWidgets(jmv, modules, setMutableValue)
-
-      const sketchViewModel = createSketchViewModel(
-        jmv,
-        modules,
-        layer,
-        handleDrawingComplete,
-        dispatch
-      )
-      setMutableValue("sketchViewModel", sketchViewModel)
-    } catch (error) {
-      dispatch(
-        fmeActions.setError(
-          errorService.createError(
-            "Failed to initialize map",
-            ErrorType.MODULE,
-            { code: "MAP_INIT_ERROR" }
-          )
-        )
-      )
     }
   })
 
@@ -939,14 +927,8 @@ export default function Widget(
 
 // Map extra state props for the widget
 ;(Widget as unknown as { mapExtraStateProps: unknown }).mapExtraStateProps = (
-  state: IMStateWithFmeExport,
-  _ownProps: AllWidgetProps<FmeExportConfig>
+  state: IMStateWithFmeExport
 ) => {
-  const storeKey = "fme-state"
-  const widgetState = state[storeKey] as ImmutableObject<FmeWidgetState>
-
-  return {
-    // Reuse canonical initialFmeState to avoid configuration drift
-    state: widgetState || initialFmeState,
-  }
+  const widgetState = state["fme-state"] as ImmutableObject<FmeWidgetState>
+  return { state: widgetState || initialFmeState }
 }

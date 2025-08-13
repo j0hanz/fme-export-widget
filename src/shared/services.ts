@@ -1,5 +1,16 @@
 import type { ErrorState, WorkspaceParameter } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType } from "./types"
+export type ParameterPrimitive =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | null
+  | File
+export type ParameterValue =
+  | ParameterPrimitive
+  | ParameterPrimitive[]
+  | undefined
 
 // Blank if undefined, null, or empty string
 const isBlank = (v: unknown): boolean =>
@@ -9,10 +20,13 @@ const isBlank = (v: unknown): boolean =>
 const filterUIParameters = (
   parameters: readonly WorkspaceParameter[],
   skip: readonly string[]
-) => parameters.filter((p) => !skip.includes(p.name))
+): readonly WorkspaceParameter[] =>
+  parameters.filter((p) => !skip.includes(p.name))
 
 // Build select options
-const createFieldOptions = (param: WorkspaceParameter) =>
+const createFieldOptions = (
+  param: WorkspaceParameter
+): ReadonlyArray<{ label: string; value: string | number }> | undefined =>
   param.listOptions?.map((o) => ({
     label: o.caption || o.value,
     value: o.value,
@@ -26,7 +40,7 @@ export class ErrorHandlingService {
     options: {
       code?: string
       severity?: ErrorSeverity
-      details?: any
+      details?: { [key: string]: unknown }
       recoverable?: boolean
       retry?: () => void
       userFriendlyMessage?: string
@@ -46,7 +60,7 @@ export class ErrorHandlingService {
       type,
       code,
       severity,
-      details,
+      details: details as { [key: string]: unknown } | undefined,
       recoverable,
       retry,
       timestamp: new Date(),
@@ -68,13 +82,13 @@ export enum FormFieldType {
 
 // Dynamic field config
 export interface DynamicFieldConfig {
-  readonly name: string // Field name
-  readonly label: string // Field label
+  readonly name: string
+  readonly label: string
   readonly type: FormFieldType
   readonly required?: boolean
   readonly readOnly?: boolean
   readonly placeholder?: string
-  readonly helpText?: string // Help text
+  readonly helpText?: string
   readonly options?: ReadonlyArray<{ label: string; value: string | number }>
   readonly min?: number
   readonly max?: number
@@ -82,7 +96,7 @@ export interface DynamicFieldConfig {
   readonly rows?: number
   readonly maxLength?: number
   readonly description?: string
-  readonly defaultValue?: any
+  readonly defaultValue?: ParameterValue
 }
 
 // Service for handling workspace parameter forms
@@ -101,7 +115,6 @@ export class ParameterFormService {
     parameters: readonly WorkspaceParameter[]
   ): readonly DynamicFieldConfig[] {
     const filteredParams = filterUIParameters(parameters, this.skipParameters)
-
     return filteredParams.map((param) => this.createFieldFromParameter(param))
   }
 
@@ -166,7 +179,7 @@ export class ParameterFormService {
 
   // Validates data against workspace parameters
   validateParameters(
-    data: { [key: string]: any },
+    data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
@@ -193,7 +206,7 @@ export class ParameterFormService {
   // Validates individual parameter type constraints
   private validateParameterType(
     param: WorkspaceParameter,
-    value: any
+    value: unknown
   ): string | null {
     if (
       param.type === ParameterType.INTEGER &&
@@ -212,7 +225,7 @@ export class ParameterFormService {
   // Validates parameter list options
   private validateParameterList(
     param: WorkspaceParameter,
-    value: any
+    value: unknown
   ): string | null {
     if (param.listOptions && param.listOptions.length > 0) {
       const validValues = param.listOptions.map((opt) => opt.value)
@@ -221,9 +234,12 @@ export class ParameterFormService {
         param.type === ParameterType.LOOKUP_LISTBOX
       ) {
         const arr = Array.isArray(value) ? value : [value].filter(Boolean)
-        const invalid = arr.filter((v) => !validValues.includes(v))
+        const invalid = (arr as unknown[]).filter(
+          (v) => !validValues.includes(v as any)
+        )
         if (invalid.length) return `${param.name}:choice`
-      } else if (!validValues.includes(value)) return `${param.name}:choice`
+      } else if (!validValues.includes(value as any))
+        return `${param.name}:choice`
     }
     return null
   }
@@ -237,32 +253,27 @@ export class ParameterFormService {
 
   // Validates form values against dynamic field configurations
   validateFormValues(
-    values: { [key: string]: any },
+    values: { [key: string]: unknown },
     fields: readonly DynamicFieldConfig[]
   ): { isValid: boolean; errors: { [key: string]: string } } {
     const errors: { [key: string]: string } = {}
-
-    fields.forEach((field) => {
+    for (const field of fields) {
       const value = values[field.name]
       if (field.required && isBlank(value)) {
         errors[field.name] = `${field.label} is required`
-        return
+        continue
       }
-      if (!field.required && isBlank(value)) return
+      if (!field.required && isBlank(value)) continue
       const typeError = this.validateFieldType(field, value)
       if (typeError) errors[field.name] = typeError
-    })
-
-    return {
-      isValid: Object.keys(errors).length === 0,
-      errors,
     }
+    return { isValid: Object.keys(errors).length === 0, errors }
   }
 
   // Validates individual field type constraints
   private validateFieldType(
     field: DynamicFieldConfig,
-    value: any
+    value: unknown
   ): string | null {
     if (
       field.type === FormFieldType.NUMBER &&
