@@ -12,7 +12,7 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Content } from "./components/content"
-import { StateRenderer } from "./components/ui"
+import { StateView } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
@@ -32,7 +32,6 @@ import {
   DrawingTool,
   ViewMode,
   ErrorType,
-  StateType,
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../shared/types"
@@ -832,28 +831,20 @@ export default function Widget(
 
   // Loading state
   if (modulesLoading || !modules) {
-    // Loading message
     const loadingMessage = modules
       ? translate("preparingMapTools")
       : translate("loadingMapServices")
-
-    return (
-      <StateRenderer
-        state={StateType.LOADING}
-        data={{
-          message: loadingMessage,
-        }}
-      />
-    )
+    return <StateView state={{ kind: "loading", message: loadingMessage }} />
   }
 
   // Error state
   if (reduxState.error && reduxState.error.severity === "error") {
     return (
-      <StateRenderer
-        state={StateType.ERROR}
-        data={{
-          error: reduxState.error,
+      <StateView
+        state={{
+          kind: "error",
+          message: reduxState.error.message,
+          code: reduxState.error.code,
           actions: [
             {
               label: translate("retry"),
@@ -864,7 +855,7 @@ export default function Widget(
                   dispatch(fmeActions.setError(null))
                 }
               },
-              variant: "primary" as const,
+              variant: "primary",
             },
           ],
         }}

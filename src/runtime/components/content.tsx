@@ -1,8 +1,19 @@
 import { React, hooks } from "jimu-core"
-import { Button, Tabs, StateRenderer, UI_CSS } from "./ui"
+import { Button, Tabs, UI_CSS, StateView } from "./ui"
 import defaultMessages from "./translations/default"
-import type { ContentProps, WorkspaceItem } from "../../shared/types"
-import { ViewMode, DrawingTool, StateType } from "../../shared/types"
+import type {
+  ContentProps,
+  WorkspaceItem,
+  UiViewState,
+} from "../../shared/types"
+import {
+  ViewMode,
+  DrawingTool,
+  createLoadingState,
+  createErrorState,
+  createEmptyState,
+  createContentState,
+} from "../../shared/types"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/clear-selection-general.svg"
@@ -14,6 +25,22 @@ import { createFmeFlowClient } from "../../shared/api"
 
 const noOp = (): void => {
   /* intentionally blank */
+}
+
+// Create actions for error state
+const createActions = (
+  translate: (key: string) => string,
+  onBack?: () => void,
+  onRetry?: () => void
+) => {
+  const actions = []
+  if (onRetry) {
+    actions.push({ label: translate("retry"), onClick: onRetry })
+  }
+  if (onBack) {
+    actions.push({ label: translate("back"), onClick: onBack })
+  }
+  return actions
 }
 
 // Render order result
@@ -222,11 +249,8 @@ export const Content: React.FC<ContentProps> = ({
     // Loading state
     if (isModulesLoading) {
       return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            detail: translate("preparingMapTools"),
-          }}
+        <StateView
+          state={createLoadingState(undefined, translate("preparingMapTools"))}
         />
       )
     }
@@ -234,20 +258,21 @@ export const Content: React.FC<ContentProps> = ({
     // Error state
     if (error) {
       return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            error: error,
-            actions: error.recoverable
-              ? [
-                  {
-                    label: translate("retry"),
-                    onClick: error.retry || noOp,
-                    variant: "primary",
-                  },
-                ]
-              : undefined,
-          }}
+        <StateView
+          state={createErrorState(
+            error.message,
+            error.recoverable
+              ? {
+                  actions: [
+                    {
+                      label: translate("retry"),
+                      onClick: error.retry || noOp,
+                      variant: "primary",
+                    },
+                  ],
+                }
+              : undefined
+          )}
         />
       )
     }
@@ -298,72 +323,70 @@ export const Content: React.FC<ContentProps> = ({
   )
 
   const renderWorkspaceSelection = () => {
-    if (isLoadingWorkspaces) {
-      return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{
-            message: workspaces.length
-              ? translate("loadingWorkspaceDetails")
-              : translate("loadingWorkspaces"),
-          }}
-        />
+    let uiState: UiViewState | null = null
+
+    // Show loading state if we are fetching workspaces or if we have no workspaces yet
+    const shouldShowLoading =
+      isLoadingWorkspaces ||
+      (!workspaces.length &&
+        !workspaceError &&
+        (state === ViewMode.WORKSPACE_SELECTION ||
+          state === ViewMode.EXPORT_OPTIONS))
+
+    if (shouldShowLoading) {
+      uiState = createLoadingState(
+        workspaces.length
+          ? translate("loadingWorkspaceDetails")
+          : translate("loadingWorkspaces")
+      )
+    } else if (workspaceError) {
+      uiState = createErrorState(workspaceError, {
+        actions: createActions(translate, onBack || noOp, loadWorkspaces),
+      })
+    } else if (!workspaces.length) {
+      uiState = createEmptyState(
+        translate("noWorkspacesFound"),
+        createActions(translate, onBack || noOp, loadWorkspaces)
+      )
+    } else {
+      uiState = createContentState(
+        <div style={UI_CSS.BTN.DEFAULT}>
+          {workspaces.map((w) => (
+            <Button
+              key={w.name}
+              text={w.title || w.name}
+              icon={listIcon}
+              onClick={() => handleWorkspaceSelect(w.name)}
+              tooltip={w.description}
+              tooltipDisabled={true}
+              logging={{
+                enabled: true,
+                prefix: "FME-Export-WorkspaceSelection",
+              }}
+            />
+          ))}
+        </div>
       )
     }
-    if (workspaceError) {
-      return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            message: workspaceError,
-            actions: [
-              { label: translate("retry"), onClick: loadWorkspaces },
-              { label: translate("back"), onClick: onBack || noOp },
-            ],
-          }}
-        />
-      )
-    }
-    if (!workspaces.length) {
-      return (
-        <StateRenderer
-          state={StateType.EMPTY}
-          data={{
-            message: translate("noWorkspacesFound"),
-            actions: [
-              { label: translate("retry"), onClick: loadWorkspaces },
-              { label: translate("back"), onClick: onBack || noOp },
-            ],
-          }}
-        />
-      )
-    }
-    return (
-      <div style={UI_CSS.BTN.DEFAULT}>
-        {workspaces.map((w) => (
-          <Button
-            key={w.name}
-            text={w.title || w.name}
-            icon={listIcon}
-            onClick={() => handleWorkspaceSelect(w.name)}
-            tooltip={w.description}
-            tooltipDisabled={true}
-            logging={{ enabled: true, prefix: "FME-Export-WorkspaceSelection" }}
-          />
-        ))}
-      </div>
-    )
+    return <StateView state={uiState} />
   }
 
   const renderExportForm = () => {
     if (!onFormBack || !onFormSubmit) {
       return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            message: "Export form configuration missing",
-            actions: [{ label: translate("back"), onClick: onBack || noOp }],
-          }}
+        <StateView
+          state={createErrorState("Export form configuration missing", {
+            actions: createActions(translate, onBack || noOp),
+          })}
+        />
+      )
+    }
+
+    // Check if we have workspace parameters and selected workspace
+    if (!workspaceParameters || !selectedWorkspace) {
+      return (
+        <StateView
+          state={createLoadingState(translate("loadingWorkspaceDetails"))}
         />
       )
     }
@@ -383,8 +406,6 @@ export const Content: React.FC<ContentProps> = ({
   const renderContent = () => {
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
-      console.log("FME Export - Displaying order result:", orderResult)
-
       return renderOrderResult(orderResult, translate, {
         onReuseGeography,
         onBack,
@@ -394,25 +415,20 @@ export const Content: React.FC<ContentProps> = ({
     // Submission loading
     if (isSubmittingOrder) {
       return (
-        <StateRenderer
-          state={StateType.LOADING}
-          data={{ message: translate("submittingOrder") }}
-        />
+        <StateView state={createLoadingState(translate("submittingOrder"))} />
       )
     }
 
     // General error
     if (error) {
       return (
-        <StateRenderer
-          state={StateType.ERROR}
-          data={{
-            message: error.message,
+        <StateView
+          state={createErrorState(error.message, {
             actions:
               error.severity !== "info"
                 ? [{ label: translate("retry"), onClick: onBack || noOp }]
                 : undefined,
-          }}
+          })}
         />
       )
     }

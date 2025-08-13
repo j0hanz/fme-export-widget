@@ -61,11 +61,69 @@ export interface StateControllerReturn {
   readonly reset: () => void
 }
 
-export interface StateRendererProps {
-  readonly state: StateType
-  readonly data?: StateData
-  readonly children?: React.ReactNode
+// UI View State Types
+export interface UiAction {
+  readonly label: string
+  readonly onClick: () => void
+  readonly variant?: "primary" | "default" | "danger"
+  readonly disabled?: boolean
 }
+export interface LoadingUiState {
+  readonly kind: "loading"
+  readonly message?: string
+  readonly detail?: string
+}
+export interface ErrorUiState {
+  readonly kind: "error"
+  readonly message: string
+  readonly code?: string
+  readonly recoverable?: boolean
+  readonly actions?: readonly UiAction[]
+}
+export interface EmptyUiState {
+  readonly kind: "empty"
+  readonly message: string
+  readonly actions?: readonly UiAction[]
+}
+export interface SuccessUiState {
+  readonly kind: "success"
+  readonly title?: string
+  readonly message?: string
+  readonly actions?: readonly UiAction[]
+}
+export interface ContentUiState {
+  readonly kind: "content"
+  readonly node: React.ReactNode
+}
+export type UiViewState =
+  | LoadingUiState
+  | ErrorUiState
+  | EmptyUiState
+  | SuccessUiState
+  | ContentUiState
+// Utility functions to create UI states
+export const createLoadingState = (
+  message?: string,
+  detail?: string
+): LoadingUiState => ({ kind: "loading", message, detail })
+export const createErrorState = (
+  message: string,
+  opts: Omit<ErrorUiState, "kind" | "message"> = {}
+): ErrorUiState => ({ kind: "error", message, ...opts })
+export const createEmptyState = (
+  message: string,
+  actions?: readonly UiAction[]
+): EmptyUiState => ({ kind: "empty", message, actions })
+export const createSuccessState = (
+  message?: string,
+  title?: string,
+  actions?: readonly UiAction[]
+): SuccessUiState => ({ kind: "success", message, title, actions })
+export const createContentState = (node: React.ReactNode): ContentUiState => ({
+  kind: "content",
+  node,
+})
+// ------------------------------------------------------------------
 
 // UI Component Interfaces
 export interface ButtonProps {

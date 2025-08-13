@@ -28,16 +28,14 @@ import type {
   TextAreaProps,
   TabsProps,
   TabItem,
-  StateActionButton,
-  StateRendererProps,
+  UiViewState,
+  UiAction,
 } from "../../shared/types"
 import {
   UI_CONSTANTS,
   TOOLTIP_DELAYS,
   TOOLTIP_PLACEMENTS,
   TOOLTIP_STYLES,
-  ErrorSeverity,
-  StateType,
 } from "../../shared/types"
 // handleDotVerticalIcon removed with Dropdown elimination
 
@@ -117,116 +115,92 @@ const useControlledValue = <T = string,>(
   return [value, handleChange] as const
 }
 
-// State Components
-
-// Actions renderer for state components
-const StateActions: React.FC<{
-  actions?: StateActionButton[]
-  recoverable?: boolean
-  retry?: () => void
-  label?: string
-}> = ({ actions = [], recoverable, retry, label = "Actions" }) => {
-  const allActions =
-    recoverable && retry
-      ? [
-          ...actions,
-          { label: "Retry", onClick: retry, variant: "primary" as const },
-        ]
-      : actions
-
-  if (!allActions.length) return null
-
-  return (
-    <div role="group" aria-label={label}>
-      {allActions.map((action, index) => (
-        <Button
-          key={index}
-          onClick={action.onClick}
-          disabled={action.disabled}
-          variant={action.variant}
-          aria-label={`${action.label} - ${action.disabled ? "disabled" : "available"}`}
-          tabIndex={action.disabled ? -1 : 0}
-          text={action.label}
-        />
-      ))}
-    </div>
-  )
-}
-
-// State renderer component
-const StateRenderer: React.FC<StateRendererProps> = React.memo(
-  ({ state, data = {}, children }) => {
-    if (state === StateType.LOADING) {
+// StateView component
+const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
+  switch (state.kind) {
+    case "loading":
       return (
         <div style={STYLES.state.centered} role="status" aria-live="polite">
           <Loading type={LoadingType.Donut} width={200} height={200} />
-          {(data.message || data.detail) && (
+          {(state.message || state.detail) && (
             <div style={STYLES.state.text} aria-label="Loading details">
-              {data.message && <div>{data.message}</div>}
+              {state.message && <div>{state.message}</div>}
             </div>
           )}
         </div>
       )
-    }
-
-    if (state === StateType.CONTENT) return <>{children || data.children}</>
-
-    if (state === StateType.ERROR) {
-      const error = data.error
-      const severity = error?.severity || ErrorSeverity.ERROR
-
+    case "error":
       return (
         <div role="alert" aria-live="assertive">
-          <div style={STYLES.typography.title}>
-            {error?.userFriendlyMessage ||
-              error?.message ||
-              "An error occurred"}
-          </div>
-          {error?.userFriendlyMessage && error?.message && (
-            <div style={STYLES.typography.caption}>
-              Details: {error.message}
+          <div style={STYLES.typography.title}>{state.message}</div>
+          {state.code && (
+            <div style={STYLES.typography.caption}>Code: {state.code}</div>
+          )}
+          {state.actions?.length ? (
+            <div role="group" aria-label="Error actions">
+              {state.actions.map((a: UiAction, i) => (
+                <Button
+                  key={i}
+                  onClick={a.onClick}
+                  disabled={a.disabled}
+                  variant={a.variant}
+                  text={a.label}
+                  block
+                />
+              ))}
             </div>
-          )}
-          {error?.code && (
-            <div style={STYLES.typography.caption}>Code: {error.code}</div>
-          )}
-          {error?.suggestion && (
-            <div style={STYLES.typography.caption}>{error.suggestion}</div>
-          )}
-          {severity === ErrorSeverity.WARNING && (
-            <div role="status" style={STYLES.typography.caption}>
-              Warning: Partial success.
-            </div>
-          )}
-          <StateActions
-            actions={data.actions}
-            recoverable={!!error?.recoverable}
-            retry={error?.retry}
-            label="Error actions"
-          />
+          ) : null}
         </div>
       )
-    }
-
-    if (state === StateType.SUCCESS) {
+    case "empty":
       return (
         <div role="status" aria-live="polite">
-          <StateActions actions={data.actions} label="Success actions" />
+          <div>{state.message}</div>
+          {state.actions?.length ? (
+            <div role="group" aria-label="Empty actions">
+              {state.actions.map((a: UiAction, i) => (
+                <Button
+                  key={i}
+                  onClick={a.onClick}
+                  disabled={a.disabled}
+                  variant={a.variant}
+                  text={a.label}
+                  block
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )
-    }
-
-    if (state === StateType.EMPTY) {
+    case "success":
       return (
         <div role="status" aria-live="polite">
-          <div>{data.message || "No data available"}</div>
+          {state.title && (
+            <div style={STYLES.typography.title}>{state.title}</div>
+          )}
+          {state.message && (
+            <div style={STYLES.typography.caption}>{state.message}</div>
+          )}
+          {state.actions?.length ? (
+            <div role="group" aria-label="Success actions">
+              {state.actions.map((a: UiAction, i) => (
+                <Button
+                  key={i}
+                  onClick={a.onClick}
+                  disabled={a.disabled}
+                  variant={a.variant}
+                  text={a.label}
+                  block
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )
-    }
-
-    return null
+    case "content":
+      return <>{state.node}</>
   }
-)
+})
 
 // Icon component
 export interface IconProps {
@@ -776,7 +750,7 @@ export const Form: React.FC<FormProps> = (props) => {
   throw new Error(`Unknown Form variant: ${variant}`)
 }
 
-export { Button as default, StateRenderer }
+export { Button as default, StateView }
 
 export type {
   ButtonProps,
@@ -790,5 +764,4 @@ export type {
   TextAreaProps,
   TabsProps,
   TabItem,
-  StateRendererProps,
 }
