@@ -26,6 +26,8 @@ import type {
   ErrorState,
   WorkspaceParameter,
   WorkspaceItemDetail,
+  FmeResponse,
+  FmeServiceInfo,
 } from "../shared/types"
 import {
   DrawingTool,
@@ -101,6 +103,11 @@ const useArcGISModules = (): {
   return { modules, loading }
 }
 
+// Type for FME form data
+interface FmeFormData {
+  data?: { [key: string]: unknown }
+}
+
 // Custom hook to manage local map state
 const useLocalMapState = () => {
   const [jimuMapView, setJimuMapView] = React.useState<JimuMapView | null>(null)
@@ -162,6 +169,8 @@ const abortIfPresent = (
     } catch {
       // noop
     }
+    // clear the reference
+    ref.current = null
   }
 }
 
@@ -172,19 +181,23 @@ const calculatePolygonArea = (
 ): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
+  type AreaMethod = "geodesicArea" | "planarArea"
+  const AREA_UNIT = "square-meters"
+  const METHODS: readonly AreaMethod[] = ["geodesicArea", "planarArea"]
+
   const geometryEngine = modules.geometryEngine as any
   const polygon = geometry as __esri.Polygon
 
-  const tryCalculation = (method: string): number | undefined => {
+  for (const method of METHODS) {
     try {
-      const value = geometryEngine?.[method]?.(polygon, "square-meters")
-      return isFinite(value) && value > 0 ? Math.abs(value) : undefined
+      const value = geometryEngine?.[method]?.(polygon, AREA_UNIT)
+      if (Number.isFinite(value) && value > 0) return Math.abs(value)
     } catch {
-      return undefined
+      // ignore and try the next method
     }
   }
 
-  return tryCalculation("geodesicArea") ?? tryCalculation("planarArea") ?? 0
+  return 0
 }
 
 // Validate polygon geometry with early returns
@@ -279,7 +292,7 @@ const buildBaseFmeParams = (
   formData: unknown,
   userEmail: string
 ): { [key: string]: unknown } => {
-  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
+  const data = (formData as FmeFormData)?.data || {}
   return {
     ...data,
     opt_requesteremail: userEmail,
@@ -289,6 +302,11 @@ const buildBaseFmeParams = (
   }
 }
 
+// Type guard for polygon-like JSON (Esri)
+const isPolygonJson = (value: unknown): value is { rings: unknown } => {
+  return !!value && typeof value === "object" && "rings" in (value as any)
+}
+
 // Attach polygon AOI if present
 const attachAreaOfInterest = (
   base: { [key: string]: unknown },
@@ -296,7 +314,7 @@ const attachAreaOfInterest = (
   currentGeometry: __esri.Geometry | undefined
 ): { [key: string]: unknown } => {
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
-  if (geometryToUse && (geometryToUse as { rings?: unknown }).rings) {
+  if (isPolygonJson(geometryToUse)) {
     return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
   }
   return base
@@ -532,9 +550,7 @@ const processFmeResponse = (
   workspace: string,
   userEmail: string
 ): ExportResult => {
-  const response = fmeResponse as {
-    data?: { serviceResponse?: any; status?: string }
-  }
+  const response = fmeResponse as FmeResponse
   const data = response?.data
   if (!data) {
     return {
@@ -543,9 +559,16 @@ const processFmeResponse = (
       code: "INVALID_RESPONSE",
     }
   }
-  const serviceInfo = data.serviceResponse || data
+
+  const serviceInfo: FmeServiceInfo =
+    (data as any).serviceResponse || (data as any)
   const status = serviceInfo?.statusInfo?.status || serviceInfo?.status
-  const jobId = serviceInfo?.jobID || serviceInfo?.id || Date.now()
+  const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
+  const parsedId =
+    typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
+  const jobId: number =
+    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : Date.now()
+
   if (status === "success") {
     return {
       success: true,
@@ -556,6 +579,7 @@ const processFmeResponse = (
       downloadUrl: serviceInfo?.url,
     }
   }
+
   return {
     success: false,
     message:
@@ -578,7 +602,7 @@ const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
 
 // Format area (metric; returns localized string)
 export function formatArea(area: number): string {
-  if (!area || isNaN(area) || area <= 0) return "0 m²"
+  if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
   if (area >= AREA_THRESHOLD_SQKM) {
     const areaInSqKm = area / AREA_CONVERSION_FACTOR
     const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
@@ -787,6 +811,8 @@ export default function Widget(
       handleSubmissionError(error)
     } finally {
       dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: false }))
+      // clear any existing abort controller after completion
+      submissionAbortRef.current = null
     }
   })
 
@@ -845,17 +871,15 @@ export default function Widget(
   // Instruction text
   const getDynamicInstructionText = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
-      if (tool === DrawingTool.RECTANGLE)
+      if (tool === DrawingTool.RECTANGLE) {
         return translate("rectangleDrawingInstructions")
-
-      // Polygon dynamic
+      }
       if (tool === DrawingTool.POLYGON) {
         if (!isDrawing || clickCount === 0)
           return translate("polygonDrawingStart")
         if (clickCount < 3) return translate("polygonDrawingContinue")
         return translate("polygonDrawingComplete")
       }
-
       return translate("drawInstruction")
     }
   )
@@ -906,6 +930,11 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
   })
 
+  // Shared navigation to workspace selection
+  const goToWorkspaceSelection = hooks.useEventCallback(() => {
+    dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+  })
+
   const handleGoBack = hooks.useEventCallback(() => {
     const { viewMode, previousViewMode } = reduxState
     const fallback = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
@@ -951,9 +980,20 @@ export default function Widget(
     )
   }
 
+  // derive simple view booleans for readability
+  const showHeaderActions =
+    (reduxState.isDrawing || reduxState.drawnArea > 0) &&
+    !reduxState.isSubmittingOrder &&
+    !modulesLoading
+
+  // precompute UI booleans
+  const hasSingleMapWidget = Boolean(
+    useMapWidgetIds && useMapWidgetIds.length === 1
+  )
+
   return (
     <>
-      {useMapWidgetIds && useMapWidgetIds.length === 1 && (
+      {hasSingleMapWidget && (
         <JimuMapViewComponent
           useMapWidgetId={useMapWidgetIds[0]}
           onActiveViewChange={handleMapViewReady}
@@ -973,14 +1013,10 @@ export default function Widget(
         onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
         isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchViewModel}
-        onFormBack={() =>
-          dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
-        }
+        onFormBack={() => goToWorkspaceSelection()}
         onFormSubmit={handleFormSubmit}
         orderResult={reduxState.orderResult}
-        onReuseGeography={() =>
-          dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
-        }
+        onReuseGeography={() => goToWorkspaceSelection()}
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={handleGoBack}
         drawnArea={reduxState.drawnArea}
@@ -990,11 +1026,7 @@ export default function Widget(
           dispatch(fmeActions.setDrawingTool(tool))
         }
         // Header props
-        showHeaderActions={
-          (reduxState.isDrawing || reduxState.drawnArea > 0) &&
-          !reduxState.isSubmittingOrder &&
-          !modulesLoading
-        }
+        showHeaderActions={showHeaderActions}
         onReset={handleReset}
         canReset={true}
         onWorkspaceSelected={handleWorkspaceSelected}

@@ -584,6 +584,25 @@ export interface FmeFlowError {
   }
 }
 
+// FME Flow service response structure
+export interface FmeStatusInfo {
+  readonly status?: string
+  readonly message?: string
+}
+export interface FmeServiceInfo {
+  readonly statusInfo?: FmeStatusInfo
+  readonly status?: string
+  readonly jobID?: string | number
+  readonly id?: string | number
+  readonly url?: string
+  readonly message?: string
+}
+export interface FmeResponse {
+  readonly data?:
+    | ({ readonly serviceResponse?: FmeServiceInfo } & FmeServiceInfo)
+    | undefined
+}
+
 // Custom error class for FME Flow API
 export class FmeFlowApiError extends Error {
   constructor(
