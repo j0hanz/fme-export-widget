@@ -8,7 +8,7 @@
   "version": "1.18.0",
   "exbVersion": "1.18.0",
   "requireLicense": "Premium",
-  "icon": "client/jimu-icons/svg/outlined/application/data-download.svg",
+  "icon": "jimu-icons/svg/outlined/application/data-download.svg",
   "properties": {
     "hasSettingPage": true,
     "hasConfig": true
