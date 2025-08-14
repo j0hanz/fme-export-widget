@@ -36,27 +36,15 @@ import type {
 } from "../../shared/types"
 
 // UI style constants
-export const UI_CSS = {
-  ICON_SIZES: {
-    SMALL: 14,
-    DEFAULT: 16,
-    LARGE: 20,
-  },
-  SPACING: {
-    ICON_OFFSET: "10px",
-    ICON_MARGIN: "mr-2",
-  },
-  ACCESSIBILITY: {
-    DEFAULT_BUTTON_LABEL: "Button",
-    DEFAULT_MENU_LABEL: "Options menu",
-    REQUIRED_INDICATOR: "*",
-  },
-  BTN_DEFAULTS: {
-    BLOCK: true,
-    ICON_POSITION: "left" as const,
-    TOOLTIP_PLACEMENT: "top" as const,
-  },
-  BTN: {
+export const UI_CSS = (() => {
+  const ICON = {
+    SIZE: {
+      S: 14,
+      M: 16,
+      L: 20,
+    },
+  } as const
+  const BTN_LAYOUT = {
     GROUP: {
       display: "flex" as const,
       gap: "1rem",
@@ -85,28 +73,37 @@ export const UI_CSS = {
       padding: 0,
     } as React.CSSProperties,
     ICON: { position: "absolute" as const, zIndex: 1 as const },
-  },
-  TOOLTIP: {
-    DELAYS: {
-      ENTER: 1000,
-      ENTER_NEXT: 500,
-      LEAVE: 100,
+  } as const
+  const BTN_DEFAULTS = {
+    BLOCK: true,
+    ICON_POS: "left" as const,
+    TIP_POS: "top" as const,
+  } as const
+  const BTN = {
+    ...BTN_LAYOUT,
+    DEFAULTS: BTN_DEFAULTS,
+    OFFSET: "10px",
+    MARGIN: "mr-2",
+  } as const
+  const TIP = {
+    DELAY: {
+      IN: 1000,
+      NEXT: 500,
+      OUT: 100,
       TOUCH: 500,
     },
-    PLACEMENTS: {
+    POS: {
       TOP: "top" as const,
       BOTTOM: "bottom" as const,
       LEFT: "left" as const,
       RIGHT: "right" as const,
     },
-    STYLES: {
-      showArrow: true,
-      disabled: false,
-    },
-  },
-  SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
-  STYLES: {
-    BUTTON_RELATIVE: { position: "relative" as const },
+    SHOW_ARROW: true,
+    DISABLED: false,
+  } as const
+  const SEL = { PLACEHOLDER: "Välj ett alternativ" } as const
+  const CSS = {
+    BTN_REL: { position: "relative" as const },
     TEXTAREA_RESIZE: { resize: "vertical" as const },
     DROPDOWN_FLEX: "d-flex align-items-center",
     DISABLED_CURSOR: {
@@ -114,8 +111,21 @@ export const UI_CSS = {
       cursor: "not-allowed" as const,
     },
     LABEL: { display: "block" as const },
-  },
-} as const
+  } as const
+  const A11Y = {
+    BTN_LABEL: "Button",
+    MENU_LABEL: "Options menu",
+    REQUIRED: "*",
+  } as const
+  return {
+    ICON,
+    BTN,
+    TIP,
+    SEL,
+    CSS,
+    A11Y,
+  } as const
+})()
 
 // Utility Hooks / Helpers
 let autoIdCounter = 0
@@ -161,10 +171,7 @@ const getButtonAriaLabel = (
   tooltip?: string
 ): string | undefined => {
   if (text || !icon) return jimuAriaLabel
-  return (
-    (typeof tooltip === "string" && tooltip) ||
-    UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
-  )
+  return (typeof tooltip === "string" && tooltip) || UI_CSS.A11Y.BTN_LABEL
 }
 
 // Helper for tooltip content resolution
@@ -208,7 +215,7 @@ const ButtonContent: React.FC<ButtonContentProps> = ({
   if (!hasIcon && !hasText) return null
   if (hasIcon && !hasText)
     return typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />
+      <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />
     ) : (
       (icon as React.ReactElement)
     )
@@ -216,14 +223,14 @@ const ButtonContent: React.FC<ButtonContentProps> = ({
 
   const iconEl =
     typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON_SIZES.SMALL} />
+      <Icon src={icon} size={UI_CSS.ICON.SIZE.S} />
     ) : (
       (icon as React.ReactElement)
     )
   const iconWithPosition = React.cloneElement(iconEl, {
     style: {
       ...UI_CSS.BTN.ICON,
-      [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
+      [iconPosition]: UI_CSS.BTN.OFFSET,
     },
   })
 
@@ -247,7 +254,7 @@ export interface IconProps {
 
 export const Icon: React.FC<IconProps> = ({
   src,
-  size = UI_CSS.ICON_SIZES.DEFAULT,
+  size = UI_CSS.ICON.SIZE.M,
   className,
   ariaLabel,
   style,
@@ -270,13 +277,13 @@ export const Icon: React.FC<IconProps> = ({
 export const Tooltip: React.FC<CustomTooltipProps> = ({
   content,
   children,
-  showArrow = UI_CSS.TOOLTIP.STYLES.showArrow,
-  placement = UI_CSS.TOOLTIP.PLACEMENTS.TOP,
-  enterDelay = UI_CSS.TOOLTIP.DELAYS.ENTER,
-  enterNextDelay = UI_CSS.TOOLTIP.DELAYS.ENTER_NEXT,
-  enterTouchDelay = UI_CSS.TOOLTIP.DELAYS.TOUCH,
-  leaveDelay = UI_CSS.TOOLTIP.DELAYS.LEAVE,
-  disabled = UI_CSS.TOOLTIP.STYLES.disabled,
+  showArrow = UI_CSS.TIP.SHOW_ARROW,
+  placement = UI_CSS.TIP.POS.TOP,
+  enterDelay = UI_CSS.TIP.DELAY.IN,
+  enterNextDelay = UI_CSS.TIP.DELAY.NEXT,
+  enterTouchDelay = UI_CSS.TIP.DELAY.TOUCH,
+  leaveDelay = UI_CSS.TIP.DELAY.OUT,
+  disabled = UI_CSS.TIP.DISABLED,
   title,
   ...otherProps
 }) => {
@@ -300,7 +307,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
     "aria-describedby": tooltipId,
   })
   const child = isDisabled ? (
-    <span style={UI_CSS.STYLES.DISABLED_CURSOR}>{cloned}</span>
+    <span style={UI_CSS.CSS.DISABLED_CURSOR}>{cloned}</span>
   ) : (
     cloned
   )
@@ -449,7 +456,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       value={value}
       onChange={handleChange}
       style={{
-        ...UI_CSS.STYLES.TEXTAREA_RESIZE,
+        ...UI_CSS.CSS.TEXTAREA_RESIZE,
         ...props.style,
       }}
       aria-required={props.required}
@@ -470,7 +477,7 @@ export const Select: React.FC<SelectProps> = (props) => {
     value: controlled,
     defaultValue,
     onChange,
-    placeholder = UI_CSS.SELECT_DEFAULTS.PLACEHOLDER,
+    placeholder = UI_CSS.SEL.PLACEHOLDER,
     disabled = false,
     ariaLabel,
     ariaDescribedBy,
@@ -563,18 +570,18 @@ export const Select: React.FC<SelectProps> = (props) => {
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
-  iconPosition = UI_CSS.BTN_DEFAULTS.ICON_POSITION,
+  iconPosition = UI_CSS.BTN.DEFAULTS.ICON_POS,
   alignText = "end",
   tooltip,
   tooltipDisabled = false,
-  tooltipPlacement = UI_CSS.BTN_DEFAULTS.TOOLTIP_PLACEMENT,
+  tooltipPlacement = UI_CSS.BTN.DEFAULTS.TIP_POS,
   tooltipEnterDelay,
   tooltipEnterNextDelay,
   tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
-  block = UI_CSS.BTN_DEFAULTS.BLOCK,
+  block = UI_CSS.BTN.DEFAULTS.BLOCK,
   preset,
   ...jimuProps
 }) => {
@@ -594,10 +601,7 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  const buttonStyle = mergeButtonStyles(
-    UI_CSS.STYLES.BUTTON_RELATIVE,
-    jimuProps.style
-  )
+  const buttonStyle = mergeButtonStyles(UI_CSS.CSS.BTN_REL, jimuProps.style)
   const ariaLabel = getButtonAriaLabel(
     text,
     !!icon,
@@ -783,7 +787,7 @@ export const Tabs: React.FC<TabsProps> = ({
     }): JSX.Element => {
       const content = (
         <>
-          {icon && <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />}
+          {icon && <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />}
           {!hideLabel && label}
         </>
       )
@@ -935,7 +939,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <FormGroup className={className} style={style}>
         <Label
-          style={{ ...UI_CSS.STYLES.LABEL, ...STYLES.typography.label }}
+          style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
           check={false}
         >
           {label}
@@ -947,7 +951,7 @@ export const Form: React.FC<FormProps> = (props) => {
                 role="img"
                 aria-hidden="false"
               >
-                {UI_CSS.ACCESSIBILITY.REQUIRED_INDICATOR}
+                {UI_CSS.A11Y.REQUIRED}
               </span>
             </Tooltip>
           )}
@@ -977,7 +981,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup className={className} style={style}>
       <Label
-        style={{ ...UI_CSS.STYLES.LABEL, ...STYLES.typography.label }}
+        style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
         check={false}
       >
         {label}
@@ -989,7 +993,7 @@ export const Field: React.FC<FieldProps> = ({
               role="img"
               aria-hidden="false"
             >
-              {UI_CSS.ACCESSIBILITY.REQUIRED_INDICATOR}
+              {UI_CSS.A11Y.REQUIRED}
             </span>
           </Tooltip>
         )}
