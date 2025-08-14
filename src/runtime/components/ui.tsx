@@ -188,10 +188,11 @@ const getButtonAriaLabel = (
   text?: React.ReactNode,
   icon?: string | boolean,
   jimuAriaLabel?: string,
-  tooltip?: string
+  tooltip?: string,
+  fallbackLabel?: string
 ): string | undefined => {
   if (text || !icon) return jimuAriaLabel
-  return (typeof tooltip === "string" && tooltip) || UI_CSS.A11Y.BTN_LABEL
+  return (typeof tooltip === "string" && tooltip) || fallbackLabel
 }
 
 // Helper for tooltip content resolution
@@ -497,13 +498,14 @@ export const Select: React.FC<SelectProps> = (props) => {
     value: controlled,
     defaultValue,
     onChange,
-    placeholder = UI_CSS.SEL.PLACEHOLDER,
+    placeholder,
     disabled = false,
     ariaLabel,
     ariaDescribedBy,
     style,
     coerce,
   } = props
+  const translate = hooks.useTranslation(defaultMessages)
   const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useControlledValue(
     controlled,
@@ -559,6 +561,8 @@ export const Select: React.FC<SelectProps> = (props) => {
       : undefined
 
   const resolvedAriaDescribedBy = generateAriaDescribedBy(ariaDescribedBy)
+  const resolvedPlaceholder =
+    placeholder ?? translate("placeholderSelectGeneric")
 
   return isMulti ? (
     <select
@@ -576,7 +580,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       value={normalizedValue as any}
       onChange={handleChange}
       disabled={disabled}
-      placeholder={placeholder}
+      placeholder={resolvedPlaceholder}
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
       style={style}
@@ -605,6 +609,7 @@ export const Button: React.FC<ButtonProps> = ({
   preset,
   ...jimuProps
 }) => {
+  const translate = hooks.useTranslation(defaultMessages)
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
     if (jimuProps.logging?.enabled) {
@@ -626,7 +631,8 @@ export const Button: React.FC<ButtonProps> = ({
     text,
     !!icon,
     jimuProps["aria-label"],
-    tooltip
+    tooltip,
+    translate("ariaButtonLabel")
   )
 
   const buttonElement = (
@@ -679,12 +685,13 @@ export const Button: React.FC<ButtonProps> = ({
 
 // Helper functions for StateView component
 const renderLoadingState = (
-  state: Extract<UiViewState, { kind: "loading" }>
+  state: Extract<UiViewState, { kind: "loading" }>,
+  ariaDetailsLabel: string
 ) => (
   <div style={STYLES.state.centered} role="status" aria-live="polite">
     <Loading type={LoadingType.Donut} width={200} height={200} />
     {(state.message || state.detail) && (
-      <div style={STYLES.state.text} aria-label="Loading details">
+      <div style={STYLES.state.text} aria-label={ariaDetailsLabel}>
         {state.message && <div>{state.message}</div>}
       </div>
     )}
@@ -696,14 +703,18 @@ const renderErrorState = (
   Actions: React.ComponentType<{
     actions?: readonly UiAction[]
     ariaLabel: string
-  }>
+  }>,
+  codeLabel: string,
+  actionsAriaLabel: string
 ) => (
   <div role="alert" aria-live="assertive">
     <div style={STYLES.typography.title}>{state.message}</div>
     {state.code && (
-      <div style={STYLES.typography.caption}>Code: {state.code}</div>
+      <div style={STYLES.typography.caption}>
+        {codeLabel}: {state.code}
+      </div>
     )}
-    <Actions actions={state.actions} ariaLabel="Error actions" />
+    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
   </div>
 )
 
@@ -712,11 +723,12 @@ const renderEmptyState = (
   Actions: React.ComponentType<{
     actions?: readonly UiAction[]
     ariaLabel: string
-  }>
+  }>,
+  actionsAriaLabel: string
 ) => (
   <div role="status" aria-live="polite">
     <div>{state.message}</div>
-    <Actions actions={state.actions} ariaLabel="Empty actions" />
+    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
   </div>
 )
 
@@ -725,19 +737,21 @@ const renderSuccessState = (
   Actions: React.ComponentType<{
     actions?: readonly UiAction[]
     ariaLabel: string
-  }>
+  }>,
+  actionsAriaLabel: string
 ) => (
   <div role="status" aria-live="polite">
     {state.title && <div style={STYLES.typography.title}>{state.title}</div>}
     {state.message && (
       <div style={STYLES.typography.caption}>{state.message}</div>
     )}
-    <Actions actions={state.actions} ariaLabel="Success actions" />
+    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
   </div>
 )
 
 // StateView component
 const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
+  const translate = hooks.useTranslation(defaultMessages)
   const Actions = hooks.useEventCallback(
     ({
       actions,
@@ -766,13 +780,18 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
 
   switch (state.kind) {
     case "loading":
-      return renderLoadingState(state)
+      return renderLoadingState(state, translate("ariaLoadingDetails"))
     case "error":
-      return renderErrorState(state, Actions)
+      return renderErrorState(
+        state,
+        Actions,
+        translate("errorCode"),
+        translate("ariaErrorActions")
+      )
     case "empty":
-      return renderEmptyState(state, Actions)
+      return renderEmptyState(state, Actions, translate("ariaEmptyActions"))
     case "success":
-      return renderSuccessState(state, Actions)
+      return renderSuccessState(state, Actions, translate("ariaSuccessActions"))
     case "content":
       return <>{state.node}</>
   }
@@ -976,7 +995,7 @@ export const Form: React.FC<FormProps> = (props) => {
             <Tooltip content={translate("requiredField")} placement="bottom">
               <span
                 style={STYLES.typography.required}
-                aria-label="required"
+                aria-label={translate("ariaRequired")}
                 role="img"
                 aria-hidden="false"
               >
@@ -1025,7 +1044,7 @@ export const Field: React.FC<FieldProps> = ({
           <Tooltip content={translate("requiredField")} placement="bottom">
             <span
               style={STYLES.typography.required}
-              aria-label="required"
+              aria-label={translate("ariaRequired")}
               role="img"
               aria-hidden="false"
             >

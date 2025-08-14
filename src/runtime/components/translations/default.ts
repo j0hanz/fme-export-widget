@@ -18,6 +18,7 @@ export default {
   emailNotificationSent: "Ett e-postmeddelande skickas när exporten är klar",
   reuseGeography: "Ny beställning",
   errorCode: "Felkod",
+  orderResultMissing: "Inget tillgängligt",
 
   // Loading and status messages
   submittingOrder: "Skickar beställning...",
@@ -62,4 +63,12 @@ export default {
   placeholderEnter: "Ange {field}...",
   reuseGeometry: "Återanvänd geometri",
   download: "Ladda ner",
+  // Generic placeholders and a11y labels used in ui.tsx
+  placeholderSelectGeneric: "Välj ett alternativ",
+  ariaButtonLabel: "Knapp",
+  ariaLoadingDetails: "Laddningsdetaljer",
+  ariaErrorActions: "Felåtgärder",
+  ariaEmptyActions: "Tomt läge åtgärder",
+  ariaSuccessActions: "Lyckade åtgärder",
+  ariaRequired: "Obligatoriskt",
 }

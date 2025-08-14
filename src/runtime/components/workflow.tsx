@@ -16,9 +16,12 @@ import type {
   WorkflowProps,
   WorkspaceItem,
   UiAction,
-  ExportResult,
-  WorkspaceParameter,
-  WorkspaceItemDetail,
+  FormPrimitive,
+  FormValues,
+  SelectValue,
+  OrderResultProps,
+  ExportFormProps,
+  DynamicFieldProps,
 } from "../../shared/types"
 import {
   ViewMode,
@@ -66,31 +69,25 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Type definitions for form handling
-type FormPrimitive =
-  | string
-  | number
-  | boolean
-  | ReadonlyArray<string | number>
-  | File
-  | null
-
-interface FormValues {
-  [key: string]: FormPrimitive
-}
-
 // Helper for workspace API error handling
 const handleWorkspaceApiError = (
-  err: any,
+  err: unknown,
   isMountedRef: React.MutableRefObject<boolean>,
   translate: (key: string) => string,
   baseMessage: string
 ): string | null => {
-  if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current) {
+  if (
+    (err as { name?: string } | null)?.name === CANCELLED_PROMISE_ERROR_NAME ||
+    !isMountedRef.current
+  ) {
     return null
   }
   const errorMessage =
-    err instanceof Error ? err.message : translate("unknownErrorOccurred")
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+        ? err
+        : translate("unknownErrorOccurred")
   return `${translate(baseMessage)}: ${errorMessage}`
 }
 
@@ -106,60 +103,74 @@ const isResetButtonEnabled = (
   return state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL)
 }
 
-// Create workspace loading state based on current conditions
-const createWorkspaceLoadingState = (
+// Determine whether workspace list should display a loading state
+const isWorkspaceLoading = (
   isLoadingWorkspaces: boolean,
   workspaces: readonly WorkspaceItem[],
   state: ViewMode
 ): boolean => {
-  const isRelevantState =
+  const shouldLoadInThisState =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
-
-  return isLoadingWorkspaces || (!workspaces.length && !isRelevantState)
+  return isLoadingWorkspaces || (!workspaces.length && shouldLoadInThisState)
 }
 
 // Form helper functions
 const normalizeFieldValue = (
   value: FormPrimitive | undefined,
   isMultiSelect: boolean
-): any => {
+): FormPrimitive => {
   if (value === undefined || value === null) {
     return isMultiSelect ? [] : ""
   }
   return value
 }
 
+// Coerce any FormPrimitive to a value acceptable by <Select/>
+const toSelectValue = (
+  value: FormPrimitive,
+  isMultiSelect: boolean
+): SelectValue => {
+  if (Array.isArray(value)) return value as ReadonlyArray<string | number>
+  if (typeof value === "string" || typeof value === "number") return value
+  return isMultiSelect ? [] : ""
+}
+
 const createFieldPlaceholders = (
   translate: (k: string, p?: any) => string,
   fieldLabel: string
-) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
-})
+) =>
+  ({
+    enter: translate("placeholderEnter", { field: fieldLabel }),
+    select: translate("placeholderSelect", { field: fieldLabel }),
+  }) as const
 
 const createFormValuesFromConfig = (
   formConfig: readonly DynamicFieldConfig[]
 ): FormValues => {
-  return formConfig.reduce<FormValues>(
-    (acc, field) =>
-      field.defaultValue !== undefined
-        ? { ...acc, [field.name]: field.defaultValue as FormPrimitive }
-        : acc,
-    {}
-  )
+  const result: FormValues = {}
+  for (const field of formConfig) {
+    if (field.defaultValue !== undefined) {
+      result[field.name] = field.defaultValue as FormPrimitive
+    }
+  }
+  return result
 }
 
 const dispatchFormValues = (values: FormValues): void => {
-  getAppStore().dispatch(fmeActions.setFormValues(values) as any)
+  // Dispatch form values to the Redux store
+  const dispatch = getAppStore().dispatch as (
+    action: ReturnType<typeof fmeActions.setFormValues>
+  ) => void
+  dispatch(fmeActions.setFormValues(values))
 }
 
 const renderTextualInput = (
   type: "text" | "password" | "number",
-  fieldValue: any,
+  fieldValue: FormPrimitive,
   placeholder: string,
   onChange: (value: FormPrimitive) => void,
   readOnly?: boolean
-) => {
+): JSX.Element => {
   const handleChange = (val: string) => {
     if (type === "number") {
       if (val === "") {
@@ -177,10 +188,16 @@ const renderTextualInput = (
     }
   }
 
+  // Display value handling
+  const displayValue =
+    typeof fieldValue === "string" || typeof fieldValue === "number"
+      ? String(fieldValue)
+      : ""
+
   return (
     <Input
       type={type === "number" ? "text" : type}
-      value={String(fieldValue)}
+      value={displayValue}
       placeholder={placeholder}
       onChange={handleChange}
       disabled={readOnly}
@@ -189,13 +206,12 @@ const renderTextualInput = (
   )
 }
 
-// OrderResult component to display the result of an export order
-const OrderResult: React.FC<{
-  orderResult: ExportResult
-  translate: (k: string) => string
-  onReuseGeography?: () => void
-  onBack?: () => void
-}> = ({ orderResult, translate, onReuseGeography, onBack }) => {
+const OrderResult = React.memo(function OrderResult({
+  orderResult,
+  translate,
+  onReuseGeography,
+  onBack,
+}: OrderResultProps) {
   const isSuccess = !!orderResult.success
   const rows: React.ReactNode[] = []
 
@@ -206,7 +222,7 @@ const OrderResult: React.FC<{
         ? String(value)
         : JSON.stringify(value)
     rows.push(
-      <div style={STYLES.typography.caption} key={`${label}-${display}`}>
+      <div style={STYLES.typography.caption} key={label || display}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -232,7 +248,7 @@ const OrderResult: React.FC<{
   const showMessage = isSuccess || orderResult.message
   const messageText = isSuccess
     ? translate("emailNotificationSent")
-    : orderResult.message
+    : orderResult.message || translate("unknownErrorOccurred")
 
   return (
     <>
@@ -261,15 +277,15 @@ const OrderResult: React.FC<{
       />
     </>
   )
-}
+})
 
-// Dynamic field component for forms
-const DynamicField: React.FC<{
-  field: DynamicFieldConfig
-  value: FormPrimitive | undefined
-  onChange: (value: FormPrimitive) => void
-  translate: (k: string, p?: any) => string
-}> = ({ field, value, onChange, translate }) => {
+// Dynamic field component for rendering various form fields based on configuration
+const DynamicField = React.memo(function DynamicField({
+  field,
+  value,
+  onChange,
+  translate,
+}: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFieldValue(value, isMulti)
   const placeholders = createFieldPlaceholders(translate, field.label)
@@ -279,7 +295,7 @@ const DynamicField: React.FC<{
     case FormFieldType.MULTI_SELECT:
       return (
         <Select
-          value={fieldValue}
+          value={toSelectValue(fieldValue, isMulti)}
           options={field.options || []}
           placeholder={placeholders.select}
           onChange={(val) => {
@@ -352,18 +368,10 @@ const DynamicField: React.FC<{
         field.readOnly
       )
   }
-}
+})
 
-// Export form component for workspace-based forms
-const ExportForm: React.FC<{
-  readonly workspaceParameters: readonly WorkspaceParameter[]
-  readonly workspaceName: string
-  readonly workspaceItem?: WorkspaceItemDetail
-  readonly onBack: () => void
-  readonly onSubmit: (data: { type: string; data: FormValues }) => void
-  readonly isSubmitting: boolean
-  readonly translate: (k: string, p?: any) => string
-}> = ({
+// ExportForm component - handles dynamic form generation and submission
+const ExportForm = React.memo(function ExportForm({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -371,7 +379,7 @@ const ExportForm: React.FC<{
   onSubmit,
   isSubmitting,
   translate,
-}) => {
+}: ExportFormProps) {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
   const [fileMap, setFileMap] = React.useState<{ [key: string]: File | null }>(
@@ -382,9 +390,8 @@ const ExportForm: React.FC<{
   const buildValidationError = hooks.useEventCallback(
     (count: number): string =>
       count === 1
-        ? translate("formValidationSingleError") || "formValidationSingleError"
-        : translate("formValidationMultipleErrors") ||
-          "formValidationMultipleErrors"
+        ? translate("formValidationSingleError")
+        : translate("formValidationMultipleErrors")
   )
 
   // Generate form configuration from parameters
@@ -445,7 +452,11 @@ const ExportForm: React.FC<{
         ErrorType.VALIDATION,
         { code: "FORM_INVALID" }
       )
-      getAppStore().dispatch(fmeActions.setError(error) as any)
+      // Dispatch error to the store
+      const dispatch = getAppStore().dispatch as (
+        action: ReturnType<typeof fmeActions.setError>
+      ) => void
+      dispatch(fmeActions.setError(error))
       return
     }
     // Merge file inputs with other values
@@ -491,7 +502,7 @@ const ExportForm: React.FC<{
       ))}
     </Form>
   )
-}
+})
 
 // Main Workflow component - consolidates content and export functionality
 export const Workflow: React.FC<WorkflowProps> = ({
@@ -526,13 +537,42 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
+  // Internal alias for readability (keep original prop name for API stability)
+  const onSpecifyExtent = onAngeUtbredning
+
+  // Memoized drawing mode items to avoid re-creating arrays on each render
+  const drawingModeItems = React.useMemo(
+    () =>
+      DRAWING_MODE_TABS.map((tab) => ({
+        ...tab,
+        label: translate(tab.label),
+        tooltip: translate(tab.tooltip),
+      })),
+    [translate]
+  )
+
   // Local helper to build action arrays for StateView
   const createActions = hooks.useEventCallback(
     (onBack?: () => void, onRetry?: () => void): UiAction[] => {
-      const actions: UiAction[] = []
-      if (onRetry) actions.push({ label: translate("retry"), onClick: onRetry })
-      if (onBack) actions.push({ label: translate("back"), onClick: onBack })
-      return actions
+      return [
+        ...(onRetry ? [{ label: translate("retry"), onClick: onRetry }] : []),
+        ...(onBack ? [{ label: translate("back"), onClick: onBack }] : []),
+      ]
+    }
+  )
+
+  // Small helpers to render common StateViews consistently
+  const renderLoading = hooks.useEventCallback(
+    (message?: string, subMessage?: string) => (
+      <StateView state={createLoadingState(message, subMessage)} />
+    )
+  )
+
+  const renderError = hooks.useEventCallback(
+    (message: string, onBack?: () => void, onRetry?: () => void) => {
+      const actions =
+        onBack || onRetry ? createActions(onBack, onRetry) : undefined
+      return <StateView state={createErrorState(message, { actions })} />
     }
   )
 
@@ -569,11 +609,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
       if (response.status === 200 && response.data.items) {
         const items = response.data.items.filter((i) => i.type === "WORKSPACE")
-        if (isMountedRef.current) setWorkspaces(items)
+        // Sort deterministically by title or name (case-insensitive)
+        const sorted = items.slice().sort((a, b) =>
+          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+            sensitivity: "base",
+          })
+        )
+        if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errorMsg = handleWorkspaceApiError(
         err,
         isMountedRef,
@@ -605,7 +651,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         } else {
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         const errorMsg = handleWorkspaceApiError(
           err,
           isMountedRef,
@@ -617,6 +663,27 @@ export const Workflow: React.FC<WorkflowProps> = ({
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
       }
     }
+  )
+
+  // Memoized workspace buttons
+  const workspaceButtons = React.useMemo(
+    () =>
+      workspaces.map((workspace) => (
+        <Button
+          key={workspace.name}
+          text={workspace.title || workspace.name}
+          icon={listIcon}
+          role="listitem"
+          onClick={() => {
+            handleWorkspaceSelect(workspace.name)
+          }}
+          logging={{
+            enabled: true,
+            prefix: "FME-Export-WorkspaceSelection",
+          }}
+        />
+      )),
+    [workspaces, handleWorkspaceSelect]
   )
 
   // Lazy load
@@ -663,40 +730,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderInitial = () => {
     // Early returns for loading and error states
     if (isModulesLoading) {
-      return (
-        <StateView
-          state={createLoadingState(undefined, translate("preparingMapTools"))}
-        />
-      )
-    }
-
-    if (error) {
-      return (
-        <StateView
-          state={createErrorState(
-            translate(error.message) || error.message,
-            error.recoverable
-              ? {
-                  actions: [
-                    {
-                      label: translate("retry"),
-                      onClick: error.retry || noOp,
-                      variant: "primary",
-                    },
-                  ],
-                }
-              : undefined
-          )}
-        />
-      )
+      return renderLoading(undefined, translate("preparingMapTools"))
     }
 
     // Main content
-    const drawingModeItems = DRAWING_MODE_TABS.map((tab) => ({
-      ...tab,
-      label: translate(tab.label),
-      tooltip: translate(tab.tooltip),
-    }))
 
     return (
       <div style={STYLES.state.centered}>
@@ -713,7 +750,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           text={translate("specifyExtent")}
           alignText="center"
           icon={plusIcon}
-          onClick={onAngeUtbredning}
+          onClick={onSpecifyExtent}
           disabled={!canStartDrawing}
           tooltip={translate("tooltipSpecifyExtent")}
           tooltipPlacement="bottom"
@@ -729,7 +766,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const renderWorkspaceSelection = () => {
     // Loading
-    const shouldShowLoading = createWorkspaceLoadingState(
+    const shouldShowLoading = isWorkspaceLoading(
       isLoadingWorkspaces,
       workspaces,
       state
@@ -738,18 +775,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const message = workspaces.length
         ? translate("loadingWorkspaceDetails")
         : translate("loadingWorkspaces")
-      return <StateView state={createLoadingState(message)} />
+      return renderLoading(message)
     }
 
     // Error
     if (workspaceError) {
-      return (
-        <StateView
-          state={createErrorState(workspaceError, {
-            actions: createActions(onBack || noOp, loadWorkspaces),
-          })}
-        />
-      )
+      return renderError(workspaceError, onBack || noOp, loadWorkspaces)
     }
 
     // Empty
@@ -765,43 +796,25 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     // Content
-    const workspaceButtons = workspaces.map((workspace) => (
-      <Button
-        key={workspace.name}
-        text={workspace.title || workspace.name}
-        icon={listIcon}
-        onClick={() => {
-          handleWorkspaceSelect(workspace.name)
-        }}
-        logging={{
-          enabled: true,
-          prefix: "FME-Export-WorkspaceSelection",
-        }}
-      />
-    ))
-
-    return <div style={UI_CSS.BTN.DEFAULT}>{workspaceButtons}</div>
+    return (
+      <div style={UI_CSS.BTN.DEFAULT} role="list">
+        {workspaceButtons}
+      </div>
+    )
   }
 
   const renderExportForm = () => {
     // Guard clause for missing handlers
     if (!onFormBack || !onFormSubmit) {
-      return (
-        <StateView
-          state={createErrorState("Export form configuration missing", {
-            actions: createActions(onBack || noOp),
-          })}
-        />
+      return renderError(
+        translate("missingExportConfiguration"),
+        onBack || noOp
       )
     }
 
     // Guard clause for missing workspace data
     if (!workspaceParameters || !selectedWorkspace) {
-      return (
-        <StateView
-          state={createLoadingState(translate("loadingWorkspaceDetails"))}
-        />
-      )
+      return renderLoading(translate("loadingWorkspaceDetails"))
     }
 
     // Main export form
@@ -821,6 +834,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderContent = () => {
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
+      // Happy path: show OrderResult if present; fallback handled in switch below.
       return (
         <OrderResult
           orderResult={orderResult}
@@ -833,23 +847,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Submission loading
     if (isSubmittingOrder) {
-      return (
-        <StateView state={createLoadingState(translate("submittingOrder"))} />
-      )
+      return renderLoading(translate("submittingOrder"))
     }
 
     // General error
     if (error) {
-      return (
-        <StateView
-          state={createErrorState(error.message, {
-            actions:
-              error.severity !== "info"
-                ? [{ label: translate("retry"), onClick: onBack || noOp }]
-                : undefined,
-          })}
-        />
-      )
+      if (error.severity !== "info") {
+        return renderError(error.message, undefined, onBack || noOp)
+      }
+      return renderError(error.message)
     }
 
     switch (state) {
@@ -863,7 +869,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.EXPORT_FORM:
         return renderExportForm()
       case ViewMode.ORDER_RESULT:
-        return null
+        // Fallback: ORDER_RESULT view but no result object was provided.
+        return renderError(translate("orderResultMissing"), onBack || noOp)
     }
   }
 
