@@ -13,6 +13,7 @@ import {
   TextArea as JimuTextArea,
   Loading,
   LoadingType,
+  Checkbox as JimuCheckbox,
 } from "jimu-ui"
 import { STYLES } from "../../shared/css"
 import defaultMessages from "./translations/default"
@@ -21,6 +22,7 @@ import type {
   ButtonGroupProps,
   CustomTooltipProps,
   FormProps,
+  FieldProps,
   GroupButtonConfig,
   InputProps,
   SelectOption,
@@ -99,6 +101,16 @@ export const UI_CSS = {
 } as const
 
 // Utility Hooks / Helpers
+let autoIdCounter = 0
+const useAutoId = (prefix = "fme"): string => {
+  const idRef = React.useRef<string>()
+  if (!idRef.current) {
+    autoIdCounter += 1
+    idRef.current = `${prefix}-${Date.now().toString(36)}-${autoIdCounter}`
+  }
+  return idRef.current
+}
+
 const useControlledValue = <T = string,>(
   controlled?: T,
   defaultValue?: T,
@@ -171,16 +183,26 @@ const ButtonContent: React.FC<ButtonContentProps> = ({
 }) => {
   if (loading) return <Loading type={LoadingType.Donut} />
   if (children) return <>{children}</>
-
-  const hasIcon = typeof icon === "string" && icon.length > 0
+  const hasIcon =
+    (typeof icon === "string" && icon.length > 0) ||
+    (icon != null && React.isValidElement(icon))
   const hasText = !!text
 
   if (!hasIcon && !hasText) return null
   if (hasIcon && !hasText)
-    return <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />
+    return typeof icon === "string" ? (
+      <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />
+    ) : (
+      (icon as React.ReactElement)
+    )
   if (hasText && !hasIcon) return <>{text}</>
 
-  const iconEl = <Icon src={icon} size={UI_CSS.ICON_SIZES.SMALL} />
+  const iconEl =
+    typeof icon === "string" ? (
+      <Icon src={icon} size={UI_CSS.ICON_SIZES.SMALL} />
+    ) : (
+      (icon as React.ReactElement)
+    )
   const iconWithPosition = React.cloneElement(iconEl, {
     style: {
       ...UI_CSS.BTN.ICON,
@@ -241,11 +263,14 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   title,
   ...otherProps
 }) => {
+  const autoId = useAutoId("tooltip")
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
   const tooltipContent = resolveTooltipContent(title, content, children)
   if (!tooltipContent || disabled) return children
+
+  const tooltipId = otherProps.id || autoId
 
   const isDisabled =
     (children.props as any)?.disabled ||
@@ -255,7 +280,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   if ("title" in baseChildProps) delete baseChildProps.title
   const cloned = React.cloneElement(children as any, {
     ...baseChildProps,
-    "aria-describedby": otherProps.id,
+    "aria-describedby": tooltipId,
   })
   const child = isDisabled ? (
     <span style={UI_CSS.STYLES.DISABLED_CURSOR}>{cloned}</span>
@@ -265,6 +290,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
 
   return (
     <JimuTooltip
+      id={tooltipId}
       title={tooltipContent}
       showArrow={showArrow}
       placement={placement}
@@ -289,6 +315,9 @@ export interface AppMessageProps {
   className?: string
   style?: React.CSSProperties
   onClose?: () => void
+  open?: boolean
+  role?: "alert" | "status"
+  ariaLive?: "assertive" | "polite" | "off"
 }
 
 export const Message: React.FC<AppMessageProps> = ({
@@ -299,18 +328,28 @@ export const Message: React.FC<AppMessageProps> = ({
   className,
   style,
   onClose,
+  open = true,
+  role,
+  ariaLive,
 }) => (
-  <JimuMessage
-    className={className}
-    style={style}
-    severity={severity}
-    message={message}
-    withIcon={withIcon}
-    autoHideDuration={autoHideDuration}
-    open
-    onClose={onClose}
-  />
+  <div role={role} aria-live={ariaLive}>
+    <JimuMessage
+      className={className}
+      style={style}
+      severity={severity}
+      message={message}
+      withIcon={withIcon}
+      autoHideDuration={autoHideDuration}
+      open={open}
+      onClose={onClose}
+    />
+  </div>
 )
+
+// Checkbox component
+export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
+  props
+) => <JimuCheckbox {...props} />
 
 // Input Component
 export const Input: React.FC<InputProps> = ({
@@ -320,6 +359,7 @@ export const Input: React.FC<InputProps> = ({
   maxLength,
   pattern,
   validationMessage,
+  errorText,
   type = "text",
   onChange,
   onFileChange,
@@ -352,11 +392,11 @@ export const Input: React.FC<InputProps> = ({
       required={required}
       maxLength={maxLength}
       pattern={pattern?.source}
-      title={validationMessage}
+      title={validationMessage || errorText}
       aria-required={required}
-      aria-invalid={!!validationMessage}
+      aria-invalid={!!(validationMessage || errorText)}
       aria-describedby={
-        validationMessage
+        validationMessage || errorText
           ? generateAriaDescribedBy(props.id || "input")
           : undefined
       }
@@ -384,7 +424,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
     }
   )
 
-  const validationMessage = (props as any).validationMessage
+  const validationMessage = (props as any).validationMessage || props.errorText
 
   return (
     <JimuTextArea
@@ -418,6 +458,7 @@ export const Select: React.FC<SelectProps> = (props) => {
     ariaLabel,
     ariaDescribedBy,
     style,
+    coerce,
   } = props
   const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useControlledValue(
@@ -431,17 +472,23 @@ export const Select: React.FC<SelectProps> = (props) => {
         const first = Array.isArray(controlled)
           ? (controlled as unknown[])[0]
           : undefined
-        const selected = Array.from(evt.target.selectedOptions).map((o) =>
-          typeof first === "number" && !isNaN(Number(o.value))
-            ? Number(o.value)
-            : o.value
-        )
+        const selected = Array.from(evt.target.selectedOptions).map((o) => {
+          const raw = o.value
+          if (coerce === "number") return Number(raw)
+          if (coerce === "string") return String(raw)
+          return typeof first === "number" && !isNaN(Number(raw))
+            ? Number(raw)
+            : raw
+        })
         handleValueChange(selected as any)
         onChange?.(selected as any)
       } else {
         const rawValue = evt.target.value
-        const finalValue =
-          typeof controlled === "number" && !isNaN(Number(rawValue))
+        const finalValue = coerce
+          ? coerce === "number"
+            ? Number(rawValue)
+            : String(rawValue)
+          : typeof controlled === "number" && !isNaN(Number(rawValue))
             ? Number(rawValue)
             : rawValue
         handleValueChange(finalValue as any)
@@ -504,14 +551,29 @@ export const Button: React.FC<ButtonProps> = ({
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
+  tooltipEnterDelay,
+  tooltipEnterNextDelay,
+  tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
   block = UI_CONSTANTS.BUTTON_DEFAULTS.BLOCK,
+  preset,
   ...jimuProps
 }) => {
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
+    if (jimuProps.logging?.enabled) {
+      try {
+        // Lightweight client-side logging hook
+        console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
+          id: jimuProps.id,
+          text: typeof text === "string" ? text : undefined,
+        })
+      } catch {
+        // no-op
+      }
+    }
     onClick()
   })
 
@@ -529,15 +591,17 @@ export const Button: React.FC<ButtonProps> = ({
   const buttonElement = (
     <JimuButton
       {...jimuProps}
+      {...(preset === "primary"
+        ? { color: "primary", variant: "contained" }
+        : preset === "secondary"
+          ? { color: "default", variant: "outlined" }
+          : {})}
       icon={!text && !!icon}
       onClick={handleClick}
       disabled={jimuProps.disabled || loading}
       aria-busy={loading}
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
-      aria-describedby={
-        tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
-      }
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
@@ -558,7 +622,13 @@ export const Button: React.FC<ButtonProps> = ({
   )
 
   return tooltip && !tooltipDisabled ? (
-    <Tooltip content={tooltip} placement={tooltipPlacement}>
+    <Tooltip
+      content={tooltip}
+      placement={tooltipPlacement}
+      enterDelay={tooltipEnterDelay}
+      enterNextDelay={tooltipEnterNextDelay}
+      leaveDelay={tooltipLeaveDelay}
+    >
       {buttonElement}
     </Tooltip>
   ) : (
@@ -674,6 +744,7 @@ export const Tabs: React.FC<TabsProps> = ({
   value: controlled,
   defaultValue,
   onChange,
+  onTabChange,
   ariaLabel,
   style,
   fill = true,
@@ -718,8 +789,10 @@ export const Tabs: React.FC<TabsProps> = ({
   const handleTabChange = hooks.useEventCallback((tabValue: string) => {
     const newValue =
       typeof controlled === "number" ? Number(tabValue) : tabValue
+    const previous = value
     handleValueChange(newValue)
     onChange?.(newValue)
+    onTabChange?.(newValue, previous)
   })
 
   const normalizedValue = value !== undefined ? String(value) : undefined
@@ -873,6 +946,45 @@ export const Form: React.FC<FormProps> = (props) => {
   throw new Error(`Unknown Form variant: ${variant}`)
 }
 
+// Standalone Field component (for reuse outside of Form)
+export const Field: React.FC<FieldProps> = ({
+  className,
+  style,
+  label,
+  helper,
+  required = false,
+  readOnly = false,
+  error,
+  children,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages)
+  return (
+    <FormGroup className={className} style={style}>
+      <Label
+        style={{ ...UI_CSS.STYLES.LABEL, ...STYLES.typography.label }}
+        check={false}
+      >
+        {label}
+        {required && (
+          <Tooltip content={translate("requiredField")} placement="bottom">
+            <span
+              style={STYLES.typography.required}
+              aria-label="required"
+              role="img"
+              aria-hidden="false"
+            >
+              {UI_CSS.ACCESSIBILITY.REQUIRED_INDICATOR}
+            </span>
+          </Tooltip>
+        )}
+      </Label>
+      {!readOnly && children}
+      {helper && !error && <>{helper}</>}
+      {error && <div className="d-block">{error}</div>}
+    </FormGroup>
+  )
+}
+
 export { Button as default, StateView }
 
 export type {
@@ -880,6 +992,7 @@ export type {
   ButtonGroupProps,
   CustomTooltipProps,
   FormProps,
+  FieldProps,
   GroupButtonConfig,
   InputProps,
   SelectOption,

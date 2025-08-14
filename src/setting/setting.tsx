@@ -5,7 +5,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import { TextInput } from "jimu-ui"
+import { Input } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 
 export default function Setting(props: AllWidgetSettingProps<any>) {
@@ -52,29 +52,31 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
 
       <SettingSection title={translate("fmeServerConfig")}>
         <SettingRow label={translate("fmeServerUrl")}>
-          <TextInput
-            value={getConfigValue("fmeServerUrl", "fme_server_url")}
-            onChange={(e) => {
-              handlePropertyChange("fmeServerUrl", e.target.value)
+          <Input
+            value={getConfigValue("fmeServerUrl", "fme_server_url") as string}
+            onChange={(val) => {
+              handlePropertyChange("fmeServerUrl", val)
             }}
             placeholder="https://fme.server.com"
           />
         </SettingRow>
         <SettingRow label={translate("fmeServerToken")}>
-          <TextInput
+          <Input
             type="password"
-            value={getConfigValue("fmeServerToken", "fmw_server_token")}
-            onChange={(e) => {
-              handlePropertyChange("fmeServerToken", e.target.value)
+            value={
+              getConfigValue("fmeServerToken", "fmw_server_token") as string
+            }
+            onChange={(val) => {
+              handlePropertyChange("fmeServerToken", val)
             }}
             placeholder="Enter FME Server token"
           />
         </SettingRow>
         <SettingRow label={translate("repository")}>
-          <TextInput
-            value={getConfigValue("repository")}
-            onChange={(e) => {
-              handlePropertyChange("repository", e.target.value)
+          <Input
+            value={getConfigValue("repository") as string}
+            onChange={(val) => {
+              handlePropertyChange("repository", val)
             }}
             placeholder="MyRepository"
           />

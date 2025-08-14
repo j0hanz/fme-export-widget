@@ -4,14 +4,13 @@ import {
   hooks,
   type ImmutableObject,
 } from "jimu-core"
-import { Message } from "jimu-ui"
 import {
   JimuMapViewComponent,
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Content } from "./components/content"
-import { StateView } from "./components/ui"
+import { StateView, Message } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
@@ -1038,15 +1037,12 @@ export default function Widget(
       {notification && (
         <Message
           severity={notification.severity}
-          open={true}
           message={notification.message}
           autoHideDuration={4000}
           onClose={() => {
             setNotification(null)
           }}
           withIcon
-          role={notification.severity === "error" ? "alert" : "status"}
-          aria-live={notification.severity === "error" ? "assertive" : "polite"}
         />
       )}
     </>

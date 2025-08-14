@@ -173,6 +173,8 @@ export const Content: React.FC<ContentProps> = ({
   isSubmittingOrder = false,
   onBack,
   drawnArea,
+  // Header actions
+  showHeaderActions,
   // Drawing mode
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
@@ -371,7 +373,6 @@ export const Content: React.FC<ContentProps> = ({
             onDrawingModeChange?.(val as DrawingTool)
           }}
           ariaLabel={translate("drawingModeTooltip")}
-          logging={{ enabled: true, prefix: "FME-Export-DrawingMode" }}
         />
         <Button
           text={translate("specifyExtent")}
@@ -437,8 +438,6 @@ export const Content: React.FC<ContentProps> = ({
         onClick={() => {
           handleWorkspaceSelect(workspace.name)
         }}
-        tooltip={workspace.description}
-        tooltipDisabled={true}
         logging={{
           enabled: true,
           prefix: "FME-Export-WorkspaceSelection",
@@ -534,7 +533,9 @@ export const Content: React.FC<ContentProps> = ({
 
   return (
     <div style={STYLES.parent}>
-      <div style={STYLES.header}>{renderHeader()}</div>
+      <div style={STYLES.header}>
+        {showHeaderActions ? renderHeader() : null}
+      </div>
       <div style={STYLES.content}>{renderContent()}</div>
     </div>
   )

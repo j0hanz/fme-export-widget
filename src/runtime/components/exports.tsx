@@ -1,6 +1,5 @@
 import { React, hooks, getAppStore } from "jimu-core"
-import { Select, TextArea, Form, Input } from "./ui"
-import { Checkbox } from "jimu-ui"
+import { Select, TextArea, Form, Field, Input, Checkbox } from "./ui"
 import { STYLES } from "../../shared/css"
 import defaultMessages from "./translations/default"
 import type { WorkspaceParameter, WorkspaceItem } from "../../shared/types"
@@ -334,19 +333,14 @@ const ExportWithWorkspaceParameters: React.FC<{
       loading={isSubmitting}
     >
       {formConfig.map((field) => (
-        <Form
-          key={field.name}
-          variant="field"
-          label={field.label}
-          required={field.required}
-        >
+        <Field key={field.name} label={field.label} required={field.required}>
           <DynamicField
             field={field}
             value={values[field.name]}
             onChange={(val) => onChange(field.name, val)}
             translate={translate}
           />
-        </Form>
+        </Field>
       ))}
     </Form>
   )

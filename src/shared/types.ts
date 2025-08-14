@@ -128,7 +128,7 @@ export const createContentState = (node: React.ReactNode): ContentUiState => ({
 // UI Component Interfaces
 export interface ButtonProps {
   readonly text?: React.ReactNode
-  readonly icon?: string
+  readonly icon?: string | React.ReactNode
   readonly iconPosition?: "left" | "right"
   readonly alignText?: "start" | "center" | "end"
   readonly loading?: boolean
@@ -140,6 +140,7 @@ export interface ButtonProps {
   readonly tooltipEnterNextDelay?: number
   readonly tooltipLeaveDelay?: number
   readonly logging?: { enabled: boolean; prefix: string }
+  readonly preset?: "primary" | "secondary" | "danger" | "link"
   readonly children?: React.ReactNode
   readonly block?: boolean
   readonly style?: React.CSSProperties
@@ -195,7 +196,7 @@ export interface SelectProps {
   readonly ariaLabel?: string
   readonly ariaDescribedBy?: string
   readonly style?: React.CSSProperties
-  readonly logging?: { enabled: boolean; prefix: string }
+  readonly coerce?: "number" | "string"
 }
 
 // Tabs
@@ -213,12 +214,14 @@ export interface TabsProps {
   readonly value?: string | number
   readonly defaultValue?: string | number
   readonly onChange?: (value: string | number) => void
+  readonly onTabChange?: (
+    value: string | number,
+    previous: string | number | undefined
+  ) => void
   readonly ariaLabel?: string
-  readonly size?: "sm" | "default" | "lg"
   readonly style?: React.CSSProperties
   readonly fill?: boolean
   readonly type?: "default" | "tabs" | "pills" | "underline"
-  readonly logging?: { enabled: boolean; prefix: string }
 }
 
 export interface InputProps {
@@ -231,10 +234,10 @@ export interface InputProps {
   readonly pattern?: RegExp
   readonly validationMessage?: string
   readonly type?: "text" | "password" | "email" | "tel" | "url" | "file"
-  readonly logging?: { enabled: boolean; prefix: string }
   readonly placeholder?: string
   readonly disabled?: boolean
   readonly id?: string
+  readonly errorText?: string
 }
 
 export interface TextAreaProps {
@@ -244,11 +247,10 @@ export interface TextAreaProps {
   readonly placeholder?: string
   readonly disabled?: boolean
   readonly rows?: number
-  readonly logEvent?: boolean
-  readonly logPrefix?: string
   readonly style?: React.CSSProperties
   readonly required?: boolean
   readonly id?: string
+  readonly errorText?: string
 }
 
 // Dropdown types removed (single header action now directly rendered)
@@ -287,11 +289,22 @@ export interface FormProps {
   readonly error?: string
 }
 
+export interface FieldProps {
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  readonly label?: string
+  readonly helper?: string
+  readonly required?: boolean
+  readonly readOnly?: boolean
+  readonly error?: string
+  readonly children?: React.ReactNode
+}
+
 export interface ButtonContentProps {
   readonly loading: boolean
   readonly children?: React.ReactNode
   readonly text?: React.ReactNode
-  readonly icon?: string
+  readonly icon?: string | React.ReactNode
   readonly iconPosition: "left" | "right"
   readonly alignText: "start" | "center" | "end"
 }
