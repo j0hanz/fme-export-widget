@@ -1,3 +1,4 @@
+import type { DynamicFieldConfig } from "./services"
 import type { IMState, ImmutableObject } from "jimu-core"
 
 // Base Types & Utilities
@@ -30,35 +31,6 @@ export interface StateData {
 export interface LoadingConfig {
   readonly type?: "DONUT" | "PRIMARY" | "SECONDARY"
   readonly size?: number
-}
-
-// State controller return type
-export interface StateControllerReturn {
-  readonly currentState: StateType
-  readonly data: StateData
-  readonly isLoading: boolean
-  readonly hasError: boolean
-  readonly isEmpty: boolean
-  readonly isSuccess: boolean
-  readonly hasContent: boolean
-  readonly setIdle: () => void
-  readonly setLoading: (
-    message?: string,
-    detail?: string,
-    config?: LoadingConfig
-  ) => void
-  readonly setError: (
-    error: ErrorState | string,
-    actions?: StateActionButton[]
-  ) => void
-  readonly setSuccess: (
-    message?: string,
-    detail?: string,
-    actions?: StateActionButton[]
-  ) => void
-  readonly setContent: (children: React.ReactNode) => void
-  readonly setEmpty: (message?: string) => void
-  readonly reset: () => void
 }
 
 // UI View State Types
@@ -114,15 +86,6 @@ export const createEmptyState = (
   message: string,
   actions?: readonly UiAction[]
 ): EmptyUiState => ({ kind: "empty", message, actions })
-export const createSuccessState = (
-  message?: string,
-  title?: string,
-  actions?: readonly UiAction[]
-): SuccessUiState => ({ kind: "success", message, title, actions })
-export const createContentState = (node: React.ReactNode): ContentUiState => ({
-  kind: "content",
-  node,
-})
 // ------------------------------------------------------------------
 
 // UI Component Interfaces
@@ -308,6 +271,53 @@ export interface ButtonContentProps {
   readonly icon?: string | React.ReactNode
   readonly iconPosition: "left" | "right"
   readonly alignText: "start" | "center" | "end"
+}
+
+// -----------------------------
+// FME Export Workflow – Shared types
+// -----------------------------
+// Primitive value used by dynamic forms (supports file upload)
+export type FormPrimitive =
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<string | number>
+  | File
+  | null
+
+// Generic key-value map for form values
+export interface FormValues {
+  [key: string]: FormPrimitive
+}
+
+// Select component aggregate value
+export type SelectValue = string | number | ReadonlyArray<string | number>
+
+// Props for DynamicField component (type-only dependency on services.ts)
+export interface DynamicFieldProps {
+  readonly field: DynamicFieldConfig
+  readonly value: FormPrimitive | undefined
+  readonly onChange: (value: FormPrimitive) => void
+  readonly translate: (k: string, p?: any) => string
+}
+
+// Props for OrderResult component
+export interface OrderResultProps {
+  readonly orderResult: ExportResult
+  readonly translate: (k: string) => string
+  readonly onReuseGeography?: () => void
+  readonly onBack?: () => void
+}
+
+// Props for ExportForm component
+export interface ExportFormProps {
+  readonly workspaceParameters: readonly WorkspaceParameter[]
+  readonly workspaceName: string
+  readonly workspaceItem?: WorkspaceItemDetail
+  readonly onBack: () => void
+  readonly onSubmit: (data: { type: string; data: FormValues }) => void
+  readonly isSubmitting: boolean
+  readonly translate: (k: string, p?: any) => string
 }
 
 export const enum DrawingTool {
@@ -758,12 +768,6 @@ export interface JobResult {
   readonly outputFileUrls?: readonly string[]
 }
 
-// Geometry & Spatial Data
-export interface Polygon {
-  readonly type: "Polygon"
-  readonly coordinates: ReadonlyArray<ReadonlyArray<readonly [number, number]>>
-}
-
 export interface UploadWorkspaceParams {
   readonly filename: string
   readonly files: ReadonlyArray<{ readonly path: string }>
@@ -793,30 +797,6 @@ export interface ExportResult {
   readonly jobStatus?: string
   readonly code?: string
   readonly downloadUrl?: string
-}
-
-// Real-time measurement data during drawing
-export interface RealTimeMeasurements {
-  readonly distance?: number
-  readonly currentLineDistance?: number
-  readonly area?: number
-  readonly centroid?: { readonly x: number; readonly y: number }
-  readonly drawingProgress?: {
-    readonly pointsAdded: number
-    readonly isClosingPolygon: boolean
-    readonly canCompletePolygon: boolean
-    readonly totalPerimeter?: number
-  }
-}
-
-// Result from geometry validation operations
-export interface GeometryValidationResult {
-  readonly isValid: boolean
-  readonly area: number
-  readonly error?: ErrorState
-  readonly centroid?: __esri.Point
-  readonly spatialReference?: __esri.SpatialReference
-  readonly extent?: __esri.Extent
 }
 
 // Minimal Esri JSON geometry structure (polygon focused, extend as needed)
@@ -952,34 +932,11 @@ export interface WorkflowProps
 // Legacy interface maintained for backward compatibility
 export interface ContentProps extends WorkflowProps {}
 
-// Legacy interfaces maintained for backward compatibility
-export interface ContentBaseProps extends WorkflowCoreProps {}
-export interface ContentDrawingProps extends WorkflowDrawingFeatures {}
-export interface ContentExportProps extends WorkflowExportFeatures {}
-export interface ContentHeaderProps extends WorkflowHeaderFeatures {}
-export interface ContentWorkspaceProps extends WorkflowWorkspaceFeatures {}
-export interface ContentLoadingProps {
-  readonly isModulesLoading: boolean
-}
-
 // Widget-specific types
 export interface NotificationState {
   readonly severity: "success" | "error" | "warning" | "info"
   readonly message: string
 }
-
-// Widget Constants & Symbols - Simplified
-// Deprecated duplicate symbol constants (kept for backward compatibility); prefer STYLES.symbols.highlight
-export const HIGHLIGHT_SYMBOL = {
-  type: "simple-fill" as const,
-  color: [255, 165, 0, 0.2] as [number, number, number, number],
-  outline: {
-    color: [255, 140, 0] as [number, number, number],
-    width: 2,
-    style: "solid" as const,
-  },
-}
-export const DRAW_POLYGON_SYMBOL = HIGHLIGHT_SYMBOL
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
