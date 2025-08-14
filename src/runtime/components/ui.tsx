@@ -34,19 +34,12 @@ import type {
   UiAction,
   ButtonContentProps,
 } from "../../shared/types"
-import {
-  UI_CONSTANTS,
-  TOOLTIP_DELAYS,
-  TOOLTIP_PLACEMENTS,
-  TOOLTIP_STYLES,
-} from "../../shared/types"
 
 // UI style constants
 export const UI_CSS = {
   ICON_SIZES: {
     SMALL: 14,
-    DEFAULT: UI_CONSTANTS.DEFAULT_ICON_SIZE,
-    MEDIUM: 16,
+    DEFAULT: 16,
     LARGE: 20,
   },
   SPACING: {
@@ -57,6 +50,11 @@ export const UI_CSS = {
     DEFAULT_BUTTON_LABEL: "Button",
     DEFAULT_MENU_LABEL: "Options menu",
     REQUIRED_INDICATOR: "*",
+  },
+  BTN_DEFAULTS: {
+    BLOCK: true,
+    ICON_POSITION: "left" as const,
+    TOOLTIP_PLACEMENT: "top" as const,
   },
   BTN: {
     GROUP: {
@@ -88,6 +86,25 @@ export const UI_CSS = {
     } as React.CSSProperties,
     ICON: { position: "absolute" as const, zIndex: 1 as const },
   },
+  TOOLTIP: {
+    DELAYS: {
+      ENTER: 1000,
+      ENTER_NEXT: 500,
+      LEAVE: 100,
+      TOUCH: 500,
+    },
+    PLACEMENTS: {
+      TOP: "top" as const,
+      BOTTOM: "bottom" as const,
+      LEFT: "left" as const,
+      RIGHT: "right" as const,
+    },
+    STYLES: {
+      showArrow: true,
+      disabled: false,
+    },
+  },
+  SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
   STYLES: {
     BUTTON_RELATIVE: { position: "relative" as const },
     TEXTAREA_RESIZE: { resize: "vertical" as const },
@@ -238,7 +255,7 @@ export const Icon: React.FC<IconProps> = ({
   return (
     <SVG
       src={src}
-      size={size as any}
+      size={size}
       className={className}
       currentColor
       role="img"
@@ -253,13 +270,13 @@ export const Icon: React.FC<IconProps> = ({
 export const Tooltip: React.FC<CustomTooltipProps> = ({
   content,
   children,
-  showArrow = TOOLTIP_STYLES.showArrow,
-  placement = TOOLTIP_PLACEMENTS.TOP,
-  enterDelay = TOOLTIP_DELAYS.ENTER,
-  enterNextDelay = TOOLTIP_DELAYS.ENTER_NEXT,
-  enterTouchDelay = TOOLTIP_DELAYS.TOUCH,
-  leaveDelay = TOOLTIP_DELAYS.LEAVE,
-  disabled = TOOLTIP_STYLES.disabled,
+  showArrow = UI_CSS.TOOLTIP.STYLES.showArrow,
+  placement = UI_CSS.TOOLTIP.PLACEMENTS.TOP,
+  enterDelay = UI_CSS.TOOLTIP.DELAYS.ENTER,
+  enterNextDelay = UI_CSS.TOOLTIP.DELAYS.ENTER_NEXT,
+  enterTouchDelay = UI_CSS.TOOLTIP.DELAYS.TOUCH,
+  leaveDelay = UI_CSS.TOOLTIP.DELAYS.LEAVE,
+  disabled = UI_CSS.TOOLTIP.STYLES.disabled,
   title,
   ...otherProps
 }) => {
@@ -453,7 +470,7 @@ export const Select: React.FC<SelectProps> = (props) => {
     value: controlled,
     defaultValue,
     onChange,
-    placeholder = UI_CONSTANTS.SELECT_DEFAULTS.PLACEHOLDER,
+    placeholder = UI_CSS.SELECT_DEFAULTS.PLACEHOLDER,
     disabled = false,
     ariaLabel,
     ariaDescribedBy,
@@ -546,18 +563,18 @@ export const Select: React.FC<SelectProps> = (props) => {
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
-  iconPosition = UI_CONSTANTS.BUTTON_DEFAULTS.ICON_POSITION,
+  iconPosition = UI_CSS.BTN_DEFAULTS.ICON_POSITION,
   alignText = "end",
   tooltip,
   tooltipDisabled = false,
-  tooltipPlacement = UI_CONSTANTS.BUTTON_DEFAULTS.TOOLTIP_PLACEMENT,
+  tooltipPlacement = UI_CSS.BTN_DEFAULTS.TOOLTIP_PLACEMENT,
   tooltipEnterDelay,
   tooltipEnterNextDelay,
   tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
-  block = UI_CONSTANTS.BUTTON_DEFAULTS.BLOCK,
+  block = UI_CSS.BTN_DEFAULTS.BLOCK,
   preset,
   ...jimuProps
 }) => {
@@ -735,7 +752,6 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
     case "content":
       return <>{state.node}</>
   }
-  return null
 })
 
 // Tabs component
