@@ -238,6 +238,7 @@ export interface InputProps {
   readonly disabled?: boolean
   readonly id?: string
   readonly errorText?: string
+  readonly inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
 }
 
 export interface TextAreaProps {
@@ -894,8 +895,8 @@ export interface IMStateWithFmeExport extends IMState {
   fmeExport: ImmutableObject<FmeWidgetState>
 }
 
-// Optimized content props interfaces with better composition
-interface ContentCoreProps {
+// Optimized workflow props interfaces with better composition
+interface WorkflowCoreProps {
   readonly widgetId?: string
   readonly state: ViewMode
   readonly instructionText: string
@@ -904,7 +905,7 @@ interface ContentCoreProps {
   readonly isModulesLoading: boolean
 }
 
-interface ContentDrawingFeatures {
+interface WorkflowDrawingFeatures {
   readonly canStartDrawing: boolean
   readonly onAngeUtbredning: () => void
   readonly drawnArea?: number | null
@@ -913,7 +914,7 @@ interface ContentDrawingFeatures {
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
 }
 
-interface ContentExportFeatures {
+interface WorkflowExportFeatures {
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (data: unknown) => void
   readonly orderResult?: ExportResult | null
@@ -921,13 +922,13 @@ interface ContentExportFeatures {
   readonly isSubmittingOrder?: boolean
 }
 
-interface ContentHeaderFeatures {
+interface WorkflowHeaderFeatures {
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
   readonly canReset?: boolean
 }
 
-interface ContentWorkspaceFeatures {
+interface WorkflowWorkspaceFeatures {
   readonly config: FmeExportConfig
   readonly onWorkspaceSelected?: (
     workspaceName: string,
@@ -940,20 +941,23 @@ interface ContentWorkspaceFeatures {
   readonly workspaceItem?: WorkspaceItemDetail | null
 }
 
-// Optimized final content props with selective feature composition
-export interface ContentProps
-  extends ContentCoreProps,
-    Partial<ContentDrawingFeatures>,
-    Partial<ContentExportFeatures>,
-    Partial<ContentHeaderFeatures>,
-    Partial<ContentWorkspaceFeatures> {}
+// Main workflow props interface with selective feature composition
+export interface WorkflowProps
+  extends WorkflowCoreProps,
+    Partial<WorkflowDrawingFeatures>,
+    Partial<WorkflowExportFeatures>,
+    Partial<WorkflowHeaderFeatures>,
+    Partial<WorkflowWorkspaceFeatures> {}
+
+// Legacy interface maintained for backward compatibility
+export interface ContentProps extends WorkflowProps {}
 
 // Legacy interfaces maintained for backward compatibility
-export interface ContentBaseProps extends ContentCoreProps {}
-export interface ContentDrawingProps extends ContentDrawingFeatures {}
-export interface ContentExportProps extends ContentExportFeatures {}
-export interface ContentHeaderProps extends ContentHeaderFeatures {}
-export interface ContentWorkspaceProps extends ContentWorkspaceFeatures {}
+export interface ContentBaseProps extends WorkflowCoreProps {}
+export interface ContentDrawingProps extends WorkflowDrawingFeatures {}
+export interface ContentExportProps extends WorkflowExportFeatures {}
+export interface ContentHeaderProps extends WorkflowHeaderFeatures {}
+export interface ContentWorkspaceProps extends WorkflowWorkspaceFeatures {}
 export interface ContentLoadingProps {
   readonly isModulesLoading: boolean
 }

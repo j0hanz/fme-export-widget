@@ -1,11 +1,24 @@
-import { React, hooks } from "jimu-core"
-import { Button, Tabs, UI_CSS, StateView } from "./ui"
+import { React, hooks, getAppStore } from "jimu-core"
+import {
+  Button,
+  Tabs,
+  UI_CSS,
+  StateView,
+  Select,
+  TextArea,
+  Form,
+  Field,
+  Input,
+  Checkbox,
+} from "./ui"
 import defaultMessages from "./translations/default"
 import type {
-  ContentProps,
+  WorkflowProps,
   WorkspaceItem,
   UiAction,
   ExportResult,
+  WorkspaceParameter,
+  WorkspaceItemDetail,
 } from "../../shared/types"
 import {
   ViewMode,
@@ -13,6 +26,7 @@ import {
   createLoadingState,
   createErrorState,
   createEmptyState,
+  ErrorType,
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
@@ -20,8 +34,14 @@ import resetIcon from "jimu-icons/svg/outlined/gis/clear-selection.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
 import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
 import { STYLES } from "../../shared/css"
-import { Export } from "./exports"
 import { createFmeFlowClient } from "../../shared/api"
+import { fmeActions } from "../../extensions/store"
+import {
+  ParameterFormService,
+  type DynamicFieldConfig,
+  FormFieldType,
+  ErrorHandlingService,
+} from "../../shared/services"
 
 const CANCELLED_PROMISE_ERROR_NAME = "CancelledPromiseError"
 const noOp = (): void => {
@@ -45,6 +65,19 @@ const DRAWING_MODE_TABS = [
     hideLabel: true,
   },
 ] as const
+
+// Type definitions for form handling
+type FormPrimitive =
+  | string
+  | number
+  | boolean
+  | ReadonlyArray<string | number>
+  | File
+  | null
+
+interface FormValues {
+  [key: string]: FormPrimitive
+}
 
 // Helper for workspace API error handling
 const handleWorkspaceApiError = (
@@ -83,6 +116,77 @@ const createWorkspaceLoadingState = (
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
 
   return isLoadingWorkspaces || (!workspaces.length && !isRelevantState)
+}
+
+// Form helper functions
+const normalizeFieldValue = (
+  value: FormPrimitive | undefined,
+  isMultiSelect: boolean
+): any => {
+  if (value === undefined || value === null) {
+    return isMultiSelect ? [] : ""
+  }
+  return value
+}
+
+const createFieldPlaceholders = (
+  translate: (k: string, p?: any) => string,
+  fieldLabel: string
+) => ({
+  enter: translate("placeholderEnter", { field: fieldLabel }),
+  select: translate("placeholderSelect", { field: fieldLabel }),
+})
+
+const createFormValuesFromConfig = (
+  formConfig: readonly DynamicFieldConfig[]
+): FormValues => {
+  return formConfig.reduce<FormValues>(
+    (acc, field) =>
+      field.defaultValue !== undefined
+        ? { ...acc, [field.name]: field.defaultValue as FormPrimitive }
+        : acc,
+    {}
+  )
+}
+
+const dispatchFormValues = (values: FormValues): void => {
+  getAppStore().dispatch(fmeActions.setFormValues(values) as any)
+}
+
+const renderTextualInput = (
+  type: "text" | "password" | "number",
+  fieldValue: any,
+  placeholder: string,
+  onChange: (value: FormPrimitive) => void,
+  readOnly?: boolean
+) => {
+  const handleChange = (val: string) => {
+    if (type === "number") {
+      if (val === "") {
+        onChange("")
+        return
+      }
+      const num = Number(val)
+      onChange(
+        Number.isFinite(num)
+          ? (num as unknown as FormPrimitive)
+          : ("" as FormPrimitive)
+      )
+    } else {
+      onChange(val)
+    }
+  }
+
+  return (
+    <Input
+      type={type === "number" ? "text" : type}
+      value={String(fieldValue)}
+      placeholder={placeholder}
+      onChange={handleChange}
+      disabled={readOnly}
+      inputMode={type === "number" ? "numeric" : undefined}
+    />
+  )
 }
 
 // OrderResult component to display the result of an export order
@@ -159,7 +263,238 @@ const OrderResult: React.FC<{
   )
 }
 
-export const Content: React.FC<ContentProps> = ({
+// Dynamic field component for forms
+const DynamicField: React.FC<{
+  field: DynamicFieldConfig
+  value: FormPrimitive | undefined
+  onChange: (value: FormPrimitive) => void
+  translate: (k: string, p?: any) => string
+}> = ({ field, value, onChange, translate }) => {
+  const isMulti = field.type === FormFieldType.MULTI_SELECT
+  const fieldValue = normalizeFieldValue(value, isMulti)
+  const placeholders = createFieldPlaceholders(translate, field.label)
+
+  switch (field.type) {
+    case FormFieldType.SELECT:
+    case FormFieldType.MULTI_SELECT:
+      return (
+        <Select
+          value={fieldValue}
+          options={field.options || []}
+          placeholder={placeholders.select}
+          onChange={(val) => {
+            onChange(val as FormPrimitive)
+          }}
+          ariaLabel={field.label}
+          disabled={field.readOnly}
+        />
+      )
+    case FormFieldType.TEXTAREA:
+      return (
+        <TextArea
+          value={fieldValue as string}
+          placeholder={placeholders.enter}
+          onChange={(val) => {
+            onChange(val)
+          }}
+          disabled={field.readOnly}
+        />
+      )
+    case FormFieldType.NUMBER:
+      return renderTextualInput(
+        "number",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
+      )
+    case FormFieldType.CHECKBOX:
+      return (
+        <Checkbox
+          checked={Boolean(fieldValue)}
+          onChange={(evt) => {
+            onChange(evt.target.checked)
+          }}
+          disabled={field.readOnly}
+          aria-label={field.label}
+        />
+      )
+    case FormFieldType.PASSWORD:
+      return renderTextualInput(
+        "password",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
+      )
+    case FormFieldType.FILE:
+      return (
+        <Input
+          type="file"
+          onFileChange={(evt) => {
+            const files = evt.target.files
+            onChange(
+              files
+                ? (files[0] as unknown as FormPrimitive)
+                : (null as FormPrimitive)
+            )
+          }}
+          disabled={field.readOnly}
+          aria-label={field.label}
+        />
+      )
+    case FormFieldType.TEXT:
+      return renderTextualInput(
+        "text",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
+      )
+  }
+}
+
+// Export form component for workspace-based forms
+const ExportForm: React.FC<{
+  readonly workspaceParameters: readonly WorkspaceParameter[]
+  readonly workspaceName: string
+  readonly workspaceItem?: WorkspaceItemDetail
+  readonly onBack: () => void
+  readonly onSubmit: (data: { type: string; data: FormValues }) => void
+  readonly isSubmitting: boolean
+  readonly translate: (k: string, p?: any) => string
+}> = ({
+  workspaceParameters,
+  workspaceName,
+  workspaceItem,
+  onBack,
+  onSubmit,
+  isSubmitting,
+  translate,
+}) => {
+  const [parameterService] = React.useState(() => new ParameterFormService())
+  const [errorService] = React.useState(() => new ErrorHandlingService())
+  const [fileMap, setFileMap] = React.useState<{ [key: string]: File | null }>(
+    {}
+  )
+
+  // Local validation message builder using current translate
+  const buildValidationError = hooks.useEventCallback(
+    (count: number): string =>
+      count === 1
+        ? translate("formValidationSingleError") || "formValidationSingleError"
+        : translate("formValidationMultipleErrors") ||
+          "formValidationMultipleErrors"
+  )
+
+  // Generate form configuration from parameters
+  const formConfig = React.useMemo(
+    () => parameterService.generateFormConfig(workspaceParameters),
+    [parameterService, workspaceParameters]
+  )
+
+  // Initialize form values from parameter defaults - using useState lazy initialization
+  const [values, setValues] = React.useState<FormValues>(() =>
+    createFormValuesFromConfig(formConfig)
+  )
+  const [isValid, setIsValid] = React.useState(true)
+
+  // Initialize form values in Redux store only once
+  hooks.useEffectOnce(() => {
+    dispatchFormValues(values)
+  })
+
+  // Validate form whenever values change
+  hooks.useUpdateEffect(() => {
+    const validation = parameterService.validateFormValues(values, formConfig)
+    setIsValid(validation.isValid)
+  }, [values, parameterService, formConfig])
+
+  // Reset values when workspace or fields change (e.g., switching workspaces)
+  hooks.useUpdateEffect(() => {
+    const nextValues = createFormValuesFromConfig(formConfig)
+    setValues(nextValues)
+    setFileMap({})
+    dispatchFormValues(nextValues)
+  }, [workspaceName, formConfig])
+
+  const onChange = hooks.useEventCallback(
+    (field: string, value: FormPrimitive) => {
+      if (value instanceof File || value === null) {
+        // Handle file input separately
+        setFileMap((prev) => ({ ...prev, [field]: (value as File) ?? null }))
+        const surrogate = value ? (value as File).name : ""
+        const newValues = { ...values, [field]: surrogate }
+        setValues(newValues)
+        dispatchFormValues(newValues)
+        return
+      }
+      const newValues = { ...values, [field]: value }
+      setValues(newValues)
+      dispatchFormValues(newValues)
+    }
+  )
+
+  const handleSubmit = hooks.useEventCallback(() => {
+    const validation = parameterService.validateFormValues(values, formConfig)
+    if (!validation.isValid) {
+      const count = Object.keys(validation.errors).length
+      const errorMessage = buildValidationError(count)
+      const error = errorService.createError(
+        errorMessage,
+        ErrorType.VALIDATION,
+        { code: "FORM_INVALID" }
+      )
+      getAppStore().dispatch(fmeActions.setError(error) as any)
+      return
+    }
+    // Merge file inputs with other values
+    const merged: FormValues = { ...values }
+    Object.keys(fileMap).forEach((k) => {
+      const f = fileMap[k]
+      if (f) merged[k] = f
+    })
+    onSubmit({ type: workspaceName, data: merged })
+  })
+
+  // Helper function to strip HTML tags from text
+  const stripHtml = hooks.useEventCallback((html: string): string => {
+    if (!html) return ""
+    const temp = document.createElement("div")
+    temp.innerHTML = html
+    return temp.textContent || temp.innerText || ""
+  })
+
+  return (
+    <Form
+      variant="layout"
+      title={workspaceItem?.title || workspaceName}
+      subtitle={
+        workspaceItem?.description
+          ? stripHtml(workspaceItem.description)
+          : translate("configureWorkspaceParameters", { workspaceName })
+      }
+      onBack={onBack}
+      onSubmit={handleSubmit}
+      isValid={isValid}
+      loading={isSubmitting}
+    >
+      {formConfig.map((field) => (
+        <Field key={field.name} label={field.label} required={field.required}>
+          <DynamicField
+            field={field}
+            value={values[field.name]}
+            onChange={(val) => onChange(field.name, val)}
+            translate={translate}
+          />
+        </Field>
+      ))}
+    </Form>
+  )
+}
+
+// Main Workflow component - consolidates content and export functionality
+export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
   onAngeUtbredning,
@@ -471,13 +806,14 @@ export const Content: React.FC<ContentProps> = ({
 
     // Main export form
     return (
-      <Export
+      <ExportForm
         workspaceParameters={workspaceParameters}
         workspaceName={selectedWorkspace}
         workspaceItem={workspaceItem}
         onBack={onFormBack}
         onSubmit={onFormSubmit}
         isSubmitting={isSubmittingOrder}
+        translate={translate}
       />
     )
   }
@@ -540,3 +876,5 @@ export const Content: React.FC<ContentProps> = ({
     </div>
   )
 }
+
+export default Workflow

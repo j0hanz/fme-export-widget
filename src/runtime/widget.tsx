@@ -9,7 +9,7 @@ import {
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
-import { Content } from "./components/content"
+import { Workflow } from "./components/workflow"
 import { StateView, Message } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
@@ -1047,7 +1047,7 @@ export default function Widget(
         />
       )}
 
-      <Content
+      <Workflow
         widgetId={widgetId}
         config={props.config}
         state={reduxState.viewMode}
