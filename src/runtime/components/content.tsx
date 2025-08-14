@@ -28,6 +28,51 @@ const noOp = (): void => {
   /* noop */
 }
 
+// Constants for drawing mode configuration
+const DRAWING_MODE_TABS = [
+  {
+    value: DrawingTool.POLYGON,
+    label: "drawingModePolygon",
+    icon: polygonIcon,
+    tooltip: "drawingModePolygonTooltip",
+    hideLabel: true,
+  },
+  {
+    value: DrawingTool.RECTANGLE,
+    label: "drawingModeRectangle",
+    icon: rectangleIcon,
+    tooltip: "drawingModeRectangleTooltip",
+    hideLabel: true,
+  },
+] as const
+
+// Helper for workspace API error handling
+const handleWorkspaceApiError = (
+  err: any,
+  isMountedRef: React.MutableRefObject<boolean>,
+  translate: (key: string) => string,
+  baseMessage: string
+): string | null => {
+  if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current) {
+    return null
+  }
+  const errorMessage =
+    err instanceof Error ? err.message : translate("unknownErrorOccurred")
+  return `${translate(baseMessage)}: ${errorMessage}`
+}
+
+// Helper to determine reset button enabled state
+const isResetButtonEnabled = (
+  onReset: (() => void) | undefined,
+  canReset: boolean,
+  state: ViewMode,
+  drawnArea: number
+): boolean => {
+  if (!onReset || !canReset) return false
+  const hasArea = drawnArea > 0
+  return state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL)
+}
+
 // Create workspace loading state based on current conditions
 const createWorkspaceLoadingState = (
   isLoadingWorkspaces: boolean,
@@ -69,15 +114,27 @@ const OrderResult: React.FC<{
   if (orderResult.code && !isSuccess)
     addRow(translate("errorCode"), orderResult.code)
 
+  const titleText = isSuccess
+    ? translate("orderConfirmation")
+    : translate("orderSentError")
+
+  const buttonText = isSuccess
+    ? translate("reuseGeography")
+    : translate("retry")
+
+  const buttonHandler = isSuccess ? onReuseGeography || noOp : onBack || noOp
+
+  const showDownloadLink = isSuccess && orderResult.downloadUrl
+  const showMessage = isSuccess || orderResult.message
+  const messageText = isSuccess
+    ? translate("emailNotificationSent")
+    : orderResult.message
+
   return (
     <>
-      <div style={STYLES.typography.title}>
-        {isSuccess
-          ? translate("orderConfirmation")
-          : translate("orderSentError")}
-      </div>
+      <div style={STYLES.typography.title}>{titleText}</div>
       {rows}
-      {isSuccess && orderResult.downloadUrl && (
+      {showDownloadLink && (
         <div style={STYLES.typography.caption}>
           <a
             href={orderResult.downloadUrl}
@@ -88,14 +145,12 @@ const OrderResult: React.FC<{
           </a>
         </div>
       )}
-      {(isSuccess || orderResult.message) && (
-        <div style={STYLES.typography.caption}>
-          {isSuccess ? translate("emailNotificationSent") : orderResult.message}
-        </div>
+      {showMessage && (
+        <div style={STYLES.typography.caption}>{messageText}</div>
       )}
       <Button
-        text={isSuccess ? translate("reuseGeography") : translate("retry")}
-        onClick={isSuccess ? onReuseGeography || noOp : onBack || noOp}
+        text={buttonText}
+        onClick={buttonHandler}
         logging={{ enabled: true, prefix: "FME-Export" }}
         tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
         tooltipPlacement="bottom"
@@ -182,11 +237,13 @@ export const Content: React.FC<ContentProps> = ({
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: any) {
-      if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current)
-        return
-      const msg =
-        err instanceof Error ? err.message : translate("unknownErrorOccurred")
-      setWorkspaceError(`${translate("failedToLoadWorkspaces")}: ${msg}`)
+      const errorMsg = handleWorkspaceApiError(
+        err,
+        isMountedRef,
+        translate,
+        "failedToLoadWorkspaces"
+      )
+      if (errorMsg) setWorkspaceError(errorMsg)
     } finally {
       if (isMountedRef.current) setIsLoadingWorkspaces(false)
     }
@@ -212,13 +269,13 @@ export const Content: React.FC<ContentProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: any) {
-        if (err?.name === CANCELLED_PROMISE_ERROR_NAME || !isMountedRef.current)
-          return
-        const msg =
-          err instanceof Error ? err.message : translate("unknownErrorOccurred")
-        setWorkspaceError(
-          `${translate("failedToLoadWorkspaceDetails")}: ${msg}`
+        const errorMsg = handleWorkspaceApiError(
+          err,
+          isMountedRef,
+          translate,
+          "failedToLoadWorkspaceDetails"
         )
+        if (errorMsg) setWorkspaceError(errorMsg)
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
       }
@@ -244,12 +301,12 @@ export const Content: React.FC<ContentProps> = ({
 
   // Header
   const renderHeader = () => {
-    // Enable reset only when user is drawing OR a polygon has been drawn (area > 0)
-    const hasArea = (drawnArea ?? 0) > 0
-    const resetEnabled =
-      !!onReset &&
-      canReset &&
-      (state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL))
+    const resetEnabled = isResetButtonEnabled(
+      onReset,
+      canReset,
+      state,
+      drawnArea ?? 0
+    )
 
     return (
       <Button
@@ -267,7 +324,7 @@ export const Content: React.FC<ContentProps> = ({
   }
 
   const renderInitial = () => {
-    // Loading state
+    // Early returns for loading and error states
     if (isModulesLoading) {
       return (
         <StateView
@@ -276,7 +333,6 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
-    // Error state
     if (error) {
       return (
         <StateView
@@ -298,26 +354,18 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
+    // Main content
+    const drawingModeItems = DRAWING_MODE_TABS.map((tab) => ({
+      ...tab,
+      label: translate(tab.label),
+      tooltip: translate(tab.tooltip),
+    }))
+
     return (
       <div style={STYLES.state.centered}>
         {/* Drawing mode */}
         <Tabs
-          items={[
-            {
-              value: DrawingTool.POLYGON,
-              label: translate("drawingModePolygon"),
-              icon: polygonIcon,
-              tooltip: translate("drawingModePolygonTooltip"),
-              hideLabel: true,
-            },
-            {
-              value: DrawingTool.RECTANGLE,
-              label: translate("drawingModeRectangle"),
-              icon: rectangleIcon,
-              tooltip: translate("drawingModeRectangleTooltip"),
-              hideLabel: true,
-            },
-          ]}
+          items={drawingModeItems}
           value={drawingMode}
           onChange={(val) => {
             onDrawingModeChange?.(val as DrawingTool)
@@ -402,6 +450,7 @@ export const Content: React.FC<ContentProps> = ({
   }
 
   const renderExportForm = () => {
+    // Guard clause for missing handlers
     if (!onFormBack || !onFormSubmit) {
       return (
         <StateView
@@ -412,7 +461,7 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
-    // Check if we have workspace parameters and selected workspace
+    // Guard clause for missing workspace data
     if (!workspaceParameters || !selectedWorkspace) {
       return (
         <StateView
@@ -421,6 +470,7 @@ export const Content: React.FC<ContentProps> = ({
       )
     }
 
+    // Main export form
     return (
       <Export
         workspaceParameters={workspaceParameters}

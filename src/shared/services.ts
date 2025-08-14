@@ -12,18 +12,16 @@ export type ParameterValue =
   | ParameterPrimitive[]
   | undefined
 
-// Blank if undefined, null, or empty string
+// Helper functions for parameter processing
 const isBlank = (v: unknown): boolean =>
   v === undefined || v === null || v === ""
 
-// Filter out skipped parameters
 const filterUIParameters = (
   parameters: readonly WorkspaceParameter[],
   skip: readonly string[]
 ): readonly WorkspaceParameter[] =>
   parameters.filter((p) => !skip.includes(p.name))
 
-// Build select options
 const createFieldOptions = (
   param: WorkspaceParameter
 ): ReadonlyArray<{ label: string; value: string | number }> | undefined =>
@@ -31,6 +29,14 @@ const createFieldOptions = (
     label: o.caption || o.value,
     value: o.value,
   }))
+
+const isIntegerValue = (value: unknown): boolean =>
+  Number.isInteger(Number(value))
+
+const isNumericValue = (value: unknown): boolean => !isNaN(Number(value))
+
+const createValidationError = (fieldName: string, errorType: string): string =>
+  `${fieldName}:${errorType}`
 
 // Error helper
 export class ErrorHandlingService {
@@ -148,8 +154,8 @@ export class ParameterFormService {
   }
 
   private getFieldTypeFromParameter(param: WorkspaceParameter): FormFieldType {
+    // Handle list-based parameters first
     if (param.listOptions && param.listOptions.length > 0) {
-      // Handle list and lookup listbox types
       if (
         param.type === ParameterType.LISTBOX ||
         param.type === ParameterType.LOOKUP_LISTBOX
@@ -159,6 +165,7 @@ export class ParameterFormService {
       return FormFieldType.SELECT
     }
 
+    // Handle specific parameter types
     switch (param.type) {
       case ParameterType.FLOAT:
       case ParameterType.INTEGER:
@@ -184,18 +191,29 @@ export class ParameterFormService {
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
     const filteredParams = filterUIParameters(parameters, this.skipParameters)
-    filteredParams.forEach((param) => {
+
+    for (const param of filteredParams) {
       const value = data[param.name]
+
       if (!param.optional && isBlank(value)) {
-        errors.push(`${param.name}:required`)
-        return
+        errors.push(createValidationError(param.name, "required"))
+        continue
       }
-      if (param.optional && isBlank(value)) return
+
+      if (param.optional && isBlank(value)) {
+        continue
+      }
+
       const typeError = this.validateParameterType(param, value)
-      if (typeError) errors.push(typeError)
+      if (typeError) {
+        errors.push(typeError)
+      }
+
       const listError = this.validateParameterList(param, value)
-      if (listError) errors.push(listError)
-    })
+      if (listError) {
+        errors.push(listError)
+      }
+    }
 
     return {
       isValid: errors.length === 0,
@@ -208,15 +226,12 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (
-      param.type === ParameterType.INTEGER &&
-      !Number.isInteger(Number(value))
-    ) {
-      return `${param.name}:integer`
+    if (param.type === ParameterType.INTEGER && !isIntegerValue(value)) {
+      return createValidationError(param.name, "integer")
     }
 
-    if (param.type === ParameterType.FLOAT && isNaN(Number(value))) {
-      return `${param.name}:number`
+    if (param.type === ParameterType.FLOAT && !isNumericValue(value)) {
+      return createValidationError(param.name, "number")
     }
 
     return null
@@ -227,20 +242,27 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (param.listOptions && param.listOptions.length > 0) {
-      const validValues = param.listOptions.map((opt) => opt.value)
-      if (
-        param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX
-      ) {
-        const arr = Array.isArray(value) ? value : [value].filter(Boolean)
-        const invalid = (arr as unknown[]).filter(
-          (v) => !validValues.includes(v as any)
-        )
-        if (invalid.length) return `${param.name}:choice`
-      } else if (!validValues.includes(value as any))
-        return `${param.name}:choice`
+    if (!param.listOptions || param.listOptions.length === 0) {
+      return null
     }
+
+    const validValues = param.listOptions.map((opt) => opt.value)
+
+    if (
+      param.type === ParameterType.LISTBOX ||
+      param.type === ParameterType.LOOKUP_LISTBOX
+    ) {
+      const arr = Array.isArray(value) ? value : [value].filter(Boolean)
+      const invalid = (arr as unknown[]).filter(
+        (v) => !validValues.includes(v as any)
+      )
+      if (invalid.length) {
+        return createValidationError(param.name, "choice")
+      }
+    } else if (!validValues.includes(value as any)) {
+      return createValidationError(param.name, "choice")
+    }
+
     return null
   }
 

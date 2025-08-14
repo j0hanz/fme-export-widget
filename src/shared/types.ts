@@ -128,7 +128,7 @@ export const createContentState = (node: React.ReactNode): ContentUiState => ({
 // UI Component Interfaces
 export interface ButtonProps {
   readonly text?: React.ReactNode
-  readonly icon?: string | boolean
+  readonly icon?: string
   readonly iconPosition?: "left" | "right"
   readonly alignText?: "start" | "center" | "end"
   readonly loading?: boolean
@@ -285,6 +285,15 @@ export interface FormProps {
   readonly required?: boolean
   readonly readOnly?: boolean
   readonly error?: string
+}
+
+export interface ButtonContentProps {
+  readonly loading: boolean
+  readonly children?: React.ReactNode
+  readonly text?: React.ReactNode
+  readonly icon?: string
+  readonly iconPosition: "left" | "right"
+  readonly alignText: "start" | "center" | "end"
 }
 
 // UI Constants

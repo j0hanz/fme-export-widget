@@ -30,6 +30,7 @@ import type {
   TabItem,
   UiViewState,
   UiAction,
+  ButtonContentProps,
 } from "../../shared/types"
 import {
   UI_CONSTANTS,
@@ -37,7 +38,6 @@ import {
   TOOLTIP_PLACEMENTS,
   TOOLTIP_STYLES,
 } from "../../shared/types"
-// handleDotVerticalIcon removed with Dropdown elimination
 
 // UI style constants
 export const UI_CSS = {
@@ -117,10 +117,90 @@ const useControlledValue = <T = string,>(
   return [value, handleChange] as const
 }
 
+// Helper functions for accessibility
+const generateAriaDescribedBy = (
+  id?: string,
+  suffix = "error"
+): string | undefined => {
+  return id ? `${id}-${suffix}` : undefined
+}
+
+const getButtonAriaLabel = (
+  text?: React.ReactNode,
+  icon?: string | boolean,
+  jimuAriaLabel?: string,
+  tooltip?: string
+): string | undefined => {
+  if (text || !icon) return jimuAriaLabel
+  return (
+    (typeof tooltip === "string" && tooltip) ||
+    UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
+  )
+}
+
+// Helper for tooltip content resolution
+const resolveTooltipContent = (
+  title?: React.ReactNode,
+  content?: React.ReactNode,
+  children?: React.ReactElement
+): React.ReactNode => {
+  if (title || content) return title || content
+  if (React.isValidElement(children)) {
+    const props = children.props as any
+    return props?.title || props?.["aria-label"]
+  }
+  return undefined
+}
+
+// Helper for button style merging
+const mergeButtonStyles = (
+  baseStyle: React.CSSProperties,
+  userStyle?: React.CSSProperties
+): React.CSSProperties => {
+  return userStyle ? { ...baseStyle, ...userStyle } : baseStyle
+}
+
+// Button content component extracted from Button
+const ButtonContent: React.FC<ButtonContentProps> = ({
+  loading,
+  children,
+  text,
+  icon,
+  iconPosition,
+  alignText,
+}) => {
+  if (loading) return <Loading type={LoadingType.Donut} />
+  if (children) return <>{children}</>
+
+  const hasIcon = typeof icon === "string" && icon.length > 0
+  const hasText = !!text
+
+  if (!hasIcon && !hasText) return null
+  if (hasIcon && !hasText)
+    return <Icon src={icon} size={UI_CSS.ICON_SIZES.LARGE} />
+  if (hasText && !hasIcon) return <>{text}</>
+
+  const iconEl = <Icon src={icon} size={UI_CSS.ICON_SIZES.SMALL} />
+  const iconWithPosition = React.cloneElement(iconEl, {
+    style: {
+      ...UI_CSS.BTN.ICON,
+      [iconPosition]: UI_CSS.SPACING.ICON_OFFSET,
+    },
+  })
+
+  return (
+    <>
+      {iconPosition === "left" && iconWithPosition}
+      <span style={{ ...UI_CSS.BTN.TEXT, textAlign: alignText }}>{text}</span>
+      {iconPosition === "right" && iconWithPosition}
+    </>
+  )
+}
+
 // Icon component
 export interface IconProps {
   src: string
-  size?: number
+  size?: number | "s" | "m" | "l"
   className?: string
   ariaLabel?: string
   style?: React.CSSProperties
@@ -132,18 +212,20 @@ export const Icon: React.FC<IconProps> = ({
   className,
   ariaLabel,
   style,
-}) => (
-  <SVG
-    src={src}
-    size={size}
-    className={className}
-    currentColor
-    role="img"
-    aria-hidden={!ariaLabel}
-    aria-label={ariaLabel}
-    style={style}
-  />
-)
+}) => {
+  return (
+    <SVG
+      src={src}
+      size={size as any}
+      className={className}
+      currentColor
+      role="img"
+      aria-hidden={!ariaLabel}
+      aria-label={ariaLabel}
+      style={style}
+    />
+  )
+}
 
 // Tooltip component
 export const Tooltip: React.FC<CustomTooltipProps> = ({
@@ -161,12 +243,8 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
 }) => {
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
-  const tooltipContent =
-    title ||
-    content ||
-    (children.props as any)?.title ||
-    (children.props as any)?.["aria-label"]
 
+  const tooltipContent = resolveTooltipContent(title, content, children)
   if (!tooltipContent || disabled) return children
 
   const isDisabled =
@@ -278,7 +356,9 @@ export const Input: React.FC<InputProps> = ({
       aria-required={required}
       aria-invalid={!!validationMessage}
       aria-describedby={
-        validationMessage ? `${props.id || "input"}-error` : undefined
+        validationMessage
+          ? generateAriaDescribedBy(props.id || "input")
+          : undefined
       }
     />
   )
@@ -304,6 +384,8 @@ export const TextArea: React.FC<TextAreaProps> = ({
     }
   )
 
+  const validationMessage = (props as any).validationMessage
+
   return (
     <JimuTextArea
       {...props}
@@ -314,10 +396,10 @@ export const TextArea: React.FC<TextAreaProps> = ({
         ...props.style,
       }}
       aria-required={props.required}
-      aria-invalid={!!(props as any).validationMessage}
+      aria-invalid={!!validationMessage}
       aria-describedby={
-        (props as any).validationMessage
-          ? `${props.id || "textarea"}-error`
+        validationMessage
+          ? generateAriaDescribedBy(props.id || "textarea", "error")
           : undefined
       }
     />
@@ -385,6 +467,8 @@ export const Select: React.FC<SelectProps> = (props) => {
       ? String(value)
       : undefined
 
+  const resolvedAriaDescribedBy = generateAriaDescribedBy(ariaDescribedBy)
+
   return isMulti ? (
     <select
       multiple
@@ -392,7 +476,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       onChange={handleChange}
       disabled={disabled}
       aria-label={ariaLabel}
-      aria-describedby={ariaDescribedBy}
+      aria-describedby={resolvedAriaDescribedBy}
     >
       {options.map(renderOption)}
     </select>
@@ -403,7 +487,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       disabled={disabled}
       placeholder={placeholder}
       aria-label={ariaLabel}
-      aria-describedby={ariaDescribedBy}
+      aria-describedby={resolvedAriaDescribedBy}
       style={style}
     >
       {options.map(renderOption)}
@@ -431,63 +515,17 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Small presentational sub-element for button content
-  interface ButtonContentProps {
-    readonly loading: boolean
-    readonly children?: React.ReactNode
-    readonly text?: React.ReactNode
-    readonly icon?: string | boolean
-    readonly iconPosition: "left" | "right"
-    readonly alignText: "start" | "center" | "end"
-  }
-
-  const ButtonContent = hooks.useEventCallback(
-    ({
-      loading: isLoading,
-      children: inner,
-      text: label,
-      icon: ico,
-      iconPosition: pos,
-      alignText: align,
-    }: ButtonContentProps): JSX.Element | null => {
-      if (isLoading) return <Loading type={LoadingType.Donut} />
-      if (inner) return <>{inner}</>
-
-      const hasIcon = !!ico
-      const hasText = !!label
-
-      if (!hasIcon && !hasText) return null
-      if (hasIcon && !hasText)
-        return <Icon src={ico as string} size={UI_CSS.ICON_SIZES.LARGE} />
-      if (hasText && !hasIcon) return <>{label}</>
-
-      const iconEl = <Icon src={ico as string} size={UI_CSS.ICON_SIZES.SMALL} />
-      const iconWithPosition = React.cloneElement(iconEl, {
-        style: {
-          ...UI_CSS.BTN.ICON,
-          [pos]: UI_CSS.SPACING.ICON_OFFSET,
-        },
-      })
-
-      return (
-        <>
-          {pos === "left" && iconWithPosition}
-          <span style={{ ...UI_CSS.BTN.TEXT, textAlign: align }}>{label}</span>
-          {pos === "right" && iconWithPosition}
-        </>
-      )
-    }
+  const buttonStyle = mergeButtonStyles(
+    UI_CSS.STYLES.BUTTON_RELATIVE,
+    jimuProps.style
+  )
+  const ariaLabel = getButtonAriaLabel(
+    text,
+    !!icon,
+    jimuProps["aria-label"],
+    tooltip
   )
 
-  const getAriaLabel = () =>
-    text || !icon
-      ? jimuProps["aria-label"]
-      : (typeof tooltip === "string" && tooltip) ||
-        UI_CSS.ACCESSIBILITY.DEFAULT_BUTTON_LABEL
-
-  const buttonStyle = jimuProps.style
-    ? { ...UI_CSS.STYLES.BUTTON_RELATIVE, ...jimuProps.style }
-    : UI_CSS.STYLES.BUTTON_RELATIVE
   const buttonElement = (
     <JimuButton
       {...jimuProps}
@@ -496,7 +534,7 @@ export const Button: React.FC<ButtonProps> = ({
       disabled={jimuProps.disabled || loading}
       aria-busy={loading}
       aria-live={loading ? "polite" : undefined}
-      aria-label={getAriaLabel()}
+      aria-label={ariaLabel}
       aria-describedby={
         tooltip ? `${jimuProps.id || "button"}-tooltip` : undefined
       }
@@ -528,6 +566,65 @@ export const Button: React.FC<ButtonProps> = ({
   )
 }
 
+// Helper functions for StateView component
+const renderLoadingState = (
+  state: Extract<UiViewState, { kind: "loading" }>
+) => (
+  <div style={STYLES.state.centered} role="status" aria-live="polite">
+    <Loading type={LoadingType.Donut} width={200} height={200} />
+    {(state.message || state.detail) && (
+      <div style={STYLES.state.text} aria-label="Loading details">
+        {state.message && <div>{state.message}</div>}
+      </div>
+    )}
+  </div>
+)
+
+const renderErrorState = (
+  state: Extract<UiViewState, { kind: "error" }>,
+  Actions: React.ComponentType<{
+    actions?: readonly UiAction[]
+    ariaLabel: string
+  }>
+) => (
+  <div role="alert" aria-live="assertive">
+    <div style={STYLES.typography.title}>{state.message}</div>
+    {state.code && (
+      <div style={STYLES.typography.caption}>Code: {state.code}</div>
+    )}
+    <Actions actions={state.actions} ariaLabel="Error actions" />
+  </div>
+)
+
+const renderEmptyState = (
+  state: Extract<UiViewState, { kind: "empty" }>,
+  Actions: React.ComponentType<{
+    actions?: readonly UiAction[]
+    ariaLabel: string
+  }>
+) => (
+  <div role="status" aria-live="polite">
+    <div>{state.message}</div>
+    <Actions actions={state.actions} ariaLabel="Empty actions" />
+  </div>
+)
+
+const renderSuccessState = (
+  state: Extract<UiViewState, { kind: "success" }>,
+  Actions: React.ComponentType<{
+    actions?: readonly UiAction[]
+    ariaLabel: string
+  }>
+) => (
+  <div role="status" aria-live="polite">
+    {state.title && <div style={STYLES.typography.title}>{state.title}</div>}
+    {state.message && (
+      <div style={STYLES.typography.caption}>{state.message}</div>
+    )}
+    <Actions actions={state.actions} ariaLabel="Success actions" />
+  </div>
+)
+
 // StateView component
 const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
   const Actions = hooks.useEventCallback(
@@ -555,47 +652,16 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
       )
     }
   )
+
   switch (state.kind) {
     case "loading":
-      return (
-        <div style={STYLES.state.centered} role="status" aria-live="polite">
-          <Loading type={LoadingType.Donut} width={200} height={200} />
-          {(state.message || state.detail) && (
-            <div style={STYLES.state.text} aria-label="Loading details">
-              {state.message && <div>{state.message}</div>}
-            </div>
-          )}
-        </div>
-      )
+      return renderLoadingState(state)
     case "error":
-      return (
-        <div role="alert" aria-live="assertive">
-          <div style={STYLES.typography.title}>{state.message}</div>
-          {state.code && (
-            <div style={STYLES.typography.caption}>Code: {state.code}</div>
-          )}
-          <Actions actions={state.actions} ariaLabel="Error actions" />
-        </div>
-      )
+      return renderErrorState(state, Actions)
     case "empty":
-      return (
-        <div role="status" aria-live="polite">
-          <div>{state.message}</div>
-          <Actions actions={state.actions} ariaLabel="Empty actions" />
-        </div>
-      )
+      return renderEmptyState(state, Actions)
     case "success":
-      return (
-        <div role="status" aria-live="polite">
-          {state.title && (
-            <div style={STYLES.typography.title}>{state.title}</div>
-          )}
-          {state.message && (
-            <div style={STYLES.typography.caption}>{state.message}</div>
-          )}
-          <Actions actions={state.actions} ariaLabel="Success actions" />
-        </div>
-      )
+      return renderSuccessState(state, Actions)
     case "content":
       return <>{state.node}</>
   }

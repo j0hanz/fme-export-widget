@@ -24,6 +24,68 @@ interface FormValues {
   [key: string]: FormPrimitive
 }
 
+// Helper functions
+const normalizeFieldValue = (
+  value: FormPrimitive | undefined,
+  isMultiSelect: boolean
+): any => {
+  if (value === undefined || value === null) {
+    return isMultiSelect ? [] : ""
+  }
+  return value
+}
+
+const createFieldPlaceholders = (
+  translate: (k: string, p?: any) => string,
+  fieldLabel: string
+) => ({
+  enter: translate("placeholderEnter", { field: fieldLabel }),
+  select: translate("placeholderSelect", { field: fieldLabel }),
+})
+
+const createFormValuesFromConfig = (
+  formConfig: readonly DynamicFieldConfig[]
+): FormValues => {
+  return formConfig.reduce<FormValues>(
+    (acc, field) =>
+      field.defaultValue !== undefined
+        ? { ...acc, [field.name]: field.defaultValue as FormPrimitive }
+        : acc,
+    {}
+  )
+}
+
+const dispatchFormValues = (values: FormValues): void => {
+  getAppStore().dispatch(fmeActions.setFormValues(values) as any)
+}
+
+const renderTextualInput = (
+  type: "text" | "password" | "number",
+  fieldValue: any,
+  placeholder: string,
+  onChange: (value: FormPrimitive) => void,
+  readOnly?: boolean
+) => {
+  const handleChange = (val: string) => {
+    if (type === "number") {
+      const numValue = val === "" ? "" : Number(val)
+      onChange(numValue as FormPrimitive)
+    } else {
+      onChange(val)
+    }
+  }
+
+  return (
+    <Input
+      type={type === "number" ? "text" : type}
+      value={String(fieldValue)}
+      placeholder={placeholder}
+      onChange={handleChange}
+      disabled={readOnly}
+    />
+  )
+}
+
 // Dynamic export component interface
 interface ExportProps {
   readonly workspaceParameters?: readonly WorkspaceParameter[]
@@ -87,17 +149,9 @@ const DynamicField: React.FC<{
   onChange: (value: FormPrimitive) => void
   translate: (k: string, p?: any) => string
 }> = ({ field, value, onChange, translate }) => {
-  const rawValue = value
   const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue: any =
-    rawValue === undefined || rawValue === null ? (isMulti ? [] : "") : rawValue
-
-  const enterPlaceholder = translate("placeholderEnter", {
-    field: field.label,
-  })
-  const selectPlaceholder = translate("placeholderSelect", {
-    field: field.label,
-  })
+  const fieldValue = normalizeFieldValue(value, isMulti)
+  const placeholders = createFieldPlaceholders(translate, field.label)
 
   switch (field.type) {
     case FormFieldType.SELECT:
@@ -106,7 +160,7 @@ const DynamicField: React.FC<{
         <Select
           value={fieldValue}
           options={field.options || []}
-          placeholder={selectPlaceholder}
+          placeholder={placeholders.select}
           onChange={(val) => {
             onChange(val as FormPrimitive)
           }}
@@ -118,7 +172,7 @@ const DynamicField: React.FC<{
       return (
         <TextArea
           value={fieldValue as string}
-          placeholder={enterPlaceholder}
+          placeholder={placeholders.enter}
           onChange={(val) => {
             onChange(val)
           }}
@@ -126,16 +180,12 @@ const DynamicField: React.FC<{
         />
       )
     case FormFieldType.NUMBER:
-      return (
-        <Input
-          value={String(fieldValue)}
-          placeholder={enterPlaceholder}
-          onChange={(val) => {
-            const numValue = val === "" ? "" : Number(val)
-            onChange(numValue as FormPrimitive)
-          }}
-          disabled={field.readOnly}
-        />
+      return renderTextualInput(
+        "number",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
       )
     case FormFieldType.CHECKBOX:
       return (
@@ -149,16 +199,12 @@ const DynamicField: React.FC<{
         />
       )
     case FormFieldType.PASSWORD:
-      return (
-        <Input
-          type="password"
-          value={String(fieldValue)}
-          placeholder={enterPlaceholder}
-          onChange={(val) => {
-            onChange(val)
-          }}
-          disabled={field.readOnly}
-        />
+      return renderTextualInput(
+        "password",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
       )
     case FormFieldType.FILE:
       return (
@@ -173,19 +219,12 @@ const DynamicField: React.FC<{
         />
       )
     case FormFieldType.TEXT:
-      return (
-        <Input
-          value={
-            typeof fieldValue === "string" || typeof fieldValue === "number"
-              ? String(fieldValue)
-              : ""
-          }
-          placeholder={enterPlaceholder}
-          onChange={(val) => {
-            onChange(val)
-          }}
-          disabled={field.readOnly}
-        />
+      return renderTextualInput(
+        "text",
+        fieldValue,
+        placeholders.enter,
+        onChange,
+        field.readOnly
       )
   }
 }
@@ -207,6 +246,7 @@ const ExportWithWorkspaceParameters: React.FC<{
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const [parameterService] = React.useState(() => new ParameterFormService())
+  const [errorService] = React.useState(() => new ErrorHandlingService())
 
   // Local validation message builder using current translate
   const buildValidationError = hooks.useEventCallback(
@@ -225,19 +265,13 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState<FormValues>(() =>
-    formConfig.reduce<FormValues>(
-      (acc, f) =>
-        f.defaultValue !== undefined
-          ? { ...acc, [f.name]: f.defaultValue as FormPrimitive }
-          : acc,
-      {}
-    )
+    createFormValuesFromConfig(formConfig)
   )
   const [isValid, setIsValid] = React.useState(true)
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
-    getAppStore().dispatch(fmeActions.setFormValues(values) as any)
+    dispatchFormValues(values)
   })
 
   // Validate form whenever values change
@@ -248,22 +282,16 @@ const ExportWithWorkspaceParameters: React.FC<{
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
   hooks.useUpdateEffect(() => {
-    const nextValues = formConfig.reduce<FormValues>(
-      (acc, f) =>
-        f.defaultValue !== undefined
-          ? { ...acc, [f.name]: f.defaultValue as FormPrimitive }
-          : acc,
-      {}
-    )
+    const nextValues = createFormValuesFromConfig(formConfig)
     setValues(nextValues)
-    getAppStore().dispatch(fmeActions.setFormValues(nextValues) as any)
+    dispatchFormValues(nextValues)
   }, [workspaceName, formConfig])
 
   const onChange = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
       const newValues = { ...values, [field]: value }
       setValues(newValues)
-      getAppStore().dispatch(fmeActions.setFormValues(newValues) as any)
+      dispatchFormValues(newValues)
     }
   )
 
@@ -272,7 +300,7 @@ const ExportWithWorkspaceParameters: React.FC<{
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = buildValidationError(count)
-      const error = new ErrorHandlingService().createError(
+      const error = errorService.createError(
         errorMessage,
         ErrorType.VALIDATION,
         { code: "FORM_INVALID" }

@@ -1,7 +1,6 @@
 import esriRequest from "esri/request"
 import esriConfig from "esri/config"
 import * as projection from "esri/geometry/support/webMercatorUtils"
-import { loadArcGISJSAPIModules } from "jimu-arcgis"
 
 import type {
   FmeFlowConfig,
@@ -85,6 +84,68 @@ function stringifyUnknown(val: unknown): string {
       : Object.prototype.toString.call(val)
 }
 
+// URL building helpers
+const buildWebhookUrl = (
+  serverUrl: string,
+  service: string,
+  repository: string,
+  workspace: string
+): string =>
+  `${normalizeServerUrl(serverUrl)}/${service}/${repository}/${workspace}`
+
+const prepareWebhookParameters = (
+  parameters: PrimitiveParams,
+  excludeKeys: readonly string[]
+): URLSearchParams => {
+  const params = buildQueryParams(parameters, [...excludeKeys])
+  params.append("opt_responseformat", "json")
+  params.append("opt_showresult", "true")
+  params.append(
+    "opt_servicemode",
+    (parameters.opt_servicemode as string) || "async"
+  )
+  return params
+}
+
+// Geometry conversion helpers
+const calculatePolygonArea = (polygon: __esri.Polygon): number => {
+  try {
+    const extent = polygon.extent
+    const widthMeters = extent.width
+    const heightMeters = extent.height
+
+    return Math.abs(widthMeters * heightMeters)
+  } catch (error) {
+    console.warn("Failed to calculate polygon area, using extent area", error)
+    const extent = polygon.extent
+    return extent.width * extent.height
+  }
+}
+
+const projectToWgs84IfNeeded = (geometry: __esri.Geometry): __esri.Geometry => {
+  // If geometry is already in WGS84, return it as is
+  if (geometry.spatialReference?.wkid === 3857) {
+    return (
+      projection.webMercatorToGeographic(geometry as __esri.Polygon) || geometry
+    )
+  }
+  return geometry
+}
+
+const createGeoJsonPolygon = (polygon: __esri.Polygon) => ({
+  type: "Polygon" as const,
+  coordinates: polygon.rings as Array<Array<[number, number]>>,
+})
+
+const isAuthenticationError = (status: number): boolean =>
+  status === 403 || status === 401
+
+const isHtmlResponse = (contentType: string | null): boolean =>
+  contentType?.includes("text/html") ?? false
+
+const isJsonResponse = (contentType: string | null): boolean =>
+  contentType?.includes("application/json") ?? false
+
 // Normalize server URL
 const normalizeServerUrl = (serverUrl: string): string =>
   serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
@@ -152,7 +213,6 @@ export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API_CONSTANTS.BASE_PATH
   private abortController: AbortController | null = null
-  private geometryEngine: __esri.geometryEngine | null = null
 
   constructor(config: FmeFlowConfig) {
     this.config = config
@@ -423,7 +483,7 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResponse>> {
-    const geometryParams = await this.convertGeometryToFmeParams(geometry)
+    const geometryParams = this.convertGeometryToFmeParams(geometry)
     return this.submitJob(
       workspace,
       { ...parameters, ...geometryParams },
@@ -528,25 +588,20 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
-      const webhookUrl = this.buildServiceUrl(
+      const webhookUrl = buildWebhookUrl(
+        this.config.serverUrl,
         "fmedatadownload",
         repository,
         workspace
       )
-      const params = this.createUrlSearchParams(parameters, [
-        ...API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS,
-      ])
-
-      // Add webhook params
-      params.append("opt_responseformat", "json")
-      params.append("opt_showresult", "true")
-      params.append(
-        "opt_servicemode",
-        (parameters.opt_servicemode as string) || "async"
+      const params = prepareWebhookParameters(
+        parameters,
+        API_CONSTANTS.WEBHOOK_EXCLUDE_KEYS
       )
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
+
       try {
         const safeParams = new URLSearchParams()
         for (const k of API_CONSTANTS.WEBHOOK_LOG_WHITELIST) {
@@ -989,13 +1044,12 @@ export class FmeFlowApiClient {
 
   private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
     const contentType = response.headers.get("content-type")
-    const isJson = contentType?.includes("application/json")
 
     let responseData: any
-    if (isJson) {
+    if (isJsonResponse(contentType)) {
       responseData = await response.json()
       // Check for specific error codes in JSON response
-      if (response.status === 403 || response.status === 401) {
+      if (isAuthenticationError(response.status)) {
         throw new FmeFlowApiError(
           "Webhook authentication failed - falling back to REST API",
           "WEBHOOK_AUTH_ERROR",
@@ -1010,7 +1064,7 @@ export class FmeFlowApiClient {
         contentType: contentType || "text/plain",
       }
       // If the response is HTML, treat it as an authentication error
-      if (contentType?.includes("text/html")) {
+      if (isHtmlResponse(contentType)) {
         throw new FmeFlowApiError(
           "Webhook authentication failed or returned HTML - falling back to REST API",
           "WEBHOOK_AUTH_ERROR",
@@ -1026,47 +1080,22 @@ export class FmeFlowApiClient {
     }
   }
 
-  private async convertGeometryToFmeParams(
+  private convertGeometryToFmeParams(
     geometry: __esri.Geometry
-  ): Promise<PrimitiveParams> {
-    if (geometry.type !== "polygon")
+  ): PrimitiveParams {
+    if (geometry.type !== "polygon") {
       throw new Error("Only polygon geometries are supported")
+    }
 
     const polygon = geometry as __esri.Polygon
-    let area = 0
-    try {
-      if (!this.geometryEngine) {
-        const [geometryEngine] = await loadArcGISJSAPIModules([
-          "esri/geometry/geometryEngine",
-        ])
-        this.geometryEngine = geometryEngine
-      }
-      area = Math.abs(
-        this.geometryEngine.geodesicArea(polygon, "square-meters")
-      )
-    } catch (error) {
-      console.warn(
-        "Failed to calculate geodetic area, using extent area",
-        error
-      )
-      const extent = polygon.extent
-      area = extent.width * extent.height
-    }
 
+    // Calculate area using extent-based approach for SDK 4.29 compatibility
+    const area = calculatePolygonArea(polygon)
     const extent = polygon.extent
-    let projectedGeometry = geometry
-    // Project from Web Mercator to WGS84 if needed; leave other SRs as-is
-    if (geometry.spatialReference?.wkid === 3857) {
-      projectedGeometry =
-        projection.webMercatorToGeographic(polygon) || geometry
-    }
-
-    const geoJsonPolygon = {
-      type: "Polygon",
-      coordinates: (projectedGeometry as __esri.Polygon).rings as Array<
-        Array<[number, number]>
-      >,
-    }
+    const projectedGeometry = projectToWgs84IfNeeded(geometry)
+    const geoJsonPolygon = createGeoJsonPolygon(
+      projectedGeometry as __esri.Polygon
+    )
 
     return {
       MAXX: extent.xmax,
