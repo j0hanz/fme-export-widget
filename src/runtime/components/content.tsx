@@ -14,11 +14,11 @@ import {
   createErrorState,
   createEmptyState,
 } from "../../shared/types"
-import polygonIcon from "../../assets/icons/polygon.svg"
-import rectangleIcon from "../../assets/icons/rectangle.svg"
-import resetIcon from "../../assets/icons/clear-selection-general.svg"
-import listIcon from "../../assets/icons/menu.svg"
-import plusIcon from "../../assets/icons/plus.svg"
+import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
+import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
+import resetIcon from "jimu-icons/svg/outlined/gis/clear-selection.svg"
+import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
+import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
 import { STYLES } from "../../shared/css"
 import { Export } from "./exports"
 import { createFmeFlowClient } from "../../shared/api"
