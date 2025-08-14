@@ -36,33 +36,6 @@ export const STYLES = {
       zIndex: 1000,
     } as React.CSSProperties,
   },
-  measureField: {
-    display: "flex",
-    flexDirection: "column" as const,
-    position: "absolute" as const,
-    left: "50%",
-    transform: "translateX(-50%)",
-    zIndex: 1000,
-  } as React.CSSProperties,
-
-  measureItem: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "0.5rem",
-  } as React.CSSProperties,
-
-  measureGroup: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "0.5rem",
-    width: "100%",
-  } as React.CSSProperties,
-
-  measureValue: {
-    fontWeight: 500,
-    fontVariantNumeric: "tabular-nums",
-  } as React.CSSProperties,
 
   icon: {
     muted: {
@@ -94,26 +67,6 @@ export const STYLES = {
       fontSize: "0.8125rem",
       margin: "1rem 0",
       textAlign: "center",
-    } as React.CSSProperties,
-  },
-
-  measurementLabel: {
-    color: "black",
-    fontFamily: "Arial",
-    fontSize: 16,
-    fontWeight: "bold" as const,
-    haloColor: "white",
-    haloSize: 2,
-    horizontalAlignment: "center" as const,
-    verticalAlignment: "middle" as const,
-  },
-
-  form: {
-    input: {
-      borderColor: undefined,
-    } as React.CSSProperties,
-    inputInvalid: {
-      borderColor: "#dc3545",
     } as React.CSSProperties,
   },
 

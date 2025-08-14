@@ -309,41 +309,6 @@ export interface ButtonContentProps {
   readonly alignText: "start" | "center" | "end"
 }
 
-// UI Constants
-// Consolidated UI constants - removes duplication
-export const UI_CONSTANTS = {
-  DEFAULT_ICON_SIZE: 16,
-  DEFAULT_LOADING_SIZE: 16,
-  BUTTON_DEFAULTS: {
-    BLOCK: true,
-    ICON_POSITION: "left" as const,
-    TOOLTIP_PLACEMENT: "top" as const,
-  },
-  SELECT_DEFAULTS: { PLACEHOLDER: "Välj ett alternativ" },
-  TOOLTIP: {
-    DELAYS: {
-      ENTER: 1000,
-      ENTER_NEXT: 500,
-      LEAVE: 100,
-      TOUCH: 500,
-    },
-    PLACEMENTS: {
-      TOP: "top" as const,
-      BOTTOM: "bottom" as const,
-      LEFT: "left" as const,
-      RIGHT: "right" as const,
-    },
-    STYLES: {
-      showArrow: true,
-      disabled: false,
-    },
-  },
-} as const
-
-// Aliases for backward compatibility
-export const TOOLTIP_DELAYS = UI_CONSTANTS.TOOLTIP.DELAYS
-export const TOOLTIP_PLACEMENTS = UI_CONSTANTS.TOOLTIP.PLACEMENTS
-export const TOOLTIP_STYLES = UI_CONSTANTS.TOOLTIP.STYLES
 export const enum DrawingTool {
   POLYGON = "polygon",
   RECTANGLE = "rectangle",
