@@ -156,6 +156,26 @@ const useControlledValue = <T = string,>(
   return [value, handleChange] as const
 }
 
+// Helper function to prepare control with ID
+const prepareControlWithId = (
+  child: React.ReactNode,
+  readOnly: boolean,
+  fallbackId: string
+): { id: string | undefined; child: React.ReactNode } => {
+  if (!readOnly && React.isValidElement(child)) {
+    const childProps = (child.props || {}) as { [key: string]: any }
+    const id = childProps.id || fallbackId
+    if (!childProps.id) {
+      const cloned = React.cloneElement(child as React.ReactElement, {
+        id,
+      })
+      return { id, child: cloned }
+    }
+    return { id, child }
+  }
+  return { id: undefined, child }
+}
+
 // Helper functions for accessibility
 const generateAriaDescribedBy = (
   id?: string,
@@ -894,6 +914,8 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
+  // Generate a stable auto ID for field elements
+  const fieldAutoId = useAutoId("field")
 
   if (variant === "layout") {
     const {
@@ -936,11 +958,18 @@ export const Form: React.FC<FormProps> = (props) => {
   if (variant === "field") {
     const { label, helper, required = false, readOnly = false, error } = props
 
+    const { id: fieldId, child: renderedChild } = prepareControlWithId(
+      children,
+      readOnly,
+      fieldAutoId
+    )
+
     return (
       <FormGroup className={className} style={style}>
         <Label
           style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
           check={false}
+          for={fieldId}
         >
           {label}
           {required && (
@@ -956,7 +985,7 @@ export const Form: React.FC<FormProps> = (props) => {
             </Tooltip>
           )}
         </Label>
-        {!readOnly && children}
+        {!readOnly && renderedChild}
         {helper && !error && <>{helper}</>}
         {error && <div className="d-block">{error}</div>}
       </FormGroup>
@@ -978,11 +1007,18 @@ export const Field: React.FC<FieldProps> = ({
   children,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const autoId = useAutoId("field")
+  const { id: fieldId, child: renderedChild } = prepareControlWithId(
+    children,
+    readOnly,
+    autoId
+  )
   return (
     <FormGroup className={className} style={style}>
       <Label
         style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
         check={false}
+        for={fieldId}
       >
         {label}
         {required && (
@@ -998,7 +1034,7 @@ export const Field: React.FC<FieldProps> = ({
           </Tooltip>
         )}
       </Label>
-      {!readOnly && children}
+      {!readOnly && renderedChild}
       {helper && !error && <>{helper}</>}
       {error && <div className="d-block">{error}</div>}
     </FormGroup>
