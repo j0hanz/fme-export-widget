@@ -123,6 +123,41 @@ const useLocalMapState = () => {
   const [currentGeometry, setCurrentGeometry] =
     React.useState<__esri.Geometry | null>(null)
 
+  // Cleanup function to remove all resources
+  const cleanupResources = hooks.useEventCallback(() => {
+    try {
+      if (sketchViewModel) {
+        sketchViewModel.cancel()
+        sketchViewModel.destroy()
+        setSketchViewModel(null)
+      }
+
+      if (areaMeasurement2D) {
+        areaMeasurement2D.destroy()
+        setAreaMeasurement2D(null)
+      }
+
+      if (distanceMeasurement2D) {
+        distanceMeasurement2D.destroy()
+        setDistanceMeasurement2D(null)
+      }
+
+      if (graphicsLayer && jimuMapView?.view?.map) {
+        jimuMapView.view.map.remove(graphicsLayer)
+        setGraphicsLayer(null)
+      }
+
+      if (measurementGraphicsLayer && jimuMapView?.view?.map) {
+        jimuMapView.view.map.remove(measurementGraphicsLayer)
+        setMeasurementGraphicsLayer(null)
+      }
+
+      setCurrentGeometry(null)
+    } catch (error) {
+      console.warn("FME Export Widget - Error during resource cleanup:", error)
+    }
+  })
+
   return {
     jimuMapView,
     setJimuMapView,
@@ -138,6 +173,7 @@ const useLocalMapState = () => {
     setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
+    cleanupResources,
   }
 }
 
@@ -650,6 +686,7 @@ export default function Widget(
     setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
+    cleanupResources,
   } = localMapState
 
   // Clear graphics
@@ -859,11 +896,21 @@ export default function Widget(
     }
   }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
 
+  // Cleanup on map view change
+  hooks.useUpdateEffect(() => {
+    return () => {
+      if (jimuMapView) {
+        cleanupResources()
+      }
+    }
+  }, [jimuMapView])
+
   // Cleanup
   hooks.useEffectOnce(() => {
     return () => {
-      // Widget cleanup handled by Experience Builder
+      // Cleanup resources on unmount
       abortIfPresent(submissionAbortRef)
+      cleanupResources()
     }
   })
 
@@ -902,11 +949,12 @@ export default function Widget(
     }
   })
 
-  // Reset
+  // Reset handler
   const handleReset = hooks.useEventCallback(() => {
     resetGraphicsAndMeasurements()
 
     if (sketchViewModel) sketchViewModel.cancel()
+    cleanupResources()
 
     dispatch(fmeActions.resetState())
   })
