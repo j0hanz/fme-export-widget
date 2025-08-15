@@ -48,14 +48,13 @@ export const UI_CSS = (() => {
   const BTN_LAYOUT = {
     GROUP: {
       display: "flex" as const,
-      gap: "1rem",
-      marginTop: "1rem",
+      gap: "0.5rem",
     } as React.CSSProperties,
     DEFAULT: {
       display: "flex",
       flexFlow: "column",
       width: "100%",
-      gap: "1rem",
+      gap: "0.5rem",
     } as React.CSSProperties,
     TEXT: {
       flex: 1,
@@ -103,7 +102,7 @@ export const UI_CSS = (() => {
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: "1rem",
+      gap: "0.5rem",
       height: "100%",
     } as React.CSSProperties,
     TEXT: {
@@ -799,7 +798,7 @@ export const Tabs: React.FC<TabsProps> = ({
   onTabChange,
   ariaLabel,
   style,
-  fill = true,
+  fill = false,
   type = "default",
 }) => {
   // Presentational title for a tab item

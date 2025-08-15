@@ -71,7 +71,6 @@ const CSS = {
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: "1rem",
       height: "100%",
     } as React.CSSProperties,
   },
