@@ -290,6 +290,17 @@ export interface FormValues {
   [key: string]: FormPrimitive
 }
 
+// Primitive parameters used in job requests
+export interface PrimitiveParams {
+  [key: string]: unknown
+}
+
+// Loading flags for async operations
+export interface LoadingFlags {
+  isModulesLoading?: boolean
+  isSubmittingOrder?: boolean
+}
+
 // Select component aggregate value
 export type SelectValue = string | number | ReadonlyArray<string | number>
 

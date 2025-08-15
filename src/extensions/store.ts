@@ -11,6 +11,7 @@ import {
   type WorkspaceItemDetail,
   type WorkspaceParameter,
   type ExportResult,
+  type LoadingFlags,
 } from "../shared/types"
 
 // Action creator helpers for type safety
@@ -23,11 +24,6 @@ const createActionWithPayload = <
 ) => ({ type, ...payload }) as { type: T } & P
 
 const createSimpleAction = <T extends FmeActionType>(type: T) => ({ type })
-
-interface LoadingFlags {
-  isModulesLoading?: boolean
-  isSubmittingOrder?: boolean
-}
 
 // View actions
 const viewActions = {

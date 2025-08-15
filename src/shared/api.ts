@@ -12,6 +12,7 @@ import type {
   JobResponse,
   JobResult,
   UploadWorkspaceParams,
+  PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 
@@ -40,11 +41,6 @@ const API_CONSTANTS = {
     "Content-Type": "application/x-www-form-urlencoded",
   },
 } as const
-
-// Generic primitive param bag (index signature preferred over Record for lint rule)
-interface PrimitiveParams {
-  [key: string]: unknown
-}
 
 // Extract error information from an unknown error object
 function extractErrorInfo(err: unknown): {
