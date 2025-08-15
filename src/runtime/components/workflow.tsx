@@ -38,13 +38,59 @@ import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/gis/clear-selection.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
 import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
-import { STYLES } from "../../shared/css"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
   ParameterFormService,
   ErrorHandlingService,
 } from "../../shared/services"
+
+// Workflow-specific styles
+const CSS = {
+  parent: {
+    display: "flex",
+    flexDirection: "column",
+    overflowY: "auto",
+    height: "100%",
+    position: "relative" as const,
+  } as React.CSSProperties,
+  header: {
+    display: "flex",
+    justifyContent: "end",
+    flexShrink: 0,
+  } as React.CSSProperties,
+  content: {
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    flex: "1 1 auto",
+    padding: "0.5rem",
+  } as React.CSSProperties,
+  state: {
+    centered: {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      gap: "1rem",
+      height: "100%",
+    } as React.CSSProperties,
+  },
+  typography: {
+    caption: {
+      fontSize: "0.8125rem",
+      margin: "0.5rem 0",
+    } as React.CSSProperties,
+    title: {
+      fontSize: "1rem",
+      fontWeight: 500,
+    } as React.CSSProperties,
+    instructionText: {
+      fontSize: "0.8125rem",
+      margin: "1rem 0",
+      textAlign: "center",
+    } as React.CSSProperties,
+  },
+}
 
 const CANCELLED_PROMISE_ERROR_NAME = "CancelledPromiseError"
 const noOp = (): void => {
@@ -222,7 +268,7 @@ const OrderResult = React.memo(function OrderResult({
         ? String(value)
         : JSON.stringify(value)
     rows.push(
-      <div style={STYLES.typography.caption} key={label || display}>
+      <div style={CSS.typography.caption} key={label || display}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -252,10 +298,10 @@ const OrderResult = React.memo(function OrderResult({
 
   return (
     <>
-      <div style={STYLES.typography.title}>{titleText}</div>
+      <div style={CSS.typography.title}>{titleText}</div>
       {rows}
       {showDownloadLink && (
-        <div style={STYLES.typography.caption}>
+        <div style={CSS.typography.caption}>
           <a
             href={orderResult.downloadUrl}
             target="_blank"
@@ -265,9 +311,7 @@ const OrderResult = React.memo(function OrderResult({
           </a>
         </div>
       )}
-      {showMessage && (
-        <div style={STYLES.typography.caption}>{messageText}</div>
-      )}
+      {showMessage && <div style={CSS.typography.caption}>{messageText}</div>}
       <Button
         text={buttonText}
         onClick={buttonHandler}
@@ -736,7 +780,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     // Main content
 
     return (
-      <div style={STYLES.state.centered}>
+      <div style={CSS.state.centered}>
         {/* Drawing mode */}
         <Tabs
           items={drawingModeItems}
@@ -761,7 +805,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div style={STYLES.typography.instructionText}>{instructionText}</div>
+    <div style={CSS.typography.instructionText}>{instructionText}</div>
   )
 
   const renderWorkspaceSelection = () => {
@@ -875,11 +919,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   return (
-    <div style={STYLES.parent}>
-      <div style={STYLES.header}>
-        {showHeaderActions ? renderHeader() : null}
-      </div>
-      <div style={STYLES.content}>{renderContent()}</div>
+    <div style={CSS.parent}>
+      <div style={CSS.header}>{showHeaderActions ? renderHeader() : null}</div>
+      <div style={CSS.content}>{renderContent()}</div>
     </div>
   )
 }

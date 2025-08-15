@@ -15,7 +15,6 @@ import {
   LoadingType,
   Checkbox as JimuCheckbox,
 } from "jimu-ui"
-import { STYLES } from "../../shared/css"
 import defaultMessages from "./translations/default"
 import type {
   ButtonProps,
@@ -99,6 +98,41 @@ export const UI_CSS = (() => {
     },
     LABEL: { display: "block" as const },
   } as const
+  const STATE = {
+    CENTERED: {
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      gap: "1rem",
+      height: "100%",
+    } as React.CSSProperties,
+    TEXT: {
+      position: "absolute" as const,
+      top: "50%",
+      left: "50%",
+      transform: "translate(-50%, -50%)",
+      textAlign: "center" as const,
+      zIndex: 1000,
+    } as React.CSSProperties,
+  } as const
+  const TYPOGRAPHY = {
+    CAPTION: {
+      fontSize: "0.8125rem",
+      margin: "0.5rem 0",
+    } as React.CSSProperties,
+    LABEL: {
+      display: "block",
+      fontSize: "0.8125rem",
+      marginBottom: 0,
+    } as React.CSSProperties,
+    REQUIRED: {
+      marginLeft: "0.25rem",
+    } as React.CSSProperties,
+    TITLE: {
+      fontSize: "1rem",
+      fontWeight: 500,
+    } as React.CSSProperties,
+  } as const
   const A11Y = {
     REQUIRED: "*",
   } as const
@@ -107,6 +141,8 @@ export const UI_CSS = (() => {
     BTN,
     TIP,
     CSS,
+    STATE,
+    TYPOGRAPHY,
     A11Y,
   } as const
 })()
@@ -645,10 +681,10 @@ const renderLoadingState = (
   state: Extract<UiViewState, { kind: "loading" }>,
   ariaDetailsLabel: string
 ) => (
-  <div style={STYLES.state.centered} role="status" aria-live="polite">
+  <div style={UI_CSS.STATE.CENTERED} role="status" aria-live="polite">
     <Loading type={LoadingType.Donut} width={200} height={200} />
     {(state.message || state.detail) && (
-      <div style={STYLES.state.text} aria-label={ariaDetailsLabel}>
+      <div style={UI_CSS.STATE.TEXT} aria-label={ariaDetailsLabel}>
         {state.message && <div>{state.message}</div>}
       </div>
     )}
@@ -665,9 +701,9 @@ const renderErrorState = (
   actionsAriaLabel: string
 ) => (
   <div role="alert" aria-live="assertive">
-    <div style={STYLES.typography.title}>{state.message}</div>
+    <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.message}</div>
     {state.code && (
-      <div style={STYLES.typography.caption}>
+      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>
         {codeLabel}: {state.code}
       </div>
     )}
@@ -698,9 +734,9 @@ const renderSuccessState = (
   actionsAriaLabel: string
 ) => (
   <div role="status" aria-live="polite">
-    {state.title && <div style={STYLES.typography.title}>{state.title}</div>}
+    {state.title && <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.title}</div>}
     {state.message && (
-      <div style={STYLES.typography.caption}>{state.message}</div>
+      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{state.message}</div>
     )}
     <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
   </div>
@@ -906,8 +942,8 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <>
         <div>
-          <div style={STYLES.typography.title}>{title}</div>
-          <div style={STYLES.typography.caption}>{subtitle}</div>
+          <div style={UI_CSS.TYPOGRAPHY.TITLE}>{title}</div>
+          <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{subtitle}</div>
         </div>
         {children}
         <ButtonGroup
@@ -943,7 +979,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <FormGroup className={className} style={style}>
         <Label
-          style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
+          style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
           check={false}
           for={fieldId}
         >
@@ -951,7 +987,7 @@ export const Form: React.FC<FormProps> = (props) => {
           {required && (
             <Tooltip content={translate("requiredField")} placement="bottom">
               <span
-                style={STYLES.typography.required}
+                style={UI_CSS.TYPOGRAPHY.REQUIRED}
                 aria-label={translate("ariaRequired")}
                 role="img"
                 aria-hidden="false"
@@ -992,7 +1028,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup className={className} style={style}>
       <Label
-        style={{ ...UI_CSS.CSS.LABEL, ...STYLES.typography.label }}
+        style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
         check={false}
         for={fieldId}
       >
@@ -1000,7 +1036,7 @@ export const Field: React.FC<FieldProps> = ({
         {required && (
           <Tooltip content={translate("requiredField")} placement="bottom">
             <span
-              style={STYLES.typography.required}
+              style={UI_CSS.TYPOGRAPHY.REQUIRED}
               aria-label={translate("ariaRequired")}
               role="img"
               aria-hidden="false"

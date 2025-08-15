@@ -14,7 +14,6 @@ import { StateView, Message } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
-import { STYLES } from "../shared/css"
 import type {
   FmeExportConfig,
   EsriModules,
@@ -37,6 +36,25 @@ import {
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
+
+// Widget-specific styles
+const CSS = {
+  colors: {
+    white: [255, 255, 255, 1] as [number, number, number, number],
+    orangeOutline: [255, 140, 0] as [number, number, number],
+  },
+  symbols: {
+    highlight: {
+      type: "simple-fill" as const,
+      color: [255, 165, 0, 0.2] as [number, number, number, number],
+      outline: {
+        color: [255, 140, 0] as [number, number, number],
+        width: 2,
+        style: "solid" as const,
+      },
+    },
+  },
+}
 
 const MODULE_NAMES: readonly string[] = [
   "esri/widgets/Sketch/SketchViewModel",
@@ -461,11 +479,11 @@ const createSketchViewModel = (
 
 // Configure sketch view model symbols
 const configureSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
-  sketchViewModel.polygonSymbol = STYLES.symbols.highlight as any
+  sketchViewModel.polygonSymbol = CSS.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
-    color: STYLES.colors.orangeOutline,
+    color: CSS.colors.orangeOutline,
     width: 2,
     style: "solid",
   }
@@ -474,9 +492,9 @@ const configureSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
     type: "simple-marker",
     style: "circle",
     size: 8,
-    color: STYLES.colors.orangeOutline,
+    color: CSS.colors.orangeOutline,
     outline: {
-      color: STYLES.colors.white,
+      color: CSS.colors.white,
       width: 1,
     },
   }
@@ -713,7 +731,7 @@ export default function Widget(
 
         // Set symbol
         if (evt.graphic && modules) {
-          evt.graphic.symbol = STYLES.symbols.highlight as any
+          evt.graphic.symbol = CSS.symbols.highlight as any
         }
 
         const calculatedArea = calculatePolygonArea(geometry, modules)
