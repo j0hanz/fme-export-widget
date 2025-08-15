@@ -37,12 +37,6 @@ export const STYLES = {
     } as React.CSSProperties,
   },
 
-  icon: {
-    muted: {
-      opacity: 0.2,
-    } as React.CSSProperties,
-  },
-
   typography: {
     caption: {
       fontSize: "0.8125rem",
@@ -72,9 +66,7 @@ export const STYLES = {
 
   // Widget-specific styles from widget.tsx
   colors: {
-    blackTransparent: [0, 0, 0, 0.8] as [number, number, number, number],
     white: [255, 255, 255, 1] as [number, number, number, number],
-    orangeFill: [255, 165, 0, 0.2] as [number, number, number, number],
     orangeOutline: [255, 140, 0] as [number, number, number],
   },
 

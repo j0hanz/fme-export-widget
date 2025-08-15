@@ -16,12 +16,7 @@ import type {
   JobResult,
   WorkspaceParameter,
 } from "./types"
-import {
-  FmeFlowApiError,
-  JobStatus,
-  ParameterType,
-  ParameterModel,
-} from "./types"
+import { FmeFlowApiError, JobStatus, ParameterType } from "./types"
 import esriRequest from "esri/request"
 import esriConfig from "esri/config"
 
@@ -336,7 +331,7 @@ describe("FME Flow API Client - Modernized", () => {
             description: "Parameter 1",
             type: ParameterType.TEXT,
             defaultValue: "default",
-            model: ParameterModel.STRING,
+            model: "string",
             optional: true,
           },
         ]

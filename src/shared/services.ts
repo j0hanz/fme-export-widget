@@ -228,13 +228,6 @@ export class ParameterFormService {
     return null
   }
 
-  // Generates form configuration from workspace parameters
-  generateFormConfig(
-    parameters: readonly WorkspaceParameter[]
-  ): readonly DynamicFieldConfig[] {
-    return this.convertParametersToFields(parameters)
-  }
-
   // Validates form values against dynamic field configurations
   validateFormValues(
     values: { [key: string]: unknown },
@@ -262,7 +255,7 @@ export class ParameterFormService {
     if (
       field.type === FormFieldType.NUMBER &&
       value !== "" &&
-      isNaN(Number(value))
+      !isNumericValue(value)
     ) {
       return `${field.label} must be a number`
     }

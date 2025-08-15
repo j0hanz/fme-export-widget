@@ -58,21 +58,9 @@ export const UI_CSS = (() => {
       width: "100%",
       gap: "1rem",
     } as React.CSSProperties,
-    ROW: {
-      display: "flex" as const,
-      width: "100%",
-      flexDirection: "row",
-      gap: 0,
-    } as React.CSSProperties,
     TEXT: {
       flex: 1,
       textAlign: "end",
-    } as React.CSSProperties,
-    SELECT: {
-      width: 50,
-      height: 32,
-      minWidth: 50,
-      padding: 0,
     } as React.CSSProperties,
     ICON: { position: "absolute" as const, zIndex: 1 as const },
   } as const
@@ -85,7 +73,6 @@ export const UI_CSS = (() => {
     ...BTN_LAYOUT,
     DEFAULTS: BTN_DEFAULTS,
     OFFSET: "10px",
-    MARGIN: "mr-2",
   } as const
   const TIP = {
     DELAY: {
@@ -103,11 +90,9 @@ export const UI_CSS = (() => {
     SHOW_ARROW: true,
     DISABLED: false,
   } as const
-  const SEL = { PLACEHOLDER: "Välj ett alternativ" } as const
   const CSS = {
     BTN_REL: { position: "relative" as const },
     TEXTAREA_RESIZE: { resize: "vertical" as const },
-    DROPDOWN_FLEX: "d-flex align-items-center",
     DISABLED_CURSOR: {
       display: "contents" as const,
       cursor: "not-allowed" as const,
@@ -115,15 +100,12 @@ export const UI_CSS = (() => {
     LABEL: { display: "block" as const },
   } as const
   const A11Y = {
-    BTN_LABEL: "Button",
-    MENU_LABEL: "Options menu",
     REQUIRED: "*",
   } as const
   return {
     ICON,
     BTN,
     TIP,
-    SEL,
     CSS,
     A11Y,
   } as const
@@ -209,14 +191,6 @@ const resolveTooltipContent = (
     return props?.title || props?.["aria-label"]
   }
   return undefined
-}
-
-// Helper for button style merging
-const mergeButtonStyles = (
-  baseStyle: React.CSSProperties,
-  userStyle?: React.CSSProperties
-): React.CSSProperties => {
-  return userStyle ? { ...baseStyle, ...userStyle } : baseStyle
 }
 
 // Button content component extracted from Button
@@ -607,7 +581,9 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  const buttonStyle = mergeButtonStyles(UI_CSS.CSS.BTN_REL, jimuProps.style)
+  const buttonStyle = jimuProps.style
+    ? { ...UI_CSS.CSS.BTN_REL, ...jimuProps.style }
+    : UI_CSS.CSS.BTN_REL
   const ariaLabel = getButtonAriaLabel(
     text,
     !!icon,

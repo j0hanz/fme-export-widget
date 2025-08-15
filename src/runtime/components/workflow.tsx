@@ -396,7 +396,7 @@ const ExportForm = React.memo(function ExportForm({
 
   // Generate form configuration from parameters
   const formConfig = React.useMemo(
-    () => parameterService.generateFormConfig(workspaceParameters),
+    () => parameterService.convertParametersToFields(workspaceParameters),
     [parameterService, workspaceParameters]
   )
 

@@ -1,37 +1,5 @@
 import type { IMState, ImmutableObject } from "jimu-core"
 
-// Base Types & Utilities
-export enum StateType {
-  IDLE = "idle",
-  LOADING = "loading",
-  ERROR = "error",
-  SUCCESS = "success",
-  CONTENT = "content",
-  EMPTY = "empty",
-}
-
-export interface StateActionButton {
-  readonly label: string
-  readonly onClick: () => void
-  readonly variant?: "primary" | "secondary" | "danger"
-  readonly disabled?: boolean
-}
-
-export interface StateData {
-  readonly message?: string
-  readonly detail?: string
-  readonly error?: ErrorState
-  readonly actions?: StateActionButton[]
-  readonly children?: React.ReactNode
-  readonly config?: LoadingConfig
-}
-
-// Loading indicator config
-export interface LoadingConfig {
-  readonly type?: "DONUT" | "PRIMARY" | "SECONDARY"
-  readonly size?: number
-}
-
 // UI View State Types
 export interface UiAction {
   readonly label: string
@@ -85,7 +53,6 @@ export const createEmptyState = (
   message: string,
   actions?: readonly UiAction[]
 ): EmptyUiState => ({ kind: "empty", message, actions })
-// ------------------------------------------------------------------
 
 // UI Component Interfaces
 export interface ButtonProps {
@@ -741,17 +708,6 @@ export const enum ParameterType {
   TEXT_EDIT = "TEXT_EDIT",
 }
 
-// Parameter model types
-export const enum ParameterModel {
-  STRING = "string",
-  LIST = "list",
-  SCRIPTED = "scripted",
-  LINKED = "linked",
-  EMBEDDED = "embedded",
-  PUBLISHED_PARAMETER = "published_parameter",
-  PRIVATE_PARAMETER = "private_parameter",
-}
-
 // Choice option for list-based parameters
 export interface ParameterChoice {
   readonly caption: string
@@ -992,9 +948,6 @@ export interface WorkflowProps
     Partial<WorkflowExportFeatures>,
     Partial<WorkflowHeaderFeatures>,
     Partial<WorkflowWorkspaceFeatures> {}
-
-// Legacy interface maintained for backward compatibility
-export interface ContentProps extends WorkflowProps {}
 
 // Widget-specific types
 export interface NotificationState {

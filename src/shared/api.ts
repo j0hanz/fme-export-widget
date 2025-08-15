@@ -231,10 +231,6 @@ export class FmeFlowApiClient {
     return `${normalizeServerUrl(this.config.serverUrl)}/${service}/${repository}/${workspace}`
   }
 
-  private normalizeServerUrl(): string {
-    return normalizeServerUrl(this.config.serverUrl)
-  }
-
   private buildEndpointWithQuery(
     baseEndpoint: string,
     queryParams: { [key: string]: string | boolean }
@@ -242,13 +238,6 @@ export class FmeFlowApiClient {
     const params = buildQueryParams(queryParams)
     const q = params.toString()
     return q ? `${baseEndpoint}?${q}` : baseEndpoint
-  }
-
-  private createUrlSearchParams(
-    parameters: PrimitiveParams = {},
-    excludeKeys: string[] = []
-  ): URLSearchParams {
-    return buildQueryParams(parameters, excludeKeys)
   }
 
   private createFormData(files: File[] | FileList): FormData {
@@ -568,7 +557,7 @@ export class FmeFlowApiClient {
     )
     return this.handleApiError(
       async () => {
-        const params = this.createUrlSearchParams(parameters)
+        const params = buildQueryParams(parameters)
         params.append("opt_showresult", "true")
         return await this.request(endpoint, {
           method: HttpMethod.POST,
@@ -702,7 +691,7 @@ export class FmeFlowApiClient {
       async () => {
         const sessionId =
           Math.floor(Math.random() * API_CONSTANTS.SESSION_ID_RANGE) + 1
-        const params = this.createUrlSearchParams({
+        const params = buildQueryParams({
           ...API_CONSTANTS.DEFAULT_UPLOAD_OPTIONS,
           opt_namespace: sessionId.toString(),
         })
@@ -860,7 +849,7 @@ export class FmeFlowApiClient {
   downloadResourceFile(resource: string, path: string): string {
     // Construct the URL for downloading a resource file
     const encodedPath = this.encodeResourcePath(path)
-    return `${this.normalizeServerUrl()}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents`
+    return `${normalizeServerUrl(this.config.serverUrl)}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents`
   }
 
   async uploadResourceFile(
@@ -1021,7 +1010,7 @@ export class FmeFlowApiClient {
       } else {
         body =
           contentType === "application/x-www-form-urlencoded"
-            ? this.createUrlSearchParams(parameters).toString()
+            ? buildQueryParams(parameters).toString()
             : JSON.stringify(parameters)
       }
     }
@@ -1116,9 +1105,9 @@ export class FmeFlowApiClient {
     if (endpoint.startsWith("http")) {
       url = endpoint
     } else if (endpoint.startsWith("/fme")) {
-      url = `${this.normalizeServerUrl()}${endpoint}`
+      url = `${normalizeServerUrl(this.config.serverUrl)}${endpoint}`
     } else {
-      url = `${this.normalizeServerUrl()}${this.basePath}${endpoint}`
+      url = `${normalizeServerUrl(this.config.serverUrl)}${this.basePath}${endpoint}`
     }
 
     console.log("FME API - Making request to:", url)

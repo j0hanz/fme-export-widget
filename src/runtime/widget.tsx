@@ -52,8 +52,7 @@ const MODULE_NAMES: readonly string[] = [
 const FALLBACK_EMAIL = "no-reply@example.com"
 
 // Area formatting thresholds
-const AREA_THRESHOLD_SQKM = 1_000_000 // m² -> 1 km²
-const AREA_CONVERSION_FACTOR = 1_000_000
+const SQMETERS_TO_SQKM = 1_000_000 // m² -> 1 km²
 const AREA_DECIMAL_PLACES = 2
 const COINCIDENT_EPSILON = 0.001
 
@@ -100,11 +99,6 @@ const useArcGISModules = (): {
       })
   })
   return { modules, loading }
-}
-
-// Type for FME form data
-interface FmeFormData {
-  data?: { [key: string]: unknown }
 }
 
 // Custom hook to manage local map state
@@ -327,7 +321,7 @@ const buildBaseFmeParams = (
   formData: unknown,
   userEmail: string
 ): { [key: string]: unknown } => {
-  const data = (formData as FmeFormData)?.data || {}
+  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   return {
     ...data,
     opt_requesteremail: userEmail,
@@ -638,8 +632,8 @@ const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
 // Format area (metric; returns localized string)
 export function formatArea(area: number): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
-  if (area >= AREA_THRESHOLD_SQKM) {
-    const areaInSqKm = area / AREA_CONVERSION_FACTOR
+  if (area >= SQMETERS_TO_SQKM) {
+    const areaInSqKm = area / SQMETERS_TO_SQKM
     const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
     return `${formattedKm} km²`
   }

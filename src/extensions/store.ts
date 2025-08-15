@@ -1,5 +1,5 @@
 import { Immutable } from "jimu-core"
-import type { extensionSpec, ImmutableObject, IMState } from "jimu-core"
+import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,
   DrawingTool,
@@ -25,7 +25,6 @@ const createActionWithPayload = <
 const createSimpleAction = <T extends FmeActionType>(type: T) => ({ type })
 
 interface LoadingFlags {
-  [key: string]: unknown
   isModulesLoading?: boolean
   isSubmittingOrder?: boolean
 }
@@ -95,22 +94,19 @@ const workspaceActions = {
 // Loading actions
 const loadingActions = {
   setLoadingFlags: (flags: LoadingFlags) =>
-    createActionWithPayload(FmeActionType.SET_LOADING_FLAGS, flags),
+    createActionWithPayload(
+      FmeActionType.SET_LOADING_FLAGS,
+      flags as { [key: string]: unknown }
+    ),
 }
-
-// Error actions - consolidated into a single parameterized function
-const createErrorAction = (
-  actionType: FmeActionType,
-  error: ErrorState | null
-) => createActionWithPayload(actionType, { error })
 
 const errorActions = {
   setError: (error: ErrorState | null) =>
-    createErrorAction(FmeActionType.SET_ERROR, error),
+    createActionWithPayload(FmeActionType.SET_ERROR, { error }),
   setImportError: (error: ErrorState | null) =>
-    createErrorAction(FmeActionType.SET_IMPORT_ERROR, error),
+    createActionWithPayload(FmeActionType.SET_IMPORT_ERROR, { error }),
   setExportError: (error: ErrorState | null) =>
-    createErrorAction(FmeActionType.SET_EXPORT_ERROR, error),
+    createActionWithPayload(FmeActionType.SET_EXPORT_ERROR, { error }),
 }
 
 // All actions
@@ -232,8 +228,7 @@ const reducerHelpers = {
 // Reducer with improved organization and early returns
 const fmeReducer = (
   state: ImmutableObject<FmeWidgetState>,
-  action: FmeActions,
-  _appState: IMState
+  action: FmeActions
 ): ImmutableObject<FmeWidgetState> => {
   switch (action.type) {
     // View and navigation cases
