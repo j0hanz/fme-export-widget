@@ -1,71 +1,163 @@
 
-# FME Export Widget for ArcGIS Experience Builder
+# FME Export widget (ArcGIS Experience Builder 1.18)
 
-This widget lets you export map features and geometries from ArcGIS Experience Builder to FME Flow (Server).
+Export a user‑drawn Area of Interest (AOI) from an Experience Builder map to FME Flow (Server). The widget guides the user through drawing a polygon/rectangle, selecting an FME workspace, filling in parameters, and submitting an export job.
 
-## What does it do?
+## What it does
 
-- Lets users select/draw features on the map
-- Submits selected geometry to FME Flow for export or transformation
-- Handles job submission, status, and error reporting
+- Draw AOI on the map using Sketch (Polygon or Rectangle; polygons are submitted)
+- Computes planar area and displays it (Swedish locale; m²/km²)
+- Lists FME workspaces from a configured repository and loads their published parameters
+- Renders a dynamic form from workspace parameters (choices, numbers, text, booleans, files, etc.)
+- Submits an export job to FME Flow using a resilient webhook → REST fallback
+- Shows a confirmation with Job ID, email, and optional download URL
 
----
+Core flow: INITIAL → DRAWING → WORKSPACE_SELECTION → EXPORT_FORM → ORDER_RESULT.
 
-## How to Install ArcGIS Experience Builder (Developer Edition)
+## Installation (Experience Builder Dev Edition)
 
-1. **Download Experience Builder 1.18:**
-   - [EXB 1.18 Download Page](https://developers.arcgis.com/experience-builder/guide/downloads/)
+1. Install EXB 1.18 Developer Edition
 
-2. **Follow the official install guide:**
-   - [EXB Install Guide](https://developers.arcgis.com/experience-builder/guide/install-guide/)
+   - Download: <https://developers.arcgis.com/experience-builder/guide/downloads/>
+   - Install guide: <https://developers.arcgis.com/experience-builder/guide/install-guide/>
+   - Create a Client ID as per the install guide.
 
-3. **Create a Client ID** (required for authentication):
-   - See [Create a Client ID](https://developers.arcgis.com/experience-builder/guide/install-guide/#1-create-a-client-id)
+2. Start EXB services
 
-4. **Install server and client services:**
-   - Unzip EXB, open terminal, run `npm ci` then `npm start` in both `/server` and `/client` folders
-   - Open [https://localhost:3001/](https://localhost:3001/) in your browser
+   - In `server/`: `npm ci`, then `npm start`
+   - In `client/`: `npm ci`, then `npm start`
+   - Open <https://localhost:3001/>
 
----
+3. Install the widget
 
-## How to Install and Use the FME Export Widget
+   - Copy this folder `fme-export` into `client/your-extensions/widgets/`
+   - Run the extension bootstrap so EXB discovers it:
+     - From `client/`: `node .\npm-bootstrap-extensions`
+   - Restart the client build if needed
 
-1. **Copy the widget folder:**
-   - Place the `fme-export-widget` folder inside `client/your-extensions/widgets/` in your EXB install
+4. Add to an app
 
-2. **Restart the EXB client service:**
-   - Stop and start the client service (`npm start` in `/client`) to detect new widgets
+   - In the Builder UI, drag “FME Export” onto your app
+   - Ensure the widget is connected to exactly one Map widget
 
-3. **Add the widget in Experience Builder:**
-   - Open the builder interface, find the FME Export Widget in the widget list, and drag it onto your app
+## Configuration (Builder settings)
 
-4. **Configure the widget:**
-   - Enter your FME Flow server URL and token in the widget settings
-   - Select map and geometry options as needed
+The widget reads these config values (keys shown for reference):
 
----
+```jsonc
+{
+   // Required
+   "fmeServerUrl": "https://your-host[/fmeserver]",   // trailing /fmeserver or /fmerest ok (normalized)
+   "fmeServerToken": "<FME Flow token>",               // used as fmetoken Authorization header
+   "repository": "<FME Repository>",                  // repository to list workspaces from
+
+   // Optional
+   "maxArea": 25000000,          // m² limit for AOI validation (reject if exceeded)
+   "requestTimeout": 30000,      // ms request timeout for FME calls
+   "geometryServiceUrl": "...", // reserved for future use
+   "api": "..."                  // reserved for future/advanced use
+}
+```
+
+Notes:
+
+- The code normalizes the server URL by stripping trailing `/fmeserver` or `/fmerest` automatically.
+- The token is attached as `Authorization: fmetoken token=<TOKEN>` for webhook and REST calls.
+- The repository is used to fetch workspaces and their parameters.
+
+## How it works (FME integration)
+
+- Primary submission path: Webhook GET to `/fmedatadownload/{repository}/{workspace}` with query:
+
+  - `opt_responseformat=json`, `opt_showresult=true`, `opt_servicemode=async`, plus your published parameters
+  - AOI is attached as `AreaOfInterest` containing polygon Esri JSON (stringified)
+  - Requester email is included as `opt_requesteremail` (pulled from Portal user, with a no‑reply fallback)
+- Fallback path: If the webhook returns 401/403 or HTML, the widget submits via REST at `/fmerest/v3/transformations/submit/{repository}/{workspace}` with `publishedParameters`.
+- Trusted server + token: All REST calls go through Esri’s `esri/request` with an interceptor that adds the FME token and trusts the server origin.
+
+Geometry submitted
+
+- Only polygon AOI is submitted to FME. Rectangles drawn are converted to polygons by Sketch.
+- Extent and area metrics are also computed client‑side for validation and optional downstream use.
+
+## Using the widget
+
+1. Choose drawing mode (Polygon or Rectangle) and click “Specify extent”
+2. Draw the AOI on the map. The widget validates shape and max area
+3. Select an FME workspace from the repository list
+4. Fill in the dynamic parameter form (only non-AOI fields are shown)
+5. Submit. You’ll see job confirmation with ID and optional download URL
+
+## Developer guide
+
+Key files
+
+- `src/runtime/widget.tsx` – main orchestrator and map integration (Sketch, layers, measurements)
+- `src/runtime/components/workflow.tsx` – views for drawing, selection, form, result
+- `src/runtime/components/ui.tsx` – small UI toolkit built on `jimu-ui`
+- `src/shared/types.ts` – complete domain model and Redux action/state types
+- `src/shared/api.ts` – `FmeFlowApiClient` with webhook→REST fallback and helpers
+- `src/shared/services.ts` – form generation and validation from workspace parameters
+- `src/extensions/store.ts` – Redux store extension (`storeKey: "fme-state"`)
+
+Golden rules implemented
+
+- Functional React only; no `any`; immutable Redux updates via `fmeActions`
+- Never import `@arcgis/core`; modules are loaded with `loadArcGISJSAPIModules([...])`
+- ArcGIS objects (views, layers, Sketch, geometry) are kept in local state; Redux stores only serializable JSON (`geometryJson`)
+- AOI submitted as polygon Esri JSON under the parameter `AreaOfInterest`
+- All FME calls go through `createFmeFlowClient(config)`
+
+Build, test, lint (from `client/`)
+
+```powershell
+# Start dev build (watch)
+npm start
+
+# TypeScript check (widget only)
+npm run type-check
+
+# Lint / fix (widget only)
+npm run lint
+npm run lint:fix
+
+# Run tests (Jest with EXB mocks)
+npm test
+
+# Build bundles
+npm run build:dev
+npm run build:prod
+npm run build:for-download
+
+# IMPORTANT after adding/renaming extensions
+node .\npm-bootstrap-extensions
+```
+
+## Troubleshooting
+
+- Webhook returns HTML or 401/403
+  - Expected when webhook endpoints require auth; the widget falls back to REST automatically.
+- No workspaces listed
+  - Verify `repository` exists and token has rights; check CORS/trusted server if calls fail.
+- “Area too large” / validation error
+  - Decrease AOI size or increase `maxArea` in settings.
+- Token/URL issues
+  - Server URL can include or omit trailing `/fmeserver`/`/fmerest`; both are normalized. Ensure valid FME token.
+
+## Security
+
+- Treat your FME token as a secret. Don’t commit real tokens to version control. The example `config.json` is for local dev only.
 
 ## Requirements
 
 - ArcGIS Experience Builder Developer Edition 1.18+
-- Node.js (see [recommended version](https://developers.arcgis.com/experience-builder/guide/release-versions/))
+- Node.js (see EXB’s recommended version)
 - FME Flow (Server) with REST API enabled
 
----
+## Links
 
-## Helpful Links
-
-- [EXB Download](https://developers.arcgis.com/experience-builder/guide/downloads/)
-- [EXB Install Guide](https://developers.arcgis.com/experience-builder/guide/install-guide/)
-- [Widget Development Guide](https://developers.arcgis.com/experience-builder/guide/getting-started-widget/)
-- [FME Flow REST API Docs](https://docs.safe.com/fme/html/FME_Server_REST_API/)
-
----
-
-## Quick Start
-
-1. Install Experience Builder and start server/client
-2. Place this widget in `client/your-extensions/widgets/`
-3. Restart the client service
-4. Add and configure the widget in your app
-5. Export features to FME Flow!
+- Experience Builder: downloads and install guide
+  - <https://developers.arcgis.com/experience-builder/guide/downloads/>
+  - <https://developers.arcgis.com/experience-builder/guide/install-guide/>
+- Widget development overview: <https://developers.arcgis.com/experience-builder/guide/getting-started-widget/>
+- FME Flow REST API: <https://docs.safe.com/fme/html/FME_Server_REST_API/>
