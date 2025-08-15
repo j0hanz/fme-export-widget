@@ -74,6 +74,10 @@ const SQMETERS_TO_SQKM = 1_000_000 // m² -> 1 km²
 const AREA_DECIMAL_PLACES = 2
 const COINCIDENT_EPSILON = 0.001
 
+// Area calculation constants
+const AREA_UNIT = "square-meters"
+const MIN_VALID_AREA = 0.001 // m²
+
 // Load ArcGIS modules once and memoize result
 const useArcGISModules = (): {
   modules: EsriModules | null
@@ -221,27 +225,23 @@ const abortIfPresent = (
   }
 }
 
-// Calculate polygon area with fallback strategies
+// Calculate polygon area using planar area calculation
 const calculatePolygonArea = (
   geometry: __esri.Geometry,
   modules: EsriModules
 ): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
-  type AreaMethod = "geodesicArea" | "planarArea"
-  const AREA_UNIT = "square-meters"
-  const METHODS: readonly AreaMethod[] = ["geodesicArea", "planarArea"]
-
   const geometryEngine = modules.geometryEngine as any
   const polygon = geometry as __esri.Polygon
 
-  for (const method of METHODS) {
-    try {
-      const value = geometryEngine?.[method]?.(polygon, AREA_UNIT)
-      if (Number.isFinite(value) && value > 0) return Math.abs(value)
-    } catch {
-      // ignore and try the next method
+  try {
+    const planarValue = geometryEngine?.planarArea?.(polygon, AREA_UNIT)
+    if (Number.isFinite(planarValue) && planarValue > MIN_VALID_AREA) {
+      return Math.abs(planarValue)
     }
+  } catch (error) {
+    console.warn(`FME Export Widget - planarArea calculation failed:`, error)
   }
 
   return 0
@@ -255,7 +255,7 @@ const validatePolygonGeometry = (
   if (!geometry) {
     return {
       valid: false,
-      error: errorService.createError("geometryMissing", ErrorType.GEOMETRY, {
+      error: errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
         code: "GEOM_MISSING",
       }),
     }
@@ -265,7 +265,7 @@ const validatePolygonGeometry = (
     return {
       valid: false,
       error: errorService.createError(
-        "geometryTypeInvalid",
+        "GEOMETRY_TYPE_INVALID",
         ErrorType.GEOMETRY,
         { code: "GEOM_TYPE_INVALID" }
       ),
@@ -276,7 +276,7 @@ const validatePolygonGeometry = (
   if (!polygon.rings?.length) {
     return {
       valid: false,
-      error: errorService.createError("polygonNoRings", ErrorType.GEOMETRY, {
+      error: errorService.createError("POLYGON_NO_RINGS", ErrorType.GEOMETRY, {
         code: "GEOM_NO_RINGS",
       }),
     }
@@ -288,7 +288,7 @@ const validatePolygonGeometry = (
     return {
       valid: false,
       error: errorService.createError(
-        "polygonMinVertices",
+        "POLYGON_MIN_VERTICES",
         ErrorType.GEOMETRY,
         { code: "GEOM_MIN_VERTICES" }
       ),
@@ -304,9 +304,9 @@ const validatePolygonGeometry = (
         return {
           valid: false,
           error: errorService.createError(
-            "polygonSelfIntersect",
+            "POLYGON_SELF_INTERSECTING",
             ErrorType.GEOMETRY,
-            { code: "GEOM_SELF_INTERSECT" }
+            { code: "GEOM_SELF_INTERSECTING" }
           ),
         }
       }
@@ -329,7 +329,7 @@ const enforceMaxArea = (
 
   return {
     ok: false,
-    message: "areaTooLarge",
+    message: "AREA_TOO_LARGE",
     code: "AREA_TOO_LARGE",
   }
 }
