@@ -16,7 +16,7 @@ import {
   FormFieldType,
   type WorkflowProps,
   type WorkspaceItem,
-  type UiAction,
+  type ViewAction,
   type FormPrimitive,
   type FormValues,
   type SelectValue,
@@ -28,9 +28,9 @@ import {
 import {
   ViewMode,
   DrawingTool,
-  createLoadingState,
-  createErrorState,
-  createEmptyState,
+  makeLoadingView,
+  makeErrorView,
+  makeEmptyView,
   ErrorType,
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
@@ -91,7 +91,7 @@ const CSS = {
   },
 }
 
-const WORKSPACE_TYPE = "WORKSPACE"
+const WORKSPACE_ITEM_TYPE = "WORKSPACE"
 const ERROR_NAMES = {
   CANCELLED_PROMISE: "CancelledPromiseError",
   ABORT: "AbortError",
@@ -120,7 +120,7 @@ const DRAWING_MODE_TABS = [
 ] as const
 
 // Helper for workspace API error handling
-const handleWorkspaceApiError = (
+const formatError = (
   err: unknown,
   isMountedRef: React.MutableRefObject<boolean>,
   translate: (key: string) => string,
@@ -142,7 +142,7 @@ const handleWorkspaceApiError = (
 }
 
 // Helper to determine reset button enabled state
-const isResetButtonEnabled = (
+const isResetEnabled = (
   onReset: (() => void) | undefined,
   canReset: boolean,
   state: ViewMode,
@@ -154,7 +154,7 @@ const isResetButtonEnabled = (
 }
 
 // Determine whether workspace list should display a loading state
-const isWorkspaceLoading = (
+const showWsLoading = (
   isLoadingWorkspaces: boolean,
   workspaces: readonly WorkspaceItem[],
   state: ViewMode
@@ -185,7 +185,7 @@ const toSelectValue = (
   return isMultiSelect ? [] : ""
 }
 
-const createFieldPlaceholders = (
+const getPlaceholders = (
   translate: (k: string, p?: any) => string,
   fieldLabel: string
 ) =>
@@ -194,9 +194,7 @@ const createFieldPlaceholders = (
     select: translate("placeholderSelect", { field: fieldLabel }),
   }) as const
 
-const createFormValuesFromConfig = (
-  formConfig: readonly DynamicFieldConfig[]
-): FormValues => {
+const initValues = (formConfig: readonly DynamicFieldConfig[]): FormValues => {
   const result: FormValues = {}
   for (const field of formConfig) {
     if (field.defaultValue !== undefined) {
@@ -206,7 +204,7 @@ const createFormValuesFromConfig = (
   return result
 }
 
-const dispatchFormValues = (values: FormValues): void => {
+const syncForm = (values: FormValues): void => {
   // Dispatch form values to the Redux store
   const dispatch = getAppStore().dispatch as (
     action: ReturnType<typeof fmeActions.setFormValues>
@@ -214,7 +212,7 @@ const dispatchFormValues = (values: FormValues): void => {
   dispatch(fmeActions.setFormValues(values))
 }
 
-const renderTextualInput = (
+const renderInput = (
   type: "text" | "password" | "number",
   fieldValue: FormPrimitive,
   placeholder: string,
@@ -336,10 +334,7 @@ const DynamicField = React.memo(function DynamicField({
 }: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFieldValue(value, isMulti)
-  const placeholders = React.useMemo(
-    () => createFieldPlaceholders(translate, field.label),
-    [translate, field.label]
-  )
+  const placeholders = getPlaceholders(translate, field.label)
 
   switch (field.type) {
     case FormFieldType.SELECT:
@@ -368,7 +363,7 @@ const DynamicField = React.memo(function DynamicField({
         />
       )
     case FormFieldType.NUMBER:
-      return renderTextualInput(
+      return renderInput(
         "number",
         fieldValue,
         placeholders.enter,
@@ -387,7 +382,7 @@ const DynamicField = React.memo(function DynamicField({
         />
       )
     case FormFieldType.PASSWORD:
-      return renderTextualInput(
+      return renderInput(
         "password",
         fieldValue,
         placeholders.enter,
@@ -411,7 +406,7 @@ const DynamicField = React.memo(function DynamicField({
         />
       )
     case FormFieldType.TEXT:
-      return renderTextualInput(
+      return renderInput(
         "text",
         fieldValue,
         placeholders.enter,
@@ -433,16 +428,15 @@ const ExportForm = React.memo(function ExportForm({
 }: ExportFormProps) {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
-  const [fileMap, setFileMap] = React.useState<{ [key: string]: File | null }>(
-    {}
-  )
+  const [fileMap, setFileMap] = React.useState<{
+    [key: string]: File | null
+  }>({})
 
   // Local validation message builder using current translate
-  const buildValidationError = hooks.useEventCallback(
-    (count: number): string =>
-      count === 1
-        ? translate("formValidationSingleError")
-        : translate("formValidationMultipleErrors")
+  const errorMsg = hooks.useEventCallback((count: number): string =>
+    count === 1
+      ? translate("formValidationSingleError")
+      : translate("formValidationMultipleErrors")
   )
 
   // Generate form configuration from parameters
@@ -453,13 +447,13 @@ const ExportForm = React.memo(function ExportForm({
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState<FormValues>(() =>
-    createFormValuesFromConfig(formConfig)
+    initValues(formConfig)
   )
   const [isValid, setIsValid] = React.useState(true)
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
-    dispatchFormValues(values)
+    syncForm(values)
   })
 
   // Validate form whenever values change
@@ -470,34 +464,34 @@ const ExportForm = React.memo(function ExportForm({
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
   hooks.useUpdateEffect(() => {
-    const nextValues = createFormValuesFromConfig(formConfig)
+    const nextValues = initValues(formConfig)
     setValues(nextValues)
     setFileMap({})
-    dispatchFormValues(nextValues)
+    syncForm(nextValues)
   }, [workspaceName, formConfig])
 
-  const onChange = hooks.useEventCallback(
+  const setField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
       if (value instanceof File) {
         // Handle file input specifically
         setFileMap((prev) => ({ ...prev, [field]: value }))
         const newValues = { ...values, [field]: value.name }
         setValues(newValues)
-        dispatchFormValues(newValues)
+        syncForm(newValues)
         return
       } else if (value === null && field in fileMap) {
         // Handle file removal
         setFileMap((prev) => ({ ...prev, [field]: null }))
         const newValues = { ...values, [field]: "" }
         setValues(newValues)
-        dispatchFormValues(newValues)
+        syncForm(newValues)
         return
       }
 
       // Handle all other form values
       const newValues = { ...values, [field]: value }
       setValues(newValues)
-      dispatchFormValues(newValues)
+      syncForm(newValues)
     }
   )
 
@@ -505,7 +499,7 @@ const ExportForm = React.memo(function ExportForm({
     const validation = parameterService.validateFormValues(values, formConfig)
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
-      const errorMessage = buildValidationError(count)
+      const errorMessage = errorMsg(count)
       const error = errorService.createError(
         errorMessage,
         ErrorType.VALIDATION,
@@ -560,7 +554,7 @@ const ExportForm = React.memo(function ExportForm({
           <DynamicField
             field={field}
             value={values[field.name]}
-            onChange={(val) => onChange(field.name, val)}
+            onChange={(val) => setField(field.name, val)}
             translate={translate}
           />
         </Field>
@@ -603,7 +597,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Internal alias for readability (keep original prop name for API stability)
-  const onSpecifyExtent = onAngeUtbredning
+  const handleSpecifyExtent = onAngeUtbredning
 
   // Memoized drawing mode items to avoid re-creating arrays on each render
   const drawingModeItems = React.useMemo(
@@ -617,8 +611,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Local helper to build action arrays for StateView
-  const createActions = hooks.useEventCallback(
-    (onBack?: () => void, onRetry?: () => void): UiAction[] => {
+  const getActions = hooks.useEventCallback(
+    (onBack?: () => void, onRetry?: () => void): ViewAction[] => {
       return [
         ...(onRetry ? [{ label: translate("retry"), onClick: onRetry }] : []),
         ...(onBack ? [{ label: translate("back"), onClick: onBack }] : []),
@@ -629,15 +623,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
-      <StateView state={createLoadingState(message, subMessage)} />
+      <StateView state={makeLoadingView(message, subMessage)} />
     )
   )
 
   const renderError = hooks.useEventCallback(
     (message: string, onBack?: () => void, onRetry?: () => void) => {
       const actions =
-        onBack || onRetry ? createActions(onBack, onRetry) : undefined
-      return <StateView state={createErrorState(message, { actions })} />
+        onBack || onRetry ? getActions(onBack, onRetry) : undefined
+      return <StateView state={makeErrorView(message, { actions })} />
     }
   )
 
@@ -657,6 +651,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Abort controller for workspace loading
   const loadAbortRef = React.useRef<AbortController | null>(null)
+  // Timeout ref for scheduled workspace loading
+  const loadTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
 
   // Track mount
   const isMountedRef = React.useRef(true)
@@ -668,11 +664,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
         loadAbortRef.current.abort()
         loadAbortRef.current = null
       }
+      // Clear any pending scheduled load timeout
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current)
+        loadTimeoutRef.current = null
+      }
     }
   })
 
   // Load workspaces with race condition protection
-  const loadWorkspaces = hooks.useEventCallback(async () => {
+  const fetchWorkspaces = hooks.useEventCallback(async () => {
     if (!fmeClient || !config?.repository) return
 
     // Cancel any existing request
@@ -686,7 +687,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     try {
       const response = await makeCancelable(
-        fmeClient.getRepositoryItems(config.repository, "WORKSPACE")
+        fmeClient.getRepositoryItems(config.repository, WORKSPACE_ITEM_TYPE)
       )
 
       // Check if request was aborted
@@ -694,7 +695,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
       if (response.status === 200 && response.data.items) {
         const items = response.data.items.filter(
-          (i) => i.type === WORKSPACE_TYPE
+          (i) => i.type === WORKSPACE_ITEM_TYPE
         )
         // Sort deterministically by title or name (case-insensitive)
         const sorted = items.slice().sort((a, b) =>
@@ -710,7 +711,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       // Don't show error if request was aborted
       if ((err as { name?: string })?.name === ERROR_NAMES.ABORT) return
 
-      const errorMsg = handleWorkspaceApiError(
+      const errorMsg = formatError(
         err,
         isMountedRef,
         translate,
@@ -727,7 +728,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   })
 
   // Select workspace
-  const handleWorkspaceSelect = hooks.useEventCallback(
+  const loadWorkspace = hooks.useEventCallback(
     async (workspaceName: string) => {
       if (!fmeClient || !config?.repository) return
       setIsLoadingWorkspaces(true)
@@ -746,7 +747,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: unknown) {
-        const errorMsg = handleWorkspaceApiError(
+        const errorMsg = formatError(
           err,
           isMountedRef,
           translate,
@@ -769,7 +770,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           icon={listIcon}
           role="listitem"
           onClick={() => {
-            handleWorkspaceSelect(workspace.name)
+            loadWorkspace(workspace.name)
           }}
           logging={{
             enabled: true,
@@ -777,22 +778,19 @@ export const Workflow: React.FC<WorkflowProps> = ({
           }}
         />
       )),
-    [workspaces, handleWorkspaceSelect]
+    [workspaces, loadWorkspace]
   )
 
-  // Debounced workspace loading to prevent rapid successive calls
-  const debouncedLoadWorkspaces = React.useMemo(() => {
-    let timeoutId: NodeJS.Timeout | null = null
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-      timeoutId = setTimeout(() => {
-        loadWorkspaces()
-        timeoutId = null
-      }, 300) // 300ms debounce delay
+  // Schedule a workspace load (debounced 300ms) to prevent rapid successive calls
+  const workspaceLoad = React.useCallback(() => {
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current)
     }
-  }, [loadWorkspaces])
+    loadTimeoutRef.current = setTimeout(() => {
+      fetchWorkspaces()
+      loadTimeoutRef.current = null
+    }, 300) // 300ms debounce delay
+  }, [fetchWorkspaces])
 
   // Lazy load
   hooks.useUpdateEffect(() => {
@@ -801,7 +799,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       state === ViewMode.EXPORT_OPTIONS
     ) {
       if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
-        debouncedLoadWorkspaces()
+        workspaceLoad()
       }
     }
   }, [
@@ -809,12 +807,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
     workspaces.length,
     isLoadingWorkspaces,
     workspaceError,
-    debouncedLoadWorkspaces,
+    workspaceLoad,
   ])
 
   // Header
   const renderHeader = () => {
-    const resetEnabled = isResetButtonEnabled(
+    const resetEnabled = isResetEnabled(
       onReset,
       canReset,
       state,
@@ -859,7 +857,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           text={translate("specifyExtent")}
           alignText="center"
           icon={plusIcon}
-          onClick={onSpecifyExtent}
+          onClick={handleSpecifyExtent}
           disabled={!canStartDrawing}
           tooltip={translate("tooltipSpecifyExtent")}
           tooltipPlacement="bottom"
@@ -873,9 +871,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     <div style={CSS.typography.instructionText}>{instructionText}</div>
   )
 
-  const renderWorkspaceSelection = () => {
+  const renderSelection = () => {
     // Loading
-    const shouldShowLoading = isWorkspaceLoading(
+    const shouldShowLoading = showWsLoading(
       isLoadingWorkspaces,
       workspaces,
       state
@@ -889,16 +887,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Error
     if (workspaceError) {
-      return renderError(workspaceError, onBack || noOp, loadWorkspaces)
+      return renderError(workspaceError, onBack || noOp, fetchWorkspaces)
     }
 
     // Empty
     if (!workspaces.length) {
       return (
         <StateView
-          state={createEmptyState(
+          state={makeEmptyView(
             translate("noWorkspacesFound"),
-            createActions(onBack || noOp, loadWorkspaces)
+            getActions(onBack || noOp, fetchWorkspaces)
           )}
         />
       )
@@ -912,7 +910,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
-  const renderExportForm = () => {
+  const renderForm = () => {
     // Guard clause for missing handlers
     if (!onFormBack || !onFormSubmit) {
       return renderError(
@@ -940,7 +938,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
-  const renderContent = () => {
+  const renderCurrent = () => {
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       // Happy path: show OrderResult if present; fallback handled in switch below.
@@ -974,9 +972,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:
-        return renderWorkspaceSelection()
+        return renderSelection()
       case ViewMode.EXPORT_FORM:
-        return renderExportForm()
+        return renderForm()
       case ViewMode.ORDER_RESULT:
         // Fallback: ORDER_RESULT view but no result object was provided.
         return renderError(translate("orderResultMissing"), onBack || noOp)
@@ -986,7 +984,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   return (
     <div style={CSS.parent}>
       <div style={CSS.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div style={CSS.content}>{renderContent()}</div>
+      <div style={CSS.content}>{renderCurrent()}</div>
     </div>
   )
 }

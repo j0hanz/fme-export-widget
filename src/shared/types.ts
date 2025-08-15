@@ -1,58 +1,58 @@
 import type { IMState, ImmutableObject } from "jimu-core"
 
 // UI View State Types
-export interface UiAction {
+export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
   readonly variant?: "primary" | "default" | "danger"
   readonly disabled?: boolean
 }
-export interface LoadingUiState {
+export interface LoadingView {
   readonly kind: "loading"
   readonly message?: string
   readonly detail?: string
 }
-export interface ErrorUiState {
+export interface ErrorView {
   readonly kind: "error"
   readonly message: string
   readonly code?: string
   readonly recoverable?: boolean
-  readonly actions?: readonly UiAction[]
+  readonly actions?: readonly ViewAction[]
 }
-export interface EmptyUiState {
+export interface EmptyView {
   readonly kind: "empty"
   readonly message: string
-  readonly actions?: readonly UiAction[]
+  readonly actions?: readonly ViewAction[]
 }
-export interface SuccessUiState {
+export interface SuccessView {
   readonly kind: "success"
   readonly title?: string
   readonly message?: string
-  readonly actions?: readonly UiAction[]
+  readonly actions?: readonly ViewAction[]
 }
-export interface ContentUiState {
+export interface ContentView {
   readonly kind: "content"
   readonly node: React.ReactNode
 }
-export type UiViewState =
-  | LoadingUiState
-  | ErrorUiState
-  | EmptyUiState
-  | SuccessUiState
-  | ContentUiState
+export type ViewState =
+  | LoadingView
+  | ErrorView
+  | EmptyView
+  | SuccessView
+  | ContentView
 // Utility functions to create UI states
-export const createLoadingState = (
+export const makeLoadingView = (
   message?: string,
   detail?: string
-): LoadingUiState => ({ kind: "loading", message, detail })
-export const createErrorState = (
+): LoadingView => ({ kind: "loading", message, detail })
+export const makeErrorView = (
   message: string,
-  opts: Omit<ErrorUiState, "kind" | "message"> = {}
-): ErrorUiState => ({ kind: "error", message, ...opts })
-export const createEmptyState = (
+  opts: Omit<ErrorView, "kind" | "message"> = {}
+): ErrorView => ({ kind: "error", message, ...opts })
+export const makeEmptyView = (
   message: string,
-  actions?: readonly UiAction[]
-): EmptyUiState => ({ kind: "empty", message, actions })
+  actions?: readonly ViewAction[]
+): EmptyView => ({ kind: "empty", message, actions })
 
 // UI Component Interfaces
 export interface ButtonProps {
@@ -105,7 +105,7 @@ export interface ButtonGroupProps {
   readonly logging?: { enabled: boolean; prefix: string }
 }
 
-export interface SelectOption {
+export interface OptionItem {
   readonly value: string | number
   readonly label: string
   readonly disabled?: boolean
@@ -119,7 +119,7 @@ export interface SelectProps {
   readonly onChange?: (
     value: string | number | ReadonlyArray<string | number>
   ) => void
-  readonly options?: readonly SelectOption[]
+  readonly options?: readonly OptionItem[]
   readonly placeholder?: string
   readonly disabled?: boolean
   readonly ariaLabel?: string
@@ -185,7 +185,7 @@ export interface TextAreaProps {
 
 // Dropdown types removed (single header action now directly rendered)
 
-export interface CustomTooltipProps {
+export interface TooltipProps {
   readonly content?: React.ReactNode
   readonly children: React.ReactElement
   readonly showArrow?: boolean
@@ -230,7 +230,7 @@ export interface FieldProps {
   readonly children?: React.ReactNode
 }
 
-export interface ButtonContentProps {
+export interface BtnContentProps {
   readonly loading: boolean
   readonly children?: React.ReactNode
   readonly text?: React.ReactNode
@@ -249,7 +249,7 @@ export interface IconProps {
 }
 
 // App message props for Message component
-export interface AppMessageProps {
+export interface MessageProps {
   readonly message: string
   readonly severity?: "info" | "warning" | "error" | "success"
   readonly autoHideDuration?: number | null

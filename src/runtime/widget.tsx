@@ -56,7 +56,7 @@ const CSS = {
   },
 }
 
-const MODULE_NAMES: readonly string[] = [
+const MODULES: readonly string[] = [
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
   "esri/Graphic",
@@ -70,8 +70,8 @@ const MODULE_NAMES: readonly string[] = [
 const FALLBACK_EMAIL = "no-reply@example.com"
 
 // Area formatting thresholds
-const SQMETERS_TO_SQKM = 1_000_000 // m² -> 1 km²
-const AREA_DECIMAL_PLACES = 2
+const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
+const AREA_DECIMALS = 2
 const COINCIDENT_EPSILON = 0.001
 
 // Area calculation constants
@@ -79,7 +79,7 @@ const AREA_UNIT = "square-meters"
 const MIN_VALID_AREA = 0.001 // m²
 
 // Load ArcGIS modules once and memoize result
-const useArcGISModules = (): {
+const useModules = (): {
   modules: EsriModules | null
   loading: boolean
 } => {
@@ -87,7 +87,7 @@ const useArcGISModules = (): {
   const [loading, setLoading] = React.useState(true)
 
   hooks.useEffectOnce(() => {
-    loadArcGISJSAPIModules(MODULE_NAMES as any)
+    loadArcGISJSAPIModules(MODULES as any)
       .then((loaded) => {
         const [
           SketchViewModel,
@@ -124,7 +124,7 @@ const useArcGISModules = (): {
 }
 
 // Custom hook to manage local map state
-const useLocalMapState = () => {
+const useMapState = () => {
   const [jimuMapView, setJimuMapView] = React.useState<JimuMapView | null>(null)
   const [sketchViewModel, setSketchViewModel] =
     React.useState<__esri.SketchViewModel | null>(null)
@@ -226,10 +226,7 @@ const abortIfPresent = (
 }
 
 // Calculate polygon area using planar area calculation
-const calculatePolygonArea = (
-  geometry: __esri.Geometry,
-  modules: EsriModules
-): number => {
+const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
   const geometryEngine = modules.geometryEngine as any
@@ -248,7 +245,7 @@ const calculatePolygonArea = (
 }
 
 // Validate polygon geometry with early returns
-const validatePolygonGeometry = (
+const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
 ): { valid: boolean; error?: ErrorState } => {
@@ -319,7 +316,7 @@ const validatePolygonGeometry = (
 }
 
 // Validate area constraints
-const enforceMaxArea = (
+const checkMaxArea = (
   area: number,
   maxArea?: number
 ): { ok: boolean; message?: string; code?: string } => {
@@ -335,7 +332,7 @@ const enforceMaxArea = (
 }
 
 // Build the base submission parameters object
-const buildBaseFmeParams = (
+const buildFmeParams = (
   formData: unknown,
   userEmail: string
 ): { [key: string]: unknown } => {
@@ -355,7 +352,7 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
 }
 
 // Attach polygon AOI if present
-const attachAreaOfInterest = (
+const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
@@ -368,7 +365,7 @@ const attachAreaOfInterest = (
 }
 
 // Get user email with fallback
-const getUserEmail = async (): Promise<string> => {
+const getEmail = async (): Promise<string> => {
   try {
     const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
     const portal = new Portal()
@@ -381,18 +378,18 @@ const getUserEmail = async (): Promise<string> => {
 }
 
 // Prepare FME parameters for submission
-const prepareFmeParameters = (
+const prepFmeParams = (
   formData: unknown,
   userEmail: string,
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
 ): { [key: string]: unknown } => {
-  const base = buildBaseFmeParams(formData, userEmail)
-  return attachAreaOfInterest(base, geometryJson, currentGeometry)
+  const base = buildFmeParams(formData, userEmail)
+  return attachAoi(base, geometryJson, currentGeometry)
 }
 
 // Initialize graphics layers for drawing and measurements
-const createGraphicsLayers = (
+const createLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
   setGraphicsLayer: (layer: __esri.GraphicsLayer) => void,
@@ -415,7 +412,7 @@ const createGraphicsLayers = (
 }
 
 // Initialize measurement widgets for 2D views
-const createMeasurementWidgets = (
+const createMeasureWidgets = (
   jmv: JimuMapView,
   modules: EsriModules,
   setAreaMeasurement2D: (widget: __esri.AreaMeasurement2D) => void,
@@ -443,7 +440,7 @@ const createMeasurementWidgets = (
 }
 
 // Create sketch VM
-const createSketchViewModel = (
+const createSketchVM = (
   jmv: JimuMapView,
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
@@ -471,14 +468,14 @@ const createSketchViewModel = (
     },
   })
 
-  configureSketchSymbols(sketchViewModel)
-  setupSketchEventHandlers(sketchViewModel, handleDrawingComplete, dispatch)
+  setSketchSymbols(sketchViewModel)
+  setSketchEvents(sketchViewModel, handleDrawingComplete, dispatch)
 
   return sketchViewModel
 }
 
 // Configure sketch view model symbols
-const configureSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
+const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
   sketchViewModel.polygonSymbol = CSS.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
@@ -501,7 +498,7 @@ const configureSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
 }
 
 // Handle sketch create events and track drawing progress
-const setupSketchEventHandlers = (
+const setSketchEvents = (
   sketchViewModel: __esri.SketchViewModel,
   handleDrawingComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void
@@ -644,14 +641,14 @@ const NF_SV_NO_DECIMALS = new Intl.NumberFormat("sv-SE", {
 })
 const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
   minimumFractionDigits: 0,
-  maximumFractionDigits: AREA_DECIMAL_PLACES,
+  maximumFractionDigits: AREA_DECIMALS,
 })
 
 // Format area (metric; returns localized string)
 export function formatArea(area: number): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
-  if (area >= SQMETERS_TO_SQKM) {
-    const areaInSqKm = area / SQMETERS_TO_SQKM
+  if (area >= M2_PER_KM2) {
+    const areaInSqKm = area / M2_PER_KM2
     const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
     return `${formattedKm} km²`
   }
@@ -677,8 +674,8 @@ export default function Widget(
   const [notification, setNotification] =
     React.useState<NotificationState | null>(null)
 
-  const { modules, loading: modulesLoading } = useArcGISModules()
-  const localMapState = useLocalMapState()
+  const { modules, loading: modulesLoading } = useModules()
+  const localMapState = useMapState()
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
 
@@ -721,7 +718,7 @@ export default function Widget(
 
       try {
         // Validate
-        const validation = validatePolygonGeometry(geometry, modules)
+        const validation = validatePolygon(geometry, modules)
         if (!validation.valid) {
           if (validation.error) {
             dispatch(fmeActions.setError(validation.error))
@@ -734,10 +731,10 @@ export default function Widget(
           evt.graphic.symbol = CSS.symbols.highlight as any
         }
 
-        const calculatedArea = calculatePolygonArea(geometry, modules)
+        const calculatedArea = calcArea(geometry, modules)
 
         // Max area
-        const maxCheck = enforceMaxArea(calculatedArea, props.config?.maxArea)
+        const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
             dispatchError(
@@ -776,7 +773,7 @@ export default function Widget(
     }
 
     // Re-validate area constraints before submission
-    const maxCheck = enforceMaxArea(reduxState.drawnArea, props.config?.maxArea)
+    const maxCheck = checkMaxArea(reduxState.drawnArea, props.config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
       setNotification({ severity: "error", message: maxCheck.message })
       dispatchError(
@@ -833,10 +830,10 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      const userEmail = await getUserEmail()
+      const userEmail = await getEmail()
       const fmeClient = createFmeFlowClient(props.config)
       const workspace = reduxState.selectedWorkspace
-      const fmeParameters = prepareFmeParameters(
+      const fmeParameters = prepFmeParams(
         formData,
         userEmail,
         reduxState.geometryJson,
@@ -872,19 +869,19 @@ export default function Widget(
     }
     try {
       setJimuMapView(jmv)
-      const layer = createGraphicsLayers(
+      const layer = createLayers(
         jmv,
         modules,
         setGraphicsLayer,
         setMeasurementGraphicsLayer
       )
-      createMeasurementWidgets(
+      createMeasureWidgets(
         jmv,
         modules,
         setAreaMeasurement2D,
         setDistanceMeasurement2D
       )
-      const svm = createSketchViewModel(
+      const svm = createSketchVM(
         jmv,
         modules,
         layer,

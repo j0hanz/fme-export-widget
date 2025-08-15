@@ -15,7 +15,7 @@ import {
 } from "../shared/types"
 
 // Action creator helpers for type safety
-const createActionWithPayload = <
+const makePayload = <
   T extends FmeActionType,
   P extends { [key: string]: unknown },
 >(
@@ -23,19 +23,19 @@ const createActionWithPayload = <
   payload: P
 ) => ({ type, ...payload }) as { type: T } & P
 
-const createSimpleAction = <T extends FmeActionType>(type: T) => ({ type })
+const makeSimple = <T extends FmeActionType>(type: T) => ({ type })
 
 // View actions
-const viewActions = {
+const view = {
   setViewMode: (viewMode: ViewMode) =>
-    createActionWithPayload(FmeActionType.SET_VIEW_MODE, { viewMode }),
-  resetState: () => createSimpleAction(FmeActionType.RESET_STATE),
+    makePayload(FmeActionType.SET_VIEW_MODE, { viewMode }),
+  resetState: () => makeSimple(FmeActionType.RESET_STATE),
 }
 
 // Drawing actions
-const drawingActions = {
+const draw = {
   setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) =>
-    createActionWithPayload(FmeActionType.SET_GEOMETRY, {
+    makePayload(FmeActionType.SET_GEOMETRY, {
       geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
       drawnArea,
     }),
@@ -44,76 +44,76 @@ const drawingActions = {
     clickCount?: number,
     drawingTool?: DrawingTool
   ) =>
-    createActionWithPayload(FmeActionType.SET_DRAWING_STATE, {
+    makePayload(FmeActionType.SET_DRAWING_STATE, {
       isDrawing,
       clickCount,
       drawingTool,
     }),
   setDrawingTool: (drawingTool: DrawingTool) =>
-    createActionWithPayload(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
+    makePayload(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
   setClickCount: (clickCount: number) =>
-    createActionWithPayload(FmeActionType.SET_CLICK_COUNT, { clickCount }),
+    makePayload(FmeActionType.SET_CLICK_COUNT, { clickCount }),
 }
 
 // Export actions
-const exportActions = {
+const exp = {
   setFormValues: (formValues: { [key: string]: unknown }) =>
-    createActionWithPayload(FmeActionType.SET_FORM_VALUES, { formValues }),
+    makePayload(FmeActionType.SET_FORM_VALUES, { formValues }),
   setOrderResult: (orderResult: ExportResult | null) =>
-    createActionWithPayload(FmeActionType.SET_ORDER_RESULT, { orderResult }),
+    makePayload(FmeActionType.SET_ORDER_RESULT, { orderResult }),
 }
 
 // Workspace actions
-const workspaceActions = {
+const ws = {
   setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) =>
-    createActionWithPayload(FmeActionType.SET_WORKSPACE_ITEMS, {
+    makePayload(FmeActionType.SET_WORKSPACE_ITEMS, {
       workspaceItems,
     }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
   ) =>
-    createActionWithPayload(FmeActionType.SET_WORKSPACE_PARAMETERS, {
+    makePayload(FmeActionType.SET_WORKSPACE_PARAMETERS, {
       workspaceParameters,
       workspaceName,
     }),
   setSelectedWorkspace: (workspaceName: string | null) =>
-    createActionWithPayload(FmeActionType.SET_SELECTED_WORKSPACE, {
+    makePayload(FmeActionType.SET_SELECTED_WORKSPACE, {
       workspaceName,
     }),
   setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) =>
-    createActionWithPayload(FmeActionType.SET_WORKSPACE_ITEM, {
+    makePayload(FmeActionType.SET_WORKSPACE_ITEM, {
       workspaceItem,
     }),
 }
 
 // Loading actions
-const loadingActions = {
+const load = {
   setLoadingFlags: (flags: LoadingFlags) =>
-    createActionWithPayload(
+    makePayload(
       FmeActionType.SET_LOADING_FLAGS,
       flags as { [key: string]: unknown }
     ),
 }
 
-const errorActions = {
+const err = {
   setError: (error: ErrorState | null) =>
-    createActionWithPayload(FmeActionType.SET_ERROR, { error }),
+    makePayload(FmeActionType.SET_ERROR, { error }),
   setImportError: (error: ErrorState | null) =>
-    createActionWithPayload(FmeActionType.SET_IMPORT_ERROR, { error }),
+    makePayload(FmeActionType.SET_IMPORT_ERROR, { error }),
   setExportError: (error: ErrorState | null) =>
-    createActionWithPayload(FmeActionType.SET_EXPORT_ERROR, { error }),
+    makePayload(FmeActionType.SET_EXPORT_ERROR, { error }),
 }
 
 // All actions
 export const fmeActions = {
   // Flat list
-  ...viewActions,
-  ...drawingActions,
-  ...exportActions,
-  ...workspaceActions,
-  ...loadingActions,
-  ...errorActions,
+  ...view,
+  ...draw,
+  ...exp,
+  ...ws,
+  ...load,
+  ...err,
 }
 
 export const initialFmeState: FmeWidgetState = {
@@ -151,8 +151,8 @@ export const initialFmeState: FmeWidgetState = {
 }
 
 // Reducer helpers
-const reducerHelpers = {
-  handleViewModeChange: (
+const helpers = {
+  setView: (
     state: ImmutableObject<FmeWidgetState>,
     newViewMode: ViewMode
   ): ImmutableObject<FmeWidgetState> => {
@@ -165,7 +165,7 @@ const reducerHelpers = {
       .set("viewMode", newViewMode)
   },
 
-  handleLoadingFlags: (
+  setLoading: (
     state: ImmutableObject<FmeWidgetState>,
     action: { isModulesLoading?: boolean; isSubmittingOrder?: boolean }
   ): ImmutableObject<FmeWidgetState> => {
@@ -182,7 +182,7 @@ const reducerHelpers = {
     return newState
   },
 
-  handleDrawingState: (
+  setDrawing: (
     state: ImmutableObject<FmeWidgetState>,
     action: {
       isDrawing: boolean
@@ -196,7 +196,7 @@ const reducerHelpers = {
       .set("drawingTool", action.drawingTool ?? state.drawingTool)
   },
 
-  handleWorkspaceParameters: (
+  setWsParams: (
     state: ImmutableObject<FmeWidgetState>,
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
@@ -206,7 +206,7 @@ const reducerHelpers = {
       .set("selectedWorkspace", workspaceName)
   },
 
-  handleError: (
+  setError: (
     state: ImmutableObject<FmeWidgetState>,
     action: { type: FmeActionType; error: ErrorState | null }
   ): ImmutableObject<FmeWidgetState> => {
@@ -229,7 +229,7 @@ const fmeReducer = (
   switch (action.type) {
     // View and navigation cases
     case FmeActionType.SET_VIEW_MODE:
-      return reducerHelpers.handleViewModeChange(state, action.viewMode)
+      return helpers.setView(state, action.viewMode)
 
     case FmeActionType.RESET_STATE:
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
@@ -241,7 +241,7 @@ const fmeReducer = (
         .set("drawnArea", action.drawnArea ?? 0)
 
     case FmeActionType.SET_DRAWING_STATE:
-      return reducerHelpers.handleDrawingState(state, action)
+      return helpers.setDrawing(state, action)
 
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)
@@ -263,7 +263,7 @@ const fmeReducer = (
       return state.set("workspaceItems", action.workspaceItems)
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS:
-      return reducerHelpers.handleWorkspaceParameters(
+      return helpers.setWsParams(
         state,
         action.workspaceParameters,
         action.workspaceName
@@ -277,13 +277,13 @@ const fmeReducer = (
 
     // Loading cases
     case FmeActionType.SET_LOADING_FLAGS:
-      return reducerHelpers.handleLoadingFlags(state, action)
+      return helpers.setLoading(state, action)
 
     // Error cases
     case FmeActionType.SET_ERROR:
     case FmeActionType.SET_IMPORT_ERROR:
     case FmeActionType.SET_EXPORT_ERROR:
-      return reducerHelpers.handleError(state, action)
+      return helpers.setError(state, action)
   }
 }
 

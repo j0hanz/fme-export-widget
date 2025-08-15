@@ -19,21 +19,21 @@ import defaultMessages from "./translations/default"
 import type {
   ButtonProps,
   ButtonGroupProps,
-  CustomTooltipProps,
+  TooltipProps,
   FormProps,
   FieldProps,
   GroupButtonConfig,
   InputProps,
-  SelectOption,
+  OptionItem,
   SelectProps,
   TextAreaProps,
   TabsProps,
   TabItem,
-  UiViewState,
-  UiAction,
-  ButtonContentProps,
+  ViewState,
+  ViewAction,
+  BtnContentProps,
   IconProps,
-  AppMessageProps,
+  MessageProps,
 } from "../../shared/types"
 
 // UI style constants
@@ -147,17 +147,17 @@ export const UI_CSS = (() => {
 })()
 
 // Utility Hooks / Helpers
-let autoIdCounter = 0
-const useAutoId = (prefix = "fme"): string => {
+let idSeq = 0
+const useId = (prefix = "fme"): string => {
   const idRef = React.useRef<string>()
   if (!idRef.current) {
-    autoIdCounter += 1
-    idRef.current = `${prefix}-${Date.now().toString(36)}-${autoIdCounter}`
+    idSeq += 1
+    idRef.current = `${prefix}-${Date.now().toString(36)}-${idSeq}`
   }
   return idRef.current
 }
 
-const useControlledValue = <T = string,>(
+const useValue = <T = string,>(
   controlled?: T,
   defaultValue?: T,
   onChange?: (value: T) => void
@@ -176,7 +176,7 @@ const useControlledValue = <T = string,>(
 }
 
 // Helper function to prepare control with ID
-const prepareControlWithId = (
+const withId = (
   child: React.ReactNode,
   readOnly: boolean,
   fallbackId: string
@@ -196,14 +196,11 @@ const prepareControlWithId = (
 }
 
 // Helper functions for accessibility
-const generateAriaDescribedBy = (
-  id?: string,
-  suffix = "error"
-): string | undefined => {
+const ariaDesc = (id?: string, suffix = "error"): string | undefined => {
   return id ? `${id}-${suffix}` : undefined
 }
 
-const getButtonAriaLabel = (
+const getBtnAria = (
   text?: React.ReactNode,
   icon?: string | boolean,
   jimuAriaLabel?: string,
@@ -215,7 +212,7 @@ const getButtonAriaLabel = (
 }
 
 // Helper for tooltip content resolution
-const resolveTooltipContent = (
+const getTipContent = (
   title?: React.ReactNode,
   content?: React.ReactNode,
   children?: React.ReactElement
@@ -229,7 +226,7 @@ const resolveTooltipContent = (
 }
 
 // Button content component extracted from Button
-const ButtonContent: React.FC<ButtonContentProps> = ({
+const BtnContent: React.FC<BtnContentProps> = ({
   loading,
   children,
   text,
@@ -298,7 +295,7 @@ export const Icon: React.FC<IconProps> = ({
 }
 
 // Tooltip component
-export const Tooltip: React.FC<CustomTooltipProps> = ({
+export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
   showArrow = UI_CSS.TIP.SHOW_ARROW,
@@ -311,11 +308,11 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
   title,
   ...otherProps
 }) => {
-  const autoId = useAutoId("tooltip")
+  const autoId = useId("tooltip")
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
-  const tooltipContent = resolveTooltipContent(title, content, children)
+  const tooltipContent = getTipContent(title, content, children)
   if (!tooltipContent || disabled) return children
 
   const tooltipId = otherProps.id || autoId
@@ -355,7 +352,7 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
 }
 
 // Message component
-export const Message: React.FC<AppMessageProps> = ({
+export const Message: React.FC<MessageProps> = ({
   message,
   severity = "info",
   autoHideDuration = null,
@@ -400,10 +397,7 @@ export const Input: React.FC<InputProps> = ({
   onFileChange,
   ...props
 }) => {
-  const [value, handleValueChange] = useControlledValue(
-    controlled,
-    defaultValue || ""
-  )
+  const [value, handleValueChange] = useValue(controlled, defaultValue || "")
 
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLInputElement>) => {
@@ -432,7 +426,7 @@ export const Input: React.FC<InputProps> = ({
       aria-invalid={!!(validationMessage || errorText)}
       aria-describedby={
         validationMessage || errorText
-          ? generateAriaDescribedBy(props.id || "input")
+          ? ariaDesc(props.id || "input")
           : undefined
       }
     />
@@ -446,10 +440,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   onChange,
   ...props
 }) => {
-  const [value, handleValueChange] = useControlledValue(
-    controlled,
-    defaultValue || ""
-  )
+  const [value, handleValueChange] = useValue(controlled, defaultValue || "")
 
   const handleChange = hooks.useEventCallback(
     (event: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -474,7 +465,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       aria-invalid={!!validationMessage}
       aria-describedby={
         validationMessage
-          ? generateAriaDescribedBy(props.id || "textarea", "error")
+          ? ariaDesc(props.id || "textarea", "error")
           : undefined
       }
     />
@@ -497,10 +488,7 @@ export const Select: React.FC<SelectProps> = (props) => {
   } = props
   const translate = hooks.useTranslation(defaultMessages)
   const isMulti = Array.isArray(controlled)
-  const [value, handleValueChange] = useControlledValue(
-    controlled,
-    defaultValue
-  )
+  const [value, handleValueChange] = useValue(controlled, defaultValue)
 
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLSelectElement>) => {
@@ -533,7 +521,7 @@ export const Select: React.FC<SelectProps> = (props) => {
     }
   )
 
-  const renderOption = (option: SelectOption) => (
+  const renderOption = (option: OptionItem) => (
     <option
       key={String(option.value)}
       value={String(option.value)}
@@ -550,7 +538,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       ? String(value)
       : undefined
 
-  const resolvedAriaDescribedBy = generateAriaDescribedBy(ariaDescribedBy)
+  const resolvedAriaDescribedBy = ariaDesc(ariaDescribedBy)
   const resolvedPlaceholder =
     placeholder ?? translate("placeholderSelectGeneric")
 
@@ -619,7 +607,7 @@ export const Button: React.FC<ButtonProps> = ({
   const buttonStyle = jimuProps.style
     ? { ...UI_CSS.CSS.BTN_REL, ...jimuProps.style }
     : UI_CSS.CSS.BTN_REL
-  const ariaLabel = getButtonAriaLabel(
+  const ariaLabel = getBtnAria(
     text,
     !!icon,
     jimuProps["aria-label"],
@@ -648,7 +636,7 @@ export const Button: React.FC<ButtonProps> = ({
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
-      <ButtonContent
+      <BtnContent
         loading={loading}
         text={text}
         icon={icon}
@@ -656,7 +644,7 @@ export const Button: React.FC<ButtonProps> = ({
         alignText={alignText}
       >
         {children}
-      </ButtonContent>
+      </BtnContent>
     </JimuButton>
   )
 
@@ -676,8 +664,8 @@ export const Button: React.FC<ButtonProps> = ({
 }
 
 // Helper functions for StateView component
-const renderLoadingState = (
-  state: Extract<UiViewState, { kind: "loading" }>,
+const renderLoading = (
+  state: Extract<ViewState, { kind: "loading" }>,
   ariaDetailsLabel: string
 ) => (
   <div style={UI_CSS.STATE.CENTERED} role="status" aria-live="polite">
@@ -690,10 +678,10 @@ const renderLoadingState = (
   </div>
 )
 
-const renderErrorState = (
-  state: Extract<UiViewState, { kind: "error" }>,
+const renderError = (
+  state: Extract<ViewState, { kind: "error" }>,
   Actions: React.ComponentType<{
-    actions?: readonly UiAction[]
+    actions?: readonly ViewAction[]
     ariaLabel: string
   }>,
   codeLabel: string,
@@ -710,10 +698,10 @@ const renderErrorState = (
   </div>
 )
 
-const renderEmptyState = (
-  state: Extract<UiViewState, { kind: "empty" }>,
+const renderEmpty = (
+  state: Extract<ViewState, { kind: "empty" }>,
   Actions: React.ComponentType<{
-    actions?: readonly UiAction[]
+    actions?: readonly ViewAction[]
     ariaLabel: string
   }>,
   actionsAriaLabel: string
@@ -724,10 +712,10 @@ const renderEmptyState = (
   </div>
 )
 
-const renderSuccessState = (
-  state: Extract<UiViewState, { kind: "success" }>,
+const renderSuccess = (
+  state: Extract<ViewState, { kind: "success" }>,
   Actions: React.ComponentType<{
-    actions?: readonly UiAction[]
+    actions?: readonly ViewAction[]
     ariaLabel: string
   }>,
   actionsAriaLabel: string
@@ -742,14 +730,14 @@ const renderSuccessState = (
 )
 
 // StateView component
-const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
+const StateView: React.FC<{ state: ViewState }> = React.memo(({ state }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const Actions = hooks.useEventCallback(
     ({
       actions,
       ariaLabel,
     }: {
-      actions?: readonly UiAction[]
+      actions?: readonly ViewAction[]
       ariaLabel: string
     }): JSX.Element | null => {
       if (!actions?.length) return null
@@ -772,18 +760,18 @@ const StateView: React.FC<{ state: UiViewState }> = React.memo(({ state }) => {
 
   switch (state.kind) {
     case "loading":
-      return renderLoadingState(state, translate("ariaLoadingDetails"))
+      return renderLoading(state, translate("ariaLoadingDetails"))
     case "error":
-      return renderErrorState(
+      return renderError(
         state,
         Actions,
         translate("errorCode"),
         translate("ariaErrorActions")
       )
     case "empty":
-      return renderEmptyState(state, Actions, translate("ariaEmptyActions"))
+      return renderEmpty(state, Actions, translate("ariaEmptyActions"))
     case "success":
-      return renderSuccessState(state, Actions, translate("ariaSuccessActions"))
+      return renderSuccess(state, Actions, translate("ariaSuccessActions"))
     case "content":
       return <>{state.node}</>
   }
@@ -832,7 +820,7 @@ export const Tabs: React.FC<TabsProps> = ({
     }
   )
 
-  const [value, handleValueChange] = useControlledValue(
+  const [value, handleValueChange] = useValue(
     controlled,
     defaultValue || items[0]?.value
   )
@@ -926,7 +914,7 @@ export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
   // Generate a stable auto ID for field elements
-  const fieldAutoId = useAutoId("field")
+  const fieldAutoId = useId("field")
 
   if (variant === "layout") {
     const {
@@ -969,7 +957,7 @@ export const Form: React.FC<FormProps> = (props) => {
   if (variant === "field") {
     const { label, helper, required = false, readOnly = false, error } = props
 
-    const { id: fieldId, child: renderedChild } = prepareControlWithId(
+    const { id: fieldId, child: renderedChild } = withId(
       children,
       readOnly,
       fieldAutoId
@@ -1018,8 +1006,8 @@ export const Field: React.FC<FieldProps> = ({
   children,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
-  const autoId = useAutoId("field")
-  const { id: fieldId, child: renderedChild } = prepareControlWithId(
+  const autoId = useId("field")
+  const { id: fieldId, child: renderedChild } = withId(
     children,
     readOnly,
     autoId
@@ -1057,12 +1045,12 @@ export { Button as default, StateView }
 export type {
   ButtonProps,
   ButtonGroupProps,
-  CustomTooltipProps,
+  TooltipProps,
   FormProps,
   FieldProps,
   GroupButtonConfig,
   InputProps,
-  SelectOption,
+  OptionItem,
   SelectProps,
   TextAreaProps,
   TabsProps,
