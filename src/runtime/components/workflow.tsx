@@ -92,7 +92,12 @@ const CSS = {
   },
 }
 
-const CANCELLED_PROMISE_ERROR_NAME = "CancelledPromiseError"
+const WORKSPACE_TYPE = "WORKSPACE"
+const ERROR_NAMES = {
+  CANCELLED_PROMISE: "CancelledPromiseError",
+  ABORT: "AbortError",
+} as const
+
 const noOp = (): void => {
   /* noop */
 }
@@ -123,7 +128,7 @@ const handleWorkspaceApiError = (
   baseMessage: string
 ): string | null => {
   if (
-    (err as { name?: string } | null)?.name === CANCELLED_PROMISE_ERROR_NAME ||
+    (err as { name?: string } | null)?.name === ERROR_NAMES.CANCELLED_PROMISE ||
     !isMountedRef.current
   ) {
     return null
@@ -332,7 +337,10 @@ const DynamicField = React.memo(function DynamicField({
 }: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFieldValue(value, isMulti)
-  const placeholders = createFieldPlaceholders(translate, field.label)
+  const placeholders = React.useMemo(
+    () => createFieldPlaceholders(translate, field.label),
+    [translate, field.label]
+  )
 
   switch (field.type) {
     case FormFieldType.SELECT:
@@ -471,15 +479,23 @@ const ExportForm = React.memo(function ExportForm({
 
   const onChange = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
-      if (value instanceof File || value === null) {
-        // Handle file input separately
-        setFileMap((prev) => ({ ...prev, [field]: (value as File) ?? null }))
-        const surrogate = value ? (value as File).name : ""
-        const newValues = { ...values, [field]: surrogate }
+      if (value instanceof File) {
+        // Handle file input specifically
+        setFileMap((prev) => ({ ...prev, [field]: value }))
+        const newValues = { ...values, [field]: value.name }
+        setValues(newValues)
+        dispatchFormValues(newValues)
+        return
+      } else if (value === null && field in fileMap) {
+        // Handle file removal
+        setFileMap((prev) => ({ ...prev, [field]: null }))
+        const newValues = { ...values, [field]: "" }
         setValues(newValues)
         dispatchFormValues(newValues)
         return
       }
+
+      // Handle all other form values
       const newValues = { ...values, [field]: value }
       setValues(newValues)
       dispatchFormValues(newValues)
@@ -512,12 +528,18 @@ const ExportForm = React.memo(function ExportForm({
     onSubmit({ type: workspaceName, data: merged })
   })
 
-  // Helper function to strip HTML tags from text
+  // Helper function to strip HTML tags from text safely
   const stripHtml = hooks.useEventCallback((html: string): string => {
     if (!html) return ""
-    const temp = document.createElement("div")
-    temp.innerHTML = html
-    return temp.textContent || temp.innerText || ""
+    try {
+      // Use DOMParser to safely parse HTML without executing scripts
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(html, "text/html")
+      return doc.body.textContent || doc.body.innerText || ""
+    } catch {
+      // Fallback: return original text if parsing fails
+      return html
+    }
   })
 
   return (
@@ -634,25 +656,47 @@ export const Workflow: React.FC<WorkflowProps> = ({
     null
   )
 
+  // Abort controller for workspace loading
+  const loadAbortRef = React.useRef<AbortController | null>(null)
+
   // Track mount
   const isMountedRef = React.useRef(true)
   hooks.useEffectOnce(() => {
     return () => {
       isMountedRef.current = false
+      // Cancel any pending workspace requests
+      if (loadAbortRef.current) {
+        loadAbortRef.current.abort()
+        loadAbortRef.current = null
+      }
     }
   })
 
-  // Load workspaces
+  // Load workspaces with race condition protection
   const loadWorkspaces = hooks.useEventCallback(async () => {
-    if (!fmeClient || !config?.repository || isLoadingWorkspaces) return
+    if (!fmeClient || !config?.repository) return
+
+    // Cancel any existing request
+    if (loadAbortRef.current) {
+      loadAbortRef.current.abort()
+    }
+    loadAbortRef.current = new AbortController()
+
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
+
     try {
       const response = await makeCancelable(
         fmeClient.getRepositoryItems(config.repository, "WORKSPACE")
       )
+
+      // Check if request was aborted
+      if (loadAbortRef.current?.signal.aborted) return
+
       if (response.status === 200 && response.data.items) {
-        const items = response.data.items.filter((i) => i.type === "WORKSPACE")
+        const items = response.data.items.filter(
+          (i) => i.type === WORKSPACE_TYPE
+        )
         // Sort deterministically by title or name (case-insensitive)
         const sorted = items.slice().sort((a, b) =>
           (a.title || a.name).localeCompare(b.title || b.name, undefined, {
@@ -664,6 +708,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: unknown) {
+      // Don't show error if request was aborted
+      if ((err as { name?: string })?.name === ERROR_NAMES.ABORT) return
+
       const errorMsg = handleWorkspaceApiError(
         err,
         isMountedRef,
@@ -672,7 +719,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
       if (errorMsg) setWorkspaceError(errorMsg)
     } finally {
-      if (isMountedRef.current) setIsLoadingWorkspaces(false)
+      if (isMountedRef.current) {
+        setIsLoadingWorkspaces(false)
+      }
+      // Clear the abort controller reference
+      loadAbortRef.current = null
     }
   })
 
@@ -730,21 +781,36 @@ export const Workflow: React.FC<WorkflowProps> = ({
     [workspaces, handleWorkspaceSelect]
   )
 
+  // Debounced workspace loading to prevent rapid successive calls
+  const debouncedLoadWorkspaces = React.useMemo(() => {
+    let timeoutId: NodeJS.Timeout | null = null
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      timeoutId = setTimeout(() => {
+        loadWorkspaces()
+        timeoutId = null
+      }, 300) // 300ms debounce delay
+    }
+  }, [loadWorkspaces])
+
   // Lazy load
   hooks.useUpdateEffect(() => {
     if (
       state === ViewMode.WORKSPACE_SELECTION ||
       state === ViewMode.EXPORT_OPTIONS
     ) {
-      if (!workspaces.length && !isLoadingWorkspaces && !workspaceError)
-        loadWorkspaces()
+      if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
+        debouncedLoadWorkspaces()
+      }
     }
   }, [
     state,
     workspaces.length,
     isLoadingWorkspaces,
     workspaceError,
-    loadWorkspaces,
+    debouncedLoadWorkspaces,
   ])
 
   // Header
