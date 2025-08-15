@@ -33,6 +33,8 @@ import type {
   UiViewState,
   UiAction,
   ButtonContentProps,
+  IconProps,
+  AppMessageProps,
 } from "../../shared/types"
 
 // UI style constants
@@ -265,14 +267,6 @@ const ButtonContent: React.FC<ButtonContentProps> = ({
 }
 
 // Icon component
-export interface IconProps {
-  src: string
-  size?: number | "s" | "m" | "l"
-  className?: string
-  ariaLabel?: string
-  style?: React.CSSProperties
-}
-
 export const Icon: React.FC<IconProps> = ({
   src,
   size = UI_CSS.ICON.SIZE.M,
@@ -352,19 +346,6 @@ export const Tooltip: React.FC<CustomTooltipProps> = ({
 }
 
 // Message component
-export interface AppMessageProps {
-  message: string
-  severity?: "info" | "warning" | "error" | "success"
-  autoHideDuration?: number | null
-  withIcon?: boolean
-  className?: string
-  style?: React.CSSProperties
-  onClose?: () => void
-  open?: boolean
-  role?: "alert" | "status"
-  ariaLive?: "assertive" | "polite" | "off"
-}
-
 export const Message: React.FC<AppMessageProps> = ({
   message,
   severity = "info",

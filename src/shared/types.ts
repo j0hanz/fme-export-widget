@@ -1,4 +1,3 @@
-import type { DynamicFieldConfig } from "./services"
 import type { IMState, ImmutableObject } from "jimu-core"
 
 // Base Types & Utilities
@@ -273,9 +272,43 @@ export interface ButtonContentProps {
   readonly alignText: "start" | "center" | "end"
 }
 
-// -----------------------------
-// FME Export Workflow – Shared types
-// -----------------------------
+// UI Icon component props
+export interface IconProps {
+  readonly src: string
+  readonly size?: number | "s" | "m" | "l"
+  readonly className?: string
+  readonly ariaLabel?: string
+  readonly style?: React.CSSProperties
+}
+
+// App message props for Message component
+export interface AppMessageProps {
+  readonly message: string
+  readonly severity?: "info" | "warning" | "error" | "success"
+  readonly autoHideDuration?: number | null
+  readonly withIcon?: boolean
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  readonly onClose?: () => void
+  readonly open?: boolean
+  readonly role?: "alert" | "status"
+  readonly ariaLive?: "assertive" | "polite" | "off"
+}
+
+// Parameter primitives and values used by dynamic forms
+export type ParameterPrimitive =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | null
+  | File
+
+export type ParameterValue =
+  | ParameterPrimitive
+  | ParameterPrimitive[]
+  | undefined
+
 // Primitive value used by dynamic forms (supports file upload)
 export type FormPrimitive =
   | string
@@ -292,6 +325,37 @@ export interface FormValues {
 
 // Select component aggregate value
 export type SelectValue = string | number | ReadonlyArray<string | number>
+
+// Form field types (for dynamic form rendering)
+export enum FormFieldType {
+  TEXT = "text",
+  NUMBER = "number",
+  SELECT = "select",
+  MULTI_SELECT = "multiselect",
+  CHECKBOX = "checkbox",
+  TEXTAREA = "textarea",
+  PASSWORD = "password",
+  FILE = "file",
+}
+
+// Dynamic field configuration used to render workspace parameters
+export interface DynamicFieldConfig {
+  readonly name: string
+  readonly label: string
+  readonly type: FormFieldType
+  readonly required?: boolean
+  readonly readOnly?: boolean
+  readonly placeholder?: string
+  readonly helpText?: string
+  readonly options?: ReadonlyArray<{ label: string; value: string | number }>
+  readonly min?: number
+  readonly max?: number
+  readonly step?: number
+  readonly rows?: number
+  readonly maxLength?: number
+  readonly description?: string
+  readonly defaultValue?: ParameterValue
+}
 
 // Props for DynamicField component (type-only dependency on services.ts)
 export interface DynamicFieldProps {

@@ -12,16 +12,18 @@ import {
   Checkbox,
 } from "./ui"
 import defaultMessages from "./translations/default"
-import type {
-  WorkflowProps,
-  WorkspaceItem,
-  UiAction,
-  FormPrimitive,
-  FormValues,
-  SelectValue,
-  OrderResultProps,
-  ExportFormProps,
-  DynamicFieldProps,
+import {
+  FormFieldType,
+  type WorkflowProps,
+  type WorkspaceItem,
+  type UiAction,
+  type FormPrimitive,
+  type FormValues,
+  type SelectValue,
+  type OrderResultProps,
+  type ExportFormProps,
+  type DynamicFieldProps,
+  type DynamicFieldConfig,
 } from "../../shared/types"
 import {
   ViewMode,
@@ -41,8 +43,6 @@ import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
   ParameterFormService,
-  type DynamicFieldConfig,
-  FormFieldType,
   ErrorHandlingService,
 } from "../../shared/services"
 

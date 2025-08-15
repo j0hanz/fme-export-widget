@@ -1,16 +1,9 @@
-import type { ErrorState, WorkspaceParameter } from "./types"
-import { ErrorType, ErrorSeverity, ParameterType } from "./types"
-export type ParameterPrimitive =
-  | string
-  | number
-  | boolean
-  | readonly string[]
-  | null
-  | File
-export type ParameterValue =
-  | ParameterPrimitive
-  | ParameterPrimitive[]
-  | undefined
+import type {
+  ErrorState,
+  WorkspaceParameter,
+  DynamicFieldConfig,
+} from "./types"
+import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
 
 // Helper functions for parameter processing
 const isBlank = (v: unknown): boolean =>
@@ -72,37 +65,6 @@ export class ErrorHandlingService {
       timestamp: new Date(),
     }
   }
-}
-
-// Form field types
-export enum FormFieldType {
-  TEXT = "text",
-  NUMBER = "number",
-  SELECT = "select",
-  MULTI_SELECT = "multiselect",
-  CHECKBOX = "checkbox",
-  TEXTAREA = "textarea",
-  PASSWORD = "password",
-  FILE = "file",
-}
-
-// Dynamic field config
-export interface DynamicFieldConfig {
-  readonly name: string
-  readonly label: string
-  readonly type: FormFieldType
-  readonly required?: boolean
-  readonly readOnly?: boolean
-  readonly placeholder?: string
-  readonly helpText?: string
-  readonly options?: ReadonlyArray<{ label: string; value: string | number }>
-  readonly min?: number
-  readonly max?: number
-  readonly step?: number
-  readonly rows?: number
-  readonly maxLength?: number
-  readonly description?: string
-  readonly defaultValue?: ParameterValue
 }
 
 // Service for handling workspace parameter forms
