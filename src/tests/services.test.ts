@@ -4,8 +4,8 @@ import {
   ErrorType,
   FormFieldType,
   type DynamicFieldConfig,
-  type WorkspaceParameter,
   ParameterType,
+  type WorkspaceParameter,
 } from "../shared/types"
 
 describe("ErrorHandlingService", () => {
@@ -457,35 +457,14 @@ describe("ParameterFormService.validateFormValues", () => {
   })
 
   test("optional number field omitted passes; present invalid fails", () => {
-    const fields2: readonly DynamicFieldConfig[] = [
-      {
-        name: "Title",
-        label: "Title",
-        type: FormFieldType.TEXT,
-        required: true,
-      },
-      {
-        name: "Count",
-        label: "Count",
-        type: FormFieldType.NUMBER,
-        required: true,
-      },
-      {
-        name: "Ratio",
-        label: "Ratio",
-        type: FormFieldType.NUMBER,
-        required: false,
-      },
-    ]
-
     const svc2 = new ParameterFormService()
-    const ok = svc2.validateFormValues({ Title: "T", Count: 1 }, fields2)
+    const ok = svc2.validateFormValues({ Title: "T", Count: 1 }, fields)
     expect(ok.isValid).toBe(true)
     expect(ok.errors).toEqual({})
 
     const bad = svc2.validateFormValues(
       { Title: "T", Count: 1, Ratio: "abc" },
-      fields2
+      fields
     )
     expect(bad.isValid).toBe(false)
     expect(bad.errors).toMatchObject({ Ratio: "Ratio must be a number" })

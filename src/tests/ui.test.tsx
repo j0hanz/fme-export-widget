@@ -15,7 +15,6 @@ import Button, {
   Select,
   StateView,
   ButtonGroup,
-  type OptionItem,
   ButtonTabs,
 } from "../runtime/components/ui"
 
@@ -116,7 +115,7 @@ describe("UI components", () => {
 
   test("Select (single) renders selected value", () => {
     const onChange = jest.fn()
-    const options: OptionItem[] = [
+    const options = [
       { label: "Alpha", value: "a" },
       { label: "Beta", value: "b" },
     ]
@@ -134,7 +133,7 @@ describe("UI components", () => {
   })
 
   test("Select (multi) renders default selected options", () => {
-    const options: OptionItem[] = [
+    const options = [
       { label: "One", value: "1" },
       { label: "Two", value: "2" },
       { label: "Three", value: "3" },
