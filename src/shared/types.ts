@@ -138,7 +138,8 @@ export interface TabItem {
   readonly hideLabel?: boolean
 }
 
-export interface TabsProps {
+// ButtonTabs component props
+export interface ButtonTabsProps {
   readonly items: readonly TabItem[]
   readonly value?: string | number
   readonly defaultValue?: string | number
@@ -149,8 +150,6 @@ export interface TabsProps {
   ) => void
   readonly ariaLabel?: string
   readonly style?: React.CSSProperties
-  readonly fill?: boolean
-  readonly type?: "default" | "tabs" | "pills" | "underline"
 }
 
 export interface InputProps {

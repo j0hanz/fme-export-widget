@@ -5,8 +5,6 @@ import {
   Message as JimuMessage,
   Button as JimuButton,
   AdvancedButtonGroup,
-  Tabs as JimuTabs,
-  Tab,
   Select as JimuSelect,
   SVG,
   FormGroup,
@@ -28,7 +26,7 @@ import type {
   OptionItem,
   SelectProps,
   TextAreaProps,
-  TabsProps,
+  ButtonTabsProps,
   TabItem,
   ViewState,
   ViewAction,
@@ -664,8 +662,8 @@ export const Button: React.FC<ButtonProps> = ({
   )
 }
 
-// Segmented component
-export const Segmented: React.FC<TabsProps> = ({
+// ButtonTabs component
+export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   items,
   value: controlled,
   defaultValue,
@@ -832,96 +830,7 @@ const StateView: React.FC<{ state: ViewState }> = React.memo(({ state }) => {
   }
 })
 
-// Tabs component
-export const Tabs: React.FC<TabsProps> = ({
-  items,
-  value: controlled,
-  defaultValue,
-  onChange,
-  onTabChange,
-  ariaLabel,
-  style,
-  fill = false,
-  type = "default",
-}) => {
-  // Presentational title for a tab item
-  const TabTitle = hooks.useEventCallback(
-    ({
-      icon,
-      label,
-      hideLabel,
-      tooltip,
-      disabled,
-    }: {
-      readonly icon?: string
-      readonly label: string
-      readonly hideLabel?: boolean
-      readonly tooltip?: string
-      readonly disabled?: boolean
-    }): JSX.Element => {
-      const content = (
-        <>
-          {icon && <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />}
-          {!hideLabel && label}
-        </>
-      )
-      return tooltip ? (
-        <Tooltip content={tooltip} placement="top" disabled={disabled}>
-          <span>{content}</span>
-        </Tooltip>
-      ) : (
-        content
-      )
-    }
-  )
-
-  const [value, handleValueChange] = useValue(
-    controlled,
-    defaultValue || items[0]?.value
-  )
-
-  const handleTabChange = hooks.useEventCallback((tabValue: string) => {
-    const newValue =
-      typeof controlled === "number" ? Number(tabValue) : tabValue
-    const previous = value
-    handleValueChange(newValue)
-    onChange?.(newValue)
-    onTabChange?.(newValue, previous)
-  })
-
-  const normalizedValue = value !== undefined ? String(value) : undefined
-
-  return (
-    <JimuTabs
-      value={normalizedValue}
-      defaultValue={defaultValue ? String(defaultValue) : undefined}
-      onChange={handleTabChange}
-      type={type}
-      fill={fill}
-      aria-label={ariaLabel}
-      style={style}
-    >
-      {items.map((item) => (
-        <Tab
-          key={String(item.value)}
-          id={String(item.value)}
-          title={
-            <TabTitle
-              icon={item.icon}
-              label={item.label}
-              hideLabel={item.hideLabel}
-              tooltip={item.tooltip}
-              disabled={item.disabled}
-            />
-          }
-          disabled={item.disabled}
-        >
-          <div />
-        </Tab>
-      ))}
-    </JimuTabs>
-  )
-}
+// Tabs component removed per request
 
 // ButtonGroup component
 export const ButtonGroup: React.FC<ButtonGroupProps> = ({
@@ -1108,6 +1017,6 @@ export type {
   OptionItem,
   SelectProps,
   TextAreaProps,
-  TabsProps,
+  ButtonTabsProps,
   TabItem,
 }

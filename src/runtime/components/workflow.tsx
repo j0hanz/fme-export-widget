@@ -9,7 +9,7 @@ import {
   Field,
   Input,
   Checkbox,
-  Segmented,
+  ButtonTabs,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import {
@@ -846,7 +846,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return (
       <div style={CSS.state.centered}>
         {/* Drawing mode */}
-        <Segmented
+        <ButtonTabs
           items={drawingModeItems}
           value={drawingMode}
           onChange={(val) => {
