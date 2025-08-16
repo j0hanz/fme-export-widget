@@ -118,7 +118,7 @@ const calcArea = (polygon: __esri.Polygon): number => {
 }
 
 const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
-  // If geometry is already in WGS84, return it as is
+  // Convert Web Mercator to WGS84 if necessary
   if (geometry.spatialReference?.wkid === 3857) {
     return (
       projection.webMercatorToGeographic(geometry as __esri.Polygon) || geometry
@@ -180,12 +180,13 @@ function setApiSettings(config: FmeFlowConfig): void {
 
   // Avoid duplicate interceptor
   const hasExistingInterceptor = esriConfig.request.interceptors.some(
-    (interceptor) =>
-      interceptor.urls &&
-      Array.isArray(interceptor.urls) &&
-      interceptor.urls.some(
-        (url) => typeof url === "string" && url.includes(serverDomain)
+    (interceptor) => {
+      const urls = interceptor.urls as Array<string | RegExp> | undefined
+      if (!urls || !Array.isArray(urls)) return false
+      return urls.some((url) =>
+        typeof url === "string" ? url.includes(serverDomain) : url.test(serverDomain)
       )
+    }
   )
 
   if (!hasExistingInterceptor) {
@@ -862,8 +863,8 @@ export class FmeFlowApiClient {
       const span = document.createElement("span")
       span.className = `${param.name} fmes-form-component`
 
-      const label = document.createElement("label")
-      label.innerHTML = param.description || param.name
+  const label = document.createElement("label")
+  label.textContent = param.description || param.name
       span.appendChild(label)
 
       let input:
@@ -892,7 +893,7 @@ export class FmeFlowApiClient {
             checkbox.checked = checkbox.value === param.defaultValue
             input.appendChild(checkbox)
             const caption = document.createElement("label")
-            caption.innerHTML = option.caption
+            caption.textContent = option.caption
             input.appendChild(caption)
           })
           break
@@ -904,7 +905,7 @@ export class FmeFlowApiClient {
           ;(input as HTMLSelectElement).name = param.name
           param.listOptions?.forEach((option) => {
             const opt = document.createElement("option")
-            opt.innerHTML = option.caption
+            opt.textContent = option.caption
             opt.value = option.value
             opt.selected = opt.value === param.defaultValue
             ;(input as HTMLSelectElement).appendChild(opt)
@@ -1134,7 +1135,11 @@ export class FmeFlowApiClient {
 export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   const normalizedConfig: FmeFlowConfig = {
     serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
-    token: config.fmeServerToken || (config as any).fmw_server_token || "",
+    token:
+      config.fmeServerToken ||
+      (config as any).fme_server_token ||
+      (config as any).fmw_server_token ||
+      "",
     repository: config.repository || "",
     timeout: config.requestTimeout,
   }
@@ -1145,7 +1150,7 @@ export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
     !normalizedConfig.repository
   ) {
     throw new FmeFlowApiError(
-      "Missing required FME Flow configuration. Required: serverUrl (fme_server_url), token (fmw_server_token), and repository",
+  "Missing required FME Flow configuration. Required: serverUrl (fmeServerUrl or fme_server_url), token (fmeServerToken or fme_server_token), and repository",
       "INVALID_CONFIG"
     )
   }
