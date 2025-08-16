@@ -237,8 +237,25 @@ const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
     if (Number.isFinite(planarValue) && planarValue > MIN_VALID_AREA) {
       return Math.abs(planarValue)
     }
+    // Fallback to extent-based area if planar area is unavailable/invalid
+    const extent = polygon.extent
+    if (extent) {
+      const fallbackArea = Math.abs(extent.width * extent.height)
+      return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
+    }
   } catch (error) {
     console.warn(`FME Export Widget - planarArea calculation failed:`, error)
+    // Fallback to extent-based area on error
+    try {
+      const polygon = geometry as __esri.Polygon
+      const extent = polygon.extent
+      if (extent) {
+        const fallbackArea = Math.abs(extent.width * extent.height)
+        return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   return 0
@@ -290,6 +307,29 @@ const validatePolygon = (
         { code: "GEOM_MIN_VERTICES" }
       ),
     }
+  }
+
+  // Ensure ring is explicitly closed (first == last) within epsilon
+  try {
+    const first = ring[0]
+    const last = ring[ring.length - 1]
+    const notClosed =
+      !Array.isArray(first) ||
+      !Array.isArray(last) ||
+      Math.abs(first[0] - last[0]) >= COINCIDENT_EPSILON ||
+      Math.abs(first[1] - last[1]) >= COINCIDENT_EPSILON
+    if (notClosed) {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "POLYGON_RING_NOT_CLOSED",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_RING_NOT_CLOSED" }
+        ),
+      }
+    }
+  } catch {
+    /* ignore ring closure check errors */
   }
 
   // Check for self-intersection if possible
@@ -359,7 +399,23 @@ const attachAoi = (
 ): { [key: string]: unknown } => {
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
   if (isPolygonJson(geometryToUse)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+    // Inject spatial reference if missing using the current geometry's SR
+    let polygonJson: any = geometryToUse
+    if (
+      polygonJson &&
+      !("spatialReference" in polygonJson) &&
+      currentGeometry
+    ) {
+      try {
+        const sr = currentGeometry.toJSON()?.spatialReference
+        if (sr) {
+          polygonJson = { ...polygonJson, spatialReference: sr }
+        }
+      } catch {
+        /* ignore SR injection errors */
+      }
+    }
+    return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
   }
   return base
 }
@@ -539,7 +595,16 @@ const setSketchEvents = (
     switch (evt.state) {
       case "start":
         clickCount = 0
-        dispatch(fmeActions.setDrawingState(true, 0, undefined))
+        // Preserve/set the active drawing tool to keep UI/UX in sync
+        dispatch(
+          fmeActions.setDrawingState(
+            true,
+            0,
+            evt.tool === "rectangle"
+              ? DrawingTool.RECTANGLE
+              : DrawingTool.POLYGON
+          )
+        )
         break
 
       case "active":
@@ -823,6 +888,9 @@ export default function Widget(
 
   // Form submission handler with FME export
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
+    if (reduxState.isSubmittingOrder) {
+      return
+    }
     if (!validateSubmissionRequirements()) {
       return
     }
