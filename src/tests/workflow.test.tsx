@@ -31,35 +31,36 @@ describe("Workflow component", () => {
     expect(el).toBeTruthy()
   })
 
-  test("ORDER_RESULT success renders reuse button and triggers callback", async () => {
+  test("ORDER_RESULT state handling for success and error scenarios", async () => {
+    // Success state renders reuse button and triggers callback
     const onReuseGeography = jest.fn()
-    const result: ExportResult = {
+    const successResult: ExportResult = {
       success: true,
       jobId: 123,
       workspaceName: "ws",
       email: "x@y.z",
     }
 
-    renderWithProviders(
+    const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.ORDER_RESULT}
-        orderResult={result}
+        orderResult={successResult}
         onReuseGeography={onReuseGeography}
       />
     )
 
-    // Label may vary by locale; accept common Swedish labels
     const reuseBtn = await screen.findByRole("button", {
       name: /Återanvänd geometri|Ny beställning/i,
     })
     fireEvent.click(reuseBtn)
     expect(onReuseGeography).toHaveBeenCalled()
-  })
 
-  test("ORDER_RESULT error renders retry button and triggers onBack", async () => {
+    unmount1()
+
+    // Error state renders retry button and triggers onBack
     const onBack = jest.fn()
-    const result: ExportResult = {
+    const errorResult: ExportResult = {
       success: false,
       workspaceName: "ws",
       message: "Something went wrong",
@@ -70,12 +71,11 @@ describe("Workflow component", () => {
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.ORDER_RESULT}
-        orderResult={result}
+        orderResult={errorResult}
         onBack={onBack}
       />
     )
 
-    // Swedish: Försök igen
     const retryBtn = await screen.findByRole("button", {
       name: /Försök igen/i,
     })
@@ -83,9 +83,11 @@ describe("Workflow component", () => {
     expect(onBack).toHaveBeenCalled()
   })
 
-  test("header reset is enabled in DRAWING and triggers onReset", () => {
+  test("header reset functionality in different states", () => {
     const onReset = jest.fn()
-    renderWithProviders(
+
+    // Reset enabled in DRAWING state
+    const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.DRAWING}
@@ -96,20 +98,17 @@ describe("Workflow component", () => {
       />
     )
 
-    const headerBtns = screen.getAllByRole("button", {
+    const headerBtns1 = screen.getAllByRole("button", {
       name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
     })
-    const headerBtn = headerBtns[0]
-    // aria-disabled should be false when enabled
-    expect(headerBtn.getAttribute("aria-disabled")).toBe("false")
-    headerBtn && fireEvent.click(headerBtn)
+    const enabledBtn = headerBtns1[0]
+    expect(enabledBtn.getAttribute("aria-disabled")).toBe("false")
+    fireEvent.click(enabledBtn)
     expect(onReset).toHaveBeenCalled()
-  })
 
-  test("header reset disabled in INITIAL even with area", () => {
-    const onReset = jest.fn()
+    unmount1()
 
-    // INITIAL + area > 0 => disabled
+    // Reset disabled in INITIAL state even with area
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -120,16 +119,16 @@ describe("Workflow component", () => {
         drawnArea={200}
       />
     )
-    const headerBtns = screen.getAllByRole("button", {
+
+    const headerBtns2 = screen.getAllByRole("button", {
       name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
     })
-    const headerBtn = headerBtns[0]
-    expect(headerBtn.getAttribute("aria-disabled")).toBe("true")
-
-    // No assertion for other states here to avoid coupling to internal rules
+    const disabledBtn = headerBtns2[0]
+    expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
   })
 
-  test("EXPORT_FORM invalid submission does not call onSubmit", () => {
+  test("EXPORT_FORM submission behavior for valid and invalid scenarios", async () => {
+    // Invalid submission does not call onSubmit
     const onFormSubmit = jest.fn()
     const workspaceParameters = [
       {
@@ -141,7 +140,7 @@ describe("Workflow component", () => {
       },
     ] as any
 
-    renderWithProviders(
+    const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
@@ -158,27 +157,25 @@ describe("Workflow component", () => {
       />
     )
 
-    // Submit button may vary by locale; if missing config error is shown, no submit is present
-    const submitBtn = screen.queryByRole("button", {
+    const submitBtn1 = screen.queryByRole("button", {
       name: /Beställ|Skicka|Submit|Order/i,
     })
-    if (submitBtn) {
-      fireEvent.click(submitBtn)
+    if (submitBtn1) {
+      fireEvent.click(submitBtn1)
       expect(onFormSubmit).not.toHaveBeenCalled()
     } else {
-      // Fallback: ensure error state rendered and no submit occurred
       const missingCfg = screen.queryByText(
         /Saknar exportkonfiguration|Missing export configuration/i
       )
       expect(missingCfg).toBeTruthy()
       expect(onFormSubmit).not.toHaveBeenCalled()
     }
-  })
 
-  test("EXPORT_FORM valid submission calls onSubmit with expected data", async () => {
-    const onFormSubmit = jest.fn()
+    unmount1()
+
+    // Valid submission calls onSubmit with expected data
     const onFormBack = jest.fn()
-    const workspaceParameters = [
+    const validWorkspaceParameters = [
       {
         name: "Title",
         description: "Titel",
@@ -189,11 +186,12 @@ describe("Workflow component", () => {
       },
     ] as any
 
+    onFormSubmit.mockClear()
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
-        workspaceParameters={workspaceParameters}
+        workspaceParameters={validWorkspaceParameters}
         selectedWorkspace="ws"
         onFormBack={onFormBack}
         onFormSubmit={onFormSubmit}
@@ -207,10 +205,10 @@ describe("Workflow component", () => {
       />
     )
 
-    const submitBtn = await screen.findByRole("button", {
+    const submitBtn2 = await screen.findByRole("button", {
       name: /Beställ|Skicka|Submit|Order/i,
     })
-    submitBtn && fireEvent.click(submitBtn)
+    fireEvent.click(submitBtn2)
 
     expect(onFormSubmit).toHaveBeenCalled()
     const arg = onFormSubmit.mock.calls[0][0]

@@ -53,16 +53,17 @@ describe("Setting (builder)", () => {
     return { ...initial, set }
   }
 
-  test("uses legacy fme_server_url for initial value and updates fmeServerUrl on change", () => {
+  test("legacy property handling and migration for URL and token", () => {
     const onSettingChange = jest.fn()
-    const config = makeConfig({ fme_server_url: "https://legacy.example" })
 
-    renderWithProviders(
+    // Legacy fme_server_url handling
+    const urlConfig = makeConfig({ fme_server_url: "https://legacy.example" })
+    const { unmount: unmount1 } = renderWithProviders(
       <SettingAny
         id="w1"
         onSettingChange={onSettingChange as any}
         useMapWidgetIds={[] as any}
-        config={config as any}
+        config={urlConfig as any}
       />
     )
 
@@ -72,21 +73,67 @@ describe("Setting (builder)", () => {
     fireEvent.change(urlInput, { target: { value: "https://new.example" } })
     expect(onSettingChange).toHaveBeenCalled()
 
-    const callArg = (onSettingChange.mock.calls[0] || [])[0] || {}
-    expect(callArg.id).toBe("w1")
-    expect(callArg.config?.fmeServerUrl).toBe("https://new.example")
-  })
+    const urlCallArg = (onSettingChange.mock.calls[0] || [])[0] || {}
+    expect(urlCallArg.id).toBe("w1")
+    expect(urlCallArg.config?.fmeServerUrl).toBe("https://new.example")
 
-  test("MapWidgetSelector selection triggers useMapWidgetIds update", () => {
-    const onSettingChange = jest.fn()
-    const config = makeConfig({})
+    unmount1()
 
+    // Legacy fmw_server_token handling
+    onSettingChange.mockClear()
+    const tokenConfig = makeConfig({ fmw_server_token: "legacy-token" })
     renderWithProviders(
       <SettingAny
         id="w1"
         onSettingChange={onSettingChange as any}
         useMapWidgetIds={[] as any}
-        config={config as any}
+        config={tokenConfig as any}
+      />
+    )
+
+    const tokenInput = screen.getByPlaceholderText("Enter FME Server token")
+    expect(screen.getByDisplayValue("legacy-token")).toBeTruthy()
+
+    fireEvent.change(tokenInput, { target: { value: "new-token" } })
+    const tokenCalls = onSettingChange.mock.calls
+    const tokenLast = tokenCalls[tokenCalls.length - 1]?.[0] || {}
+    expect(tokenLast.id).toBe("w1")
+    expect(tokenLast.config?.fmeServerToken).toBe("new-token")
+  })
+
+  test("setting field updates for repository and map widget selection", () => {
+    const onSettingChange = jest.fn()
+
+    // Repository field updates
+    const repoConfig = makeConfig({ repository: "OldRepo" })
+    const { unmount: unmount1 } = renderWithProviders(
+      <SettingAny
+        id="w1"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={repoConfig as any}
+      />
+    )
+
+    const repoInput = screen.getByPlaceholderText("MyRepository")
+    expect(screen.getByDisplayValue("OldRepo")).toBeTruthy()
+
+    fireEvent.change(repoInput, { target: { value: "NewRepo" } })
+    const repoCalls = onSettingChange.mock.calls
+    const repoLast = repoCalls[repoCalls.length - 1]?.[0] || {}
+    expect(repoLast.config?.repository).toBe("NewRepo")
+
+    unmount1()
+
+    // Map widget selection
+    onSettingChange.mockClear()
+    const mapConfig = makeConfig({})
+    renderWithProviders(
+      <SettingAny
+        id="w1"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={mapConfig as any}
       />
     )
 
@@ -96,52 +143,6 @@ describe("Setting (builder)", () => {
     expect(onSettingChange).toHaveBeenCalledWith(
       expect.objectContaining({ id: "w1", useMapWidgetIds: ["map-1"] })
     )
-  })
-
-  test("uses legacy fmw_server_token for initial value and updates fmeServerToken on change", () => {
-    const onSettingChange = jest.fn()
-    const config = makeConfig({ fmw_server_token: "legacy-token" })
-
-    renderWithProviders(
-      <SettingAny
-        id="w1"
-        onSettingChange={onSettingChange as any}
-        useMapWidgetIds={[] as any}
-        config={config as any}
-      />
-    )
-
-    // Password field uses placeholder "Enter FME Server token"
-    const tokenInput = screen.getByPlaceholderText("Enter FME Server token")
-    expect(screen.getByDisplayValue("legacy-token")).toBeTruthy()
-
-    fireEvent.change(tokenInput, { target: { value: "new-token" } })
-    const calls = onSettingChange.mock.calls
-    const last = calls[calls.length - 1]?.[0] || {}
-    expect(last.id).toBe("w1")
-    expect(last.config?.fmeServerToken).toBe("new-token")
-  })
-
-  test("updates repository on change", () => {
-    const onSettingChange = jest.fn()
-    const config = makeConfig({ repository: "OldRepo" })
-
-    renderWithProviders(
-      <SettingAny
-        id="w1"
-        onSettingChange={onSettingChange as any}
-        useMapWidgetIds={[] as any}
-        config={config as any}
-      />
-    )
-
-    const repoInput = screen.getByPlaceholderText("MyRepository")
-    expect(screen.getByDisplayValue("OldRepo")).toBeTruthy()
-
-    fireEvent.change(repoInput, { target: { value: "NewRepo" } })
-    const calls = onSettingChange.mock.calls
-    const last = calls[calls.length - 1]?.[0] || {}
-    expect(last.config?.repository).toBe("NewRepo")
   })
 
   test("renders default placeholders when config is empty", () => {

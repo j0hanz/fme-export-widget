@@ -27,98 +27,94 @@ describe("UI components", () => {
     setTheme(mockTheme)
   })
 
-  test("Icon renders an SVG element", () => {
+  test("Icon renders SVG and Tooltip behavior", () => {
+    // Icon renders an SVG element
     const { container } = renderWithProviders(
       <Icon src="/mock.svg" ariaLabel="Map" />
     )
-    const svg = container.querySelector("svg")
-    expect(svg).toBeTruthy()
-  })
+    expect(container.querySelector("svg")).toBeTruthy()
 
-  test("Tooltip adds aria-describedby to child when content present", () => {
+    // Tooltip adds aria-describedby when content present
     renderWithProviders(
       <Tooltip content="Help text">
         <button aria-label="Do it">Click</button>
       </Tooltip>
     )
-    const btn = screen.getByRole("button", { name: /Do it/i })
-    const descId = btn.getAttribute("aria-describedby")
-    expect(descId && descId.length > 0).toBe(true)
-  })
+    const btnWithTooltip = screen.getByRole("button", { name: /Do it/i })
+    expect(btnWithTooltip.getAttribute("aria-describedby")).toBeTruthy()
 
-  test("Tooltip returns bare child when no content can be resolved", () => {
+    // Tooltip returns bare child when no content
     renderWithProviders(
       <Tooltip>
-        {/* No aria-label/title and no content props => no tooltip */}
         <button>Plain</button>
       </Tooltip>
     )
-    const btn = screen.getByRole("button", { name: /Plain/i })
-    expect(btn.getAttribute("aria-describedby")).toBeNull()
-  })
+    const plainBtn = screen.getByRole("button", { name: /Plain/i })
+    expect(plainBtn.getAttribute("aria-describedby")).toBeNull()
 
-  test("Tooltip wraps disabled child in a span for proper cursor", () => {
-    const { container } = renderWithProviders(
+    // Tooltip wraps disabled child in span
+    const tooltipContainer = renderWithProviders(
       <Tooltip content="info">
         <button aria-label="Disabled child" disabled>
           X
         </button>
       </Tooltip>
-    )
-    // Expect span wrapper then button
-    const span = container.querySelector("span")
+    ).container
+    const span = tooltipContainer.querySelector("span")
     expect(span).toBeTruthy()
-    const btn = within(span as HTMLElement).getByRole("button", {
+    const disabledBtn = within(span as HTMLElement).getByRole("button", {
       name: /Disabled child/i,
     })
-    expect(btn).toBeTruthy()
+    expect(disabledBtn).toBeTruthy()
   })
 
-  test("Input sets aria attributes from validation and emits onChange", () => {
-    const onChange = jest.fn()
+  test("Input and TextArea accessibility and interaction", () => {
+    // Input sets aria attributes and emits onChange
+    const inputChange = jest.fn()
     renderWithProviders(
       <Input
         required
         validationMessage="Only numbers"
         pattern={/^\d+$/}
         defaultValue="abc"
-        onChange={onChange}
+        onChange={inputChange}
       />
     )
     const input = screen.getByRole("textbox")
     expect(input.getAttribute("aria-required")).toBe("true")
-    // Jimu TextInput may not reflect aria-invalid; assert title and describedby instead
     expect(input.getAttribute("title")).toBe("Only numbers")
     expect(input.getAttribute("aria-describedby")).toBeTruthy()
-    // Change value
-    fireEvent.change(input, { target: { value: "123" } })
-    expect(onChange).toHaveBeenCalledWith("123")
-  })
 
-  test("TextArea sets aria-invalid when errorText present and updates value", () => {
-    const onChange = jest.fn()
+    fireEvent.change(input, { target: { value: "123" } })
+    expect(inputChange).toHaveBeenCalledWith("123")
+
+    // TextArea sets aria-invalid when errorText present
+    const textAreaChange = jest.fn()
     renderWithProviders(
       <TextArea
         required
         errorText="Err"
         defaultValue="hi"
-        onChange={onChange}
+        onChange={textAreaChange}
       />
     )
-    const ta = screen.getByRole("textbox")
-    expect(ta.getAttribute("aria-required")).toBe("true")
-    // describedby should exist when errorText provided
-    expect(ta.getAttribute("aria-describedby")).toBeTruthy()
-    fireEvent.change(ta, { target: { value: "hello" } })
-    expect(onChange).toHaveBeenCalledWith("hello")
+    const textArea = screen.getAllByRole("textbox")[1] // Second textbox after input
+    expect(textArea.getAttribute("aria-required")).toBe("true")
+    expect(textArea.getAttribute("aria-describedby")).toBeTruthy()
+
+    fireEvent.change(textArea, { target: { value: "hello" } })
+    expect(textAreaChange).toHaveBeenCalledWith("hello")
   })
 
-  test("Select (single) renders selected value", () => {
+  test("Select single and multi-select behavior", () => {
     const onChange = jest.fn()
     const options = [
       { label: "Alpha", value: "a" },
       { label: "Beta", value: "b" },
+      { label: "Gamma", value: "c" },
     ]
+
+    // Single select renders selected value
     renderWithProviders(
       <Select
         options={options}
@@ -127,28 +123,20 @@ describe("UI components", () => {
         placeholder="Pick"
       />
     )
-    const sel = screen.getByRole("combobox")
-    // JimuSelect renders the selected label in the button content
-    within(sel).getByText(/Beta/i)
-  })
+    const singleSelect = screen.getByRole("combobox")
+    within(singleSelect).getByText(/Beta/i)
 
-  test("Select (multi) renders default selected options", () => {
-    const options = [
-      { label: "One", value: "1" },
-      { label: "Two", value: "2" },
-      { label: "Three", value: "3" },
-    ]
+    // Multi-select renders multiple selected options
     renderWithProviders(
-      <Select options={options} defaultValue={["1", "3"]} value={["1", "3"]} />
+      <Select options={options} defaultValue={["a", "c"]} value={["a", "c"]} />
     )
     const listbox = screen.getByRole("listbox")
     const selectedOptions = within(listbox).getAllByRole("option", {
       selected: true,
     })
     expect(selectedOptions.length).toBe(2)
-    // Assert labels correspond to values 1 and 3
-    within(listbox).getByRole("option", { name: /One/i, selected: true })
-    within(listbox).getByRole("option", { name: /Three/i, selected: true })
+    within(listbox).getByRole("option", { name: /Alpha/i, selected: true })
+    within(listbox).getByRole("option", { name: /Gamma/i, selected: true })
   })
 
   test("StateView renders loading and error roles appropriately", () => {
@@ -177,7 +165,29 @@ describe("UI components", () => {
     expect(onAction).toHaveBeenCalled()
   })
 
-  test("ButtonGroup renders left/right buttons and triggers clicks", () => {
+  test("Button interactions and accessibility patterns", () => {
+    // Button disabled prevents onClick and sets accessibility attributes
+    const onClick = jest.fn()
+    renderWithProviders(<Button text="Do" onClick={onClick} disabled />)
+    const disabledBtn = screen.getByRole("button", { name: /Do/i })
+    fireEvent.click(disabledBtn)
+    expect(onClick).not.toHaveBeenCalled()
+    expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
+
+    // Button loading prevents onClick interaction
+    const onClick2 = jest.fn()
+    renderWithProviders(<Button text="Load" onClick={onClick2} loading />)
+    const loadingBtn = screen.getByRole("button", { name: /Load/i })
+    fireEvent.click(loadingBtn)
+    expect(onClick2).not.toHaveBeenCalled()
+
+    // Button tooltip provides accessible label for icon-only buttons
+    renderWithProviders(<Button icon="/x.svg" tooltip="Hello" />)
+    screen.getByRole("button", { name: /Hello/i })
+  })
+
+  test("ButtonGroup and ButtonTabs interaction handling", () => {
+    // ButtonGroup renders and handles left/right button clicks
     const onLeft = jest.fn()
     const onRight = jest.fn()
     renderWithProviders(
@@ -186,37 +196,12 @@ describe("UI components", () => {
         rightButton={{ text: "Next", onClick: onRight }}
       />
     )
-    const back = screen.getByRole("button", { name: /Back/i })
-    const next = screen.getByRole("button", { name: /Next/i })
-    fireEvent.click(back)
-    fireEvent.click(next)
+    fireEvent.click(screen.getByRole("button", { name: /Back/i }))
+    fireEvent.click(screen.getByRole("button", { name: /Next/i }))
     expect(onLeft).toHaveBeenCalled()
     expect(onRight).toHaveBeenCalled()
-  })
 
-  test("Button disabled and loading prevent onClick, tooltip-only sets accessible label", () => {
-    const onClick = jest.fn()
-    // disabled
-    renderWithProviders(<Button text="Do" onClick={onClick} disabled />)
-    const btn1 = screen.getByRole("button", { name: /Do/i })
-    fireEvent.click(btn1)
-    expect(onClick).not.toHaveBeenCalled()
-    expect(btn1.getAttribute("aria-disabled")).toBe("true")
-
-    // loading
-    const onClick2 = jest.fn()
-    renderWithProviders(<Button text="Load" onClick={onClick2} loading />)
-    const btn2 = screen.getByRole("button", { name: /Load/i })
-    fireEvent.click(btn2)
-    expect(onClick2).not.toHaveBeenCalled()
-
-    // tooltip provides aria-label when only icon is present
-    renderWithProviders(<Button icon="/x.svg" tooltip="Hello" />)
-    const iconOnlyBtn = screen.getByRole("button", { name: /Hello/i })
-    expect(iconOnlyBtn).toBeTruthy()
-  })
-
-  test("ButtonTabs emits onChange and onTabChange on tab click", () => {
+    // ButtonTabs emits onChange and onTabChange events
     const onChange = jest.fn()
     const onTabChange = jest.fn()
     const items = [
@@ -231,10 +216,8 @@ describe("UI components", () => {
         onTabChange={onTabChange as any}
       />
     )
-    const tabTwo = screen.getByRole("radio", { name: /Two/i })
-    fireEvent.click(tabTwo)
-    expect(onChange).toHaveBeenCalled()
-    expect(onChange.mock.calls[0][0]).toBe("2")
+    fireEvent.click(screen.getByRole("radio", { name: /Two/i }))
+    expect(onChange).toHaveBeenCalledWith("2")
     expect(onTabChange).toHaveBeenCalled()
   })
 })

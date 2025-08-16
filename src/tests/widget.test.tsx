@@ -66,18 +66,16 @@ describe("FME Export Widget", () => {
     setTheme(mockTheme)
   })
 
-  test("shows loading state initially while modules load", () => {
+  test("widget state management for loading and error handling", async () => {
     const Wrapped = wrapWidget(Widget as any)
-    renderWidget(<Wrapped widgetId="w1" />)
 
-    // Loading message should be present (Swedish default messages)
-    const el = screen.getByText(/Laddar karttjänster/i)
-    expect(el).toBeTruthy()
-  })
+    // Loading state shows spinner message
+    const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
+    screen.getByText(/Laddar karttjänster/i)
+    unmount1()
 
-  test("error view renders and Retry clears error via dispatch", async () => {
-    const Wrapped = wrapWidget(Widget as any)
-    const state: FmeWidgetState = {
+    // Error state renders retry button and clears error on click
+    const errorState: FmeWidgetState = {
       ...initialFmeState,
       error: {
         message: "geometryMissing",
@@ -86,14 +84,12 @@ describe("FME Export Widget", () => {
         timestamp: new Date(0),
       },
     }
-    // Seed global store state used by mapExtraStateProps
-    updateStore({ "fme-state": state })
-    // Spy on app store dispatch (connect injects this into widget props)
+    updateStore({ "fme-state": errorState })
     const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
+
     renderWidget(
       <Wrapped
-        widgetId="w1"
-        // Provide minimal valid config to avoid Workflow useMemo errors if rendered
+        widgetId="w2"
         config={{
           fmeServerUrl: "http://example.com",
           fmeServerToken: "t",
@@ -102,16 +98,13 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Wait for modules to finish loading (loading view disappears)
     await waitFor(() => {
       expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
     })
 
-    // Retry button (Swedish: Försök igen)
     const retryBtn = await screen.findByRole("button", { name: /Försök igen/i })
     fireEvent.click(retryBtn)
 
-    // Expect a dispatch to clear error (action type FME_SET_ERROR with null)
     const dispatched = storeDispatch.mock.calls.map((c) => c[0])
     expect(
       dispatched.some(
@@ -129,9 +122,11 @@ describe("FME Export Widget", () => {
     expect(out.endsWith(" km²")).toBe(true)
   })
 
-  test("ORDER_RESULT success allows reuse which navigates to workspace selection", async () => {
+  test("form workflow navigation and validation", async () => {
     const Wrapped = wrapWidget(Widget as any)
-    const state: FmeWidgetState = {
+
+    // ORDER_RESULT success state allows reuse navigation to workspace selection
+    const successState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.ORDER_RESULT,
       orderResult: {
@@ -141,11 +136,12 @@ describe("FME Export Widget", () => {
         email: "a@b.com",
       },
     }
-    updateStore({ "fme-state": state })
+    updateStore({ "fme-state": successState })
     const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
-    renderWidget(
+
+    const { unmount: unmount1 } = renderWidget(
       <Wrapped
-        widgetId="w1"
+        widgetId="w3"
         config={{
           fmeServerUrl: "http://example.com",
           fmeServerToken: "t",
@@ -154,42 +150,40 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Wait for modules to finish loading
     await waitFor(() => {
       expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
     })
 
-    // Button text from component translations: Ny beställning
     const reuseBtn = await screen.findByRole("button", {
       name: /Ny beställning/i,
     })
     fireEvent.click(reuseBtn)
 
-    const dispatched = storeDispatch.mock.calls.map((c) => c[0])
     expect(
-      dispatched.some(
-        (a: any) =>
-          a?.type === "FME_SET_VIEW_MODE" &&
-          a?.viewMode === ViewMode.WORKSPACE_SELECTION
+      storeDispatch.mock.calls.some(
+        ([action]: any[]) =>
+          action?.type === "FME_SET_VIEW_MODE" &&
+          action?.viewMode === ViewMode.WORKSPACE_SELECTION
       )
     ).toBe(true)
-  })
 
-  test("EXPORT_FORM submission with area too large dispatches validation error", async () => {
-    const Wrapped = wrapWidget(Widget as any)
-    const state: FmeWidgetState = {
+    unmount1()
+
+    // EXPORT_FORM with area too large triggers validation error
+    const formState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.EXPORT_FORM,
       selectedWorkspace: "ws1",
       workspaceParameters: [],
-      drawnArea: 2000, // over the max
+      drawnArea: 2000,
       geometryJson: { type: "polygon", rings: [[[0, 0]]] } as any,
     }
-    updateStore({ "fme-state": state })
-    const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
+    updateStore({ "fme-state": formState })
+    storeDispatch.mockClear()
+
     renderWidget(
       <Wrapped
-        widgetId="w1"
+        widgetId="w4"
         config={{
           fmeServerUrl: "http://example.com",
           fmeServerToken: "t",
@@ -199,21 +193,18 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Wait for modules to finish loading
     await waitFor(() => {
       expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
     })
 
-    // Submit button text from components translations: Beställ
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
     fireEvent.click(submitBtn)
 
-    // Expect a validation error dispatched
-    const dispatched = storeDispatch.mock.calls.map((c) => c[0])
     expect(
-      dispatched.some(
-        (a: any) =>
-          a?.type === "FME_SET_ERROR" && a?.error?.code === "AREA_TOO_LARGE"
+      storeDispatch.mock.calls.some(
+        ([action]: any[]) =>
+          action?.type === "FME_SET_ERROR" &&
+          action?.error?.code === "AREA_TOO_LARGE"
       )
     ).toBe(true)
   })

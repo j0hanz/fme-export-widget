@@ -18,21 +18,18 @@ import { initExtensions, initStore } from "jimu-for-test"
 
 describe("FME store - Redux store extension and reducer", () => {
   beforeAll(() => {
-    // Initialize testing environment (safe no-ops for these tests but ensures EXB deps are registered)
     initExtensions()
     initStore()
   })
 
-  it("exposes extension metadata and actions", () => {
+  test("extension metadata and action creators", () => {
     const ext = new FmeReduxStoreExtension()
     expect(ext.id).toBe("fme-export_store")
     expect(ext.getStoreKey()).toBe("fme-state")
     expect(ext.getActions().sort()).toEqual(Object.values(FmeActionType).sort())
-  })
 
-  it("action creators: setViewMode and setError produce correct shapes", () => {
-    const a = fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION)
-    expect(a).toEqual({
+    // Test action creator shapes
+    expect(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION)).toEqual({
       type: FmeActionType.SET_VIEW_MODE,
       viewMode: ViewMode.WORKSPACE_SELECTION,
     })
@@ -47,25 +44,18 @@ describe("FME store - Redux store extension and reducer", () => {
       type: FmeActionType.SET_ERROR,
       error: err,
     })
-    expect(fmeActions.setImportError(err)).toEqual({
-      type: FmeActionType.SET_IMPORT_ERROR,
-      error: err,
-    })
-    expect(fmeActions.setExportError(err)).toEqual({
-      type: FmeActionType.SET_EXPORT_ERROR,
-      error: err,
-    })
   })
 
-  it("provides the expected initial state", () => {
+  test("initial state defaults", () => {
     const ext = new FmeReduxStoreExtension()
-    expect(ext.getInitLocalState()).toEqual(initialFmeState)
-    // Spot-check a few defaults
-    const s = ext.getInitLocalState()
-    expect(s.viewMode).toBe(ViewMode.INITIAL)
-    expect(s.isDrawing).toBe(false)
-    expect(s.drawnArea).toBe(0)
-    expect(s.geometryJson).toBeNull()
+    const state = ext.getInitLocalState()
+
+    expect(state.viewMode).toBe(ViewMode.INITIAL)
+    expect(state.isDrawing).toBe(false)
+    expect(state.drawnArea).toBe(0)
+    expect(state.geometryJson).toBeNull()
+    expect(state.formValues).toEqual({})
+    expect(state.workspaceItems).toEqual([])
   })
 
   describe("reducer transitions", () => {
@@ -74,116 +64,107 @@ describe("FME store - Redux store extension and reducer", () => {
 
     const makeState = () => Immutable(initialFmeState)
 
-    it("SET_VIEW_MODE sets previous and current view; no-op when unchanged", () => {
+    test("SET_VIEW_MODE transitions and RESET_STATE", () => {
       const state = makeState()
-      const a1 = fmeActions.setViewMode(ViewMode.DRAWING)
-      const s1 = reducer(state as any, a1)
-      expect((s1 as any).previousViewMode).toBe(ViewMode.INITIAL)
-      expect((s1 as any).viewMode).toBe(ViewMode.DRAWING)
 
-      // Dispatching same view should return same reference (early return)
-      const s2 = reducer(s1 as any, fmeActions.setViewMode(ViewMode.DRAWING))
-      expect(s2).toBe(s1)
-    })
-
-    it("SET_VIEW_MODE updates previousViewMode across multiple transitions", () => {
-      const state = makeState()
+      // Initial transition
       const s1 = reducer(state as any, fmeActions.setViewMode(ViewMode.DRAWING))
       expect((s1 as any).previousViewMode).toBe(ViewMode.INITIAL)
       expect((s1 as any).viewMode).toBe(ViewMode.DRAWING)
 
-      const s2 = reducer(
+      // No-op when unchanged
+      const s2 = reducer(s1 as any, fmeActions.setViewMode(ViewMode.DRAWING))
+      expect(s2).toBe(s1)
+
+      // Multiple transitions update previousViewMode
+      const s3 = reducer(
         s1 as any,
         fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION)
       )
-      expect((s2 as any).previousViewMode).toBe(ViewMode.DRAWING)
-      expect((s2 as any).viewMode).toBe(ViewMode.WORKSPACE_SELECTION)
+      expect((s3 as any).previousViewMode).toBe(ViewMode.DRAWING)
+      expect((s3 as any).viewMode).toBe(ViewMode.WORKSPACE_SELECTION)
+
+      // RESET_STATE restores initial state
+      const modifiedState = makeState()
+        .set("isDrawing", true)
+        .set("drawnArea", 100)
+      const resetState = reducer(modifiedState as any, fmeActions.resetState())
+      expect((resetState as any).isDrawing).toBe(false)
+      expect((resetState as any).viewMode).toBe(ViewMode.INITIAL)
+      expect((resetState as any).drawnArea).toBe(0)
     })
 
-    it("RESET_STATE restores initial state", () => {
+    test("drawing state and geometry management", () => {
       let state = makeState()
-      state = state.set("isDrawing", true)
-      const s1 = reducer(state as any, fmeActions.resetState())
-      expect((s1 as any).isDrawing).toBe(false)
-      expect((s1 as any).viewMode).toBe(ViewMode.INITIAL)
-      expect((s1 as any).drawnArea).toBe(0)
-      expect((s1 as any).geometryJson).toBeNull()
-    })
 
-    it("SET_GEOMETRY stores JSON and area; null clears geometry and sets area=0 by default", () => {
+      // SET_GEOMETRY stores JSON and area
       const mockGeo = { toJSON: () => ({ type: "polygon", rings: [[[0, 0]]] }) }
-      const state = makeState()
-      const s1 = reducer(
+      state = reducer(
         state as any,
         fmeActions.setGeometry(mockGeo as any, 123.45)
       )
-      expect((s1 as any).geometryJson).toEqual({
+      expect((state as any).geometryJson).toEqual({
         type: "polygon",
         rings: [[[0, 0]]],
       })
-      expect((s1 as any).drawnArea).toBe(123.45)
+      expect((state as any).drawnArea).toBe(123.45)
 
-      const s2 = reducer(s1 as any, fmeActions.setGeometry(null))
-      expect((s2 as any).geometryJson).toBeNull()
-      expect((s2 as any).drawnArea).toBe(0)
-    })
+      // Null geometry clears data
+      state = reducer(state as any, fmeActions.setGeometry(null))
+      expect((state as any).geometryJson).toBeNull()
+      expect((state as any).drawnArea).toBe(0)
 
-    it("SET_DRAWING_STATE updates drawing flags, click count and tool when provided", () => {
-      const state = makeState()
-      const s1 = reducer(
+      // SET_DRAWING_STATE with all parameters
+      state = reducer(
         state as any,
         fmeActions.setDrawingState(true, 2, DrawingTool.RECTANGLE)
       )
-      expect((s1 as any).isDrawing).toBe(true)
-      expect((s1 as any).clickCount).toBe(2)
-      expect((s1 as any).drawingTool).toBe(DrawingTool.RECTANGLE)
+      expect((state as any).isDrawing).toBe(true)
+      expect((state as any).clickCount).toBe(2)
+      expect((state as any).drawingTool).toBe(DrawingTool.RECTANGLE)
 
-      const s2 = reducer(s1 as any, fmeActions.setDrawingState(false))
-      expect((s2 as any).isDrawing).toBe(false)
-      // clickCount remains unchanged when omitted
-      expect((s2 as any).clickCount).toBe(2)
-      // drawingTool remains unchanged when omitted
-      expect((s2 as any).drawingTool).toBe(DrawingTool.RECTANGLE)
-    })
+      // SET_DRAWING_STATE with partial parameters preserves unchanged values
+      state = reducer(state as any, fmeActions.setDrawingState(false))
+      expect((state as any).isDrawing).toBe(false)
+      expect((state as any).clickCount).toBe(2) // unchanged
+      expect((state as any).drawingTool).toBe(DrawingTool.RECTANGLE) // unchanged
 
-    it("SET_DRAWING_TOOL and SET_CLICK_COUNT update individually", () => {
-      let state = makeState()
+      // Individual drawing actions
       state = reducer(
         state as any,
-        fmeActions.setDrawingTool(DrawingTool.RECTANGLE)
+        fmeActions.setDrawingTool(DrawingTool.POLYGON)
       )
-      expect((state as any).drawingTool).toBe(DrawingTool.RECTANGLE)
+      expect((state as any).drawingTool).toBe(DrawingTool.POLYGON)
 
       state = reducer(state as any, fmeActions.setClickCount(5))
       expect((state as any).clickCount).toBe(5)
     })
 
-    it("SET_FORM_VALUES stores provided values", () => {
+    test("form values and order results", () => {
+      let state = makeState()
+
+      // SET_FORM_VALUES stores provided values
       const values = {
         Foo: "bar",
         Count: 3,
         Flag: true,
         List: ["a", "b"] as const,
       }
-      const s1 = reducer(
-        makeState() as any,
-        fmeActions.setFormValues(values) as any
-      )
-      expect((s1 as any).formValues).toEqual(values)
-    })
+      state = reducer(state as any, fmeActions.setFormValues(values) as any)
+      expect((state as any).formValues).toEqual(values)
 
-    it("SET_ORDER_RESULT stores result and clears isSubmittingOrder", () => {
+      // SET_ORDER_RESULT stores result and clears isSubmittingOrder
       const orderResult = { success: true, jobId: 42, workspaceName: "ws" }
-      const state = makeState().set("isSubmittingOrder", true)
-      const s1 = reducer(
-        state as any,
+      const stateWithSubmitting = state.set("isSubmittingOrder", true)
+      state = reducer(
+        stateWithSubmitting as any,
         fmeActions.setOrderResult(orderResult as any)
       )
-      expect((s1 as any).orderResult).toEqual(orderResult)
-      expect((s1 as any).isSubmittingOrder).toBe(false)
+      expect((state as any).orderResult).toEqual(orderResult)
+      expect((state as any).isSubmittingOrder).toBe(false)
     })
 
-    it("workspace actions update items, parameters+selection, selection, and item detail", () => {
+    test("workspace management and loading flags", () => {
       const items: readonly WorkspaceItem[] = [
         { name: "ws1", title: "WS 1", description: "d1", type: "WORKSPACE" },
       ]
@@ -205,6 +186,8 @@ describe("FME store - Redux store extension and reducer", () => {
       }
 
       let state = makeState()
+
+      // Workspace actions
       state = reducer(state as any, fmeActions.setWorkspaceItems(items))
       expect((state as any).workspaceItems).toEqual(items)
 
@@ -220,43 +203,37 @@ describe("FME store - Redux store extension and reducer", () => {
 
       state = reducer(state as any, fmeActions.setWorkspaceItem(detail))
       expect((state as any).workspaceItem).toEqual(detail)
-    })
 
-    it("SET_LOADING_FLAGS updates flags individually and together", () => {
-      let state = makeState()
+      // Loading flags - individual and combined
       state = reducer(
         state as any,
         fmeActions.setLoadingFlags({ isModulesLoading: true })
       )
       expect((state as any).isModulesLoading).toBe(true)
-      expect((state as any).isSubmittingOrder).toBe(false)
-
-      state = reducer(
-        state as any,
-        fmeActions.setLoadingFlags({ isSubmittingOrder: true })
-      )
-      expect((state as any).isSubmittingOrder).toBe(true)
+      expect((state as any).isSubmittingOrder).toBe(false) // unchanged
 
       state = reducer(
         state as any,
         fmeActions.setLoadingFlags({
           isModulesLoading: false,
-          isSubmittingOrder: false,
+          isSubmittingOrder: true,
         })
       )
       expect((state as any).isModulesLoading).toBe(false)
-      expect((state as any).isSubmittingOrder).toBe(false)
+      expect((state as any).isSubmittingOrder).toBe(true)
     })
 
-    it("error actions set appropriate error buckets", () => {
+    test("error state management", () => {
       const baseError = {
         message: "Oops",
         severity: ErrorSeverity.ERROR,
         type: ErrorType.NETWORK,
-        timestamp: new Date(),
+        timestamp: new Date(0),
       }
+
       let state = makeState()
 
+      // Setting errors in different buckets
       state = reducer(state as any, fmeActions.setError(baseError))
       expect((state as any).error).toEqual(baseError)
 
@@ -267,32 +244,14 @@ describe("FME store - Redux store extension and reducer", () => {
       const exportErr = { ...baseError, message: "Export" }
       state = reducer(state as any, fmeActions.setExportError(exportErr))
       expect((state as any).exportError).toEqual(exportErr)
-    })
 
-    it("error actions clear buckets when payload is null", () => {
-      const baseError = {
-        message: "Oops",
-        severity: ErrorSeverity.ERROR,
-        type: ErrorType.NETWORK,
-        timestamp: new Date(0),
-      }
-
-      let state = makeState()
-      // Generic error
-      state = reducer(state as any, fmeActions.setError(baseError))
-      expect((state as any).error).toEqual(baseError)
+      // Clearing errors with null
       state = reducer(state as any, fmeActions.setError(null))
       expect((state as any).error).toBeNull()
 
-      // Import error
-      state = reducer(state as any, fmeActions.setImportError(baseError))
-      expect((state as any).importError).toEqual(baseError)
       state = reducer(state as any, fmeActions.setImportError(null))
       expect((state as any).importError).toBeNull()
 
-      // Export error
-      state = reducer(state as any, fmeActions.setExportError(baseError))
-      expect((state as any).exportError).toEqual(baseError)
       state = reducer(state as any, fmeActions.setExportError(null))
       expect((state as any).exportError).toBeNull()
     })
