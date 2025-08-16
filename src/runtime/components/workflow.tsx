@@ -638,7 +638,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // FME client
   const fmeClient = React.useMemo(() => {
-    return config ? createFmeFlowClient(config) : null
+    try {
+      return config ? createFmeFlowClient(config) : null
+    } catch (e) {
+      console.warn("FME Export - invalid FME config; deferring client init", e)
+      return null
+    }
   }, [config])
 
   // Workspace selection state
@@ -653,7 +658,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Abort controller for workspace loading
   const loadAbortRef = React.useRef<AbortController | null>(null)
   // Timeout ref for scheduled workspace loading
-  const loadTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
 
   // Track mount
   const isMountedRef = React.useRef(true)

@@ -269,6 +269,66 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(capturedUrl).toContain("opt_servicemode=sync")
   })
 
+  test("runDataDownload webhook does not set forbidden User-Agent header", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com/fmeserver",
+      fmeServerToken: "tok-xyz",
+      repository: "repo",
+    })
+
+    let capturedHeaders: any = null
+    const fetchMock = jest.fn((url: string, init: any) => {
+      capturedHeaders = init?.headers
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ ok: true }),
+      } as any)
+    })
+    ;(global as any).fetch = fetchMock
+
+    await client.runDataDownload("ws", { a: 1 }, "repo")
+
+    expect(capturedHeaders).toBeTruthy()
+    expect(capturedHeaders["User-Agent"]).toBeUndefined()
+    expect(capturedHeaders.Accept).toBe("application/json")
+    expect(typeof capturedHeaders.Authorization).toBe("string")
+  })
+
+  test("runDataDownload falls back to REST on non-JSON webhook (text/plain)", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const restResponse = {
+      data: { serviceResponse: { jobID: 456 } },
+      status: 200,
+      statusText: "OK",
+    }
+    const restSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "runDownloadRest")
+      .mockResolvedValue(restResponse)
+
+    const fetchMock = jest.fn(() =>
+      Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "text/plain" },
+        text: () => Promise.resolve("interstitial"),
+      } as any)
+    )
+    ;(global as any).fetch = fetchMock
+
+    const result = await client.runDataDownload("ws", { p: 1 }, "repo")
+    expect(restSpy).toHaveBeenCalled()
+    expect(result.status).toBe(200)
+
+    restSpy.mockRestore()
+  })
+
   test("customRequest handles different HTTP methods and content types", async () => {
     const client = createFmeFlowClient({
       fmeServerUrl: "https://example.com",

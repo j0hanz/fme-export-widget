@@ -128,9 +128,6 @@ const makeGeoJson = (polygon: __esri.Polygon) => ({
 const isAuthError = (status: number): boolean =>
   status === 403 || status === 401
 
-const isHtml = (contentType: string | null): boolean =>
-  contentType?.includes("text/html") ?? false
-
 const isJson = (contentType: string | null): boolean =>
   contentType?.includes("application/json") ?? false
 
@@ -138,9 +135,9 @@ const isJson = (contentType: string | null): boolean =>
 const normalizeUrl = (serverUrl: string): string =>
   serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
 
-// Mask token for logs
+// Mask token for logs (show at most last 4 chars)
 const maskToken = (token: string): string =>
-  token ? `${token.substring(0, 4)}***` : ""
+  token ? `***${token.slice(-4)}` : ""
 
 // Build endpoint path
 const makeEndpoint = (basePath: string, ...segments: string[]): string => {
@@ -571,7 +568,6 @@ export class FmeFlowApiClient {
         headers: {
           Accept: "application/json",
           Authorization: `fmetoken token=${this.config.token}`,
-          "User-Agent": API.COMMON_HEADERS["User-Agent"],
         },
         signal,
       })
@@ -696,14 +692,12 @@ export class FmeFlowApiClient {
         status: response.status,
         contentType: contentType || "text/plain",
       }
-      // If the response is HTML, treat it as an authentication error
-      if (isHtml(contentType)) {
-        throw new FmeFlowApiError(
-          "Webhook authentication failed or returned HTML - falling back to REST API",
-          "WEBHOOK_AUTH_ERROR",
-          response.status
-        )
-      }
+      // If the response is not JSON, we assume it's an error
+      throw new FmeFlowApiError(
+        "Webhook returned a non-JSON response - falling back to REST API",
+        "WEBHOOK_AUTH_ERROR",
+        response.status
+      )
     }
 
     return {
@@ -733,7 +727,7 @@ export class FmeFlowApiClient {
       MINY: extent.ymin,
       AREA: area,
       AreaOfInterest: JSON.stringify(projectedGeometry.toJSON()),
-      extent: JSON.stringify(geoJsonPolygon),
+      ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }
 
