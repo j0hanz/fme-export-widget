@@ -85,7 +85,7 @@ describe("Workflow component", () => {
 
   test("header reset is enabled in DRAWING and triggers onReset", () => {
     const onReset = jest.fn()
-    widgetRender(true)(
+    renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.DRAWING}
@@ -110,7 +110,7 @@ describe("Workflow component", () => {
     const onReset = jest.fn()
 
     // INITIAL + area > 0 => disabled
-    widgetRender(true)(
+    renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.INITIAL}
@@ -141,7 +141,7 @@ describe("Workflow component", () => {
       },
     ] as any
 
-    widgetRender(true)(
+    renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
@@ -189,7 +189,7 @@ describe("Workflow component", () => {
       },
     ] as any
 
-    widgetRender(true)(
+    renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
