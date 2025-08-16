@@ -10,7 +10,10 @@ import {
   type WorkspaceParameter,
   ViewMode,
 } from "../shared/types"
-import FmeReduxStoreExtension, { fmeActions, initialFmeState } from "./store"
+import FmeReduxStoreExtension, {
+  fmeActions,
+  initialFmeState,
+} from "../extensions/store"
 import { initExtensions, initStore } from "jimu-for-test"
 
 describe("FME store - Redux store extension and reducer", () => {

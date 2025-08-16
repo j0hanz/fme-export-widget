@@ -1,7 +1,7 @@
 import { React } from "jimu-core"
 import { screen, fireEvent } from "@testing-library/react"
 import { widgetRender } from "jimu-for-test"
-import Setting from "./setting"
+import Setting from "../setting/setting"
 
 // Mock builder setting components to simple primitives
 jest.mock("jimu-ui/advanced/setting-components", () => {

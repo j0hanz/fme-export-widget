@@ -1,8 +1,8 @@
 import { jest } from "@jest/globals"
 
 // We import the public API after setting globals as needed in each test
-import FmeFlowApiClient, { createFmeFlowClient } from "./api"
-import { FmeFlowApiError, HttpMethod } from "./types"
+import FmeFlowApiClient, { createFmeFlowClient } from "../shared/api"
+import { FmeFlowApiError, HttpMethod } from "../shared/types"
 
 // Minimal esriConfig mock shape used by api.ts
 interface Interceptor {

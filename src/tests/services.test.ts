@@ -1,4 +1,4 @@
-import { ErrorHandlingService, ParameterFormService } from "./services"
+import { ErrorHandlingService, ParameterFormService } from "../shared/services"
 import {
   ErrorSeverity,
   ErrorType,
@@ -6,7 +6,7 @@ import {
   type DynamicFieldConfig,
   type WorkspaceParameter,
   ParameterType,
-} from "./types"
+} from "../shared/types"
 
 describe("ErrorHandlingService", () => {
   test("createError uses sensible defaults and preserves options", () => {

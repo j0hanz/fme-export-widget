@@ -17,7 +17,7 @@ import Button, {
   ButtonGroup,
   type OptionItem,
   ButtonTabs,
-} from "./ui"
+} from "../runtime/components/ui"
 
 describe("UI components", () => {
   const renderWithProviders = widgetRender(true)

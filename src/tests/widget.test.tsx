@@ -1,3 +1,4 @@
+import { React, getAppStore } from "jimu-core"
 import {
   initExtensions,
   initStore,
@@ -7,12 +8,10 @@ import {
   wrapWidget,
   updateStore,
 } from "jimu-for-test"
-import React from "react"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
-import Widget, { formatArea } from "./widget"
+import Widget, { formatArea } from "../runtime/widget"
 import { initialFmeState } from "../extensions/store"
 import { ViewMode, type FmeWidgetState } from "../shared/types"
-import { getAppStore } from "jimu-core"
 
 // Mock jimu-arcgis to avoid real JSAPI loading and map rendering
 jest.mock("jimu-arcgis", () => ({

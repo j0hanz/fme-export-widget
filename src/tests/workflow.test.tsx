@@ -1,8 +1,8 @@
 import { React } from "jimu-core"
 import { screen, fireEvent } from "@testing-library/react"
 import { widgetRender, initExtensions, initStore } from "jimu-for-test"
-import { Workflow } from "./workflow"
-import { ViewMode, type ExportResult } from "../../shared/types"
+import { Workflow } from "../runtime/components/workflow"
+import { ViewMode, type ExportResult } from "../shared/types"
 
 describe("Workflow component", () => {
   const baseProps = {
