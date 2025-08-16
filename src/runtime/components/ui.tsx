@@ -320,10 +320,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
     (children.props as any)?.disabled ||
     (children.props as any)?.["aria-disabled"]
   const baseChildProps = (children.props || {}) as { [key: string]: any }
-  // Remove native title to prevent duplicate tooltip semantics
-  if ("title" in baseChildProps) delete baseChildProps.title
+  // Omit title to avoid conflicts with tooltip
+  const { title: _omitTitle, ...safeChildProps } = baseChildProps
   const cloned = React.cloneElement(children as any, {
-    ...baseChildProps,
+    ...safeChildProps,
     "aria-describedby": tooltipId,
   })
   const child = isDisabled ? (

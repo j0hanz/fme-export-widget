@@ -98,10 +98,10 @@ export class ParameterFormService {
       placeholder: param.description || `Enter ${param.name}`,
     }
 
-    // Add options for list parameters
+    // Handle list-based parameters
     const options = makeFieldOpts(param)
     if (options) {
-      return { ...baseField, type: FormFieldType.SELECT, options }
+      return { ...baseField, options }
     }
 
     // Add textarea rows for text edit fields
