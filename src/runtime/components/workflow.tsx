@@ -1,7 +1,6 @@
 import { React, hooks, getAppStore } from "jimu-core"
 import {
   Button,
-  Tabs,
   UI_CSS,
   StateView,
   Select,
@@ -10,6 +9,7 @@ import {
   Field,
   Input,
   Checkbox,
+  Segmented,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import {
@@ -72,6 +72,7 @@ const CSS = {
       flexDirection: "column",
       justifyContent: "center",
       height: "100%",
+      gap: "0.5rem",
     } as React.CSSProperties,
   },
   typography: {
@@ -845,7 +846,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return (
       <div style={CSS.state.centered}>
         {/* Drawing mode */}
-        <Tabs
+        <Segmented
           items={drawingModeItems}
           value={drawingMode}
           onChange={(val) => {

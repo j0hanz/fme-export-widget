@@ -4,6 +4,7 @@ import {
   Tooltip as JimuTooltip,
   Message as JimuMessage,
   Button as JimuButton,
+  AdvancedButtonGroup,
   Tabs as JimuTabs,
   Tab,
   Select as JimuSelect,
@@ -41,8 +42,8 @@ export const UI_CSS = (() => {
   const ICON = {
     SIZE: {
       S: 14,
-      M: 16,
-      L: 20,
+      M: 15,
+      L: 16,
     },
   } as const
   const BTN_LAYOUT = {
@@ -660,6 +661,60 @@ export const Button: React.FC<ButtonProps> = ({
     </Tooltip>
   ) : (
     buttonElement
+  )
+}
+
+// Segmented component
+export const Segmented: React.FC<TabsProps> = ({
+  items,
+  value: controlled,
+  defaultValue,
+  onChange,
+  onTabChange,
+  ariaLabel,
+  style,
+}) => {
+  const [value, handleValueChange] = useValue(
+    controlled,
+    defaultValue || items[0]?.value
+  )
+
+  const handleChange = hooks.useEventCallback((newValue: string | number) => {
+    const final = typeof controlled === "number" ? Number(newValue) : newValue
+    const previous = value
+    handleValueChange(final as any)
+    onChange?.(final as any)
+    onTabChange?.(final as any, previous)
+  })
+
+  return (
+    <AdvancedButtonGroup
+      role="radiogroup"
+      gap="1rem"
+      aria-label={ariaLabel}
+      style={style}
+      variant="contained"
+    >
+      {items.map((item) => {
+        const active = value === item.value
+        return (
+          <Button
+            key={String(item.value)}
+            icon={item.icon}
+            text={!item.hideLabel ? item.label : undefined}
+            active={active}
+            aria-label={item.label}
+            role="radio"
+            aria-checked={active}
+            tooltip={item.tooltip}
+            tooltipPlacement="top"
+            disabled={item.disabled}
+            onClick={() => handleChange(item.value)}
+            block={false}
+          />
+        )
+      })}
+    </AdvancedButtonGroup>
   )
 }
 
