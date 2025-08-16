@@ -184,7 +184,9 @@ function setApiSettings(config: FmeFlowConfig): void {
       const urls = interceptor.urls as Array<string | RegExp> | undefined
       if (!urls || !Array.isArray(urls)) return false
       return urls.some((url) =>
-        typeof url === "string" ? url.includes(serverDomain) : url.test(serverDomain)
+        typeof url === "string"
+          ? url.includes(serverDomain)
+          : url.test(serverDomain)
       )
     }
   )
@@ -863,8 +865,8 @@ export class FmeFlowApiClient {
       const span = document.createElement("span")
       span.className = `${param.name} fmes-form-component`
 
-  const label = document.createElement("label")
-  label.textContent = param.description || param.name
+      const label = document.createElement("label")
+      label.textContent = param.description || param.name
       span.appendChild(label)
 
       let input:
@@ -1150,7 +1152,7 @@ export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
     !normalizedConfig.repository
   ) {
     throw new FmeFlowApiError(
-  "Missing required FME Flow configuration. Required: serverUrl (fmeServerUrl or fme_server_url), token (fmeServerToken or fme_server_token), and repository",
+      "Missing required FME Flow configuration. Required: serverUrl (fmeServerUrl or fme_server_url), token (fmeServerToken or fme_server_token), and repository",
       "INVALID_CONFIG"
     )
   }
