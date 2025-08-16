@@ -41,9 +41,9 @@ import type {
 export const UI_CSS = (() => {
   const ICON = {
     SIZE: {
-      S: 14,
-      M: 15,
-      L: 16,
+      S: 15,
+      M: 16,
+      L: 17,
     },
   } as const
   const BTN_LAYOUT = {
