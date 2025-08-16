@@ -798,7 +798,6 @@ export interface JobResult {
   readonly outputFileUrls?: readonly string[]
 }
 
-
 // ArcGIS JS API module collection
 export interface EsriModules {
   readonly SketchViewModel: typeof __esri.SketchViewModel
