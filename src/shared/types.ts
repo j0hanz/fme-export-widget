@@ -798,12 +798,6 @@ export interface JobResult {
   readonly outputFileUrls?: readonly string[]
 }
 
-export interface UploadWorkspaceParams {
-  readonly filename: string
-  readonly files: ReadonlyArray<{ readonly path: string }>
-  readonly service?: string
-  readonly params?: string
-}
 
 // ArcGIS JS API module collection
 export interface EsriModules {

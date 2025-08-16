@@ -11,7 +11,6 @@ import type {
   WorkspaceParameter,
   JobResponse,
   JobResult,
-  UploadWorkspaceParams,
   PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
@@ -20,7 +19,6 @@ import { FmeFlowApiError, HttpMethod } from "./types"
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
-  SESSION_ID_RANGE: 1_000_000_000,
   WEBHOOK_EXCLUDE_KEYS: [
     "opt_servicemode",
     "opt_responseformat",
@@ -31,11 +29,6 @@ const API = {
     "opt_showresult",
     "opt_servicemode",
   ],
-  DEFAULT_UPLOAD_OPTIONS: {
-    opt_extractarchive: "false",
-    opt_pathlevel: "3",
-    opt_fullpath: "true",
-  },
   COMMON_HEADERS: {
     "User-Agent": "ArcGIS-Experience-Builder-FME-Widget/1.0",
     "Content-Type": "application/x-www-form-urlencoded",
@@ -238,13 +231,6 @@ export class FmeFlowApiClient {
     return q ? `${baseEndpoint}?${q}` : baseEndpoint
   }
 
-  private makeFormData(files: File[] | FileList): FormData {
-    const formData = new FormData()
-    const fileArray = Array.isArray(files) ? files : Array.from(files)
-    for (const file of fileArray) formData.append("files[]", file)
-    return formData
-  }
-
   private formatJobParams(
     parameters: PrimitiveParams = {}
   ):
@@ -257,10 +243,6 @@ export class FmeFlowApiClient {
             ([name, value]) => ({ name, value })
           ),
         }
-  }
-
-  private encodePath(path: string): string {
-    return encodeURIComponent(path).replace(/%2F/g, "/")
   }
 
   // Build repository endpoint
@@ -652,321 +634,6 @@ export class FmeFlowApiClient {
         status || 0
       )
     }
-  }
-
-  async createUploadSession(
-    workspace: string,
-    repository?: string
-  ): Promise<ApiResponse<{ sessionId: string; url: string }>> {
-    const targetRepository = this.resolveRepository(repository)
-    const endpoint = this.buildServiceUrl(
-      "fmedataupload",
-      targetRepository,
-      workspace
-    )
-
-    return this.withApiError(
-      async () => {
-        const sessionId = Math.floor(Math.random() * API.SESSION_ID_RANGE) + 1
-        const params = buildQuery({
-          ...API.DEFAULT_UPLOAD_OPTIONS,
-          opt_namespace: sessionId.toString(),
-        })
-
-        const response = await this.request(endpoint, {
-          method: HttpMethod.POST,
-          headers: {
-            "Content-Type": API.COMMON_HEADERS["Content-Type"],
-          },
-          body: params.toString(),
-        })
-
-        return {
-          ...response,
-          data: { sessionId: sessionId.toString(), url: endpoint },
-        }
-      },
-      "Failed to create upload session",
-      "UPLOAD_SESSION_ERROR"
-    )
-  }
-
-  async uploadFiles(
-    workspace: string,
-    files: File[] | FileList,
-    sessionId?: string,
-    repository?: string
-  ): Promise<ApiResponse<{ submit?: boolean; id?: string; files?: any[] }>> {
-    const targetRepository = this.resolveRepository(repository)
-    const baseEndpoint = this.buildServiceUrl(
-      "fmedataupload",
-      targetRepository,
-      workspace
-    )
-
-    const queryParams = sessionId
-      ? { opt_namespace: sessionId, opt_fullpath: "true" }
-      : { opt_fullpath: "true" }
-
-    const endpoint = this.addQuery(baseEndpoint, queryParams)
-
-    return this.withApiError(
-      () =>
-        this.request<{ submit?: boolean; id?: string; files?: any[] }>(
-          endpoint,
-          {
-            method: HttpMethod.POST,
-            body: this.makeFormData(files),
-          }
-        ),
-      "Failed to upload files",
-      "FILE_UPLOAD_ERROR"
-    )
-  }
-
-  async getUploadedFiles(
-    workspace: string,
-    sessionId?: string,
-    repository?: string
-  ): Promise<ApiResponse<{ files: any[] }>> {
-    const targetRepository = this.resolveRepository(repository)
-    const baseEndpoint = this.buildServiceUrl(
-      "fmedataupload",
-      targetRepository,
-      workspace
-    )
-
-    const endpoint = sessionId
-      ? this.addQuery(baseEndpoint, {
-          opt_namespace: sessionId,
-          opt_fullpath: "true",
-        })
-      : baseEndpoint
-
-    return this.withApiError(
-      () => this.request<{ files: any[] }>(endpoint),
-      "Failed to get uploaded files",
-      "GET_UPLOADS_ERROR"
-    )
-  }
-
-  async runWorkspaceWithData(
-    workspace: string,
-    uploadParams: UploadWorkspaceParams,
-    repository?: string
-  ): Promise<ApiResponse> {
-    const targetRepository = this.resolveRepository(repository)
-    const service = uploadParams.service || "fmedatadownload"
-    const endpoint = this.buildServiceUrl(service, targetRepository, workspace)
-    return this.withApiError(
-      () => {
-        let params = `${uploadParams.filename}=%22%22`
-        uploadParams.files.forEach((file) => {
-          params += file.path + "%22%20%22"
-        })
-        if (uploadParams.params) params += "&" + uploadParams.params
-        params += "&opt_responseformat=json"
-        return this.request(`${endpoint}?${params}`)
-      },
-      "Failed to run workspace with data",
-      "WORKSPACE_WITH_DATA_ERROR"
-    )
-  }
-
-  async getResources(): Promise<ApiResponse<any[]>> {
-    return this.withApiError(
-      () => this.request("/resources/connections"),
-      "Failed to get resources",
-      "GET_RESOURCES_ERROR"
-    )
-  }
-
-  async getResourceDetails(resource: string): Promise<ApiResponse> {
-    return this.withApiError(
-      () => this.request(`/resources/connections/${resource}`),
-      "Failed to get resource details",
-      "GET_RESOURCE_DETAILS_ERROR"
-    )
-  }
-
-  async getResourceContents(
-    resource: string,
-    path: string = "/",
-    depth: number = 1
-  ): Promise<ApiResponse> {
-    const encodedPath = this.encodePath(path)
-    return this.withApiError(
-      () =>
-        this.request(
-          `/resources/connections/${resource}/filesys${encodedPath}?depth=${depth}`
-        ),
-      "Failed to get resource contents",
-      "GET_RESOURCE_CONTENTS_ERROR"
-    )
-  }
-
-  async deleteResource(
-    resource: string,
-    path: string
-  ): Promise<ApiResponse<{ delete: boolean }>> {
-    const encodedPath = this.encodePath(path)
-    return this.withApiError(
-      () =>
-        this.request<{ delete: boolean }>(
-          `/resources/connections/${resource}/filesys${encodedPath}`,
-          {
-            method: HttpMethod.DELETE,
-          }
-        ),
-      "Failed to delete resource",
-      "DELETE_RESOURCE_ERROR"
-    )
-  }
-
-  downloadResourceFile(resource: string, path: string): string {
-    // Construct the URL for downloading a resource file
-    const encodedPath = this.encodePath(path)
-    return `${normalizeUrl(this.config.serverUrl)}${this.basePath}/resources/connections/${resource}/filesys${encodedPath}?accept=contents`
-  }
-
-  async uploadResourceFile(
-    resource: string,
-    path: string,
-    files: File[] | FileList,
-    overwrite: boolean = false,
-    createFolders: boolean = false
-  ): Promise<ApiResponse> {
-    const encodedPath = this.encodePath(path)
-    const url = `/resources/connections/${resource}/filesys${encodedPath}?createDirectories=${createFolders}&overwrite=${overwrite}&type=FILE`
-    return this.withApiError(
-      () =>
-        this.request(url, {
-          method: HttpMethod.POST,
-          body: this.makeFormData(files),
-        }),
-      "Failed to upload resource file",
-      "UPLOAD_RESOURCE_ERROR"
-    )
-  }
-
-  public generateFormItems(
-    containerId: string,
-    parameters: WorkspaceParameter[],
-    values: PrimitiveParams = {}
-  ): HTMLElement[] {
-    const container = document.getElementById(containerId)
-    if (!container)
-      throw new Error(`Container with id '${containerId}' not found`)
-
-    const formItems: HTMLElement[] = []
-    const paramArray = Array.isArray(parameters) ? parameters : [parameters]
-
-    paramArray.forEach((param) => {
-      const span = document.createElement("span")
-      span.className = `${param.name} fmes-form-component`
-
-      const label = document.createElement("label")
-      label.textContent = param.description || param.name
-      span.appendChild(label)
-
-      let input:
-        | HTMLElement
-        | HTMLInputElement
-        | HTMLSelectElement
-        | HTMLTextAreaElement
-      const defaultVal = param.defaultValue?.toString() || ""
-
-      switch (param.type) {
-        case "FILE_OR_URL":
-        case "FILENAME_MUSTEXIST":
-        case "FILENAME":
-          input = this.createInput("file", param.name)
-          break
-
-        case "LISTBOX":
-        case "LOOKUP_LISTBOX":
-          input = document.createElement("div")
-          param.listOptions?.forEach((option) => {
-            const checkbox = this.createInput(
-              "checkbox",
-              param.name,
-              option.value
-            )
-            checkbox.checked = checkbox.value === param.defaultValue
-            input.appendChild(checkbox)
-            const caption = document.createElement("label")
-            caption.textContent = option.caption
-            input.appendChild(caption)
-          })
-          break
-
-        case "LOOKUP_CHOICE":
-        case "STRING_OR_CHOICE":
-        case "CHOICE":
-          input = document.createElement("select")
-          ;(input as HTMLSelectElement).name = param.name
-          param.listOptions?.forEach((option) => {
-            const opt = document.createElement("option")
-            opt.textContent = option.caption
-            opt.value = option.value
-            opt.selected = opt.value === param.defaultValue
-            ;(input as HTMLSelectElement).appendChild(opt)
-          })
-          break
-
-        case "TEXT_EDIT":
-          input = document.createElement("textarea")
-          ;(input as HTMLTextAreaElement).name = param.name
-          ;(input as HTMLTextAreaElement).value = defaultVal
-          break
-
-        case "INTEGER":
-          input = this.createInput("number", param.name, defaultVal)
-          break
-
-        case "FLOAT": {
-          const floatInput = this.createInput("number", param.name, defaultVal)
-          floatInput.step = "0.01"
-          input = floatInput
-          break
-        }
-
-        case "PASSWORD":
-          input = this.createInput("password", param.name)
-          break
-
-        case "BOOLEAN": {
-          const booleanInput = this.createInput("checkbox", param.name)
-          booleanInput.checked = Boolean(param.defaultValue)
-          input = booleanInput
-          break
-        }
-
-        default:
-          input = this.createInput("text", param.name, defaultVal)
-      }
-
-      input.id = param.name
-      if (!param.optional) input.setAttribute("required", "true")
-
-      span.appendChild(input)
-      container.appendChild(span)
-      formItems.push(span)
-    })
-
-    return formItems
-  }
-
-  private createInput(
-    type: string,
-    name: string,
-    value?: string
-  ): HTMLInputElement {
-    const input = document.createElement("input")
-    input.type = type
-    input.name = name
-    if (value) input.value = value
-    return input
   }
 
   async customRequest<T>(
