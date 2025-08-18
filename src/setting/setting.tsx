@@ -6,7 +6,7 @@ import {
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
 import { Alert } from "jimu-ui"
-import { Button, Input, Field, Select } from "../runtime/components/ui"
+import { Button, Input, Select } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
 import type { ApiResponse } from "../shared/types"
@@ -209,36 +209,42 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
 
       <SettingSection title={translate("fmeServerConfig")}>
         {/* FME Server URL */}
-        <SettingRow>
-          <Field label={translate("fmeServerUrl")}>
-            <Input
-              value={getConfigValue("fmeServerUrl", "fme_server_url") as string}
-              onChange={(val) => {
-                handlePropertyChange("fmeServerUrl", val)
-              }}
-              placeholder={translate("serverUrlPlaceholder")}
-            />
-          </Field>
+        <SettingRow
+          flow="wrap"
+          label={translate("fmeServerUrl")}
+          level={3}
+          tag="div"
+        >
+          <Input
+            value={getConfigValue("fmeServerUrl", "fme_server_url") as string}
+            onChange={(val) => {
+              handlePropertyChange("fmeServerUrl", val)
+            }}
+            placeholder={translate("serverUrlPlaceholder")}
+          />
         </SettingRow>
 
         {/* FME Server Token */}
-        <SettingRow>
-          <Field label={translate("fmeServerToken")}>
-            <Input
-              type="password"
-              value={
-                (getConfigValue(
-                  "fmeServerToken",
-                  "fme_server_token"
-                ) as string) ||
-                (getConfigValue("fmeServerToken", "fmw_server_token") as string)
-              }
-              onChange={(val) => {
-                handlePropertyChange("fmeServerToken", val)
-              }}
-              placeholder={translate("tokenPlaceholder")}
-            />
-          </Field>
+        <SettingRow
+          flow="wrap"
+          label={translate("fmeServerToken")}
+          level={3}
+          tag="div"
+        >
+          <Input
+            type="password"
+            value={
+              (getConfigValue(
+                "fmeServerToken",
+                "fme_server_token"
+              ) as string) ||
+              (getConfigValue("fmeServerToken", "fmw_server_token") as string)
+            }
+            onChange={(val) => {
+              handlePropertyChange("fmeServerToken", val)
+            }}
+            placeholder={translate("tokenPlaceholder")}
+          />
         </SettingRow>
 
         {/* Test connection */}
@@ -254,26 +260,29 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
         </SettingRow>
 
         {/* Available repositories (always visible; disabled when empty) */}
-        <SettingRow>
-          <Field label={translate("availableRepositories")}>
-            <Select
-              options={(availableRepos || []).map((r) => ({
-                label: r,
-                value: r,
-              }))}
-              value={(getConfigValue("repository") as string) || undefined}
-              onChange={(val) => {
-                handlePropertyChange("repository", val as string)
-              }}
-              disabled={!availableRepos || availableRepos.length === 0}
-              placeholder={
-                !availableRepos || availableRepos.length === 0
-                  ? translate("noRepositoriesFound") ||
-                    "No repositories found — run Test connection"
-                  : translate("repositoryPlaceholder")
-              }
-            />
-          </Field>
+        <SettingRow
+          flow="wrap"
+          label={translate("availableRepositories")}
+          level={3}
+          tag="div"
+        >
+          <Select
+            options={(availableRepos || []).map((r) => ({
+              label: r,
+              value: r,
+            }))}
+            value={(getConfigValue("repository") as string) || undefined}
+            onChange={(val) => {
+              handlePropertyChange("repository", val as string)
+            }}
+            disabled={!availableRepos || availableRepos.length === 0}
+            placeholder={
+              !availableRepos || availableRepos.length === 0
+                ? translate("noRepositoriesFound") ||
+                  "No repositories found — run Test connection"
+                : translate("repositoryPlaceholder")
+            }
+          />
         </SettingRow>
         {/* Connection status */}
         {testMessage && (
