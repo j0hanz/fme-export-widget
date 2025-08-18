@@ -19,7 +19,6 @@
     "width": 375,
     "height": 400
   },
-  "translatedLocales": [
-    "sv-SE"
-  ]
+  "translatedLocales": ["sv-SE"],
+  "settingDependency": ["jimu-arcgis"]
 }
