@@ -466,6 +466,7 @@ export const Input: React.FC<InputProps> = ({
           ? ariaDesc(props.id || "input")
           : undefined
       }
+      style={{ width: "100%", ...(props as any).style }}
     />
   )
 }

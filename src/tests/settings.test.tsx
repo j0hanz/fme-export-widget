@@ -100,11 +100,11 @@ describe("Setting (builder)", () => {
     return { ...initial, set }
   }
 
-  test("legacy property handling and migration for URL and token", () => {
+  test("modern property handling for URL and token", () => {
     const onSettingChange = jest.fn()
 
-    // Legacy fme_server_url handling
-    const urlConfig = makeConfig({ fme_server_url: "https://legacy.example" })
+    // Modern fmeServerUrl handling
+    const urlConfig = makeConfig({ fmeServerUrl: "https://modern.example" })
     const { unmount: unmount1 } = renderWithProviders(
       <SettingAny
         id="w1"
@@ -115,7 +115,7 @@ describe("Setting (builder)", () => {
     )
 
     const urlInput = screen.getByPlaceholderText("https://fme.server.com")
-    expect(screen.getByDisplayValue("https://legacy.example")).toBeTruthy()
+    expect(screen.getByDisplayValue("https://modern.example")).toBeTruthy()
 
     fireEvent.change(urlInput, { target: { value: "https://new.example" } })
     expect(onSettingChange).toHaveBeenCalled()
@@ -126,9 +126,9 @@ describe("Setting (builder)", () => {
 
     unmount1()
 
-    // Legacy fmw_server_token handling
+    // Modern fmeServerToken handling
     onSettingChange.mockClear()
-    const tokenConfig = makeConfig({ fmw_server_token: "legacy-token" })
+    const tokenConfig = makeConfig({ fmeServerToken: "modern-token" })
     renderWithProviders(
       <SettingAny
         id="w1"
@@ -139,7 +139,7 @@ describe("Setting (builder)", () => {
     )
 
     // Token input is localized; select it by its current value instead of placeholder
-    const tokenInput = screen.getByDisplayValue("legacy-token")
+    const tokenInput = screen.getByDisplayValue("modern-token")
     expect(tokenInput).toBeTruthy()
 
     fireEvent.change(tokenInput, { target: { value: "new-token" } })
@@ -155,8 +155,8 @@ describe("Setting (builder)", () => {
     // Repository field updates now use a Select fed by Test connection
     const repoConfig = makeConfig({
       repository: "OldRepo",
-      fme_server_url: "https://server.example",
-      fmw_server_token: "token-123",
+      fmeServerUrl: "https://server.example",
+      fmeServerToken: "token-123",
     })
     const { unmount: unmount1 } = renderWithProviders(
       <SettingAny

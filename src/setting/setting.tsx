@@ -9,34 +9,78 @@ import { Alert } from "jimu-ui"
 import { Button, Input, Select } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
-import type { ApiResponse } from "../shared/types"
+import type {
+  ApiResponse,
+  WidgetConfig,
+  ConnectionSettings,
+  TestState,
+} from "../shared/types"
 import { FmeFlowApiError } from "../shared/types"
 
-export default function Setting(props: AllWidgetSettingProps<any>) {
+// Utility hook to extract configuration values with a default fallback
+function useConfigValue(config: WidgetConfig) {
+  return React.useCallback(
+    (prop: keyof WidgetConfig, defaultValue: string | number = "") => {
+      return (config?.[prop] as string | number | undefined) ?? defaultValue
+    },
+    [config]
+  )
+}
+
+// Utility function to extract repository names from API response data
+function extractRepoNames(data: unknown): string[] {
+  if (!data) return []
+
+  if (Array.isArray(data)) {
+    return data
+      .map((item: any) => (typeof item === "string" ? item : item?.name))
+      .filter(Boolean)
+  }
+
+  if (typeof data === "object") {
+    const obj = data as any
+    const candidates =
+      obj.items ||
+      obj.repositories ||
+      obj.data ||
+      Object.values(obj).find((v: any) => Array.isArray(v))
+
+    if (Array.isArray(candidates)) {
+      return candidates
+        .map((item: any) => (typeof item === "string" ? item : item?.name))
+        .filter(Boolean)
+    }
+  }
+
+  return []
+}
+
+export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages)
+  const getConfigValue = useConfigValue(config)
 
-  // Simple interpolation helper for translations: replaces {key} with values
-  const t = React.useCallback(
-    (key: string, params?: { [key: string]: string | number }) => {
-      let s = translate(key) || key
-      if (params) {
-        for (const [k, v] of Object.entries(params)) {
-          s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v))
-        }
-      }
-      return s
-    },
-    [translate]
-  )
-
-  const [isTesting, setIsTesting] = React.useState(false)
-  const [testMessage, setTestMessage] = React.useState<string | null>(null)
-  const [testType, setTestType] = React.useState<
-    "success" | "warning" | "error" | "info"
-  >("info")
+  // Consolidated test state
+  const [testState, setTestState] = React.useState<TestState>({
+    isTesting: false,
+    message: null,
+    type: "info",
+  })
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
     null
+  )
+
+  // Format message utility
+  const formatMessage = hooks.useEventCallback(
+    (key: string, params?: { [key: string]: string | number }) => {
+      let message = translate(key) || key
+      if (params) {
+        Object.entries(params).forEach(([k, v]) => {
+          message = message.replace(new RegExp(`\\{${k}\\}`, "g"), String(v))
+        })
+      }
+      return message
+    }
   )
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
@@ -46,155 +90,134 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
     })
   }
 
-  const handlePropertyChange = (prop: string, value: string | number) => {
-    onSettingChange({
-      id,
-      config: config.set(prop, value),
-    })
-  }
+  // Validate connection settings
+  const validateConnectionSettings = hooks.useEventCallback(
+    (): ConnectionSettings | null => {
+      const serverUrl = (getConfigValue("fmeServerUrl") as string)?.trim()
+      const token = (getConfigValue("fmeServerToken") as string)?.trim()
+      const repository = (getConfigValue("repository") as string)?.trim()
 
-  // Helper to get config value with fallback to legacy property names (memoized)
-  const getConfigValue = React.useCallback(
-    (
-      modernProp: string,
-      legacyProp?: string,
-      defaultValue: string | number = ""
-    ) => {
-      return (
-        (config?.[modernProp] as unknown) ||
-        (legacyProp ? (config?.[legacyProp] as unknown) : undefined) ||
-        defaultValue
-      )
-    },
-    [config]
+      return serverUrl && token ? { serverUrl, token, repository } : null
+    }
+  )
+
+  // Test server connection
+  const testServerConnection = hooks.useEventCallback(
+    async (client: FmeFlowApiClient) => {
+      const info = await client.testConnection()
+      return info
+    }
+  )
+
+  // Fetch available repositories
+  const fetchRepositories = hooks.useEventCallback(
+    async (client: FmeFlowApiClient): Promise<string[]> => {
+      const reposResp: ApiResponse<Array<{ name: string }>> =
+        await client.getRepositories()
+      return extractRepoNames(reposResp.data)
+    }
+  )
+
+  // Validate selected repository
+  const validateSelectedRepository = hooks.useEventCallback(
+    async (client: FmeFlowApiClient, repository: string): Promise<string> => {
+      if (!repository) return ""
+
+      try {
+        await client.validateRepository(repository)
+        return formatMessage("repositoryValid", { repository })
+      } catch (e) {
+        return formatMessage("repositoryInvalid", { repository })
+      }
+    }
   )
 
   // Centralized Test Connection action (reused by button and auto-run)
-  const runTestConnection = React.useCallback(
-    async (silent = false) => {
-      setAvailableRepos(null)
-      const serverUrl = (
-        getConfigValue("fmeServerUrl", "fme_server_url") as string
-      )?.trim()
-      const token = (
-        (getConfigValue("fmeServerToken", "fme_server_token") as string) ||
-        (getConfigValue("fmeServerToken", "fmw_server_token") as string)
-      )?.trim()
-      const repository = (getConfigValue("repository") as string)?.trim()
+  const runTestConnection = hooks.useEventCallback(async (silent = false) => {
+    setAvailableRepos(null)
+    const settings = validateConnectionSettings()
 
-      if (!serverUrl || !token) {
-        if (!silent) {
-          setTestType("warning")
-          setTestMessage(translate("enterServerAndToken"))
-        }
-        return
-      }
-
-      setIsTesting(true)
+    if (!settings) {
       if (!silent) {
-        setTestMessage(translate("testingConnection"))
-        setTestType("info")
-      }
-
-      try {
-        const client = new FmeFlowApiClient({
-          serverUrl,
-          token,
-          // Placeholder repository to satisfy constructor; not used by testConnection/getRepositories
-          repository: repository || "_",
+        setTestState({
+          isTesting: false,
+          message: translate("enterServerAndToken"),
+          type: "warning",
         })
-
-        // 1) Test server connection (and token)
-        const info = await client.testConnection()
-
-        // 2) Get repositories list
-        const reposResp: ApiResponse<Array<{ name: string }>> =
-          await client.getRepositories()
-        const repos = extractRepoNames(reposResp.data)
-        setAvailableRepos(repos)
-
-        // 3) If repository is provided, validate it
-        let repoMsg = ""
-        if (repository) {
-          try {
-            await client.validateRepository(repository)
-            repoMsg = t("repositoryValid", { repository })
-          } catch (e) {
-            repoMsg = t("repositoryInvalid", { repository })
-          }
-        }
-
-        if (!silent) {
-          setTestType("success")
-          setTestMessage(
-            `${translate("connectionOk")} ` +
-              (info?.data?.version
-                ? t("serverVersion", { version: info.data.version })
-                : "") +
-              (repoMsg ? ` ${repoMsg}` : "")
-          )
-        }
-      } catch (err) {
-        const message =
-          err instanceof FmeFlowApiError
-            ? err.message
-            : (err as Error)?.message || String(err)
-        if (!silent) {
-          setTestType("error")
-          setTestMessage(`${translate("connectionFailed")} ${message}`)
-        }
-      } finally {
-        setIsTesting(false)
       }
-    },
-    [getConfigValue, t, translate]
-  )
+      return
+    }
+
+    setTestState({
+      isTesting: true,
+      message: silent ? null : translate("testingConnection"),
+      type: "info",
+    })
+
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl: settings.serverUrl,
+        token: settings.token,
+        repository: settings.repository || "_",
+      })
+
+      const info = await testServerConnection(client)
+      const repos = await fetchRepositories(client)
+      setAvailableRepos(repos)
+
+      const repoMsg = await validateSelectedRepository(
+        client,
+        settings.repository
+      )
+
+      if (!silent) {
+        const successMessage =
+          `${translate("connectionOk")} ` +
+          (info?.data?.version
+            ? formatMessage("serverVersion", { version: info.data.version })
+            : "") +
+          (repoMsg ? ` ${repoMsg}` : "")
+
+        setTestState({
+          isTesting: false,
+          message: successMessage,
+          type: "success",
+        })
+      } else {
+        setTestState((prev) => ({ ...prev, isTesting: false }))
+      }
+    } catch (err) {
+      const message =
+        err instanceof FmeFlowApiError
+          ? err.message
+          : (err as Error)?.message || String(err)
+
+      if (!silent) {
+        setTestState({
+          isTesting: false,
+          message: `${translate("connectionFailed")} ${message}`,
+          type: "error",
+        })
+      } else {
+        setTestState((prev) => ({ ...prev, isTesting: false }))
+      }
+    }
+  })
+
+  // Check if auto-test should run
+  const shouldAutoTest = hooks.useEventCallback((): boolean => {
+    if (testState.isTesting || availableRepos !== null) return false
+
+    const settings = validateConnectionSettings()
+    return !!(settings?.serverUrl && settings?.token)
+  })
 
   // Auto-run connection test when settings open and URL/token are present
   React.useEffect(() => {
-    // Avoid spamming requests: only auto-run when repos not yet loaded and not currently testing
-    if (isTesting || availableRepos !== null) return
-
-    const serverUrl = (
-      getConfigValue("fmeServerUrl", "fme_server_url") as string
-    )?.trim()
-    const token = (
-      (getConfigValue("fmeServerToken", "fme_server_token") as string) ||
-      (getConfigValue("fmeServerToken", "fmw_server_token") as string)
-    )?.trim()
-
-    if (serverUrl && token) {
-      // run silently to populate repos without extra toast unless errors are desired to show
+    if (shouldAutoTest()) {
       runTestConnection(true)
     }
-  }, [isTesting, availableRepos, getConfigValue, runTestConnection])
-
-  // Safely extract repository names from various possible response shapes
-  const extractRepoNames = (data: unknown): string[] => {
-    if (!data) return []
-    // Case 1: array of { name } or strings
-    if (Array.isArray(data)) {
-      return data
-        .map((item: any) => (typeof item === "string" ? item : item?.name))
-        .filter(Boolean)
-    }
-    // Case 2: object with a known array property
-    if (typeof data === "object") {
-      const obj = data as any
-      const candidates =
-        obj.items ||
-        obj.repositories ||
-        obj.data ||
-        // Fallback: pick the first array-looking property
-        Object.values(obj).find((v: any) => Array.isArray(v))
-      if (Array.isArray(candidates)) {
-        return candidates
-          .map((item: any) => (typeof item === "string" ? item : item?.name))
-          .filter(Boolean)
-      }
-    }
-    return []
-  }
+  }, [shouldAutoTest, runTestConnection])
 
   return (
     <>
@@ -213,12 +236,15 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
           flow="wrap"
           label={translate("fmeServerUrl")}
           level={3}
-          tag="div"
+          tag="label"
         >
           <Input
-            value={getConfigValue("fmeServerUrl", "fme_server_url") as string}
+            value={getConfigValue("fmeServerUrl") as string}
             onChange={(val) => {
-              handlePropertyChange("fmeServerUrl", val)
+              onSettingChange({
+                id,
+                config: (config as any).set("fmeServerUrl", val),
+              })
             }}
             placeholder={translate("serverUrlPlaceholder")}
           />
@@ -229,19 +255,16 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
           flow="wrap"
           label={translate("fmeServerToken")}
           level={3}
-          tag="div"
+          tag="label"
         >
           <Input
             type="password"
-            value={
-              (getConfigValue(
-                "fmeServerToken",
-                "fme_server_token"
-              ) as string) ||
-              (getConfigValue("fmeServerToken", "fmw_server_token") as string)
-            }
+            value={getConfigValue("fmeServerToken") as string}
             onChange={(val) => {
-              handlePropertyChange("fmeServerToken", val)
+              onSettingChange({
+                id,
+                config: (config as any).set("fmeServerToken", val),
+              })
             }}
             placeholder={translate("tokenPlaceholder")}
           />
@@ -250,10 +273,12 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
         {/* Test connection */}
         <SettingRow>
           <Button
-            disabled={isTesting}
+            disabled={testState.isTesting}
             alignText="center"
             text={
-              isTesting ? translate("testing") : translate("testConnection")
+              testState.isTesting
+                ? translate("testing")
+                : translate("testConnection")
             }
             onClick={() => runTestConnection(false)}
           />
@@ -264,7 +289,7 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
           flow="wrap"
           label={translate("availableRepositories")}
           level={3}
-          tag="div"
+          tag="label"
         >
           <Select
             options={(availableRepos || []).map((r) => ({
@@ -273,7 +298,10 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
             }))}
             value={(getConfigValue("repository") as string) || undefined}
             onChange={(val) => {
-              handlePropertyChange("repository", val as string)
+              onSettingChange({
+                id,
+                config: (config as any).set("repository", val as string),
+              })
             }}
             disabled={!availableRepos || availableRepos.length === 0}
             placeholder={
@@ -285,11 +313,11 @@ export default function Setting(props: AllWidgetSettingProps<any>) {
           />
         </SettingRow>
         {/* Connection status */}
-        {testMessage && (
+        {testState.message && (
           <SettingRow>
             <Alert
-              text={testMessage}
-              type={testType}
+              text={testState.message}
+              type={testState.type}
               withIcon
               closable={false}
             />

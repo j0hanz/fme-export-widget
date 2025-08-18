@@ -958,6 +958,25 @@ export interface NotificationState {
   readonly message: string
 }
 
+// Widget Settings & Configuration
+export interface WidgetConfig {
+  fmeServerUrl?: string
+  fmeServerToken?: string
+  repository?: string
+}
+
+export interface ConnectionSettings {
+  serverUrl: string
+  token: string
+  repository: string
+}
+
+export interface TestState {
+  isTesting: boolean
+  message: string | null
+  type: "success" | "warning" | "error" | "info"
+}
+
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
   [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
