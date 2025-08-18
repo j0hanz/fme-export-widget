@@ -710,7 +710,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       role="radiogroup"
       gap="1rem"
       aria-label={ariaLabel}
-      style={style}
+      style={{ ...style, gap: "1rem", display: "flex" }}
       variant="contained"
     >
       {items.map((item) => {

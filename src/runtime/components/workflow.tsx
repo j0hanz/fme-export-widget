@@ -777,6 +777,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           text={workspace.title || workspace.name}
           icon={listIcon}
           role="listitem"
+          alignText="end"
           onClick={() => {
             loadWorkspace(workspace.name)
           }}
