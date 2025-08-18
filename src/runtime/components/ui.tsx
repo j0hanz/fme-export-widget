@@ -59,7 +59,12 @@ export const UI_CSS = (() => {
       flex: 1,
       textAlign: "end",
     } as React.CSSProperties,
-    ICON: { position: "absolute" as const, zIndex: 1 as const },
+    ICON: {
+      position: "absolute" as const,
+      zIndex: 1 as const,
+      top: "50%",
+      transform: "translateY(-50%)",
+    } as React.CSSProperties,
   } as const
   const BTN_DEFAULTS = {
     BLOCK: true,
