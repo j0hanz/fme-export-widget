@@ -70,6 +70,8 @@ export const UI_CSS = (() => {
     ...BTN_LAYOUT,
     DEFAULTS: BTN_DEFAULTS,
     OFFSET: "10px",
+    TEXT_PAD_LEFT: "18px",
+    TEXT_PAD_RIGHT: "18px",
   } as const
   const TIP = {
     DELAY: {
@@ -265,7 +267,18 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {iconPosition === "left" && iconWithPosition}
-      <span style={{ ...UI_CSS.BTN.TEXT, textAlign: alignText }}>{text}</span>
+      <div
+        style={{
+          ...UI_CSS.BTN.TEXT,
+          textAlign: alignText,
+          paddingLeft:
+            iconPosition === "left" ? UI_CSS.BTN.TEXT_PAD_LEFT : undefined,
+          paddingRight:
+            iconPosition === "right" ? UI_CSS.BTN.TEXT_PAD_RIGHT : undefined,
+        }}
+      >
+        {text}
+      </div>
       {iconPosition === "right" && iconWithPosition}
     </>
   )
