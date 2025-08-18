@@ -35,7 +35,7 @@ import {
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
-import resetIcon from "jimu-icons/svg/outlined/gis/clear-selection.svg"
+import resetIcon from "jimu-icons/svg/outlined/editor/clear.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
 import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
 import { createFmeFlowClient } from "../../shared/api"
@@ -835,6 +835,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltipPlacement="bottom"
         onClick={resetEnabled ? onReset : noOp}
         variant="text"
+        text={translate("cancel")}
         disabled={!resetEnabled}
         aria-label={translate("cancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
@@ -850,7 +851,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     // Main content
-
     return (
       <div style={CSS.state.centered}>
         {/* Drawing mode */}
