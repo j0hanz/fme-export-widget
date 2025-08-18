@@ -564,7 +564,7 @@ const ExportForm = React.memo(function ExportForm({
   )
 })
 
-// Main Workflow component - consolidates content and export functionality
+// Main Workflow component
 export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
@@ -777,6 +777,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           text={workspace.title || workspace.name}
           icon={listIcon}
           role="listitem"
+          style={{ textAlign: "right" }}
           onClick={() => {
             loadWorkspace(workspace.name)
           }}
@@ -949,7 +950,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderCurrent = () => {
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
-      // Happy path: show OrderResult if present; fallback handled in switch below.
+      // Guard clause for missing order result
       return (
         <OrderResult
           orderResult={orderResult}
@@ -984,7 +985,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.EXPORT_FORM:
         return renderForm()
       case ViewMode.ORDER_RESULT:
-        // Fallback: ORDER_RESULT view but no result object was provided.
+        // This case is handled above
         return renderError(translate("orderResultMissing"), onBack || noOp)
     }
     // Unexpected state
