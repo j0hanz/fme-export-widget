@@ -987,6 +987,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
         // Fallback: ORDER_RESULT view but no result object was provided.
         return renderError(translate("orderResultMissing"), onBack || noOp)
     }
+    // Unexpected state
+    try {
+      // Log unexpected state to console for debugging
+      console.warn("FME Export - Unexpected view state:", state)
+    } catch {
+      /* no-op */
+    }
+    return renderError(translate("unknownErrorOccurred"), onBack || noOp)
   }
 
   return (

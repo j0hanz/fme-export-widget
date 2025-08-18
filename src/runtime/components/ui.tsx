@@ -362,20 +362,40 @@ export const Message: React.FC<MessageProps> = ({
   open = true,
   role,
   ariaLive,
-}) => (
-  <div role={role} aria-live={ariaLive}>
-    <JimuMessage
-      className={className}
-      style={style}
-      severity={severity}
-      message={message}
-      withIcon={withIcon}
-      autoHideDuration={autoHideDuration}
-      open={open}
-      onClose={onClose}
-    />
-  </div>
-)
+}) => {
+  // Check if JimuMessage is available
+  const hasJimuMessage = typeof (JimuMessage as any) === "function"
+  const isProd =
+    (typeof process !== "undefined" && process?.env?.NODE_ENV) === "production"
+
+  // Fallback rendering if JimuMessage is not available or in production
+  if (!hasJimuMessage || isProd) {
+    return (
+      <div role={role} aria-live={ariaLive} className={className} style={style}>
+        {/* Fallback message rendering */}
+        <div>
+          {withIcon ? "" : null}
+          {String(message)}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div role={role} aria-live={ariaLive}>
+      <JimuMessage
+        className={className}
+        style={style}
+        severity={severity}
+        message={message}
+        withIcon={withIcon}
+        autoHideDuration={autoHideDuration}
+        open={open}
+        onClose={onClose}
+      />
+    </div>
+  )
+}
 
 // Checkbox component
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
