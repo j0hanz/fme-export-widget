@@ -353,6 +353,7 @@ export const enum DrawingTool {
 }
 
 export const enum ViewMode {
+  STARTUP_VALIDATION = "startupValidation",
   INITIAL = "initial",
   DRAWING = "drawing",
   WORKSPACE_SELECTION = "workspaceSelection",
@@ -396,6 +397,9 @@ export enum FmeActionType {
   SET_VIEW_MODE = "FME_SET_VIEW_MODE",
   RESET_STATE = "FME_RESET_STATE",
 
+  // Startup Validation Actions
+  SET_STARTUP_VALIDATION_STATE = "FME_SET_STARTUP_VALIDATION_STATE",
+
   // Drawing & Geometry Actions
   SET_GEOMETRY = "FME_SET_GEOMETRY",
   SET_DRAWING_STATE = "FME_SET_DRAWING_STATE",
@@ -432,6 +436,14 @@ export interface SetViewModeAction
 
 export interface ResetStateAction
   extends BaseAction<FmeActionType.RESET_STATE> {}
+
+// Startup Validation Actions
+export interface SetStartupValidationStateAction
+  extends BaseAction<FmeActionType.SET_STARTUP_VALIDATION_STATE> {
+  isValidating: boolean
+  validationStep?: string
+  validationError?: ErrorState | null
+}
 
 // Drawing & Geometry Actions
 export interface SetGeometryAction
@@ -514,7 +526,10 @@ export interface SetExportErrorAction
 }
 
 // Grouped action union types
-export type FmeViewActions = SetViewModeAction | ResetStateAction
+export type FmeViewActions =
+  | SetViewModeAction
+  | ResetStateAction
+  | SetStartupValidationStateAction
 
 export type FmeDrawingActions =
   | SetGeometryAction
@@ -828,6 +843,9 @@ export interface EsriGeometryJson {
 export interface FmeViewState {
   readonly viewMode: ViewMode
   readonly previousViewMode: ViewMode | null
+  readonly isStartupValidating: boolean
+  readonly startupValidationStep?: string
+  readonly startupValidationError?: ErrorState | null
 }
 
 // Drawing and geometry state
@@ -930,13 +948,21 @@ interface WorkflowWorkspaceFeatures {
   readonly workspaceItem?: WorkspaceItemDetail | null
 }
 
+interface WorkflowStartupValidationFeatures {
+  readonly isStartupValidating?: boolean
+  readonly startupValidationStep?: string
+  readonly startupValidationError?: ErrorState | null
+  readonly onRetryValidation?: () => void
+}
+
 // Main workflow props interface with selective feature composition
 export interface WorkflowProps
   extends WorkflowCoreProps,
     Partial<WorkflowDrawingFeatures>,
     Partial<WorkflowExportFeatures>,
     Partial<WorkflowHeaderFeatures>,
-    Partial<WorkflowWorkspaceFeatures> {}
+    Partial<WorkflowWorkspaceFeatures>,
+    Partial<WorkflowStartupValidationFeatures> {}
 
 // Widget-specific types
 // Inline widget notifications removed with Message; rely on view state/errors.
@@ -965,6 +991,7 @@ export interface TestState {
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
+  [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
   [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
   [ViewMode.WORKSPACE_SELECTION]: ViewMode.INITIAL,
   [ViewMode.EXPORT_OPTIONS]: ViewMode.INITIAL,
