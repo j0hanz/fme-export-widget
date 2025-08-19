@@ -35,7 +35,7 @@ import {
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
-import resetIcon from "jimu-icons/svg/outlined/editor/clear.svg"
+import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
 import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
 import { createFmeFlowClient } from "../../shared/api"
