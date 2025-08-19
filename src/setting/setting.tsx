@@ -1,4 +1,6 @@
-import { React, hooks } from "jimu-core"
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, hooks, jsx, css } from "jimu-core"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
 import {
   MapWidgetSelector,
@@ -12,6 +14,7 @@ import {
   Select,
   Tooltip,
   UI_CSS,
+  UI_CLS,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -298,13 +301,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   }
 
   // Render required label with tooltip
+  const REQUIRED_CLS = css(UI_CSS.TYPOGRAPHY.REQUIRED as any)
   const renderRequiredLabel = hooks.useEventCallback(
     (labelText: string): React.ReactNode => (
       <>
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
           <span
-            style={UI_CSS.TYPOGRAPHY.REQUIRED}
+            css={REQUIRED_CLS}
             aria-label={translate("ariaRequired")}
             role="img"
             aria-hidden={false}
@@ -547,7 +551,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const renderConnectionStatus = (): React.ReactNode => {
     if (testState.isTesting) {
       return (
-        <div style={{ width: "100%" }}>
+        <div css={UI_CLS.CSS.W_FULL}>
           <Loading
             className="w-100"
             type={LoadingType.Bar}
@@ -570,7 +574,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       <Alert
         banner
         fullWidth
-        style={{ backgroundColor: "transparent" }}
+        css={UI_CLS.CSS.BG_TRANSPARENT}
         title={title}
         text={testState.message}
         type={testState.type}
@@ -614,7 +618,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                style={{ padding: "0 0.4rem", opacity: 0.8 }}
+                css={UI_CLS.CSS.ALERT_INLINE}
                 text={translate("errorInvalidServerUrl")}
                 type="error"
                 closable={false}
@@ -646,7 +650,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                style={{ padding: "0 0.4rem", opacity: 0.8 }}
+                css={UI_CLS.CSS.ALERT_INLINE}
                 text={translate("errorTokenIsInvalid")}
                 type="error"
                 closable={false}
@@ -703,9 +707,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <Alert
                 banner
                 fullWidth
-                style={{
-                  backgroundColor: "transparent",
-                }}
+                css={UI_CLS.CSS.BG_TRANSPARENT}
                 title={translate("noRepositoriesFound")}
                 text={translate("noRepositoriesFoundHelper")}
                 type="warning"
