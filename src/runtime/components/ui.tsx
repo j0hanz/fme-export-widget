@@ -73,8 +73,8 @@ export const UI_CSS = (() => {
     ...BTN_LAYOUT,
     DEFAULTS: BTN_DEFAULTS,
     OFFSET: "10px",
-    TEXT_PAD_LEFT: "18px",
-    TEXT_PAD_RIGHT: "18px",
+    TEXT_PAD_LEFT: "15px",
+    TEXT_PAD_RIGHT: "15px",
   } as const
   const TIP = {
     DELAY: {
