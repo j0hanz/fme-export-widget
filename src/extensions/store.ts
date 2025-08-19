@@ -30,6 +30,16 @@ const view = {
   setViewMode: (viewMode: ViewMode) =>
     makePayload(FmeActionType.SET_VIEW_MODE, { viewMode }),
   resetState: () => makeSimple(FmeActionType.RESET_STATE),
+  setStartupValidationState: (
+    isValidating: boolean,
+    validationStep?: string,
+    validationError?: ErrorState | null
+  ) =>
+    makePayload(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
+      isValidating,
+      validationStep,
+      validationError,
+    }),
 }
 
 // Drawing actions
@@ -118,8 +128,11 @@ export const fmeActions = {
 
 export const initialFmeState: FmeWidgetState = {
   // View
-  viewMode: ViewMode.INITIAL,
+  viewMode: ViewMode.STARTUP_VALIDATION,
   previousViewMode: null,
+  isStartupValidating: true,
+  startupValidationStep: undefined,
+  startupValidationError: null,
 
   // Drawing
   isDrawing: false,
@@ -233,6 +246,12 @@ const fmeReducer = (
 
     case FmeActionType.RESET_STATE:
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
+
+    case FmeActionType.SET_STARTUP_VALIDATION_STATE:
+      return state
+        .set("isStartupValidating", action.isValidating)
+        .set("startupValidationStep", action.validationStep)
+        .set("startupValidationError", action.validationError)
 
     // Drawing and geometry cases
     case FmeActionType.SET_GEOMETRY:
