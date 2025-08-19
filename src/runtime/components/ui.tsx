@@ -1,4 +1,6 @@
-import { React, hooks } from "jimu-core"
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, hooks, css, jsx } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -37,9 +39,9 @@ import type {
 export const UI_CSS = (() => {
   const ICON = {
     SIZE: {
-      S: 15,
-      M: 16,
-      L: 17,
+      S: 16,
+      M: 18,
+      L: 20,
     },
   } as const
   const BTN_LAYOUT = {
@@ -73,8 +75,8 @@ export const UI_CSS = (() => {
     ...BTN_LAYOUT,
     DEFAULTS: BTN_DEFAULTS,
     OFFSET: "10px",
-    TEXT_PAD_LEFT: "15px",
-    TEXT_PAD_RIGHT: "15px",
+    TEXT_PAD_LEFT: "18px",
+    TEXT_PAD_RIGHT: "18px",
   } as const
   const TIP = {
     DELAY: {
@@ -100,7 +102,26 @@ export const UI_CSS = (() => {
       cursor: "not-allowed" as const,
     },
     LABEL: { display: "block" as const },
-  } as const
+    W_FULL: { width: "100%" as const },
+    ROW: { display: "flex" as const },
+    COL: { display: "flex" as const, flexDirection: "column" as const },
+    GAP_SM: { gap: "0.5rem" },
+    PAD_SM: { padding: "0.5rem" },
+    FLEX1: { flex: 1 },
+    BG_TRANSPARENT: { backgroundColor: "transparent" },
+    ALERT_INLINE: { padding: "0 0.4rem", opacity: 0.8 },
+    HEADER_ROW_MIN: {
+      display: "flex" as const,
+      justifyContent: "space-between" as const,
+      alignItems: "baseline" as const,
+      gap: "0.5rem",
+    },
+    ICON_ALIGN: {
+      display: "flex" as const,
+      alignItems: "center" as const,
+      gap: "0.5rem" as const,
+    },
+  }
   const STATE = {
     CENTERED: {
       display: "flex",
@@ -148,6 +169,42 @@ export const UI_CSS = (() => {
     TYPOGRAPHY,
     A11Y,
   } as const
+})()
+
+// Emotion class names that mirror UI_CSS tokens (drop-in CSS-in-JS usage)
+export const UI_CLS = (() => {
+  const CSS = {
+    BTN_REL: css(UI_CSS.CSS.BTN_REL as any),
+    TEXTAREA_RESIZE: css(UI_CSS.CSS.TEXTAREA_RESIZE as any),
+    DISABLED_CURSOR: css(UI_CSS.CSS.DISABLED_CURSOR as any),
+    LABEL: css(UI_CSS.CSS.LABEL as any),
+    W_FULL: css(UI_CSS.CSS.W_FULL as any),
+    ROW: css(UI_CSS.CSS.ROW as any),
+    COL: css(UI_CSS.CSS.COL as any),
+    GAP_SM: css(UI_CSS.CSS.GAP_SM as any),
+    PAD_SM: css(UI_CSS.CSS.PAD_SM as any),
+    FLEX1: css(UI_CSS.CSS.FLEX1 as any),
+    BG_TRANSPARENT: css(UI_CSS.CSS.BG_TRANSPARENT as any),
+    ALERT_INLINE: css(UI_CSS.CSS.ALERT_INLINE as any),
+    HEADER_ROW_MIN: css(UI_CSS.CSS.HEADER_ROW_MIN as any),
+  } as const
+  const STATE = {
+    CENTERED: css(UI_CSS.STATE.CENTERED as any),
+    TEXT: css(UI_CSS.STATE.TEXT as any),
+  } as const
+  const TYPOGRAPHY = {
+    CAPTION: css(UI_CSS.TYPOGRAPHY.CAPTION as any),
+    LABEL: css(UI_CSS.TYPOGRAPHY.LABEL as any),
+    REQUIRED: css(UI_CSS.TYPOGRAPHY.REQUIRED as any),
+    TITLE: css(UI_CSS.TYPOGRAPHY.TITLE as any),
+  } as const
+  const BTN = {
+    DEFAULT: css(UI_CSS.BTN.DEFAULT as any),
+    GROUP: css(UI_CSS.BTN.GROUP as any),
+    TEXT: css(UI_CSS.BTN.TEXT as any),
+    ICON: css(UI_CSS.BTN.ICON as any),
+  } as const
+  return { CSS, STATE, TYPOGRAPHY, BTN } as const
 })()
 
 // Utility Hooks / Helpers
@@ -248,7 +305,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   if (!hasIcon && !hasText) return null
   if (hasIcon && !hasText)
     return typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />
+      <Icon src={icon} size={UI_CSS.ICON.SIZE.M} />
     ) : (
       (icon as React.ReactElement)
     )
@@ -256,7 +313,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
 
   const iconEl =
     typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON.SIZE.S} />
+      <Icon src={icon} size={UI_CSS.ICON.SIZE.M} />
     ) : (
       (icon as React.ReactElement)
     )
@@ -271,14 +328,16 @@ const BtnContent: React.FC<BtnContentProps> = ({
     <>
       {iconPosition === "left" && iconWithPosition}
       <div
-        style={{
-          ...UI_CSS.BTN.TEXT,
-          textAlign: alignText,
-          paddingLeft:
-            iconPosition === "left" ? UI_CSS.BTN.TEXT_PAD_LEFT : undefined,
-          paddingRight:
-            iconPosition === "right" ? UI_CSS.BTN.TEXT_PAD_RIGHT : undefined,
-        }}
+        css={[
+          UI_CLS.BTN.TEXT,
+          css({
+            textAlign: alignText as any,
+            paddingLeft:
+              iconPosition === "left" ? UI_CSS.BTN.TEXT_PAD_LEFT : undefined,
+            paddingRight:
+              iconPosition === "right" ? UI_CSS.BTN.TEXT_PAD_RIGHT : undefined,
+          }),
+        ]}
       >
         {text}
       </div>
@@ -343,7 +402,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
     "aria-describedby": tooltipId,
   })
   const child = isDisabled ? (
-    <span style={UI_CSS.CSS.DISABLED_CURSOR}>{cloned}</span>
+    <span css={UI_CLS.CSS.DISABLED_CURSOR}>{cloned}</span>
   ) : (
     cloned
   )
@@ -417,7 +476,8 @@ export const Input: React.FC<InputProps> = ({
           ? ariaDesc(props.id || "input")
           : undefined
       }
-      style={{ width: "100%", ...(props as any).style }}
+      css={UI_CLS.CSS.W_FULL}
+      style={(props as any).style}
     />
   )
 }
@@ -446,10 +506,8 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      style={{
-        ...UI_CSS.CSS.TEXTAREA_RESIZE,
-        ...props.style,
-      }}
+      css={UI_CLS.CSS.TEXTAREA_RESIZE}
+      style={props.style}
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
@@ -680,7 +738,8 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       role="radiogroup"
       gap="1rem"
       aria-label={ariaLabel}
-      style={{ ...style, gap: "0.5rem", display: "flex" }}
+      css={[UI_CLS.CSS.ROW, UI_CLS.CSS.GAP_SM]}
+      style={style}
       variant="contained"
     >
       {items.map((item) => {
@@ -693,6 +752,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             active={active}
             aria-label={item.label}
             role="radio"
+            size="sm"
             aria-checked={active}
             tooltip={item.tooltip}
             tooltipPlacement="top"
@@ -711,10 +771,10 @@ const renderLoading = (
   state: Extract<ViewState, { kind: "loading" }>,
   ariaDetailsLabel: string
 ) => (
-  <div style={UI_CSS.STATE.CENTERED} role="status" aria-live="polite">
+  <div css={UI_CLS.STATE.CENTERED} role="status" aria-live="polite">
     <Loading type={LoadingType.Donut} width={200} height={200} />
     {(state.message || state.detail) && (
-      <div style={UI_CSS.STATE.TEXT} aria-label={ariaDetailsLabel}>
+      <div css={UI_CLS.STATE.TEXT} aria-label={ariaDetailsLabel}>
         {state.message && <div>{state.message}</div>}
       </div>
     )}
@@ -731,9 +791,9 @@ const renderError = (
   actionsAriaLabel: string
 ) => (
   <div role="alert" aria-live="assertive">
-    <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.message}</div>
+    <div css={UI_CLS.TYPOGRAPHY.TITLE}>{state.message}</div>
     {state.code && (
-      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>
+      <div css={UI_CLS.TYPOGRAPHY.CAPTION}>
         {codeLabel}: {state.code}
       </div>
     )}
@@ -764,9 +824,9 @@ const renderSuccess = (
   actionsAriaLabel: string
 ) => (
   <div role="status" aria-live="polite">
-    {state.title && <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.title}</div>}
+    {state.title && <div css={UI_CLS.TYPOGRAPHY.TITLE}>{state.title}</div>}
     {state.message && (
-      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{state.message}</div>
+      <div css={UI_CLS.TYPOGRAPHY.CAPTION}>{state.message}</div>
     )}
     <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
   </div>
@@ -836,9 +896,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const groupStyle: React.CSSProperties = style
-    ? { ...UI_CSS.BTN.GROUP, ...style }
-    : UI_CSS.BTN.GROUP
+  const groupStyle: React.CSSProperties = style ? { ...style } : undefined
 
   const createButton = (
     buttonConfig: GroupButtonConfig,
@@ -852,11 +910,11 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       key: side,
     }
 
-    return <Button {...config} block={false} style={{ flex: 1 }} />
+    return <Button {...config} block={false} css={UI_CLS.CSS.FLEX1} />
   }
 
   return (
-    <div className={className} style={groupStyle}>
+    <div css={UI_CLS.BTN.GROUP} className={className} style={groupStyle}>
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -883,8 +941,8 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <>
         <div>
-          <div style={UI_CSS.TYPOGRAPHY.TITLE}>{title}</div>
-          <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{subtitle}</div>
+          <div css={UI_CLS.TYPOGRAPHY.TITLE}>{title}</div>
+          <div css={UI_CLS.TYPOGRAPHY.CAPTION}>{subtitle}</div>
         </div>
         {children}
         <ButtonGroup
@@ -920,7 +978,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <FormGroup className={className} style={style}>
         <Label
-          style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
+          css={[UI_CLS.CSS.LABEL, UI_CLS.TYPOGRAPHY.LABEL]}
           check={false}
           for={fieldId}
         >
@@ -928,7 +986,7 @@ export const Form: React.FC<FormProps> = (props) => {
           {required && (
             <Tooltip content={translate("requiredField")} placement="bottom">
               <span
-                style={UI_CSS.TYPOGRAPHY.REQUIRED}
+                css={UI_CLS.TYPOGRAPHY.REQUIRED}
                 aria-label={translate("ariaRequired")}
                 role="img"
                 aria-hidden="false"
@@ -969,7 +1027,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup className={className} style={style}>
       <Label
-        style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
+        css={[UI_CLS.CSS.LABEL, UI_CLS.TYPOGRAPHY.LABEL]}
         check={false}
         for={fieldId}
       >
@@ -977,7 +1035,7 @@ export const Field: React.FC<FieldProps> = ({
         {required && (
           <Tooltip content={translate("requiredField")} placement="bottom">
             <span
-              style={UI_CSS.TYPOGRAPHY.REQUIRED}
+              css={UI_CLS.TYPOGRAPHY.REQUIRED}
               aria-label={translate("ariaRequired")}
               role="img"
               aria-hidden="false"
