@@ -53,7 +53,7 @@ export const UI_CSS = (() => {
       display: "flex",
       flexFlow: "column",
       width: "100%",
-      gap: "0.5rem",
+      gap: "1rem",
     } as React.CSSProperties,
     TEXT: {
       flex: 1,

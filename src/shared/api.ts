@@ -43,12 +43,36 @@ function getErrorInfo(err: unknown): {
 } {
   if (err && typeof err === "object") {
     const anyErr = err as any
+
+    // Try multiple ways to extract status code
+    let status =
+      anyErr.status ||
+      anyErr.httpStatus ||
+      anyErr.httpCode ||
+      anyErr.code ||
+      anyErr.response?.status ||
+      anyErr.details?.httpCode
+
+    // If no direct status property, try to extract from message
+    if (typeof status !== "number" && typeof anyErr.message === "string") {
+      // Match patterns like "Unable to load [URL] status: 401" or "status: 401" or just "401"
+      const statusMatch =
+        anyErr.message.match(/status:\s*(\d{3})/i) ||
+        anyErr.message.match(
+          /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
+        ) ||
+        anyErr.message.match(/\b(\d{3})\b/)
+      if (statusMatch) {
+        status = parseInt(statusMatch[1], 10)
+      }
+    }
+
     return {
       message:
         typeof anyErr.message === "string"
           ? anyErr.message
           : toStr(anyErr.message),
-      status: anyErr.status || anyErr.httpStatus,
+      status: typeof status === "number" ? status : undefined,
       details: anyErr.details,
     }
   }
