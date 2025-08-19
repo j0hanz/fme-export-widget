@@ -215,4 +215,43 @@ describe("Workflow component", () => {
     expect(arg.type).toBe("ws")
     expect(arg.data).toMatchObject({ Title: "Hello" })
   })
+
+  test("startup validation state handling", () => {
+    const onRetryValidation = jest.fn()
+
+    // Loading state during validation
+    const { unmount: unmount1 } = renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.STARTUP_VALIDATION}
+        isStartupValidating={true}
+        startupValidationStep="Validating connection..."
+      />
+    )
+
+    screen.getByText("Validating connection...")
+    unmount1()
+
+    // Error state with retry button
+    const validationError = {
+      message: "Configuration error",
+      severity: "error" as any,
+      type: "ConfigError" as any,
+      timestamp: new Date(),
+    }
+
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.STARTUP_VALIDATION}
+        isStartupValidating={false}
+        startupValidationError={validationError}
+        onRetryValidation={onRetryValidation}
+      />
+    )
+
+    const retryBtn = screen.getByRole("button", { name: /Försök igen/i })
+    fireEvent.click(retryBtn)
+    expect(onRetryValidation).toHaveBeenCalled()
+  })
 })
