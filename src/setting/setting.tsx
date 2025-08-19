@@ -234,22 +234,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
 
-  // Local state for inputs
-  const [serverUrlInput, setServerUrlInput] = React.useState<string>(() =>
-    getStringConfig("fmeServerUrl")
-  )
-  const [tokenInput, setTokenInput] = React.useState<string>(() =>
-    getStringConfig("fmeServerToken")
-  )
-
-  // Sync initial values from config to local state
-  React.useEffect(() => {
-    const url = getStringConfig("fmeServerUrl")
-    const tok = getStringConfig("fmeServerToken")
-    setServerUrlInput((prev) => (prev !== url ? url : prev))
-    setTokenInput((prev) => (prev !== tok ? tok : prev))
-  }, [config, getStringConfig])
-
   // Consolidated test state
   const [testState, setTestState] = React.useState<TestState>({
     isTesting: false,
@@ -616,9 +600,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         >
           <Input
             required
-            value={serverUrlInput}
+            value={getStringConfig("fmeServerUrl")}
             onChange={(val) => {
-              setServerUrlInput(val)
+              updateConfig("fmeServerUrl", val)
               setFieldErrors((prev) => ({ ...prev, serverUrl: undefined }))
             }}
             placeholder={translate("serverUrlPlaceholder")}
@@ -648,9 +632,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Input
             type="password"
             required
-            value={tokenInput}
+            value={getStringConfig("fmeServerToken")}
             onChange={(val) => {
-              setTokenInput(val)
+              updateConfig("fmeServerToken", val)
               setFieldErrors((prev) => ({ ...prev, token: undefined }))
             }}
             placeholder={translate("tokenPlaceholder")}
@@ -694,7 +678,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
 
         {/* Test connection */}
-        {/* Test connection */}
         <SettingRow flow="wrap" className="w-100">
           <Button
             disabled={testState.isTesting}
@@ -704,13 +687,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 ? translate("testing")
                 : translate("testConnection")
             }
-            onClick={() => {
-              const next = config
-                .set("fmeServerUrl", serverUrlInput)
-                .set("fmeServerToken", tokenInput)
-              onSettingChange({ id, config: next })
-              runTestConnection(false)
-            }}
+            onClick={() => runTestConnection(false)}
           />
         </SettingRow>
         {!testState.isTesting &&
