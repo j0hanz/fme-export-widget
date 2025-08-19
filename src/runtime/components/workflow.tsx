@@ -1,7 +1,8 @@
-import { React, hooks, getAppStore } from "jimu-core"
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, hooks, getAppStore, css, jsx } from "jimu-core"
 import {
   Button,
-  UI_CSS,
   StateView,
   Select,
   TextArea,
@@ -10,13 +11,15 @@ import {
   Input,
   Checkbox,
   ButtonTabs,
+  UI_CLS,
+  Icon,
+  UI_CSS,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import {
   FormFieldType,
   type WorkflowProps,
   type WorkspaceItem,
-  type ViewAction,
   type FormPrimitive,
   type FormValues,
   type SelectValue,
@@ -31,7 +34,6 @@ import {
   ViewMode,
   DrawingTool,
   makeLoadingView,
-  makeErrorView,
   makeEmptyView,
   ErrorType,
 } from "../../shared/types"
@@ -40,6 +42,7 @@ import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
 import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
+import errorIcon from "jimu-icons/svg/outlined/suggested/wrong.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
@@ -47,7 +50,7 @@ import {
   ErrorHandlingService,
 } from "../../shared/services"
 
-// Workflow-specific styles
+// Workflow-specific styles (tokens)
 const CSS = {
   parent: {
     display: "flex",
@@ -55,6 +58,7 @@ const CSS = {
     overflowY: "auto",
     height: "100%",
     position: "relative" as const,
+    padding: "0.4rem",
   } as React.CSSProperties,
   header: {
     display: "flex",
@@ -66,7 +70,6 @@ const CSS = {
     flexDirection: "column",
     justifyContent: "center",
     flex: "1 1 auto",
-    padding: "0.5rem",
   } as React.CSSProperties,
   state: {
     centered: {
@@ -80,6 +83,7 @@ const CSS = {
   typography: {
     caption: {
       fontSize: "0.8125rem",
+      opacity: 0.9,
       margin: "0.5rem 0",
     } as React.CSSProperties,
     title: {
@@ -92,7 +96,30 @@ const CSS = {
       textAlign: "center",
     } as React.CSSProperties,
   },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "1rem",
+    margin: "1rem 0",
+  } as React.CSSProperties,
 }
+
+// Emotion class names mirroring CSS tokens
+const CLS = {
+  parent: css(CSS.parent as any),
+  header: css(CSS.header as any),
+  content: css(CSS.content as any),
+  state: {
+    centered: css(CSS.state.centered as any),
+  },
+  typography: {
+    caption: css(CSS.typography.caption as any),
+    title: css(CSS.typography.title as any),
+    instructionText: css(CSS.typography.instructionText as any),
+  },
+  headerRow: css(CSS.headerRow as any),
+} as const
 
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
 const ERROR_NAMES = {
@@ -273,7 +300,7 @@ const OrderResult = React.memo(function OrderResult({
         ? String(value)
         : JSON.stringify(value)
     rows.push(
-      <div style={CSS.typography.caption} key={label || display}>
+      <div css={CLS.typography.caption} key={label || display}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -303,10 +330,10 @@ const OrderResult = React.memo(function OrderResult({
 
   return (
     <>
-      <div style={CSS.typography.title}>{titleText}</div>
+      <div css={CLS.typography.title}>{titleText}</div>
       {rows}
       {showDownloadLink && (
-        <div style={CSS.typography.caption}>
+        <div css={CLS.typography.caption}>
           <a
             href={orderResult.downloadUrl}
             target="_blank"
@@ -316,7 +343,7 @@ const OrderResult = React.memo(function OrderResult({
           </a>
         </div>
       )}
-      {showMessage && <div style={CSS.typography.caption}>{messageText}</div>}
+      {showMessage && <div css={CLS.typography.caption}>{messageText}</div>}
       <Button
         text={buttonText}
         onClick={buttonHandler}
@@ -597,6 +624,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   selectedWorkspace,
   workspaceParameters,
   workspaceItem,
+  // Startup validation props
+  isStartupValidating,
+  startupValidationStep,
+  startupValidationError,
+  onRetryValidation,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
@@ -613,16 +645,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
-  // Local helper to build action arrays for StateView
-  const getActions = hooks.useEventCallback(
-    (onBack?: () => void, onRetry?: () => void): ViewAction[] => {
-      return [
-        ...(onRetry ? [{ label: translate("retry"), onClick: onRetry }] : []),
-        ...(onBack ? [{ label: translate("back"), onClick: onBack }] : []),
-      ]
-    }
-  )
-
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
@@ -631,10 +653,38 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const renderError = hooks.useEventCallback(
-    (message: string, onBack?: () => void, onRetry?: () => void) => {
-      const actions =
-        onBack || onRetry ? getActions(onBack, onRetry) : undefined
-      return <StateView state={makeErrorView(message, { actions })} />
+    (
+      message: string,
+      onBack?: () => void,
+      onRetry?: () => void,
+      code?: string,
+      supportText?: string
+    ) => {
+      const buttonText = onRetry ? translate("retry") : translate("back")
+      const buttonHandler = onRetry || onBack || noOp
+
+      return (
+        <>
+          <div css={CLS.headerRow}>
+            <div css={UI_CSS.CSS.ICON_ALIGN}>
+              <Icon
+                src={errorIcon}
+                size={UI_CSS.ICON.SIZE.L}
+                ariaLabel={translate("errorTitle")}
+              />
+              <div css={CLS.typography.title}>{translate("errorTitle")}</div>
+            </div>
+            {code ? <div css={CLS.typography.caption}>{code}</div> : null}
+          </div>
+          <div css={CLS.typography.caption}>{supportText || message}</div>
+          <Button
+            text={buttonText}
+            onClick={buttonHandler}
+            logging={{ enabled: true, prefix: "FME-Export" }}
+            tooltipPlacement="bottom"
+          />
+        </>
+      )
     }
   )
 
@@ -795,7 +845,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         text={workspace.title || workspace.name}
         icon={listIcon}
         role="listitem"
-        style={{ textAlign: "right" }}
+        alignText="end"
         onClick={() => {
           loadWorkspace(workspace.name)
         }}
@@ -850,9 +900,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={resetEnabled ? onReset : noOp}
-        variant="text"
         text={translate("cancel")}
         disabled={!resetEnabled}
+        size="sm"
         aria-label={translate("cancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
         block={false}
@@ -868,7 +918,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Main content
     return (
-      <div style={CSS.state.centered}>
+      <div css={CLS.state.centered}>
         {/* Drawing mode */}
         <ButtonTabs
           items={getDrawingModeItems()}
@@ -893,7 +943,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div style={CSS.typography.instructionText}>{instructionText}</div>
+    <div css={CLS.typography.instructionText}>{instructionText}</div>
   )
 
   const renderSelection = () => {
@@ -917,19 +967,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Empty
     if (!workspaces.length) {
+      const actions = [
+        { label: translate("retry"), onClick: fetchWorkspaces },
+        { label: translate("back"), onClick: onBack || noOp },
+      ]
       return (
         <StateView
-          state={makeEmptyView(
-            translate("noWorkspacesFound"),
-            getActions(onBack || noOp, fetchWorkspaces)
-          )}
+          state={makeEmptyView(translate("noWorkspacesFound"), actions)}
         />
       )
     }
 
     // Content
     return (
-      <div style={UI_CSS.BTN.DEFAULT} role="list">
+      <div css={UI_CLS.BTN.DEFAULT} role="list">
         {renderWorkspaceButtons()}
       </div>
     )
@@ -964,6 +1015,33 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderCurrent = () => {
+    // Startup validation
+    if (state === ViewMode.STARTUP_VALIDATION) {
+      // Show validation error if exists
+      if (startupValidationError) {
+        return renderError(
+          startupValidationError.message,
+          undefined,
+          onRetryValidation ||
+            (() => {
+              window.location.reload()
+            }),
+          startupValidationError.code,
+          startupValidationError.userFriendlyMessage ||
+            translate("contactSupport")
+        )
+      }
+
+      // Show loading state during validation
+      const loadingMessage =
+        startupValidationStep || translate("validatingStartup")
+      return (
+        <div css={CLS.state.centered}>
+          <StateView state={makeLoadingView(loadingMessage)} />
+        </div>
+      )
+    }
+
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       // Guard clause for missing order result
@@ -985,9 +1063,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
     // General error
     if (error) {
       if (error.severity !== "info") {
-        return renderError(error.message, undefined, onBack || noOp)
+        return renderError(
+          error.message,
+          undefined,
+          onBack || noOp,
+          error.code,
+          error.userFriendlyMessage
+        )
       }
-      return renderError(error.message)
+      return renderError(
+        error.message,
+        undefined,
+        undefined,
+        error.code,
+        error.userFriendlyMessage
+      )
     }
 
     switch (state) {
@@ -1015,9 +1105,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   return (
-    <div style={CSS.parent}>
-      <div style={CSS.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div style={CSS.content}>{renderCurrent()}</div>
+    <div css={CLS.parent}>
+      <div css={CLS.header}>{showHeaderActions ? renderHeader() : null}</div>
+      <div css={CLS.content}>{renderCurrent()}</div>
     </div>
   )
 }

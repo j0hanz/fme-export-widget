@@ -1,7 +1,10 @@
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
 import {
   React,
   type AllWidgetProps,
   hooks,
+  jsx,
   type ImmutableObject,
 } from "jimu-core"
 import {
@@ -10,7 +13,7 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import { StateView } from "./components/ui"
+import { StateView, Button, UI_CLS } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
@@ -30,6 +33,7 @@ import {
   DrawingTool,
   ViewMode,
   ErrorType,
+  ErrorSeverity,
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../shared/types"
@@ -723,15 +727,20 @@ export function formatArea(area: number): string {
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
-  const { id: widgetId, useMapWidgetIds, dispatch, state: reduxState } = props
+  const {
+    id: widgetId,
+    useMapWidgetIds,
+    dispatch,
+    state: reduxState,
+    config,
+  } = props
   const translateWidget = hooks.useTranslation(defaultMessages)
   const translateComponent = hooks.useTranslation(componentMessages)
   // Translation function
   const translate = hooks.useEventCallback((key: string): string => {
-    const w = translateWidget(key)
-    if (w && w !== key) return w
-    const c = translateComponent(key)
-    return c !== key ? c : key
+    const widgetTranslation = translateWidget(key)
+    if (widgetTranslation !== key) return widgetTranslation
+    return translateComponent(key) || key
   })
 
   // Message component removed; use StateView + error state only
@@ -740,6 +749,8 @@ export default function Widget(
   const localMapState = useMapState()
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
+  // Startup validation controller
+  const startupValidationAbortRef = React.useRef<AbortController | null>(null)
 
   // Destructure local map state
   const {
@@ -759,6 +770,126 @@ export default function Widget(
     setCurrentGeometry,
     cleanupResources,
   } = localMapState
+
+  // Configuration validation helper
+  const validateConfiguration = hooks.useEventCallback(
+    (
+      config: FmeExportConfig | undefined
+    ): { isValid: boolean; error?: ErrorState } => {
+      if (
+        !config?.fmeServerUrl ||
+        !config?.fmeServerToken ||
+        !config?.repository
+      ) {
+        const errorMsg = translate("invalidConfiguration")
+        return {
+          isValid: false,
+          error: errorService.createError(errorMsg, ErrorType.CONFIG, {
+            code: "ConfigMissing",
+            severity: ErrorSeverity.ERROR,
+            userFriendlyMessage: translate("contactSupport"),
+            suggestion: translate("retryValidation"),
+          }),
+        }
+      }
+      return { isValid: true }
+    }
+  )
+
+  // Validation state management helpers
+  const setValidationStep = hooks.useEventCallback((step: string) => {
+    dispatch(fmeActions.setStartupValidationState(true, step))
+  })
+
+  const setValidationSuccess = hooks.useEventCallback(() => {
+    dispatch(fmeActions.setStartupValidationState(false))
+    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
+  })
+
+  const setValidationError = hooks.useEventCallback((error: ErrorState) => {
+    dispatch(fmeActions.setStartupValidationState(false, undefined, error))
+  })
+
+  // Startup validation logic
+  const runStartupValidation = hooks.useEventCallback(async () => {
+    // Reset any existing validation state
+    if (startupValidationAbortRef.current) {
+      startupValidationAbortRef.current.abort()
+    }
+    startupValidationAbortRef.current = new AbortController()
+    const signal = startupValidationAbortRef.current.signal
+
+    setValidationStep(translate("validatingConfiguration"))
+
+    try {
+      // Check if configuration exists and is valid
+      const configValidation = validateConfiguration(config)
+      if (!configValidation.isValid && configValidation.error) {
+        dispatchError(
+          dispatch,
+          configValidation.error.message,
+          ErrorType.CONFIG,
+          configValidation.error.code
+        )
+        setValidationError(configValidation.error)
+        return
+      }
+
+      // Update validation step
+      setValidationStep(translate("validatingConnection"))
+
+      // Test FME server connection
+      const client = createFmeFlowClient(config)
+      await client.testConnection(signal)
+
+      if (signal.aborted) return
+
+      // Update validation step
+      setValidationStep(translate("validatingAuthentication"))
+
+      // Test repository access (validates token)
+      await client.validateRepository(config.repository, signal)
+
+      if (signal.aborted) return
+
+      // Validation successful - transition to normal operation
+      setValidationSuccess()
+    } catch (err: unknown) {
+      // Swallow aborts
+      if ((err as Error)?.name === "AbortError") return
+
+      console.error("FME Export - Startup validation failed:", err)
+
+      const { code, message } = errorService.deriveStartupError(err, translate)
+
+      const validationError = errorService.createError(
+        message,
+        ErrorType.CONFIG,
+        {
+          code,
+          severity: ErrorSeverity.ERROR,
+          userFriendlyMessage: translate("contactSupport"),
+          suggestion: translate("retryValidation"),
+          retry: () => runStartupValidation(),
+        }
+      )
+
+      setValidationError(validationError)
+    }
+  })
+
+  // Run startup validation when widget first loads
+  hooks.useEffectOnce(() => {
+    runStartupValidation()
+
+    return () => {
+      // Cleanup validation on unmount
+      if (startupValidationAbortRef.current) {
+        startupValidationAbortRef.current.abort()
+        startupValidationAbortRef.current = null
+      }
+    }
+  })
 
   // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
@@ -1019,10 +1150,41 @@ export default function Widget(
   const handleReset = hooks.useEventCallback(() => {
     resetGraphicsAndMeasurements()
 
+    // Abort any ongoing submission
+    abortIfPresent(submissionAbortRef)
+    if (startupValidationAbortRef.current) {
+      try {
+        startupValidationAbortRef.current.abort()
+      } catch {
+        /* noop */
+      }
+      startupValidationAbortRef.current = null
+    }
+
+    // Stop and cleanup local map resources
     if (sketchViewModel) sketchViewModel.cancel()
     cleanupResources()
 
-    dispatch(fmeActions.resetState())
+    // Reset Redux state
+    dispatch(fmeActions.setGeometry(null, 0))
+    dispatch(fmeActions.setDrawingState(false, 0, reduxState.drawingTool))
+    dispatch(fmeActions.setClickCount(0))
+    dispatch(fmeActions.setError(null))
+    dispatch(fmeActions.setImportError(null))
+    dispatch(fmeActions.setExportError(null))
+    dispatch(fmeActions.setOrderResult(null))
+    dispatch(fmeActions.setSelectedWorkspace(null))
+    // Reset workspace parameters and item
+    dispatch(fmeActions.setFormValues({}))
+    // Reset workspace parameters
+    dispatch(
+      fmeActions.setLoadingFlags({
+        isModulesLoading: false,
+        isSubmittingOrder: false,
+      } as any)
+    )
+    // Reset view mode to initial
+    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
   })
 
   // Workspace handlers
@@ -1068,28 +1230,34 @@ export default function Widget(
 
   // Error state
   if (reduxState.error && reduxState.error.severity === "error") {
+    // Match startup error layout: header with code on the right, support text, and a single action
+    const e = reduxState.error
+    const titleCls = UI_CLS.TYPOGRAPHY.TITLE
+    const captionCls = UI_CLS.TYPOGRAPHY.CAPTION
+    const headerRowCls = UI_CLS.CSS.HEADER_ROW_MIN
+    const supportText = e.userFriendlyMessage || translate("contactSupport")
+    const messageText = translate(e.message) || e.message
+    // Always present a Retry action; if no explicit retry is provided, clear the error
+    const buttonText = translate("retry")
+    const onAction = () => {
+      if (e.retry) e.retry()
+      else dispatch(fmeActions.setError(null))
+    }
+
     return (
-      <StateView
-        state={{
-          kind: "error",
-          message:
-            translate(reduxState.error.message) || reduxState.error.message,
-          code: reduxState.error.code,
-          actions: [
-            {
-              label: translate("retry"),
-              onClick: () => {
-                if (reduxState.error?.retry) {
-                  reduxState.error.retry()
-                } else {
-                  dispatch(fmeActions.setError(null))
-                }
-              },
-              variant: "primary",
-            },
-          ],
-        }}
-      />
+      <div css={[UI_CLS.CSS.COL, UI_CLS.CSS.GAP_SM, UI_CLS.CSS.PAD_SM]}>
+        <div css={headerRowCls}>
+          <div css={titleCls}>{translate("errorTitle")}</div>
+          {e.code ? <div css={titleCls}>{e.code}</div> : null}
+        </div>
+        <div css={captionCls}>{supportText || messageText}</div>
+        <Button
+          text={buttonText}
+          onClick={onAction}
+          logging={{ enabled: true, prefix: "FME-Export" }}
+          tooltipPlacement="bottom"
+        />
+      </div>
     )
   }
 
@@ -1139,7 +1307,10 @@ export default function Widget(
           dispatch(fmeActions.setDrawingTool(tool))
         }
         // Header props
-        showHeaderActions={showHeaderActions}
+        showHeaderActions={
+          reduxState.viewMode !== ViewMode.STARTUP_VALIDATION &&
+          showHeaderActions
+        }
         onReset={handleReset}
         canReset={true}
         onWorkspaceSelected={handleWorkspaceSelected}
@@ -1147,6 +1318,11 @@ export default function Widget(
         selectedWorkspace={reduxState.selectedWorkspace}
         workspaceParameters={reduxState.workspaceParameters}
         workspaceItem={reduxState.workspaceItem}
+        // Startup validation props
+        isStartupValidating={reduxState.isStartupValidating}
+        startupValidationStep={reduxState.startupValidationStep}
+        startupValidationError={reduxState.startupValidationError}
+        onRetryValidation={runStartupValidation}
       />
       {/* Message component removed */}
     </>
