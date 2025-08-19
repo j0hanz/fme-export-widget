@@ -2,7 +2,6 @@ import { React, hooks } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
-  Message as JimuMessage,
   Button as JimuButton,
   AdvancedButtonGroup,
   Select as JimuSelect,
@@ -32,7 +31,6 @@ import type {
   ViewAction,
   BtnContentProps,
   IconProps,
-  MessageProps,
 } from "../../shared/types"
 
 // UI style constants
@@ -365,53 +363,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
     >
       {child}
     </JimuTooltip>
-  )
-}
-
-// Message component
-export const Message: React.FC<MessageProps> = ({
-  message,
-  severity = "info",
-  autoHideDuration = null,
-  withIcon = false,
-  className,
-  style,
-  onClose,
-  open = true,
-  role,
-  ariaLive,
-}) => {
-  // Check if JimuMessage is available
-  const hasJimuMessage = typeof (JimuMessage as any) === "function"
-  const isProd =
-    (typeof process !== "undefined" && process?.env?.NODE_ENV) === "production"
-
-  // Fallback rendering if JimuMessage is not available or in production
-  if (!hasJimuMessage || isProd) {
-    return (
-      <div role={role} aria-live={ariaLive} className={className} style={style}>
-        {/* Fallback message rendering */}
-        <div>
-          {withIcon ? "" : null}
-          {String(message)}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div role={role} aria-live={ariaLive}>
-      <JimuMessage
-        className={className}
-        style={style}
-        severity={severity}
-        message={message}
-        withIcon={withIcon}
-        autoHideDuration={autoHideDuration}
-        open={open}
-        onClose={onClose}
-      />
-    </div>
   )
 }
 
