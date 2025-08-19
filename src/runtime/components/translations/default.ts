@@ -1,5 +1,5 @@
 export default {
-  // Basic UI elements used in components
+  errorTitle: "Något gick fel",
   back: "Tillbaka",
   submit: "Beställ",
   cancel: "Avbryt",

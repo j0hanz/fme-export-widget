@@ -1,4 +1,23 @@
 export default {
+  // General UI labels
+  errorTitle: "Fel uppstod...",
+  retry: "Försök igen",
+  back: "Tillbaka",
+  cancel: "Avbryt",
+
+  // Startup validation messages
+  validatingStartup: "Validerar konfiguration...",
+  validatingConnection: "Testar anslutning till FME Server...",
+  validatingAuthentication: "Validerar autentisering...",
+  validatingConfiguration: "Kontrollerar konfiguration...",
+  startupValidationFailed: "Fel vid validering av konfiguration",
+  invalidConfiguration: "Widget-konfiguration saknas eller är ogiltig",
+  connectionFailed: "Kunde inte ansluta till FME Server",
+  authenticationFailed:
+    "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
+  contactSupport: "Kontakta support för hjälp med konfigurationen",
+  retryValidation: "Försök igen",
+
   // Loading messages used specifically in widget.tsx
   preparingExportRequest: "Förbereder exportförfrågan...",
   connectingToFmeServer: "Ansluter till FME Server...",
