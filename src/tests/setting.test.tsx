@@ -28,7 +28,18 @@ jest.mock("jimu-ui/advanced/setting-components", () => {
 
 // Mock UI kit used in Setting to simple HTML primitives
 jest.mock("../runtime/components/ui", () => {
+  const UI_CSS = {
+    TYPOGRAPHY: {
+      REQUIRED: { color: "#d93025", marginLeft: 4 },
+    },
+    A11Y: {
+      REQUIRED: "*",
+    },
+  }
+
   return {
+    UI_CSS,
+    Tooltip: ({ children }: any) => <span>{children}</span>,
     Button: ({ text, onClick, disabled }: any) => (
       <button aria-label={text} disabled={disabled} onClick={onClick}>
         {text}
@@ -156,7 +167,7 @@ describe("Setting (builder)", () => {
     const repoConfig = makeConfig({
       repository: "OldRepo",
       fmeServerUrl: "https://server.example",
-      fmeServerToken: "token-123",
+      fmeServerToken: "token-1234567890123456",
     })
     const { unmount: unmount1 } = renderWithProviders(
       <SettingAny
@@ -167,7 +178,13 @@ describe("Setting (builder)", () => {
       />
     )
 
-    // Repositories are auto-loaded via silent test on mount when URL/token exist
+    // Test connection button
+    const allButtons = screen.getAllByRole("button")
+    const testBtn = allButtons.find(
+      (b: HTMLElement) => b.getAttribute("aria-label") !== "MapWidgetSelector"
+    ) as HTMLButtonElement | undefined
+    expect(testBtn).toBeTruthy()
+    if (testBtn) fireEvent.click(testBtn)
 
     // Wait until options are available and select is enabled
     const repoSelect = screen.getByRole("combobox")
@@ -219,8 +236,9 @@ describe("Setting (builder)", () => {
 
     // Present placeholders
     expect(screen.getByPlaceholderText("https://fme.server.com")).toBeTruthy()
-    // Token input is localized and wrapped in a label; query by label text containing 'token'
-    expect(screen.getByLabelText(/token/i)).toBeTruthy()
+    // Password input is localized; select it by its placeholder
+    const passwordInput = document.querySelector('input[type="password"]')
+    expect(passwordInput).toBeTruthy()
 
     // Repository now uses a Select which is disabled until repos are loaded
     const repoSelect = screen.getByRole("combobox")
