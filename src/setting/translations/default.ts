@@ -6,7 +6,7 @@ export default {
   testing: "Testar anslutningen...",
   testingConnection: "Uppdaterar och testar anslutningen...",
   connectionOk: "Anslutningen lyckades.",
-  serverVersion: "FME Server-version {version}",
+  serverVersion: "FME version: {version}",
   connectionFailed: "Anslutningen misslyckades:",
   availableRepositories: "Tillgängliga repositories",
   noRepositoriesFound: "Inga repositories hittades.",
