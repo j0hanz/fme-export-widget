@@ -247,20 +247,6 @@ export interface IconProps {
   readonly style?: React.CSSProperties
 }
 
-// App message props for Message component
-export interface MessageProps {
-  readonly message: string
-  readonly severity?: "info" | "warning" | "error" | "success"
-  readonly autoHideDuration?: number | null
-  readonly withIcon?: boolean
-  readonly className?: string
-  readonly style?: React.CSSProperties
-  readonly onClose?: () => void
-  readonly open?: boolean
-  readonly role?: "alert" | "status"
-  readonly ariaLive?: "assertive" | "polite" | "off"
-}
-
 // Parameter primitives and values used by dynamic forms
 export type ParameterPrimitive =
   | string
@@ -953,9 +939,28 @@ export interface WorkflowProps
     Partial<WorkflowWorkspaceFeatures> {}
 
 // Widget-specific types
-export interface NotificationState {
-  readonly severity: "success" | "error" | "warning" | "info"
-  readonly message: string
+// Inline widget notifications removed with Message; rely on view state/errors.
+
+// Widget Settings & Configuration
+export interface WidgetConfig {
+  fmeServerUrl?: string
+  fmeServerToken?: string
+  repository?: string
+}
+
+// Immutable view of WidgetConfig for Experience Builder settings/components
+export type IMWidgetConfig = ImmutableObject<WidgetConfig>
+
+export interface ConnectionSettings {
+  serverUrl: string
+  token: string
+  repository: string
+}
+
+export interface TestState {
+  isTesting: boolean
+  message: string | null
+  type: "success" | "warning" | "error" | "info"
 }
 
 // Navigation routing table for view transitions

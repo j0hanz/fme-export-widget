@@ -2,16 +2,12 @@
   "name": "fme-export",
   "label": "FME Export",
   "type": "widget",
-  "description": "A widget for exporting data to FME.",
-  "author": "j0hanz",
-  "dependencies": ["jimu-core", "jimu-ui", "jimu-arcgis"],
   "version": "1.18.0",
   "exbVersion": "1.18.0",
+  "author": "j0hanz",
+  "description": "A widget for exporting data to FME.",
   "icon": "jimu-icons/svg/outlined/editor/download.svg",
-  "properties": {
-    "hasSettingPage": true,
-    "hasConfig": true
-  },
+  "dependency": "jimu-arcgis",
   "extensions": [
     {
       "name": "Fme Store",
@@ -20,7 +16,9 @@
     }
   ],
   "defaultSize": {
-    "width": 360,
-    "autoHeight": 420
-  }
+    "width": 375,
+    "height": 400
+  },
+  "translatedLocales": ["sv-SE"],
+  "settingDependency": ["jimu-arcgis"]
 }

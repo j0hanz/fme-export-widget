@@ -10,7 +10,7 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import { StateView, Message } from "./components/ui"
+import { StateView } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import componentMessages from "./components/translations/default"
@@ -20,7 +20,6 @@ import type {
   ExportResult,
   IMStateWithFmeExport,
   FmeWidgetState,
-  NotificationState,
   ErrorState,
   WorkspaceParameter,
   WorkspaceItemDetail,
@@ -735,9 +734,7 @@ export default function Widget(
     return c !== key ? c : key
   })
 
-  // Notification state
-  const [notification, setNotification] =
-    React.useState<NotificationState | null>(null)
+  // Message component removed; use StateView + error state only
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
@@ -840,7 +837,6 @@ export default function Widget(
     // Re-validate area constraints before submission
     const maxCheck = checkMaxArea(reduxState.drawnArea, props.config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
-      setNotification({ severity: "error", message: maxCheck.message })
       dispatchError(
         dispatch,
         maxCheck.message,
@@ -855,13 +851,6 @@ export default function Widget(
 
   // Handle successful submission
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
-    setNotification({
-      severity: result.success ? "success" : "error",
-      message: result.success
-        ? translate("orderSubmitted") ||
-          `Export order submitted successfully. Job ID: ${result.jobId}`
-        : translate("orderFailed") || `Export failed: ${result.message}`,
-    })
     dispatch(fmeActions.setOrderResult(result))
     dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
   })
@@ -1159,17 +1148,7 @@ export default function Widget(
         workspaceParameters={reduxState.workspaceParameters}
         workspaceItem={reduxState.workspaceItem}
       />
-      {notification && (
-        <Message
-          severity={notification.severity}
-          message={notification.message}
-          autoHideDuration={4000}
-          onClose={() => {
-            setNotification(null)
-          }}
-          withIcon
-        />
-      )}
+      {/* Message component removed */}
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { React } from "jimu-core"
-import { screen, fireEvent } from "@testing-library/react"
+import { screen, fireEvent, waitFor } from "@testing-library/react"
 import { widgetRender } from "jimu-for-test"
 import Setting from "../setting/setting"
 
@@ -26,9 +26,25 @@ jest.mock("jimu-ui/advanced/setting-components", () => {
   }
 })
 
-// Mock Input to a standard HTML input
+// Mock UI kit used in Setting to simple HTML primitives
 jest.mock("../runtime/components/ui", () => {
+  const UI_CSS = {
+    TYPOGRAPHY: {
+      REQUIRED: { color: "#d93025", marginLeft: 4 },
+    },
+    A11Y: {
+      REQUIRED: "*",
+    },
+  }
+
   return {
+    UI_CSS,
+    Tooltip: ({ children }: any) => <span>{children}</span>,
+    Button: ({ text, onClick, disabled }: any) => (
+      <button aria-label={text} disabled={disabled} onClick={onClick}>
+        {text}
+      </button>
+    ),
     Input: ({ value, onChange, placeholder, type }: any) => (
       <input
         aria-label={placeholder || "input"}
@@ -38,7 +54,49 @@ jest.mock("../runtime/components/ui", () => {
         onChange={(e: any) => onChange(e.target.value)}
       />
     ),
+    Field: ({ label, children }: any) => (
+      <label>
+        {label ? <span>{label}</span> : null}
+        {children}
+      </label>
+    ),
+    Select: ({ options = [], value, onChange, disabled, placeholder }: any) => (
+      <select
+        aria-label={placeholder || "select"}
+        disabled={disabled}
+        value={value || ""}
+        onChange={(e: any) => onChange(e.target.value)}
+      >
+        {/* Placeholder option when no value selected */}
+        <option value="" disabled>
+          {placeholder || "Select"}
+        </option>
+        {options.map((opt: any) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    ),
   }
+})
+
+// Mock FME Flow API client used by Setting
+jest.mock("../shared/api", () => {
+  class FmeFlowApiClientMock {
+    testConnection = jest
+      .fn()
+      .mockResolvedValue({ data: { version: "2024.1" } })
+    getRepositories = jest
+      .fn()
+      .mockResolvedValue({ data: [{ name: "RepoA" }, { name: "NewRepo" }] })
+    validateRepository = jest.fn().mockImplementation((repo: string) => {
+      if (["RepoA", "NewRepo", "OldRepo"].includes(repo))
+        return Promise.resolve({ data: { valid: true } })
+      return Promise.reject(new Error("Invalid repository"))
+    })
+  }
+  return { __esModule: true, default: FmeFlowApiClientMock }
 })
 
 describe("Setting (builder)", () => {
@@ -53,11 +111,11 @@ describe("Setting (builder)", () => {
     return { ...initial, set }
   }
 
-  test("legacy property handling and migration for URL and token", () => {
+  test("modern property handling for URL and token", () => {
     const onSettingChange = jest.fn()
 
-    // Legacy fme_server_url handling
-    const urlConfig = makeConfig({ fme_server_url: "https://legacy.example" })
+    // Modern fmeServerUrl handling
+    const urlConfig = makeConfig({ fmeServerUrl: "https://modern.example" })
     const { unmount: unmount1 } = renderWithProviders(
       <SettingAny
         id="w1"
@@ -68,7 +126,7 @@ describe("Setting (builder)", () => {
     )
 
     const urlInput = screen.getByPlaceholderText("https://fme.server.com")
-    expect(screen.getByDisplayValue("https://legacy.example")).toBeTruthy()
+    expect(screen.getByDisplayValue("https://modern.example")).toBeTruthy()
 
     fireEvent.change(urlInput, { target: { value: "https://new.example" } })
     expect(onSettingChange).toHaveBeenCalled()
@@ -79,9 +137,9 @@ describe("Setting (builder)", () => {
 
     unmount1()
 
-    // Legacy fmw_server_token handling
+    // Modern fmeServerToken handling
     onSettingChange.mockClear()
-    const tokenConfig = makeConfig({ fmw_server_token: "legacy-token" })
+    const tokenConfig = makeConfig({ fmeServerToken: "modern-token" })
     renderWithProviders(
       <SettingAny
         id="w1"
@@ -91,8 +149,9 @@ describe("Setting (builder)", () => {
       />
     )
 
-    const tokenInput = screen.getByPlaceholderText("Enter FME Server token")
-    expect(screen.getByDisplayValue("legacy-token")).toBeTruthy()
+    // Token input is localized; select it by its current value instead of placeholder
+    const tokenInput = screen.getByDisplayValue("modern-token")
+    expect(tokenInput).toBeTruthy()
 
     fireEvent.change(tokenInput, { target: { value: "new-token" } })
     const tokenCalls = onSettingChange.mock.calls
@@ -101,11 +160,15 @@ describe("Setting (builder)", () => {
     expect(tokenLast.config?.fmeServerToken).toBe("new-token")
   })
 
-  test("setting field updates for repository and map widget selection", () => {
+  test("setting field updates for repository and map widget selection", async () => {
     const onSettingChange = jest.fn()
 
-    // Repository field updates
-    const repoConfig = makeConfig({ repository: "OldRepo" })
+    // Repository field updates now use a Select fed by Test connection
+    const repoConfig = makeConfig({
+      repository: "OldRepo",
+      fmeServerUrl: "https://server.example",
+      fmeServerToken: "token-1234567890123456",
+    })
     const { unmount: unmount1 } = renderWithProviders(
       <SettingAny
         id="w1"
@@ -115,10 +178,23 @@ describe("Setting (builder)", () => {
       />
     )
 
-    const repoInput = screen.getByPlaceholderText("MyRepository")
-    expect(screen.getByDisplayValue("OldRepo")).toBeTruthy()
+    // Test connection button
+    const allButtons = screen.getAllByRole("button")
+    const testBtn = allButtons.find(
+      (b: HTMLElement) => b.getAttribute("aria-label") !== "MapWidgetSelector"
+    ) as HTMLButtonElement | undefined
+    expect(testBtn).toBeTruthy()
+    if (testBtn) fireEvent.click(testBtn)
 
-    fireEvent.change(repoInput, { target: { value: "NewRepo" } })
+    // Wait until options are available and select is enabled
+    const repoSelect = screen.getByRole("combobox")
+    await waitFor(() => {
+      const opts = screen.getAllByRole("option")
+      expect(opts.length).toBeGreaterThan(1)
+    })
+
+    // Change selection to NewRepo
+    fireEvent.change(repoSelect, { target: { value: "NewRepo" } })
     const repoCalls = onSettingChange.mock.calls
     const repoLast = repoCalls[repoCalls.length - 1]?.[0] || {}
     expect(repoLast.config?.repository).toBe("NewRepo")
@@ -160,7 +236,12 @@ describe("Setting (builder)", () => {
 
     // Present placeholders
     expect(screen.getByPlaceholderText("https://fme.server.com")).toBeTruthy()
-    expect(screen.getByPlaceholderText("Enter FME Server token")).toBeTruthy()
-    expect(screen.getByPlaceholderText("MyRepository")).toBeTruthy()
+    // Password input is localized; select it by its placeholder
+    const passwordInput = document.querySelector('input[type="password"]')
+    expect(passwordInput).toBeTruthy()
+
+    // Repository now uses a Select which is disabled until repos are loaded
+    const repoSelect = screen.getByRole("combobox")
+    expect((repoSelect as any).disabled).toBe(true)
   })
 })

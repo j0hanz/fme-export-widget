@@ -2,7 +2,6 @@ import { React, hooks } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
-  Message as JimuMessage,
   Button as JimuButton,
   AdvancedButtonGroup,
   Select as JimuSelect,
@@ -32,7 +31,6 @@ import type {
   ViewAction,
   BtnContentProps,
   IconProps,
-  MessageProps,
 } from "../../shared/types"
 
 // UI style constants
@@ -53,13 +51,18 @@ export const UI_CSS = (() => {
       display: "flex",
       flexFlow: "column",
       width: "100%",
-      gap: "0.5rem",
+      gap: "1rem",
     } as React.CSSProperties,
     TEXT: {
       flex: 1,
       textAlign: "end",
     } as React.CSSProperties,
-    ICON: { position: "absolute" as const, zIndex: 1 as const },
+    ICON: {
+      position: "absolute" as const,
+      zIndex: 1 as const,
+      top: "50%",
+      transform: "translateY(-50%)",
+    } as React.CSSProperties,
   } as const
   const BTN_DEFAULTS = {
     BLOCK: true,
@@ -70,6 +73,8 @@ export const UI_CSS = (() => {
     ...BTN_LAYOUT,
     DEFAULTS: BTN_DEFAULTS,
     OFFSET: "10px",
+    TEXT_PAD_LEFT: "15px",
+    TEXT_PAD_RIGHT: "15px",
   } as const
   const TIP = {
     DELAY: {
@@ -265,7 +270,18 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {iconPosition === "left" && iconWithPosition}
-      <span style={{ ...UI_CSS.BTN.TEXT, textAlign: alignText }}>{text}</span>
+      <div
+        style={{
+          ...UI_CSS.BTN.TEXT,
+          textAlign: alignText,
+          paddingLeft:
+            iconPosition === "left" ? UI_CSS.BTN.TEXT_PAD_LEFT : undefined,
+          paddingRight:
+            iconPosition === "right" ? UI_CSS.BTN.TEXT_PAD_RIGHT : undefined,
+        }}
+      >
+        {text}
+      </div>
       {iconPosition === "right" && iconWithPosition}
     </>
   )
@@ -350,53 +366,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
   )
 }
 
-// Message component
-export const Message: React.FC<MessageProps> = ({
-  message,
-  severity = "info",
-  autoHideDuration = null,
-  withIcon = false,
-  className,
-  style,
-  onClose,
-  open = true,
-  role,
-  ariaLive,
-}) => {
-  // Check if JimuMessage is available
-  const hasJimuMessage = typeof (JimuMessage as any) === "function"
-  const isProd =
-    (typeof process !== "undefined" && process?.env?.NODE_ENV) === "production"
-
-  // Fallback rendering if JimuMessage is not available or in production
-  if (!hasJimuMessage || isProd) {
-    return (
-      <div role={role} aria-live={ariaLive} className={className} style={style}>
-        {/* Fallback message rendering */}
-        <div>
-          {withIcon ? "" : null}
-          {String(message)}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div role={role} aria-live={ariaLive}>
-      <JimuMessage
-        className={className}
-        style={style}
-        severity={severity}
-        message={message}
-        withIcon={withIcon}
-        autoHideDuration={autoHideDuration}
-        open={open}
-        onClose={onClose}
-      />
-    </div>
-  )
-}
-
 // Checkbox component
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
   props
@@ -448,6 +417,7 @@ export const Input: React.FC<InputProps> = ({
           ? ariaDesc(props.id || "input")
           : undefined
       }
+      style={{ width: "100%", ...(props as any).style }}
     />
   )
 }
