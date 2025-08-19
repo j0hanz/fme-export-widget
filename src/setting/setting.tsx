@@ -16,20 +16,24 @@ import {
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
 import type {
-  ApiResponse,
   WidgetConfig,
+  IMWidgetConfig,
   ConnectionSettings,
   TestState,
 } from "../shared/types"
 import { FmeFlowApiError } from "../shared/types"
 
-// Type guard to recognize FME Flow API errors
 function isFmeFlowApiError(err: unknown): err is FmeFlowApiError {
   return err instanceof FmeFlowApiError
 }
 
-// Central helper to extract HTTP status from various error shapes
-function getHttpStatus(err: unknown): number | undefined {
+function extractErrorCode(err: unknown): string {
+  if (isFmeFlowApiError(err)) return err.code || ""
+  const code = (err as { [key: string]: unknown })?.code
+  return typeof code === "string" ? code : ""
+}
+
+function extractHttpStatusFromError(err: unknown): number | undefined {
   const e = err as { [key: string]: unknown }
   const response = e?.response as { status?: unknown } | undefined
   const candidates: unknown[] = [
@@ -41,21 +45,136 @@ function getHttpStatus(err: unknown): number | undefined {
   const rawStatus = candidates.find((v) => typeof v === "number")
   if (typeof rawStatus === "number") return rawStatus
 
-  // Try to extract status from message string
-  const msg: string = String((e?.message as string) || "")
+  // Fallback: attempt to parse from message text
+  const msg = String((e?.message as string) || "")
   const statusMatch =
     msg.match(/status:\s*(\d{3})/i) ||
     msg.match(
       /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
     ) ||
     msg.match(/\b(\d{3})\b/)
-
   const code = statusMatch ? parseInt(statusMatch[1], 10) : undefined
   return Number.isFinite(code) ? code : undefined
 }
 
+// Validate server URL format and ensure it does not contain /fmeserver or /fmerest
+function validateServerUrl(url: string): string | null {
+  if (!url) return "errorMissingServerUrl"
+
+  try {
+    const u = new URL(url)
+    if (!/^https?:$/i.test(u.protocol)) {
+      return "errorInvalidServerUrl"
+    }
+    if (/\/fmeserver\b|\/fmerest\b/i.test(u.pathname)) {
+      return "errorBadBaseUrl"
+    }
+    return null
+  } catch {
+    return "errorInvalidServerUrl"
+  }
+}
+
+function validateToken(token: string): string | null {
+  if (!token) return "errorMissingToken"
+  if (/\s/.test(token) || token.length < 12) {
+    return "errorTokenIsInvalid"
+  }
+  return null
+}
+
+function validateRepository(
+  repository: string,
+  availableRepos: string[] | null
+): string | null {
+  if (availableRepos && availableRepos.length > 0 && !repository) {
+    return "errorRepoRequired"
+  }
+  return null
+}
+
+const STATUS_ERROR_MAP: { [status: number]: string } = {
+  401: "errorUnauthorized",
+  403: "errorUnauthorized",
+  404: "errorNotFound",
+  400: "errorBadRequest",
+  408: "errorTimeout",
+  504: "errorTimeout",
+  429: "errorTooManyRequests",
+  502: "errorGateway",
+  503: "errorServiceUnavailable",
+  0: "errorNetworkShort",
+}
+
+function isAuthError(status: number): boolean {
+  return status === 401 || status === 403
+}
+
+function isNotFoundError(status: number): boolean {
+  return status === 404
+}
+
+function isServerError(status: number): boolean {
+  return status >= 500 && status < 600
+}
+
+function getStatusErrorMessage(
+  status: number,
+  translate: (key: string, params?: any) => string
+): string {
+  const errorKey = STATUS_ERROR_MAP[status]
+
+  if (errorKey) {
+    if (status === 0) {
+      return translate(errorKey)
+    }
+    if (isAuthError(status)) {
+      return `${translate(errorKey, { status })} ${translate("errorUnauthorizedHelper")}`
+    }
+    if (isNotFoundError(status)) {
+      return `${translate(errorKey, { status })} ${translate("errorNotFoundHelper")}`
+    }
+    return translate(errorKey, { status })
+  }
+
+  if (isServerError(status)) {
+    return translate("errorServer", { status })
+  }
+
+  return translate("errorHttpStatus", { status })
+}
+
+function createFieldErrorsFromStatus(
+  status: number | undefined,
+  translate: (key: string, params?: any) => string
+): Partial<{ serverUrl: string; token: string }> {
+  if (status === undefined) return {}
+
+  const errorHandlers: {
+    [key: number]: () => Partial<{ serverUrl: string; token: string }>
+  } = {
+    401: () => ({ token: translate("errorTokenIsInvalid") }),
+    403: () => ({ token: translate("errorTokenIsInvalid") }),
+    404: () => ({ serverUrl: translate("errorNotFound") }),
+    0: () => ({ serverUrl: translate("errorNetworkShort") }),
+    408: () => ({ serverUrl: translate("errorTimeout", { status }) }),
+    504: () => ({ serverUrl: translate("errorTimeout", { status }) }),
+  }
+
+  const handler = errorHandlers[status]
+  if (handler) return handler()
+
+  if (isServerError(status)) {
+    return { serverUrl: translate("errorServer", { status }) }
+  }
+
+  return typeof status === "number"
+    ? { serverUrl: translate("errorHttpStatus", { status }) }
+    : {}
+}
+
 // String-only config getter to avoid repetitive type assertions
-function useStringConfigValue(config: WidgetConfig) {
+function useStringConfigValue(config: IMWidgetConfig) {
   return React.useCallback(
     (prop: keyof WidgetConfig, defaultValue = ""): string => {
       const v = config?.[prop]
@@ -68,15 +187,15 @@ function useStringConfigValue(config: WidgetConfig) {
 // Small helper to centralize config updates
 function useUpdateConfig(
   id: string,
-  config: WidgetConfig,
-  onSettingChange: AllWidgetSettingProps<WidgetConfig>["onSettingChange"]
+  config: IMWidgetConfig,
+  onSettingChange: AllWidgetSettingProps<IMWidgetConfig>["onSettingChange"]
 ) {
   return React.useCallback(
     <K extends keyof WidgetConfig>(key: K, value: WidgetConfig[K]) => {
       onSettingChange({
         id,
-        // EXB config is Immutable; keep usage pattern but centralize here
-        config: (config as any).set(key, value),
+        // Use a new object to avoid mutating the original config
+        config: config.set(key, value),
       })
     },
     [id, config, onSettingChange]
@@ -111,7 +230,7 @@ function extractRepoNames(data: unknown): string[] {
   return []
 }
 
-export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
+export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages)
   const getStringConfig = useStringConfigValue(config)
@@ -150,75 +269,23 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
 
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
-    const withStatus = (key: string, status?: number) =>
-      status ? formatMessage(key, { status }) : translate(key)
+    const code = extractErrorCode(err)
+    const status = isFmeFlowApiError(err)
+      ? err.status
+      : extractHttpStatusFromError(err)
+    const raw = String((err as any)?.message || "")
 
-    const code: string = isFmeFlowApiError(err)
-      ? err.code || ""
-      : ((): string => {
-          const c = (err as { [key: string]: unknown })?.code
-          return typeof c === "string" ? c : ""
-        })()
-    const status = isFmeFlowApiError(err) ? err.status : getHttpStatus(err)
-    const rawMsg = (err as { [key: string]: unknown })?.message
-    const raw = typeof rawMsg === "string" ? rawMsg : ""
-
-    // FME-specific codes
     if (code === "INVALID_RESPONSE_FORMAT") {
-      return (
-        translate("errorInvalidResponse") +
-        " " +
-        translate("errorInvalidResponseHelper")
-      )
+      return `${translate("errorInvalidResponse")} ${translate("errorInvalidResponseHelper")}`
     }
     if (code === "REPOSITORIES_ERROR") {
-      return (
-        translate("errorRepositories") +
-        " " +
-        translate("errorRepositoriesHelper")
-      )
+      return `${translate("errorRepositories")} ${translate("errorRepositoriesHelper")}`
     }
 
-    // Status-based mapping
-    if (status === 401 || status === 403) {
-      return (
-        withStatus("errorUnauthorized", status) +
-        " " +
-        translate("errorUnauthorizedHelper")
-      )
-    }
-    if (status === 404) {
-      return (
-        withStatus("errorNotFound", status) +
-        " " +
-        translate("errorNotFoundHelper")
-      )
-    }
-    if (status === 400) {
-      return withStatus("errorBadRequest", status)
-    }
-    if (status === 408 || status === 504) {
-      return withStatus("errorTimeout", status)
-    }
-    if (status === 429) {
-      return withStatus("errorTooManyRequests", status)
-    }
-    if (status === 502) {
-      return withStatus("errorGateway", status)
-    }
-    if (status === 503) {
-      return withStatus("errorServiceUnavailable", status)
-    }
-    if (typeof status === "number" && status >= 500 && status < 600) {
-      return withStatus("errorServer", status)
-    }
-    if (status === 0 || raw.toLowerCase().includes("failed to fetch")) {
+    if (typeof status === "number")
+      return getStatusErrorMessage(status, translate)
+    if (raw.toLowerCase().includes("failed to fetch"))
       return translate("errorNetworkShort")
-    }
-    if (typeof status === "number") {
-      return withStatus("errorHttpStatus", status)
-    }
-
     return translate("errorGeneric")
   })
 
@@ -228,6 +295,25 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
       useMapWidgetIds,
     })
   }
+
+  // Render required label with tooltip
+  const renderRequiredLabel = hooks.useEventCallback(
+    (labelText: string): React.ReactNode => (
+      <>
+        {labelText}
+        <Tooltip content={translate("requiredField")} placement="top">
+          <span
+            style={UI_CSS.TYPOGRAPHY.REQUIRED}
+            aria-label={translate("ariaRequired")}
+            role="img"
+            aria-hidden={false}
+          >
+            {UI_CSS.A11Y.REQUIRED}
+          </span>
+        </Tooltip>
+      </>
+    )
+  )
 
   // Utilities: URL validation and sanitization (strip /fmeserver or /fmerest)
   const sanitizeBaseUrl = hooks.useEventCallback(
@@ -263,33 +349,14 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
       repository: string
     }> = {}
 
-    // Server URL validation
-    if (!serverUrl) {
-      messages.serverUrl = translate("errorMissingServerUrl")
-    } else {
-      try {
-        const u = new URL(serverUrl)
-        if (!/^https?:$/i.test(u.protocol)) {
-          messages.serverUrl = translate("errorInvalidServerUrl")
-        } else if (/\/fmeserver\b|\/fmerest\b/i.test(u.pathname)) {
-          messages.serverUrl = translate("errorBadBaseUrl")
-        }
-      } catch {
-        messages.serverUrl = translate("errorInvalidServerUrl")
-      }
-    }
+    // Use validation helpers
+    const serverUrlError = validateServerUrl(serverUrl)
+    const tokenError = validateToken(token)
+    const repositoryError = validateRepository(repository, availableRepos)
 
-    // Token validation
-    if (!token) {
-      messages.token = translate("errorMissingToken")
-    } else if (/\s/.test(token) || token.length < 12) {
-      messages.token = translate("errorTokenIsInvalid")
-    }
-
-    // Repository validation
-    if (availableRepos && availableRepos.length > 0 && !repository) {
-      messages.repository = translate("errorRepoRequired")
-    }
+    if (serverUrlError) messages.serverUrl = translate(serverUrlError)
+    if (tokenError) messages.token = translate(tokenError)
+    if (repositoryError) messages.repository = translate(repositoryError)
 
     // Update local field errors for UI highlighting
     setFieldErrors({
@@ -333,11 +400,18 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
       client: FmeFlowApiClient,
       signal?: AbortSignal
     ): Promise<string[]> => {
-      const reposResp: ApiResponse<Array<{ name: string }>> =
-        await client.getRepositories(signal)
+      const reposResp = await client.getRepositories(signal)
       return extractRepoNames(reposResp.data)
     }
   )
+
+  // Determine if auto-test should run
+  const shouldAutoTest = hooks.useEventCallback((): boolean => {
+    if (testState.isTesting || availableRepos !== null) return false
+
+    const settings = validateConnectionSettings()
+    return !!(settings?.serverUrl && settings?.token)
+  })
 
   // Centralized Test Connection action (reused by button and auto-run)
   const runTestConnection = hooks.useEventCallback(async (silent = false) => {
@@ -347,30 +421,25 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
     }
     abortRef.current = new AbortController()
     const signal = abortRef.current.signal
-    setAvailableRepos(null)
 
-    // Pre-validate fields
-    const validation = validateAllInputs()
+    // Validate inputs and sanitize URL
+    const { hasErrors } = validateAllInputs()
     const settings = validateConnectionSettings()
 
-    if (!settings || validation.hasErrors) {
+    if (!settings || hasErrors) {
       if (!silent) {
-        // Show specific token validation message if that's the primary issue
         const token = getStringConfig("fmeServerToken").trim()
         const message =
           token && token.length < 12
             ? translate("errorTokenIsInvalid")
             : translate("fixErrorsAbove")
-
-        setTestState({
-          isTesting: false,
-          message: message,
-          type: "error",
-        })
+        setTestState({ isTesting: false, message, type: "error" })
       }
       return
     }
 
+    // Reset state for new test
+    setAvailableRepos(null)
     setTestState({
       isTesting: true,
       message: silent ? null : translate("testingConnection"),
@@ -378,11 +447,10 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
     })
 
     try {
-      // When showing the testingConnection status to the user, wait 1 second
+      // Wait a bit to avoid flickering on rapid changes
       if (!silent) {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        // If the action was aborted during the delay, exit early.
-        if (signal?.aborted) return
+        await new Promise((resolve) => setTimeout(resolve, 600))
+        if (signal.aborted) return
       }
 
       const client = new FmeFlowApiClient({
@@ -391,117 +459,69 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
         repository: settings.repository || "_",
       })
 
+      // 1) Test server connection
       const info = await testServerConnection(client, signal)
+
+      // 2) Fetch repositories
       try {
         const repos = await fetchRepositories(client, signal)
         setAvailableRepos(repos)
-        // Clear repo error if selection now valid
-        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-        // Successful connection: clear any lingering warnings
+        setFieldErrors((prev) => ({
+          ...prev,
+          serverUrl: undefined,
+          token: undefined,
+          repository: undefined,
+        }))
+
+        if (!silent) {
+          const successHelper = info?.data?.version
+            ? formatMessage("serverVersion", { version: info.data.version })
+            : translate("connectionOk")
+
+          setTestState({
+            isTesting: false,
+            message: successHelper,
+            type: "success",
+          })
+        } else {
+          setTestState((prev) => ({ ...prev, isTesting: false }))
+        }
       } catch (repoErr) {
-        // Keep the connection result but surface a clear warning about repos
-        setAvailableRepos(null)
-        const alertMessage = processError(repoErr)
+        setAvailableRepos([])
+
         if (!silent) {
           setTestState({
             isTesting: false,
-            message: alertMessage,
+            message: processError(repoErr),
             type: "warning",
           })
         } else {
           setTestState((prev) => ({ ...prev, isTesting: false }))
         }
-        // Highlight repository select as problematic
+
         setFieldErrors((prev) => ({
           ...prev,
           repository: translate("errorRepositories"),
         }))
-        // Repository hint removed since no inline alerts
-        return
-      }
-
-      if (!silent) {
-        // Success: keep helper text separate from title by storing only details (e.g., version)
-        const successHelper = info?.data?.version
-          ? formatMessage("serverVersion", { version: info.data.version })
-          : translate("connectionOk")
-
-        // Clear any field-level errors on success
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: undefined,
-          token: undefined,
-        }))
-
-        setTestState({
-          isTesting: false,
-          message: successHelper,
-          type: "success",
-        })
-      } else {
-        setTestState((prev) => ({ ...prev, isTesting: false }))
       }
     } catch (err) {
-      if ((err as Error)?.name === "AbortError") {
-        // Swallow aborts quietly
-        return
-      }
+      if ((err as Error)?.name === "AbortError") return
 
-      const alertMessage = processError(err)
-
-      // If auth-related, mark token as invalid to highlight field
-      const status = getHttpStatus(err)
-      if (status === 401 || status === 403) {
-        setFieldErrors((prev) => ({
-          ...prev,
-          token: translate("errorTokenIsInvalid"),
-        }))
-      } else if (status === 404) {
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorNotFound"),
-        }))
-      } else if (status === 0) {
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorNetworkShort"),
-        }))
-      } else if (status === 408 || status === 504) {
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorTimeout"),
-        }))
-      } else if (typeof status === "number" && status >= 500 && status < 600) {
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorServer", { status }),
-        }))
-      } else if (typeof status === "number") {
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorHttpStatus", { status }),
-        }))
-      }
+      const status = extractHttpStatusFromError(err)
+      const fieldErrs = createFieldErrorsFromStatus(status, translate)
+      if (Object.keys(fieldErrs).length > 0)
+        setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
 
       if (!silent) {
         setTestState({
           isTesting: false,
-          message: alertMessage,
+          message: processError(err),
           type: "error",
         })
       } else {
         setTestState((prev) => ({ ...prev, isTesting: false }))
       }
-      // Field-specific error feedback removed since no inline alerts
     }
-  })
-
-  // Check if auto-test should run
-  const shouldAutoTest = hooks.useEventCallback((): boolean => {
-    if (testState.isTesting || availableRepos !== null) return false
-
-    const settings = validateConnectionSettings()
-    return !!(settings?.serverUrl && settings?.token)
   })
 
   // Auto-run connection test when settings open and URL/token are present
@@ -517,41 +537,34 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
     }
   }, [shouldAutoTest, runTestConnection])
 
-  // Render helper for the connection status area to keep JSX tidy
+  const getAlertTitle = hooks.useEventCallback(
+    (type: string): string | undefined => {
+      const titleMap: { [key: string]: string } = {
+        success: translate("connectionOk"),
+        error: translate("connectionFailed"),
+        warning: translate("warningTitle"),
+      }
+      return titleMap[type]
+    }
+  )
+
   const renderConnectionStatus = (): React.ReactNode => {
-    if (!testState.message) return null
-
-    const testingText = translate("testingConnection")
-    const isTestingInfo =
-      testState.type === "info" && testState.message === testingText
-
-    if (isTestingInfo) {
+    if (testState.isTesting) {
       return (
         <div style={{ width: "100%" }}>
           <Loading
             className="w-100"
             type={LoadingType.Bar}
-            text={testState.message || undefined}
+            text={translate("testingConnection") || undefined}
           />
         </div>
       )
     }
 
-    let title: string | undefined
+    if (!testState.message) return null
+
+    const title = getAlertTitle(testState.type)
     const text: string | undefined = testState.message || undefined
-    switch (testState.type) {
-      case "success":
-        title = translate("connectionOk")
-        break
-      case "error":
-        title = translate("connectionFailed")
-        break
-      case "warning":
-        title = translate("warningTitle")
-        break
-      default:
-        title = undefined
-    }
 
     return (
       <Alert
@@ -582,21 +595,8 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
         {/* FME Server URL */}
         <SettingRow
           flow="wrap"
-          label={
-            <>
-              {translate("fmeServerUrl")}
-              <Tooltip content={translate("requiredField")} placement="top">
-                <span
-                  style={UI_CSS.TYPOGRAPHY.REQUIRED}
-                  aria-label={translate("ariaRequired")}
-                  role="img"
-                  aria-hidden="false"
-                >
-                  {UI_CSS.A11Y.REQUIRED}
-                </span>
-              </Tooltip>
-            </>
-          }
+          className="w-100"
+          label={renderRequiredLabel(translate("fmeServerUrl"))}
           level={3}
           tag="label"
         >
@@ -605,21 +605,18 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
             value={getStringConfig("fmeServerUrl")}
             onChange={(val) => {
               updateConfig("fmeServerUrl", val)
-              // Live-validate removed since no inline alerts
               setFieldErrors((prev) => ({ ...prev, serverUrl: undefined }))
             }}
             placeholder={translate("serverUrlPlaceholder")}
             errorText={fieldErrors.serverUrl}
           />
           {fieldErrors.serverUrl && (
-            <SettingRow>
+            <SettingRow flow="wrap" className="w-100">
               <Alert
-                banner
                 fullWidth
-                style={{ backgroundColor: "transparent", padding: "0.25rem" }}
+                style={{ padding: "0 0.4rem", opacity: 0.8 }}
                 text={translate("errorInvalidServerUrl")}
                 type="error"
-                withIcon
                 closable={false}
               />
             </SettingRow>
@@ -629,21 +626,8 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
         {/* FME Server Token */}
         <SettingRow
           flow="wrap"
-          label={
-            <>
-              {translate("fmeServerToken")}
-              <Tooltip content={translate("requiredField")} placement="top">
-                <span
-                  style={UI_CSS.TYPOGRAPHY.REQUIRED}
-                  aria-label={translate("ariaRequired")}
-                  role="img"
-                  aria-hidden="false"
-                >
-                  {UI_CSS.A11Y.REQUIRED}
-                </span>
-              </Tooltip>
-            </>
-          }
+          className="w-100"
+          label={renderRequiredLabel(translate("fmeServerToken"))}
           level={3}
           tag="label"
         >
@@ -653,44 +637,28 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
             value={getStringConfig("fmeServerToken")}
             onChange={(val) => {
               updateConfig("fmeServerToken", val)
-              // Live-validate token removed since no inline alerts
               setFieldErrors((prev) => ({ ...prev, token: undefined }))
             }}
             placeholder={translate("tokenPlaceholder")}
             errorText={fieldErrors.token}
           />
           {fieldErrors.token && (
-            <SettingRow>
+            <SettingRow flow="wrap" className="w-100">
               <Alert
-                banner
                 fullWidth
-                style={{ backgroundColor: "transparent", padding: "0.25rem" }}
+                style={{ padding: "0 0.4rem", opacity: 0.8 }}
                 text={translate("errorTokenIsInvalid")}
                 type="error"
-                withIcon
                 closable={false}
               />
             </SettingRow>
           )}
         </SettingRow>
 
-        {/* Test connection */}
-        <SettingRow>
-          <Button
-            disabled={testState.isTesting}
-            alignText="center"
-            text={
-              testState.isTesting
-                ? translate("testing")
-                : translate("testConnection")
-            }
-            onClick={() => runTestConnection(false)}
-          />
-        </SettingRow>
-
         {/* Available repositories (always visible; disabled when empty) */}
         <SettingRow
           flow="wrap"
+          className="w-100"
           label={translate("availableRepositories")}
           level={3}
           tag="label"
@@ -710,11 +678,25 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
             placeholder={"---"}
           />
         </SettingRow>
+
+        {/* Test connection */}
+        <SettingRow flow="wrap" className="w-100">
+          <Button
+            disabled={testState.isTesting}
+            alignText="center"
+            text={
+              testState.isTesting
+                ? translate("testing")
+                : translate("testConnection")
+            }
+            onClick={() => runTestConnection(false)}
+          />
+        </SettingRow>
         {!testState.isTesting &&
           availableRepos !== null &&
           availableRepos.length === 0 &&
           testState.type !== "error" && (
-            <SettingRow>
+            <SettingRow flow="wrap" className="w-100">
               <Alert
                 banner
                 fullWidth
@@ -731,7 +713,9 @@ export default function Setting(props: AllWidgetSettingProps<WidgetConfig>) {
           )}
         {/* Connection status */}
         {testState.message && (
-          <SettingRow>{renderConnectionStatus()}</SettingRow>
+          <SettingRow flow="wrap" className="w-100">
+            {renderConnectionStatus()}
+          </SettingRow>
         )}
       </SettingSection>
     </>
