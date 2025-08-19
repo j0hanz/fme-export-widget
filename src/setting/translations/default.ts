@@ -39,7 +39,10 @@ export default {
   errorBadBaseUrl:
     "Ange en giltig FME server-URL, t.ex. https://fme.server.com.",
   errorMissingToken: "Ange API-nyckeln.",
+  errorRepositoryNotFound: "Valt repository finns inte i listan.",
   tokenIsInvalid: "API-nyckeln är ogiltig.",
   errorRepoRequired: "Välj ett repository.",
   fixErrorsAbove: "Åtgärda felen ovan.",
+  requiredField: "Detta fält är obligatoriskt",
+  ariaRequired: "Obligatoriskt fält",
 }

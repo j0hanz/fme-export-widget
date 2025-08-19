@@ -57,16 +57,17 @@ function extractHttpStatusFromError(err: unknown): number | undefined {
   return Number.isFinite(code) ? code : undefined
 }
 
-// Validate server URL format and ensure it does not contain /fmeserver or /fmerest
-function validateServerUrl(url: string): string | null {
+// Enhanced FME Flow validation rules based on specifications
+function validateFmeServerUrl(url: string): string | null {
   if (!url) return "errorMissingServerUrl"
-
+  const cleanUrl = url.trim()
+  if (!cleanUrl) return "errorMissingServerUrl"
   try {
-    const u = new URL(url)
+    const u = new URL(cleanUrl)
     if (!/^https?:$/i.test(u.protocol)) {
       return "errorInvalidServerUrl"
     }
-    if (/\/fmeserver\b|\/fmerest\b/i.test(u.pathname)) {
+    if (/\/fmerest\b/i.test(u.pathname)) {
       return "errorBadBaseUrl"
     }
     return null
@@ -75,21 +76,30 @@ function validateServerUrl(url: string): string | null {
   }
 }
 
-function validateToken(token: string): string | null {
+function validateFmeToken(token: string): string | null {
   if (!token) return "errorMissingToken"
-  if (/\s/.test(token) || token.length < 12) {
+  if (/\s/.test(token)) {
     return "errorTokenIsInvalid"
   }
+  if (token.length < 10) {
+    return "errorTokenIsInvalid"
+  }
+
   return null
 }
 
-function validateRepository(
+function validateFmeRepository(
   repository: string,
   availableRepos: string[] | null
 ): string | null {
-  if (availableRepos && availableRepos.length > 0 && !repository) {
+  if (availableRepos === null) return null
+  if (availableRepos.length > 0 && !repository) {
     return "errorRepoRequired"
   }
+  if (repository && !availableRepos.includes(repository)) {
+    return "errorRepositoryNotFound"
+  }
+
   return null
 }
 
@@ -249,21 +259,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     token?: string
     repository?: string
   }>({})
+  const [localServerUrl, setLocalServerUrl] = React.useState<string>(
+    () => getStringConfig("fmeServerUrl") || ""
+  )
+  const [localToken, setLocalToken] = React.useState<string>(
+    () => getStringConfig("fmeServerToken") || ""
+  )
   // Track in-flight test for cancellation to avoid stale state updates
   const abortRef = React.useRef<AbortController | null>(null)
-
-  // Format message utility
-  const formatMessage = hooks.useEventCallback(
-    (key: string, params?: { [key: string]: string | number }) => {
-      let message = translate(key) || key
-      if (params) {
-        Object.entries(params).forEach(([k, v]) => {
-          message = message.replace(new RegExp(`\\{${k}\\}`, "g"), String(v))
-        })
-      }
-      return message
-    }
-  )
 
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
@@ -337,9 +340,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Unified input validation
   const validateAllInputs = hooks.useEventCallback(() => {
-    const serverUrl = getStringConfig("fmeServerUrl").trim()
-    const token = getStringConfig("fmeServerToken").trim()
-    const repository = getStringConfig("repository").trim()
+    const serverUrl = getStringConfig("fmeServerUrl")
+    const token = getStringConfig("fmeServerToken")
+    const repository = getStringConfig("repository")
 
     const messages: Partial<{
       serverUrl: string
@@ -347,10 +350,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       repository: string
     }> = {}
 
-    // Use validation helpers
-    const serverUrlError = validateServerUrl(serverUrl)
-    const tokenError = validateToken(token)
-    const repositoryError = validateRepository(repository, availableRepos)
+    // Validate and sanitize inputs
+    const serverUrlError = validateFmeServerUrl(serverUrl)
+    const tokenError = validateFmeToken(token)
+    const repositoryError = validateFmeRepository(repository, availableRepos)
 
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
@@ -362,15 +365,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       token: messages.token,
       repository: messages.repository,
     })
-    return { messages, hasErrors: !!(messages.serverUrl || messages.token) }
+    return {
+      messages,
+      hasErrors: !!(
+        messages.serverUrl ||
+        messages.token ||
+        messages.repository
+      ),
+    }
   })
 
   // Validate connection settings
   const validateConnectionSettings = hooks.useEventCallback(
     (): ConnectionSettings | null => {
-      const rawServerUrl = getStringConfig("fmeServerUrl").trim()
-      const token = getStringConfig("fmeServerToken").trim()
-      const repository = getStringConfig("repository").trim()
+      const rawServerUrl = getStringConfig("fmeServerUrl")
+      const token = getStringConfig("fmeServerToken")
+      const repository = getStringConfig("repository")
 
       const { cleaned, changed } = sanitizeBaseUrl(rawServerUrl || "")
       // If sanitization changed, update config
@@ -384,31 +394,35 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  // Test server connection
-  const testServerConnection = hooks.useEventCallback(
-    async (client: FmeFlowApiClient, signal?: AbortSignal) => {
-      const info = await client.testConnection(signal)
-      return info
-    }
-  )
+  // Check if test connection button should be disabled
+  const isTestConnectionDisabled = (): boolean => {
+    if (testState.isTesting) return true
 
-  // Fetch available repositories
-  const fetchRepositories = hooks.useEventCallback(
-    async (
-      client: FmeFlowApiClient,
-      signal?: AbortSignal
-    ): Promise<string[]> => {
-      const reposResp = await client.getRepositories(signal)
-      return extractRepoNames(reposResp.data)
-    }
-  )
+    const serverUrl = getStringConfig("fmeServerUrl")
+    const token = getStringConfig("fmeServerToken")
+
+    // If no server URL or token, allow test to run
+    if (!serverUrl || !token) return true
+
+    // Validate server URL format
+    const serverUrlError = validateFmeServerUrl(serverUrl)
+    if (serverUrlError) return true
+
+    // Validate token format
+    const tokenError = validateFmeToken(token)
+    if (tokenError) return true
+
+    return false
+  }
 
   // Determine if auto-test should run
   const shouldAutoTest = hooks.useEventCallback((): boolean => {
     if (testState.isTesting || availableRepos !== null) return false
 
     const settings = validateConnectionSettings()
-    return !!(settings?.serverUrl && settings?.token)
+    return (
+      !!(settings?.serverUrl && settings?.token) && !isTestConnectionDisabled()
+    )
   })
 
   // Centralized Test Connection action (reused by button and auto-run)
@@ -426,11 +440,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     if (!settings || hasErrors) {
       if (!silent) {
-        const token = getStringConfig("fmeServerToken").trim()
-        const message =
-          token && token.length < 12
-            ? translate("errorTokenIsInvalid")
-            : translate("fixErrorsAbove")
+        const token = getStringConfig("fmeServerToken")
+        const tokenError = validateFmeToken(token)
+        const message = tokenError
+          ? translate(tokenError)
+          : translate("fixErrorsAbove")
         setTestState({ isTesting: false, message, type: "error" })
       }
       return
@@ -445,12 +459,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
 
     try {
-      // Wait a bit to avoid flickering on rapid changes
-      if (!silent) {
-        await new Promise((resolve) => setTimeout(resolve, 600))
-        if (signal.aborted) return
-      }
-
       const client = new FmeFlowApiClient({
         serverUrl: settings.serverUrl,
         token: settings.token,
@@ -458,11 +466,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       })
 
       // 1) Test server connection
-      const info = await testServerConnection(client, signal)
+      const info = await client.testConnection(signal)
 
       // 2) Fetch repositories
       try {
-        const repos = await fetchRepositories(client, signal)
+        const reposResp = await client.getRepositories(signal)
+        const repos = extractRepoNames(reposResp.data)
         setAvailableRepos(repos)
         setFieldErrors((prev) => ({
           ...prev,
@@ -473,7 +482,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
         if (!silent) {
           const successHelper = info?.data?.version
-            ? formatMessage("serverVersion", { version: info.data.version })
+            ? translate("serverVersion", { version: info.data.version })
             : translate("connectionOk")
 
           setTestState({
@@ -535,17 +544,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [shouldAutoTest, runTestConnection])
 
-  const getAlertTitle = hooks.useEventCallback(
-    (type: string): string | undefined => {
-      const titleMap: { [key: string]: string } = {
-        success: translate("connectionOk"),
-        error: translate("connectionFailed"),
-        warning: translate("warningTitle"),
-      }
-      return titleMap[type]
-    }
-  )
-
   const renderConnectionStatus = (): React.ReactNode => {
     if (testState.isTesting) {
       return (
@@ -561,8 +559,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     if (!testState.message) return null
 
-    const title = getAlertTitle(testState.type)
-    const text: string | undefined = testState.message || undefined
+    const titleMap: { [key: string]: string } = {
+      success: translate("connectionOk"),
+      error: translate("connectionFailed"),
+      warning: translate("warningTitle"),
+    }
+    const title = titleMap[testState.type]
 
     return (
       <Alert
@@ -570,7 +572,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         fullWidth
         style={{ backgroundColor: "transparent" }}
         title={title}
-        text={text}
+        text={testState.message}
         type={testState.type}
         withIcon
         closable={false}
@@ -600,10 +602,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         >
           <Input
             required
-            value={getStringConfig("fmeServerUrl")}
+            value={localServerUrl}
             onChange={(val) => {
+              setLocalServerUrl(val)
               updateConfig("fmeServerUrl", val)
-              setFieldErrors((prev) => ({ ...prev, serverUrl: undefined }))
             }}
             placeholder={translate("serverUrlPlaceholder")}
             errorText={fieldErrors.serverUrl}
@@ -632,10 +634,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Input
             type="password"
             required
-            value={getStringConfig("fmeServerToken")}
+            value={localToken}
             onChange={(val) => {
+              setLocalToken(val)
               updateConfig("fmeServerToken", val)
-              setFieldErrors((prev) => ({ ...prev, token: undefined }))
             }}
             placeholder={translate("tokenPlaceholder")}
             errorText={fieldErrors.token}
@@ -669,8 +671,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             value={getStringConfig("repository") || undefined}
             onChange={(val) => {
               updateConfig("repository", val as string)
-              // Field message clearing removed since no inline alerts
-              setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+              const error = validateFmeRepository(val as string, availableRepos)
+              setFieldErrors((prev) => ({
+                ...prev,
+                repository: error ? translate(error) : undefined,
+              }))
             }}
             disabled={!availableRepos || availableRepos.length === 0}
             placeholder={"---"}
@@ -680,7 +685,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* Test connection */}
         <SettingRow flow="wrap" className="w-100">
           <Button
-            disabled={testState.isTesting}
+            disabled={isTestConnectionDisabled()}
             alignText="center"
             text={
               testState.isTesting
