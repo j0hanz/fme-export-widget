@@ -175,12 +175,11 @@ function createFieldErrorsFromStatus(
 
 // String-only config getter to avoid repetitive type assertions
 function useStringConfigValue(config: IMWidgetConfig) {
-  return React.useCallback(
+  return hooks.useEventCallback(
     (prop: keyof WidgetConfig, defaultValue = ""): string => {
       const v = config?.[prop]
       return typeof v === "string" ? v : defaultValue
-    },
-    [config]
+    }
   )
 }
 
@@ -190,15 +189,14 @@ function useUpdateConfig(
   config: IMWidgetConfig,
   onSettingChange: AllWidgetSettingProps<IMWidgetConfig>["onSettingChange"]
 ) {
-  return React.useCallback(
+  return hooks.useEventCallback(
     <K extends keyof WidgetConfig>(key: K, value: WidgetConfig[K]) => {
       onSettingChange({
         id,
         // Use a new object to avoid mutating the original config
         config: config.set(key, value),
       })
-    },
-    [id, config, onSettingChange]
+    }
   )
 }
 

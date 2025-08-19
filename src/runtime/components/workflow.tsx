@@ -24,6 +24,8 @@ import {
   type ExportFormProps,
   type DynamicFieldProps,
   type DynamicFieldConfig,
+  type ApiResponse,
+  type RepositoryItems,
 } from "../../shared/types"
 import {
   ViewMode,
@@ -440,15 +442,14 @@ const ExportForm = React.memo(function ExportForm({
       : translate("formValidationMultipleErrors")
   )
 
-  // Generate form configuration from parameters
-  const formConfig = React.useMemo(
-    () => parameterService.convertParametersToFields(workspaceParameters),
-    [parameterService, workspaceParameters]
+  // Safer getter for form configuration
+  const getFormConfig = hooks.useEventCallback(() =>
+    parameterService.convertParametersToFields(workspaceParameters)
   )
 
   // Initialize form values from parameter defaults - using useState lazy initialization
   const [values, setValues] = React.useState<FormValues>(() =>
-    initValues(formConfig)
+    initValues(getFormConfig())
   )
   const [isValid, setIsValid] = React.useState(true)
 
@@ -459,17 +460,19 @@ const ExportForm = React.memo(function ExportForm({
 
   // Validate form whenever values change
   hooks.useUpdateEffect(() => {
-    const validation = parameterService.validateFormValues(values, formConfig)
+    const fc = getFormConfig()
+    const validation = parameterService.validateFormValues(values, fc)
     setIsValid(validation.isValid)
-  }, [values, parameterService, formConfig])
+  }, [values, parameterService, workspaceParameters, getFormConfig])
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
   hooks.useUpdateEffect(() => {
-    const nextValues = initValues(formConfig)
+    const fc = getFormConfig()
+    const nextValues = initValues(fc)
     setValues(nextValues)
     setFileMap({})
     syncForm(nextValues)
-  }, [workspaceName, formConfig])
+  }, [workspaceName, workspaceParameters, getFormConfig])
 
   const setField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
@@ -497,7 +500,8 @@ const ExportForm = React.memo(function ExportForm({
   )
 
   const handleSubmit = hooks.useEventCallback(() => {
-    const validation = parameterService.validateFormValues(values, formConfig)
+    const fc = getFormConfig()
+    const validation = parameterService.validateFormValues(values, fc)
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = errorMsg(count)
@@ -550,7 +554,7 @@ const ExportForm = React.memo(function ExportForm({
       isValid={isValid}
       loading={isSubmitting}
     >
-      {formConfig.map((field) => (
+      {getFormConfig().map((field) => (
         <Field key={field.name} label={field.label} required={field.required}>
           <DynamicField
             field={field}
@@ -600,15 +604,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Internal alias for readability (keep original prop name for API stability)
   const handleSpecifyExtent = onAngeUtbredning
 
-  // Memoized drawing mode items to avoid re-creating arrays on each render
-  const drawingModeItems = React.useMemo(
-    () =>
-      DRAWING_MODE_TABS.map((tab) => ({
-        ...tab,
-        label: translate(tab.label),
-        tooltip: translate(tab.tooltip),
-      })),
-    [translate]
+  // Stable getter for drawing mode items using event callback
+  const getDrawingModeItems = hooks.useEventCallback(() =>
+    DRAWING_MODE_TABS.map((tab) => ({
+      ...tab,
+      label: translate(tab.label),
+      tooltip: translate(tab.tooltip),
+    }))
   )
 
   // Local helper to build action arrays for StateView
@@ -636,15 +638,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
-  // FME client
-  const fmeClient = React.useMemo(() => {
+  // FME client - compute on demand via stable getter
+  const getFmeClient = hooks.useEventCallback(() => {
     try {
       return config ? createFmeFlowClient(config) : null
     } catch (e) {
       console.warn("FME Export - invalid FME config; deferring client init", e)
       return null
     }
-  }, [config])
+  })
 
   // Workspace selection state
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
@@ -682,6 +684,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Load workspaces with race condition protection
   const fetchWorkspaces = hooks.useEventCallback(async () => {
+    const fmeClient = getFmeClient()
     if (!fmeClient || !config?.repository) return
 
     // Cancel any existing request
@@ -694,8 +697,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     setWorkspaceError(null)
 
     try {
-      const response = await makeCancelable(
-        fmeClient.getRepositoryItems(config.repository, WORKSPACE_ITEM_TYPE)
+      const response: ApiResponse<RepositoryItems> = await makeCancelable(
+        fmeClient.getRepositoryItems(
+          config.repository,
+          WORKSPACE_ITEM_TYPE,
+          undefined,
+          undefined,
+          loadAbortRef.current.signal
+        )
       )
 
       // Check if request was aborted
@@ -738,12 +747,22 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Select workspace
   const loadWorkspace = hooks.useEventCallback(
     async (workspaceName: string) => {
+      const fmeClient = getFmeClient()
       if (!fmeClient || !config?.repository) return
+      // Cancel any existing request
+      if (loadAbortRef.current) {
+        loadAbortRef.current.abort()
+      }
+      loadAbortRef.current = new AbortController()
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
       try {
-        const response = await makeCancelable(
-          fmeClient.getWorkspaceItem(workspaceName, config.repository)
+        const response: ApiResponse<any> = await makeCancelable(
+          fmeClient.getWorkspaceItem(
+            workspaceName,
+            config.repository,
+            loadAbortRef.current.signal
+          )
         )
         if (response.status === 200 && response.data?.parameters) {
           onWorkspaceSelected?.(
@@ -768,30 +787,27 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
-  // Memoized workspace buttons
-  const workspaceButtons = React.useMemo(
-    () =>
-      workspaces.map((workspace) => (
-        <Button
-          key={workspace.name}
-          text={workspace.title || workspace.name}
-          icon={listIcon}
-          role="listitem"
-          style={{ textAlign: "right" }}
-          onClick={() => {
-            loadWorkspace(workspace.name)
-          }}
-          logging={{
-            enabled: true,
-            prefix: "FME-Export-WorkspaceSelection",
-          }}
-        />
-      )),
-    [workspaces, loadWorkspace]
-  )
+  // Render workspace buttons
+  const renderWorkspaceButtons = () =>
+    workspaces.map((workspace) => (
+      <Button
+        key={workspace.name}
+        text={workspace.title || workspace.name}
+        icon={listIcon}
+        role="listitem"
+        style={{ textAlign: "right" }}
+        onClick={() => {
+          loadWorkspace(workspace.name)
+        }}
+        logging={{
+          enabled: true,
+          prefix: "FME-Export-WorkspaceSelection",
+        }}
+      />
+    ))
 
   // Schedule a workspace load (debounced 300ms) to prevent rapid successive calls
-  const workspaceLoad = React.useCallback(() => {
+  const workspaceLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
     }
@@ -799,7 +815,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       fetchWorkspaces()
       loadTimeoutRef.current = null
     }, 300) // 300ms debounce delay
-  }, [fetchWorkspaces])
+  })
 
   // Lazy load
   hooks.useUpdateEffect(() => {
@@ -855,7 +871,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       <div style={CSS.state.centered}>
         {/* Drawing mode */}
         <ButtonTabs
-          items={drawingModeItems}
+          items={getDrawingModeItems()}
           value={drawingMode}
           onChange={(val) => {
             onDrawingModeChange?.(val as DrawingTool)
@@ -914,7 +930,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     // Content
     return (
       <div style={UI_CSS.BTN.DEFAULT} role="list">
-        {workspaceButtons}
+        {renderWorkspaceButtons()}
       </div>
     )
   }
