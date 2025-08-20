@@ -63,6 +63,7 @@ const CSS = {
   header: {
     display: "flex",
     justifyContent: "end",
+    paddingBottom: "0.5rem",
     flexShrink: 0,
   } as React.CSSProperties,
   content: {
@@ -187,7 +188,10 @@ const isResetEnabled = (
     const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
     return !firstClickPending
   }
-  return hasArea && state !== ViewMode.INITIAL
+  // Hide cancel in INITIAL and ORDER_RESULT views
+  return (
+    hasArea && state !== ViewMode.INITIAL && state !== ViewMode.ORDER_RESULT
+  )
 }
 
 // Determine whether workspace list should display a loading state
@@ -922,6 +926,44 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Header
   const renderHeader = () => {
+    // Early return if header actions are not enabled
+    if (state === ViewMode.ORDER_RESULT) {
+      const isSuccess = Boolean(orderResult?.success)
+      if (isSuccess) return null
+      if (!onReset || !canReset) return null
+      return (
+        <Button
+          icon={resetIcon}
+          tooltip={translate("tooltipCancel")}
+          tooltipPlacement="bottom"
+          onClick={onReset}
+          text={translate("cancel")}
+          size="sm"
+          aria-label={translate("cancel")}
+          logging={{ enabled: true, prefix: "FME-Export-Header" }}
+          block={false}
+        />
+      )
+    }
+
+    // Early return if header actions are not enabled
+    if (error && error.severity !== ("info" as any)) {
+      if (!onReset || !canReset) return null
+      return (
+        <Button
+          icon={resetIcon}
+          tooltip={translate("tooltipCancel")}
+          tooltipPlacement="bottom"
+          onClick={onReset}
+          text={translate("cancel")}
+          size="sm"
+          aria-label={translate("cancel")}
+          logging={{ enabled: true, prefix: "FME-Export-Header" }}
+          block={false}
+        />
+      )
+    }
+
     const resetEnabled = isResetEnabled(
       onReset,
       canReset,

@@ -845,18 +845,10 @@ export default function Widget(
         return
       }
 
-      // Update validation step
-      setValidationStep(translate("validatingConnection"))
-
-      // Test FME server connection
-      const client = createFmeFlowClient(config)
-      await client.testConnection(signal)
-
-      if (signal.aborted) return
-
-      // Update validation step
+      // Configuration is valid - proceed with repository validation
       setValidationStep(translate("validatingAuthentication"))
 
+      const client = createFmeFlowClient(config)
       // Test repository access (validates token)
       await client.validateRepository(config.repository, signal)
 
@@ -1296,10 +1288,16 @@ export default function Widget(
   }
 
   // derive simple view booleans for readability
+  // Show header actions if drawing/has area OR when showing errors or a failed order result
   const showHeaderActions =
-    (reduxState.isDrawing || reduxState.drawnArea > 0) &&
+    !modulesLoading &&
     !reduxState.isSubmittingOrder &&
-    !modulesLoading
+    (reduxState.isDrawing ||
+      reduxState.drawnArea > 0 ||
+      (reduxState.viewMode === ViewMode.ORDER_RESULT &&
+        Boolean(reduxState.orderResult && !reduxState.orderResult.success)) ||
+      (Boolean(reduxState.error) &&
+        reduxState.viewMode !== ViewMode.STARTUP_VALIDATION))
 
   // precompute UI booleans
   const hasSingleMapWidget = Boolean(
