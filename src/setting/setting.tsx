@@ -268,6 +268,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
+  const [localRepository, setLocalRepository] = React.useState<string>(
+    () => getStringConfig("repository") || ""
+  )
   // Track in-flight test for cancellation to avoid stale state updates
   const abortRef = React.useRef<AbortController | null>(null)
 
@@ -548,6 +551,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [shouldAutoTest, runTestConnection])
 
+  // Keep localRepository in sync when config changes externally (e.g., after save/load)
+  React.useEffect(() => {
+    const repo = getStringConfig("repository") || ""
+    if (repo !== localRepository) setLocalRepository(repo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.repository])
+
   const renderConnectionStatus = (): React.ReactNode => {
     if (testState.isTesting) {
       return (
@@ -672,9 +682,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               label: r,
               value: r,
             }))}
-            value={getStringConfig("repository") || undefined}
+            value={localRepository || undefined}
             onChange={(val) => {
-              updateConfig("repository", val as string)
+              const next = String(val ?? "")
+              try {
+                console.debug("[FME Setting] repo onChange", {
+                  prev: localRepository,
+                  next,
+                  availableRepos,
+                })
+              } catch {}
+              setLocalRepository(next)
+              updateConfig("repository", next)
               const error = validateFmeRepository(val as string, availableRepos)
               setFieldErrors((prev) => ({
                 ...prev,

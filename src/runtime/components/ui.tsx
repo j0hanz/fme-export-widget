@@ -7,6 +7,7 @@ import {
   Button as JimuButton,
   AdvancedButtonGroup,
   Select as JimuSelect,
+  Option as JimuOption,
   SVG,
   FormGroup,
   Label,
@@ -537,13 +538,30 @@ export const Select: React.FC<SelectProps> = (props) => {
   const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useValue(controlled, defaultValue)
 
+  const isNativeSelectEvent = (
+    e: unknown
+  ): e is React.ChangeEvent<HTMLSelectElement> => {
+    return (
+      !!e &&
+      typeof e === "object" &&
+      "target" in (e as any) &&
+      !!(e as any).target &&
+      ("value" in (e as any).target || "selectedOptions" in (e as any).target)
+    )
+  }
+
   const handleChange = hooks.useEventCallback(
-    (evt: React.ChangeEvent<HTMLSelectElement>) => {
+    (evt: unknown, selectedValue?: string | number) => {
       if (isMulti) {
+        // Multi-select uses native <select multiple>, rely on event.selectedOptions
+        const target = isNativeSelectEvent(evt)
+          ? (evt.target as HTMLSelectElement)
+          : null
+        if (!target || !target.selectedOptions) return
         const first = Array.isArray(controlled)
           ? (controlled as unknown[])[0]
           : undefined
-        const selected = Array.from(evt.target.selectedOptions).map((o) => {
+        const selected = Array.from(target.selectedOptions).map((o) => {
           const raw = o.value
           if (coerce === "number") return Number(raw)
           if (coerce === "string") return String(raw)
@@ -551,32 +569,28 @@ export const Select: React.FC<SelectProps> = (props) => {
             ? Number(raw)
             : raw
         })
-        handleValueChange(selected as any)
-        onChange?.(selected as any)
+        handleValueChange(selected as unknown as typeof controlled)
+        onChange?.(selected as unknown as typeof controlled)
       } else {
-        const rawValue = evt.target.value
+        // Single-select (JimuSelect) sends (evt, value); fall back to evt.target.value if needed
+        const raw: string | number | undefined =
+          selectedValue !== undefined
+            ? selectedValue
+            : isNativeSelectEvent(evt)
+              ? (evt.target as HTMLSelectElement).value
+              : undefined
+        if (raw === undefined || raw === null) return
         const finalValue = coerce
           ? coerce === "number"
-            ? Number(rawValue)
-            : String(rawValue)
-          : typeof controlled === "number" && !isNaN(Number(rawValue))
-            ? Number(rawValue)
-            : rawValue
-        handleValueChange(finalValue as any)
-        onChange?.(finalValue as any)
+            ? Number(raw)
+            : String(raw)
+          : typeof controlled === "number" && !isNaN(Number(raw as any))
+            ? Number(raw)
+            : (raw as unknown as typeof controlled)
+        handleValueChange(finalValue as unknown as typeof controlled)
+        onChange?.(finalValue as unknown as typeof controlled)
       }
     }
-  )
-
-  const renderOption = (option: OptionItem) => (
-    <option
-      key={String(option.value)}
-      value={String(option.value)}
-      disabled={option.disabled}
-      aria-label={option.label}
-    >
-      {!option.hideLabel && option.label}
-    </option>
   )
 
   const normalizedValue = isMulti
@@ -598,7 +612,16 @@ export const Select: React.FC<SelectProps> = (props) => {
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
     >
-      {options.map(renderOption)}
+      {options.map((opt) => (
+        <option
+          key={String(opt.value)}
+          value={String(opt.value)}
+          disabled={opt.disabled}
+          aria-label={opt.label}
+        >
+          {!opt.hideLabel && opt.label}
+        </option>
+      ))}
     </select>
   ) : (
     <JimuSelect
@@ -608,9 +631,31 @@ export const Select: React.FC<SelectProps> = (props) => {
       placeholder={resolvedPlaceholder}
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
+      zIndex={1005}
       style={style}
     >
-      {options.map(renderOption)}
+      {options.map((option) => (
+        <JimuOption
+          key={String(option.value)}
+          value={option.value}
+          active={String(option.value) === String(normalizedValue)}
+          disabled={option.disabled}
+          onClick={() => {
+            // If the underlying JimuSelect does not propagate onChange reliably,
+            // proactively trigger our handler with the selected value.
+            if (!option.disabled) {
+              const isSame =
+                String(option.value) === String(normalizedValue ?? "")
+              if (!isSame) {
+                // Pass undefined for evt and selected value explicitly.
+                ;(handleChange as any)(undefined, option.value)
+              }
+            }
+          }}
+        >
+          {!option.hideLabel && option.label}
+        </JimuOption>
+      ))}
     </JimuSelect>
   )
 }
