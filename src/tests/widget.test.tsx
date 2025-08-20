@@ -96,6 +96,7 @@ describe("FME Export Widget", () => {
           fmeServerUrl: "http://example.com",
           fmeServerToken: "t",
           repository: "repo",
+          supportEmail: "support@example.com",
         }}
       />
     )
@@ -115,6 +116,44 @@ describe("FME Export Widget", () => {
         (a: any) => a?.type === "FME_SET_ERROR" && a?.error === null
       )
     ).toBe(true)
+  })
+
+  test("shows contact support with email when configured during startup error", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Error state with support email configured
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: true,
+      startupValidationError: {
+        message: "invalidConfiguration",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestamp: new Date(0),
+      },
+    }
+    updateStore({ "fme-state": errorState })
+
+    renderWidget(
+      <Wrapped
+        widgetId="w5"
+        config={{
+          fmeServerUrl: "",
+          fmeServerToken: "",
+          repository: "",
+          supportEmail: "help@domain.se",
+        }}
+      />
+    )
+
+    // Expect an accessible mailto link for the support email
+    const emailLink = await screen.findByRole("link", {
+      name: /Kontakta\s*help@domain.se/i,
+    })
+    expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
+    // And the trailing support phrase should be present in the view
+    expect(screen.getByText(/för hjälp med konfigurationen/i)).toBeTruthy()
   })
 
   test("formatArea produces expected metric strings", () => {

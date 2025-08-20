@@ -45,4 +45,7 @@ export default {
   fixErrorsAbove: "Åtgärda felen ovan.",
   requiredField: "Detta fält är obligatoriskt",
   ariaRequired: "Obligatoriskt fält",
+  supportEmail: "Support-e‑post (valfritt)",
+  supportEmailPlaceholder: "support@exempel.se",
+  errorInvalidEmail: "Ogiltig e‑postadress.",
 }

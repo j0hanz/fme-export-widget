@@ -105,7 +105,7 @@ export class ErrorHandlingService {
         }
       }
       return {
-        code: `HttpError (${status})`,
+        code: `FmeError (${status})`,
         message: translate("startupValidationFailed"),
       }
     }

@@ -16,6 +16,7 @@ import {
   UI_CSS,
 } from "./ui"
 import defaultMessages from "./translations/default"
+import runtimeMessages from "../translations/default"
 import {
   FormFieldType,
   type WorkflowProps,
@@ -639,6 +640,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   onRetryValidation,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const translateRuntime = hooks.useTranslation(runtimeMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Stable getter for drawing mode items using event callback
@@ -681,7 +683,35 @@ export const Workflow: React.FC<WorkflowProps> = ({
             </div>
             {code ? <div css={CLS.typography.caption}>{code}</div> : null}
           </div>
-          <div css={CLS.typography.caption}>{supportText || message}</div>
+          {/* Support message and contact email, with accessible emphasis for the address */}
+          <div css={CLS.typography.caption}>
+            {(() => {
+              const text = supportText || message
+              // If text contains an email, split and emphasize it as a mailto link
+              const emailMatch =
+                text && text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
+              if (emailMatch) {
+                const email = emailMatch[0]
+                const [before, after] = text.split(email)
+                return (
+                  <>
+                    {before}
+                    <a
+                      href={`mailto:${email}`}
+                      css={UI_CLS.TYPOGRAPHY.LINK}
+                      aria-label={translateRuntime(
+                        "contactSupportWithEmail"
+                      ).replace("{email}", email)}
+                    >
+                      {email}
+                    </a>
+                    {after}
+                  </>
+                )
+              }
+              return text
+            })()}
+          </div>
           <Button
             text={buttonText}
             onClick={buttonHandler}
@@ -1017,6 +1047,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (state === ViewMode.STARTUP_VALIDATION) {
       // Show validation error if exists
       if (startupValidationError) {
+        const fallbackSupport = config?.supportEmail
+          ? translateRuntime("contactSupportWithEmail").replace(
+              "{email}",
+              String(config.supportEmail)
+            )
+          : translateRuntime("contactSupport")
         return renderError(
           startupValidationError.message,
           undefined,
@@ -1025,8 +1061,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               window.location.reload()
             }),
           startupValidationError.code,
-          startupValidationError.userFriendlyMessage ||
-            translate("contactSupport")
+          startupValidationError.userFriendlyMessage || fallbackSupport
         )
       }
 

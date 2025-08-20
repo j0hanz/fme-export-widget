@@ -14,7 +14,6 @@ import {
   Select,
   Tooltip,
   UI_CSS,
-  UI_CLS,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -247,6 +246,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
 
+  // Local styles for the setting UI
+  const LOCAL_CSS = {
+    W_FULL: { width: "100%" } as React.CSSProperties,
+    BG_TRANSPARENT: { backgroundColor: "transparent" } as React.CSSProperties,
+    ALERT_INLINE: {
+      padding: "0 0.4rem",
+      opacity: 0.8,
+    } as React.CSSProperties,
+  } as const
+
   // Consolidated test state
   const [testState, setTestState] = React.useState<TestState>({
     isTesting: false,
@@ -261,6 +270,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     serverUrl?: string
     token?: string
     repository?: string
+    supportEmail?: string
   }>({})
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
@@ -270,6 +280,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localRepository, setLocalRepository] = React.useState<string>(
     () => getStringConfig("repository") || ""
+  )
+  const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
+    () => getStringConfig("supportEmail") || ""
   )
   // Track in-flight test for cancellation to avoid stale state updates
   const abortRef = React.useRef<AbortController | null>(null)
@@ -350,34 +363,43 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const serverUrl = getStringConfig("fmeServerUrl")
     const token = getStringConfig("fmeServerToken")
     const repository = getStringConfig("repository")
+    const supportEmail = getStringConfig("supportEmail")
 
     const messages: Partial<{
       serverUrl: string
       token: string
       repository: string
+      supportEmail: string
     }> = {}
 
     // Validate and sanitize inputs
     const serverUrlError = validateFmeServerUrl(serverUrl)
     const tokenError = validateFmeToken(token)
     const repositoryError = validateFmeRepository(repository, availableRepos)
+    const emailError =
+      supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail)
+        ? "errorInvalidEmail"
+        : null
 
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
     if (repositoryError) messages.repository = translate(repositoryError)
+    if (emailError) messages.supportEmail = translate(emailError)
 
     // Update local field errors for UI highlighting
     setFieldErrors({
       serverUrl: messages.serverUrl,
       token: messages.token,
       repository: messages.repository,
+      supportEmail: messages.supportEmail,
     })
     return {
       messages,
       hasErrors: !!(
         messages.serverUrl ||
         messages.token ||
-        messages.repository
+        messages.repository ||
+        messages.supportEmail
       ),
     }
   })
@@ -555,13 +577,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   React.useEffect(() => {
     const repo = getStringConfig("repository") || ""
     if (repo !== localRepository) setLocalRepository(repo)
+    const se = getStringConfig("supportEmail") || ""
+    if (se !== localSupportEmail) setLocalSupportEmail(se)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.repository])
+  }, [config?.repository, config?.supportEmail])
 
   const renderConnectionStatus = (): React.ReactNode => {
     if (testState.isTesting) {
       return (
-        <div css={UI_CLS.CSS.W_FULL}>
+        <div css={css(LOCAL_CSS.W_FULL as any)}>
           <Loading
             className="w-100"
             type={LoadingType.Bar}
@@ -584,7 +608,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       <Alert
         banner
         fullWidth
-        css={UI_CLS.CSS.BG_TRANSPARENT}
+        css={css(LOCAL_CSS.BG_TRANSPARENT as any)}
         title={title}
         text={testState.message}
         type={testState.type}
@@ -628,7 +652,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                css={UI_CLS.CSS.ALERT_INLINE}
+                css={css(LOCAL_CSS.ALERT_INLINE as any)}
                 text={translate("errorInvalidServerUrl")}
                 type="error"
                 closable={false}
@@ -660,7 +684,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                css={UI_CLS.CSS.ALERT_INLINE}
+                css={css(LOCAL_CSS.ALERT_INLINE as any)}
                 text={translate("errorTokenIsInvalid")}
                 type="error"
                 closable={false}
@@ -726,7 +750,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <Alert
                 banner
                 fullWidth
-                css={UI_CLS.CSS.BG_TRANSPARENT}
+                css={css(LOCAL_CSS.BG_TRANSPARENT as any)}
                 title={translate("noRepositoriesFound")}
                 text={translate("noRepositoriesFoundHelper")}
                 type="warning"
@@ -741,6 +765,42 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             {renderConnectionStatus()}
           </SettingRow>
         )}
+
+        {/* Support email (optional) */}
+        <SettingRow
+          flow="wrap"
+          className="w-100"
+          label={translate("supportEmail")}
+          level={3}
+          tag="label"
+        >
+          <Input
+            type="email"
+            value={localSupportEmail}
+            onChange={(val) => {
+              setLocalSupportEmail(val)
+              updateConfig("supportEmail", val)
+              const err =
+                val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)
+                  ? translate("errorInvalidEmail")
+                  : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
+          />
+          {fieldErrors.supportEmail && (
+            <SettingRow flow="wrap" className="w-100">
+              <Alert
+                fullWidth
+                css={css(LOCAL_CSS.ALERT_INLINE as any)}
+                text={translate("errorInvalidEmail")}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
       </SettingSection>
     </>
   )

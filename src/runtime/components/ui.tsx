@@ -157,6 +157,12 @@ export const UI_CSS = (() => {
       fontSize: "1rem",
       fontWeight: 500,
     } as React.CSSProperties,
+    LINK: {
+      fontSize: "0.875rem",
+      fontWeight: 500,
+      textDecoration: "underline",
+      wordBreak: "break-all" as const,
+    } as React.CSSProperties,
   } as const
   const A11Y = {
     REQUIRED: "*",
@@ -198,6 +204,7 @@ export const UI_CLS = (() => {
     LABEL: css(UI_CSS.TYPOGRAPHY.LABEL as any),
     REQUIRED: css(UI_CSS.TYPOGRAPHY.REQUIRED as any),
     TITLE: css(UI_CSS.TYPOGRAPHY.TITLE as any),
+    LINK: css(UI_CSS.TYPOGRAPHY.LINK as any),
   } as const
   const BTN = {
     DEFAULT: css(UI_CSS.BTN.DEFAULT as any),

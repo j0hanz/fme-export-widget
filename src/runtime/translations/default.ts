@@ -16,6 +16,7 @@ export default {
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
   contactSupport: "Kontakta support för hjälp med konfigurationen",
+  contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
   retryValidation: "Försök igen",
 
   // Loading messages used specifically in widget.tsx

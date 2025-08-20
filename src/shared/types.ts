@@ -583,6 +583,7 @@ export interface FmeExportConfig {
   readonly geometryServiceUrl?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
+  readonly supportEmail?: string
   // Legacy support - deprecated
   readonly fme_server_url?: string
   readonly fmw_server_token?: string
@@ -974,6 +975,7 @@ export interface WidgetConfig {
   fmeServerUrl?: string
   fmeServerToken?: string
   repository?: string
+  supportEmail?: string
 }
 
 // Immutable view of WidgetConfig for Experience Builder settings/components

@@ -791,7 +791,12 @@ export default function Widget(
           error: errorService.createError(errorMsg, ErrorType.CONFIG, {
             code: "ConfigMissing",
             severity: ErrorSeverity.ERROR,
-            userFriendlyMessage: translate("contactSupport"),
+            userFriendlyMessage: config?.supportEmail
+              ? translate("contactSupportWithEmail").replace(
+                  "{email}",
+                  config.supportEmail
+                )
+              : translate("contactSupport"),
             suggestion: translate("retryValidation"),
           }),
         }
@@ -873,7 +878,12 @@ export default function Widget(
         {
           code,
           severity: ErrorSeverity.ERROR,
-          userFriendlyMessage: translate("contactSupport"),
+          userFriendlyMessage: props.config?.supportEmail
+            ? translate("contactSupportWithEmail").replace(
+                "{email}",
+                props.config.supportEmail
+              )
+            : translate("contactSupport"),
           suggestion: translate("retryValidation"),
           retry: () => runStartupValidation(),
         }

@@ -243,5 +243,33 @@ describe("Setting (builder)", () => {
     // Repository now uses a Select which is disabled until repos are loaded
     const repoSelect = screen.getByRole("combobox")
     expect((repoSelect as any).disabled).toBe(true)
+
+    // Support email input is optional
+    const emailInput = screen.getByPlaceholderText("support@exempel.se")
+    expect(emailInput).toBeTruthy()
+  })
+
+  test("updates supportEmail in config and validates format", () => {
+    const onSettingChange = jest.fn()
+    const config = makeConfig({ supportEmail: "old@exempel.se" })
+
+    widgetRender(true)(
+      <SettingAny
+        id="w1"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={config as any}
+      />
+    )
+
+    const emailInput = screen.getByDisplayValue("old@exempel.se")
+    fireEvent.change(emailInput, { target: { value: "new@example.com" } })
+
+    const last = onSettingChange.mock.calls.pop()?.[0] || {}
+    expect(last.config?.supportEmail).toBe("new@example.com")
+
+    // Enter invalid email and expect inline error
+    fireEvent.change(emailInput, { target: { value: "not-an-email" } })
+    expect(screen.getByText(/Ogiltig e‑postadress/i)).toBeTruthy()
   })
 })
