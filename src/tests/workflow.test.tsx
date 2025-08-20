@@ -148,6 +148,33 @@ describe("Workflow component", () => {
     expect(initialBtn).toBeNull()
   })
 
+  test("Cancel button is hidden when showing ORDER_RESULT", () => {
+    const onReset = jest.fn()
+    const result: ExportResult = {
+      success: true,
+      jobId: 1,
+      workspaceName: "ws",
+      email: "a@b.c",
+    }
+
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.ORDER_RESULT}
+        orderResult={result}
+        onReset={onReset}
+        canReset={true}
+        showHeaderActions={true}
+        drawnArea={500}
+      />
+    )
+
+    const headerBtn = screen.queryByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+    expect(headerBtn).toBeNull()
+  })
+
   test("EXPORT_FORM submission behavior for valid and invalid scenarios", async () => {
     // Invalid submission does not call onSubmit
     const onFormSubmit = jest.fn()

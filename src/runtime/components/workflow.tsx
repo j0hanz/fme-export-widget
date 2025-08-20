@@ -63,7 +63,6 @@ const CSS = {
   header: {
     display: "flex",
     justifyContent: "end",
-    paddingBottom: "0.5rem",
     flexShrink: 0,
   } as React.CSSProperties,
   content: {
@@ -182,16 +181,15 @@ const isResetEnabled = (
   clickCount?: number
 ): boolean => {
   if (!onReset || !canReset) return false
+  // Explicitly hide Cancel when showing the order result view
+  if (state === ViewMode.ORDER_RESULT) return false
   const hasArea = drawnArea > 0
   if (state === ViewMode.DRAWING) {
     // In DRAWING mode, reset is enabled if:
     const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
     return !firstClickPending
   }
-  // Hide cancel in INITIAL and ORDER_RESULT views
-  return (
-    hasArea && state !== ViewMode.INITIAL && state !== ViewMode.ORDER_RESULT
-  )
+  return hasArea && state !== ViewMode.INITIAL
 }
 
 // Determine whether workspace list should display a loading state
@@ -926,44 +924,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Header
   const renderHeader = () => {
-    // Early return if header actions are not enabled
-    if (state === ViewMode.ORDER_RESULT) {
-      const isSuccess = Boolean(orderResult?.success)
-      if (isSuccess) return null
-      if (!onReset || !canReset) return null
-      return (
-        <Button
-          icon={resetIcon}
-          tooltip={translate("tooltipCancel")}
-          tooltipPlacement="bottom"
-          onClick={onReset}
-          text={translate("cancel")}
-          size="sm"
-          aria-label={translate("cancel")}
-          logging={{ enabled: true, prefix: "FME-Export-Header" }}
-          block={false}
-        />
-      )
-    }
-
-    // Early return if header actions are not enabled
-    if (error && error.severity !== ("info" as any)) {
-      if (!onReset || !canReset) return null
-      return (
-        <Button
-          icon={resetIcon}
-          tooltip={translate("tooltipCancel")}
-          tooltipPlacement="bottom"
-          onClick={onReset}
-          text={translate("cancel")}
-          size="sm"
-          aria-label={translate("cancel")}
-          logging={{ enabled: true, prefix: "FME-Export-Header" }}
-          block={false}
-        />
-      )
-    }
-
     const resetEnabled = isResetEnabled(
       onReset,
       canReset,
