@@ -6,7 +6,6 @@ export default {
   continue: "Fortsätt",
   ok: "OK",
   retry: "Försök igen",
-  specifyExtent: "Ange utbredning",
 
   // Order status and results used in content.tsx
   orderConfirmation: "Beställning bekräftad",
@@ -34,7 +33,6 @@ export default {
   // Tooltips used in ui.tsx and content.tsx
   tooltipBackToOptions: "Återgå till exportalternativ",
   tooltipSubmitOrder: "Skicka beställning för bearbetning",
-  tooltipSpecifyExtent: "Klicka för att ange utbredning",
   tooltipCancel: "Avbryt nuvarande åtgärd och börja om",
   tooltipReuseGeography: "Skapa ny beställning med samma geografi",
 

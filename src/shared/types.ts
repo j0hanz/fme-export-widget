@@ -919,6 +919,8 @@ interface WorkflowDrawingFeatures {
   readonly formatArea?: (area: number) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
+  readonly isDrawing?: boolean
+  readonly clickCount?: number
 }
 
 interface WorkflowExportFeatures {

@@ -41,7 +41,6 @@ import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
-import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
 import errorIcon from "jimu-icons/svg/outlined/suggested/wrong.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
@@ -171,16 +170,23 @@ const formatError = (
   return `${translate(baseMessage)}: ${errorMessage}`
 }
 
-// Helper to determine reset button enabled state
+// Determine whether reset button should be enabled
 const isResetEnabled = (
   onReset: (() => void) | undefined,
   canReset: boolean,
   state: ViewMode,
-  drawnArea: number
+  drawnArea: number,
+  isDrawing?: boolean,
+  clickCount?: number
 ): boolean => {
   if (!onReset || !canReset) return false
   const hasArea = drawnArea > 0
-  return state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL)
+  if (state === ViewMode.DRAWING) {
+    // In DRAWING mode, reset is enabled if:
+    const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
+    return !firstClickPending
+  }
+  return hasArea && state !== ViewMode.INITIAL
 }
 
 // Determine whether workspace list should display a loading state
@@ -599,7 +605,6 @@ const ExportForm = React.memo(function ExportForm({
 export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
-  onAngeUtbredning,
   isModulesLoading,
   canStartDrawing,
   error,
@@ -615,6 +620,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Drawing mode
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
+  // Drawing progress
+  isDrawing,
+  clickCount,
   // Reset
   onReset,
   canReset = true,
@@ -632,9 +640,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
-
-  // Internal alias for readability (keep original prop name for API stability)
-  const handleSpecifyExtent = onAngeUtbredning
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -891,17 +896,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
       onReset,
       canReset,
       state,
-      drawnArea ?? 0
+      drawnArea ?? 0,
+      isDrawing,
+      clickCount
     )
+
+    if (!resetEnabled) return null
 
     return (
       <Button
         icon={resetIcon}
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
-        onClick={resetEnabled ? onReset : noOp}
+        onClick={onReset}
         text={translate("cancel")}
-        disabled={!resetEnabled}
         size="sm"
         aria-label={translate("cancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
@@ -927,16 +935,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
             onDrawingModeChange?.(val as DrawingTool)
           }}
           ariaLabel={translate("drawingModeTooltip")}
-        />
-        <Button
-          text={translate("specifyExtent")}
-          alignText="center"
-          icon={plusIcon}
-          onClick={handleSpecifyExtent}
-          disabled={!canStartDrawing}
-          tooltip={translate("tooltipSpecifyExtent")}
-          tooltipPlacement="bottom"
-          logging={{ enabled: true, prefix: "FME-Export" }}
         />
       </div>
     )
@@ -1084,6 +1082,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
+        // If drawing is not allowed, show error
+        if (isDrawing && (clickCount || 0) === 0) {
+          return (
+            <div css={CLS.state.centered}>
+              <ButtonTabs
+                items={getDrawingModeItems()}
+                value={drawingMode}
+                onChange={(val) => {
+                  onDrawingModeChange?.(val as DrawingTool)
+                }}
+                ariaLabel={translate("drawingModeTooltip")}
+              />
+            </div>
+          )
+        }
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:

@@ -105,7 +105,7 @@ export const UI_CSS = (() => {
     W_FULL: { width: "100%" as const },
     ROW: { display: "flex" as const },
     COL: { display: "flex" as const, flexDirection: "column" as const },
-    GAP_SM: { gap: "0.5rem" },
+    GAP_SM: { gap: "2rem" },
     PAD_SM: { padding: "0.5rem" },
     FLEX1: { flex: 1 },
     BG_TRANSPARENT: { backgroundColor: "transparent" },
@@ -305,7 +305,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   if (!hasIcon && !hasText) return null
   if (hasIcon && !hasText)
     return typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON.SIZE.M} />
+      <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />
     ) : (
       (icon as React.ReactElement)
     )
@@ -736,7 +736,6 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   return (
     <AdvancedButtonGroup
       role="radiogroup"
-      gap="1rem"
       aria-label={ariaLabel}
       css={[UI_CLS.CSS.ROW, UI_CLS.CSS.GAP_SM]}
       style={style}
@@ -752,13 +751,12 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             active={active}
             aria-label={item.label}
             role="radio"
-            size="sm"
             aria-checked={active}
             tooltip={item.tooltip}
             tooltipPlacement="top"
             disabled={item.disabled}
             onClick={() => handleChange(item.value)}
-            block={false}
+            block={true}
           />
         )
       })}

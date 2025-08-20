@@ -573,6 +573,10 @@ const setSketchEvents = (
     if (newCount > clickCount) {
       clickCount = newCount
       dispatch(fmeActions.setClickCount(clickCount))
+      // If this is the first click, switch to drawing mode
+      if (clickCount === 1) {
+        dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+      }
     }
   }
 
@@ -803,7 +807,8 @@ export default function Widget(
 
   const setValidationSuccess = hooks.useEventCallback(() => {
     dispatch(fmeActions.setStartupValidationState(false))
-    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
+    // Reset any existing error state
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
@@ -1146,8 +1151,28 @@ export default function Widget(
     }
   })
 
+  // Auto-start drawing when in DRAWING mode
+  hooks.useUpdateEffect(() => {
+    if (
+      reduxState.viewMode === ViewMode.DRAWING &&
+      reduxState.clickCount === 0 &&
+      sketchViewModel &&
+      !reduxState.isSubmittingOrder
+    ) {
+      handleStartDrawing(reduxState.drawingTool)
+    }
+  }, [
+    reduxState.viewMode,
+    reduxState.clickCount,
+    reduxState.drawingTool,
+    sketchViewModel,
+    reduxState.isSubmittingOrder,
+    handleStartDrawing,
+  ])
+
   // Reset handler
   const handleReset = hooks.useEventCallback(() => {
+    // Clear graphics and measurements but keep map resources alive
     resetGraphicsAndMeasurements()
 
     // Abort any ongoing submission
@@ -1161,9 +1186,8 @@ export default function Widget(
       startupValidationAbortRef.current = null
     }
 
-    // Stop and cleanup local map resources
+    // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
-    cleanupResources()
 
     // Reset Redux state
     dispatch(fmeActions.setGeometry(null, 0))
@@ -1184,7 +1208,7 @@ export default function Widget(
       } as any)
     )
     // Reset view mode to initial
-    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
 
   // Workspace handlers
@@ -1291,7 +1315,6 @@ export default function Widget(
           reduxState.isDrawing,
           reduxState.clickCount
         )}
-        onAngeUtbredning={() => handleStartDrawing(reduxState.drawingTool)}
         isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => goToWorkspaceSelection()}
@@ -1303,9 +1326,26 @@ export default function Widget(
         drawnArea={reduxState.drawnArea}
         formatArea={formatArea}
         drawingMode={reduxState.drawingTool}
-        onDrawingModeChange={(tool) =>
+        onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool))
-        }
+          // If currently in DRAWING mode and no clicks, switch to the selected tool
+          if (
+            reduxState.viewMode === ViewMode.DRAWING &&
+            reduxState.clickCount === 0 &&
+            sketchViewModel
+          ) {
+            // Cancel any ongoing drawing
+            try {
+              sketchViewModel.cancel()
+            } catch {
+              /* noop */
+            }
+            handleStartDrawing(tool)
+          }
+        }}
+        // Drawing props
+        isDrawing={reduxState.isDrawing}
+        clickCount={reduxState.clickCount}
         // Header props
         showHeaderActions={
           reduxState.viewMode !== ViewMode.STARTUP_VALIDATION &&
