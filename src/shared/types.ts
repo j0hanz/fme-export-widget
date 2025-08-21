@@ -612,6 +612,10 @@ export interface FmeExportConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly supportEmail?: string
+  // Admin defaults for FME Task Manager directives (0 disables; tag empty disables)
+  readonly tm_ttc?: number
+  readonly tm_ttl?: number
+  readonly tm_tag?: string
   // Legacy support - deprecated
   readonly fme_server_url?: string
   readonly fmw_server_token?: string
@@ -1004,6 +1008,10 @@ export interface WidgetConfig {
   fmeServerToken?: string
   repository?: string
   supportEmail?: string
+  // Admin defaults for job directives
+  tm_ttc?: number
+  tm_ttl?: number
+  tm_tag?: string
 }
 
 // Immutable view of WidgetConfig for Experience Builder settings/components

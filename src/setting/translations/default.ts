@@ -49,6 +49,13 @@ export default {
   supportEmail: "Support-e‑post (valfritt)",
   supportEmailPlaceholder: "support@exempel.se",
   errorInvalidEmail: "Ogiltig e‑postadress.",
+  jobDirectives: "Jobbdirektiv",
+  jobDirectivesHelper:
+    "Standardvärden för FME-jobb. 0 = avstängt. Explicit angivna värden i beställningen/scriptet har företräde.",
+  tm_ttcLabel: "tm_ttc – Max tid att köra (sek)",
+  tm_ttlLabel: "tm_ttl – Max tid i kö (sek)",
+  tm_tagLabel: "tm_tag – Kö/queue (valfritt)",
+  tm_tagPlaceholder: "t.ex. high",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Ej körbart",

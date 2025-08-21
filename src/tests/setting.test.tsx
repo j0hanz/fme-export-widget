@@ -272,4 +272,49 @@ describe("Setting (builder)", () => {
     fireEvent.change(emailInput, { target: { value: "not-an-email" } })
     expect(screen.getByText(/Ogiltig e‑postadress/i)).toBeTruthy()
   })
+
+  test("admin job directives fields persist and coerce values", async () => {
+    const onSettingChange = jest.fn()
+    const config = makeConfig({
+      fmeServerUrl: "https://server.example",
+      fmeServerToken: "token-1234567890123",
+      repository: "RepoA",
+      tm_ttc: 0,
+      tm_ttl: 0,
+      tm_tag: "",
+    })
+
+    widgetRender(true)(
+      <SettingAny
+        id="w1"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={config as any}
+      />
+    )
+
+    // Collect all textboxes; last three are job directives in current layout
+    const inputs = screen.getAllByRole("textbox")
+    const [ttcInput, ttlInput, tagInput] = inputs.slice(-3)
+
+    fireEvent.change(ttcInput, { target: { value: "-5" } })
+    const callTtc = onSettingChange.mock.calls.pop()?.[0] || {}
+    expect(callTtc.id).toBe("w1")
+    expect(callTtc.config?.tm_ttc).toBe(0) // negative coerced to 0
+
+    fireEvent.change(ttlInput, { target: { value: "10.9" } })
+    const callTtl = onSettingChange.mock.calls.pop()?.[0] || {}
+    expect(callTtl.config?.tm_ttl).toBe(10) // floor
+
+    fireEvent.change(tagInput, { target: { value: " high " } })
+    const callTag = onSettingChange.mock.calls.pop()?.[0] || {}
+    expect(typeof callTag.config?.tm_tag).toBe("string")
+
+    // Clearing tag should set empty string
+    fireEvent.change(tagInput, { target: { value: "" } })
+    // Verify the input reflects the cleared value (persisted locally)
+    await waitFor(() => {
+      expect((tagInput as HTMLInputElement).value).toBe("")
+    })
+  })
 })

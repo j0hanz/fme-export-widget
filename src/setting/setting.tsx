@@ -283,6 +283,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     token?: string
     repository?: string
     supportEmail?: string
+    tm_ttc?: string
+    tm_ttl?: string
+    tm_tag?: string
   }>({})
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
@@ -296,6 +299,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
     () => getStringConfig("supportEmail") || ""
   )
+  // Admin job directives (defaults 0/empty)
+  const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
+    const v = (config as any)?.tm_ttc
+    return typeof v === "number" ? String(v) : "0"
+  })
+  const [localTmTtl, setLocalTmTtl] = React.useState<string>(() => {
+    const v = (config as any)?.tm_ttl
+    return typeof v === "number" ? String(v) : "0"
+  })
+  const [localTmTag, setLocalTmTag] = React.useState<string>(() => {
+    const v = (config as any)?.tm_tag
+    return typeof v === "string" ? v : ""
+  })
   // Server-provided repository list (null = not loaded yet)
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
     null
@@ -380,12 +396,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const token = localToken
     const repository = localRepository
     const supportEmail = localSupportEmail
+    const tmTtc = localTmTtc
+    const tmTtl = localTmTtl
 
     const messages: Partial<{
       serverUrl: string
       token: string
       repository: string
       supportEmail: string
+      tm_ttc: string
+      tm_ttl: string
+      tm_tag: string
     }> = {}
 
     // Validate and sanitize inputs
@@ -395,11 +416,28 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       ? null
       : validateRepository(repository, availableRepos)
     const emailError = validateEmail(supportEmail)
+    // Simple integer >= 0 validation; empty allowed (treated as 0)
+    const toInt = (s: string) => {
+      const n = Number(s)
+      return Number.isFinite(n) ? Math.floor(n) : NaN
+    }
+    const intErr = (v: string) =>
+      v.trim() === ""
+        ? null
+        : toInt(v) < 0 || !Number.isFinite(toInt(v))
+          ? "requiredField"
+          : null
+    const ttcErrKey = intErr(tmTtc)
+    const ttlErrKey = intErr(tmTtl)
+    const tagErrKey = null // allow any non-empty string
 
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
     if (repositoryError) messages.repository = translate(repositoryError)
     if (emailError) messages.supportEmail = translate(emailError)
+    if (ttcErrKey) (messages as any).tm_ttc = translate(ttcErrKey)
+    if (ttlErrKey) (messages as any).tm_ttl = translate(ttlErrKey)
+    if (tagErrKey) (messages as any).tm_tag = translate(tagErrKey)
 
     // Update local field errors for UI highlighting
     setFieldErrors({
@@ -407,6 +445,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       token: messages.token,
       repository: messages.repository,
       supportEmail: messages.supportEmail,
+      tm_ttc: (messages as any).tm_ttc,
+      tm_ttl: (messages as any).tm_ttl,
+      tm_tag: (messages as any).tm_tag,
     })
     return {
       messages,
@@ -654,16 +695,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (su !== localServerUrl) setLocalServerUrl(su)
     const tk = getStringConfig("fmeServerToken") || ""
     if (tk !== localToken) setLocalToken(tk)
+    // sync directives (coerce to string; defaults shown as 0/empty)
+    const cfgTtc = config?.tm_ttc
+    const cfgTtl = config?.tm_ttl
+    const cfgTag = config?.tm_tag
+    const nextTtc = typeof cfgTtc === "number" ? String(cfgTtc) : "0"
+    const nextTtl = typeof cfgTtl === "number" ? String(cfgTtl) : "0"
+    const nextTag = typeof cfgTag === "string" ? cfgTag : ""
+    if (nextTtc !== localTmTtc) setLocalTmTtc(nextTtc)
+    if (nextTtl !== localTmTtl) setLocalTmTtl(nextTtl)
+    if (nextTag !== localTmTag) setLocalTmTag(nextTag)
   }, [
-    config?.repository,
-    config?.supportEmail,
-    config?.fmeServerUrl,
-    config?.fmeServerToken,
+    config,
     getStringConfig,
     localRepository,
     localSupportEmail,
     localServerUrl,
     localToken,
+    localTmTtc,
+    localTmTtl,
+    localTmTag,
   ])
 
   // Fetch repository list when server URL or token changes
@@ -823,13 +874,43 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onSelect={onMapWidgetSelected}
           />
         </SettingRow>
+        {/* Support email (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("supportEmail")}
+          level={3}
+          tag="label"
+        >
+          <Input
+            type="email"
+            value={localSupportEmail}
+            onChange={(val) => {
+              setLocalSupportEmail(val)
+              updateConfig("supportEmail", val)
+              const errKey = validateEmail(val)
+              const err = errKey ? translate(errKey) : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
+          />
+          {fieldErrors.supportEmail && (
+            <SettingRow flow="wrap">
+              <Alert
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={translate("errorInvalidEmail")}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
       </SettingSection>
-
       <SettingSection title={translate("fmeServerConfig")}>
         {/* FME Server URL */}
         <SettingRow
           flow="wrap"
-          className="w-100"
           label={renderRequiredLabel(translate("fmeServerUrl"))}
           level={3}
           tag="label"
@@ -845,7 +926,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.serverUrl}
           />
           {fieldErrors.serverUrl && (
-            <SettingRow flow="wrap" className="w-100">
+            <SettingRow flow="wrap">
               <Alert
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
@@ -856,11 +937,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-
         {/* FME Server Token */}
         <SettingRow
           flow="wrap"
-          className="w-100"
           label={renderRequiredLabel(translate("fmeServerToken"))}
           level={3}
           tag="label"
@@ -877,7 +956,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.token}
           />
           {fieldErrors.token && (
-            <SettingRow flow="wrap" className="w-100">
+            <SettingRow flow="wrap">
               <Alert
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
@@ -888,11 +967,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-
         {/* Available repositories */}
         <SettingRow
           flow="wrap"
-          className="w-100"
           label={translate("availableRepositories")}
           level={3}
           tag="label"
@@ -932,9 +1009,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={"---"}
           />
         </SettingRow>
-
         {/* Test connection */}
-        <SettingRow flow="wrap" className="w-100">
+        <SettingRow flow="wrap">
           <Button
             disabled={cannotTest()}
             alignText="center"
@@ -947,43 +1023,71 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
         </SettingRow>
         {testState.message && (
-          <SettingRow flow="wrap" className="w-100">
-            {renderConnectionStatus()}
-          </SettingRow>
+          <SettingRow flow="wrap">{renderConnectionStatus()}</SettingRow>
         )}
-
-        {/* Support email (optional) */}
+      </SettingSection>
+      <SettingSection title={translate("jobDirectives")}>
+        {/* Job directives (admin defaults) */}
         <SettingRow
           flow="wrap"
-          className="w-100"
-          label={translate("supportEmail")}
+          label={translate("tm_ttcLabel")}
           level={3}
           tag="label"
         >
           <Input
-            type="email"
-            value={localSupportEmail}
+            value={localTmTtc}
             onChange={(val) => {
-              setLocalSupportEmail(val)
-              updateConfig("supportEmail", val)
-              const errKey = validateEmail(val)
-              const err = errKey ? translate(errKey) : undefined
-              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+              setLocalTmTtc(val)
+              const n = Number(val)
+              updateConfig(
+                "tm_ttc",
+                Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+              )
             }}
-            placeholder={translate("supportEmailPlaceholder")}
-            errorText={fieldErrors.supportEmail}
+            placeholder={"0"}
+            errorText={fieldErrors.tm_ttc}
+            inputMode="numeric"
           />
-          {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap" className="w-100">
-              <Alert
-                fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
-                text={translate("errorInvalidEmail")}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          label={translate("tm_ttlLabel")}
+          level={3}
+          tag="label"
+        >
+          <Input
+            value={localTmTtl}
+            onChange={(val) => {
+              setLocalTmTtl(val)
+              const n = Number(val)
+              updateConfig(
+                "tm_ttl",
+                Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+              )
+            }}
+            placeholder={"0"}
+            errorText={fieldErrors.tm_ttl}
+            inputMode="numeric"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          label={translate("tm_tagLabel")}
+          level={3}
+          tag="label"
+        >
+          <Input
+            value={localTmTag}
+            onChange={(val) => {
+              setLocalTmTag(val)
+              updateConfig("tm_tag", val)
+            }}
+            placeholder={translate("tm_tagPlaceholder")}
+            errorText={fieldErrors.tm_tag}
+          />
+        </SettingRow>
+        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)}>
+          {translate("jobDirectivesHelper")}
         </SettingRow>
       </SettingSection>
     </>

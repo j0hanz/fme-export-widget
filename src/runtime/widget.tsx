@@ -497,6 +497,36 @@ const prepFmeParams = (
   return attachAoi(base, geometryJson, currentGeometry)
 }
 
+// Apply admin defaults for FME Task Manager directives with proper precedence
+const applyDirectiveDefaults = (
+  params: { [key: string]: unknown },
+  config?: FmeExportConfig
+): { [key: string]: unknown } => {
+  if (!config) return params
+  const out: { [key: string]: unknown } = { ...params }
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(out, k)
+
+  const toPosInt = (v: unknown): number | undefined => {
+    const n = typeof v === "string" ? Number(v) : (v as number)
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
+  }
+
+  if (!has("tm_ttc")) {
+    const v = toPosInt(config.tm_ttc)
+    if (v !== undefined) out.tm_ttc = v
+  }
+  if (!has("tm_ttl")) {
+    const v = toPosInt(config.tm_ttl)
+    if (v !== undefined) out.tm_ttl = v
+  }
+  if (!has("tm_tag")) {
+    const v = typeof config.tm_tag === "string" ? config.tm_tag.trim() : ""
+    if (v) out.tm_tag = v
+  }
+
+  return out
+}
+
 // Initialize graphics layers for drawing and measurements
 const createLayers = (
   jmv: JimuMapView,
@@ -1128,7 +1158,7 @@ export default function Widget(
 
       const fmeResponse = await fmeClient.runDataDownload(
         workspace,
-        fmeParameters,
+        applyDirectiveDefaults(fmeParameters, props.config),
         undefined,
         submissionAbortRef.current.signal
       )

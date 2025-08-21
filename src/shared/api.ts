@@ -241,18 +241,46 @@ export class FmeFlowApiClient {
 
   // addQuery helper removed (unused)
 
-  private formatJobParams(
-    parameters: PrimitiveParams = {}
-  ):
-    | { publishedParameters: Array<{ name: string; value: unknown }> }
+  private formatJobParams(parameters: PrimitiveParams = {}):
+    | {
+        publishedParameters: Array<{ name: string; value: unknown }>
+        TMDirectives?: { ttc?: number; ttl?: number; tag?: string }
+      }
     | PrimitiveParams {
-    return (parameters as any).publishedParameters
-      ? parameters
-      : {
-          publishedParameters: Object.entries(parameters).map(
-            ([name, value]) => ({ name, value })
-          ),
-        }
+    if ((parameters as any).publishedParameters) return parameters
+
+    // Extract Task Manager directives from flat params if present
+    const p: any = parameters as any
+    const ttcRaw = p.tm_ttc
+    const ttlRaw = p.tm_ttl
+    const tagRaw = p.tm_tag
+    const toPosInt = (v: unknown): number | undefined => {
+      const n = typeof v === "string" ? Number(v) : (v as number)
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+    }
+    const ttc = toPosInt(ttcRaw)
+    const ttl = toPosInt(ttlRaw)
+    const tag =
+      typeof tagRaw === "string" && tagRaw.trim().length > 0
+        ? tagRaw.trim()
+        : undefined
+
+    const publishedParameters = Object.entries(parameters)
+      // Exclude tm_* keys from published parameters, they belong in TMDirectives for REST
+      .filter(
+        ([name]) => name !== "tm_ttc" && name !== "tm_ttl" && name !== "tm_tag"
+      )
+      .map(([name, value]) => ({ name, value }))
+
+    const job: any = { publishedParameters }
+    if (ttc !== undefined || ttl !== undefined || tag !== undefined) {
+      job.TMDirectives = {
+        ...(ttc !== undefined ? { ttc } : {}),
+        ...(ttl !== undefined ? { ttl } : {}),
+        ...(tag !== undefined ? { tag } : {}),
+      }
+    }
+    return job
   }
 
   // Build repository endpoint
@@ -589,7 +617,24 @@ export class FmeFlowApiClient {
         repository,
         workspace
       )
-      const params = buildWebhookParams(parameters, API.WEBHOOK_EXCLUDE_KEYS)
+      // For webhook, tm_* must be added as query params directly
+      // Exclude tm_* from the initial query build so we can control empty handling
+      const params = buildWebhookParams(parameters, [
+        ...API.WEBHOOK_EXCLUDE_KEYS,
+        "tm_ttc",
+        "tm_ttl",
+        "tm_tag",
+      ])
+      // Ensure tm_* values are present if provided
+      const maybeAppend = (k: string) => {
+        const v = (parameters as any)[k]
+        if (v !== undefined && v !== null && String(v).length > 0) {
+          params.set(k, String(v))
+        }
+      }
+      maybeAppend("tm_ttc")
+      maybeAppend("tm_ttl")
+      maybeAppend("tm_tag")
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
