@@ -315,8 +315,9 @@ export default class FmeReduxStoreExtension
 {
   readonly id = "fme-export_store"
 
-  getActions() {
-    return Object.values(FmeActionType)
+  getActions(): string[] {
+    // Return all action types as string array
+    return Object.values(FmeActionType) as unknown as string[]
   }
 
   getInitLocalState(): FmeWidgetState {
