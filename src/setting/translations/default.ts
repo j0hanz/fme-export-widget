@@ -1,7 +1,8 @@
 export default {
   fmeServerConfig: "Inställningar för FME",
-  fmeServerUrl: "FME server-URL",
-  fmeServerToken: "FME API-nyckel",
+  fmeServerUrl: "Server-URL",
+  fmeServerToken: "API-nyckel",
+  fmeRepository: "Repository",
   testConnection: "Uppdatera och testa",
   testing: "Testar anslutningen...",
   testingConnection: "Uppdaterar och testar anslutningen...",
@@ -48,4 +49,10 @@ export default {
   supportEmail: "Support-e‑post (valfritt)",
   supportEmailPlaceholder: "support@exempel.se",
   errorInvalidEmail: "Ogiltig e‑postadress.",
+  ok: "OK",
+  failed: "Misslyckades",
+  skipped: "Ej körbart",
+  checking: "Ej körbart",
+  error: "Fel",
+  colon: ":",
 }

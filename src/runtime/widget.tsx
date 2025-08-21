@@ -196,34 +196,30 @@ const useMapState = () => {
   }
 }
 
-// Error service
 const errorService = new ErrorHandlingService()
 
-// Dispatch error action with message and type
 const dispatchError = (
-  dispatchFn: (action: unknown) => void,
+  dispatch: (action: unknown) => void,
   message: string,
   type: ErrorType,
   code?: string
 ) => {
-  dispatchFn(
+  dispatch(
     fmeActions.setError(
       errorService.createError(message, type, code ? { code } : undefined)
     )
   )
 }
 
-// Abort any existing submission
-const abortIfPresent = (
+const abortController = (
   ref: React.MutableRefObject<AbortController | null>
 ) => {
   if (ref.current) {
     try {
       ref.current.abort()
     } catch {
-      // noop
+      // Ignore abort errors
     }
-    // clear the reference
     ref.current = null
   }
 }
@@ -250,7 +246,6 @@ const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
     console.warn(`FME Export Widget - planarArea calculation failed:`, error)
     // Fallback to extent-based area on error
     try {
-      const polygon = geometry as __esri.Polygon
       const extent = polygon.extent
       if (extent) {
         const fallbackArea = Math.abs(extent.width * extent.height)
@@ -394,6 +389,52 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return !!value && typeof value === "object" && "rings" in (value as any)
 }
 
+// Strip Z/M and ensure spatialReference is present; returns a new value
+const sanitizePolygonJson = (value: unknown, spatialRef?: unknown): unknown => {
+  if (!value || typeof value !== "object") return value
+  const src = value as {
+    rings?: unknown
+    spatialReference?: unknown
+    hasZ?: unknown
+    hasM?: unknown
+    [key: string]: unknown
+  }
+  const rings = src.rings
+  if (!Array.isArray(rings)) return value
+
+  const cleanedRings = (rings as unknown[]).map((ring) => {
+    if (!Array.isArray(ring)) return ring
+    return (ring as unknown[]).map((pt) => {
+      if (Array.isArray(pt) && pt.length >= 2) {
+        const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
+        const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
+        return [x, y]
+      }
+      return pt
+    })
+  })
+
+  const result: {
+    rings: unknown
+    spatialReference?: unknown
+    hasZ?: unknown
+    hasM?: unknown
+    [key: string]: unknown
+  } = { ...src, rings: cleanedRings }
+  // Drop Z/M flags if present
+  if (Object.prototype.hasOwnProperty.call(result, "hasZ")) {
+    delete result.hasZ
+  }
+  if (Object.prototype.hasOwnProperty.call(result, "hasM")) {
+    delete result.hasM
+  }
+  // Ensure SR is present if provided
+  if (spatialRef && !("spatialReference" in result)) {
+    result.spatialReference = spatialRef
+  }
+  return result
+}
+
 // Attach polygon AOI if present
 const attachAoi = (
   base: { [key: string]: unknown },
@@ -402,22 +443,13 @@ const attachAoi = (
 ): { [key: string]: unknown } => {
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
   if (isPolygonJson(geometryToUse)) {
-    // Inject spatial reference if missing using the current geometry's SR
-    let polygonJson: any = geometryToUse
-    if (
-      polygonJson &&
-      !("spatialReference" in polygonJson) &&
-      currentGeometry
-    ) {
-      try {
-        const sr = currentGeometry.toJSON()?.spatialReference
-        if (sr) {
-          polygonJson = { ...polygonJson, spatialReference: sr }
-        }
-      } catch {
-        /* ignore SR injection errors */
-      }
+    let sr: unknown
+    try {
+      sr = currentGeometry?.toJSON()?.spatialReference
+    } catch {
+      /* ignore SR derivation errors */
     }
+    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
     return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
   }
   return base
@@ -503,7 +535,7 @@ const createSketchVM = (
   jmv: JimuMapView,
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
-  handleDrawingComplete: (evt: __esri.SketchCreateEvent) => void,
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void
 ) => {
   const sketchViewModel = new modules.SketchViewModel({
@@ -528,7 +560,7 @@ const createSketchVM = (
   })
 
   setSketchSymbols(sketchViewModel)
-  setSketchEvents(sketchViewModel, handleDrawingComplete, dispatch)
+  setSketchEvents(sketchViewModel, onDrawComplete, dispatch)
 
   return sketchViewModel
 }
@@ -556,12 +588,8 @@ const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
   }
 }
 
-// Handle sketch create events and track drawing progress
-const setSketchEvents = (
-  sketchViewModel: __esri.SketchViewModel,
-  handleDrawingComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
-) => {
+// Create a click tracker to manage drawing state and click counts
+const createClickTracker = (dispatch: (action: unknown) => void) => {
   let clickCount = 0
 
   const resetClickTracking = () => {
@@ -580,59 +608,82 @@ const setSketchEvents = (
     }
   }
 
-  const calculatePolygonClicks = (geometry: __esri.Polygon): number => {
-    const vertices = geometry.rings?.[0]
-    if (!vertices || vertices.length < 2) return 0
-
-    const vertexCount = vertices.length
-    const firstPoint = vertices[0]
-    const lastPoint = vertices[vertexCount - 1]
-
-    // Check if polygon is auto-closed
-    const isAutoClosed =
-      Array.isArray(firstPoint) &&
-      Array.isArray(lastPoint) &&
-      Math.abs(firstPoint[0] - lastPoint[0]) < COINCIDENT_EPSILON &&
-      Math.abs(firstPoint[1] - lastPoint[1]) < COINCIDENT_EPSILON
-
-    return isAutoClosed ? vertexCount - 1 : vertexCount
+  return {
+    resetClickTracking,
+    updateClickCount,
+    getClickCount: () => clickCount,
   }
+}
+
+const calculatePolygonClicks = (geometry: __esri.Polygon): number => {
+  const vertices = geometry.rings?.[0]
+  if (!vertices || vertices.length < 2) return 0
+
+  const vertexCount = vertices.length
+  const firstPoint = vertices[0]
+  const lastPoint = vertices[vertexCount - 1]
+
+  // Check if polygon is auto-closed
+  const isAutoClosed =
+    Array.isArray(firstPoint) &&
+    Array.isArray(lastPoint) &&
+    Math.abs(firstPoint[0] - lastPoint[0]) < COINCIDENT_EPSILON &&
+    Math.abs(firstPoint[1] - lastPoint[1]) < COINCIDENT_EPSILON
+
+  return isAutoClosed ? vertexCount - 1 : vertexCount
+}
+
+const handleSketchCreateEvent = (
+  evt: __esri.SketchCreateEvent,
+  clickTracker: ReturnType<typeof createClickTracker>,
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
+  dispatch: (action: unknown) => void
+) => {
+  const { resetClickTracking, updateClickCount, getClickCount } = clickTracker
+
+  switch (evt.state) {
+    case "start":
+      resetClickTracking()
+      dispatch(
+        fmeActions.setDrawingState(
+          true,
+          0,
+          evt.tool === "rectangle" ? DrawingTool.RECTANGLE : DrawingTool.POLYGON
+        )
+      )
+      break
+
+    case "active":
+      if (evt.tool === "polygon" && evt.graphic?.geometry) {
+        const geometry = evt.graphic.geometry as __esri.Polygon
+        const actualClicks = calculatePolygonClicks(geometry)
+        updateClickCount(actualClicks)
+      } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
+        updateClickCount(1)
+      }
+      break
+
+    case "complete":
+      resetClickTracking()
+      onDrawComplete(evt)
+      break
+
+    case "cancel":
+      resetClickTracking()
+      break
+  }
+}
+
+// Handle sketch create events and track drawing progress
+const setSketchEvents = (
+  sketchViewModel: __esri.SketchViewModel,
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
+  dispatch: (action: unknown) => void
+) => {
+  const clickTracker = createClickTracker(dispatch)
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    switch (evt.state) {
-      case "start":
-        clickCount = 0
-        // Preserve/set the active drawing tool to keep UI/UX in sync
-        dispatch(
-          fmeActions.setDrawingState(
-            true,
-            0,
-            evt.tool === "rectangle"
-              ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON
-          )
-        )
-        break
-
-      case "active":
-        if (evt.tool === "polygon" && evt.graphic?.geometry) {
-          const geometry = evt.graphic.geometry as __esri.Polygon
-          const actualClicks = calculatePolygonClicks(geometry)
-          updateClickCount(actualClicks)
-        } else if (evt.tool === "rectangle" && clickCount !== 1) {
-          updateClickCount(1)
-        }
-        break
-
-      case "complete":
-        resetClickTracking()
-        handleDrawingComplete(evt)
-        break
-
-      case "cancel":
-        resetClickTracking()
-        break
-    }
+    handleSketchCreateEvent(evt, clickTracker, onDrawComplete, dispatch)
   })
 }
 
@@ -751,6 +802,8 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
+  // Debounce pending sketch create starts
+  const drawStartTimerRef = React.useRef<number | null>(null)
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
   // Startup validation controller
@@ -832,6 +885,27 @@ export default function Widget(
     setValidationStep(translate("validatingConfiguration"))
 
     try {
+      // Step 1: validate map configuration
+      setValidationStep(translate("validatingMapConfiguration"))
+      const hasMapConfigured = Array.isArray(useMapWidgetIds)
+        ? useMapWidgetIds.length > 0
+        : false
+      if (!hasMapConfigured) {
+        const msg = translate("mapNotConfigured")
+        const mapConfigError = errorService.createError(msg, ErrorType.CONFIG, {
+          code: "MapNotConfigured",
+          severity: ErrorSeverity.ERROR,
+          userFriendlyMessage: translate("mapSelectionRequired") || msg,
+          suggestion:
+            translate("openSettingsAndSelectMap") ||
+            translate("retryValidation"),
+          retry: () => runStartupValidation(),
+        })
+        dispatch(fmeActions.setError(mapConfigError))
+        setValidationError(mapConfigError)
+        return
+      }
+
       // Check if configuration exists and is valid
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
@@ -919,7 +993,7 @@ export default function Widget(
   })
 
   // Drawing complete
-  const handleDrawingComplete = hooks.useEventCallback(
+  const onDrawComplete = hooks.useEventCallback(
     (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
       if (!geometry) return
@@ -974,7 +1048,7 @@ export default function Widget(
   )
 
   // Form submission guard clauses
-  const validateSubmissionRequirements = (): boolean => {
+  const canSubmit = (): boolean => {
     const hasGeometry = !!reduxState.geometryJson || !!currentGeometry
     if (!hasGeometry || !reduxState.selectedWorkspace) {
       return false
@@ -1026,7 +1100,7 @@ export default function Widget(
     if (reduxState.isSubmittingOrder) {
       return
     }
-    if (!validateSubmissionRequirements()) {
+    if (!canSubmit()) {
       return
     }
 
@@ -1044,7 +1118,7 @@ export default function Widget(
       )
 
       // Abort any existing submission
-      abortIfPresent(submissionAbortRef)
+      abortController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
       const fmeResponse = await fmeClient.runDataDownload(
@@ -1084,13 +1158,7 @@ export default function Widget(
         setAreaMeasurement2D,
         setDistanceMeasurement2D
       )
-      const svm = createSketchVM(
-        jmv,
-        modules,
-        layer,
-        handleDrawingComplete,
-        dispatch
-      )
+      const svm = createSketchVM(jmv, modules, layer, onDrawComplete, dispatch)
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(
@@ -1121,23 +1189,36 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Cleanup resources on unmount
-      abortIfPresent(submissionAbortRef)
+      abortController(submissionAbortRef)
+      if (drawStartTimerRef.current != null) {
+        try {
+          clearTimeout(drawStartTimerRef.current)
+        } catch {
+          /* noop */
+        }
+        drawStartTimerRef.current = null
+      }
       cleanupResources()
     }
   })
 
   // Instruction text
-  const getDynamicInstructionText = hooks.useEventCallback(
+  const getDrawingInstructions = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
       if (tool === DrawingTool.RECTANGLE) {
         return translate("rectangleDrawingInstructions")
       }
+
       if (tool === DrawingTool.POLYGON) {
-        if (!isDrawing || clickCount === 0)
+        if (!isDrawing || clickCount === 0) {
           return translate("polygonDrawingStart")
-        if (clickCount < 3) return translate("polygonDrawingContinue")
+        }
+        if (clickCount < 3) {
+          return translate("polygonDrawingContinue")
+        }
         return translate("polygonDrawingComplete")
       }
+
       return translate("drawInstruction")
     }
   )
@@ -1153,22 +1234,59 @@ export default function Widget(
     // Clear and hide
     resetGraphicsAndMeasurements()
 
-    // Begin create
-    if (tool === DrawingTool.RECTANGLE) {
-      sketchViewModel.create("rectangle")
-    } else {
-      sketchViewModel.create("polygon")
+    // Ensure any in-progress draw is canceled before starting a new one
+    try {
+      sketchViewModel.cancel()
+    } catch {
+      /* noop */
     }
+
+    // Begin create on next tick to avoid overlapping internal async operations
+    const startCreate = () => {
+      try {
+        const svm = sketchViewModel as unknown as {
+          create: (t: "rectangle" | "polygon") => unknown
+        }
+        const arg: "rectangle" | "polygon" =
+          tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+        const res = svm.create(arg)
+        // Inline promise check since it's only used here
+        if (
+          res &&
+          (typeof res === "object" || typeof res === "function") &&
+          typeof (res as any).then === "function"
+        ) {
+          ;(res as Promise<unknown>).catch(() => {
+            /* ignore expected cancellation errors */
+          })
+        }
+      } catch {
+        /* noop */
+      }
+    }
+    if (drawStartTimerRef.current != null) {
+      try {
+        clearTimeout(drawStartTimerRef.current)
+      } catch {
+        /* noop */
+      }
+      drawStartTimerRef.current = null
+    }
+    drawStartTimerRef.current = window.setTimeout(
+      startCreate,
+      0
+    ) as unknown as number
   })
 
   // Auto-start drawing when in DRAWING mode
+  const canAutoStartDrawing =
+    reduxState.viewMode === ViewMode.DRAWING &&
+    reduxState.clickCount === 0 &&
+    sketchViewModel &&
+    !reduxState.isSubmittingOrder
+
   hooks.useUpdateEffect(() => {
-    if (
-      reduxState.viewMode === ViewMode.DRAWING &&
-      reduxState.clickCount === 0 &&
-      sketchViewModel &&
-      !reduxState.isSubmittingOrder
-    ) {
+    if (canAutoStartDrawing) {
       handleStartDrawing(reduxState.drawingTool)
     }
   }, [
@@ -1186,7 +1304,7 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Abort any ongoing submission
-    abortIfPresent(submissionAbortRef)
+    abortController(submissionAbortRef)
     if (startupValidationAbortRef.current) {
       try {
         startupValidationAbortRef.current.abort()
@@ -1239,19 +1357,19 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
   })
 
-  // Shared navigation to workspace selection
-  const goToWorkspaceSelection = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+  // Navigation helpers
+  const navigateTo = hooks.useEventCallback((viewMode: ViewMode) => {
+    dispatch(fmeActions.setViewMode(viewMode))
   })
 
-  const handleGoBack = hooks.useEventCallback(() => {
+  const navigateBack = hooks.useEventCallback(() => {
     const { viewMode, previousViewMode } = reduxState
     const fallback = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
     const target =
       previousViewMode && previousViewMode !== viewMode
         ? previousViewMode
         : fallback
-    dispatch(fmeActions.setViewMode(target))
+    navigateTo(target)
   })
 
   // Loading state
@@ -1264,14 +1382,45 @@ export default function Widget(
 
   // Error state
   if (reduxState.error && reduxState.error.severity === "error") {
-    // Match startup error layout: header with code on the right, support text, and a single action
     const e = reduxState.error
+
+    // Special minimal UI for missing map configuration: one centered message, no buttons
+    if (e.code === "MapNotConfigured") {
+      // Prefer a friendly message; fallback to translation key, and finally a plain string
+      const translatedHint = translate("mapSelectionRequired")
+      const friendly =
+        e.userFriendlyMessage &&
+        e.userFriendlyMessage !== "mapSelectionRequired"
+          ? e.userFriendlyMessage
+          : translatedHint !== "mapSelectionRequired"
+            ? translatedHint
+            : "Select a map in the widget settings."
+
+      return (
+        <div
+          css={[UI_CLS.CSS.COL]}
+          style={{
+            height: "100%",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            css={UI_CLS.TYPOGRAPHY.CAPTION}
+            style={{ textAlign: "center", maxWidth: 420 }}
+          >
+            {friendly}
+          </div>
+        </div>
+      )
+    }
+
+    // Default error UI (header + support text + retry)
     const titleCls = UI_CLS.TYPOGRAPHY.TITLE
     const captionCls = UI_CLS.TYPOGRAPHY.CAPTION
     const headerRowCls = UI_CLS.CSS.HEADER_ROW_MIN
     const supportText = e.userFriendlyMessage || translate("contactSupport")
     const messageText = translate(e.message) || e.message
-    // Always present a Retry action; if no explicit retry is provided, clear the error
     const buttonText = translate("retry")
     const onAction = () => {
       if (e.retry) e.retry()
@@ -1320,19 +1469,19 @@ export default function Widget(
         config={props.config}
         state={reduxState.viewMode}
         error={reduxState.error}
-        instructionText={getDynamicInstructionText(
+        instructionText={getDrawingInstructions(
           reduxState.drawingTool,
           reduxState.isDrawing,
           reduxState.clickCount
         )}
         isModulesLoading={modulesLoading}
         canStartDrawing={!!sketchViewModel}
-        onFormBack={() => goToWorkspaceSelection()}
+        onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={reduxState.orderResult}
-        onReuseGeography={() => goToWorkspaceSelection()}
+        onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         isSubmittingOrder={reduxState.isSubmittingOrder}
-        onBack={handleGoBack}
+        onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
         formatArea={formatArea}
         drawingMode={reduxState.drawingTool}
@@ -1350,6 +1499,7 @@ export default function Widget(
             } catch {
               /* noop */
             }
+            // Start new drawing with the selected tool
             handleStartDrawing(tool)
           }
         }}

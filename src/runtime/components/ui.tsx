@@ -221,7 +221,7 @@ const useId = (prefix = "fme"): string => {
   const idRef = React.useRef<string>()
   if (!idRef.current) {
     idSeq += 1
-    idRef.current = `${prefix}-${Date.now().toString(36)}-${idSeq}`
+    idRef.current = `${prefix}-${idSeq}`
   }
   return idRef.current
 }
@@ -367,7 +367,6 @@ export const Icon: React.FC<IconProps> = ({
       src={src}
       size={size}
       className={className}
-      currentColor
       role="img"
       aria-hidden={!ariaLabel}
       aria-label={ariaLabel}

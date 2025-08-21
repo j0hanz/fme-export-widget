@@ -45,10 +45,6 @@ export const makeLoadingView = (
   message?: string,
   detail?: string
 ): LoadingView => ({ kind: "loading", message, detail })
-export const makeErrorView = (
-  message: string,
-  opts: Omit<ErrorView, "kind" | "message"> = {}
-): ErrorView => ({ kind: "error", message, ...opts })
 export const makeEmptyView = (
   message: string,
   actions?: readonly ViewAction[]

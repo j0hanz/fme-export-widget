@@ -7,6 +7,7 @@ export default {
 
   // Startup validation messages
   validatingStartup: "Validerar konfiguration...",
+  validatingMapConfiguration: "Kontrollerar kartkonfiguration...",
   validatingConnection: "Testar anslutning till FME Server...",
   validatingAuthentication: "Validerar autentisering...",
   validatingConfiguration: "Kontrollerar konfiguration...",
@@ -26,9 +27,14 @@ export default {
   preparingMapTools: "Förbereder kartverktyg...",
   loadingMapServices: "Laddar karttjänster...",
 
+  // Map configuration / settings
+  mapNotConfigured: "Ingen karta är vald i widgetens inställningar",
+  mapSelectionRequired: "Välj en karta i widgetens inställningar",
+  openSettingsAndSelectMap: "Öppna widgetens inställningar och välj en karta",
+
   // Drawing instructions used in widget.tsx
   rectangleDrawingInstructions:
-    "Klicka och dra för att skapa ett rektangulärt område",
+    "Markera området på kartan, klicka för att slutföra",
   polygonDrawingStart: "Klicka för att börja rita ett område",
   polygonDrawingContinue: "Klicka för att fortsätta rita området",
   polygonDrawingComplete:

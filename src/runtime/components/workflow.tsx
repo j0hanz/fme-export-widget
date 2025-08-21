@@ -149,8 +149,10 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
+// Module-level helpers
+
 // Helper for workspace API error handling
-const formatError = (
+const formatApiError = (
   err: unknown,
   isMountedRef: React.MutableRefObject<boolean>,
   translate: (key: string) => string,
@@ -171,40 +173,42 @@ const formatError = (
   return `${translate(baseMessage)}: ${errorMessage}`
 }
 
-// Determine whether reset button should be enabled
-const isResetEnabled = (
+// Check if reset button should be enabled
+const canReset = (
   onReset: (() => void) | undefined,
-  canReset: boolean,
+  canResetFlag: boolean,
   state: ViewMode,
   drawnArea: number,
   isDrawing?: boolean,
   clickCount?: number
 ): boolean => {
-  if (!onReset || !canReset) return false
-  // Explicitly hide Cancel when showing the order result view
+  if (!onReset || !canResetFlag) return false
   if (state === ViewMode.ORDER_RESULT) return false
+
   const hasArea = drawnArea > 0
   if (state === ViewMode.DRAWING) {
-    // In DRAWING mode, reset is enabled if:
     const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
     return !firstClickPending
   }
   return hasArea && state !== ViewMode.INITIAL
 }
 
-// Determine whether workspace list should display a loading state
-const showWsLoading = (
-  isLoadingWorkspaces: boolean,
+// Check if workspace list should show loading
+const shouldShowWsLoading = (
+  isLoading: boolean,
   workspaces: readonly WorkspaceItem[],
-  state: ViewMode
+  state: ViewMode,
+  hasError?: boolean
 ): boolean => {
-  const shouldLoadInThisState =
+  if (hasError) return false
+  const needsLoading =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
-  return isLoadingWorkspaces || (!workspaces.length && shouldLoadInThisState)
+  return isLoading || (!workspaces.length && needsLoading)
 }
 
-// Form helper functions
-const normalizeFieldValue = (
+// Form utilities
+
+const normalizeValue = (
   value: FormPrimitive | undefined,
   isMultiSelect: boolean
 ): FormPrimitive => {
@@ -214,7 +218,6 @@ const normalizeFieldValue = (
   return value
 }
 
-// Coerce any FormPrimitive to a value acceptable by <Select/>
 const toSelectValue = (
   value: FormPrimitive,
   isMultiSelect: boolean
@@ -224,7 +227,7 @@ const toSelectValue = (
   return isMultiSelect ? [] : ""
 }
 
-const getPlaceholders = (
+const makePlaceholders = (
   translate: (k: string, p?: any) => string,
   fieldLabel: string
 ) =>
@@ -372,8 +375,8 @@ const DynamicField = React.memo(function DynamicField({
   translate,
 }: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue = normalizeFieldValue(value, isMulti)
-  const placeholders = getPlaceholders(translate, field.label)
+  const fieldValue = normalizeValue(value, isMulti)
+  const placeholders = makePlaceholders(translate, field.label)
 
   switch (field.type) {
     case FormFieldType.SELECT:
@@ -628,7 +631,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   clickCount,
   // Reset
   onReset,
-  canReset = true,
+  canReset: canResetProp = true,
   // Workspace props
   config,
   onWorkspaceSelected,
@@ -770,7 +773,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   })
 
   // Load workspaces with race condition protection
-  const fetchWorkspaces = hooks.useEventCallback(async () => {
+  const loadWsList = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
     if (!fmeClient || !config?.repository) return
 
@@ -815,7 +818,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       // Don't show error if request was aborted
       if ((err as { name?: string })?.name === ERROR_NAMES.ABORT) return
 
-      const errorMsg = formatError(
+      const errorMsg = formatApiError(
         err,
         isMountedRef,
         translate,
@@ -861,7 +864,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: unknown) {
-        const errorMsg = formatError(
+        const errorMsg = formatApiError(
           err,
           isMountedRef,
           translate,
@@ -875,7 +878,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Render workspace buttons
-  const renderWorkspaceButtons = () =>
+  const renderWsButtons = () =>
     workspaces.map((workspace) => (
       <Button
         key={workspace.name}
@@ -893,13 +896,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
       />
     ))
 
-  // Schedule a workspace load (debounced 300ms) to prevent rapid successive calls
-  const workspaceLoad = hooks.useEventCallback(() => {
+  // Schedule a workspace load (debounced) to prevent rapid successive calls
+  const scheduleWsLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
     }
     loadTimeoutRef.current = setTimeout(() => {
-      fetchWorkspaces()
+      loadWsList()
       loadTimeoutRef.current = null
     }, 300) // 300ms debounce delay
   })
@@ -911,7 +914,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       state === ViewMode.EXPORT_OPTIONS
     ) {
       if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
-        workspaceLoad()
+        scheduleWsLoad()
       }
     }
   }, [
@@ -919,14 +922,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     workspaces.length,
     isLoadingWorkspaces,
     workspaceError,
-    workspaceLoad,
+    scheduleWsLoad,
   ])
 
   // Header
   const renderHeader = () => {
-    const resetEnabled = isResetEnabled(
+    const resetEnabled = canReset(
       onReset,
-      canReset,
+      canResetProp,
       state,
       drawnArea ?? 0,
       isDrawing,
@@ -978,10 +981,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const renderSelection = () => {
     // Loading
-    const shouldShowLoading = showWsLoading(
+    const shouldShowLoading = shouldShowWsLoading(
       isLoadingWorkspaces,
       workspaces,
-      state
+      state,
+      Boolean(workspaceError)
     )
     if (shouldShowLoading) {
       const message = workspaces.length
@@ -992,13 +996,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Error
     if (workspaceError) {
-      return renderError(workspaceError, onBack || noOp, fetchWorkspaces)
+      return renderError(workspaceError, onBack || noOp, loadWsList)
     }
 
     // Empty
     if (!workspaces.length) {
       const actions = [
-        { label: translate("retry"), onClick: fetchWorkspaces },
+        { label: translate("retry"), onClick: loadWsList },
         { label: translate("back"), onClick: onBack || noOp },
       ]
       return (
@@ -1011,7 +1015,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     // Content
     return (
       <div css={UI_CLS.BTN.DEFAULT} role="list">
-        {renderWorkspaceButtons()}
+        {renderWsButtons()}
       </div>
     )
   }

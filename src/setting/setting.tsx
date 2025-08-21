@@ -35,7 +35,7 @@ function extractErrorCode(err: unknown): string {
   return typeof code === "string" ? code : ""
 }
 
-function extractHttpStatusFromError(err: unknown): number | undefined {
+function getHttpStatus(err: unknown): number | undefined {
   const e = err as { [key: string]: unknown }
   const response = e?.response as { status?: unknown } | undefined
   const candidates: unknown[] = [
@@ -59,49 +59,45 @@ function extractHttpStatusFromError(err: unknown): number | undefined {
   return Number.isFinite(code) ? code : undefined
 }
 
-// Enhanced FME Flow validation rules based on specifications
-function validateFmeServerUrl(url: string): string | null {
-  if (!url) return "errorMissingServerUrl"
-  const cleanUrl = url.trim()
-  if (!cleanUrl) return "errorMissingServerUrl"
+// Module-level status checkers
+const isAuthError = (status: number): boolean =>
+  status === 401 || status === 403
+const isNotFoundError = (status: number): boolean => status === 404
+const isServerError = (status: number): boolean => status >= 500 && status < 600
+
+// Validation functions for server URL, token, and repository
+function validateServerUrl(url: string): string | null {
+  if (!url?.trim()) return "errorMissingServerUrl"
+
   try {
-    const u = new URL(cleanUrl)
-    if (!/^https?:$/i.test(u.protocol)) {
-      return "errorInvalidServerUrl"
-    }
-    if (/\/fmerest\b/i.test(u.pathname)) {
-      return "errorBadBaseUrl"
-    }
+    const u = new URL(url.trim())
+    if (!/^https?:$/i.test(u.protocol)) return "errorInvalidServerUrl"
+    if (/\/fmerest\b/i.test(u.pathname)) return "errorBadBaseUrl"
     return null
   } catch {
     return "errorInvalidServerUrl"
   }
 }
 
-function validateFmeToken(token: string): string | null {
+function validateToken(token: string): string | null {
   if (!token) return "errorMissingToken"
-  if (/\s/.test(token)) {
-    return "errorTokenIsInvalid"
-  }
-  if (token.length < 10) {
-    return "errorTokenIsInvalid"
-  }
-
+  if (/\s/.test(token) || token.length < 10) return "errorTokenIsInvalid"
   return null
 }
 
-function validateFmeRepository(
+function validateRepository(
   repository: string,
   availableRepos: string[] | null
 ): string | null {
   if (availableRepos === null) return null
-  if (availableRepos.length > 0 && !repository) {
-    return "errorRepoRequired"
-  }
-  if (repository && !availableRepos.includes(repository)) {
+  if (availableRepos.length > 0 && !repository) return "errorRepoRequired"
+  if (
+    availableRepos.length > 0 &&
+    repository &&
+    !availableRepos.includes(repository)
+  ) {
     return "errorRepositoryNotFound"
   }
-
   return null
 }
 
@@ -116,18 +112,6 @@ const STATUS_ERROR_MAP: { [status: number]: string } = {
   502: "errorGateway",
   503: "errorServiceUnavailable",
   0: "errorNetworkShort",
-}
-
-function isAuthError(status: number): boolean {
-  return status === 401 || status === 403
-}
-
-function isNotFoundError(status: number): boolean {
-  return status === 404
-}
-
-function isServerError(status: number): boolean {
-  return status >= 500 && status < 600
 }
 
 function getStatusErrorMessage(
@@ -156,7 +140,7 @@ function getStatusErrorMessage(
   return translate("errorHttpStatus", { status })
 }
 
-function createFieldErrorsFromStatus(
+function mapStatusToFieldErrors(
   status: number | undefined,
   translate: (key: string, params?: any) => string
 ): Partial<{ serverUrl: string; token: string }> {
@@ -205,39 +189,11 @@ function useUpdateConfig(
     <K extends keyof WidgetConfig>(key: K, value: WidgetConfig[K]) => {
       onSettingChange({
         id,
-        // Use a new object to avoid mutating the original config
+        // Update only the specific key in the config
         config: config.set(key, value),
       })
     }
   )
-}
-
-// Utility function to extract repository names from API response data
-function extractRepoNames(data: unknown): string[] {
-  if (!data) return []
-
-  if (Array.isArray(data)) {
-    return data
-      .map((item: any) => (typeof item === "string" ? item : item?.name))
-      .filter(Boolean)
-  }
-
-  if (typeof data === "object") {
-    const obj = data as any
-    const candidates =
-      obj.items ||
-      obj.repositories ||
-      obj.data ||
-      Object.values(obj).find((v: any) => Array.isArray(v))
-
-    if (Array.isArray(candidates)) {
-      return candidates
-        .map((item: any) => (typeof item === "string" ? item : item?.name))
-        .filter(Boolean)
-    }
-  }
-
-  return []
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -248,12 +204,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Local styles for the setting UI
   const LOCAL_CSS = {
-    W_FULL: { width: "100%" } as React.CSSProperties,
-    BG_TRANSPARENT: { backgroundColor: "transparent" } as React.CSSProperties,
     ALERT_INLINE: {
       padding: "0 0.4rem",
       opacity: 0.8,
     } as React.CSSProperties,
+    STATUS: {
+      CONTAINER: {
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      } as React.CSSProperties,
+      LIST: {
+        display: "grid",
+        rowGap: 6,
+        opacity: 0.8,
+        backgroundColor: "#181818",
+        padding: 6,
+        borderRadius: 2,
+      } as React.CSSProperties,
+      ROW: {
+        display: "flex",
+        justifyContent: "space-between",
+        lineHeight: 2,
+      } as React.CSSProperties,
+      LABEL_GROUP: {
+        display: "flex",
+        alignItems: "center",
+      } as React.CSSProperties,
+      COLOR: {
+        OK: { color: "#09cf74" },
+        FAIL: { color: "#e1001b" },
+        SKIP: { color: "#ffea1d" },
+        PENDING: { color: "#089bdc" },
+      } as { [k: string]: React.CSSProperties },
+    },
   } as const
 
   // Consolidated test state
@@ -262,10 +247,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     message: null,
     type: "info",
   })
-  const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
-    null
-  )
-  // Field-level errors (lightweight, local UI state)
+  // Fine-grained step status for the connection test UI
+  type StepStatus = "idle" | "pending" | "ok" | "fail" | "skip"
+  const [checkSteps, setCheckSteps] = React.useState<{
+    serverUrl: StepStatus
+    token: StepStatus
+    repository: StepStatus
+    version?: string
+  }>({ serverUrl: "idle", token: "idle", repository: "idle", version: "" })
   const [fieldErrors, setFieldErrors] = React.useState<{
     serverUrl?: string
     token?: string
@@ -284,15 +273,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
     () => getStringConfig("supportEmail") || ""
   )
+  // Server-provided repository list (null = not loaded yet)
+  const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
+    null
+  )
   // Track in-flight test for cancellation to avoid stale state updates
   const abortRef = React.useRef<AbortController | null>(null)
+  // Track in-flight repository listing request for cancellation
+  const reposAbortRef = React.useRef<AbortController | null>(null)
 
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
     const code = extractErrorCode(err)
-    const status = isFmeFlowApiError(err)
-      ? err.status
-      : extractHttpStatusFromError(err)
+    const status = isFmeFlowApiError(err) ? err.status : getHttpStatus(err)
     const raw = String((err as any)?.message || "")
 
     if (code === "INVALID_RESPONSE_FORMAT") {
@@ -337,7 +330,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Utilities: URL validation and sanitization (strip /fmeserver or /fmerest)
-  const sanitizeBaseUrl = hooks.useEventCallback(
+  const sanitizeUrl = hooks.useEventCallback(
     (rawUrl: string): { cleaned: string; changed: boolean } => {
       try {
         const u = new URL(rawUrl)
@@ -359,11 +352,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Unified input validation
-  const validateAllInputs = hooks.useEventCallback(() => {
-    const serverUrl = getStringConfig("fmeServerUrl")
-    const token = getStringConfig("fmeServerToken")
-    const repository = getStringConfig("repository")
-    const supportEmail = getStringConfig("supportEmail")
+  const validateAllInputs = hooks.useEventCallback((skipRepoCheck = false) => {
+    const serverUrl = localServerUrl
+    const token = localToken
+    const repository = localRepository
+    const supportEmail = localSupportEmail
 
     const messages: Partial<{
       serverUrl: string
@@ -373,9 +366,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }> = {}
 
     // Validate and sanitize inputs
-    const serverUrlError = validateFmeServerUrl(serverUrl)
-    const tokenError = validateFmeToken(token)
-    const repositoryError = validateFmeRepository(repository, availableRepos)
+    const serverUrlError = validateServerUrl(serverUrl)
+    const tokenError = validateToken(token)
+    const repositoryError = skipRepoCheck
+      ? null
+      : validateRepository(repository, availableRepos)
     const emailError =
       supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail)
         ? "errorInvalidEmail"
@@ -398,7 +393,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       hasErrors: !!(
         messages.serverUrl ||
         messages.token ||
-        messages.repository ||
+        (!skipRepoCheck && messages.repository) ||
         messages.supportEmail
       ),
     }
@@ -407,11 +402,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Validate connection settings
   const validateConnectionSettings = hooks.useEventCallback(
     (): ConnectionSettings | null => {
-      const rawServerUrl = getStringConfig("fmeServerUrl")
-      const token = getStringConfig("fmeServerToken")
-      const repository = getStringConfig("repository")
+      const rawServerUrl = localServerUrl
+      const token = localToken
+      const repository = localRepository
 
-      const { cleaned, changed } = sanitizeBaseUrl(rawServerUrl || "")
+      const { cleaned, changed } = sanitizeUrl(rawServerUrl || "")
       // If sanitization changed, update config
       if (changed) {
         updateConfig("fmeServerUrl", cleaned)
@@ -424,38 +419,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Check if test connection button should be disabled
-  const isTestConnectionDisabled = (): boolean => {
+  const cannotTest = (): boolean => {
     if (testState.isTesting) return true
-
-    const serverUrl = getStringConfig("fmeServerUrl")
-    const token = getStringConfig("fmeServerToken")
-
-    // If no server URL or token, allow test to run
-    if (!serverUrl || !token) return true
-
-    // Validate server URL format
-    const serverUrlError = validateFmeServerUrl(serverUrl)
-    if (serverUrlError) return true
-
-    // Validate token format
-    const tokenError = validateFmeToken(token)
-    if (tokenError) return true
-
-    return false
+    // Only require presence; format issues will be surfaced but not block testing
+    return !localServerUrl || !localToken
   }
 
-  // Determine if auto-test should run
-  const shouldAutoTest = hooks.useEventCallback((): boolean => {
-    if (testState.isTesting || availableRepos !== null) return false
-
-    const settings = validateConnectionSettings()
-    return (
-      !!(settings?.serverUrl && settings?.token) && !isTestConnectionDisabled()
-    )
-  })
-
   // Centralized Test Connection action (reused by button and auto-run)
-  const runTestConnection = hooks.useEventCallback(async (silent = false) => {
+  const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
     if (abortRef.current) {
       abortRef.current.abort()
@@ -463,28 +434,40 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortRef.current = new AbortController()
     const signal = abortRef.current.signal
 
-    // Validate inputs and sanitize URL
-    const { hasErrors } = validateAllInputs()
-    const settings = validateConnectionSettings()
-
-    if (!settings || hasErrors) {
+    // Run lightweight check: require URL and token presence only
+    if (!localServerUrl || !localToken) {
       if (!silent) {
-        const token = getStringConfig("fmeServerToken")
-        const tokenError = validateFmeToken(token)
-        const message = tokenError
-          ? translate(tokenError)
-          : translate("fixErrorsAbove")
+        const message = translate("fixErrorsAbove")
         setTestState({ isTesting: false, message, type: "error" })
       }
       return
     }
 
-    // Reset state for new test
-    setAvailableRepos(null)
+    // Populate field errors for the UI (non-blocking) and sanitize URL
+    validateAllInputs(true)
+    const settings = validateConnectionSettings()
+    if (!settings) {
+      if (!silent) {
+        setTestState({
+          isTesting: false,
+          message: translate("fixErrorsAbove"),
+          type: "error",
+        })
+      }
+      return
+    }
+
+    // Reset state for new test (do not clear existing list to keep Select usable)
     setTestState({
       isTesting: true,
       message: silent ? null : translate("testingConnection"),
       type: "info",
+    })
+    setCheckSteps({
+      serverUrl: "pending",
+      token: "pending",
+      repository: (settings.repository ? "pending" : "skip") as StepStatus,
+      version: "",
     })
 
     try {
@@ -494,14 +477,81 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         repository: settings.repository || "_",
       })
 
-      // 1) Test server connection
-      const info = await client.testConnection(signal)
+      // 1) Test connection and fetch version info
+      let info: any = null
+      try {
+        info = await client.testConnection(signal)
+        setCheckSteps((prev) => ({
+          ...prev,
+          serverUrl: "ok",
+          token: "ok",
+          version: String(info?.data?.version || ""),
+        }))
+      } catch (infoErr) {
+        const status = getHttpStatus(infoErr)
+        if (status === 401 || status === 403) {
+          // Server reachable, but token invalid
+          setCheckSteps((prev) => ({ ...prev, serverUrl: "ok", token: "fail" }))
+        } else {
+          // Server not reachable or other error before token could be validated
+          setCheckSteps((prev) => ({
+            ...prev,
+            serverUrl: "fail",
+            token: "skip",
+          }))
+        }
+        // Map field errors and finalize error state
+        const fieldErrs = mapStatusToFieldErrors(status, translate)
+        if (Object.keys(fieldErrs).length > 0)
+          setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+        if (!silent) {
+          setTestState({
+            isTesting: false,
+            message: processError(infoErr),
+            type: "error",
+          })
+        } else {
+          setTestState((prev) => ({ ...prev, isTesting: false }))
+        }
+        return
+      }
 
-      // 2) Fetch repositories
+      // 2) Fetch repository list
       try {
         const reposResp = await client.getRepositories(signal)
-        const repos = extractRepoNames(reposResp.data)
-        setAvailableRepos(repos)
+        const names = Array.isArray(reposResp?.data)
+          ? (reposResp.data as Array<{ name: string }>)
+              .map((r) => r?.name)
+              .filter((n): n is string => typeof n === "string" && n.length > 0)
+          : []
+        setAvailableRepos(names)
+        // Clear repository field error if current selection is valid now
+        if (!settings.repository || names.includes(settings.repository)) {
+          setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+        } else {
+          setFieldErrors((prev) => ({
+            ...prev,
+            repository: translate("errorRepositoryNotFound"),
+          }))
+          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
+        }
+      } catch (repoListErr) {
+        // Keep working even if listing fails; surface a warning state below
+        setAvailableRepos([])
+        // If we cannot list repositories, we still allow testing
+        if (settings.repository) {
+          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
+        }
+      }
+
+      // 3) Validate repository if provided
+      try {
+        if (settings.repository) {
+          await client.validateRepository(settings.repository, signal)
+          setCheckSteps((prev) => ({ ...prev, repository: "ok" }))
+        } else {
+          setCheckSteps((prev) => ({ ...prev, repository: "skip" }))
+        }
         setFieldErrors((prev) => ({
           ...prev,
           serverUrl: undefined,
@@ -510,9 +560,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }))
 
         if (!silent) {
-          const successHelper = info?.data?.version
-            ? translate("serverVersion", { version: info.data.version })
-            : translate("connectionOk")
+          const successHelper = translate("connectionOk")
 
           setTestState({
             isTesting: false,
@@ -523,7 +571,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setTestState((prev) => ({ ...prev, isTesting: false }))
         }
       } catch (repoErr) {
-        setAvailableRepos([])
+        // Do not modify availableRepos to avoid showing a list after test
 
         if (!silent) {
           setTestState({
@@ -539,12 +587,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           ...prev,
           repository: translate("errorRepositories"),
         }))
+        setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return
 
-      const status = extractHttpStatusFromError(err)
-      const fieldErrs = createFieldErrorsFromStatus(status, translate)
+      const status = getHttpStatus(err)
+      const fieldErrs = mapStatusToFieldErrors(status, translate)
       if (Object.keys(fieldErrs).length > 0)
         setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
 
@@ -560,61 +609,180 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Auto-run connection test when settings open and URL/token are present
+  // Cleanup: abort any in-flight requests on unmount
   React.useEffect(() => {
-    if (shouldAutoTest()) {
-      runTestConnection(true)
-    }
     return () => {
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
       }
+      if (reposAbortRef.current) {
+        reposAbortRef.current.abort()
+        reposAbortRef.current = null
+      }
     }
-  }, [shouldAutoTest, runTestConnection])
+  }, [])
 
-  // Keep localRepository in sync when config changes externally (e.g., after save/load)
+  // Keep server URL, token, repository, and support email in sync with config
   React.useEffect(() => {
     const repo = getStringConfig("repository") || ""
     if (repo !== localRepository) setLocalRepository(repo)
     const se = getStringConfig("supportEmail") || ""
     if (se !== localSupportEmail) setLocalSupportEmail(se)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.repository, config?.supportEmail])
+    // Keep server URL and token in sync
+  }, [
+    config?.repository,
+    config?.supportEmail,
+    getStringConfig,
+    localRepository,
+    localSupportEmail,
+  ])
+
+  // Fetch repository list when server URL or token changes
+  React.useEffect(() => {
+    // Clear any previous values
+    setAvailableRepos(null)
+    // Cancel previous fetch if any
+    if (reposAbortRef.current) {
+      reposAbortRef.current.abort()
+      reposAbortRef.current = null
+    }
+
+    const serverUrl = localServerUrl
+    const token = localToken
+    const serverUrlError = validateServerUrl(serverUrl)
+    const tokenError = validateToken(token)
+    // Do not fetch repositories if server URL or token are invalid
+    if (!serverUrl || !token || serverUrlError || tokenError) return
+
+    const controller = new AbortController()
+    reposAbortRef.current = controller
+    const signal = controller.signal
+
+    const client = new FmeFlowApiClient({
+      serverUrl,
+      token,
+      repository: localRepository || "_",
+    })
+
+    client
+      .getRepositories(signal)
+      .then((resp) => {
+        if (signal.aborted) return
+        const names = Array.isArray(resp?.data)
+          ? (resp.data as Array<{ name: string }>)
+              .map((r) => r?.name)
+              .filter((n): n is string => typeof n === "string" && n.length > 0)
+          : []
+        setAvailableRepos(names)
+        const currentRepo = localRepository
+        if (currentRepo && names.length && !names.includes(currentRepo)) {
+          setFieldErrors((prev) => ({
+            ...prev,
+            repository: translate("errorRepositoryNotFound"),
+          }))
+        } else {
+          setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+        }
+      })
+      .catch((err) => {
+        if (signal.aborted) return
+        // If we cannot list repositories, clear the list
+        setAvailableRepos([])
+        const status = getHttpStatus(err)
+        const fieldErrs = mapStatusToFieldErrors(status, translate)
+        if (Object.keys(fieldErrs).length > 0)
+          setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+      })
+
+    return () => {
+      if (reposAbortRef.current) {
+        reposAbortRef.current.abort()
+        reposAbortRef.current = null
+      }
+    }
+  }, [localServerUrl, localToken, localRepository, translate])
+
+  // Keep repository field error in sync when either the list or selection changes
+  React.useEffect(() => {
+    if (!availableRepos || availableRepos.length === 0) return
+    const currentRepo = localRepository
+    if (currentRepo && !availableRepos.includes(currentRepo)) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        repository: translate("errorRepositoryNotFound"),
+      }))
+    } else {
+      setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+    }
+  }, [availableRepos, localRepository, translate])
 
   const renderConnectionStatus = (): React.ReactNode => {
-    if (testState.isTesting) {
+    const rows: Array<{ label: string; status: StepStatus }> = [
+      { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
+      { label: translate("fmeServerToken"), status: checkSteps.token },
+      { label: translate("fmeRepository"), status: checkSteps.repository },
+    ]
+
+    // Map step -> icon and color style
+    const getStatusIcon = (s: StepStatus): { color: React.CSSProperties } => {
+      switch (s) {
+        case "ok":
+          return { color: LOCAL_CSS.STATUS.COLOR.OK }
+        case "fail":
+          return { color: LOCAL_CSS.STATUS.COLOR.FAIL }
+        case "skip":
+          return { color: LOCAL_CSS.STATUS.COLOR.SKIP }
+        case "pending":
+        case "idle":
+          return { color: LOCAL_CSS.STATUS.COLOR.PENDING }
+      }
+    }
+
+    const StatusRow = ({
+      label,
+      status,
+    }: {
+      label: string
+      status: StepStatus
+    }) => {
+      const { color } = getStatusIcon(status)
       return (
-        <div css={css(LOCAL_CSS.W_FULL as any)}>
-          <Loading
-            className="w-100"
-            type={LoadingType.Bar}
-            text={translate("testingConnection") || undefined}
-          />
+        <div css={css(LOCAL_CSS.STATUS.ROW as any)}>
+          <div css={css(LOCAL_CSS.STATUS.LABEL_GROUP as any)}>
+            <>
+              {label}
+              {translate("colon")}
+            </>
+          </div>
+          <div css={css(color as any)}>
+            {status === "ok"
+              ? translate("ok")
+              : status === "fail"
+                ? translate("failed")
+                : status === "skip"
+                  ? translate("skipped")
+                  : translate("checking")}
+          </div>
         </div>
       )
     }
 
-    if (!testState.message) return null
-
-    const titleMap: { [key: string]: string } = {
-      success: translate("connectionOk"),
-      error: translate("connectionFailed"),
-      warning: translate("warningTitle"),
-    }
-    const title = titleMap[testState.type]
-
     return (
-      <Alert
-        banner
-        fullWidth
-        css={css(LOCAL_CSS.BG_TRANSPARENT as any)}
-        title={title}
-        text={testState.message}
-        type={testState.type}
-        withIcon
-        closable={false}
-      />
+      <div css={css(LOCAL_CSS.STATUS.CONTAINER as any)}>
+        {testState.isTesting && (
+          <Loading
+            type={LoadingType.Bar}
+            text={translate("testingConnection")}
+          />
+        )}
+
+        <div css={css(LOCAL_CSS.STATUS.LIST as any)}>
+          {rows.map((r, idx) => (
+            <StatusRow key={idx} label={r.label} status={r.status} />
+          ))}
+        </div>
+      </div>
     )
   }
 
@@ -693,7 +861,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           )}
         </SettingRow>
 
-        {/* Available repositories (always visible; disabled when empty) */}
+        {/* Available repositories */}
         <SettingRow
           flow="wrap"
           className="w-100"
@@ -702,29 +870,37 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Select
-            options={(availableRepos || []).map((r) => ({
-              label: r,
-              value: r,
-            }))}
+            options={(() => {
+              // Use availableRepos if present, otherwise fall back to localRepository
+              const src =
+                availableRepos && availableRepos.length > 0
+                  ? availableRepos
+                  : localRepository
+                    ? [localRepository]
+                    : []
+              // De-duplicate while preserving order
+              const seen = new Set<string>()
+              const opts: Array<{ label: string; value: string }> = []
+              for (const name of src) {
+                if (!seen.has(name)) {
+                  seen.add(name)
+                  opts.push({ label: name, value: name })
+                }
+              }
+              return opts
+            })()}
             value={localRepository || undefined}
             onChange={(val) => {
               const next = String(val ?? "")
-              try {
-                console.debug("[FME Setting] repo onChange", {
-                  prev: localRepository,
-                  next,
-                  availableRepos,
-                })
-              } catch {}
               setLocalRepository(next)
               updateConfig("repository", next)
-              const error = validateFmeRepository(val as string, availableRepos)
+              const error = validateRepository(val as string, availableRepos)
               setFieldErrors((prev) => ({
                 ...prev,
                 repository: error ? translate(error) : undefined,
               }))
             }}
-            disabled={!availableRepos || availableRepos.length === 0}
+            disabled={testState.isTesting || availableRepos === null}
             placeholder={"---"}
           />
         </SettingRow>
@@ -732,34 +908,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* Test connection */}
         <SettingRow flow="wrap" className="w-100">
           <Button
-            disabled={isTestConnectionDisabled()}
+            disabled={cannotTest()}
             alignText="center"
             text={
               testState.isTesting
                 ? translate("testing")
                 : translate("testConnection")
             }
-            onClick={() => runTestConnection(false)}
+            onClick={() => testConnection(false)}
           />
         </SettingRow>
-        {!testState.isTesting &&
-          availableRepos !== null &&
-          availableRepos.length === 0 &&
-          testState.type !== "error" && (
-            <SettingRow flow="wrap" className="w-100">
-              <Alert
-                banner
-                fullWidth
-                css={css(LOCAL_CSS.BG_TRANSPARENT as any)}
-                title={translate("noRepositoriesFound")}
-                text={translate("noRepositoriesFoundHelper")}
-                type="warning"
-                withIcon
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        {/* Connection status */}
         {testState.message && (
           <SettingRow flow="wrap" className="w-100">
             {renderConnectionStatus()}

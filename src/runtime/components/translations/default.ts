@@ -59,8 +59,7 @@ export default {
   // Dynamic form placeholders
   placeholderSelect: "Välj {field}...",
   placeholderEnter: "Ange {field}...",
-  reuseGeometry: "Återanvänd geometri",
-  download: "Ladda ner",
+  // Removed unused: reuseGeometry, download
   // Generic placeholders and a11y labels used in ui.tsx
   placeholderSelectGeneric: "Välj ett alternativ",
   ariaButtonLabel: "Knapp",
