@@ -116,7 +116,9 @@ describe("FmeFlowApiClient (api.ts)", () => {
 
     expect(endpoint).toContain("/fmerest/v3/transformations/submit/myrepo/myws")
 
-    const published = (options as any).query.publishedParameters as Array<{
+    const body = (options as any).body
+    const payload = typeof body === "string" ? JSON.parse(body) : body
+    const published = payload.publishedParameters as Array<{
       name: string
       value: any
     }>

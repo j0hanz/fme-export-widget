@@ -17,6 +17,7 @@ import Button, {
   ButtonGroup,
   ButtonTabs,
 } from "../runtime/components/ui"
+import { makeErrorView } from "../shared/types"
 
 describe("UI components", () => {
   const renderWithProviders = widgetRender(true)
@@ -148,14 +149,10 @@ describe("UI components", () => {
     const onAction = jest.fn()
     rerender(
       <StateView
-        state={
-          {
-            kind: "error",
-            message: "Oops",
-            code: "ERR",
-            actions: [{ label: "Retry", onClick: onAction }],
-          } as any
-        }
+        state={makeErrorView("Oops", {
+          code: "ERR",
+          actions: [{ label: "Retry", onClick: onAction }],
+        })}
       />
     )
     const alert = screen.getByRole("alert")

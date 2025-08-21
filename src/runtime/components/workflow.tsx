@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, getAppStore, css, jsx } from "jimu-core"
+import { React, hooks, getAppStore, jsx } from "jimu-core"
 import {
   Button,
   StateView,
@@ -11,9 +11,7 @@ import {
   Input,
   Checkbox,
   ButtonTabs,
-  UI_CLS,
-  Icon,
-  UI_CSS,
+  styles,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import runtimeMessages from "../translations/default"
@@ -30,19 +28,18 @@ import {
   type DynamicFieldConfig,
   type ApiResponse,
   type RepositoryItems,
-} from "../../shared/types"
-import {
   ViewMode,
   DrawingTool,
   makeLoadingView,
   makeEmptyView,
   ErrorType,
+  makeErrorView,
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
-import errorIcon from "jimu-icons/svg/outlined/suggested/wrong.svg"
+// error icon no longer used; render via StateView
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
@@ -50,76 +47,20 @@ import {
   ErrorHandlingService,
 } from "../../shared/services"
 
-// Workflow-specific styles (tokens)
-const CSS = {
-  parent: {
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-    height: "100%",
-    position: "relative" as const,
-    padding: "0.4rem",
-  } as React.CSSProperties,
-  header: {
-    display: "flex",
-    justifyContent: "end",
-    flexShrink: 0,
-  } as React.CSSProperties,
-  content: {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    flex: "1 1 auto",
-  } as React.CSSProperties,
-  state: {
-    centered: {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      height: "100%",
-      gap: "0.5rem",
-    } as React.CSSProperties,
-  },
-  typography: {
-    caption: {
-      fontSize: "0.8125rem",
-      opacity: 0.9,
-      margin: "0.5rem 0",
-    } as React.CSSProperties,
-    title: {
-      fontSize: "1rem",
-      fontWeight: 500,
-    } as React.CSSProperties,
-    instructionText: {
-      fontSize: "0.8125rem",
-      margin: "1rem 0",
-      textAlign: "center",
-    } as React.CSSProperties,
-  },
-  headerRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "1rem",
-    margin: "1rem 0",
-  } as React.CSSProperties,
-}
+// All styles now centralized via styles from ui.tsx
 
-// Emotion class names mirroring CSS tokens
-const CLS = {
-  parent: css(CSS.parent as any),
-  header: css(CSS.header as any),
-  content: css(CSS.content as any),
-  state: {
-    centered: css(CSS.state.centered as any),
-  },
-  typography: {
-    caption: css(CSS.typography.caption as any),
-    title: css(CSS.typography.title as any),
-    instructionText: css(CSS.typography.instructionText as any),
-  },
-  headerRow: css(CSS.headerRow as any),
-} as const
+// Debounce interval for workspace loading
+const DEBOUNCE_MS = 300
+
+// Abort helper to cancel in-flight workspace requests safely
+const abortCurrentLoad = (
+  ref: React.MutableRefObject<AbortController | null>
+): void => {
+  if (ref.current) {
+    ref.current.abort()
+    ref.current = null
+  }
+}
 
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
 const ERROR_NAMES = {
@@ -158,8 +99,10 @@ const formatApiError = (
   translate: (key: string) => string,
   baseMessage: string
 ): string | null => {
+  const errName = (err as { name?: string } | null)?.name
   if (
-    (err as { name?: string } | null)?.name === ERROR_NAMES.CANCELLED_PROMISE ||
+    errName === ERROR_NAMES.CANCELLED_PROMISE ||
+    errName === ERROR_NAMES.ABORT ||
     !isMountedRef.current
   ) {
     return null
@@ -172,6 +115,23 @@ const formatApiError = (
         : translate("unknownErrorOccurred")
   return `${translate(baseMessage)}: ${errorMessage}`
 }
+
+// Workspace list helpers: filter by type and sort deterministically
+const filterWorkspaces = (
+  items: readonly WorkspaceItem[] | undefined
+): readonly WorkspaceItem[] => {
+  if (!items || items.length === 0) return []
+  return items.filter((i) => i.type === WORKSPACE_ITEM_TYPE)
+}
+
+const sortWorkspaces = (
+  items: readonly WorkspaceItem[]
+): readonly WorkspaceItem[] =>
+  items.slice().sort((a, b) =>
+    (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+      sensitivity: "base",
+    })
+  )
 
 // Check if reset button should be enabled
 const canReset = (
@@ -312,7 +272,7 @@ const OrderResult = React.memo(function OrderResult({
         ? String(value)
         : JSON.stringify(value)
     rows.push(
-      <div css={CLS.typography.caption} key={label || display}>
+      <div css={styles.typography.caption} key={label || display}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -342,20 +302,22 @@ const OrderResult = React.memo(function OrderResult({
 
   return (
     <>
-      <div css={CLS.typography.title}>{titleText}</div>
+      <div css={styles.typography.title}>{titleText}</div>
       {rows}
       {showDownloadLink && (
-        <div css={CLS.typography.caption}>
+        <div css={styles.typography.caption}>
+          {translate("downloadReady")}:{" "}
           <a
             href={orderResult.downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
+            css={styles.typography.link}
           >
-            {translate("downloadResult")}
+            {translate("clickToDownload")}
           </a>
         </div>
       )}
-      {showMessage && <div css={CLS.typography.caption}>{messageText}</div>}
+      {showMessage && <div css={styles.typography.caption}>{messageText}</div>}
       <Button
         text={buttonText}
         onClick={buttonHandler}
@@ -612,7 +574,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
   isModulesLoading,
-  canStartDrawing,
+  canStartDrawing: _canStartDrawing,
   error,
   onFormBack,
   onFormSubmit,
@@ -639,7 +601,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   workspaceParameters,
   workspaceItem,
   // Startup validation props
-  isStartupValidating,
+  isStartupValidating: _isStartupValidating,
   startupValidationStep,
   startupValidationError,
   onRetryValidation,
@@ -672,58 +634,78 @@ export const Workflow: React.FC<WorkflowProps> = ({
       code?: string,
       supportText?: string
     ) => {
-      const buttonText = onRetry ? translate("retry") : translate("back")
-      const buttonHandler = onRetry || onBack || noOp
+      // Build actions based on provided callbacks
+      const actions: Array<{ label: string; onClick: () => void }> = []
+      if (onRetry) {
+        actions.push({ label: translate("retry"), onClick: onRetry })
+      } else if (onBack) {
+        actions.push({ label: translate("back"), onClick: onBack })
+      }
+
+      // Extract email from support text or config
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const tokenRegex = /\{\s*email\s*\}/i
+      const configuredEmail = String(config?.supportEmail || "").trim()
+      const configuredIsEmail = emailRegex.test(configuredEmail)
+
+      const emailMatch = supportText?.match(emailRegex)
+      const email = emailMatch?.[0]
+        ? emailMatch[0]
+        : tokenRegex.test(supportText || "") && configuredIsEmail
+          ? configuredEmail
+          : undefined
+
+      // Compose the final message
+      let composedMessage = message
+      // If support text is provided, append it
+      if (supportText && !email) {
+        const supportHint = tokenRegex.test(supportText)
+          ? translateRuntime("contactSupport")
+          : supportText
+        composedMessage = `${message} ${supportHint}`
+      }
 
       return (
-        <>
-          <div css={CLS.headerRow}>
-            <div css={UI_CSS.CSS.ICON_ALIGN}>
-              <Icon
-                src={errorIcon}
-                size={UI_CSS.ICON.SIZE.L}
-                ariaLabel={translate("errorTitle")}
-              />
-              <div css={CLS.typography.title}>{translate("errorTitle")}</div>
-            </div>
-            {code ? <div css={CLS.typography.caption}>{code}</div> : null}
-          </div>
-          {/* Support message and contact email, with accessible emphasis for the address */}
-          <div css={CLS.typography.caption}>
-            {(() => {
-              const text = supportText || message
-              // If text contains an email, split and emphasize it as a mailto link
-              const emailMatch =
-                text && text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)
-              if (emailMatch) {
-                const email = emailMatch[0]
-                const [before, after] = text.split(email)
-                return (
-                  <>
-                    {before}
-                    <a
-                      href={`mailto:${email}`}
-                      css={UI_CLS.TYPOGRAPHY.LINK}
-                      aria-label={translateRuntime(
-                        "contactSupportWithEmail"
-                      ).replace("{email}", email)}
-                    >
-                      {email}
-                    </a>
-                    {after}
-                  </>
-                )
-              }
-              return text
-            })()}
-          </div>
-          <Button
-            text={buttonText}
-            onClick={buttonHandler}
-            logging={{ enabled: true, prefix: "FME-Export" }}
-            tooltipPlacement="bottom"
-          />
-        </>
+        <StateView
+          state={makeErrorView(composedMessage, { code, actions })}
+          renderActions={(act, ariaLabel) => {
+            // Render actions with email link if available
+            const actionsCount = act?.length ?? 0
+            return (
+              <div
+                role="group"
+                aria-label={ariaLabel}
+                data-actions-count={actionsCount}
+              >
+                {email &&
+                  (() => {
+                    // Render email link with translation
+                    const template = translateRuntime("contactSupportWithEmail")
+                    const parts = template.split(tokenRegex)
+                    const before = parts[0] || ""
+                    const after = parts[1] || ""
+                    return (
+                      <div>
+                        {before}
+                        <a
+                          href={`mailto:${email}`}
+                          css={styles.typography.link}
+                          aria-label={translateRuntime(
+                            "contactSupportWithEmail",
+                            { email }
+                          )}
+                        >
+                          {email}
+                        </a>
+                        {after}
+                      </div>
+                    )
+                  })()}
+              </div>
+            )
+          }}
+          center={false}
+        />
       )
     }
   )
@@ -760,10 +742,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return () => {
       isMountedRef.current = false
       // Cancel any pending workspace requests
-      if (loadAbortRef.current) {
-        loadAbortRef.current.abort()
-        loadAbortRef.current = null
-      }
+      abortCurrentLoad(loadAbortRef)
       // Clear any pending scheduled load timeout
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current)
@@ -778,9 +757,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (!fmeClient || !config?.repository) return
 
     // Cancel any existing request
-    if (loadAbortRef.current) {
-      loadAbortRef.current.abort()
-    }
+    abortCurrentLoad(loadAbortRef)
     loadAbortRef.current = new AbortController()
 
     setIsLoadingWorkspaces(true)
@@ -801,23 +778,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (loadAbortRef.current?.signal.aborted) return
 
       if (response.status === 200 && response.data.items) {
-        const items = response.data.items.filter(
-          (i) => i.type === WORKSPACE_ITEM_TYPE
-        )
-        // Sort deterministically by title or name (case-insensitive)
-        const sorted = items.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        )
+        const items = filterWorkspaces(response.data.items as readonly any[])
+        const sorted = sortWorkspaces(items)
         if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: unknown) {
-      // Don't show error if request was aborted
-      if ((err as { name?: string })?.name === ERROR_NAMES.ABORT) return
-
       const errorMsg = formatApiError(
         err,
         isMountedRef,
@@ -840,9 +807,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const fmeClient = getFmeClient()
       if (!fmeClient || !config?.repository) return
       // Cancel any existing request
-      if (loadAbortRef.current) {
-        loadAbortRef.current.abort()
-      }
+      abortCurrentLoad(loadAbortRef)
       loadAbortRef.current = new AbortController()
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
@@ -873,6 +838,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
         if (errorMsg) setWorkspaceError(errorMsg)
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
+        // Clear the abort controller reference
+        loadAbortRef.current = null
       }
     }
   )
@@ -904,7 +871,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     loadTimeoutRef.current = setTimeout(() => {
       loadWsList()
       loadTimeoutRef.current = null
-    }, 300) // 300ms debounce delay
+    }, DEBOUNCE_MS)
   })
 
   // Lazy load
@@ -961,7 +928,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Main content
     return (
-      <div css={CLS.state.centered}>
+      <div css={styles.centered}>
         {/* Drawing mode */}
         <ButtonTabs
           items={getDrawingModeItems()}
@@ -976,7 +943,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div css={CLS.typography.instructionText}>{instructionText}</div>
+    <div css={styles.typography.instruction}>{instructionText}</div>
   )
 
   const renderSelection = () => {
@@ -1014,7 +981,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Content
     return (
-      <div css={UI_CLS.BTN.DEFAULT} role="list">
+      <div css={styles.button.default} role="list">
         {renderWsButtons()}
       </div>
     )
@@ -1053,11 +1020,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (state === ViewMode.STARTUP_VALIDATION) {
       // Show validation error if exists
       if (startupValidationError) {
+        // Pass raw email so the error renderer can detect it and build an accessible mailto link.
+        // If no email is configured, provide a generic support phrase.
         const fallbackSupport = config?.supportEmail
-          ? translateRuntime("contactSupportWithEmail").replace(
-              "{email}",
-              String(config.supportEmail)
-            )
+          ? String(config.supportEmail)
           : translateRuntime("contactSupport")
         return renderError(
           startupValidationError.message,
@@ -1074,11 +1040,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       // Show loading state during validation
       const loadingMessage =
         startupValidationStep || translate("validatingStartup")
-      return (
-        <div css={CLS.state.centered}>
-          <StateView state={makeLoadingView(loadingMessage)} />
-        </div>
-      )
+      return <StateView state={makeLoadingView(loadingMessage)} />
     }
 
     // Order result
@@ -1126,7 +1088,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         // If drawing is not allowed, show error
         if (isDrawing && (clickCount || 0) === 0) {
           return (
-            <div css={CLS.state.centered}>
+            <div css={styles.centered}>
               <ButtonTabs
                 items={getDrawingModeItems()}
                 value={drawingMode}
@@ -1159,9 +1121,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   return (
-    <div css={CLS.parent}>
-      <div css={CLS.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div css={CLS.content}>{renderCurrent()}</div>
+    <div css={styles.parent}>
+      <div css={styles.header}>{showHeaderActions ? renderHeader() : null}</div>
+      <div css={styles.content}>{renderCurrent()}</div>
     </div>
   )
 }

@@ -165,6 +165,15 @@ export const initialFmeState: FmeWidgetState = {
 
 // Reducer helpers
 const helpers = {
+  getErrorField: (
+    type: FmeActionType
+  ): "error" | "importError" | "exportError" =>
+    type === FmeActionType.SET_ERROR
+      ? "error"
+      : type === FmeActionType.SET_IMPORT_ERROR
+        ? "importError"
+        : "exportError",
+
   setView: (
     state: ImmutableObject<FmeWidgetState>,
     newViewMode: ViewMode
@@ -223,13 +232,7 @@ const helpers = {
     state: ImmutableObject<FmeWidgetState>,
     action: { type: FmeActionType; error: ErrorState | null }
   ): ImmutableObject<FmeWidgetState> => {
-    const errorField =
-      action.type === FmeActionType.SET_ERROR
-        ? "error"
-        : action.type === FmeActionType.SET_IMPORT_ERROR
-          ? "importError"
-          : "exportError"
-
+    const errorField = helpers.getErrorField(action.type)
     return state.set(errorField, action.error)
   },
 }

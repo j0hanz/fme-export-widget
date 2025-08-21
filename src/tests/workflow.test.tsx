@@ -280,7 +280,7 @@ describe("Workflow component", () => {
     screen.getByText("Validating connection...")
     unmount1()
 
-    // Error state with retry button
+    // Error state: no retry button is rendered anymore
     const validationError = {
       message: "Configuration error",
       severity: "error" as any,
@@ -298,8 +298,11 @@ describe("Workflow component", () => {
       />
     )
 
-    const retryBtn = screen.getByRole("button", { name: /Försök igen/i })
-    fireEvent.click(retryBtn)
-    expect(onRetryValidation).toHaveBeenCalled()
+    const retryBtn = screen.queryByRole("button", { name: /Försök igen/i })
+    expect(retryBtn).toBeNull()
+    // Confirm an alert is shown with the error message
+    const alert = screen.getByRole("alert")
+    expect(alert).toBeTruthy()
+    expect(alert.textContent || "").toMatch(/Configuration error/i)
   })
 })

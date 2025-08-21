@@ -49,6 +49,20 @@ export const makeEmptyView = (
   message: string,
   actions?: readonly ViewAction[]
 ): EmptyView => ({ kind: "empty", message, actions })
+export const makeErrorView = (
+  message: string,
+  opts?: {
+    code?: string
+    actions?: readonly ViewAction[]
+    recoverable?: boolean
+  }
+): ErrorView => ({
+  kind: "error",
+  message,
+  code: opts?.code,
+  actions: opts?.actions,
+  recoverable: opts?.recoverable,
+})
 
 // UI Component Interfaces
 export interface ButtonProps {
@@ -241,6 +255,24 @@ export interface IconProps {
   readonly className?: string
   readonly ariaLabel?: string
   readonly style?: React.CSSProperties
+}
+
+// Props for StateView component
+export interface StateViewProps {
+  readonly state: ViewState
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  /** Layout for action buttons; currently only column is supported */
+  readonly actionsLayout?: "column"
+  /** Optional custom renderer for actions */
+  readonly renderActions?: (
+    actions: readonly ViewAction[] | undefined,
+    ariaLabel: string
+  ) => React.ReactElement | null
+  /** Optional test id for e2e and unit tests */
+  readonly testId?: string
+  /** Center content vertically; defaults to true for loading, false otherwise */
+  readonly center?: boolean
 }
 
 // Parameter primitives and values used by dynamic forms

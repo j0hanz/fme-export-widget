@@ -28,17 +28,17 @@ jest.mock("jimu-ui/advanced/setting-components", () => {
 
 // Mock UI kit used in Setting to simple HTML primitives
 jest.mock("../runtime/components/ui", () => {
-  const UI_CSS = {
-    TYPOGRAPHY: {
-      REQUIRED: { color: "#d93025", marginLeft: 4 },
-    },
-    A11Y: {
-      REQUIRED: "*",
-    },
+  const styles = {
+    required: { color: "#d93025", marginLeft: 4 },
+  }
+
+  const config = {
+    required: "*",
   }
 
   return {
-    UI_CSS,
+    styles,
+    config,
     Tooltip: ({ children }: any) => <span>{children}</span>,
     Button: ({ text, onClick, disabled }: any) => (
       <button aria-label={text} disabled={disabled} onClick={onClick}>

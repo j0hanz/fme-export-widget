@@ -13,7 +13,8 @@ import {
   Input,
   Select,
   Tooltip,
-  UI_CSS,
+  required,
+  config as uiConfig,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -27,6 +28,21 @@ import { FmeFlowApiError } from "../shared/types"
 
 function isFmeFlowApiError(err: unknown): err is FmeFlowApiError {
   return err instanceof FmeFlowApiError
+}
+
+// Narrowing helpers to avoid any and centralize safe access
+function hasMessage(x: unknown): x is { message?: unknown } {
+  return typeof x === "object" && x !== null && "message" in x
+}
+
+function getErrorMessage(err: unknown): string {
+  if (
+    hasMessage(err) &&
+    (typeof err.message === "string" || typeof err.message === "number")
+  ) {
+    return String(err.message)
+  }
+  return ""
 }
 
 function extractErrorCode(err: unknown): string {
@@ -48,7 +64,7 @@ function getHttpStatus(err: unknown): number | undefined {
   if (typeof rawStatus === "number") return rawStatus
 
   // Fallback: attempt to parse from message text
-  const msg = String((e?.message as string) || "")
+  const msg = getErrorMessage(err)
   const statusMatch =
     msg.match(/status:\s*(\d{3})/i) ||
     msg.match(
@@ -72,7 +88,8 @@ function validateServerUrl(url: string): string | null {
   try {
     const u = new URL(url.trim())
     if (!/^https?:$/i.test(u.protocol)) return "errorInvalidServerUrl"
-    if (/\/fmerest\b/i.test(u.pathname)) return "errorBadBaseUrl"
+    if (/\/fmerest\b/i.test(u.pathname) || /\/fmeserver\b/i.test(u.pathname))
+      return "errorBadBaseUrl"
     return null
   } catch {
     return "errorInvalidServerUrl"
@@ -101,7 +118,13 @@ function validateRepository(
   return null
 }
 
-const STATUS_ERROR_MAP: { [status: number]: string } = {
+// Centralized email validation (returns i18n key or null)
+function validateEmail(email: string): string | null {
+  if (!email) return null
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? null : "errorInvalidEmail"
+}
+
+const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
   401: "errorUnauthorized",
   403: "errorUnauthorized",
   404: "errorNotFound",
@@ -116,7 +139,7 @@ const STATUS_ERROR_MAP: { [status: number]: string } = {
 
 function getStatusErrorMessage(
   status: number,
-  translate: (key: string, params?: any) => string
+  translate: (key: string, params?: { [key: string]: unknown }) => string
 ): string {
   const errorKey = STATUS_ERROR_MAP[status]
 
@@ -142,7 +165,7 @@ function getStatusErrorMessage(
 
 function mapStatusToFieldErrors(
   status: number | undefined,
-  translate: (key: string, params?: any) => string
+  translate: (key: string, params?: { [key: string]: unknown }) => string
 ): Partial<{ serverUrl: string; token: string }> {
   if (status === undefined) return {}
 
@@ -179,6 +202,45 @@ function useStringConfigValue(config: IMWidgetConfig) {
   )
 }
 
+// Local CSS styles for the setting UI
+const CSS = {
+  ALERT_INLINE: {
+    padding: "0 0.4rem",
+    opacity: 0.8,
+  } as React.CSSProperties,
+  STATUS: {
+    CONTAINER: {
+      width: "100%",
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+    } as React.CSSProperties,
+    LIST: {
+      display: "grid",
+      rowGap: 6,
+      opacity: 0.8,
+      backgroundColor: "#181818",
+      padding: 6,
+      borderRadius: 2,
+    } as React.CSSProperties,
+    ROW: {
+      display: "flex",
+      justifyContent: "space-between",
+      lineHeight: 2,
+    } as React.CSSProperties,
+    LABEL_GROUP: {
+      display: "flex",
+      alignItems: "center",
+    } as React.CSSProperties,
+    COLOR: {
+      OK: { color: "#09cf74" },
+      FAIL: { color: "#e1001b" },
+      SKIP: { color: "#ffea1d" },
+      PENDING: { color: "#089bdc" },
+    } as { [k: string]: React.CSSProperties },
+  },
+} as const
+
 // Small helper to centralize config updates
 function useUpdateConfig(
   id: string,
@@ -201,45 +263,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const translate = hooks.useTranslation(defaultMessages)
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
-
-  // Local styles for the setting UI
-  const LOCAL_CSS = {
-    ALERT_INLINE: {
-      padding: "0 0.4rem",
-      opacity: 0.8,
-    } as React.CSSProperties,
-    STATUS: {
-      CONTAINER: {
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-      } as React.CSSProperties,
-      LIST: {
-        display: "grid",
-        rowGap: 6,
-        opacity: 0.8,
-        backgroundColor: "#181818",
-        padding: 6,
-        borderRadius: 2,
-      } as React.CSSProperties,
-      ROW: {
-        display: "flex",
-        justifyContent: "space-between",
-        lineHeight: 2,
-      } as React.CSSProperties,
-      LABEL_GROUP: {
-        display: "flex",
-        alignItems: "center",
-      } as React.CSSProperties,
-      COLOR: {
-        OK: { color: "#09cf74" },
-        FAIL: { color: "#e1001b" },
-        SKIP: { color: "#ffea1d" },
-        PENDING: { color: "#089bdc" },
-      } as { [k: string]: React.CSSProperties },
-    },
-  } as const
 
   // Consolidated test state
   const [testState, setTestState] = React.useState<TestState>({
@@ -286,7 +309,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const processError = hooks.useEventCallback((err: unknown): string => {
     const code = extractErrorCode(err)
     const status = isFmeFlowApiError(err) ? err.status : getHttpStatus(err)
-    const raw = String((err as any)?.message || "")
+    const raw = getErrorMessage(err)
 
     if (code === "INVALID_RESPONSE_FORMAT") {
       return `${translate("errorInvalidResponse")} ${translate("errorInvalidResponseHelper")}`
@@ -310,19 +333,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   }
 
   // Render required label with tooltip
-  const REQUIRED_CLS = css(UI_CSS.TYPOGRAPHY.REQUIRED as any)
   const renderRequiredLabel = hooks.useEventCallback(
     (labelText: string): React.ReactNode => (
       <>
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
           <span
-            css={REQUIRED_CLS}
+            css={required}
             aria-label={translate("ariaRequired")}
             role="img"
             aria-hidden={false}
           >
-            {UI_CSS.A11Y.REQUIRED}
+            {uiConfig.required}
           </span>
         </Tooltip>
       </>
@@ -333,7 +355,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const sanitizeUrl = hooks.useEventCallback(
     (rawUrl: string): { cleaned: string; changed: boolean } => {
       try {
-        const u = new URL(rawUrl)
+        const trimmed = (rawUrl || "").trim()
+        const u = new URL(trimmed)
         let path = u.pathname || "/"
         const lower = path.toLowerCase()
         const idxServer = lower.indexOf("/fmeserver")
@@ -342,7 +365,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         else if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
         const cleaned = new URL(u.origin + path).toString().replace(/\/$/, "")
         const changed =
-          cleaned !== rawUrl.replace(/\/$/, "") &&
+          cleaned !== trimmed.replace(/\/$/, "") &&
           (idxServer >= 0 || idxRest >= 0)
         return { cleaned, changed }
       } catch {
@@ -371,10 +394,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const repositoryError = skipRepoCheck
       ? null
       : validateRepository(repository, availableRepos)
-    const emailError =
-      supportEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail)
-        ? "errorInvalidEmail"
-        : null
+    const emailError = validateEmail(supportEmail)
 
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
@@ -419,11 +439,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Check if test connection button should be disabled
-  const cannotTest = (): boolean => {
+  const cannotTest = hooks.useEventCallback((): boolean => {
     if (testState.isTesting) return true
     // Only require presence; format issues will be surfaced but not block testing
     return !localServerUrl || !localToken
-  }
+  })
 
   // Centralized Test Connection action (reused by button and auto-run)
   const testConnection = hooks.useEventCallback(async (silent = false) => {
@@ -630,12 +650,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const se = getStringConfig("supportEmail") || ""
     if (se !== localSupportEmail) setLocalSupportEmail(se)
     // Keep server URL and token in sync
+    const su = getStringConfig("fmeServerUrl") || ""
+    if (su !== localServerUrl) setLocalServerUrl(su)
+    const tk = getStringConfig("fmeServerToken") || ""
+    if (tk !== localToken) setLocalToken(tk)
   }, [
     config?.repository,
     config?.supportEmail,
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
     getStringConfig,
     localRepository,
     localSupportEmail,
+    localServerUrl,
+    localToken,
   ])
 
   // Fetch repository list when server URL or token changes
@@ -728,14 +756,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const getStatusIcon = (s: StepStatus): { color: React.CSSProperties } => {
       switch (s) {
         case "ok":
-          return { color: LOCAL_CSS.STATUS.COLOR.OK }
+          return { color: CSS.STATUS.COLOR.OK }
         case "fail":
-          return { color: LOCAL_CSS.STATUS.COLOR.FAIL }
+          return { color: CSS.STATUS.COLOR.FAIL }
         case "skip":
-          return { color: LOCAL_CSS.STATUS.COLOR.SKIP }
+          return { color: CSS.STATUS.COLOR.SKIP }
         case "pending":
         case "idle":
-          return { color: LOCAL_CSS.STATUS.COLOR.PENDING }
+          return { color: CSS.STATUS.COLOR.PENDING }
       }
     }
 
@@ -748,8 +776,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }) => {
       const { color } = getStatusIcon(status)
       return (
-        <div css={css(LOCAL_CSS.STATUS.ROW as any)}>
-          <div css={css(LOCAL_CSS.STATUS.LABEL_GROUP as any)}>
+        <div css={css(CSS.STATUS.ROW as any)}>
+          <div css={css(CSS.STATUS.LABEL_GROUP as any)}>
             <>
               {label}
               {translate("colon")}
@@ -769,7 +797,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     return (
-      <div css={css(LOCAL_CSS.STATUS.CONTAINER as any)}>
+      <div css={css(CSS.STATUS.CONTAINER as any)}>
         {testState.isTesting && (
           <Loading
             type={LoadingType.Bar}
@@ -777,9 +805,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
         )}
 
-        <div css={css(LOCAL_CSS.STATUS.LIST as any)}>
-          {rows.map((r, idx) => (
-            <StatusRow key={idx} label={r.label} status={r.status} />
+        <div css={css(CSS.STATUS.LIST as any)}>
+          {rows.map((r) => (
+            <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
         </div>
       </div>
@@ -820,8 +848,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                css={css(LOCAL_CSS.ALERT_INLINE as any)}
-                text={translate("errorInvalidServerUrl")}
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.serverUrl}
                 type="error"
                 closable={false}
               />
@@ -852,8 +880,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                css={css(LOCAL_CSS.ALERT_INLINE as any)}
-                text={translate("errorTokenIsInvalid")}
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.token}
                 type="error"
                 closable={false}
               />
@@ -938,10 +966,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onChange={(val) => {
               setLocalSupportEmail(val)
               updateConfig("supportEmail", val)
-              const err =
-                val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)
-                  ? translate("errorInvalidEmail")
-                  : undefined
+              const errKey = validateEmail(val)
+              const err = errKey ? translate(errKey) : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
             }}
             placeholder={translate("supportEmailPlaceholder")}
@@ -951,7 +977,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" className="w-100">
               <Alert
                 fullWidth
-                css={css(LOCAL_CSS.ALERT_INLINE as any)}
+                css={css(CSS.ALERT_INLINE as any)}
                 text={translate("errorInvalidEmail")}
                 type="error"
                 closable={false}

@@ -31,6 +31,17 @@ const isNum = (value: unknown): boolean => !isNaN(Number(value))
 const makeValError = (fieldName: string, errorType: string): string =>
   `${fieldName}:${errorType}`
 
+// Small helpers to reduce duplication
+const hasListOptions = (param: WorkspaceParameter): boolean =>
+  Array.isArray(param.listOptions) && param.listOptions.length > 0
+
+const isMultiListParam = (param: WorkspaceParameter): boolean =>
+  param.type === ParameterType.LISTBOX ||
+  param.type === ParameterType.LOOKUP_LISTBOX
+
+const toArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : [value].filter(Boolean)
+
 // Error helper
 export class ErrorHandlingService {
   createError(
@@ -178,11 +189,8 @@ export class ParameterFormService {
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
     // Handle list-based parameters first
-    if (param.listOptions && param.listOptions.length > 0) {
-      if (
-        param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX
-      ) {
+    if (hasListOptions(param)) {
+      if (isMultiListParam(param)) {
         return FormFieldType.MULTI_SELECT
       }
       return FormFieldType.SELECT
@@ -265,20 +273,15 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (!param.listOptions || param.listOptions.length === 0) {
+    if (!hasListOptions(param)) {
       return null
     }
 
     const validValues = param.listOptions.map((opt) => opt.value)
 
-    if (
-      param.type === ParameterType.LISTBOX ||
-      param.type === ParameterType.LOOKUP_LISTBOX
-    ) {
-      const arr = Array.isArray(value) ? value : [value].filter(Boolean)
-      const invalid = (arr as unknown[]).filter(
-        (v) => !validValues.includes(v as any)
-      )
+    if (isMultiListParam(param)) {
+      const arr = toArray(value)
+      const invalid = arr.filter((v) => !validValues.includes(v as any))
       if (invalid.length) {
         return makeValError(param.name, "choice")
       }

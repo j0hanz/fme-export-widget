@@ -13,10 +13,9 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import { StateView, Button, UI_CLS } from "./components/ui"
+import { StateView, Button, styles } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
-import componentMessages from "./components/translations/default"
 import type {
   FmeExportConfig,
   EsriModules,
@@ -71,6 +70,25 @@ const MODULES: readonly string[] = [
 ] as const
 
 const FALLBACK_EMAIL = "no-reply@example.com"
+
+// Small utility helpers (behavior-preserving)
+const hasMessage = (x: unknown): x is { message?: unknown } =>
+  typeof x === "object" && x !== null && "message" in x
+
+const getErrorMessage = (err: unknown): string =>
+  hasMessage(err) &&
+  (typeof err.message === "string" || typeof err.message === "number")
+    ? String(err.message)
+    : ""
+
+const isThenable = (
+  v: unknown
+): v is { then: (...args: unknown[]) => unknown } =>
+  !!v &&
+  (typeof v === "object" || typeof v === "function") &&
+  typeof (v as { then?: unknown }).then === "function"
+
+// Note: Translations must come exclusively from default.ts files; no manual fallbacks
 
 // Area formatting thresholds
 const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
@@ -790,12 +808,9 @@ export default function Widget(
     config,
   } = props
   const translateWidget = hooks.useTranslation(defaultMessages)
-  const translateComponent = hooks.useTranslation(componentMessages)
   // Translation function
   const translate = hooks.useEventCallback((key: string): string => {
-    const widgetTranslation = translateWidget(key)
-    if (widgetTranslation !== key) return widgetTranslation
-    return translateComponent(key) || key
+    return translateWidget(key)
   })
 
   // Message component removed; use StateView + error state only
@@ -844,11 +859,9 @@ export default function Widget(
           error: errorService.createError(errorMsg, ErrorType.CONFIG, {
             code: "ConfigMissing",
             severity: ErrorSeverity.ERROR,
+            // Pass raw email; the error view will render an accessible mailto link
             userFriendlyMessage: config?.supportEmail
-              ? translate("contactSupportWithEmail").replace(
-                  "{email}",
-                  config.supportEmail
-                )
+              ? String(config.supportEmail)
               : translate("contactSupport"),
             suggestion: translate("retryValidation"),
           }),
@@ -876,9 +889,7 @@ export default function Widget(
   // Startup validation logic
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Reset any existing validation state
-    if (startupValidationAbortRef.current) {
-      startupValidationAbortRef.current.abort()
-    }
+    abortController(startupValidationAbortRef)
     startupValidationAbortRef.current = new AbortController()
     const signal = startupValidationAbortRef.current.signal
 
@@ -895,10 +906,8 @@ export default function Widget(
         const mapConfigError = errorService.createError(msg, ErrorType.CONFIG, {
           code: "MapNotConfigured",
           severity: ErrorSeverity.ERROR,
-          userFriendlyMessage: translate("mapSelectionRequired") || msg,
-          suggestion:
-            translate("openSettingsAndSelectMap") ||
-            translate("retryValidation"),
+          userFriendlyMessage: translate("mapSelectionRequired"),
+          suggestion: translate("openSettingsAndSelectMap"),
           retry: () => runStartupValidation(),
         })
         dispatch(fmeActions.setError(mapConfigError))
@@ -952,11 +961,9 @@ export default function Widget(
         {
           code,
           severity: ErrorSeverity.ERROR,
+          // Pass raw email; the error view will render an accessible mailto link
           userFriendlyMessage: props.config?.supportEmail
-            ? translate("contactSupportWithEmail").replace(
-                "{email}",
-                props.config.supportEmail
-              )
+            ? String(props.config.supportEmail)
             : translate("contactSupport"),
           suggestion: translate("retryValidation"),
           retry: () => runStartupValidation(),
@@ -973,10 +980,7 @@ export default function Widget(
 
     return () => {
       // Cleanup validation on unmount
-      if (startupValidationAbortRef.current) {
-        startupValidationAbortRef.current.abort()
-        startupValidationAbortRef.current = null
-      }
+      abortController(startupValidationAbortRef)
     }
   })
 
@@ -1086,7 +1090,8 @@ export default function Widget(
 
   // Handle submission error
   const handleSubmissionError = (error: unknown) => {
-    const errorMessage = (error as Error).message || "Unknown error occurred"
+    const errorMessage =
+      getErrorMessage(error) || translate("unknownErrorOccurred")
     const result: ExportResult = {
       success: false,
       message: `Failed to submit export order: ${errorMessage}`,
@@ -1251,11 +1256,7 @@ export default function Widget(
           tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
         const res = svm.create(arg)
         // Inline promise check since it's only used here
-        if (
-          res &&
-          (typeof res === "object" || typeof res === "function") &&
-          typeof (res as any).then === "function"
-        ) {
+        if (isThenable(res)) {
           ;(res as Promise<unknown>).catch(() => {
             /* ignore expected cancellation errors */
           })
@@ -1305,14 +1306,7 @@ export default function Widget(
 
     // Abort any ongoing submission
     abortController(submissionAbortRef)
-    if (startupValidationAbortRef.current) {
-      try {
-        startupValidationAbortRef.current.abort()
-      } catch {
-        /* noop */
-      }
-      startupValidationAbortRef.current = null
-    }
+    abortController(startupValidationAbortRef)
 
     // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
@@ -1384,30 +1378,21 @@ export default function Widget(
   if (reduxState.error && reduxState.error.severity === "error") {
     const e = reduxState.error
 
-    // Special minimal UI for missing map configuration: one centered message, no buttons
+    // Special case for map not configured
     if (e.code === "MapNotConfigured") {
-      // Prefer a friendly message; fallback to translation key, and finally a plain string
-      const translatedHint = translate("mapSelectionRequired")
+      // Use default message if no user-friendly message is provided
+      const defaultHint = translate("mapSelectionRequired")
       const friendly =
         e.userFriendlyMessage &&
         e.userFriendlyMessage !== "mapSelectionRequired"
           ? e.userFriendlyMessage
-          : translatedHint !== "mapSelectionRequired"
-            ? translatedHint
-            : "Select a map in the widget settings."
+          : defaultHint
 
       return (
-        <div
-          css={[UI_CLS.CSS.COL]}
-          style={{
-            height: "100%",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
+        <div css={styles.centered}>
           <div
-            css={UI_CLS.TYPOGRAPHY.CAPTION}
-            style={{ textAlign: "center", maxWidth: 420 }}
+            css={[styles.typography.caption, styles.textCenter]}
+            style={{ maxWidth: 420 }}
           >
             {friendly}
           </div>
@@ -1416,11 +1401,8 @@ export default function Widget(
     }
 
     // Default error UI (header + support text + retry)
-    const titleCls = UI_CLS.TYPOGRAPHY.TITLE
-    const captionCls = UI_CLS.TYPOGRAPHY.CAPTION
-    const headerRowCls = UI_CLS.CSS.HEADER_ROW_MIN
     const supportText = e.userFriendlyMessage || translate("contactSupport")
-    const messageText = translate(e.message) || e.message
+    const messageText = translate(e.message)
     const buttonText = translate("retry")
     const onAction = () => {
       if (e.retry) e.retry()
@@ -1428,12 +1410,12 @@ export default function Widget(
     }
 
     return (
-      <div css={[UI_CLS.CSS.COL, UI_CLS.CSS.GAP_SM, UI_CLS.CSS.PAD_SM]}>
-        <div css={headerRowCls}>
-          <div css={titleCls}>{translate("errorTitle")}</div>
-          {e.code ? <div css={titleCls}>{e.code}</div> : null}
+      <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
+        <div css={styles.headerRow}>
+          <div css={styles.typography.title}>{translate("errorTitle")}</div>
+          {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
         </div>
-        <div css={captionCls}>{supportText || messageText}</div>
+        <div css={styles.typography.caption}>{supportText || messageText}</div>
         <Button
           text={buttonText}
           onClick={onAction}

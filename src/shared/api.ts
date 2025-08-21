@@ -438,7 +438,8 @@ export class FmeFlowApiClient {
       () =>
         this.request<JobResponse>(endpoint, {
           method: HttpMethod.POST,
-          query: jobRequest,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(jobRequest),
           signal,
           cacheHint: false,
         }),
@@ -458,7 +459,8 @@ export class FmeFlowApiClient {
     const jobRequest = this.formatJobParams(parameters)
     return this.request<JobResult>(endpoint, {
       method: HttpMethod.POST,
-      query: jobRequest,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(jobRequest),
       signal,
     })
   }
@@ -549,7 +551,8 @@ export class FmeFlowApiClient {
   async runDataStreaming(
     workspace: string,
     parameters: PrimitiveParams = {},
-    repository?: string
+    repository?: string,
+    signal?: AbortSignal
   ): Promise<ApiResponse> {
     const targetRepository = this.resolveRepository(repository)
     const endpoint = this.buildServiceUrl(
@@ -565,6 +568,7 @@ export class FmeFlowApiClient {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
+          signal,
         })
       },
       "Failed to run data streaming",
