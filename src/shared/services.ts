@@ -6,9 +6,12 @@ import type {
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
 
-// Helper functions for parameter processing
+// Utility functions for parameter handling
 const isEmpty = (v: unknown): boolean =>
-  v === undefined || v === null || v === ""
+  v === undefined ||
+  v === null ||
+  v === "" ||
+  (Array.isArray(v) && v.length === 0)
 
 const filterUiParams = (
   parameters: readonly WorkspaceParameter[],

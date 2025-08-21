@@ -214,6 +214,21 @@ const syncForm = (values: FormValues): void => {
   dispatch(fmeActions.setFormValues(values))
 }
 
+// Remove leading label from validation error messages to avoid duplicate labels
+const stripLabelFromError = (
+  label: string,
+  errorText?: string
+): string | undefined => {
+  if (!errorText) return undefined
+  try {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(`^${escaped}\\s+`, "i")
+    return errorText.replace(re, "")
+  } catch {
+    return errorText
+  }
+}
+
 const renderInput = (
   type: "text" | "password" | "number",
   fieldValue: FormPrimitive,
@@ -453,10 +468,19 @@ const ExportForm = React.memo(function ExportForm({
     initValues(getFormConfig())
   )
   const [isValid, setIsValid] = React.useState(true)
+  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
     syncForm(values)
+  })
+
+  // Validate form on mount
+  hooks.useEffectOnce(() => {
+    const fc = getFormConfig()
+    const validation = parameterService.validateFormValues(values, fc)
+    setIsValid(validation.isValid)
+    setErrors(validation.errors)
   })
 
   // Validate form whenever values change
@@ -464,6 +488,7 @@ const ExportForm = React.memo(function ExportForm({
     const fc = getFormConfig()
     const validation = parameterService.validateFormValues(values, fc)
     setIsValid(validation.isValid)
+    setErrors(validation.errors)
   }, [values, parameterService, workspaceParameters, getFormConfig])
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
@@ -471,6 +496,7 @@ const ExportForm = React.memo(function ExportForm({
     const fc = getFormConfig()
     const nextValues = initValues(fc)
     setValues(nextValues)
+    setErrors({})
     setFileMap({})
     syncForm(nextValues)
   }, [workspaceName, workspaceParameters, getFormConfig])
@@ -555,8 +581,13 @@ const ExportForm = React.memo(function ExportForm({
       isValid={isValid}
       loading={isSubmitting}
     >
-      {getFormConfig().map((field) => (
-        <Field key={field.name} label={field.label} required={field.required}>
+      {getFormConfig().map((field: DynamicFieldConfig) => (
+        <Field
+          key={field.name}
+          label={field.label}
+          required={field.required}
+          error={stripLabelFromError(errors[field.name])}
+        >
           <DynamicField
             field={field}
             value={values[field.name]}
