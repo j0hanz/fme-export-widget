@@ -342,13 +342,14 @@ const BtnContent: React.FC<BtnContentProps> = ({
     ) : (
       (icon as React.ReactElement)
     )
-  const iconWithPosition = React.cloneElement(iconEl, {
-    style: {
-      ...iconEl.props?.style,
-      ...styles.button.icon,
-      [iconPosition]: config.button.offset,
-    },
-  })
+  const iconWithPosition = (
+    <span
+      css={[styles.button.icon, css({ [iconPosition]: config.button.offset })]}
+      aria-hidden="true"
+    >
+      {iconEl}
+    </span>
+  )
 
   return (
     <>
@@ -722,9 +723,6 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  const buttonStyle = jimuProps.style
-    ? { ...styles.relative, ...jimuProps.style }
-    : styles.relative
   const ariaLabel = getBtnAria(
     text,
     !!icon,
@@ -750,7 +748,9 @@ export const Button: React.FC<ButtonProps> = ({
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
-      style={buttonStyle}
+      /* Ensure absolute-positioned icon anchors to this button */
+      css={styles.relative}
+      style={{ position: "relative", ...(jimuProps.style as any) }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
