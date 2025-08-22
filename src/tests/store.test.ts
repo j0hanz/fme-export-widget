@@ -34,6 +34,15 @@ describe("FME store - Redux store extension and reducer", () => {
       viewMode: ViewMode.WORKSPACE_SELECTION,
     })
 
+    expect(
+      fmeActions.setStartupValidationState(true, "Testing...", null)
+    ).toEqual({
+      type: FmeActionType.SET_STARTUP_VALIDATION_STATE,
+      isValidating: true,
+      validationStep: "Testing...",
+      validationError: null,
+    })
+
     const err = {
       message: "boom",
       severity: ErrorSeverity.ERROR,
@@ -50,7 +59,10 @@ describe("FME store - Redux store extension and reducer", () => {
     const ext = new FmeReduxStoreExtension()
     const state = ext.getInitLocalState()
 
-    expect(state.viewMode).toBe(ViewMode.INITIAL)
+    expect(state.viewMode).toBe(ViewMode.STARTUP_VALIDATION)
+    expect(state.isStartupValidating).toBe(true)
+    expect(state.startupValidationStep).toBeUndefined()
+    expect(state.startupValidationError).toBeNull()
     expect(state.isDrawing).toBe(false)
     expect(state.drawnArea).toBe(0)
     expect(state.geometryJson).toBeNull()
@@ -69,7 +81,7 @@ describe("FME store - Redux store extension and reducer", () => {
 
       // Initial transition
       const s1 = reducer(state as any, fmeActions.setViewMode(ViewMode.DRAWING))
-      expect((s1 as any).previousViewMode).toBe(ViewMode.INITIAL)
+      expect((s1 as any).previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
       expect((s1 as any).viewMode).toBe(ViewMode.DRAWING)
 
       // No-op when unchanged
@@ -90,8 +102,52 @@ describe("FME store - Redux store extension and reducer", () => {
         .set("drawnArea", 100)
       const resetState = reducer(modifiedState as any, fmeActions.resetState())
       expect((resetState as any).isDrawing).toBe(false)
-      expect((resetState as any).viewMode).toBe(ViewMode.INITIAL)
+      expect((resetState as any).viewMode).toBe(ViewMode.STARTUP_VALIDATION)
       expect((resetState as any).drawnArea).toBe(0)
+    })
+
+    test("startup validation state management", () => {
+      let state = makeState()
+
+      // SET_STARTUP_VALIDATION_STATE updates validation fields
+      const validationError = {
+        message: "Config error",
+        severity: ErrorSeverity.ERROR,
+        type: ErrorType.CONFIG,
+        timestamp: new Date(0),
+      }
+
+      state = reducer(
+        state as any,
+        fmeActions.setStartupValidationState(
+          true,
+          "Validating connection...",
+          null
+        )
+      )
+      expect((state as any).isStartupValidating).toBe(true)
+      expect((state as any).startupValidationStep).toBe(
+        "Validating connection..."
+      )
+      expect((state as any).startupValidationError).toBeNull()
+
+      // Update with error
+      state = reducer(
+        state as any,
+        fmeActions.setStartupValidationState(false, undefined, validationError)
+      )
+      expect((state as any).isStartupValidating).toBe(false)
+      expect((state as any).startupValidationStep).toBeUndefined()
+      expect((state as any).startupValidationError).toEqual(validationError)
+
+      // Clear validation state
+      state = reducer(
+        state as any,
+        fmeActions.setStartupValidationState(false, undefined, null)
+      )
+      expect((state as any).isStartupValidating).toBe(false)
+      expect((state as any).startupValidationStep).toBeUndefined()
+      expect((state as any).startupValidationError).toBeNull()
     })
 
     test("drawing state and geometry management", () => {

@@ -1,30 +1,29 @@
 export default {
-  // Basic UI elements used in components
+  errorTitle: "Något gick fel",
   back: "Tillbaka",
   submit: "Beställ",
   cancel: "Avbryt",
   continue: "Fortsätt",
   ok: "OK",
   retry: "Försök igen",
-  specifyExtent: "Ange utbredning",
 
   // Order status and results used in content.tsx
-  orderConfirmation: "Beställning bekräftad",
+  orderConfirmation: "Beställningen är bekräftad",
   orderSentError: "Beställningen misslyckades",
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
-  notificationEmail: "E-postmeddelande",
+  notificationEmail: "E‑postmeddelande",
   downloadResult: "Ladda ner resultat",
-  emailNotificationSent: "Ett e-postmeddelande skickas när exporten är klar",
+  emailNotificationSent: "Ett e‑postmeddelande skickas när exporten är klar",
   reuseGeography: "Ny beställning",
   errorCode: "Felkod",
   orderResultMissing: "Inget tillgängligt",
 
   // Loading and status messages
-  submittingOrder: "Skickar beställning...",
-  preparingMapTools: "Förbereder kartverktyg...",
+  submittingOrder: "Skickar beställningen...",
+  preparingMapTools: "Förbereder kartverktygen...",
   loadingWorkspaces: "Laddar arbetsytor...",
-  loadingWorkspaceDetails: "Laddar arbetsytedetaljer...",
+  loadingWorkspaceDetails: "Laddar information om arbetsytan...",
 
   // Drawing mode related
   drawingModeTooltip: "Välj ritläge för att definiera området",
@@ -33,8 +32,7 @@ export default {
 
   // Tooltips used in ui.tsx and content.tsx
   tooltipBackToOptions: "Återgå till exportalternativ",
-  tooltipSubmitOrder: "Skicka beställning för bearbetning",
-  tooltipSpecifyExtent: "Klicka för att ange utbredning",
+  tooltipSubmitOrder: "Skicka beställningen för bearbetning",
   tooltipCancel: "Avbryt nuvarande åtgärd och börja om",
   tooltipReuseGeography: "Skapa ny beställning med samma geografi",
 
@@ -42,8 +40,9 @@ export default {
   widgetActions: "Widget-åtgärder",
 
   // Error messages used in content.tsx
-  failedToLoadWorkspaces: "Misslyckades med att ladda arbetsytor",
-  failedToLoadWorkspaceDetails: "Misslyckades med att ladda arbetsytedetaljer",
+  failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",
+  failedToLoadWorkspaceDetails:
+    "Det gick inte att ladda information om arbetsytan",
   unknownErrorOccurred: "Ett okänt fel inträffade",
   noWorkspacesFound: "Inga arbetsytor hittades i detta repository",
 
@@ -56,13 +55,12 @@ export default {
   configurationError: "Konfigurationsfel",
   missingExportConfiguration: "Saknar exportkonfiguration",
   exportFormRequiresConfiguration:
-    "Exportformulär kräver antingen arbetsyteparametrar eller exportvariant.",
+    "Exportformuläret kräver antingen arbetsyteparametrar eller en exportvariant.",
 
   // Dynamic form placeholders
   placeholderSelect: "Välj {field}...",
   placeholderEnter: "Ange {field}...",
-  reuseGeometry: "Återanvänd geometri",
-  download: "Ladda ner",
+  // Removed unused: reuseGeometry, download
   // Generic placeholders and a11y labels used in ui.tsx
   placeholderSelectGeneric: "Välj ett alternativ",
   ariaButtonLabel: "Knapp",

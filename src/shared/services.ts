@@ -2,12 +2,16 @@ import type {
   ErrorState,
   WorkspaceParameter,
   DynamicFieldConfig,
+  FmeFlowApiError,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
 
-// Helper functions for parameter processing
+// Utility functions for parameter handling
 const isEmpty = (v: unknown): boolean =>
-  v === undefined || v === null || v === ""
+  v === undefined ||
+  v === null ||
+  v === "" ||
+  (Array.isArray(v) && v.length === 0)
 
 const filterUiParams = (
   parameters: readonly WorkspaceParameter[],
@@ -30,6 +34,17 @@ const isNum = (value: unknown): boolean => !isNaN(Number(value))
 const makeValError = (fieldName: string, errorType: string): string =>
   `${fieldName}:${errorType}`
 
+// Small helpers to reduce duplication
+const hasListOptions = (param: WorkspaceParameter): boolean =>
+  Array.isArray(param.listOptions) && param.listOptions.length > 0
+
+const isMultiListParam = (param: WorkspaceParameter): boolean =>
+  param.type === ParameterType.LISTBOX ||
+  param.type === ParameterType.LOOKUP_LISTBOX
+
+const toArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : [value].filter(Boolean)
+
 // Error helper
 export class ErrorHandlingService {
   createError(
@@ -51,6 +66,8 @@ export class ErrorHandlingService {
       details,
       recoverable = false,
       retry,
+      userFriendlyMessage,
+      suggestion,
     } = options
 
     return {
@@ -62,6 +79,67 @@ export class ErrorHandlingService {
       recoverable,
       retry,
       timestamp: new Date(),
+      userFriendlyMessage,
+      suggestion,
+    }
+  }
+
+  // Derives startup validation error information from various error types
+  deriveStartupError(
+    error: unknown,
+    translate: (key: string) => string
+  ): { code: string; message: string } {
+    const fmeErr = error as FmeFlowApiError
+    const status = (fmeErr && fmeErr.status) || (error as any)?.status
+    const msg = (error as Error)?.message || ""
+
+    // Network/timeout heuristics
+    const isTimeout =
+      /timeout/i.test(msg) || (error as any)?.code === "ETIMEDOUT"
+    const isNetwork = /network/i.test(msg) || /Failed to fetch/i.test(msg)
+    const isNonJson = /Unexpected token|JSON|parse/i.test(msg)
+
+    if (typeof status === "number") {
+      if (status === 401 || status === 403) {
+        return {
+          code: `TokenInvalid (${status})`,
+          message: translate("authenticationFailed"),
+        }
+      }
+      if (status === 404) {
+        return {
+          code: "RepoNotFound (404)",
+          message: translate("connectionFailed"),
+        }
+      }
+      if (status >= 500) {
+        return {
+          code: `ServerError (${status})`,
+          message: translate("connectionFailed"),
+        }
+      }
+      return {
+        code: `FmeServerError (${status})`,
+        message: translate("startupValidationFailed"),
+      }
+    }
+
+    if (isTimeout)
+      return { code: "Timeout", message: translate("connectionFailed") }
+    if (isNetwork)
+      return { code: "NetworkError", message: translate("connectionFailed") }
+    if ((error as Error)?.name === "TypeError") {
+      return { code: "NetworkError", message: translate("connectionFailed") }
+    }
+    if (isNonJson)
+      return {
+        code: "BadResponse",
+        message: translate("startupValidationFailed"),
+      }
+
+    return {
+      code: "StartupError",
+      message: translate("startupValidationFailed"),
     }
   }
 }
@@ -114,11 +192,8 @@ export class ParameterFormService {
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
     // Handle list-based parameters first
-    if (param.listOptions && param.listOptions.length > 0) {
-      if (
-        param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX
-      ) {
+    if (hasListOptions(param)) {
+      if (isMultiListParam(param)) {
         return FormFieldType.MULTI_SELECT
       }
       return FormFieldType.SELECT
@@ -201,20 +276,15 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (!param.listOptions || param.listOptions.length === 0) {
+    if (!hasListOptions(param)) {
       return null
     }
 
     const validValues = param.listOptions.map((opt) => opt.value)
 
-    if (
-      param.type === ParameterType.LISTBOX ||
-      param.type === ParameterType.LOOKUP_LISTBOX
-    ) {
-      const arr = Array.isArray(value) ? value : [value].filter(Boolean)
-      const invalid = (arr as unknown[]).filter(
-        (v) => !validValues.includes(v as any)
-      )
+    if (isMultiListParam(param)) {
+      const arr = toArray(value)
+      const invalid = arr.filter((v) => !validValues.includes(v as any))
       if (invalid.length) {
         return makeValError(param.name, "choice")
       }

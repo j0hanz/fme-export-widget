@@ -116,7 +116,9 @@ describe("FmeFlowApiClient (api.ts)", () => {
 
     expect(endpoint).toContain("/fmerest/v3/transformations/submit/myrepo/myws")
 
-    const published = (options as any).query.publishedParameters as Array<{
+    const body = (options as any).body
+    const payload = typeof body === "string" ? JSON.parse(body) : body
+    const published = payload.publishedParameters as Array<{
       name: string
       value: any
     }>
@@ -256,7 +258,13 @@ describe("FmeFlowApiClient (api.ts)", () => {
 
     await client.runDataDownload(
       "ws",
-      { foo: "bar", opt_servicemode: "sync" },
+      {
+        foo: "bar",
+        opt_servicemode: "sync",
+        tm_ttc: 600,
+        tm_ttl: 120,
+        tm_tag: "high",
+      },
       "repo"
     )
 
@@ -267,6 +275,39 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(capturedUrl).toContain("opt_responseformat=json")
     expect(capturedUrl).toContain("opt_showresult=true")
     expect(capturedUrl).toContain("opt_servicemode=sync")
+    expect(capturedUrl).toContain("tm_ttc=600")
+    expect(capturedUrl).toContain("tm_ttl=120")
+    expect(capturedUrl).toContain("tm_tag=high")
+  })
+
+  test("submitJob maps tm_* params into TMDirectives and excludes them from publishedParameters", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 99 }, status: 200, statusText: "OK" })
+
+    await client.submitJob(
+      "ws",
+      { a: 1, tm_ttc: 5, tm_ttl: 10, tm_tag: "q1" },
+      "repo"
+    )
+
+    const [, options] = requestSpy.mock.calls[0] as [string, any]
+    const payload = JSON.parse(options.body)
+    expect(payload.TMDirectives).toEqual({ ttc: 5, ttl: 10, tag: "q1" })
+    const pub = payload.publishedParameters as Array<{ name: string }>
+    const names = new Set(pub.map((p) => p.name))
+    expect(names.has("tm_ttc")).toBe(false)
+    expect(names.has("tm_ttl")).toBe(false)
+    expect(names.has("tm_tag")).toBe(false)
+    expect(names.has("a")).toBe(true)
+
+    requestSpy.mockRestore()
   })
 
   test("runDataDownload webhook does not set forbidden User-Agent header", async () => {
@@ -373,6 +414,194 @@ describe("FmeFlowApiClient (api.ts)", () => {
     const parsed = JSON.parse(jsonCall[1].body)
     expect(parsed).toEqual({ flag: true })
 
+    requestSpy.mockRestore()
+  })
+
+  test("webhook includes zero-valued tm_* and omits empty tag", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com/fmeserver",
+      fmeServerToken: "tok-xyz",
+      repository: "repo",
+    })
+
+    let capturedUrl = ""
+    const fetchMock = jest.fn((url: string) => {
+      capturedUrl = url
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ ok: true }),
+      } as any)
+    })
+    ;(global as any).fetch = fetchMock
+
+    await client.runDataDownload(
+      "ws",
+      {
+        tm_ttc: 0,
+        tm_ttl: 0,
+        tm_tag: "",
+      },
+      "repo"
+    )
+
+    expect(capturedUrl).toMatch(
+      /^https:\/\/example\.com\/fmedatadownload\/repo\/ws\?/i
+    )
+    expect(capturedUrl).toContain("tm_ttc=0")
+    expect(capturedUrl).toContain("tm_ttl=0")
+    expect(capturedUrl).not.toContain("tm_tag=")
+  })
+
+  test("REST fallback carries tm_* into TMDirectives", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    // Force webhook fallback with non-JSON response
+    const fetchMock = jest.fn(() =>
+      Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "text/plain" },
+        text: () => Promise.resolve("HTML/Interstitial"),
+      } as any)
+    )
+    ;(global as any).fetch = fetchMock
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 777 }, status: 200, statusText: "OK" })
+
+    await client.runDataDownload(
+      "ws",
+      { p1: "v1", tm_ttc: 30, tm_ttl: 90, tm_tag: "prio" },
+      "repo"
+    )
+
+    const restCall = requestSpy.mock.calls.find(
+      ([endpoint]) =>
+        typeof endpoint === "string" &&
+        endpoint.includes("/transformations/submit/")
+    ) as [string, any] | undefined
+    expect(restCall).toBeTruthy()
+    if (restCall) {
+      const [, opts] = restCall
+      const payload = JSON.parse(opts.body)
+      expect(payload.TMDirectives).toEqual({ ttc: 30, ttl: 90, tag: "prio" })
+      const pub = payload.publishedParameters as Array<{ name: string }>
+      const names = new Set(pub.map((p) => p.name))
+      expect(names.has("tm_ttc")).toBe(false)
+      expect(names.has("tm_ttl")).toBe(false)
+      expect(names.has("tm_tag")).toBe(false)
+      expect(names.has("p1")).toBe(true)
+    }
+
+    requestSpy.mockRestore()
+  })
+
+  test("submitSyncJob maps tm_* into TMDirectives as with submitJob", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 42 }, status: 200, statusText: "OK" })
+
+    await client.submitSyncJob(
+      "ws",
+      { foo: "bar", tm_ttc: 1, tm_ttl: 2, tm_tag: "t" },
+      "repo"
+    )
+
+    const call = requestSpy.mock.calls.find(
+      ([endpoint]) =>
+        typeof endpoint === "string" &&
+        endpoint.includes("/transformations/transact/")
+    ) as [string, any] | undefined
+    expect(call).toBeTruthy()
+    if (call) {
+      const [, opts] = call
+      const payload = JSON.parse(opts.body)
+      expect(payload.TMDirectives).toEqual({ ttc: 1, ttl: 2, tag: "t" })
+      const pub = payload.publishedParameters as Array<{ name: string }>
+      const names = new Set(pub.map((p) => p.name))
+      expect(names.has("tm_ttc")).toBe(false)
+      expect(names.has("tm_ttl")).toBe(false)
+      expect(names.has("tm_tag")).toBe(false)
+      expect(names.has("foo")).toBe(true)
+    }
+
+    requestSpy.mockRestore()
+  })
+
+  test("submitJob omits empty/whitespace tm_tag from TMDirectives", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 5 }, status: 200, statusText: "OK" })
+
+    await client.submitJob("ws", { tm_ttc: 1, tm_ttl: 2, tm_tag: "  " }, "repo")
+
+    const [, opts] = requestSpy.mock.calls[0] as [string, any]
+    const payload = JSON.parse(opts.body)
+    expect(payload.TMDirectives).toEqual({ ttc: 1, ttl: 2 })
+    requestSpy.mockRestore()
+  })
+
+  test("submitJob has no TMDirectives when tm_* are absent", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 7 }, status: 200, statusText: "OK" })
+
+    await client.submitJob("ws", { a: 1 }, "repo")
+
+    const [, opts] = requestSpy.mock.calls[0] as [string, any]
+    const payload = JSON.parse(opts.body)
+    expect(payload.TMDirectives).toBeUndefined()
+    const pub = payload.publishedParameters as Array<{ name: string }>
+    const names = new Set(pub.map((p) => p.name))
+    expect(names.has("a")).toBe(true)
+    requestSpy.mockRestore()
+  })
+
+  test("submitJob respects pre-built job request with publishedParameters", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-123",
+      repository: "repo",
+    })
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: { id: 9 }, status: 200, statusText: "OK" })
+
+    const prebuilt = {
+      publishedParameters: [{ name: "a", value: 1 }],
+      TMDirectives: { ttc: 3, ttl: 6, tag: "x" },
+    }
+    await client.submitJob("ws", prebuilt as any, "repo")
+
+    const [, opts] = requestSpy.mock.calls[0] as [string, any]
+    const payload = JSON.parse(opts.body)
+    expect(payload).toEqual(prebuilt)
     requestSpy.mockRestore()
   })
 })

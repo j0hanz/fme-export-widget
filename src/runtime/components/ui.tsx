@@ -1,10 +1,13 @@
-import { React, hooks } from "jimu-core"
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, hooks, css, jsx } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
   Button as JimuButton,
   AdvancedButtonGroup,
   Select as JimuSelect,
+  Option as JimuOption,
   SVG,
   FormGroup,
   Label,
@@ -27,207 +30,286 @@ import type {
   TextAreaProps,
   ButtonTabsProps,
   TabItem,
-  ViewState,
   ViewAction,
   BtnContentProps,
   IconProps,
+  StateViewProps,
 } from "../../shared/types"
 
-// UI style constants
-export const UI_CSS = (() => {
-  const ICON = {
-    SIZE: {
-      S: 15,
-      M: 16,
-      L: 17,
+// Consolidated UI constants and styles
+export const config = {
+  icon: { small: 16, medium: 18, large: 20 },
+  tooltip: {
+    delay: { enter: 1000, next: 500, leave: 100, touch: 500 },
+    position: {
+      top: "top" as const,
+      bottom: "bottom" as const,
+      left: "left" as const,
+      right: "right" as const,
     },
-  } as const
-  const BTN_LAYOUT = {
-    GROUP: {
-      display: "flex" as const,
+    showArrow: true,
+  },
+  button: {
+    defaults: {
+      block: true,
+      iconPosition: "left" as const,
+      tooltipPosition: "top" as const,
+    },
+    offset: "10px",
+    textPadding: "18px",
+  },
+  zIndex: { selectMenu: 1005, overlay: 1000 },
+  loading: { width: 200, height: 200 },
+  required: "*",
+} as const
+
+// Centralized styles using emotion CSS
+export const styles = {
+  // Layout utilities
+  row: css({ display: "flex" }),
+  col: css({ display: "flex", flexDirection: "column" }),
+  flex1: css({ flex: 1 }),
+  fullWidth: css({ width: "100%" }),
+  relative: css({ position: "relative" }),
+  block: css({ display: "block" }),
+
+  // Spacing utilities
+  gapSmall: css({ gap: "0.5rem" }),
+  gapMedium: css({ gap: "1rem" }),
+  gapLarge: css({ gap: "2rem" }),
+  paddingSmall: css({ padding: "0.5rem" }),
+
+  // Text utilities
+  textCenter: css({ textAlign: "center" }),
+  textEnd: css({ textAlign: "end" }),
+
+  // Interactive utilities
+  disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
+  textareaResize: css({ resize: "vertical" }),
+
+  // Common flex patterns
+  flexCentered: css({
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    alignItems: "center",
+  }),
+
+  flexBetween: css({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+  }),
+
+  // Layout patterns
+  parent: css({
+    display: "flex",
+    flexDirection: "column",
+    overflowY: "auto",
+    height: "100%",
+    position: "relative",
+    padding: "0.4rem",
+  }),
+
+  header: css({
+    display: "flex",
+    justifyContent: "end",
+    flexShrink: 0,
+  }),
+
+  content: css({
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    flex: "1 1 auto",
+  }),
+
+  headerRow: css({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    gap: "0.5rem",
+  }),
+
+  // State patterns
+  centered: css({
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    gap: "0.5rem",
+    height: "100%",
+  }),
+
+  overlay: css({
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    textAlign: "center",
+    zIndex: config.zIndex.overlay,
+  }),
+
+  // Typography styles
+  typography: {
+    caption: css({
+      fontSize: "0.8125rem",
+      margin: "0.5rem 0",
+    }),
+
+    label: css({
+      display: "block",
+      fontSize: "0.8125rem",
+      marginBottom: 0,
+    }),
+
+    title: css({
+      fontSize: "1rem",
+      fontWeight: 500,
+    }),
+
+    instruction: css({
+      fontSize: "0.8125rem",
+      margin: "1rem 0",
+      textAlign: "center",
+    }),
+
+    link: css({
+      fontSize: "0.875rem",
+      fontWeight: 500,
+      textDecoration: "underline",
+      wordBreak: "break-all",
+    }),
+
+    required: css({
+      marginLeft: "0.25rem",
+    }),
+  },
+
+  // Button patterns
+  button: {
+    group: css({
+      display: "flex",
       gap: "0.5rem",
-    } as React.CSSProperties,
-    DEFAULT: {
+    }),
+
+    default: css({
       display: "flex",
       flexFlow: "column",
       width: "100%",
       gap: "1rem",
-    } as React.CSSProperties,
-    TEXT: {
+    }),
+
+    text: css({
       flex: 1,
       textAlign: "end",
-    } as React.CSSProperties,
-    ICON: {
-      position: "absolute" as const,
-      zIndex: 1 as const,
+    }),
+
+    icon: css({
+      position: "absolute",
+      zIndex: 1,
       top: "50%",
       transform: "translateY(-50%)",
-    } as React.CSSProperties,
-  } as const
-  const BTN_DEFAULTS = {
-    BLOCK: true,
-    ICON_POS: "left" as const,
-    TIP_POS: "top" as const,
-  } as const
-  const BTN = {
-    ...BTN_LAYOUT,
-    DEFAULTS: BTN_DEFAULTS,
-    OFFSET: "10px",
-    TEXT_PAD_LEFT: "15px",
-    TEXT_PAD_RIGHT: "15px",
-  } as const
-  const TIP = {
-    DELAY: {
-      IN: 1000,
-      NEXT: 500,
-      OUT: 100,
-      TOUCH: 500,
-    },
-    POS: {
-      TOP: "top" as const,
-      BOTTOM: "bottom" as const,
-      LEFT: "left" as const,
-      RIGHT: "right" as const,
-    },
-    SHOW_ARROW: true,
-    DISABLED: false,
-  } as const
-  const CSS = {
-    BTN_REL: { position: "relative" as const },
-    TEXTAREA_RESIZE: { resize: "vertical" as const },
-    DISABLED_CURSOR: {
-      display: "contents" as const,
-      cursor: "not-allowed" as const,
-    },
-    LABEL: { display: "block" as const },
-  } as const
-  const STATE = {
-    CENTERED: {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      gap: "0.5rem",
-      height: "100%",
-    } as React.CSSProperties,
-    TEXT: {
-      position: "absolute" as const,
-      top: "50%",
-      left: "50%",
-      transform: "translate(-50%, -50%)",
-      textAlign: "center" as const,
-      zIndex: 1000,
-    } as React.CSSProperties,
-  } as const
-  const TYPOGRAPHY = {
-    CAPTION: {
-      fontSize: "0.8125rem",
-      margin: "0.5rem 0",
-    } as React.CSSProperties,
-    LABEL: {
-      display: "block",
-      fontSize: "0.8125rem",
-      marginBottom: 0,
-    } as React.CSSProperties,
-    REQUIRED: {
-      marginLeft: "0.25rem",
-    } as React.CSSProperties,
-    TITLE: {
-      fontSize: "1rem",
-      fontWeight: 500,
-    } as React.CSSProperties,
-  } as const
-  const A11Y = {
-    REQUIRED: "*",
-  } as const
-  return {
-    ICON,
-    BTN,
-    TIP,
-    CSS,
-    STATE,
-    TYPOGRAPHY,
-    A11Y,
-  } as const
-})()
+    }),
+  },
+} as const
 
-// Utility Hooks / Helpers
+// Legacy style exports for backward compatibility
+export const { caption, label, title, instruction, link, required } =
+  styles.typography
+
+export const {
+  group: buttonGroup,
+  default: buttonDefault,
+  text: buttonText,
+  icon: buttonIcon,
+} = styles.button
+
+// Utility Hooks and Helper Functions
 let idSeq = 0
-const useId = (prefix = "fme"): string => {
-  const idRef = React.useRef<string>()
-  if (!idRef.current) {
-    idSeq += 1
-    idRef.current = `${prefix}-${Date.now().toString(36)}-${idSeq}`
-  }
-  return idRef.current
-}
 
-const useValue = <T = string,>(
-  controlled?: T,
-  defaultValue?: T,
-  onChange?: (value: T) => void
-) => {
-  const [value, setValue] = hooks.useControlled({
-    controlled,
-    default: defaultValue,
-  })
-
-  const handleChange = hooks.useEventCallback((newValue: T) => {
-    setValue(newValue)
-    onChange?.(newValue)
-  })
-
-  return [value, handleChange] as const
-}
-
-// Helper function to prepare control with ID
-const withId = (
-  child: React.ReactNode,
-  readOnly: boolean,
-  fallbackId: string
-): { id: string | undefined; child: React.ReactNode } => {
-  if (!readOnly && React.isValidElement(child)) {
-    const childProps = (child.props || {}) as { [key: string]: any }
-    const id = childProps.id || fallbackId
-    if (!childProps.id) {
-      const cloned = React.cloneElement(child as React.ReactElement, {
-        id,
-      })
-      return { id, child: cloned }
+const utils = {
+  // ID generation utility
+  useId: (prefix = "fme"): string => {
+    const idRef = React.useRef<string>()
+    if (!idRef.current) {
+      idSeq += 1
+      idRef.current = `${prefix}-${idSeq}`
     }
-    return { id, child }
-  }
-  return { id: undefined, child }
-}
+    return idRef.current
+  },
 
-// Helper functions for accessibility
-const ariaDesc = (id?: string, suffix = "error"): string | undefined => {
-  return id ? `${id}-${suffix}` : undefined
-}
+  // Controlled/uncontrolled value helper
+  useValue: <T = string,>(
+    controlled?: T,
+    defaultValue?: T,
+    onChange?: (value: T) => void
+  ) => {
+    const [value, setValue] = hooks.useControlled({
+      controlled,
+      default: defaultValue,
+    })
 
-const getBtnAria = (
-  text?: React.ReactNode,
-  icon?: string | boolean,
-  jimuAriaLabel?: string,
-  tooltip?: string,
-  fallbackLabel?: string
-): string | undefined => {
-  if (text || !icon) return jimuAriaLabel
-  return (typeof tooltip === "string" && tooltip) || fallbackLabel
-}
+    const handleChange = hooks.useEventCallback((newValue: T) => {
+      setValue(newValue)
+      onChange?.(newValue)
+    })
 
-// Helper for tooltip content resolution
-const getTipContent = (
-  title?: React.ReactNode,
-  content?: React.ReactNode,
-  children?: React.ReactElement
-): React.ReactNode => {
-  if (title || content) return title || content
-  if (React.isValidElement(children)) {
-    const props = children.props as any
-    return props?.title || props?.["aria-label"]
-  }
-  return undefined
-}
+    return [value, handleChange] as const
+  },
+
+  // Accessibility helpers
+  ariaDesc: (id?: string, suffix = "error"): string | undefined =>
+    id ? `${id}-${suffix}` : undefined,
+
+  getBtnAria: (
+    text?: React.ReactNode,
+    icon?: string | boolean,
+    jimuAriaLabel?: string,
+    tooltip?: string,
+    fallbackLabel?: string
+  ): string | undefined => {
+    if (text || !icon) return jimuAriaLabel
+    return (typeof tooltip === "string" && tooltip) || fallbackLabel
+  },
+
+  // Form control ID management
+  withId: (
+    child: React.ReactNode,
+    readOnly: boolean,
+    fallbackId: string
+  ): { id: string | undefined; child: React.ReactNode } => {
+    if (!readOnly && React.isValidElement(child)) {
+      const childProps = (child.props || {}) as { [key: string]: unknown }
+      const id = (childProps.id as string) || fallbackId
+      if (!childProps.id) {
+        const cloned = React.cloneElement(child as React.ReactElement, { id })
+        return { id, child: cloned }
+      }
+      return { id, child }
+    }
+    return { id: undefined, child }
+  },
+
+  // Tooltip content resolution
+  getTipContent: (
+    title?: React.ReactNode,
+    content?: React.ReactNode,
+    children?: React.ReactElement
+  ): React.ReactNode => {
+    if (title || content) return title || content
+    if (React.isValidElement(children)) {
+      const props = children.props as { [key: string]: unknown }
+      return (
+        (props?.title as React.ReactNode) ||
+        (props?.["aria-label"] as React.ReactNode)
+      )
+    }
+    return undefined
+  },
+} as const
+
+// Export individual utilities for backward compatibility
+const { useId, useValue, ariaDesc, getBtnAria, withId, getTipContent } = utils
 
 // Button content component extracted from Button
 const BtnContent: React.FC<BtnContentProps> = ({
@@ -248,7 +330,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   if (!hasIcon && !hasText) return null
   if (hasIcon && !hasText)
     return typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON.SIZE.L} />
+      <Icon src={icon} size={config.icon.large} />
     ) : (
       (icon as React.ReactElement)
     )
@@ -256,29 +338,33 @@ const BtnContent: React.FC<BtnContentProps> = ({
 
   const iconEl =
     typeof icon === "string" ? (
-      <Icon src={icon} size={UI_CSS.ICON.SIZE.S} />
+      <Icon src={icon} size={config.icon.medium} />
     ) : (
       (icon as React.ReactElement)
     )
-  const iconWithPosition = React.cloneElement(iconEl, {
-    style: {
-      ...UI_CSS.BTN.ICON,
-      [iconPosition]: UI_CSS.BTN.OFFSET,
-    },
-  })
+  const iconWithPosition = (
+    <span
+      css={[styles.button.icon, css({ [iconPosition]: config.button.offset })]}
+      aria-hidden="true"
+    >
+      {iconEl}
+    </span>
+  )
 
   return (
     <>
       {iconPosition === "left" && iconWithPosition}
       <div
-        style={{
-          ...UI_CSS.BTN.TEXT,
-          textAlign: alignText,
-          paddingLeft:
-            iconPosition === "left" ? UI_CSS.BTN.TEXT_PAD_LEFT : undefined,
-          paddingRight:
-            iconPosition === "right" ? UI_CSS.BTN.TEXT_PAD_RIGHT : undefined,
-        }}
+        css={[
+          styles.button.text,
+          css({
+            textAlign: alignText as any,
+            paddingLeft:
+              iconPosition === "left" ? config.button.textPadding : undefined,
+            paddingRight:
+              iconPosition === "right" ? config.button.textPadding : undefined,
+          }),
+        ]}
       >
         {text}
       </div>
@@ -290,7 +376,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
 // Icon component
 export const Icon: React.FC<IconProps> = ({
   src,
-  size = UI_CSS.ICON.SIZE.M,
+  size = config.icon.medium,
   className,
   ariaLabel,
   style,
@@ -300,7 +386,6 @@ export const Icon: React.FC<IconProps> = ({
       src={src}
       size={size}
       className={className}
-      currentColor
       role="img"
       aria-hidden={!ariaLabel}
       aria-label={ariaLabel}
@@ -313,13 +398,13 @@ export const Icon: React.FC<IconProps> = ({
 export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
-  showArrow = UI_CSS.TIP.SHOW_ARROW,
-  placement = UI_CSS.TIP.POS.TOP,
-  enterDelay = UI_CSS.TIP.DELAY.IN,
-  enterNextDelay = UI_CSS.TIP.DELAY.NEXT,
-  enterTouchDelay = UI_CSS.TIP.DELAY.TOUCH,
-  leaveDelay = UI_CSS.TIP.DELAY.OUT,
-  disabled = UI_CSS.TIP.DISABLED,
+  showArrow = config.tooltip.showArrow,
+  placement = config.tooltip.position.top,
+  enterDelay = config.tooltip.delay.enter,
+  enterNextDelay = config.tooltip.delay.next,
+  enterTouchDelay = config.tooltip.delay.touch,
+  leaveDelay = config.tooltip.delay.leave,
+  disabled = false,
   title,
   ...otherProps
 }) => {
@@ -343,7 +428,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
     "aria-describedby": tooltipId,
   })
   const child = isDisabled ? (
-    <span style={UI_CSS.CSS.DISABLED_CURSOR}>{cloned}</span>
+    <span css={styles.disabledCursor} aria-disabled="true">
+      {cloned}
+    </span>
   ) : (
     cloned
   )
@@ -417,7 +504,8 @@ export const Input: React.FC<InputProps> = ({
           ? ariaDesc(props.id || "input")
           : undefined
       }
-      style={{ width: "100%", ...(props as any).style }}
+      css={styles.fullWidth}
+      style={(props as any).style}
     />
   )
 }
@@ -446,10 +534,8 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      style={{
-        ...UI_CSS.CSS.TEXTAREA_RESIZE,
-        ...props.style,
-      }}
+      css={styles.textareaResize}
+      style={props.style}
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
@@ -479,13 +565,30 @@ export const Select: React.FC<SelectProps> = (props) => {
   const isMulti = Array.isArray(controlled)
   const [value, handleValueChange] = useValue(controlled, defaultValue)
 
+  const isNativeSelectEvent = (
+    e: unknown
+  ): e is React.ChangeEvent<HTMLSelectElement> => {
+    return (
+      !!e &&
+      typeof e === "object" &&
+      "target" in (e as any) &&
+      !!(e as any).target &&
+      ("value" in (e as any).target || "selectedOptions" in (e as any).target)
+    )
+  }
+
   const handleChange = hooks.useEventCallback(
-    (evt: React.ChangeEvent<HTMLSelectElement>) => {
+    (evt: unknown, selectedValue?: string | number) => {
       if (isMulti) {
+        // Multi-select uses native <select multiple>, rely on event.selectedOptions
+        const target = isNativeSelectEvent(evt)
+          ? (evt.target as HTMLSelectElement)
+          : null
+        if (!target || !target.selectedOptions) return
         const first = Array.isArray(controlled)
           ? (controlled as unknown[])[0]
           : undefined
-        const selected = Array.from(evt.target.selectedOptions).map((o) => {
+        const selected = Array.from(target.selectedOptions).map((o) => {
           const raw = o.value
           if (coerce === "number") return Number(raw)
           if (coerce === "string") return String(raw)
@@ -493,32 +596,28 @@ export const Select: React.FC<SelectProps> = (props) => {
             ? Number(raw)
             : raw
         })
-        handleValueChange(selected as any)
-        onChange?.(selected as any)
+        handleValueChange(selected as unknown as typeof controlled)
+        onChange?.(selected as unknown as typeof controlled)
       } else {
-        const rawValue = evt.target.value
+        // Single-select (JimuSelect) sends (evt, value); fall back to evt.target.value if needed
+        const raw: string | number | undefined =
+          selectedValue !== undefined
+            ? selectedValue
+            : isNativeSelectEvent(evt)
+              ? (evt.target as HTMLSelectElement).value
+              : undefined
+        if (raw === undefined || raw === null) return
         const finalValue = coerce
           ? coerce === "number"
-            ? Number(rawValue)
-            : String(rawValue)
-          : typeof controlled === "number" && !isNaN(Number(rawValue))
-            ? Number(rawValue)
-            : rawValue
-        handleValueChange(finalValue as any)
-        onChange?.(finalValue as any)
+            ? Number(raw)
+            : String(raw)
+          : typeof controlled === "number" && !isNaN(Number(raw as any))
+            ? Number(raw)
+            : (raw as unknown as typeof controlled)
+        handleValueChange(finalValue as unknown as typeof controlled)
+        onChange?.(finalValue as unknown as typeof controlled)
       }
     }
-  )
-
-  const renderOption = (option: OptionItem) => (
-    <option
-      key={String(option.value)}
-      value={String(option.value)}
-      disabled={option.disabled}
-      aria-label={option.label}
-    >
-      {!option.hideLabel && option.label}
-    </option>
   )
 
   const normalizedValue = isMulti
@@ -540,7 +639,16 @@ export const Select: React.FC<SelectProps> = (props) => {
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
     >
-      {options.map(renderOption)}
+      {options.map((opt) => (
+        <option
+          key={String(opt.value)}
+          value={String(opt.value)}
+          disabled={opt.disabled}
+          aria-label={opt.label}
+        >
+          {!opt.hideLabel && opt.label}
+        </option>
+      ))}
     </select>
   ) : (
     <JimuSelect
@@ -550,9 +658,31 @@ export const Select: React.FC<SelectProps> = (props) => {
       placeholder={resolvedPlaceholder}
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
+      zIndex={config.zIndex.selectMenu}
       style={style}
     >
-      {options.map(renderOption)}
+      {options.map((option) => (
+        <JimuOption
+          key={String(option.value)}
+          value={option.value}
+          active={String(option.value) === String(normalizedValue)}
+          disabled={option.disabled}
+          onClick={() => {
+            // If the underlying JimuSelect does not propagate onChange reliably,
+            // proactively trigger our handler with the selected value.
+            if (!option.disabled) {
+              const isSame =
+                String(option.value) === String(normalizedValue ?? "")
+              if (!isSame) {
+                // Pass undefined for evt and selected value explicitly.
+                ;(handleChange as any)(undefined, option.value)
+              }
+            }
+          }}
+        >
+          {!option.hideLabel && option.label}
+        </JimuOption>
+      ))}
     </JimuSelect>
   )
 }
@@ -561,18 +691,18 @@ export const Select: React.FC<SelectProps> = (props) => {
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
-  iconPosition = UI_CSS.BTN.DEFAULTS.ICON_POS,
+  iconPosition = config.button.defaults.iconPosition,
   alignText = "end",
   tooltip,
   tooltipDisabled = false,
-  tooltipPlacement = UI_CSS.BTN.DEFAULTS.TIP_POS,
+  tooltipPlacement = config.button.defaults.tooltipPosition,
   tooltipEnterDelay,
   tooltipEnterNextDelay,
   tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
-  block = UI_CSS.BTN.DEFAULTS.BLOCK,
+  block = config.button.defaults.block,
   preset,
   ...jimuProps
 }) => {
@@ -593,9 +723,6 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  const buttonStyle = jimuProps.style
-    ? { ...UI_CSS.CSS.BTN_REL, ...jimuProps.style }
-    : UI_CSS.CSS.BTN_REL
   const ariaLabel = getBtnAria(
     text,
     !!icon,
@@ -621,7 +748,9 @@ export const Button: React.FC<ButtonProps> = ({
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
-      style={buttonStyle}
+      /* Ensure absolute-positioned icon anchors to this button */
+      css={styles.relative}
+      style={{ position: "relative", ...(jimuProps.style as any) }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -678,9 +807,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   return (
     <AdvancedButtonGroup
       role="radiogroup"
-      gap="1rem"
       aria-label={ariaLabel}
-      style={{ ...style, gap: "0.5rem", display: "flex" }}
+      css={[styles.row, styles.gapLarge]}
+      style={style}
       variant="contained"
     >
       {items.map((item) => {
@@ -698,7 +827,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             tooltipPlacement="top"
             disabled={item.disabled}
             onClick={() => handleChange(item.value)}
-            block={false}
+            block={true}
           />
         )
       })}
@@ -706,121 +835,126 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   )
 }
 
-// Helper functions for StateView component
-const renderLoading = (
-  state: Extract<ViewState, { kind: "loading" }>,
-  ariaDetailsLabel: string
-) => (
-  <div style={UI_CSS.STATE.CENTERED} role="status" aria-live="polite">
-    <Loading type={LoadingType.Donut} width={200} height={200} />
-    {(state.message || state.detail) && (
-      <div style={UI_CSS.STATE.TEXT} aria-label={ariaDetailsLabel}>
-        {state.message && <div>{state.message}</div>}
-      </div>
-    )}
-  </div>
-)
-
-const renderError = (
-  state: Extract<ViewState, { kind: "error" }>,
-  Actions: React.ComponentType<{
-    actions?: readonly ViewAction[]
-    ariaLabel: string
-  }>,
-  codeLabel: string,
-  actionsAriaLabel: string
-) => (
-  <div role="alert" aria-live="assertive">
-    <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.message}</div>
-    {state.code && (
-      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>
-        {codeLabel}: {state.code}
-      </div>
-    )}
-    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
-  </div>
-)
-
-const renderEmpty = (
-  state: Extract<ViewState, { kind: "empty" }>,
-  Actions: React.ComponentType<{
-    actions?: readonly ViewAction[]
-    ariaLabel: string
-  }>,
-  actionsAriaLabel: string
-) => (
-  <div role="status" aria-live="polite">
-    <div>{state.message}</div>
-    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
-  </div>
-)
-
-const renderSuccess = (
-  state: Extract<ViewState, { kind: "success" }>,
-  Actions: React.ComponentType<{
-    actions?: readonly ViewAction[]
-    ariaLabel: string
-  }>,
-  actionsAriaLabel: string
-) => (
-  <div role="status" aria-live="polite">
-    {state.title && <div style={UI_CSS.TYPOGRAPHY.TITLE}>{state.title}</div>}
-    {state.message && (
-      <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{state.message}</div>
-    )}
-    <Actions actions={state.actions} ariaLabel={actionsAriaLabel} />
-  </div>
-)
-
 // StateView component
-const StateView: React.FC<{ state: ViewState }> = React.memo(({ state }) => {
-  const translate = hooks.useTranslation(defaultMessages)
-  const Actions = hooks.useEventCallback(
-    ({
-      actions,
-      ariaLabel,
-    }: {
-      actions?: readonly ViewAction[]
-      ariaLabel: string
-    }): JSX.Element | null => {
-      if (!actions?.length) return null
-      return (
-        <div role="group" aria-label={ariaLabel}>
-          {actions.map((a, i) => (
-            <Button
-              key={i}
-              onClick={a.onClick}
-              disabled={a.disabled}
-              variant={a.variant}
-              text={a.label}
-              block
-            />
-          ))}
-        </div>
-      )
-    }
-  )
+const StateView: React.FC<StateViewProps> = React.memo(
+  ({ state, className, style, renderActions, testId, center }) => {
+    const translate = hooks.useTranslation(defaultMessages)
+    const DefaultActions = hooks.useEventCallback(
+      ({
+        actions,
+        ariaLabel,
+      }: {
+        actions?: readonly ViewAction[]
+        ariaLabel: string
+      }): JSX.Element | null => {
+        if (!actions?.length) return null
+        return (
+          <div role="group" aria-label={ariaLabel}>
+            {actions.map((a, i) => (
+              <Button
+                key={i}
+                onClick={a.onClick}
+                disabled={a.disabled}
+                variant={a.variant}
+                text={a.label}
+                block
+              />
+            ))}
+          </div>
+        )
+      }
+    )
 
-  switch (state.kind) {
-    case "loading":
-      return renderLoading(state, translate("ariaLoadingDetails"))
-    case "error":
-      return renderError(
-        state,
-        Actions,
-        translate("errorCode"),
-        translate("ariaErrorActions")
-      )
-    case "empty":
-      return renderEmpty(state, Actions, translate("ariaEmptyActions"))
-    case "success":
-      return renderSuccess(state, Actions, translate("ariaSuccessActions"))
-    case "content":
-      return <>{state.node}</>
+    const Actions = renderActions
+      ? ({
+          actions,
+          ariaLabel,
+        }: {
+          actions?: readonly ViewAction[]
+          ariaLabel: string
+        }) => renderActions(actions, ariaLabel)
+      : DefaultActions
+
+    const content = (() => {
+      switch (state.kind) {
+        case "loading":
+          return (
+            <div css={styles.centered} role="status" aria-live="polite">
+              <Loading
+                type={LoadingType.Donut}
+                width={config.loading.width}
+                height={config.loading.height}
+              />
+              {(state.message || state.detail) && (
+                <div
+                  css={styles.overlay}
+                  aria-label={translate("ariaLoadingDetails")}
+                >
+                  {state.message && <div>{state.message}</div>}
+                </div>
+              )}
+            </div>
+          )
+        case "error":
+          return (
+            <div role="alert" aria-live="assertive">
+              <div css={styles.typography.title}>{state.message}</div>
+              {state.code && (
+                <div css={styles.typography.caption}>
+                  {translate("errorCode")}: {state.code}
+                </div>
+              )}
+              <Actions
+                actions={state.actions}
+                ariaLabel={translate("ariaErrorActions")}
+              />
+            </div>
+          )
+        case "empty":
+          return (
+            <div role="status" aria-live="polite">
+              <div>{state.message}</div>
+              <Actions
+                actions={state.actions}
+                ariaLabel={translate("ariaEmptyActions")}
+              />
+            </div>
+          )
+        case "success":
+          return (
+            <div role="status" aria-live="polite">
+              {state.title && (
+                <div css={styles.typography.title}>{state.title}</div>
+              )}
+              {state.message && (
+                <div css={styles.typography.caption}>{state.message}</div>
+              )}
+              <Actions
+                actions={state.actions}
+                ariaLabel={translate("ariaSuccessActions")}
+              />
+            </div>
+          )
+        case "content":
+          return <>{state.node}</>
+      }
+    })()
+
+    const shouldCenter =
+      typeof center === "boolean" ? center : state.kind === "loading"
+
+    return (
+      <div
+        className={className}
+        style={style}
+        data-testid={testId}
+        css={shouldCenter ? styles.centered : undefined}
+      >
+        {content}
+      </div>
+    )
   }
-})
-
-// Tabs component removed per request
+)
 
 // ButtonGroup component
 export const ButtonGroup: React.FC<ButtonGroupProps> = ({
@@ -836,9 +970,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const groupStyle: React.CSSProperties = style
-    ? { ...UI_CSS.BTN.GROUP, ...style }
-    : UI_CSS.BTN.GROUP
+  const groupStyle: React.CSSProperties = style ? { ...style } : undefined
 
   const createButton = (
     buttonConfig: GroupButtonConfig,
@@ -852,11 +984,11 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       key: side,
     }
 
-    return <Button {...config} block={false} style={{ flex: 1 }} />
+    return <Button {...config} block={false} css={styles.flex1} />
   }
 
   return (
-    <div className={className} style={groupStyle}>
+    <div css={styles.button.group} className={className} style={groupStyle}>
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -883,8 +1015,8 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <>
         <div>
-          <div style={UI_CSS.TYPOGRAPHY.TITLE}>{title}</div>
-          <div style={UI_CSS.TYPOGRAPHY.CAPTION}>{subtitle}</div>
+          <div css={styles.typography.title}>{title}</div>
+          <div css={styles.typography.caption}>{subtitle}</div>
         </div>
         {children}
         <ButtonGroup
@@ -920,7 +1052,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <FormGroup className={className} style={style}>
         <Label
-          style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
+          css={[styles.block, styles.typography.label]}
           check={false}
           for={fieldId}
         >
@@ -928,12 +1060,12 @@ export const Form: React.FC<FormProps> = (props) => {
           {required && (
             <Tooltip content={translate("requiredField")} placement="bottom">
               <span
-                style={UI_CSS.TYPOGRAPHY.REQUIRED}
+                css={styles.typography.required}
                 aria-label={translate("ariaRequired")}
                 role="img"
                 aria-hidden="false"
               >
-                {UI_CSS.A11Y.REQUIRED}
+                {config.required}
               </span>
             </Tooltip>
           )}
@@ -969,7 +1101,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup className={className} style={style}>
       <Label
-        style={{ ...UI_CSS.CSS.LABEL, ...UI_CSS.TYPOGRAPHY.LABEL }}
+        css={[styles.block, styles.typography.label]}
         check={false}
         for={fieldId}
       >
@@ -977,12 +1109,12 @@ export const Field: React.FC<FieldProps> = ({
         {required && (
           <Tooltip content={translate("requiredField")} placement="bottom">
             <span
-              style={UI_CSS.TYPOGRAPHY.REQUIRED}
+              css={styles.typography.required}
               aria-label={translate("ariaRequired")}
               role="img"
               aria-hidden="false"
             >
-              {UI_CSS.A11Y.REQUIRED}
+              {config.required}
             </span>
           </Tooltip>
         )}
@@ -997,6 +1129,7 @@ export const Field: React.FC<FieldProps> = ({
 export { Button as default, StateView }
 
 export type {
+  StateViewProps,
   ButtonProps,
   ButtonGroupProps,
   TooltipProps,

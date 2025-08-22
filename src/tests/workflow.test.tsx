@@ -86,7 +86,7 @@ describe("Workflow component", () => {
   test("header reset functionality in different states", () => {
     const onReset = jest.fn()
 
-    // Reset enabled in DRAWING state
+    // In DRAWING state, Cancel should be hidden until first click
     const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -95,20 +95,42 @@ describe("Workflow component", () => {
         canReset={true}
         showHeaderActions={true}
         drawnArea={0}
+        isDrawing={true}
+        clickCount={0}
       />
     )
 
-    const headerBtns1 = screen.getAllByRole("button", {
+    const absentBtn = screen.queryByRole("button", {
       name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
     })
-    const enabledBtn = headerBtns1[0]
-    expect(enabledBtn.getAttribute("aria-disabled")).toBe("false")
-    fireEvent.click(enabledBtn)
-    expect(onReset).toHaveBeenCalled()
+    expect(absentBtn).toBeNull()
 
     unmount1()
 
-    // Reset disabled in INITIAL state even with area
+    // After first click in DRAWING: Cancel should be visible and enabled
+    const { unmount: unmount2 } = renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.DRAWING}
+        onReset={onReset}
+        canReset={true}
+        showHeaderActions={true}
+        drawnArea={0}
+        isDrawing={true}
+        clickCount={1}
+      />
+    )
+
+    const headerBtn = screen.getByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+    expect(headerBtn.getAttribute("aria-disabled")).toBe("false")
+    fireEvent.click(headerBtn)
+    expect(onReset).toHaveBeenCalled()
+
+    unmount2()
+
+    // In INITIAL state (even with area): Cancel should be hidden
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -120,11 +142,37 @@ describe("Workflow component", () => {
       />
     )
 
-    const headerBtns2 = screen.getAllByRole("button", {
+    const initialBtn = screen.queryByRole("button", {
       name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
     })
-    const disabledBtn = headerBtns2[0]
-    expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
+    expect(initialBtn).toBeNull()
+  })
+
+  test("Cancel button is hidden when showing ORDER_RESULT", () => {
+    const onReset = jest.fn()
+    const result: ExportResult = {
+      success: true,
+      jobId: 1,
+      workspaceName: "ws",
+      email: "a@b.c",
+    }
+
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.ORDER_RESULT}
+        orderResult={result}
+        onReset={onReset}
+        canReset={true}
+        showHeaderActions={true}
+        drawnArea={500}
+      />
+    )
+
+    const headerBtn = screen.queryByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+    expect(headerBtn).toBeNull()
   })
 
   test("EXPORT_FORM submission behavior for valid and invalid scenarios", async () => {
@@ -214,5 +262,47 @@ describe("Workflow component", () => {
     const arg = onFormSubmit.mock.calls[0][0]
     expect(arg.type).toBe("ws")
     expect(arg.data).toMatchObject({ Title: "Hello" })
+  })
+
+  test("startup validation state handling", () => {
+    const onRetryValidation = jest.fn()
+
+    // Loading state during validation
+    const { unmount: unmount1 } = renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.STARTUP_VALIDATION}
+        isStartupValidating={true}
+        startupValidationStep="Validating connection..."
+      />
+    )
+
+    screen.getByText("Validating connection...")
+    unmount1()
+
+    // Error state: no retry button is rendered anymore
+    const validationError = {
+      message: "Configuration error",
+      severity: "error" as any,
+      type: "ConfigError" as any,
+      timestamp: new Date(),
+    }
+
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.STARTUP_VALIDATION}
+        isStartupValidating={false}
+        startupValidationError={validationError}
+        onRetryValidation={onRetryValidation}
+      />
+    )
+
+    const retryBtn = screen.queryByRole("button", { name: /Försök igen/i })
+    expect(retryBtn).toBeNull()
+    // Confirm an alert is shown with the error message
+    const alert = screen.getByRole("alert")
+    expect(alert).toBeTruthy()
+    expect(alert.textContent || "").toMatch(/Configuration error/i)
   })
 })

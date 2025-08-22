@@ -1,14 +1,40 @@
 export default {
+  // General UI labels
+  errorTitle: "Ett fel uppstod",
+  retry: "Försök igen",
+  back: "Tillbaka",
+  cancel: "Avbryt",
+
+  // Startup validation messages
+  validatingStartup: "Validerar konfiguration...",
+  validatingMapConfiguration: "Kontrollerar kartkonfiguration...",
+  validatingConnection: "Testar anslutningen till FME Server...",
+  validatingAuthentication: "Validerar autentisering...",
+  validatingConfiguration: "Kontrollerar konfigurationen...",
+  startupValidationFailed: "Konfigurationsfel uppstod",
+  invalidConfiguration: "Widgetens konfiguration saknas eller är ogiltig",
+  connectionFailed: "Det gick inte att ansluta till FME Server",
+  authenticationFailed:
+    "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
+  contactSupport: "Kontakta supporten för hjälp med konfigurationen",
+  contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
+  retryValidation: "Försök igen",
+
   // Loading messages used specifically in widget.tsx
   preparingExportRequest: "Förbereder exportförfrågan...",
   connectingToFmeServer: "Ansluter till FME Server...",
-  submittingOrder: "Skickar beställning...",
-  preparingMapTools: "Förbereder kartverktyg...",
+  submittingOrder: "Skickar beställningen...",
+  preparingMapTools: "Förbereder kartverktygen...",
   loadingMapServices: "Laddar karttjänster...",
+
+  // Map configuration / settings
+  mapNotConfigured: "Ingen karta är vald i widgetens inställningar",
+  mapSelectionRequired: "Välj en karta i widgetens inställningar",
+  openSettingsAndSelectMap: "Öppna widgetens inställningar och välj en karta",
 
   // Drawing instructions used in widget.tsx
   rectangleDrawingInstructions:
-    "Klicka och dra för att skapa ett rektangulärt område",
+    "Markera området på kartan och klicka för att slutföra",
   polygonDrawingStart: "Klicka för att börja rita ett område",
   polygonDrawingContinue: "Klicka för att fortsätta rita området",
   polygonDrawingComplete:
@@ -29,7 +55,7 @@ export default {
 
   // Generic unexpected / processing
   unexpectedResponse: "Oväntat svar från FME-servern",
-  jobSubmissionFailed: "FME-jobbsubmitering misslyckades",
+  jobSubmissionFailed: "Det gick inte att skapa FME‑jobbet",
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
 }

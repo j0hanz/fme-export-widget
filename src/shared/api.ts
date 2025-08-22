@@ -7,7 +7,6 @@ import type {
   FmeExportConfig,
   RequestConfig,
   ApiResponse,
-  RepositoryItems,
   WorkspaceParameter,
   JobResponse,
   JobResult,
@@ -29,17 +28,13 @@ const API = {
     "opt_showresult",
     "opt_servicemode",
   ],
-  COMMON_HEADERS: {
-    "User-Agent": "ArcGIS-Experience-Builder-FME-Widget/1.0",
-    "Content-Type": "application/x-www-form-urlencoded",
-  },
 } as const
 
 // Extract error information from an unknown error object
 function getErrorInfo(err: unknown): {
   message: string
   status?: number
-  details?: any
+  details?: unknown
 } {
   if (err && typeof err === "object") {
     const anyErr = err as any
@@ -97,6 +92,26 @@ function toStr(val: unknown): string {
       : Object.prototype.toString.call(val)
 }
 
+// Build endpoint path
+const makeEndpoint = (basePath: string, ...segments: string[]): string => {
+  const clean = segments.filter(Boolean).join("/")
+  return `${basePath}/${clean}`
+}
+
+// Build query params
+const buildQuery = (
+  params: PrimitiveParams = {},
+  excludeKeys: string[] = []
+): URLSearchParams => {
+  const urlParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || excludeKeys.includes(key))
+      continue
+    urlParams.append(key, toStr(value))
+  }
+  return urlParams
+}
+
 // URL building helpers
 const buildWebhook = (
   serverUrl: string,
@@ -119,7 +134,11 @@ const buildWebhookParams = (
   return params
 }
 
-// Geometry conversion helpers
+// Normalize server URL
+const normalizeUrl = (serverUrl: string): string =>
+  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
+
+// Calculate polygon area
 const calcArea = (polygon: __esri.Polygon): number => {
   try {
     const extent = polygon.extent
@@ -146,7 +165,9 @@ const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
 
 const makeGeoJson = (polygon: __esri.Polygon) => ({
   type: "Polygon" as const,
-  coordinates: polygon.rings as Array<Array<[number, number]>>,
+  coordinates: (polygon.rings || []).map((ring: any[]) =>
+    ring.map((pt: any) => [pt[0], pt[1]] as [number, number])
+  ),
 })
 
 const isAuthError = (status: number): boolean =>
@@ -155,42 +176,13 @@ const isAuthError = (status: number): boolean =>
 const isJson = (contentType: string | null): boolean =>
   contentType?.includes("application/json") ?? false
 
-// Normalize server URL
-const normalizeUrl = (serverUrl: string): string =>
-  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
-
 // Mask token for logs (show at most last 4 chars)
 const maskToken = (token: string): string =>
   token ? `***${token.slice(-4)}` : ""
 
-// Build endpoint path
-const makeEndpoint = (basePath: string, ...segments: string[]): string => {
-  const clean = segments.filter(Boolean).join("/")
-  return `${basePath}/${clean}`
-}
-
-// Build query params
-const buildQuery = (
-  params: PrimitiveParams = {},
-  excludeKeys: string[] = []
-): URLSearchParams => {
-  const urlParams = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || excludeKeys.includes(key))
-      continue
-    urlParams.append(key, toStr(value))
-  }
-  return urlParams
-}
-
 function setApiSettings(config: FmeFlowConfig): void {
   esriConfig.request.maxUrlLength = API.MAX_URL_LENGTH
   const serverDomain = new URL(config.serverUrl).origin
-
-  // Add trusted server
-  if (!esriConfig.request.trustedServers.includes(serverDomain)) {
-    esriConfig.request.trustedServers.push(serverDomain)
-  }
 
   // Avoid duplicate interceptor
   const hasExistingInterceptor = esriConfig.request.interceptors.some(
@@ -213,6 +205,10 @@ function setApiSettings(config: FmeFlowConfig): void {
           params.requestOptions.headers = {}
         }
         params.requestOptions.headers.Authorization = `fmetoken token=${config.token}`
+        // Prefer JSON responses to keep parsing deterministic
+        if (!params.requestOptions.headers.Accept) {
+          params.requestOptions.headers.Accept = "application/json"
+        }
         if (!params.requestOptions.responseType) {
           params.requestOptions.responseType = "json"
         }
@@ -243,27 +239,48 @@ export class FmeFlowApiClient {
     return `${normalizeUrl(this.config.serverUrl)}/${service}/${repository}/${workspace}`
   }
 
-  private addQuery(
-    baseEndpoint: string,
-    queryParams: { [key: string]: string | boolean }
-  ): string {
-    const params = buildQuery(queryParams)
-    const q = params.toString()
-    return q ? `${baseEndpoint}?${q}` : baseEndpoint
-  }
+  // addQuery helper removed (unused)
 
-  private formatJobParams(
-    parameters: PrimitiveParams = {}
-  ):
-    | { publishedParameters: Array<{ name: string; value: unknown }> }
+  private formatJobParams(parameters: PrimitiveParams = {}):
+    | {
+        publishedParameters: Array<{ name: string; value: unknown }>
+        TMDirectives?: { ttc?: number; ttl?: number; tag?: string }
+      }
     | PrimitiveParams {
-    return (parameters as any).publishedParameters
-      ? parameters
-      : {
-          publishedParameters: Object.entries(parameters).map(
-            ([name, value]) => ({ name, value })
-          ),
-        }
+    if ((parameters as any).publishedParameters) return parameters
+
+    // Extract Task Manager directives from flat params if present
+    const p: any = parameters as any
+    const ttcRaw = p.tm_ttc
+    const ttlRaw = p.tm_ttl
+    const tagRaw = p.tm_tag
+    const toPosInt = (v: unknown): number | undefined => {
+      const n = typeof v === "string" ? Number(v) : (v as number)
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+    }
+    const ttc = toPosInt(ttcRaw)
+    const ttl = toPosInt(ttlRaw)
+    const tag =
+      typeof tagRaw === "string" && tagRaw.trim().length > 0
+        ? tagRaw.trim()
+        : undefined
+
+    const publishedParameters = Object.entries(parameters)
+      // Exclude tm_* keys from published parameters, they belong in TMDirectives for REST
+      .filter(
+        ([name]) => name !== "tm_ttc" && name !== "tm_ttl" && name !== "tm_tag"
+      )
+      .map(([name, value]) => ({ name, value }))
+
+    const job: any = { publishedParameters }
+    if (ttc !== undefined || ttl !== undefined || tag !== undefined) {
+      job.TMDirectives = {
+        ...(ttc !== undefined ? { ttc } : {}),
+        ...(ttl !== undefined ? { ttl } : {}),
+        ...(tag !== undefined ? { tag } : {}),
+      }
+    }
+    return job
   }
 
   // Build repository endpoint
@@ -327,49 +344,41 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<Array<{ name: string }>>> {
     return this.withApiError(
-      () =>
-        this.request<Array<{ name: string }>>(this.repoEndpoint(""), {
+      async () => {
+        // Use the collection endpoint without a trailing slash
+        const listEndpoint = makeEndpoint(this.basePath, "repositories")
+        const raw = await this.request<any>(listEndpoint, {
           signal,
           cacheHint: true,
-        }),
+          query: { limit: -1, offset: -1 },
+        })
+
+        const data = raw?.data
+        let items: Array<{ name: string }>
+        if (Array.isArray(data)) {
+          items = data
+            .map((r: any) => ({ name: String(r?.name ?? "") }))
+            .filter((r) => r.name.length > 0)
+        } else if (
+          data &&
+          Array.isArray((data as unknown as { items?: unknown[] }).items)
+        ) {
+          const arr = (data as unknown as { items?: unknown[] }).items || []
+          items = arr
+            .map((r: any) => ({ name: String(r?.name ?? "") }))
+            .filter((r) => r.name.length > 0)
+        } else {
+          items = []
+        }
+
+        return {
+          data: items,
+          status: raw.status,
+          statusText: raw.statusText,
+        }
+      },
       "Failed to get repositories",
       "REPOSITORIES_ERROR"
-    )
-  }
-
-  async getRepositoryItems(
-    repository?: string,
-    type?: "WORKSPACE" | "CUSTOM_FORMAT" | "CUSTOM_TRANSFORMER",
-    limit?: number,
-    offset?: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<RepositoryItems>> {
-    const repo = this.resolveRepository(repository)
-    const query = buildQuery({ type, limit, offset })
-    const endpoint = this.repoEndpoint(repo, "items")
-
-    return this.request<RepositoryItems>(endpoint, {
-      query: Object.fromEntries(query),
-      signal,
-      cacheHint: true,
-    })
-  }
-
-  async getWorkspaceParameters(
-    workspace: string,
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<WorkspaceParameter[]>> {
-    const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
-    return this.withApiError(
-      () =>
-        this.request<WorkspaceParameter[]>(endpoint, {
-          signal,
-          cacheHint: true,
-        }),
-      "Failed to get workspace parameters",
-      "PARAMETERS_ERROR"
     )
   }
 
@@ -391,6 +400,39 @@ export class FmeFlowApiClient {
       signal,
       cacheHint: true,
     })
+  }
+
+  // Generic request method
+  async getRepositoryItems(
+    repository: string,
+    type?: string,
+    limit?: number,
+    offset?: number,
+    signal?: AbortSignal
+  ): Promise<
+    ApiResponse<{
+      items: any[]
+      totalCount?: number
+      limit?: number
+      offset?: number
+    }>
+  > {
+    const repo = this.resolveRepository(repository)
+    const endpoint = this.repoEndpoint(repo, "items")
+    const query: PrimitiveParams = {}
+    if (type) query.type = type
+    if (typeof limit === "number") query.limit = limit
+    if (typeof offset === "number") query.offset = offset
+    return this.withApiError(
+      () =>
+        this.request(endpoint, {
+          signal,
+          cacheHint: true,
+          query,
+        }),
+      "Failed to get repository items",
+      "REPOSITORY_ITEMS_ERROR"
+    )
   }
 
   async getWorkspaceItem(
@@ -424,7 +466,8 @@ export class FmeFlowApiClient {
       () =>
         this.request<JobResponse>(endpoint, {
           method: HttpMethod.POST,
-          query: jobRequest,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(jobRequest),
           signal,
           cacheHint: false,
         }),
@@ -444,7 +487,8 @@ export class FmeFlowApiClient {
     const jobRequest = this.formatJobParams(parameters)
     return this.request<JobResult>(endpoint, {
       method: HttpMethod.POST,
-      query: jobRequest,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(jobRequest),
       signal,
     })
   }
@@ -510,9 +554,13 @@ export class FmeFlowApiClient {
         signal
       )
     } catch (error) {
+      const isAbort =
+        (error as { name?: string } | null | undefined)?.name ===
+          "AbortError" || Boolean(signal?.aborted)
       if (
         error instanceof FmeFlowApiError &&
-        error.code === "WEBHOOK_AUTH_ERROR"
+        (error.code === "WEBHOOK_AUTH_ERROR" ||
+          (error.code === "DATA_DOWNLOAD_ERROR" && !isAbort))
       ) {
         console.log(
           "FME Export - Webhook authentication failed, falling back to REST API job submission"
@@ -531,7 +579,8 @@ export class FmeFlowApiClient {
   async runDataStreaming(
     workspace: string,
     parameters: PrimitiveParams = {},
-    repository?: string
+    repository?: string,
+    signal?: AbortSignal
   ): Promise<ApiResponse> {
     const targetRepository = this.resolveRepository(repository)
     const endpoint = this.buildServiceUrl(
@@ -547,6 +596,7 @@ export class FmeFlowApiClient {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
+          signal,
         })
       },
       "Failed to run data streaming",
@@ -567,7 +617,24 @@ export class FmeFlowApiClient {
         repository,
         workspace
       )
-      const params = buildWebhookParams(parameters, API.WEBHOOK_EXCLUDE_KEYS)
+      // For webhook, tm_* must be added as query params directly
+      // Exclude tm_* from the initial query build so we can control empty handling
+      const params = buildWebhookParams(parameters, [
+        ...API.WEBHOOK_EXCLUDE_KEYS,
+        "tm_ttc",
+        "tm_ttl",
+        "tm_tag",
+      ])
+      // Ensure tm_* values are present if provided
+      const maybeAppend = (k: string) => {
+        const v = (parameters as any)[k]
+        if (v !== undefined && v !== null && String(v).length > 0) {
+          params.set(k, String(v))
+        }
+      }
+      maybeAppend("tm_ttc")
+      maybeAppend("tm_ttl")
+      maybeAppend("tm_tag")
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
@@ -744,13 +811,36 @@ export class FmeFlowApiClient {
     const projectedGeometry = toWgs84(geometry)
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
+    // sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
+    const aoj = (() => {
+      const json = (projectedGeometry as __esri.Polygon).toJSON()
+      if (json && Array.isArray(json.rings)) {
+        json.rings = json.rings.map((ring: any[]) =>
+          ring.map((pt: any) => [pt[0], pt[1]])
+        )
+      }
+      if (json) {
+        delete json.hasZ
+        delete json.hasM
+      }
+      if (
+        !json?.spatialReference &&
+        (projectedGeometry as __esri.Polygon).spatialReference
+      ) {
+        const sr = (projectedGeometry as __esri.Polygon).spatialReference as any
+        json.spatialReference =
+          typeof sr.toJSON === "function" ? sr.toJSON() : { wkid: sr.wkid }
+      }
+      return json
+    })()
+
     return {
       MAXX: extent.xmax,
       MAXY: extent.ymax,
       MINX: extent.xmin,
       MINY: extent.ymin,
       AREA: area,
-      AreaOfInterest: JSON.stringify(projectedGeometry.toJSON()),
+      AreaOfInterest: JSON.stringify(aoj),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }
@@ -775,6 +865,9 @@ export class FmeFlowApiClient {
       if (this.config.token && !headers.Authorization) {
         headers.Authorization = `fmetoken token=${this.config.token}`
       }
+      if (!headers.Accept) {
+        headers.Accept = "application/json"
+      }
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
         query: options.query as any,
@@ -793,10 +886,21 @@ export class FmeFlowApiClient {
         statusText: "OK",
       }
     } catch (err) {
+      // Handle specific error cases
+      if (
+        (err as { name?: string } | null | undefined)?.name === "AbortError"
+      ) {
+        return {
+          data: undefined as unknown as T,
+          status: 0,
+          statusText: "Canceled",
+        }
+      }
       const { message, status, details } = getErrorInfo(err)
       let errorMessage = `Request failed: ${message}`
       let errorCode = "NETWORK_ERROR"
       const httpStatus = status || 0
+      // Log the error with masked token
       console.error("FME API - request error", {
         url,
         token: maskToken(this.config.token),
@@ -810,9 +914,10 @@ export class FmeFlowApiClient {
         errorMessage = `Server returned HTML instead of JSON. This usually indicates an authentication or endpoint issue. URL: ${url}`
         errorCode = "INVALID_RESPONSE_FORMAT"
       }
-      if (details?.error) {
-        errorMessage = details.error.message || errorMessage
-        errorCode = details.error.code || errorCode
+      const det: any = details as any
+      if (det?.error) {
+        errorMessage = det.error.message || errorMessage
+        errorCode = det.error.code || errorCode
       }
       throw new FmeFlowApiError(errorMessage, errorCode, httpStatus)
     }

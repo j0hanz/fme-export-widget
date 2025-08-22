@@ -45,14 +45,24 @@ export const makeLoadingView = (
   message?: string,
   detail?: string
 ): LoadingView => ({ kind: "loading", message, detail })
-export const makeErrorView = (
-  message: string,
-  opts: Omit<ErrorView, "kind" | "message"> = {}
-): ErrorView => ({ kind: "error", message, ...opts })
 export const makeEmptyView = (
   message: string,
   actions?: readonly ViewAction[]
 ): EmptyView => ({ kind: "empty", message, actions })
+export const makeErrorView = (
+  message: string,
+  opts?: {
+    code?: string
+    actions?: readonly ViewAction[]
+    recoverable?: boolean
+  }
+): ErrorView => ({
+  kind: "error",
+  message,
+  code: opts?.code,
+  actions: opts?.actions,
+  recoverable: opts?.recoverable,
+})
 
 // UI Component Interfaces
 export interface ButtonProps {
@@ -247,6 +257,24 @@ export interface IconProps {
   readonly style?: React.CSSProperties
 }
 
+// Props for StateView component
+export interface StateViewProps {
+  readonly state: ViewState
+  readonly className?: string
+  readonly style?: React.CSSProperties
+  /** Layout for action buttons; currently only column is supported */
+  readonly actionsLayout?: "column"
+  /** Optional custom renderer for actions */
+  readonly renderActions?: (
+    actions: readonly ViewAction[] | undefined,
+    ariaLabel: string
+  ) => React.ReactElement | null
+  /** Optional test id for e2e and unit tests */
+  readonly testId?: string
+  /** Center content vertically; defaults to true for loading, false otherwise */
+  readonly center?: boolean
+}
+
 // Parameter primitives and values used by dynamic forms
 export type ParameterPrimitive =
   | string
@@ -353,6 +381,7 @@ export const enum DrawingTool {
 }
 
 export const enum ViewMode {
+  STARTUP_VALIDATION = "startupValidation",
   INITIAL = "initial",
   DRAWING = "drawing",
   WORKSPACE_SELECTION = "workspaceSelection",
@@ -396,6 +425,9 @@ export enum FmeActionType {
   SET_VIEW_MODE = "FME_SET_VIEW_MODE",
   RESET_STATE = "FME_RESET_STATE",
 
+  // Startup Validation Actions
+  SET_STARTUP_VALIDATION_STATE = "FME_SET_STARTUP_VALIDATION_STATE",
+
   // Drawing & Geometry Actions
   SET_GEOMETRY = "FME_SET_GEOMETRY",
   SET_DRAWING_STATE = "FME_SET_DRAWING_STATE",
@@ -432,6 +464,14 @@ export interface SetViewModeAction
 
 export interface ResetStateAction
   extends BaseAction<FmeActionType.RESET_STATE> {}
+
+// Startup Validation Actions
+export interface SetStartupValidationStateAction
+  extends BaseAction<FmeActionType.SET_STARTUP_VALIDATION_STATE> {
+  isValidating: boolean
+  validationStep?: string
+  validationError?: ErrorState | null
+}
 
 // Drawing & Geometry Actions
 export interface SetGeometryAction
@@ -514,7 +554,10 @@ export interface SetExportErrorAction
 }
 
 // Grouped action union types
-export type FmeViewActions = SetViewModeAction | ResetStateAction
+export type FmeViewActions =
+  | SetViewModeAction
+  | ResetStateAction
+  | SetStartupValidationStateAction
 
 export type FmeDrawingActions =
   | SetGeometryAction
@@ -568,6 +611,11 @@ export interface FmeExportConfig {
   readonly geometryServiceUrl?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
+  readonly supportEmail?: string
+  // Admin defaults for FME Task Manager directives (0 disables; tag empty disables)
+  readonly tm_ttc?: number
+  readonly tm_ttl?: number
+  readonly tm_tag?: string
   // Legacy support - deprecated
   readonly fme_server_url?: string
   readonly fmw_server_token?: string
@@ -828,6 +876,9 @@ export interface EsriGeometryJson {
 export interface FmeViewState {
   readonly viewMode: ViewMode
   readonly previousViewMode: ViewMode | null
+  readonly isStartupValidating: boolean
+  readonly startupValidationStep?: string
+  readonly startupValidationError?: ErrorState | null
 }
 
 // Drawing and geometry state
@@ -901,6 +952,8 @@ interface WorkflowDrawingFeatures {
   readonly formatArea?: (area: number) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
+  readonly isDrawing?: boolean
+  readonly clickCount?: number
 }
 
 interface WorkflowExportFeatures {
@@ -930,13 +983,21 @@ interface WorkflowWorkspaceFeatures {
   readonly workspaceItem?: WorkspaceItemDetail | null
 }
 
+interface WorkflowStartupValidationFeatures {
+  readonly isStartupValidating?: boolean
+  readonly startupValidationStep?: string
+  readonly startupValidationError?: ErrorState | null
+  readonly onRetryValidation?: () => void
+}
+
 // Main workflow props interface with selective feature composition
 export interface WorkflowProps
   extends WorkflowCoreProps,
     Partial<WorkflowDrawingFeatures>,
     Partial<WorkflowExportFeatures>,
     Partial<WorkflowHeaderFeatures>,
-    Partial<WorkflowWorkspaceFeatures> {}
+    Partial<WorkflowWorkspaceFeatures>,
+    Partial<WorkflowStartupValidationFeatures> {}
 
 // Widget-specific types
 // Inline widget notifications removed with Message; rely on view state/errors.
@@ -946,6 +1007,11 @@ export interface WidgetConfig {
   fmeServerUrl?: string
   fmeServerToken?: string
   repository?: string
+  supportEmail?: string
+  // Admin defaults for job directives
+  tm_ttc?: number
+  tm_ttl?: number
+  tm_tag?: string
 }
 
 // Immutable view of WidgetConfig for Experience Builder settings/components
@@ -965,6 +1031,7 @@ export interface TestState {
 
 // Navigation routing table for view transitions
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
+  [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
   [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
   [ViewMode.WORKSPACE_SELECTION]: ViewMode.INITIAL,
   [ViewMode.EXPORT_OPTIONS]: ViewMode.INITIAL,

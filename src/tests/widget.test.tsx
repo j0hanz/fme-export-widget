@@ -69,14 +69,16 @@ describe("FME Export Widget", () => {
   test("widget state management for loading and error handling", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Loading state shows spinner message
+    // Startup validation state shows loading message
     const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
-    screen.getByText(/Laddar karttjänster/i)
+    screen.getByText(/Validerar konfiguration|Laddar karttjänster/i)
     unmount1()
 
     // Error state renders retry button and clears error on click
     const errorState: FmeWidgetState = {
       ...initialFmeState,
+      viewMode: ViewMode.INITIAL, // Move past startup validation
+      isStartupValidating: false,
       error: {
         message: "geometryMissing",
         severity: "error" as any,
@@ -94,12 +96,15 @@ describe("FME Export Widget", () => {
           fmeServerUrl: "http://example.com",
           fmeServerToken: "t",
           repository: "repo",
+          supportEmail: "support@example.com",
         }}
       />
     )
 
     await waitFor(() => {
-      expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
     })
 
     const retryBtn = await screen.findByRole("button", { name: /Försök igen/i })
@@ -111,6 +116,44 @@ describe("FME Export Widget", () => {
         (a: any) => a?.type === "FME_SET_ERROR" && a?.error === null
       )
     ).toBe(true)
+  })
+
+  test("shows contact support with email when configured during startup error", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Error state with support email configured
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: true,
+      startupValidationError: {
+        message: "invalidConfiguration",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestamp: new Date(0),
+      },
+    }
+    updateStore({ "fme-state": errorState })
+
+    renderWidget(
+      <Wrapped
+        widgetId="w5"
+        config={{
+          fmeServerUrl: "",
+          fmeServerToken: "",
+          repository: "",
+          supportEmail: "help@domain.se",
+        }}
+      />
+    )
+
+    // Expect an accessible mailto link for the support email
+    const emailLink = await screen.findByRole("link", {
+      name: /Kontakta\s*help@domain.se/i,
+    })
+    expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
+    // And the trailing support phrase should be present in the view
+    expect(screen.getByText(/för hjälp med konfigurationen/i)).toBeTruthy()
   })
 
   test("formatArea produces expected metric strings", () => {
@@ -129,6 +172,7 @@ describe("FME Export Widget", () => {
     const successState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.ORDER_RESULT,
+      isStartupValidating: false, // Past startup validation
       orderResult: {
         success: true,
         jobId: 1,
@@ -151,7 +195,9 @@ describe("FME Export Widget", () => {
     )
 
     await waitFor(() => {
-      expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
     })
 
     const reuseBtn = await screen.findByRole("button", {
@@ -173,6 +219,7 @@ describe("FME Export Widget", () => {
     const formState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.EXPORT_FORM,
+      isStartupValidating: false, // Past startup validation
       selectedWorkspace: "ws1",
       workspaceParameters: [],
       drawnArea: 2000,
@@ -194,7 +241,9 @@ describe("FME Export Widget", () => {
     )
 
     await waitFor(() => {
-      expect(screen.queryByText(/Laddar karttjänster/i)).toBeNull()
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
     })
 
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })

@@ -1,7 +1,8 @@
-import { React, hooks, getAppStore } from "jimu-core"
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, hooks, getAppStore, jsx } from "jimu-core"
 import {
   Button,
-  UI_CSS,
   StateView,
   Select,
   TextArea,
@@ -10,13 +11,14 @@ import {
   Input,
   Checkbox,
   ButtonTabs,
+  styles,
 } from "./ui"
 import defaultMessages from "./translations/default"
+import runtimeMessages from "../translations/default"
 import {
   FormFieldType,
   type WorkflowProps,
   type WorkspaceItem,
-  type ViewAction,
   type FormPrimitive,
   type FormValues,
   type SelectValue,
@@ -26,20 +28,18 @@ import {
   type DynamicFieldConfig,
   type ApiResponse,
   type RepositoryItems,
-} from "../../shared/types"
-import {
   ViewMode,
   DrawingTool,
   makeLoadingView,
-  makeErrorView,
   makeEmptyView,
   ErrorType,
+  makeErrorView,
 } from "../../shared/types"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
-import plusIcon from "jimu-icons/svg/outlined/editor/plus.svg"
+// error icon no longer used; render via StateView
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
@@ -47,51 +47,19 @@ import {
   ErrorHandlingService,
 } from "../../shared/services"
 
-// Workflow-specific styles
-const CSS = {
-  parent: {
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-    height: "100%",
-    position: "relative" as const,
-  } as React.CSSProperties,
-  header: {
-    display: "flex",
-    justifyContent: "end",
-    flexShrink: 0,
-  } as React.CSSProperties,
-  content: {
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    flex: "1 1 auto",
-    padding: "0.5rem",
-  } as React.CSSProperties,
-  state: {
-    centered: {
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      height: "100%",
-      gap: "0.5rem",
-    } as React.CSSProperties,
-  },
-  typography: {
-    caption: {
-      fontSize: "0.8125rem",
-      margin: "0.5rem 0",
-    } as React.CSSProperties,
-    title: {
-      fontSize: "1rem",
-      fontWeight: 500,
-    } as React.CSSProperties,
-    instructionText: {
-      fontSize: "0.8125rem",
-      margin: "1rem 0",
-      textAlign: "center",
-    } as React.CSSProperties,
-  },
+// All styles now centralized via styles from ui.tsx
+
+// Debounce interval for workspace loading
+const DEBOUNCE_MS = 300
+
+// Abort helper to cancel in-flight workspace requests safely
+const abortCurrentLoad = (
+  ref: React.MutableRefObject<AbortController | null>
+): void => {
+  if (ref.current) {
+    ref.current.abort()
+    ref.current = null
+  }
 }
 
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
@@ -122,15 +90,19 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
+// Module-level helpers
+
 // Helper for workspace API error handling
-const formatError = (
+const formatApiError = (
   err: unknown,
   isMountedRef: React.MutableRefObject<boolean>,
   translate: (key: string) => string,
   baseMessage: string
 ): string | null => {
+  const errName = (err as { name?: string } | null)?.name
   if (
-    (err as { name?: string } | null)?.name === ERROR_NAMES.CANCELLED_PROMISE ||
+    errName === ERROR_NAMES.CANCELLED_PROMISE ||
+    errName === ERROR_NAMES.ABORT ||
     !isMountedRef.current
   ) {
     return null
@@ -144,31 +116,59 @@ const formatError = (
   return `${translate(baseMessage)}: ${errorMessage}`
 }
 
-// Helper to determine reset button enabled state
-const isResetEnabled = (
+// Workspace list helpers: filter by type and sort deterministically
+const filterWorkspaces = (
+  items: readonly WorkspaceItem[] | undefined
+): readonly WorkspaceItem[] => {
+  if (!items || items.length === 0) return []
+  return items.filter((i) => i.type === WORKSPACE_ITEM_TYPE)
+}
+
+const sortWorkspaces = (
+  items: readonly WorkspaceItem[]
+): readonly WorkspaceItem[] =>
+  items.slice().sort((a, b) =>
+    (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+      sensitivity: "base",
+    })
+  )
+
+// Check if reset button should be enabled
+const canReset = (
   onReset: (() => void) | undefined,
-  canReset: boolean,
+  canResetFlag: boolean,
   state: ViewMode,
-  drawnArea: number
+  drawnArea: number,
+  isDrawing?: boolean,
+  clickCount?: number
 ): boolean => {
-  if (!onReset || !canReset) return false
+  if (!onReset || !canResetFlag) return false
+  if (state === ViewMode.ORDER_RESULT) return false
+
   const hasArea = drawnArea > 0
-  return state === ViewMode.DRAWING || (hasArea && state !== ViewMode.INITIAL)
+  if (state === ViewMode.DRAWING) {
+    const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
+    return !firstClickPending
+  }
+  return hasArea && state !== ViewMode.INITIAL
 }
 
-// Determine whether workspace list should display a loading state
-const showWsLoading = (
-  isLoadingWorkspaces: boolean,
+// Check if workspace list should show loading
+const shouldShowWsLoading = (
+  isLoading: boolean,
   workspaces: readonly WorkspaceItem[],
-  state: ViewMode
+  state: ViewMode,
+  hasError?: boolean
 ): boolean => {
-  const shouldLoadInThisState =
+  if (hasError) return false
+  const needsLoading =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
-  return isLoadingWorkspaces || (!workspaces.length && shouldLoadInThisState)
+  return isLoading || (!workspaces.length && needsLoading)
 }
 
-// Form helper functions
-const normalizeFieldValue = (
+// Form utilities
+
+const normalizeValue = (
   value: FormPrimitive | undefined,
   isMultiSelect: boolean
 ): FormPrimitive => {
@@ -178,7 +178,6 @@ const normalizeFieldValue = (
   return value
 }
 
-// Coerce any FormPrimitive to a value acceptable by <Select/>
 const toSelectValue = (
   value: FormPrimitive,
   isMultiSelect: boolean
@@ -188,7 +187,7 @@ const toSelectValue = (
   return isMultiSelect ? [] : ""
 }
 
-const getPlaceholders = (
+const makePlaceholders = (
   translate: (k: string, p?: any) => string,
   fieldLabel: string
 ) =>
@@ -213,6 +212,21 @@ const syncForm = (values: FormValues): void => {
     action: ReturnType<typeof fmeActions.setFormValues>
   ) => void
   dispatch(fmeActions.setFormValues(values))
+}
+
+// Remove leading label from validation error messages to avoid duplicate labels
+const stripLabelFromError = (
+  label: string,
+  errorText?: string
+): string | undefined => {
+  if (!errorText) return undefined
+  try {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const re = new RegExp(`^${escaped}\\s+`, "i")
+    return errorText.replace(re, "")
+  } catch {
+    return errorText
+  }
 }
 
 const renderInput = (
@@ -273,7 +287,7 @@ const OrderResult = React.memo(function OrderResult({
         ? String(value)
         : JSON.stringify(value)
     rows.push(
-      <div style={CSS.typography.caption} key={label || display}>
+      <div css={styles.typography.caption} key={label || display}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -303,20 +317,22 @@ const OrderResult = React.memo(function OrderResult({
 
   return (
     <>
-      <div style={CSS.typography.title}>{titleText}</div>
+      <div css={styles.typography.title}>{titleText}</div>
       {rows}
       {showDownloadLink && (
-        <div style={CSS.typography.caption}>
+        <div css={styles.typography.caption}>
+          {translate("downloadReady")}:{" "}
           <a
             href={orderResult.downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
+            css={styles.typography.link}
           >
-            {translate("downloadResult")}
+            {translate("clickToDownload")}
           </a>
         </div>
       )}
-      {showMessage && <div style={CSS.typography.caption}>{messageText}</div>}
+      {showMessage && <div css={styles.typography.caption}>{messageText}</div>}
       <Button
         text={buttonText}
         onClick={buttonHandler}
@@ -336,8 +352,8 @@ const DynamicField = React.memo(function DynamicField({
   translate,
 }: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue = normalizeFieldValue(value, isMulti)
-  const placeholders = getPlaceholders(translate, field.label)
+  const fieldValue = normalizeValue(value, isMulti)
+  const placeholders = makePlaceholders(translate, field.label)
 
   switch (field.type) {
     case FormFieldType.SELECT:
@@ -452,10 +468,19 @@ const ExportForm = React.memo(function ExportForm({
     initValues(getFormConfig())
   )
   const [isValid, setIsValid] = React.useState(true)
+  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
     syncForm(values)
+  })
+
+  // Validate form on mount
+  hooks.useEffectOnce(() => {
+    const fc = getFormConfig()
+    const validation = parameterService.validateFormValues(values, fc)
+    setIsValid(validation.isValid)
+    setErrors(validation.errors)
   })
 
   // Validate form whenever values change
@@ -463,6 +488,7 @@ const ExportForm = React.memo(function ExportForm({
     const fc = getFormConfig()
     const validation = parameterService.validateFormValues(values, fc)
     setIsValid(validation.isValid)
+    setErrors(validation.errors)
   }, [values, parameterService, workspaceParameters, getFormConfig])
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
@@ -470,6 +496,7 @@ const ExportForm = React.memo(function ExportForm({
     const fc = getFormConfig()
     const nextValues = initValues(fc)
     setValues(nextValues)
+    setErrors({})
     setFileMap({})
     syncForm(nextValues)
   }, [workspaceName, workspaceParameters, getFormConfig])
@@ -554,8 +581,13 @@ const ExportForm = React.memo(function ExportForm({
       isValid={isValid}
       loading={isSubmitting}
     >
-      {getFormConfig().map((field) => (
-        <Field key={field.name} label={field.label} required={field.required}>
+      {getFormConfig().map((field: DynamicFieldConfig) => (
+        <Field
+          key={field.name}
+          label={field.label}
+          required={field.required}
+          error={stripLabelFromError(errors[field.name])}
+        >
           <DynamicField
             field={field}
             value={values[field.name]}
@@ -572,9 +604,8 @@ const ExportForm = React.memo(function ExportForm({
 export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
-  onAngeUtbredning,
   isModulesLoading,
-  canStartDrawing,
+  canStartDrawing: _canStartDrawing,
   error,
   onFormBack,
   onFormSubmit,
@@ -588,21 +619,27 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Drawing mode
   drawingMode = DrawingTool.POLYGON,
   onDrawingModeChange,
+  // Drawing progress
+  isDrawing,
+  clickCount,
   // Reset
   onReset,
-  canReset = true,
+  canReset: canResetProp = true,
   // Workspace props
   config,
   onWorkspaceSelected,
   selectedWorkspace,
   workspaceParameters,
   workspaceItem,
+  // Startup validation props
+  isStartupValidating: _isStartupValidating,
+  startupValidationStep,
+  startupValidationError,
+  onRetryValidation,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const translateRuntime = hooks.useTranslation(runtimeMessages)
   const makeCancelable = hooks.useCancelablePromiseMaker()
-
-  // Internal alias for readability (keep original prop name for API stability)
-  const handleSpecifyExtent = onAngeUtbredning
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -613,16 +650,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
-  // Local helper to build action arrays for StateView
-  const getActions = hooks.useEventCallback(
-    (onBack?: () => void, onRetry?: () => void): ViewAction[] => {
-      return [
-        ...(onRetry ? [{ label: translate("retry"), onClick: onRetry }] : []),
-        ...(onBack ? [{ label: translate("back"), onClick: onBack }] : []),
-      ]
-    }
-  )
-
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
@@ -631,10 +658,86 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const renderError = hooks.useEventCallback(
-    (message: string, onBack?: () => void, onRetry?: () => void) => {
-      const actions =
-        onBack || onRetry ? getActions(onBack, onRetry) : undefined
-      return <StateView state={makeErrorView(message, { actions })} />
+    (
+      message: string,
+      onBack?: () => void,
+      onRetry?: () => void,
+      code?: string,
+      supportText?: string
+    ) => {
+      // Build actions based on provided callbacks
+      const actions: Array<{ label: string; onClick: () => void }> = []
+      if (onRetry) {
+        actions.push({ label: translate("retry"), onClick: onRetry })
+      } else if (onBack) {
+        actions.push({ label: translate("back"), onClick: onBack })
+      }
+
+      // Extract email from support text or config
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const tokenRegex = /\{\s*email\s*\}/i
+      const configuredEmail = String(config?.supportEmail || "").trim()
+      const configuredIsEmail = emailRegex.test(configuredEmail)
+
+      const emailMatch = supportText?.match(emailRegex)
+      const email = emailMatch?.[0]
+        ? emailMatch[0]
+        : tokenRegex.test(supportText || "") && configuredIsEmail
+          ? configuredEmail
+          : undefined
+
+      // Compose the final message
+      let composedMessage = message
+      // If support text is provided, append it
+      if (supportText && !email) {
+        const supportHint = tokenRegex.test(supportText)
+          ? translateRuntime("contactSupport")
+          : supportText
+        composedMessage = `${message} ${supportHint}`
+      }
+
+      return (
+        <StateView
+          state={makeErrorView(composedMessage, { code, actions })}
+          renderActions={(act, ariaLabel) => {
+            // Render actions with email link if available
+            const actionsCount = act?.length ?? 0
+            return (
+              <div
+                role="group"
+                aria-label={ariaLabel}
+                data-actions-count={actionsCount}
+              >
+                {email &&
+                  (() => {
+                    // Render email link with translation
+                    const template = translateRuntime("contactSupportWithEmail")
+                    const parts = template.split(tokenRegex)
+                    const before = parts[0] || ""
+                    const after = parts[1] || ""
+                    return (
+                      <div>
+                        {before}
+                        <a
+                          href={`mailto:${email}`}
+                          css={styles.typography.link}
+                          aria-label={translateRuntime(
+                            "contactSupportWithEmail",
+                            { email }
+                          )}
+                        >
+                          {email}
+                        </a>
+                        {after}
+                      </div>
+                    )
+                  })()}
+              </div>
+            )
+          }}
+          center={false}
+        />
+      )
     }
   )
 
@@ -670,10 +773,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return () => {
       isMountedRef.current = false
       // Cancel any pending workspace requests
-      if (loadAbortRef.current) {
-        loadAbortRef.current.abort()
-        loadAbortRef.current = null
-      }
+      abortCurrentLoad(loadAbortRef)
       // Clear any pending scheduled load timeout
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current)
@@ -683,14 +783,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
   })
 
   // Load workspaces with race condition protection
-  const fetchWorkspaces = hooks.useEventCallback(async () => {
+  const loadWsList = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
     if (!fmeClient || !config?.repository) return
 
     // Cancel any existing request
-    if (loadAbortRef.current) {
-      loadAbortRef.current.abort()
-    }
+    abortCurrentLoad(loadAbortRef)
     loadAbortRef.current = new AbortController()
 
     setIsLoadingWorkspaces(true)
@@ -711,24 +809,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (loadAbortRef.current?.signal.aborted) return
 
       if (response.status === 200 && response.data.items) {
-        const items = response.data.items.filter(
-          (i) => i.type === WORKSPACE_ITEM_TYPE
-        )
-        // Sort deterministically by title or name (case-insensitive)
-        const sorted = items.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        )
+        const items = filterWorkspaces(response.data.items as readonly any[])
+        const sorted = sortWorkspaces(items)
         if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: unknown) {
-      // Don't show error if request was aborted
-      if ((err as { name?: string })?.name === ERROR_NAMES.ABORT) return
-
-      const errorMsg = formatError(
+      const errorMsg = formatApiError(
         err,
         isMountedRef,
         translate,
@@ -750,9 +838,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const fmeClient = getFmeClient()
       if (!fmeClient || !config?.repository) return
       // Cancel any existing request
-      if (loadAbortRef.current) {
-        loadAbortRef.current.abort()
-      }
+      abortCurrentLoad(loadAbortRef)
       loadAbortRef.current = new AbortController()
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
@@ -774,7 +860,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: unknown) {
-        const errorMsg = formatError(
+        const errorMsg = formatApiError(
           err,
           isMountedRef,
           translate,
@@ -783,19 +869,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
         if (errorMsg) setWorkspaceError(errorMsg)
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
+        // Clear the abort controller reference
+        loadAbortRef.current = null
       }
     }
   )
 
   // Render workspace buttons
-  const renderWorkspaceButtons = () =>
+  const renderWsButtons = () =>
     workspaces.map((workspace) => (
       <Button
         key={workspace.name}
         text={workspace.title || workspace.name}
         icon={listIcon}
         role="listitem"
-        style={{ textAlign: "right" }}
+        alignText="end"
         onClick={() => {
           loadWorkspace(workspace.name)
         }}
@@ -806,15 +894,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
       />
     ))
 
-  // Schedule a workspace load (debounced 300ms) to prevent rapid successive calls
-  const workspaceLoad = hooks.useEventCallback(() => {
+  // Schedule a workspace load (debounced) to prevent rapid successive calls
+  const scheduleWsLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
     }
     loadTimeoutRef.current = setTimeout(() => {
-      fetchWorkspaces()
+      loadWsList()
       loadTimeoutRef.current = null
-    }, 300) // 300ms debounce delay
+    }, DEBOUNCE_MS)
   })
 
   // Lazy load
@@ -824,7 +912,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       state === ViewMode.EXPORT_OPTIONS
     ) {
       if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
-        workspaceLoad()
+        scheduleWsLoad()
       }
     }
   }, [
@@ -832,27 +920,30 @@ export const Workflow: React.FC<WorkflowProps> = ({
     workspaces.length,
     isLoadingWorkspaces,
     workspaceError,
-    workspaceLoad,
+    scheduleWsLoad,
   ])
 
   // Header
   const renderHeader = () => {
-    const resetEnabled = isResetEnabled(
+    const resetEnabled = canReset(
       onReset,
-      canReset,
+      canResetProp,
       state,
-      drawnArea ?? 0
+      drawnArea ?? 0,
+      isDrawing,
+      clickCount
     )
+
+    if (!resetEnabled) return null
 
     return (
       <Button
         icon={resetIcon}
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
-        onClick={resetEnabled ? onReset : noOp}
-        variant="text"
+        onClick={onReset}
         text={translate("cancel")}
-        disabled={!resetEnabled}
+        size="sm"
         aria-label={translate("cancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
         block={false}
@@ -868,7 +959,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Main content
     return (
-      <div style={CSS.state.centered}>
+      <div css={styles.centered}>
         {/* Drawing mode */}
         <ButtonTabs
           items={getDrawingModeItems()}
@@ -878,30 +969,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
           }}
           ariaLabel={translate("drawingModeTooltip")}
         />
-        <Button
-          text={translate("specifyExtent")}
-          alignText="center"
-          icon={plusIcon}
-          onClick={handleSpecifyExtent}
-          disabled={!canStartDrawing}
-          tooltip={translate("tooltipSpecifyExtent")}
-          tooltipPlacement="bottom"
-          logging={{ enabled: true, prefix: "FME-Export" }}
-        />
       </div>
     )
   }
 
   const renderDrawing = () => (
-    <div style={CSS.typography.instructionText}>{instructionText}</div>
+    <div css={styles.typography.instruction}>{instructionText}</div>
   )
 
   const renderSelection = () => {
     // Loading
-    const shouldShowLoading = showWsLoading(
+    const shouldShowLoading = shouldShowWsLoading(
       isLoadingWorkspaces,
       workspaces,
-      state
+      state,
+      Boolean(workspaceError)
     )
     if (shouldShowLoading) {
       const message = workspaces.length
@@ -912,25 +994,26 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     // Error
     if (workspaceError) {
-      return renderError(workspaceError, onBack || noOp, fetchWorkspaces)
+      return renderError(workspaceError, onBack || noOp, loadWsList)
     }
 
     // Empty
     if (!workspaces.length) {
+      const actions = [
+        { label: translate("retry"), onClick: loadWsList },
+        { label: translate("back"), onClick: onBack || noOp },
+      ]
       return (
         <StateView
-          state={makeEmptyView(
-            translate("noWorkspacesFound"),
-            getActions(onBack || noOp, fetchWorkspaces)
-          )}
+          state={makeEmptyView(translate("noWorkspacesFound"), actions)}
         />
       )
     }
 
     // Content
     return (
-      <div style={UI_CSS.BTN.DEFAULT} role="list">
-        {renderWorkspaceButtons()}
+      <div css={styles.button.default} role="list">
+        {renderWsButtons()}
       </div>
     )
   }
@@ -964,6 +1047,33 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderCurrent = () => {
+    // Startup validation
+    if (state === ViewMode.STARTUP_VALIDATION) {
+      // Show validation error if exists
+      if (startupValidationError) {
+        // Pass raw email so the error renderer can detect it and build an accessible mailto link.
+        // If no email is configured, provide a generic support phrase.
+        const fallbackSupport = config?.supportEmail
+          ? String(config.supportEmail)
+          : translateRuntime("contactSupport")
+        return renderError(
+          startupValidationError.message,
+          undefined,
+          onRetryValidation ||
+            (() => {
+              window.location.reload()
+            }),
+          startupValidationError.code,
+          startupValidationError.userFriendlyMessage || fallbackSupport
+        )
+      }
+
+      // Show loading state during validation
+      const loadingMessage =
+        startupValidationStep || translate("validatingStartup")
+      return <StateView state={makeLoadingView(loadingMessage)} />
+    }
+
     // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       // Guard clause for missing order result
@@ -985,15 +1095,42 @@ export const Workflow: React.FC<WorkflowProps> = ({
     // General error
     if (error) {
       if (error.severity !== "info") {
-        return renderError(error.message, undefined, onBack || noOp)
+        return renderError(
+          error.message,
+          undefined,
+          onBack || noOp,
+          error.code,
+          error.userFriendlyMessage
+        )
       }
-      return renderError(error.message)
+      return renderError(
+        error.message,
+        undefined,
+        undefined,
+        error.code,
+        error.userFriendlyMessage
+      )
     }
 
     switch (state) {
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
+        // If drawing is not allowed, show error
+        if (isDrawing && (clickCount || 0) === 0) {
+          return (
+            <div css={styles.centered}>
+              <ButtonTabs
+                items={getDrawingModeItems()}
+                value={drawingMode}
+                onChange={(val) => {
+                  onDrawingModeChange?.(val as DrawingTool)
+                }}
+                ariaLabel={translate("drawingModeTooltip")}
+              />
+            </div>
+          )
+        }
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:
@@ -1015,9 +1152,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   return (
-    <div style={CSS.parent}>
-      <div style={CSS.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div style={CSS.content}>{renderCurrent()}</div>
+    <div css={styles.parent}>
+      <div css={styles.header}>{showHeaderActions ? renderHeader() : null}</div>
+      <div css={styles.content}>{renderCurrent()}</div>
     </div>
   )
 }

@@ -30,6 +30,16 @@ const view = {
   setViewMode: (viewMode: ViewMode) =>
     makePayload(FmeActionType.SET_VIEW_MODE, { viewMode }),
   resetState: () => makeSimple(FmeActionType.RESET_STATE),
+  setStartupValidationState: (
+    isValidating: boolean,
+    validationStep?: string,
+    validationError?: ErrorState | null
+  ) =>
+    makePayload(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
+      isValidating,
+      validationStep,
+      validationError,
+    }),
 }
 
 // Drawing actions
@@ -118,8 +128,11 @@ export const fmeActions = {
 
 export const initialFmeState: FmeWidgetState = {
   // View
-  viewMode: ViewMode.INITIAL,
+  viewMode: ViewMode.STARTUP_VALIDATION,
   previousViewMode: null,
+  isStartupValidating: true,
+  startupValidationStep: undefined,
+  startupValidationError: null,
 
   // Drawing
   isDrawing: false,
@@ -152,6 +165,15 @@ export const initialFmeState: FmeWidgetState = {
 
 // Reducer helpers
 const helpers = {
+  getErrorField: (
+    type: FmeActionType
+  ): "error" | "importError" | "exportError" =>
+    type === FmeActionType.SET_ERROR
+      ? "error"
+      : type === FmeActionType.SET_IMPORT_ERROR
+        ? "importError"
+        : "exportError",
+
   setView: (
     state: ImmutableObject<FmeWidgetState>,
     newViewMode: ViewMode
@@ -210,13 +232,7 @@ const helpers = {
     state: ImmutableObject<FmeWidgetState>,
     action: { type: FmeActionType; error: ErrorState | null }
   ): ImmutableObject<FmeWidgetState> => {
-    const errorField =
-      action.type === FmeActionType.SET_ERROR
-        ? "error"
-        : action.type === FmeActionType.SET_IMPORT_ERROR
-          ? "importError"
-          : "exportError"
-
+    const errorField = helpers.getErrorField(action.type)
     return state.set(errorField, action.error)
   },
 }
@@ -233,6 +249,12 @@ const fmeReducer = (
 
     case FmeActionType.RESET_STATE:
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
+
+    case FmeActionType.SET_STARTUP_VALIDATION_STATE:
+      return state
+        .set("isStartupValidating", action.isValidating)
+        .set("startupValidationStep", action.validationStep)
+        .set("startupValidationError", action.validationError)
 
     // Drawing and geometry cases
     case FmeActionType.SET_GEOMETRY:
@@ -293,8 +315,9 @@ export default class FmeReduxStoreExtension
 {
   readonly id = "fme-export_store"
 
-  getActions() {
-    return Object.values(FmeActionType)
+  getActions(): string[] {
+    // Return all action types as string array
+    return Object.values(FmeActionType) as unknown as string[]
   }
 
   getInitLocalState(): FmeWidgetState {

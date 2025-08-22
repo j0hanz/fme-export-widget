@@ -82,10 +82,10 @@ Geometry submitted
 
 ## Using the widget
 
-1. Choose drawing mode (Polygon or Rectangle) and click “Specify extent”
-2. Draw the AOI on the map. The widget validates shape and max area
-3. Select an FME workspace from the repository list
-4. Fill in the dynamic parameter form (only non-AOI fields are shown)
+1. Choose drawing mode (Polygon or Rectangle) from the tabs; drawing starts immediately
+2. Draw the AOI on the map. After the first click/drag, tabs hide and instruction text guides you
+3. When finished, the widget validates the geometry and proceeds to workspace selection
+4. Select an FME workspace from the repository list and fill in parameters
 5. Submit. You’ll see job confirmation with ID and optional download URL
 
 ## Developer guide
