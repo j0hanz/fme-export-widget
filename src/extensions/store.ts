@@ -7,6 +7,7 @@ import {
   type FmeWidgetState,
   type FmeActions,
   type ErrorState,
+  type SerializableErrorState,
   type WorkspaceItem,
   type WorkspaceItemDetail,
   type WorkspaceParameter,
@@ -33,7 +34,7 @@ const view = {
   setStartupValidationState: (
     isValidating: boolean,
     validationStep?: string,
-    validationError?: ErrorState | null
+    validationError?: ErrorState | SerializableErrorState | null
   ) =>
     makePayload(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
       isValidating,
@@ -106,13 +107,33 @@ const load = {
     ),
 }
 
+const toSerializable = (
+  error: ErrorState | SerializableErrorState | null
+): SerializableErrorState | null => {
+  if (!error) return null
+  // If timestampMs already present and no function fields, assume serializable
+  const base: any = error as any
+  const ts =
+    typeof base.timestampMs === "number"
+      ? base.timestampMs
+      : base.timestamp instanceof Date
+        ? base.timestamp.getTime()
+        : Date.now()
+  const { retry, timestamp, ...rest } = base
+  return { ...rest, timestampMs: ts } as SerializableErrorState
+}
+
 const err = {
-  setError: (error: ErrorState | null) =>
-    makePayload(FmeActionType.SET_ERROR, { error }),
-  setImportError: (error: ErrorState | null) =>
-    makePayload(FmeActionType.SET_IMPORT_ERROR, { error }),
-  setExportError: (error: ErrorState | null) =>
-    makePayload(FmeActionType.SET_EXPORT_ERROR, { error }),
+  setError: (error: ErrorState | SerializableErrorState | null) =>
+    makePayload(FmeActionType.SET_ERROR, { error: toSerializable(error) }),
+  setImportError: (error: ErrorState | SerializableErrorState | null) =>
+    makePayload(FmeActionType.SET_IMPORT_ERROR, {
+      error: toSerializable(error),
+    }),
+  setExportError: (error: ErrorState | SerializableErrorState | null) =>
+    makePayload(FmeActionType.SET_EXPORT_ERROR, {
+      error: toSerializable(error),
+    }),
 }
 
 // All actions
@@ -230,7 +251,7 @@ const helpers = {
 
   setError: (
     state: ImmutableObject<FmeWidgetState>,
-    action: { type: FmeActionType; error: ErrorState | null }
+    action: { type: FmeActionType; error: SerializableErrorState | null }
   ): ImmutableObject<FmeWidgetState> => {
     const errorField = helpers.getErrorField(action.type)
     return state.set(errorField, action.error)
@@ -254,7 +275,10 @@ const fmeReducer = (
       return state
         .set("isStartupValidating", action.isValidating)
         .set("startupValidationStep", action.validationStep)
-        .set("startupValidationError", action.validationError)
+        .set(
+          "startupValidationError",
+          action.validationError ? toSerializable(action.validationError) : null
+        )
 
     // Drawing and geometry cases
     case FmeActionType.SET_GEOMETRY:

@@ -43,7 +43,9 @@ const isMultiListParam = (param: WorkspaceParameter): boolean =>
   param.type === ParameterType.LOOKUP_LISTBOX
 
 const toArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [value].filter(Boolean)
+  Array.isArray(value)
+    ? value
+    : [value].filter((v) => v !== undefined && v !== null)
 
 // Error helper
 export class ErrorHandlingService {
@@ -79,6 +81,7 @@ export class ErrorHandlingService {
       recoverable,
       retry,
       timestamp: new Date(),
+      timestampMs: Date.now(),
       userFriendlyMessage,
       suggestion,
     }

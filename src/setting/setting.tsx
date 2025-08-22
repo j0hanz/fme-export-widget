@@ -263,6 +263,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const translate = hooks.useTranslation(defaultMessages)
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
+  // Stable element IDs for a11y wiring (avoid useMemo per repo guidance)
+  const ID = {
+    supportEmail: "setting-support-email",
+    serverUrl: "setting-server-url",
+    token: "setting-token",
+    repository: "setting-repository",
+    tm_ttc: "setting-tm-ttc",
+    tm_ttl: "setting-tm-ttl",
+    tm_tag: "setting-tm-tag",
+  } as const
 
   // Consolidated test state
   const [testState, setTestState] = React.useState<TestState>({
@@ -882,6 +892,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.supportEmail}
             type="email"
             value={localSupportEmail}
             onChange={(val) => {
@@ -897,6 +908,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {fieldErrors.supportEmail && (
             <SettingRow flow="wrap">
               <Alert
+                id={`${ID.supportEmail}-error`}
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
                 text={translate("errorInvalidEmail")}
@@ -916,6 +928,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.serverUrl}
             required
             value={localServerUrl}
             onChange={(val) => {
@@ -928,6 +941,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {fieldErrors.serverUrl && (
             <SettingRow flow="wrap">
               <Alert
+                id={`${ID.serverUrl}-error`}
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
                 text={fieldErrors.serverUrl}
@@ -945,6 +959,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.token}
             type="password"
             required
             value={localToken}
@@ -958,6 +973,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {fieldErrors.token && (
             <SettingRow flow="wrap">
               <Alert
+                id={`${ID.token}-error`}
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
                 text={fieldErrors.token}
@@ -1006,8 +1022,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }))
             }}
             disabled={testState.isTesting || availableRepos === null}
+            ariaDescribedBy={ID.repository}
             placeholder={"---"}
           />
+          {fieldErrors.repository && (
+            <SettingRow flow="wrap">
+              <Alert
+                id={`${ID.repository}-error`}
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.repository}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
         {/* Test connection */}
         <SettingRow flow="wrap">
@@ -1035,6 +1064,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.tm_ttc}
             value={localTmTtc}
             onChange={(val) => {
               setLocalTmTtc(val)
@@ -1048,6 +1078,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.tm_ttc}
             inputMode="numeric"
           />
+          {fieldErrors.tm_ttc && (
+            <SettingRow flow="wrap">
+              <Alert
+                id={`${ID.tm_ttc}-error`}
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.tm_ttc}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
         <SettingRow
           flow="wrap"
@@ -1056,6 +1098,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.tm_ttl}
             value={localTmTtl}
             onChange={(val) => {
               setLocalTmTtl(val)
@@ -1069,6 +1112,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.tm_ttl}
             inputMode="numeric"
           />
+          {fieldErrors.tm_ttl && (
+            <SettingRow flow="wrap">
+              <Alert
+                id={`${ID.tm_ttl}-error`}
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.tm_ttl}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
         <SettingRow
           flow="wrap"
@@ -1077,6 +1132,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           tag="label"
         >
           <Input
+            id={ID.tm_tag}
             value={localTmTag}
             onChange={(val) => {
               setLocalTmTag(val)
@@ -1085,6 +1141,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={translate("tm_tagPlaceholder")}
             errorText={fieldErrors.tm_tag}
           />
+          {fieldErrors.tm_tag && (
+            <SettingRow flow="wrap">
+              <Alert
+                id={`${ID.tm_tag}-error`}
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={fieldErrors.tm_tag}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
         <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)}>
           {translate("jobDirectivesHelper")}

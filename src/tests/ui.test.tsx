@@ -217,4 +217,49 @@ describe("UI components", () => {
     expect(onChange).toHaveBeenCalledWith("2")
     expect(onTabChange).toHaveBeenCalled()
   })
+
+  test("Select aria-describedby passthrough (single and multi)", () => {
+    const renderWithProviders = widgetRender(true)
+    const options = [
+      { label: "One", value: "1" },
+      { label: "Two", value: "2" },
+    ]
+
+    // Single-select should preserve provided aria-describedby
+    renderWithProviders(
+      <Select options={options} defaultValue="1" ariaDescribedBy="s-help" />
+    )
+    const combo = screen.getByRole("combobox")
+    expect(combo.getAttribute("aria-describedby")).toBe("s-help")
+
+    // Multi-select should also preserve provided aria-describedby
+    renderWithProviders(
+      <Select
+        options={options}
+        defaultValue={["1"]}
+        value={["1"]}
+        ariaDescribedBy="m-help"
+      />
+    )
+    const listbox = screen.getByRole("listbox")
+    expect(listbox.getAttribute("aria-describedby")).toBe("m-help")
+  })
+
+  test("Select multi-select applies style to native select", () => {
+    const renderWithProviders = widgetRender(true)
+    const options = [
+      { label: "A", value: "a" },
+      { label: "B", value: "b" },
+    ]
+    renderWithProviders(
+      <Select
+        options={options}
+        defaultValue={["a"]}
+        value={["a"]}
+        style={{ width: 321 }}
+      />
+    )
+    const listbox = screen.getByRole("listbox")
+    expect((listbox as HTMLSelectElement).style.width).toBe("321px")
+  })
 })

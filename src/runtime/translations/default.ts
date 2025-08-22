@@ -4,6 +4,7 @@ export default {
   retry: "Försök igen",
   back: "Tillbaka",
   cancel: "Avbryt",
+  unknownErrorOccurred: "Ett okänt fel inträffade",
 
   // Startup validation messages
   validatingStartup: "Validerar konfiguration...",

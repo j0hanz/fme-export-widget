@@ -411,6 +411,7 @@ export interface ErrorState {
   readonly severity: ErrorSeverity
   readonly type: ErrorType
   readonly timestamp: Date
+  readonly timestampMs?: number
   readonly recoverable?: boolean
   readonly retry?: () => void
   readonly details?: { [key: string]: unknown }
@@ -418,8 +419,11 @@ export interface ErrorState {
   readonly suggestion?: string
 }
 
-// State Management
-// Redux Action Types by domain: view, drawing, export, data, loading, error, UI
+export type SerializableErrorState = Omit<ErrorState, "timestamp" | "retry"> & {
+  readonly timestampMs: number
+}
+
+// Redux Action Types
 export enum FmeActionType {
   // View & Navigation Actions
   SET_VIEW_MODE = "FME_SET_VIEW_MODE",
@@ -470,7 +474,7 @@ export interface SetStartupValidationStateAction
   extends BaseAction<FmeActionType.SET_STARTUP_VALIDATION_STATE> {
   isValidating: boolean
   validationStep?: string
-  validationError?: ErrorState | null
+  validationError?: SerializableErrorState | ErrorState | null
 }
 
 // Drawing & Geometry Actions
@@ -540,17 +544,17 @@ export interface SetLoadingFlagsAction
 }
 
 export interface SetErrorAction extends BaseAction<FmeActionType.SET_ERROR> {
-  error: ErrorState | null
+  error: SerializableErrorState | null
 }
 
 export interface SetImportErrorAction
   extends BaseAction<FmeActionType.SET_IMPORT_ERROR> {
-  error: ErrorState | null
+  error: SerializableErrorState | null
 }
 
 export interface SetExportErrorAction
   extends BaseAction<FmeActionType.SET_EXPORT_ERROR> {
-  error: ErrorState | null
+  error: SerializableErrorState | null
 }
 
 // Grouped action union types
@@ -878,7 +882,7 @@ export interface FmeViewState {
   readonly previousViewMode: ViewMode | null
   readonly isStartupValidating: boolean
   readonly startupValidationStep?: string
-  readonly startupValidationError?: ErrorState | null
+  readonly startupValidationError?: SerializableErrorState | null
 }
 
 // Drawing and geometry state
@@ -917,9 +921,9 @@ export interface FmeLoadingState {
 
 // Error state management
 export interface FmeErrorState {
-  readonly error: ErrorState | null
-  readonly importError: ErrorState | null
-  readonly exportError: ErrorState | null
+  readonly error: SerializableErrorState | null
+  readonly importError: SerializableErrorState | null
+  readonly exportError: SerializableErrorState | null
 }
 
 // Complete widget state composed from focused sub-states
@@ -940,7 +944,7 @@ interface WorkflowCoreProps {
   readonly widgetId?: string
   readonly state: ViewMode
   readonly instructionText: string
-  readonly error?: ErrorState | null
+  readonly error?: ErrorState | SerializableErrorState | null
   readonly onBack?: () => void
   readonly isModulesLoading: boolean
 }
@@ -986,7 +990,7 @@ interface WorkflowWorkspaceFeatures {
 interface WorkflowStartupValidationFeatures {
   readonly isStartupValidating?: boolean
   readonly startupValidationStep?: string
-  readonly startupValidationError?: ErrorState | null
+  readonly startupValidationError?: ErrorState | SerializableErrorState | null
   readonly onRetryValidation?: () => void
 }
 

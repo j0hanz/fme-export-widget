@@ -47,7 +47,7 @@ describe("FME store - Redux store extension and reducer", () => {
       message: "boom",
       severity: ErrorSeverity.ERROR,
       type: ErrorType.NETWORK,
-      timestamp: new Date(0),
+      timestampMs: 0,
     }
     expect(fmeActions.setError(err)).toEqual({
       type: FmeActionType.SET_ERROR,
@@ -114,7 +114,7 @@ describe("FME store - Redux store extension and reducer", () => {
         message: "Config error",
         severity: ErrorSeverity.ERROR,
         type: ErrorType.CONFIG,
-        timestamp: new Date(0),
+        timestampMs: 0,
       }
 
       state = reducer(
@@ -284,7 +284,7 @@ describe("FME store - Redux store extension and reducer", () => {
         message: "Oops",
         severity: ErrorSeverity.ERROR,
         type: ErrorType.NETWORK,
-        timestamp: new Date(0),
+        timestampMs: 0,
       }
 
       let state = makeState()
