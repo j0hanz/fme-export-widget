@@ -1,0 +1,11 @@
+{
+	"fmeServerUrl": "",
+	"fmeServerToken": "",
+	"repository": "",
+	"supportEmail": "",
+	"requestTimeout": 30000,
+	"maxArea": 0,
+	"tm_ttc": 0,
+	"tm_ttl": 0,
+	"tm_tag": ""
+}
