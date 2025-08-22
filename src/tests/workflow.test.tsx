@@ -280,12 +280,13 @@ describe("Workflow component", () => {
     screen.getByText("Validating connection...")
     unmount1()
 
-    // Error state: no retry button is rendered anymore
+    // Error state with email support configured
     const validationError = {
       message: "Configuration error",
       severity: "error" as any,
       type: "ConfigError" as any,
-      timestamp: new Date(),
+      timestampMs: Date.now(),
+      userFriendlyMessage: "support@example.com", // Email passed for mailto link
     }
 
     renderWithProviders(
@@ -295,14 +296,25 @@ describe("Workflow component", () => {
         isStartupValidating={false}
         startupValidationError={validationError}
         onRetryValidation={onRetryValidation}
+        config={
+          {
+            fmeServerUrl: "https://example.com",
+            supportEmail: "support@example.com",
+          } as any
+        }
       />
     )
 
-    const retryBtn = screen.queryByRole("button", { name: /Försök igen/i })
-    expect(retryBtn).toBeNull()
-    // Confirm an alert is shown with the error message
-    const alert = screen.getByRole("alert")
-    expect(alert).toBeTruthy()
-    expect(alert.textContent || "").toMatch(/Configuration error/i)
+    // Error should be rendered by Workflow's renderError (StateView)
+    expect(screen.queryByText(/Configuration error/i)).toBeTruthy()
+
+    // Should have mailto link due to email in userFriendlyMessage
+    const emailLink = screen.queryByRole("link", {
+      name: /support@example\.com/i,
+    })
+    expect(emailLink).toBeTruthy()
+    if (emailLink) {
+      expect(emailLink.getAttribute("href")).toBe("mailto:support@example.com")
+    }
   })
 })

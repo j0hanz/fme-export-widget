@@ -11,12 +11,15 @@ export default {
   validatingMapConfiguration: "Kontrollerar kartkonfiguration...",
   validatingConnection: "Testar anslutningen till FME Server...",
   validatingAuthentication: "Validerar autentisering...",
+  validatingUserEmail: "Kontrollerar användarens e‑postadress...",
   validatingConfiguration: "Kontrollerar konfigurationen...",
   startupValidationFailed: "Konfigurationsfel uppstod",
   invalidConfiguration: "Widgetens konfiguration saknas eller är ogiltig",
   connectionFailed: "Det gick inte att ansluta till FME Server",
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
+  userEmailMissing:
+    "Ingen e‑postadress hittades för din användare. Kontakta support eller uppdatera din profil.",
   contactSupport: "Kontakta supporten för hjälp med konfigurationen",
   contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
   retryValidation: "Försök igen",

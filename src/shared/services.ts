@@ -92,6 +92,43 @@ export class ErrorHandlingService {
     error: unknown,
     translate: (key: string) => string
   ): { code: string; message: string } {
+    // Explicit code handling first
+    const explicitCode =
+      (error as any)?.code ||
+      ((error as any)?.name && String((error as any).name)) ||
+      (typeof (error as any)?.message === "string"
+        ? (error as any).message
+        : undefined)
+
+    if (typeof explicitCode === "string") {
+      const code = explicitCode.trim()
+      // Known custom errors
+      if (/^UserEmailMissing$/i.test(code)) {
+        return {
+          code: "UserEmailMissing",
+          message: translate("userEmailMissing"),
+        }
+      }
+      if (/^INVALID_CONFIG$/i.test(code)) {
+        return {
+          code: "INVALID_CONFIG",
+          message: translate("invalidConfiguration"),
+        }
+      }
+      if (/^ARCGIS_MODULE_ERROR$/i.test(code)) {
+        return {
+          code: "ARCGIS_MODULE_ERROR",
+          message: translate("connectionFailed"),
+        }
+      }
+      if (/^WEBHOOK_AUTH_ERROR$/i.test(code)) {
+        return {
+          code: "WEBHOOK_AUTH_ERROR",
+          message: translate("authenticationFailed"),
+        }
+      }
+    }
+
     const fmeErr = error as FmeFlowApiError
     const status = (fmeErr && fmeErr.status) || (error as any)?.status
     const msg = (error as Error)?.message || ""

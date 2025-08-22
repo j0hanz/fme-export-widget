@@ -69,8 +69,6 @@ const MODULES: readonly string[] = [
   "esri/geometry/geometryEngine",
 ] as const
 
-const FALLBACK_EMAIL = "no-reply@example.com"
-
 // Small utility helpers (behavior-preserving)
 const hasMessage = (x: unknown): x is { message?: unknown } =>
   typeof x === "object" && x !== null && "message" in x
@@ -596,17 +594,25 @@ const attachAoi = (
   return base
 }
 
-// Get user email with fallback
+// Get user email from the portal
 const getEmail = async (): Promise<string> => {
-  try {
-    const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
-    const portal = new Portal()
-    await portal.load()
-    return portal.user?.email || FALLBACK_EMAIL
-  } catch (error) {
-    console.warn("FME Export Widget - Failed to get user email", error)
-    return FALLBACK_EMAIL
+  const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
+  const portal = new Portal()
+  await portal.load()
+
+  const email = portal.user?.email
+  if (!email) {
+    throw new Error("User email is required but not available")
   }
+
+  return email
+}
+
+// Validate email format
+const isValidEmail = (email: unknown): boolean => {
+  if (typeof email !== "string" || !email) return false
+  if (/no-?reply/i.test(email)) return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 // Prepare FME parameters for submission
@@ -1003,18 +1009,9 @@ export default function Widget(
         !config?.fmeServerToken ||
         !config?.repository
       ) {
-        const errorMsg = translate("invalidConfiguration")
         return {
           isValid: false,
-          error: errorService.createError(errorMsg, ErrorType.CONFIG, {
-            code: "ConfigMissing",
-            severity: ErrorSeverity.ERROR,
-            // Pass raw email; the error view will render an accessible mailto link
-            userFriendlyMessage: config?.supportEmail
-              ? String(config.supportEmail)
-              : translate("contactSupport"),
-            suggestion: translate("retryValidation"),
-          }),
+          error: createStartupError("invalidConfiguration", "ConfigMissing"),
         }
       }
       return { isValid: true }
@@ -1036,6 +1033,20 @@ export default function Widget(
     dispatch(fmeActions.setStartupValidationState(false, undefined, error))
   })
 
+  // Small helper to build consistent startup validation errors
+  const createStartupError = hooks.useEventCallback(
+    (messageKey: string, code: string, retry?: () => void): ErrorState =>
+      errorService.createError(translate(messageKey), ErrorType.CONFIG, {
+        code,
+        severity: ErrorSeverity.ERROR,
+        userFriendlyMessage: props.config?.supportEmail
+          ? String(props.config.supportEmail)
+          : translate("contactSupport"),
+        suggestion: translate("retryValidation"),
+        retry,
+      })
+  )
+
   // Startup validation logic
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Reset any existing validation state
@@ -1052,15 +1063,14 @@ export default function Widget(
         ? useMapWidgetIds.length > 0
         : false
       if (!hasMapConfigured) {
-        const msg = translate("mapNotConfigured")
-        const mapConfigError = errorService.createError(msg, ErrorType.CONFIG, {
-          code: "MapNotConfigured",
-          severity: ErrorSeverity.ERROR,
-          userFriendlyMessage: translate("mapSelectionRequired"),
-          suggestion: translate("openSettingsAndSelectMap"),
-          retry: () => runStartupValidation(),
-        })
-        dispatch(fmeActions.setError(mapConfigError))
+        const mapConfigError = createStartupError(
+          "mapNotConfigured",
+          "MapNotConfigured",
+          () => runStartupValidation()
+        )
+        // Override for map-specific UI hints
+        mapConfigError.userFriendlyMessage = translate("mapSelectionRequired")
+        mapConfigError.suggestion = translate("openSettingsAndSelectMap")
         setValidationError(mapConfigError)
         return
       }
@@ -1068,32 +1078,54 @@ export default function Widget(
       // Check if configuration exists and is valid
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
-        dispatchError(
-          dispatch,
-          configValidation.error.message,
-          ErrorType.CONFIG,
-          configValidation.error.code
-        )
         setValidationError(configValidation.error)
         return
       }
 
-      // Update validation step
-      setValidationStep(translate("validatingConnection"))
+      // Helper to run a labeled step with abort checks
+      const runStep = async (
+        stepKey: string,
+        action: () => Promise<unknown>
+      ): Promise<void> => {
+        setValidationStep(translate(stepKey))
+        const result = await action()
+        if (signal.aborted) throw new Error("AbortError")
+        return result as void
+      }
 
-      // Test FME server connection
       const client = createFmeFlowClient(config)
-      await client.testConnection(signal)
 
-      if (signal.aborted) return
+      // 1) Connection check
+      await runStep("validatingConnection", () => client.testConnection(signal))
+
+      // 2) Authentication (repo access)
+      await runStep("validatingAuthentication", () =>
+        client.validateRepository(config.repository, signal)
+      )
 
       // Update validation step
-      setValidationStep(translate("validatingAuthentication"))
+      setValidationStep(translate("validatingUserEmail"))
 
-      // Test repository access (validates token)
-      await client.validateRepository(config.repository, signal)
-
-      if (signal.aborted) return
+      // Validate that current user has an email address available
+      try {
+        const email = await getEmail()
+        if (!isValidEmail(email)) {
+          setValidationError(
+            createStartupError("userEmailMissing", "UserEmailMissing", () =>
+              runStartupValidation()
+            )
+          )
+          return
+        }
+      } catch (emailErr) {
+        // If email check itself fails, surface as missing email
+        setValidationError(
+          createStartupError("userEmailMissing", "UserEmailMissing", () =>
+            runStartupValidation()
+          )
+        )
+        return
+      }
 
       // Validation successful - transition to normal operation
       setValidationSuccess()
@@ -1105,22 +1137,9 @@ export default function Widget(
 
       const { code, message } = errorService.deriveStartupError(err, translate)
 
-      const validationError = errorService.createError(
-        message,
-        ErrorType.CONFIG,
-        {
-          code,
-          severity: ErrorSeverity.ERROR,
-          // Pass raw email; the error view will render an accessible mailto link
-          userFriendlyMessage: props.config?.supportEmail
-            ? String(props.config.supportEmail)
-            : translate("contactSupport"),
-          suggestion: translate("retryValidation"),
-          retry: () => runStartupValidation(),
-        }
+      setValidationError(
+        createStartupError(message, code, () => runStartupValidation())
       )
-
-      setValidationError(validationError)
     }
   })
 
@@ -1524,56 +1543,42 @@ export default function Widget(
     return <StateView state={{ kind: "loading", message: loadingMessage }} />
   }
 
-  // Error state
+  // Error state - let Workflow handle all startup validation errors
   if (reduxState.error && reduxState.error.severity === "error") {
-    const e = reduxState.error
+    // Only handle non-startup errors here; startup errors are handled by Workflow
+    if (reduxState.startupValidationError) {
+      // Let Workflow render startup validation errors
+      // Fall through to render Workflow
+    } else {
+      const e = reduxState.error
 
-    // Special case for map not configured
-    if (e.code === "MapNotConfigured") {
-      // Use default message if no user-friendly message is provided
-      const defaultHint = translate("mapSelectionRequired")
-      const friendly =
-        e.userFriendlyMessage &&
-        e.userFriendlyMessage !== "mapSelectionRequired"
-          ? e.userFriendlyMessage
-          : defaultHint
+      // Default error UI (header + support text + retry)
+      const supportText = e.userFriendlyMessage || translate("contactSupport")
+      const messageText = translate(e.message)
+      const buttonText = translate("retry")
+      const onAction = () => {
+        // Retry callbacks are transient and not stored in Redux; simply clear error
+        dispatch(fmeActions.setError(null))
+      }
 
       return (
-        <div css={styles.centered}>
-          <div
-            css={[styles.typography.caption, styles.textCenter]}
-            style={{ maxWidth: 420 }}
-          >
-            {friendly}
+        <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
+          <div css={styles.headerRow}>
+            <div css={styles.typography.title}>{translate("errorTitle")}</div>
+            {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
           </div>
+          <div css={styles.typography.caption}>
+            {supportText || messageText}
+          </div>
+          <Button
+            text={buttonText}
+            onClick={onAction}
+            logging={{ enabled: true, prefix: "FME-Export" }}
+            tooltipPlacement="bottom"
+          />
         </div>
       )
     }
-
-    // Default error UI (header + support text + retry)
-    const supportText = e.userFriendlyMessage || translate("contactSupport")
-    const messageText = translate(e.message)
-    const buttonText = translate("retry")
-    const onAction = () => {
-      // Retry callbacks are transient and not stored in Redux; simply clear error
-      dispatch(fmeActions.setError(null))
-    }
-
-    return (
-      <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
-        <div css={styles.headerRow}>
-          <div css={styles.typography.title}>{translate("errorTitle")}</div>
-          {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
-        </div>
-        <div css={styles.typography.caption}>{supportText || messageText}</div>
-        <Button
-          text={buttonText}
-          onClick={onAction}
-          logging={{ enabled: true, prefix: "FME-Export" }}
-          tooltipPlacement="bottom"
-        />
-      </div>
-    )
   }
 
   // derive simple view booleans for readability
