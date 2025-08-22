@@ -242,90 +242,142 @@ const abortController = (
   }
 }
 
-// Calculate polygon area using planar area calculation
+// Area calculation helpers for cleaner separation of concerns
+const calculateExtentFallback = (polygon: __esri.Polygon): number => {
+  try {
+    const extent = polygon.extent
+    if (!extent) return 0
+
+    const fallbackArea = Math.abs(extent.width * extent.height)
+    return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
+  } catch {
+    return 0
+  }
+}
+
+const tryGeodesicArea = (
+  polygon: __esri.Polygon,
+  geomEng: { geodesicArea?: (g: __esri.Geometry, unit: string) => number }
+): number | null => {
+  if (!polygon.spatialReference?.isGeographic) return null
+  if (typeof geomEng.geodesicArea !== "function") return null
+
+  try {
+    const area = geomEng.geodesicArea(polygon, AREA_UNIT)
+    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
+      ? Math.abs(area)
+      : null
+  } catch {
+    return null
+  }
+}
+
+const tryPlanarArea = (
+  polygon: __esri.Polygon,
+  geomEng: { planarArea?: (g: __esri.Geometry, unit: string) => number }
+): number | null => {
+  if (typeof geomEng.planarArea !== "function") return null
+
+  try {
+    const area = geomEng.planarArea(polygon, AREA_UNIT)
+    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
+      ? Math.abs(area)
+      : null
+  } catch {
+    return null
+  }
+}
+
+// Calculate area of a polygon geometry using multiple methods
 const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
-  const geometryEngine = modules.geometryEngine as any
   const polygon = geometry as __esri.Polygon
-
-  try {
-    const planarValue = geometryEngine?.planarArea?.(polygon, AREA_UNIT)
-    if (Number.isFinite(planarValue) && planarValue > MIN_VALID_AREA) {
-      return Math.abs(planarValue)
-    }
-    // Fallback to extent-based area if planar area is unavailable/invalid
-    const extent = polygon.extent
-    if (extent) {
-      const fallbackArea = Math.abs(extent.width * extent.height)
-      return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
-    }
-  } catch (error) {
-    console.warn(`FME Export Widget - planarArea calculation failed:`, error)
-    // Fallback to extent-based area on error
-    try {
-      const extent = polygon.extent
-      if (extent) {
-        const fallbackArea = Math.abs(extent.width * extent.height)
-        return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
-      }
-    } catch {
-      /* ignore */
-    }
+  const geomEng = modules.geometryEngine as {
+    geodesicArea?: (g: __esri.Geometry, unit: string) => number
+    planarArea?: (g: __esri.Geometry, unit: string) => number
   }
 
-  return 0
+  // Try geodesic first for geographic SR
+  const geodesicArea = tryGeodesicArea(polygon, geomEng)
+  if (geodesicArea !== null) return geodesicArea
+
+  // Fallback to planar
+  const planarArea = tryPlanarArea(polygon, geomEng)
+  if (planarArea !== null) return planarArea
+
+  // Final fallback to extent
+  const extentArea = calculateExtentFallback(polygon)
+  if (extentArea === 0) {
+    console.warn(`FME Export Widget - all area calculation methods failed`)
+  }
+  return extentArea
 }
 
-// Validate polygon geometry with early returns
-const validatePolygon = (
-  geometry: __esri.Geometry | undefined,
-  modules: EsriModules
-): { valid: boolean; error?: ErrorState } => {
+// Polygon validation helpers for focused error checking
+const validateGeometryExists = (
+  geometry: __esri.Geometry | undefined
+): ErrorState | null => {
   if (!geometry) {
-    return {
-      valid: false,
-      error: errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
-        code: "GEOM_MISSING",
-      }),
-    }
+    return errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
+      code: "GEOM_MISSING",
+    })
   }
+  return null
+}
 
+const validateGeometryType = (geometry: __esri.Geometry): ErrorState | null => {
   if (geometry.type !== "polygon") {
-    return {
-      valid: false,
-      error: errorService.createError(
-        "GEOMETRY_TYPE_INVALID",
-        ErrorType.GEOMETRY,
-        { code: "GEOM_TYPE_INVALID" }
-      ),
-    }
+    return errorService.createError(
+      "GEOMETRY_TYPE_INVALID",
+      ErrorType.GEOMETRY,
+      {
+        code: "GEOM_TYPE_INVALID",
+      }
+    )
   }
+  return null
+}
 
-  const polygon = geometry as __esri.Polygon
+const validatePolygonRings = (polygon: __esri.Polygon): ErrorState | null => {
   if (!polygon.rings?.length) {
-    return {
-      valid: false,
-      error: errorService.createError("POLYGON_NO_RINGS", ErrorType.GEOMETRY, {
-        code: "GEOM_NO_RINGS",
-      }),
-    }
+    return errorService.createError("POLYGON_NO_RINGS", ErrorType.GEOMETRY, {
+      code: "GEOM_NO_RINGS",
+    })
+  }
+  return null
+}
+
+const validateRingGeometry = (ring: unknown[]): ErrorState | null => {
+  if (!Array.isArray(ring) || ring.length < 3) {
+    return errorService.createError(
+      "POLYGON_MIN_VERTICES",
+      ErrorType.GEOMETRY,
+      {
+        code: "GEOM_MIN_VERTICES",
+      }
+    )
   }
 
-  const ring = polygon.rings[0]
-  const uniquePoints = new Set(ring.map((p) => `${p[0]}:${p[1]}`))
+  const uniquePoints = new Set(
+    ring
+      .filter((p) => Array.isArray(p) && p.length >= 2)
+      .map((p) => `${p[0]}:${p[1]}`)
+  )
+
   if (uniquePoints.size < 3) {
-    return {
-      valid: false,
-      error: errorService.createError(
-        "POLYGON_MIN_VERTICES",
-        ErrorType.GEOMETRY,
-        { code: "GEOM_MIN_VERTICES" }
-      ),
-    }
+    return errorService.createError(
+      "POLYGON_MIN_VERTICES",
+      ErrorType.GEOMETRY,
+      {
+        code: "GEOM_MIN_VERTICES",
+      }
+    )
   }
+  return null
+}
 
-  // Ensure ring is explicitly closed (first == last) within epsilon
+const validateRingClosure = (ring: unknown[]): ErrorState | null => {
   try {
     const first = ring[0]
     const last = ring[ring.length - 1]
@@ -334,39 +386,77 @@ const validatePolygon = (
       !Array.isArray(last) ||
       Math.abs(first[0] - last[0]) >= COINCIDENT_EPSILON ||
       Math.abs(first[1] - last[1]) >= COINCIDENT_EPSILON
+
     if (notClosed) {
-      return {
-        valid: false,
-        error: errorService.createError(
-          "POLYGON_RING_NOT_CLOSED",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_RING_NOT_CLOSED" }
-        ),
-      }
+      return errorService.createError(
+        "POLYGON_RING_NOT_CLOSED",
+        ErrorType.GEOMETRY,
+        {
+          code: "GEOM_RING_NOT_CLOSED",
+        }
+      )
     }
   } catch {
     /* ignore ring closure check errors */
   }
+  return null
+}
 
-  // Check for self-intersection if possible
+const validatePolygonSimplicity = (
+  polygon: __esri.Polygon,
+  modules: EsriModules
+): ErrorState | null => {
   try {
     const geometryEngine = modules.geometryEngine as any
     if (geometryEngine?.simplify) {
       const simplified = geometryEngine.simplify(polygon)
       if (!simplified) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_SELF_INTERSECTING",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_SELF_INTERSECTING" }
-          ),
-        }
+        return errorService.createError(
+          "POLYGON_SELF_INTERSECTING",
+          ErrorType.GEOMETRY,
+          {
+            code: "GEOM_SELF_INTERSECTING",
+          }
+        )
       }
     }
   } catch {
     // Silently continue if simplify fails
   }
+  return null
+}
+
+// Validate polygon geometry with focused validation steps
+const validatePolygon = (
+  geometry: __esri.Geometry | undefined,
+  modules: EsriModules
+): { valid: boolean; error?: ErrorState } => {
+  // Check geometry existence
+  const existenceError = validateGeometryExists(geometry)
+  if (existenceError) return { valid: false, error: existenceError }
+
+  // Check geometry type
+  const typeError = validateGeometryType(geometry)
+  if (typeError) return { valid: false, error: typeError }
+
+  const polygon = geometry as __esri.Polygon
+
+  // Check rings existence
+  const ringsError = validatePolygonRings(polygon)
+  if (ringsError) return { valid: false, error: ringsError }
+
+  // Validate each ring
+  for (const ring of polygon.rings) {
+    const ringGeometryError = validateRingGeometry(ring)
+    if (ringGeometryError) return { valid: false, error: ringGeometryError }
+
+    const ringClosureError = validateRingClosure(ring)
+    if (ringClosureError) return { valid: false, error: ringClosureError }
+  }
+
+  // Check for self-intersection
+  const simplicityError = validatePolygonSimplicity(polygon, modules)
+  if (simplicityError) return { valid: false, error: simplicityError }
 
   return { valid: true }
 }
@@ -407,9 +497,66 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return !!value && typeof value === "object" && "rings" in (value as any)
 }
 
-// Strip Z/M and ensure spatialReference is present; returns a new value
+// Polygon sanitization helpers for cleaner ring processing
+const sanitizePoint = (pt: unknown): unknown => {
+  if (!Array.isArray(pt) || pt.length < 2) return pt
+
+  const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
+  const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
+  return [x, y]
+}
+
+const ensureRingClosure = (ring: unknown[]): unknown[] => {
+  try {
+    const first = ring[0]
+    const last = ring[ring.length - 1]
+
+    const needsClosure =
+      Array.isArray(first) &&
+      Array.isArray(last) &&
+      (Math.abs((first[0] as number) - (last[0] as number)) >=
+        COINCIDENT_EPSILON ||
+        Math.abs((first[1] as number) - (last[1] as number)) >=
+          COINCIDENT_EPSILON)
+
+    if (needsClosure) {
+      return [...ring, [first[0] as number, first[1] as number]]
+    }
+  } catch {
+    /* ignore closure enforcement errors */
+  }
+  return ring
+}
+
+const sanitizeRing = (ring: unknown): unknown => {
+  if (!Array.isArray(ring)) return ring
+
+  const cleanedPoints = (ring as unknown[]).map(sanitizePoint)
+  return ensureRingClosure(cleanedPoints)
+}
+
+const removeZMFlags = (result: { [key: string]: unknown }): void => {
+  if (Object.prototype.hasOwnProperty.call(result, "hasZ")) {
+    delete result.hasZ
+  }
+  if (Object.prototype.hasOwnProperty.call(result, "hasM")) {
+    delete result.hasM
+  }
+}
+
+const ensureSpatialReference = (
+  result: { [key: string]: unknown },
+  spatialRef?: unknown
+): void => {
+  if (spatialRef && !("spatialReference" in result)) {
+    result.spatialReference = spatialRef
+  }
+}
+
+// Sanitize polygon JSON to ensure valid structure
 const sanitizePolygonJson = (value: unknown, spatialRef?: unknown): unknown => {
   if (!value || typeof value !== "object") return value
+
   const src = value as {
     rings?: unknown
     spatialReference?: unknown
@@ -417,39 +564,15 @@ const sanitizePolygonJson = (value: unknown, spatialRef?: unknown): unknown => {
     hasM?: unknown
     [key: string]: unknown
   }
-  const rings = src.rings
-  if (!Array.isArray(rings)) return value
 
-  const cleanedRings = (rings as unknown[]).map((ring) => {
-    if (!Array.isArray(ring)) return ring
-    return (ring as unknown[]).map((pt) => {
-      if (Array.isArray(pt) && pt.length >= 2) {
-        const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
-        const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
-        return [x, y]
-      }
-      return pt
-    })
-  })
+  if (!Array.isArray(src.rings)) return value
 
-  const result: {
-    rings: unknown
-    spatialReference?: unknown
-    hasZ?: unknown
-    hasM?: unknown
-    [key: string]: unknown
-  } = { ...src, rings: cleanedRings }
-  // Drop Z/M flags if present
-  if (Object.prototype.hasOwnProperty.call(result, "hasZ")) {
-    delete result.hasZ
-  }
-  if (Object.prototype.hasOwnProperty.call(result, "hasM")) {
-    delete result.hasM
-  }
-  // Ensure SR is present if provided
-  if (spatialRef && !("spatialReference" in result)) {
-    result.spatialReference = spatialRef
-  }
+  const cleanedRings = (src.rings as unknown[]).map(sanitizeRing)
+  const result = { ...src, rings: cleanedRings }
+
+  removeZMFlags(result)
+  ensureSpatialReference(result, spatialRef)
+
   return result
 }
 
@@ -608,7 +731,7 @@ const createSketchVM = (
   })
 
   setSketchSymbols(sketchViewModel)
-  setSketchEvents(sketchViewModel, onDrawComplete, dispatch)
+  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
 
   return sketchViewModel
 }
@@ -636,40 +759,36 @@ const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
   }
 }
 
-// Create a click tracker to manage drawing state and click counts
-const createClickTracker = (dispatch: (action: unknown) => void) => {
+// Create a state manager for drawing state
+const createDrawingStateManager = (dispatch: (action: unknown) => void) => {
   let clickCount = 0
 
-  const resetClickTracking = () => {
-    clickCount = 0
-    dispatch(fmeActions.setDrawingState(false, 0, undefined))
-  }
-
-  const updateClickCount = (newCount: number) => {
-    if (newCount > clickCount) {
-      clickCount = newCount
-      dispatch(fmeActions.setClickCount(clickCount))
-      // If this is the first click, switch to drawing mode
-      if (clickCount === 1) {
-        dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
-      }
-    }
-  }
-
   return {
-    resetClickTracking,
-    updateClickCount,
+    resetState: () => {
+      clickCount = 0
+      dispatch(fmeActions.setDrawingState(false, 0, undefined))
+    },
+
+    updateClicks: (newCount: number) => {
+      if (newCount > clickCount) {
+        clickCount = newCount
+        dispatch(fmeActions.setClickCount(clickCount))
+        if (clickCount === 1) {
+          dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+        }
+      }
+    },
+
     getClickCount: () => clickCount,
   }
 }
 
-const calculatePolygonClicks = (geometry: __esri.Polygon): number => {
+const calculateVertexCount = (geometry: __esri.Polygon): number => {
   const vertices = geometry.rings?.[0]
   if (!vertices || vertices.length < 2) return 0
 
-  const vertexCount = vertices.length
   const firstPoint = vertices[0]
-  const lastPoint = vertices[vertexCount - 1]
+  const lastPoint = vertices[vertices.length - 1]
 
   // Check if polygon is auto-closed
   const isAutoClosed =
@@ -678,20 +797,20 @@ const calculatePolygonClicks = (geometry: __esri.Polygon): number => {
     Math.abs(firstPoint[0] - lastPoint[0]) < COINCIDENT_EPSILON &&
     Math.abs(firstPoint[1] - lastPoint[1]) < COINCIDENT_EPSILON
 
-  return isAutoClosed ? vertexCount - 1 : vertexCount
+  return isAutoClosed ? vertices.length - 1 : vertices.length
 }
 
-const handleSketchCreateEvent = (
+const processSketchEvent = (
   evt: __esri.SketchCreateEvent,
-  clickTracker: ReturnType<typeof createClickTracker>,
+  stateManager: ReturnType<typeof createDrawingStateManager>,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void
 ) => {
-  const { resetClickTracking, updateClickCount, getClickCount } = clickTracker
+  const { resetState, updateClicks, getClickCount } = stateManager
 
   switch (evt.state) {
     case "start":
-      resetClickTracking()
+      resetState()
       dispatch(
         fmeActions.setDrawingState(
           true,
@@ -704,34 +823,35 @@ const handleSketchCreateEvent = (
     case "active":
       if (evt.tool === "polygon" && evt.graphic?.geometry) {
         const geometry = evt.graphic.geometry as __esri.Polygon
-        const actualClicks = calculatePolygonClicks(geometry)
-        updateClickCount(actualClicks)
+        const actualClicks = calculateVertexCount(geometry)
+        updateClicks(actualClicks)
       } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
-        updateClickCount(1)
+        updateClicks(1)
       }
       break
 
     case "complete":
-      resetClickTracking()
+      resetState()
       onDrawComplete(evt)
       break
 
     case "cancel":
-      resetClickTracking()
+      resetState()
       break
   }
 }
 
 // Handle sketch create events and track drawing progress
-const setSketchEvents = (
+// Create sketch event handlers with improved structure
+const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void
 ) => {
-  const clickTracker = createClickTracker(dispatch)
+  const stateManager = createDrawingStateManager(dispatch)
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    handleSketchCreateEvent(evt, clickTracker, onDrawComplete, dispatch)
+    processSketchEvent(evt, stateManager, onDrawComplete, dispatch)
   })
 }
 
@@ -1073,7 +1193,7 @@ export default function Widget(
       } catch (error) {
         dispatchError(
           dispatch,
-          "Failed to complete drawing",
+          translate("drawingCompleteFailed"),
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
@@ -1198,7 +1318,7 @@ export default function Widget(
     } catch (error) {
       dispatchError(
         dispatch,
-        "Failed to initialize map",
+        translate("mapInitFailed"),
         ErrorType.MODULE,
         "MAP_INIT_ERROR"
       )
@@ -1435,8 +1555,8 @@ export default function Widget(
     const messageText = translate(e.message)
     const buttonText = translate("retry")
     const onAction = () => {
-      if (e.retry) e.retry()
-      else dispatch(fmeActions.setError(null))
+      // Retry callbacks are transient and not stored in Redux; simply clear error
+      dispatch(fmeActions.setError(null))
     }
 
     return (

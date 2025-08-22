@@ -259,6 +259,43 @@ describe("ParameterFormService.validateParameters", () => {
     expect(invalidLookup.errors).toContain("LookupChoice:choice")
   })
 
+  test("does not drop 0 from multi-select values (detects invalid 0 when not allowed)", () => {
+    const svc = new ParameterFormService()
+    const params: readonly WorkspaceParameter[] = [
+      {
+        name: "Title",
+        description: "A title",
+        type: ParameterType.TEXT,
+        model: "MODEL",
+        optional: false,
+      },
+      {
+        name: "Count",
+        description: "Count",
+        type: ParameterType.INTEGER,
+        model: "MODEL",
+        optional: false,
+      },
+      {
+        name: "Multi",
+        description: "Multi field",
+        type: ParameterType.LISTBOX,
+        model: "MODEL",
+        optional: false,
+        // Use numeric values deliberately; cast to any to simulate upstream variability.
+        listOptions: [{ caption: "One", value: 1 }] as unknown as any,
+      },
+    ] as const
+
+    // 0 is not part of valid options; ensure it is not dropped and triggers a choice error.
+    const invalid = svc.validateParameters(
+      { Title: "Valid", Count: 1, Multi: [0] },
+      params
+    )
+    expect(invalid.isValid).toBe(false)
+    expect(invalid.errors).toContain("Multi:choice")
+  })
+
   test("allows valid data and handles optional fields correctly", () => {
     const valid = svc.validateParameters(
       {

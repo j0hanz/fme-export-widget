@@ -626,7 +626,8 @@ export const Select: React.FC<SelectProps> = (props) => {
       ? String(value)
       : undefined
 
-  const resolvedAriaDescribedBy = ariaDesc(ariaDescribedBy)
+  // Respect caller-provided aria-describedby without modifying it
+  const resolvedAriaDescribedBy = ariaDescribedBy
   const resolvedPlaceholder =
     placeholder ?? translate("placeholderSelectGeneric")
 
@@ -638,6 +639,7 @@ export const Select: React.FC<SelectProps> = (props) => {
       disabled={disabled}
       aria-label={ariaLabel}
       aria-describedby={resolvedAriaDescribedBy}
+      style={style}
     >
       {options.map((opt) => (
         <option
@@ -976,7 +978,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     buttonConfig: GroupButtonConfig,
     side: "left" | "right"
   ) => {
-    const config = {
+    const btnConfig = {
       ...buttonConfig,
       variant:
         buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
@@ -984,7 +986,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       key: side,
     }
 
-    return <Button {...config} block={false} css={styles.flex1} />
+    return <Button {...btnConfig} block={false} css={styles.flex1} />
   }
 
   return (
@@ -1071,8 +1073,18 @@ export const Form: React.FC<FormProps> = (props) => {
           )}
         </Label>
         {!readOnly && renderedChild}
-        {helper && !error && <>{helper}</>}
-        {error && <div className="d-block">{error}</div>}
+        {helper && !error && (
+          <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
+        )}
+        {error && (
+          <div
+            id={fieldId ? `${fieldId}-error` : undefined}
+            className="d-block"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
       </FormGroup>
     )
   }
@@ -1120,8 +1132,18 @@ export const Field: React.FC<FieldProps> = ({
         )}
       </Label>
       {!readOnly && renderedChild}
-      {helper && !error && <>{helper}</>}
-      {error && <div className="d-block">{error}</div>}
+      {helper && !error && (
+        <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
+      )}
+      {error && (
+        <div
+          id={fieldId ? `${fieldId}-error` : undefined}
+          className="d-block"
+          role="alert"
+        >
+          {error}
+        </div>
+      )}
     </FormGroup>
   )
 }

@@ -107,13 +107,17 @@ const formatApiError = (
   ) {
     return null
   }
-  const errorMessage =
+  const raw =
     err instanceof Error
       ? err.message
       : typeof err === "string"
         ? err
         : translate("unknownErrorOccurred")
-  return `${translate(baseMessage)}: ${errorMessage}`
+  // Sanitize HTML tags from the error message
+  const safe = String(raw).replace(/<[^>]*>/g, "")
+  const MAX_LEN = 300
+  const msg = safe.length > MAX_LEN ? `${safe.slice(0, MAX_LEN)}…` : safe
+  return `${translate(baseMessage)}: ${msg}`
 }
 
 // Workspace list helpers: filter by type and sort deterministically
@@ -164,6 +168,67 @@ const shouldShowWsLoading = (
   const needsLoading =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
   return isLoading || (!workspaces.length && needsLoading)
+}
+
+// Form validation helpers for better separation of concerns
+const createFormValidator = (
+  parameterService: ParameterFormService,
+  workspaceParameters: readonly any[]
+) => {
+  const getFormConfig = () =>
+    parameterService.convertParametersToFields(workspaceParameters)
+
+  const validateValues = (values: FormValues) =>
+    parameterService.validateFormValues(values, getFormConfig())
+
+  const initializeValues = () => initValues(getFormConfig())
+
+  return { getFormConfig, validateValues, initializeValues }
+}
+
+const useFormStateManager = (
+  validator: ReturnType<typeof createFormValidator>,
+  onValuesChange: (values: FormValues) => void
+) => {
+  const [values, setValues] = React.useState<FormValues>(() =>
+    validator.initializeValues()
+  )
+  const [isValid, setIsValid] = React.useState(true)
+  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
+
+  const updateField = hooks.useEventCallback(
+    (field: string, value: FormPrimitive) => {
+      const newValues = { ...values, [field]: value }
+      setValues(newValues)
+      onValuesChange(newValues)
+    }
+  )
+
+  const validateForm = hooks.useEventCallback(() => {
+    const validation = validator.validateValues(values)
+    setIsValid(validation.isValid)
+    setErrors(validation.errors)
+    return validation
+  })
+
+  const resetForm = hooks.useEventCallback(() => {
+    const nextValues = validator.initializeValues()
+    setValues(nextValues)
+    setErrors({})
+    onValuesChange(nextValues)
+  })
+
+  return {
+    values,
+    isValid,
+    errors,
+    updateField,
+    validateForm,
+    resetForm,
+    setValues,
+    setIsValid,
+    setErrors,
+  }
 }
 
 // Form utilities
@@ -458,77 +523,57 @@ const ExportForm = React.memo(function ExportForm({
       : translate("formValidationMultipleErrors")
   )
 
-  // Safer getter for form configuration
-  const getFormConfig = hooks.useEventCallback(() =>
-    parameterService.convertParametersToFields(workspaceParameters)
+  // Create validator with current parameters
+  const validator = React.useMemo(
+    () => createFormValidator(parameterService, workspaceParameters),
+    [parameterService, workspaceParameters]
   )
 
-  // Initialize form values from parameter defaults - using useState lazy initialization
-  const [values, setValues] = React.useState<FormValues>(() =>
-    initValues(getFormConfig())
-  )
-  const [isValid, setIsValid] = React.useState(true)
-  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
+  // Use form state manager hook
+  const formState = useFormStateManager(validator, syncForm)
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
-    syncForm(values)
+    syncForm(formState.values)
   })
 
-  // Validate form on mount
+  // Validate form on mount and when dependencies change
   hooks.useEffectOnce(() => {
-    const fc = getFormConfig()
-    const validation = parameterService.validateFormValues(values, fc)
-    setIsValid(validation.isValid)
-    setErrors(validation.errors)
+    formState.validateForm()
   })
 
   // Validate form whenever values change
   hooks.useUpdateEffect(() => {
-    const fc = getFormConfig()
-    const validation = parameterService.validateFormValues(values, fc)
-    setIsValid(validation.isValid)
-    setErrors(validation.errors)
-  }, [values, parameterService, workspaceParameters, getFormConfig])
+    formState.validateForm()
+  }, [formState.values, formState.validateForm])
 
   // Reset values when workspace or fields change (e.g., switching workspaces)
   hooks.useUpdateEffect(() => {
-    const fc = getFormConfig()
-    const nextValues = initValues(fc)
-    setValues(nextValues)
-    setErrors({})
+    formState.resetForm()
     setFileMap({})
-    syncForm(nextValues)
-  }, [workspaceName, workspaceParameters, getFormConfig])
+  }, [workspaceName, workspaceParameters, formState.resetForm])
 
   const setField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
       if (value instanceof File) {
         // Handle file input specifically
         setFileMap((prev) => ({ ...prev, [field]: value }))
-        const newValues = { ...values, [field]: value.name }
-        setValues(newValues)
-        syncForm(newValues)
+        formState.updateField(field, value.name)
         return
       } else if (value === null && field in fileMap) {
         // Handle file removal
         setFileMap((prev) => ({ ...prev, [field]: null }))
-        const newValues = { ...values, [field]: "" }
-        setValues(newValues)
-        syncForm(newValues)
+        formState.updateField(field, "")
         return
       }
 
       // Handle all other form values
-      const newValues = { ...values, [field]: value }
-      setValues(newValues)
-      syncForm(newValues)
+      formState.updateField(field, value)
     }
   )
 
   const handleSubmit = hooks.useEventCallback(() => {
-    const fc = getFormConfig()
-    const validation = parameterService.validateFormValues(values, fc)
+    const validation = formState.validateForm()
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = errorMsg(count)
@@ -545,7 +590,7 @@ const ExportForm = React.memo(function ExportForm({
       return
     }
     // Merge file inputs with other values
-    const merged: FormValues = { ...values }
+    const merged: FormValues = { ...formState.values }
     Object.keys(fileMap).forEach((k) => {
       const f = fileMap[k]
       if (f) merged[k] = f
@@ -578,19 +623,19 @@ const ExportForm = React.memo(function ExportForm({
       }
       onBack={onBack}
       onSubmit={handleSubmit}
-      isValid={isValid}
+      isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {getFormConfig().map((field: DynamicFieldConfig) => (
+      {validator.getFormConfig().map((field: DynamicFieldConfig) => (
         <Field
           key={field.name}
           label={field.label}
           required={field.required}
-          error={stripLabelFromError(errors[field.name])}
+          error={stripLabelFromError(formState.errors[field.name])}
         >
           <DynamicField
             field={field}
-            value={values[field.name]}
+            value={formState.values[field.name]}
             onChange={(val) => setField(field.name, val)}
             translate={translate}
           />
@@ -742,14 +787,22 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // FME client - compute on demand via stable getter
+  const clientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
+    null
+  )
   const getFmeClient = hooks.useEventCallback(() => {
     try {
-      return config ? createFmeFlowClient(config) : null
+      if (!config) return null
+      if (!clientRef.current) clientRef.current = createFmeFlowClient(config)
+      return clientRef.current
     } catch (e) {
       console.warn("FME Export - invalid FME config; deferring client init", e)
       return null
     }
   })
+  hooks.useUpdateEffect(() => {
+    clientRef.current = null
+  }, [config])
 
   // Workspace selection state
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
@@ -782,14 +835,49 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   })
 
+  // Workspace loading helpers for better separation of concerns
+  const createWorkspaceLoader = (
+    fmeClient: ReturnType<typeof createFmeFlowClient> | null,
+    config: any,
+    loadAbortRef: React.MutableRefObject<AbortController | null>,
+    makeCancelable: any,
+    isMountedRef: React.MutableRefObject<boolean>,
+    translate: (key: string) => string
+  ) => {
+    const prepareRequest = () => {
+      if (!fmeClient || !config?.repository) return null
+
+      abortCurrentLoad(loadAbortRef)
+      loadAbortRef.current = new AbortController()
+      return loadAbortRef.current
+    }
+
+    const handleRequestError = (err: unknown, messageKey: string) => {
+      const errorMsg = formatApiError(err, isMountedRef, translate, messageKey)
+      return errorMsg
+    }
+
+    const cleanupRequest = () => {
+      loadAbortRef.current = null
+    }
+
+    return { prepareRequest, handleRequestError, cleanupRequest }
+  }
+
   // Load workspaces with race condition protection
   const loadWsList = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) return
+    const loader = createWorkspaceLoader(
+      fmeClient,
+      config,
+      loadAbortRef,
+      makeCancelable,
+      isMountedRef,
+      translate
+    )
 
-    // Cancel any existing request
-    abortCurrentLoad(loadAbortRef)
-    loadAbortRef.current = new AbortController()
+    const controller = loader.prepareRequest()
+    if (!controller) return
 
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
@@ -801,12 +889,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
           WORKSPACE_ITEM_TYPE,
           undefined,
           undefined,
-          loadAbortRef.current.signal
+          controller.signal
         )
       )
 
-      // Check if request was aborted
-      if (loadAbortRef.current?.signal.aborted) return
+      if (controller.signal.aborted) return
 
       if (response.status === 200 && response.data.items) {
         const items = filterWorkspaces(response.data.items as readonly any[])
@@ -816,19 +903,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: unknown) {
-      const errorMsg = formatApiError(
-        err,
-        isMountedRef,
-        translate,
-        "failedToLoadWorkspaces"
-      )
+      const errorMsg = loader.handleRequestError(err, "failedToLoadWorkspaces")
       if (errorMsg) setWorkspaceError(errorMsg)
     } finally {
-      if (isMountedRef.current) {
-        setIsLoadingWorkspaces(false)
-      }
-      // Clear the abort controller reference
-      loadAbortRef.current = null
+      if (isMountedRef.current) setIsLoadingWorkspaces(false)
+      loader.cleanupRequest()
     }
   })
 
@@ -836,20 +915,30 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadWorkspace = hooks.useEventCallback(
     async (workspaceName: string) => {
       const fmeClient = getFmeClient()
-      if (!fmeClient || !config?.repository) return
-      // Cancel any existing request
-      abortCurrentLoad(loadAbortRef)
-      loadAbortRef.current = new AbortController()
+      const loader = createWorkspaceLoader(
+        fmeClient,
+        config,
+        loadAbortRef,
+        makeCancelable,
+        isMountedRef,
+        translate
+      )
+
+      const controller = loader.prepareRequest()
+      if (!controller) return
+
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
+
       try {
         const response: ApiResponse<any> = await makeCancelable(
           fmeClient.getWorkspaceItem(
             workspaceName,
             config.repository,
-            loadAbortRef.current.signal
+            controller.signal
           )
         )
+
         if (response.status === 200 && response.data?.parameters) {
           onWorkspaceSelected?.(
             workspaceName,
@@ -860,17 +949,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: unknown) {
-        const errorMsg = formatApiError(
+        const errorMsg = loader.handleRequestError(
           err,
-          isMountedRef,
-          translate,
           "failedToLoadWorkspaceDetails"
         )
         if (errorMsg) setWorkspaceError(errorMsg)
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
-        // Clear the abort controller reference
-        loadAbortRef.current = null
+        loader.cleanupRequest()
       }
     }
   )

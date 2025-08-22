@@ -1,7 +1,3 @@
-import esriRequest from "esri/request"
-import esriConfig from "esri/config"
-import * as projection from "esri/geometry/support/webMercatorUtils"
-
 import type {
   FmeFlowConfig,
   FmeExportConfig,
@@ -14,7 +10,102 @@ import type {
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 
-// API constants
+// Import ArcGIS JSAPI modules dynamically or use global fallback
+let _esriRequest: unknown
+let _esriConfig: unknown
+let _webMercatorUtils: unknown
+let _loadPromise: Promise<void> | null = null
+
+const isTestEnv = (): boolean =>
+  typeof process !== "undefined" &&
+  !!(process as any).env &&
+  (!!(process as any).env.JEST_WORKER_ID ||
+    (process as any).env.NODE_ENV === "test")
+
+async function loadArcgisHelper(): Promise<
+  (modules: string[]) => Promise<any[]>
+> {
+  // Try dynamic import first
+  try {
+    const pkg: any = await import("jimu-arcgis")
+    if (pkg && typeof pkg.loadArcGISJSAPIModules === "function") {
+      return pkg.loadArcGISJSAPIModules
+    }
+  } catch {
+    // ignore and try globals
+  }
+  const g: any = globalThis as any
+  const fn = g.loadArcGISJSAPIModules || g.jimuArcgis?.loadArcGISJSAPIModules
+  if (typeof fn === "function") return fn
+  throw new Error("loadArcGISJSAPIModules not available")
+}
+
+async function ensureEsri(): Promise<void> {
+  if (_esriRequest && _esriConfig && _webMercatorUtils) return
+  if (_loadPromise) return _loadPromise
+  _loadPromise = (async () => {
+    try {
+      const helper = await loadArcgisHelper()
+      const [esriRequest, esriConfig, webMercatorUtils] = await helper([
+        "esri/request",
+        "esri/config",
+        "esri/geometry/support/webMercatorUtils",
+      ])
+      const reqMod: any = esriRequest
+      const cfgMod: any = esriConfig
+      const wmMod: any = webMercatorUtils
+      _esriRequest = reqMod && reqMod.default ? reqMod.default : reqMod
+      _esriConfig = cfgMod && cfgMod.default ? cfgMod.default : cfgMod
+      _webMercatorUtils = wmMod && wmMod.default ? wmMod.default : wmMod
+    } catch (e) {
+      if (isTestEnv()) {
+        // Minimal shims for unit tests (no ArcGIS runtime)
+        _esriRequest = async (url: string, options: any) => {
+          const resp = await fetch(url, {
+            method: (options?.method || "get").toUpperCase(),
+            headers: options?.headers,
+            body: options?.body,
+            signal: options?.signal,
+          })
+          const ct = resp.headers.get("content-type") || ""
+          const data = ct.includes("application/json")
+            ? await resp.json()
+            : await resp.text()
+          return { data, httpStatus: resp.status }
+        }
+        _esriConfig = { request: { maxUrlLength: 4000, interceptors: [] } }
+        _webMercatorUtils = {}
+      } else {
+        _loadPromise = null
+        throw e instanceof Error ? e : new Error(String(e))
+      }
+    }
+  })()
+  return _loadPromise
+}
+
+// ArcGIS Module Validation Utilities
+const asEsriRequest = (
+  v: unknown
+): ((url: string, options: any) => Promise<any>) | null => {
+  const fn = v as any
+  return typeof fn === "function" ? fn : null
+}
+
+const asEsriConfig = (
+  v: unknown
+): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
+  const cfg = v as any
+  if (cfg && cfg.request && Array.isArray(cfg.request.interceptors)) return cfg
+  return null
+}
+
+const asWebMercatorUtils = (
+  v: unknown
+): { webMercatorToGeographic?: (g: any) => any } | null => {
+  const u = v as any
+  return u || null
+}
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
@@ -30,52 +121,8 @@ const API = {
   ],
 } as const
 
-// Extract error information from an unknown error object
-function getErrorInfo(err: unknown): {
-  message: string
-  status?: number
-  details?: unknown
-} {
-  if (err && typeof err === "object") {
-    const anyErr = err as any
-
-    // Try multiple ways to extract status code
-    let status =
-      anyErr.status ||
-      anyErr.httpStatus ||
-      anyErr.httpCode ||
-      anyErr.code ||
-      anyErr.response?.status ||
-      anyErr.details?.httpCode
-
-    // If no direct status property, try to extract from message
-    if (typeof status !== "number" && typeof anyErr.message === "string") {
-      // Match patterns like "Unable to load [URL] status: 401" or "status: 401" or just "401"
-      const statusMatch =
-        anyErr.message.match(/status:\s*(\d{3})/i) ||
-        anyErr.message.match(
-          /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
-        ) ||
-        anyErr.message.match(/\b(\d{3})\b/)
-      if (statusMatch) {
-        status = parseInt(statusMatch[1], 10)
-      }
-    }
-
-    return {
-      message:
-        typeof anyErr.message === "string"
-          ? anyErr.message
-          : toStr(anyErr.message),
-      status: typeof status === "number" ? status : undefined,
-      details: anyErr.details,
-    }
-  }
-  return { message: toStr(err) }
-}
-
-// Convert unknown values to string representation
-function toStr(val: unknown): string {
+// Error Handling Utilities
+const toStr = (val: unknown): string => {
   if (typeof val === "string") return val
   if (typeof val === "number" || typeof val === "boolean") return String(val)
   if (val && typeof val === "object") {
@@ -92,13 +139,104 @@ function toStr(val: unknown): string {
       : Object.prototype.toString.call(val)
 }
 
-// Build endpoint path
-const makeEndpoint = (basePath: string, ...segments: string[]): string => {
-  const clean = segments.filter(Boolean).join("/")
-  return `${basePath}/${clean}`
+const extractStatusFromMessage = (message: string): number | undefined => {
+  // Match patterns like "Unable to load [URL] status: 401" or "status: 401" or just "401"
+  const statusMatch =
+    message.match(/status:\s*(\d{3})/i) ||
+    message.match(
+      /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
+    ) ||
+    message.match(/\b(\d{3})\b/)
+  if (statusMatch) {
+    return parseInt(statusMatch[1], 10)
+  }
+  return undefined
 }
 
-// Build query params
+const getErrorInfo = (
+  err: unknown
+): {
+  message: string
+  status?: number
+  details?: unknown
+} => {
+  if (err && typeof err === "object") {
+    const anyErr = err as any
+
+    // Try multiple ways to extract status code
+    let status =
+      anyErr.status ||
+      anyErr.httpStatus ||
+      anyErr.httpCode ||
+      anyErr.code ||
+      anyErr.response?.status ||
+      anyErr.details?.httpCode
+
+    // If no direct status property, try to extract from message
+    if (typeof status !== "number" && typeof anyErr.message === "string") {
+      status = extractStatusFromMessage(anyErr.message)
+    }
+
+    return {
+      message:
+        typeof anyErr.message === "string"
+          ? anyErr.message
+          : toStr(anyErr.message),
+      status: typeof status === "number" ? status : undefined,
+      details: anyErr.details,
+    }
+  }
+  return { message: toStr(err) }
+}
+
+const isAuthError = (status: number): boolean =>
+  status === 403 || status === 401
+
+const isJson = (contentType: string | null): boolean =>
+  contentType?.includes("application/json") ?? false
+
+// Mask token for logs (show at most last 4 chars)
+const maskToken = (token: string): string =>
+  token ? `***${token.slice(-4)}` : ""
+
+// URL Building Utilities
+const normalizeUrl = (serverUrl: string): string =>
+  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
+
+const makeEndpoint = (basePath: string, ...segments: string[]): string => {
+  const cleanSegments = segments.filter(Boolean).join("/")
+  return `${basePath}/${cleanSegments}`
+}
+
+const buildWebhook = (
+  serverUrl: string,
+  service: string,
+  repository: string,
+  workspace: string
+): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
+
+const buildServiceUrl = (
+  serverUrl: string,
+  service: string,
+  repository: string,
+  workspace: string
+): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
+
+const resolveRequestUrl = (
+  endpoint: string,
+  serverUrl: string,
+  basePath: string
+): string => {
+  if (endpoint.startsWith("http")) {
+    return endpoint
+  }
+  if (endpoint.startsWith("/fme")) {
+    return `${normalizeUrl(serverUrl)}${endpoint}`
+  }
+  return `${normalizeUrl(serverUrl)}${basePath}${endpoint}`
+}
+
+// Parameter Building Utilities
 const buildQuery = (
   params: PrimitiveParams = {},
   excludeKeys: string[] = []
@@ -111,14 +249,6 @@ const buildQuery = (
   }
   return urlParams
 }
-
-// URL building helpers
-const buildWebhook = (
-  serverUrl: string,
-  service: string,
-  repository: string,
-  workspace: string
-): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
 
 const buildWebhookParams = (
   parameters: PrimitiveParams,
@@ -134,17 +264,12 @@ const buildWebhookParams = (
   return params
 }
 
-// Normalize server URL
-const normalizeUrl = (serverUrl: string): string =>
-  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
-
-// Calculate polygon area
+// Geometry Processing Utilities
 const calcArea = (polygon: __esri.Polygon): number => {
   try {
     const extent = polygon.extent
     const widthMeters = extent.width
     const heightMeters = extent.height
-
     return Math.abs(widthMeters * heightMeters)
   } catch (error) {
     console.warn("Failed to calculate polygon area, using extent area", error)
@@ -156,9 +281,14 @@ const calcArea = (polygon: __esri.Polygon): number => {
 const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
   // Convert Web Mercator to WGS84 if necessary
   if (geometry.spatialReference?.wkid === 3857) {
-    return (
-      projection.webMercatorToGeographic(geometry as __esri.Polygon) || geometry
-    )
+    try {
+      const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
+      if (webMercatorUtils?.webMercatorToGeographic) {
+        return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
+      }
+    } catch {
+      // Fall back to original geometry if conversion fails
+    }
   }
   return geometry
 }
@@ -170,29 +300,21 @@ const makeGeoJson = (polygon: __esri.Polygon) => ({
   ),
 })
 
-const isAuthError = (status: number): boolean =>
-  status === 403 || status === 401
+async function setApiSettings(config: FmeFlowConfig): Promise<void> {
+  await ensureEsri()
+  const esriConfig = asEsriConfig(_esriConfig)
+  if (!esriConfig) return
 
-const isJson = (contentType: string | null): boolean =>
-  contentType?.includes("application/json") ?? false
-
-// Mask token for logs (show at most last 4 chars)
-const maskToken = (token: string): string =>
-  token ? `***${token.slice(-4)}` : ""
-
-function setApiSettings(config: FmeFlowConfig): void {
   esriConfig.request.maxUrlLength = API.MAX_URL_LENGTH
   const serverDomain = new URL(config.serverUrl).origin
 
   // Avoid duplicate interceptor
   const hasExistingInterceptor = esriConfig.request.interceptors.some(
-    (interceptor) => {
+    (interceptor: any) => {
       const urls = interceptor.urls as Array<string | RegExp> | undefined
       if (!urls || !Array.isArray(urls)) return false
-      return urls.some((url) =>
-        typeof url === "string"
-          ? url.includes(serverDomain)
-          : url.test(serverDomain)
+      return urls.some((u: string | RegExp) =>
+        typeof u === "string" ? u.includes(serverDomain) : u.test(serverDomain)
       )
     }
   )
@@ -200,7 +322,7 @@ function setApiSettings(config: FmeFlowConfig): void {
   if (!hasExistingInterceptor) {
     esriConfig.request.interceptors.push({
       urls: [serverDomain],
-      before: (params) => {
+      before: (params: any) => {
         if (!params.requestOptions.headers) {
           params.requestOptions.headers = {}
         }
@@ -217,6 +339,59 @@ function setApiSettings(config: FmeFlowConfig): void {
   }
 }
 
+// Request Processing Utilities
+const buildRequestHeaders = (
+  existingHeaders: { [key: string]: string } = {},
+  token?: string
+): { [key: string]: string } => {
+  const headers = { ...existingHeaders }
+  if (token && !headers.Authorization) {
+    headers.Authorization = `fmetoken token=${token}`
+  }
+  if (!headers.Accept) {
+    headers.Accept = "application/json"
+  }
+  return headers
+}
+
+const handleAbortError = <T>(): ApiResponse<T> => ({
+  data: undefined as unknown as T,
+  status: 0,
+  statusText: "Canceled",
+})
+
+const processRequestError = (
+  err: unknown,
+  url: string,
+  token: string
+): { errorMessage: string; errorCode: string; httpStatus: number } => {
+  const { message, status, details } = getErrorInfo(err)
+  let errorMessage = `Request failed: ${message}`
+  let errorCode = "NETWORK_ERROR"
+  const httpStatus = status || 0
+
+  // Log the error with masked token
+  console.error("FME API - request error", {
+    url,
+    token: maskToken(token),
+    message,
+  })
+
+  if (message.includes("Unexpected token")) {
+    console.error("FME API - Received HTML response instead of JSON. URL:", url)
+    errorMessage = `Server returned HTML instead of JSON. This usually indicates an authentication or endpoint issue. URL: ${url}`
+    errorCode = "INVALID_RESPONSE_FORMAT"
+  }
+
+  const det: any = details as any
+  if (det?.error) {
+    errorMessage = det.error.message || errorMessage
+    errorCode = det.error.code || errorCode
+  }
+
+  return { errorMessage, errorCode, httpStatus }
+}
+
 export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
@@ -224,7 +399,7 @@ export class FmeFlowApiClient {
 
   constructor(config: FmeFlowConfig) {
     this.config = config
-    setApiSettings(config)
+    void setApiSettings(config)
   }
 
   private resolveRepository(repository?: string): string {
@@ -236,7 +411,12 @@ export class FmeFlowApiClient {
     repository: string,
     workspace: string
   ): string {
-    return `${normalizeUrl(this.config.serverUrl)}/${service}/${repository}/${workspace}`
+    return buildServiceUrl(
+      this.config.serverUrl,
+      service,
+      repository,
+      workspace
+    )
   }
 
   // addQuery helper removed (unused)
@@ -322,7 +502,7 @@ export class FmeFlowApiClient {
 
   updateConfig(config: Partial<FmeFlowConfig>): void {
     this.config = { ...this.config, ...config }
-    setApiSettings(this.config)
+    void setApiSettings(this.config)
   }
 
   async testConnection(
@@ -767,7 +947,16 @@ export class FmeFlowApiClient {
 
     let responseData: any
     if (isJson(contentType)) {
-      responseData = await response.json()
+      try {
+        responseData = await response.json()
+      } catch {
+        // Malformed JSON should trigger REST fallback
+        throw new FmeFlowApiError(
+          "Webhook returned malformed JSON - falling back to REST API",
+          "WEBHOOK_AUTH_ERROR",
+          response.status
+        )
+      }
       // Check for specific error codes in JSON response
       if (isAuthError(response.status)) {
         throw new FmeFlowApiError(
@@ -849,25 +1038,17 @@ export class FmeFlowApiClient {
     endpoint: string,
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
-    let url: string
-    if (endpoint.startsWith("http")) {
-      url = endpoint
-    } else if (endpoint.startsWith("/fme")) {
-      url = `${normalizeUrl(this.config.serverUrl)}${endpoint}`
-    } else {
-      url = `${normalizeUrl(this.config.serverUrl)}${this.basePath}${endpoint}`
-    }
+    await ensureEsri()
+    const url = resolveRequestUrl(
+      endpoint,
+      this.config.serverUrl,
+      this.basePath
+    )
 
     console.log("FME API - Making request to:", url)
 
     try {
-      const headers: { [key: string]: string } = { ...(options.headers || {}) }
-      if (this.config.token && !headers.Authorization) {
-        headers.Authorization = `fmetoken token=${this.config.token}`
-      }
-      if (!headers.Accept) {
-        headers.Accept = "application/json"
-      }
+      const headers = buildRequestHeaders(options.headers, this.config.token)
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
         query: options.query as any,
@@ -878,7 +1059,14 @@ export class FmeFlowApiClient {
       if (options.cacheHint !== undefined)
         requestOptions.cacheHint = options.cacheHint
       if (options.body !== undefined) requestOptions.body = options.body
-      const response = await esriRequest(url, requestOptions)
+      const esriRequestFn = asEsriRequest(_esriRequest)
+      if (!esriRequestFn) {
+        throw new FmeFlowApiError(
+          "ArcGIS request module unavailable",
+          "ARCGIS_MODULE_ERROR"
+        )
+      }
+      const response = await esriRequestFn(url, requestOptions)
 
       return {
         data: response.data,
@@ -890,62 +1078,42 @@ export class FmeFlowApiClient {
       if (
         (err as { name?: string } | null | undefined)?.name === "AbortError"
       ) {
-        return {
-          data: undefined as unknown as T,
-          status: 0,
-          statusText: "Canceled",
-        }
+        return handleAbortError<T>()
       }
-      const { message, status, details } = getErrorInfo(err)
-      let errorMessage = `Request failed: ${message}`
-      let errorCode = "NETWORK_ERROR"
-      const httpStatus = status || 0
-      // Log the error with masked token
-      console.error("FME API - request error", {
+      const { errorMessage, errorCode, httpStatus } = processRequestError(
+        err,
         url,
-        token: maskToken(this.config.token),
-        message,
-      })
-      if (message.includes("Unexpected token")) {
-        console.error(
-          "FME API - Received HTML response instead of JSON. URL:",
-          url
-        )
-        errorMessage = `Server returned HTML instead of JSON. This usually indicates an authentication or endpoint issue. URL: ${url}`
-        errorCode = "INVALID_RESPONSE_FORMAT"
-      }
-      const det: any = details as any
-      if (det?.error) {
-        errorMessage = det.error.message || errorMessage
-        errorCode = det.error.code || errorCode
-      }
+        this.config.token
+      )
       throw new FmeFlowApiError(errorMessage, errorCode, httpStatus)
     }
   }
 }
 
-export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
-  const normalizedConfig: FmeFlowConfig = {
-    serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
-    token:
-      config.fmeServerToken ||
-      (config as any).fme_server_token ||
-      (config as any).fmw_server_token ||
-      "",
-    repository: config.repository || "",
-    timeout: config.requestTimeout,
-  }
+// Configuration Processing Utilities
+const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
+  serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
+  token:
+    config.fmeServerToken ||
+    (config as any).fme_server_token ||
+    (config as any).fmw_server_token ||
+    "",
+  repository: config.repository || "",
+  timeout: config.requestTimeout,
+})
 
-  if (
-    !normalizedConfig.serverUrl ||
-    !normalizedConfig.token ||
-    !normalizedConfig.repository
-  ) {
+const validateRequiredConfig = (config: FmeFlowConfig): void => {
+  if (!config.serverUrl || !config.token || !config.repository) {
     throw new FmeFlowApiError(
       "Missing required FME Flow configuration. Required: serverUrl (fmeServerUrl or fme_server_url), token (fmeServerToken or fme_server_token), and repository",
       "INVALID_CONFIG"
     )
   }
+}
+
+export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
+  const normalizedConfig = normalizeConfigParams(config)
+  validateRequiredConfig(normalizedConfig)
 
   return new FmeFlowApiClient({
     ...normalizedConfig,
