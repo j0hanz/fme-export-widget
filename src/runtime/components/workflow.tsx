@@ -39,7 +39,6 @@ import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
-// error icon no longer used; render via StateView
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
@@ -47,10 +46,8 @@ import {
   ErrorHandlingService,
 } from "../../shared/services"
 
-// All styles now centralized via styles from ui.tsx
-
 // Debounce interval for workspace loading
-const DEBOUNCE_MS = 300
+const DEBOUNCE_MS = 500
 
 // Abort helper to cancel in-flight workspace requests safely
 const abortCurrentLoad = (
@@ -90,10 +87,8 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Module-level helpers
-
-// Helper for workspace API error handling
-const formatApiError = (
+// Helper for handling API errors within the component scope
+const formatWorkspaceError = (
   err: unknown,
   isMountedRef: React.MutableRefObject<boolean>,
   translate: (key: string) => string,
@@ -832,49 +827,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   })
 
-  // Workspace loading helpers for better separation of concerns
-  const createWorkspaceLoader = (
-    fmeClient: ReturnType<typeof createFmeFlowClient> | null,
-    config: any,
-    loadAbortRef: React.MutableRefObject<AbortController | null>,
-    makeCancelable: any,
-    isMountedRef: React.MutableRefObject<boolean>,
-    translate: (key: string) => string
-  ) => {
-    const prepareRequest = () => {
-      if (!fmeClient || !config?.repository) return null
-
-      abortCurrentLoad(loadAbortRef)
-      loadAbortRef.current = new AbortController()
-      return loadAbortRef.current
-    }
-
-    const handleRequestError = (err: unknown, messageKey: string) => {
-      const errorMsg = formatApiError(err, isMountedRef, translate, messageKey)
-      return errorMsg
-    }
-
-    const cleanupRequest = () => {
-      loadAbortRef.current = null
-    }
-
-    return { prepareRequest, handleRequestError, cleanupRequest }
-  }
-
   // Load workspaces with race condition protection
   const loadWsList = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    const loader = createWorkspaceLoader(
-      fmeClient,
-      config,
-      loadAbortRef,
-      makeCancelable,
-      isMountedRef,
-      translate
-    )
+    if (!fmeClient || !config?.repository) return
 
-    const controller = loader.prepareRequest()
-    if (!controller) return
+    abortCurrentLoad(loadAbortRef)
+    const controller = new AbortController()
+    loadAbortRef.current = controller
 
     setIsLoadingWorkspaces(true)
     setWorkspaceError(null)
@@ -900,11 +860,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err: unknown) {
-      const errorMsg = loader.handleRequestError(err, "failedToLoadWorkspaces")
+      const errorMsg = formatWorkspaceError(
+        err,
+        isMountedRef,
+        translate,
+        "failedToLoadWorkspaces"
+      )
       if (errorMsg) setWorkspaceError(errorMsg)
     } finally {
       if (isMountedRef.current) setIsLoadingWorkspaces(false)
-      loader.cleanupRequest()
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null
+      }
     }
   })
 
@@ -912,17 +879,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadWorkspace = hooks.useEventCallback(
     async (workspaceName: string) => {
       const fmeClient = getFmeClient()
-      const loader = createWorkspaceLoader(
-        fmeClient,
-        config,
-        loadAbortRef,
-        makeCancelable,
-        isMountedRef,
-        translate
-      )
+      if (!fmeClient || !config?.repository) return
 
-      const controller = loader.prepareRequest()
-      if (!controller) return
+      abortCurrentLoad(loadAbortRef)
+      const controller = new AbortController()
+      loadAbortRef.current = controller
 
       setIsLoadingWorkspaces(true)
       setWorkspaceError(null)
@@ -946,14 +907,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
       } catch (err: unknown) {
-        const errorMsg = loader.handleRequestError(
+        const errorMsg = formatWorkspaceError(
           err,
+          isMountedRef,
+          translate,
           "failedToLoadWorkspaceDetails"
         )
         if (errorMsg) setWorkspaceError(errorMsg)
       } finally {
         if (isMountedRef.current) setIsLoadingWorkspaces(false)
-        loader.cleanupRequest()
+        if (loadAbortRef.current === controller) {
+          loadAbortRef.current = null
+        }
       }
     }
   )
