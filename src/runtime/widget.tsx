@@ -64,8 +64,6 @@ const MODULES: readonly string[] = [
   "esri/Graphic",
   "esri/geometry/Polygon",
   "esri/geometry/Extent",
-  "esri/widgets/AreaMeasurement2D",
-  "esri/widgets/DistanceMeasurement2D",
   "esri/geometry/geometryEngine",
 ] as const
 
@@ -114,8 +112,6 @@ const useModules = (): {
           Graphic,
           Polygon,
           Extent,
-          AreaMeasurement2D,
-          DistanceMeasurement2D,
           geometryEngine,
         ] = loaded
         setModules({
@@ -124,8 +120,6 @@ const useModules = (): {
           Graphic,
           Polygon,
           Extent,
-          AreaMeasurement2D,
-          DistanceMeasurement2D,
           geometryEngine,
         } as unknown as EsriModules)
       })
@@ -149,12 +143,6 @@ const useMapState = () => {
     React.useState<__esri.SketchViewModel | null>(null)
   const [graphicsLayer, setGraphicsLayer] =
     React.useState<__esri.GraphicsLayer | null>(null)
-  const [measurementGraphicsLayer, setMeasurementGraphicsLayer] =
-    React.useState<__esri.GraphicsLayer | null>(null)
-  const [areaMeasurement2D, setAreaMeasurement2D] =
-    React.useState<__esri.AreaMeasurement2D | null>(null)
-  const [distanceMeasurement2D, setDistanceMeasurement2D] =
-    React.useState<__esri.DistanceMeasurement2D | null>(null)
   const [currentGeometry, setCurrentGeometry] =
     React.useState<__esri.Geometry | null>(null)
 
@@ -167,24 +155,9 @@ const useMapState = () => {
         setSketchViewModel(null)
       }
 
-      if (areaMeasurement2D) {
-        areaMeasurement2D.destroy()
-        setAreaMeasurement2D(null)
-      }
-
-      if (distanceMeasurement2D) {
-        distanceMeasurement2D.destroy()
-        setDistanceMeasurement2D(null)
-      }
-
       if (graphicsLayer && jimuMapView?.view?.map) {
         jimuMapView.view.map.remove(graphicsLayer)
         setGraphicsLayer(null)
-      }
-
-      if (measurementGraphicsLayer && jimuMapView?.view?.map) {
-        jimuMapView.view.map.remove(measurementGraphicsLayer)
-        setMeasurementGraphicsLayer(null)
       }
 
       setCurrentGeometry(null)
@@ -200,12 +173,6 @@ const useMapState = () => {
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
-    measurementGraphicsLayer,
-    setMeasurementGraphicsLayer,
-    areaMeasurement2D,
-    setAreaMeasurement2D,
-    distanceMeasurement2D,
-    setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
     cleanupResources,
@@ -656,55 +623,18 @@ const applyDirectiveDefaults = (
   return out
 }
 
-// Initialize graphics layers for drawing and measurements
+// Initialize graphics layers for drawing
 const createLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void,
-  setMeasurementGraphicsLayer: (layer: __esri.GraphicsLayer) => void
+  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
 ) => {
   // Main sketch layer
   const layer = new modules.GraphicsLayer(LAYER_CONFIG)
   jmv.view.map.add(layer)
   setGraphicsLayer(layer)
 
-  // Measurement layer
-  const measurementLayer = new modules.GraphicsLayer({
-    id: "measurement-labels-layer",
-    title: "Measurement Labels",
-  })
-  jmv.view.map.add(measurementLayer)
-  setMeasurementGraphicsLayer(measurementLayer)
-
   return layer
-}
-
-// Initialize measurement widgets for 2D views
-const createMeasureWidgets = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  setAreaMeasurement2D: (widget: __esri.AreaMeasurement2D) => void,
-  setDistanceMeasurement2D: (widget: __esri.DistanceMeasurement2D) => void
-) => {
-  if (jmv.view.type !== "2d") return
-
-  if (modules.AreaMeasurement2D) {
-    const areaMeasurement2D = new modules.AreaMeasurement2D({
-      view: jmv.view,
-      unit: "metric",
-      visible: false,
-    })
-    setAreaMeasurement2D(areaMeasurement2D)
-  }
-
-  if (modules.DistanceMeasurement2D) {
-    const distanceMeasurement2D = new modules.DistanceMeasurement2D({
-      view: jmv.view,
-      unit: "metric",
-      visible: false,
-    })
-    setDistanceMeasurement2D(distanceMeasurement2D)
-  }
 }
 
 // Create sketch VM
@@ -861,29 +791,7 @@ const setupSketchEventHandlers = (
   })
 }
 
-// Hide measurement widgets
-const hideMeasurementWidgets = (
-  areaMeasurement2D: __esri.AreaMeasurement2D | null,
-  distanceMeasurement2D: __esri.DistanceMeasurement2D | null
-) => {
-  if (areaMeasurement2D) {
-    try {
-      areaMeasurement2D.visible = false
-      areaMeasurement2D.viewModel.clear()
-    } catch (error) {
-      console.warn("Failed to hide area measurement widget:", error)
-    }
-  }
-
-  if (distanceMeasurement2D) {
-    try {
-      distanceMeasurement2D.visible = false
-      distanceMeasurement2D.viewModel.clear()
-    } catch (error) {
-      console.warn("Failed to hide distance measurement widget:", error)
-    }
-  }
-}
+// Measurement widgets removed as unused
 
 // Process FME response
 const processFmeResponse = (
@@ -988,12 +896,6 @@ export default function Widget(
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
-    measurementGraphicsLayer,
-    setMeasurementGraphicsLayer,
-    areaMeasurement2D,
-    setAreaMeasurement2D,
-    distanceMeasurement2D,
-    setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
     cleanupResources,
@@ -1156,13 +1058,11 @@ export default function Widget(
   // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
     graphicsLayer?.removeAll()
-    measurementGraphicsLayer?.removeAll()
   })
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
     clearAllGraphics()
-    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
   })
 
   // Drawing complete
@@ -1320,18 +1220,7 @@ export default function Widget(
     }
     try {
       setJimuMapView(jmv)
-      const layer = createLayers(
-        jmv,
-        modules,
-        setGraphicsLayer,
-        setMeasurementGraphicsLayer
-      )
-      createMeasureWidgets(
-        jmv,
-        modules,
-        setAreaMeasurement2D,
-        setDistanceMeasurement2D
-      )
+      const layer = createLayers(jmv, modules, setGraphicsLayer)
       const svm = createSketchVM(jmv, modules, layer, onDrawComplete, dispatch)
       setSketchViewModel(svm)
     } catch (error) {
