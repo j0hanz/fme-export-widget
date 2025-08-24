@@ -524,10 +524,7 @@ const ExportForm = React.memo(function ExportForm({
   )
 
   // Create validator with current parameters
-  const validator = React.useMemo(
-    () => createFormValidator(parameterService, workspaceParameters),
-    [parameterService, workspaceParameters]
-  )
+  const validator = createFormValidator(parameterService, workspaceParameters)
 
   // Use form state manager hook
   const formState = useFormStateManager(validator, syncForm)
