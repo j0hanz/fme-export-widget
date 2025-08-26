@@ -362,6 +362,7 @@ export interface OrderResultProps {
   readonly translate: (k: string) => string
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
+  readonly config?: FmeExportConfig
 }
 
 // Props for ExportForm component

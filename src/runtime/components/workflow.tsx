@@ -335,8 +335,10 @@ const OrderResult = React.memo(function OrderResult({
   translate,
   onReuseGeography,
   onBack,
+  config,
 }: OrderResultProps) {
   const isSuccess = !!orderResult.success
+  const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
 
   const addRow = (label?: string, value?: unknown) => {
@@ -354,7 +356,10 @@ const OrderResult = React.memo(function OrderResult({
 
   addRow(translate("jobId"), orderResult.jobId)
   addRow(translate("workspace"), orderResult.workspaceName)
-  addRow(translate("notificationEmail"), orderResult.email)
+  // Only show notification email when sync mode is OFF (async mode)
+  if (!isSyncMode) {
+    addRow(translate("notificationEmail"), orderResult.email)
+  }
   if (orderResult.code && !isSuccess)
     addRow(translate("errorCode"), orderResult.code)
 
@@ -370,8 +375,12 @@ const OrderResult = React.memo(function OrderResult({
 
   const showDownloadLink = isSuccess && orderResult.downloadUrl
   const showMessage = isSuccess || orderResult.message
+  
+  // Conditional message based on sync mode
   const messageText = isSuccess
-    ? translate("emailNotificationSent")
+    ? (isSyncMode && orderResult.downloadUrl
+        ? translate("directDownloadReady")
+        : translate("emailNotificationSent"))
     : orderResult.message || translate("unknownErrorOccurred")
 
   return (
@@ -1156,6 +1165,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           translate={translate}
           onReuseGeography={onReuseGeography}
           onBack={onBack}
+          config={config}
         />
       )
     }
