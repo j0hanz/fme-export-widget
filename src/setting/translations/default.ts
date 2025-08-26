@@ -56,6 +56,9 @@ export default {
   tm_ttlLabel: "tm_ttl – Max tid i kö (sek)",
   tm_tagLabel: "tm_tag – Kö/queue (valfritt)",
   tm_tagPlaceholder: "t.ex. high",
+  serviceModeSync: "Direkt nedladdning (synkront)",
+  serviceModeSyncHelper:
+    "När detta är på visas en direkt nedladdningslänk när jobbet är klart. Av = länk via e‑post.",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Ej körbart",

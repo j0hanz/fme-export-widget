@@ -362,6 +362,7 @@ export interface OrderResultProps {
   readonly translate: (k: string) => string
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
+  readonly config?: FmeExportConfig
 }
 
 // Props for ExportForm component
@@ -616,14 +617,12 @@ export interface FmeExportConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly supportEmail?: string
+  // Run export jobs synchronously to get direct download link (Data Download service)
+  readonly syncMode?: boolean
   // Admin defaults for FME Task Manager directives (0 disables; tag empty disables)
   readonly tm_ttc?: number
   readonly tm_ttl?: number
   readonly tm_tag?: string
-  // Legacy support - deprecated
-  readonly fme_server_url?: string
-  readonly fmw_server_token?: string
-  readonly geometryService?: string
 }
 
 export const enum HttpMethod {
@@ -1012,6 +1011,8 @@ export interface WidgetConfig {
   fmeServerToken?: string
   repository?: string
   supportEmail?: string
+  // Admin toggle to run Data Download synchronously
+  syncMode?: boolean
   // Admin defaults for job directives
   tm_ttc?: number
   tm_ttl?: number

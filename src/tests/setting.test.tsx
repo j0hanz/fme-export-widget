@@ -40,6 +40,16 @@ jest.mock("../runtime/components/ui", () => {
     styles,
     config,
     Tooltip: ({ children }: any) => <span>{children}</span>,
+    Checkbox: ({ checked, onChange, id, "aria-label": ariaLabel }: any) => (
+      <input
+        role="checkbox"
+        type="checkbox"
+        id={id}
+        aria-label={ariaLabel}
+        checked={!!checked}
+        onChange={(e) => onChange?.(e)}
+      />
+    ),
     Button: ({ text, onClick, disabled }: any) => (
       <button aria-label={text} disabled={disabled} onClick={onClick}>
         {text}

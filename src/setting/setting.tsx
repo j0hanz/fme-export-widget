@@ -7,7 +7,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import { Alert, Loading, LoadingType } from "jimu-ui"
+import { Alert, Loading, LoadingType, Switch } from "jimu-ui"
 import {
   Button,
   Input,
@@ -205,7 +205,6 @@ function useStringConfigValue(config: IMWidgetConfig) {
 // Local CSS styles for the setting UI
 const CSS = {
   ALERT_INLINE: {
-    padding: "0 0.4rem",
     opacity: 0.8,
   } as React.CSSProperties,
   STATUS: {
@@ -269,6 +268,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     serverUrl: "setting-server-url",
     token: "setting-token",
     repository: "setting-repository",
+    syncMode: "setting-sync-mode",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
@@ -308,6 +308,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
     () => getStringConfig("supportEmail") || ""
+  )
+  const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
+    Boolean((config as any)?.syncMode)
   )
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
@@ -700,6 +703,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (repo !== localRepository) setLocalRepository(repo)
     const se = getStringConfig("supportEmail") || ""
     if (se !== localSupportEmail) setLocalSupportEmail(se)
+    const sm = Boolean((config as any)?.syncMode)
+    if (sm !== localSyncMode) setLocalSyncMode(sm)
     // Keep server URL and token in sync
     const su = getStringConfig("fmeServerUrl") || ""
     if (su !== localServerUrl) setLocalServerUrl(su)
@@ -720,6 +725,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     getStringConfig,
     localRepository,
     localSupportEmail,
+    localSyncMode,
     localServerUrl,
     localToken,
     localTmTtc,
@@ -878,7 +884,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   return (
     <>
       <SettingSection title={translate("mapConfiguration")}>
-        <SettingRow>
+        <SettingRow level={1}>
           <MapWidgetSelector
             useMapWidgetIds={useMapWidgetIds}
             onSelect={onMapWidgetSelected}
@@ -888,7 +894,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={translate("supportEmail")}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -906,7 +912,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.supportEmail}
           />
           {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.supportEmail}-error`}
                 fullWidth
@@ -924,7 +930,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={renderRequiredLabel(translate("fmeServerUrl"))}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -939,7 +945,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.serverUrl}
           />
           {fieldErrors.serverUrl && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.serverUrl}-error`}
                 fullWidth
@@ -955,7 +961,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={renderRequiredLabel(translate("fmeServerToken"))}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -971,7 +977,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.token}
           />
           {fieldErrors.token && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.token}-error`}
                 fullWidth
@@ -983,23 +989,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
+        {/* Test connection */}
+        <SettingRow flow="wrap" level={2}>
+          <Button
+            disabled={cannotTest()}
+            alignText="center"
+            text={
+              testState.isTesting
+                ? translate("testing")
+                : translate("testConnection")
+            }
+            onClick={() => testConnection(false)}
+          />
+        </SettingRow>
+        {testState.message && (
+          <SettingRow flow="wrap" level={3}>
+            {renderConnectionStatus()}
+          </SettingRow>
+        )}
         {/* Available repositories */}
         <SettingRow
           flow="wrap"
           label={translate("availableRepositories")}
-          level={3}
+          level={1}
           tag="label"
         >
           <Select
             options={(() => {
-              // Use availableRepos if present, otherwise fall back to localRepository
+              // Use availableRepos if populated; otherwise, if not yet loaded, use current value if any
               const src =
                 availableRepos && availableRepos.length > 0
                   ? availableRepos
                   : localRepository
                     ? [localRepository]
                     : []
-              // De-duplicate while preserving order
+              // Deduplicate options while preserving order
               const seen = new Set<string>()
               const opts: Array<{ label: string; value: string }> = []
               for (const name of src) {
@@ -1026,7 +1050,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={"---"}
           />
           {fieldErrors.repository && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.repository}-error`}
                 fullWidth
@@ -1038,29 +1062,33 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        {/* Test connection */}
-        <SettingRow flow="wrap">
-          <Button
-            disabled={cannotTest()}
-            alignText="center"
-            text={
-              testState.isTesting
-                ? translate("testing")
-                : translate("testConnection")
-            }
-            onClick={() => testConnection(false)}
+        {/* Service mode (sync) toggle */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("serviceModeSync")}
+          level={1}
+        >
+          <Switch
+            id={ID.syncMode}
+            checked={localSyncMode}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localSyncMode
+              setLocalSyncMode(checked)
+              updateConfig("syncMode", checked)
+            }}
+            aria-label={translate("serviceModeSync")}
           />
         </SettingRow>
-        {testState.message && (
-          <SettingRow flow="wrap">{renderConnectionStatus()}</SettingRow>
-        )}
+        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)} level={3}>
+          {translate("serviceModeSyncHelper")}
+        </SettingRow>
       </SettingSection>
       <SettingSection title={translate("jobDirectives")}>
         {/* Job directives (admin defaults) */}
         <SettingRow
           flow="wrap"
           label={translate("tm_ttcLabel")}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -1079,7 +1107,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             inputMode="numeric"
           />
           {fieldErrors.tm_ttc && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.tm_ttc}-error`}
                 fullWidth
@@ -1094,7 +1122,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={translate("tm_ttlLabel")}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -1113,7 +1141,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             inputMode="numeric"
           />
           {fieldErrors.tm_ttl && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.tm_ttl}-error`}
                 fullWidth
@@ -1128,7 +1156,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={translate("tm_tagLabel")}
-          level={3}
+          level={1}
           tag="label"
         >
           <Input
@@ -1142,7 +1170,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.tm_tag}
           />
           {fieldErrors.tm_tag && (
-            <SettingRow flow="wrap">
+            <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.tm_tag}-error`}
                 fullWidth
@@ -1154,7 +1182,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)}>
+        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)} level={3}>
           {translate("jobDirectivesHelper")}
         </SettingRow>
       </SettingSection>

@@ -29,8 +29,9 @@ jest.mock("jimu-arcgis", () => ({
     if (modules.includes("esri/portal/Portal")) {
       const MockPortal = function (this: any) {
         this.load = () => Promise.resolve()
-        // Return no user to trigger email requirement error
-        this.user = null
+        // Allow tests to control presence of user email via global flag
+        const email = (global as any).__TEST_PORTAL_EMAIL__
+        this.user = email ? { email } : null
       }
       return Promise.resolve([MockPortal])
     }
@@ -85,6 +86,20 @@ jest.mock("../shared/api", () => {
           status: 200,
           statusText: "OK",
           data: { name: "repo" },
+        })
+      ),
+      // Default runDataDownload mock resolves with success and echoes a jobID
+      runDataDownload: jest.fn(() =>
+        Promise.resolve({
+          status: 200,
+          statusText: "OK",
+          data: {
+            serviceResponse: {
+              status: "success",
+              jobID: 101,
+              url: "http://example.com/file.zip",
+            },
+          },
         })
       ),
     })),
@@ -489,5 +504,77 @@ describe("FME Export Widget", () => {
           action?.error?.code === "AREA_TOO_LARGE"
       )
     ).toBe(true)
+  })
+
+  test("submits with opt_servicemode=sync when syncMode is enabled", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Ensure portal returns a valid email for submission
+    ;(global as any).__TEST_PORTAL_EMAIL__ = "user@example.com"
+
+    // Prepare a valid form submission state
+    const formState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.EXPORT_FORM,
+      isStartupValidating: false,
+      selectedWorkspace: "ws-sync",
+      workspaceParameters: [],
+      drawnArea: 10,
+      geometryJson: {
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+        spatialReference: { wkid: 3857 },
+      } as any,
+    }
+    updateStore({ "fme-state": formState })
+
+    const { createFmeFlowClient } = require("../shared/api") as {
+      createFmeFlowClient: jest.Mock
+    }
+
+    const { unmount } = renderWidget(
+      <Wrapped
+        widgetId="w-sync"
+        config={{
+          fmeServerUrl: "http://example.com",
+          fmeServerToken: "t",
+          repository: "repo",
+          syncMode: true,
+        }}
+      />
+    )
+
+    // Wait for loading to clear
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
+    })
+
+    const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
+    fireEvent.click(submitBtn)
+
+    // Assert runDataDownload received sync service mode
+    await waitFor(() => {
+      const results = createFmeFlowClient.mock.results
+      const lastInstance = results[results.length - 1]?.value
+      const calls = lastInstance?.runDataDownload?.mock?.calls || []
+      expect(calls.length).toBeGreaterThan(0)
+      const [, params] = calls[0]
+      expect(params.opt_servicemode).toBe("sync")
+      expect(typeof params.AreaOfInterest).toBe("string")
+    })
+
+    // Cleanup
+    unmount()
+    ;(global as any).__TEST_PORTAL_EMAIL__ = undefined
   })
 })
