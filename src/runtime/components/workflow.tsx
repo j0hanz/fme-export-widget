@@ -311,13 +311,13 @@ const renderInput = (
   )
 }
 
-const OrderResult = React.memo(function OrderResult({
+const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
   onReuseGeography,
   onBack,
   config,
-}: OrderResultProps) {
+}) => {
   const isSuccess = !!orderResult.success
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
@@ -402,15 +402,15 @@ const OrderResult = React.memo(function OrderResult({
       />
     </>
   )
-})
+}
 
 // Dynamic field component for rendering various form fields based on configuration
-const DynamicField = React.memo(function DynamicField({
+const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
   onChange,
   translate,
-}: DynamicFieldProps) {
+}) => {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
@@ -493,10 +493,10 @@ const DynamicField = React.memo(function DynamicField({
         field.readOnly
       )
   }
-})
+}
 
 // ExportForm component - handles dynamic form generation and submission
-const ExportForm = React.memo(function ExportForm({
+const ExportForm: React.FC<ExportFormProps> = ({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -504,7 +504,7 @@ const ExportForm = React.memo(function ExportForm({
   onSubmit,
   isSubmitting,
   translate,
-}: ExportFormProps) {
+}) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
   const [fileMap, setFileMap] = React.useState<{
@@ -627,7 +627,7 @@ const ExportForm = React.memo(function ExportForm({
       ))}
     </Form>
   )
-})
+}
 
 // Main Workflow component
 export const Workflow: React.FC<WorkflowProps> = ({

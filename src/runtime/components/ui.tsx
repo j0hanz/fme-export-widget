@@ -835,125 +835,130 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
 }
 
 // StateView component
-const StateView: React.FC<StateViewProps> = React.memo(
-  ({ state, className, style, renderActions, testId, center }) => {
-    const translate = hooks.useTranslation(defaultMessages)
-    const DefaultActions = hooks.useEventCallback(
-      ({
+const StateView: React.FC<StateViewProps> = ({
+  state,
+  className,
+  style,
+  renderActions,
+  testId,
+  center,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages)
+  const DefaultActions = hooks.useEventCallback(
+    ({
+      actions,
+      ariaLabel,
+    }: {
+      actions?: readonly ViewAction[]
+      ariaLabel: string
+    }): JSX.Element | null => {
+      if (!actions?.length) return null
+      return (
+        <div role="group" aria-label={ariaLabel}>
+          {actions.map((a, i) => (
+            <Button
+              key={i}
+              onClick={a.onClick}
+              disabled={a.disabled}
+              variant={a.variant}
+              text={a.label}
+              block
+            />
+          ))}
+        </div>
+      )
+    }
+  )
+
+  const Actions = renderActions
+    ? ({
         actions,
         ariaLabel,
       }: {
         actions?: readonly ViewAction[]
         ariaLabel: string
-      }): JSX.Element | null => {
-        if (!actions?.length) return null
+      }) => renderActions(actions, ariaLabel)
+    : DefaultActions
+
+  const content = (() => {
+    switch (state.kind) {
+      case "loading":
         return (
-          <div role="group" aria-label={ariaLabel}>
-            {actions.map((a, i) => (
-              <Button
-                key={i}
-                onClick={a.onClick}
-                disabled={a.disabled}
-                variant={a.variant}
-                text={a.label}
-                block
-              />
-            ))}
+          <div css={styles.centered} role="status" aria-live="polite">
+            <Loading
+              type={LoadingType.Donut}
+              width={config.loading.width}
+              height={config.loading.height}
+            />
+            {(state.message || state.detail) && (
+              <div
+                css={styles.overlay}
+                aria-label={translate("ariaLoadingDetails")}
+              >
+                {state.message && <div>{state.message}</div>}
+              </div>
+            )}
           </div>
         )
-      }
-    )
+      case "error":
+        return (
+          <div role="alert" aria-live="assertive">
+            <div css={styles.typography.title}>{state.message}</div>
+            {state.code && (
+              <div css={styles.typography.caption}>
+                {translate("errorCode")}: {state.code}
+              </div>
+            )}
+            <Actions
+              actions={state.actions}
+              ariaLabel={translate("ariaErrorActions")}
+            />
+          </div>
+        )
+      case "empty":
+        return (
+          <div role="status" aria-live="polite">
+            <div>{state.message}</div>
+            <Actions
+              actions={state.actions}
+              ariaLabel={translate("ariaEmptyActions")}
+            />
+          </div>
+        )
+      case "success":
+        return (
+          <div role="status" aria-live="polite">
+            {state.title && (
+              <div css={styles.typography.title}>{state.title}</div>
+            )}
+            {state.message && (
+              <div css={styles.typography.caption}>{state.message}</div>
+            )}
+            <Actions
+              actions={state.actions}
+              ariaLabel={translate("ariaSuccessActions")}
+            />
+          </div>
+        )
+      case "content":
+        return <>{state.node}</>
+    }
+  })()
 
-    const Actions = renderActions
-      ? ({
-          actions,
-          ariaLabel,
-        }: {
-          actions?: readonly ViewAction[]
-          ariaLabel: string
-        }) => renderActions(actions, ariaLabel)
-      : DefaultActions
+  const shouldCenter =
+    typeof center === "boolean" ? center : state.kind === "loading"
 
-    const content = (() => {
-      switch (state.kind) {
-        case "loading":
-          return (
-            <div css={styles.centered} role="status" aria-live="polite">
-              <Loading
-                type={LoadingType.Donut}
-                width={config.loading.width}
-                height={config.loading.height}
-              />
-              {(state.message || state.detail) && (
-                <div
-                  css={styles.overlay}
-                  aria-label={translate("ariaLoadingDetails")}
-                >
-                  {state.message && <div>{state.message}</div>}
-                </div>
-              )}
-            </div>
-          )
-        case "error":
-          return (
-            <div role="alert" aria-live="assertive">
-              <div css={styles.typography.title}>{state.message}</div>
-              {state.code && (
-                <div css={styles.typography.caption}>
-                  {translate("errorCode")}: {state.code}
-                </div>
-              )}
-              <Actions
-                actions={state.actions}
-                ariaLabel={translate("ariaErrorActions")}
-              />
-            </div>
-          )
-        case "empty":
-          return (
-            <div role="status" aria-live="polite">
-              <div>{state.message}</div>
-              <Actions
-                actions={state.actions}
-                ariaLabel={translate("ariaEmptyActions")}
-              />
-            </div>
-          )
-        case "success":
-          return (
-            <div role="status" aria-live="polite">
-              {state.title && (
-                <div css={styles.typography.title}>{state.title}</div>
-              )}
-              {state.message && (
-                <div css={styles.typography.caption}>{state.message}</div>
-              )}
-              <Actions
-                actions={state.actions}
-                ariaLabel={translate("ariaSuccessActions")}
-              />
-            </div>
-          )
-        case "content":
-          return <>{state.node}</>
-      }
-    })()
-
-    const shouldCenter =
-      typeof center === "boolean" ? center : state.kind === "loading"
-
-    return (
-      <div
-        className={className}
-        style={style}
-        data-testid={testId}
-        css={shouldCenter ? styles.centered : undefined}
-      >
-        {content}
-      </div>
-    )
-  }
-)
+  return (
+    <div
+      className={className}
+      style={style}
+      data-testid={testId}
+      css={shouldCenter ? styles.centered : undefined}
+    >
+      {content}
+    </div>
+  )
+}
 
 // ButtonGroup component
 export const ButtonGroup: React.FC<ButtonGroupProps> = ({
