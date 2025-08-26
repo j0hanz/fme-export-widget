@@ -1,6 +1,6 @@
 import FmeFlowApiClient, { createFmeFlowClient } from "../shared/api"
 import { FmeFlowApiError, HttpMethod } from "../shared/types"
-import { waitForMilliseconds, runFuncAsync } from "jimu-for-test"
+import { waitForMilliseconds } from "jimu-for-test"
 
 // Minimal esriConfig mock shape used by api.ts
 interface Interceptor {
@@ -180,21 +180,12 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(ctrl.signal.aborted).toBe(true)
   })
 
-  test("runDataDownload falls back to REST API on webhook failure", async () => {
+  test("runDataDownload propagates webhook failure (no REST fallback)", async () => {
     const client = createFmeFlowClient({
       fmeServerUrl: "https://example.com",
       fmeServerToken: "tok-123",
       repository: "repo",
     })
-
-    const restResponse = {
-      data: { serviceResponse: { jobID: 123 } },
-      status: 200,
-      statusText: "OK",
-    }
-    const restSpy = jest
-      .spyOn((FmeFlowApiClient as any).prototype, "runDownloadRest")
-      .mockResolvedValue(restResponse)
 
     // HTML response triggers REST fallback
     const fetchMock = jest.fn(() =>
@@ -207,21 +198,10 @@ describe("FmeFlowApiClient (api.ts)", () => {
     )
     ;(global as any).fetch = fetchMock
 
-    const htmlResult = await client.runDataDownload(
-      "ws",
-      { p: 1 },
-      "repo",
-      undefined
-    )
-    // Flush microtasks
-    await waitForMilliseconds(0)
-    const flushHtml = runFuncAsync(0)
-    await flushHtml(() => {
-      return undefined
-    }, [])
+    await expect(
+      client.runDataDownload("ws", { p: 1 }, "repo", undefined)
+    ).rejects.toMatchObject({ code: "WEBHOOK_AUTH_ERROR" })
     expect(fetchMock).toHaveBeenCalled()
-    expect(restSpy).toHaveBeenCalledWith("ws", { p: 1 }, "repo", undefined)
-    expect(htmlResult.status).toBe(200)
 
     // Test webhook auth error fallback
     const webhookSpy = jest
@@ -230,27 +210,10 @@ describe("FmeFlowApiClient (api.ts)", () => {
         new FmeFlowApiError("Webhook auth fail", "WEBHOOK_AUTH_ERROR", 403)
       )
 
-    const authResult = await client.runDataDownload(
-      "workspace",
-      { k: "v" },
-      "repo"
-    )
-    // Flush microtasks
-    await waitForMilliseconds(0)
-    const flushAuth = runFuncAsync(0)
-    await flushAuth(() => {
-      return undefined
-    }, [])
+    await expect(
+      client.runDataDownload("workspace", { k: "v" }, "repo")
+    ).rejects.toMatchObject({ code: "WEBHOOK_AUTH_ERROR", status: 403 })
     expect(webhookSpy).toHaveBeenCalled()
-    expect(restSpy).toHaveBeenLastCalledWith(
-      "workspace",
-      { k: "v" },
-      "repo",
-      undefined
-    )
-    expect(authResult).toBe(restResponse)
-
-    restSpy.mockRestore()
     webhookSpy.mockRestore()
   })
 
@@ -357,21 +320,12 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(typeof capturedHeaders.Authorization).toBe("string")
   })
 
-  test("runDataDownload falls back to REST on non-JSON webhook (text/plain)", async () => {
+  test("runDataDownload rejects on non-JSON webhook (text/plain)", async () => {
     const client = createFmeFlowClient({
       fmeServerUrl: "https://example.com",
       fmeServerToken: "tok-123",
       repository: "repo",
     })
-
-    const restResponse = {
-      data: { serviceResponse: { jobID: 456 } },
-      status: 200,
-      statusText: "OK",
-    }
-    const restSpy = jest
-      .spyOn((FmeFlowApiClient as any).prototype, "runDownloadRest")
-      .mockResolvedValue(restResponse)
 
     const fetchMock = jest.fn(() =>
       Promise.resolve({
@@ -383,12 +337,10 @@ describe("FmeFlowApiClient (api.ts)", () => {
     )
     ;(global as any).fetch = fetchMock
 
-    const result = await client.runDataDownload("ws", { p: 1 }, "repo")
+    await expect(
+      client.runDataDownload("ws", { p: 1 }, "repo")
+    ).rejects.toMatchObject({ code: "WEBHOOK_AUTH_ERROR" })
     await waitForMilliseconds(0)
-    expect(restSpy).toHaveBeenCalled()
-    expect(result.status).toBe(200)
-
-    restSpy.mockRestore()
   })
 
   test("customRequest handles different HTTP methods and content types", async () => {
@@ -475,56 +427,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(capturedUrl).not.toContain("tm_tag=")
   })
 
-  test("REST fallback carries tm_* into TMDirectives", async () => {
-    const client = createFmeFlowClient({
-      fmeServerUrl: "https://example.com",
-      fmeServerToken: "tok-123",
-      repository: "repo",
-    })
-
-    // Force webhook fallback with non-JSON response
-    const fetchMock = jest.fn(() =>
-      Promise.resolve({
-        status: 200,
-        statusText: "OK",
-        headers: { get: () => "text/plain" },
-        text: () => Promise.resolve("HTML/Interstitial"),
-      } as any)
-    )
-    ;(global as any).fetch = fetchMock
-
-    const requestSpy = jest
-      .spyOn((FmeFlowApiClient as any).prototype, "request")
-      .mockResolvedValue({ data: { id: 777 }, status: 200, statusText: "OK" })
-
-    await client.runDataDownload(
-      "ws",
-      { p1: "v1", tm_ttc: 30, tm_ttl: 90, tm_tag: "prio" },
-      "repo"
-    )
-    // Flush asynchronous completion before asserting on payload
-    await waitForMilliseconds(0)
-
-    const restCall = requestSpy.mock.calls.find(
-      ([endpoint]) =>
-        typeof endpoint === "string" &&
-        endpoint.includes("/transformations/submit/")
-    ) as [string, any] | undefined
-    expect(restCall).toBeTruthy()
-    if (restCall) {
-      const [, opts] = restCall
-      const payload = JSON.parse(opts.body)
-      expect(payload.TMDirectives).toEqual({ ttc: 30, ttl: 90, tag: "prio" })
-      const pub = payload.publishedParameters as Array<{ name: string }>
-      const names = new Set(pub.map((p) => p.name))
-      expect(names.has("tm_ttc")).toBe(false)
-      expect(names.has("tm_ttl")).toBe(false)
-      expect(names.has("tm_tag")).toBe(false)
-      expect(names.has("p1")).toBe(true)
-    }
-
-    requestSpy.mockRestore()
-  })
+  // Removed: REST fallback behavior is not supported anymore
 
   test("submitSyncJob maps tm_* into TMDirectives as with submitJob", async () => {
     const client = createFmeFlowClient({

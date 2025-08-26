@@ -121,6 +121,12 @@ const API = {
     "opt_servicemode",
   ],
 } as const
+// Helper: get max URL length from esriConfig if available, else default
+const getMaxUrlLength = (): number => {
+  const cfg = asEsriConfig(_esriConfig)
+  const n = cfg?.request?.maxUrlLength
+  return typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
+}
 
 // Error Handling Utilities
 const toStr = (val: unknown): string => {
@@ -284,7 +290,12 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   const esriConfig = asEsriConfig(_esriConfig)
   if (!esriConfig) return
 
-  esriConfig.request.maxUrlLength = API.MAX_URL_LENGTH
+  // Preserve existing platform value; ensure it is at least our safe default.
+  // Do not reduce a higher platform-provided limit.
+  esriConfig.request.maxUrlLength = Math.max(
+    Number(esriConfig.request.maxUrlLength) || 0,
+    API.MAX_URL_LENGTH
+  )
   const serverDomain = new URL(config.serverUrl).origin
 
   // Avoid duplicate interceptor
@@ -699,34 +710,12 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     const targetRepository = this.resolveRepository(repository)
-    try {
-      return await this.runDownloadWebhook(
-        workspace,
-        parameters,
-        targetRepository,
-        signal
-      )
-    } catch (error) {
-      const isAbort =
-        (error as { name?: string } | null | undefined)?.name ===
-          "AbortError" || Boolean(signal?.aborted)
-      if (
-        error instanceof FmeFlowApiError &&
-        (error.code === "WEBHOOK_AUTH_ERROR" ||
-          (error.code === "DATA_DOWNLOAD_ERROR" && !isAbort))
-      ) {
-        console.log(
-          "FME Export - Webhook authentication failed, falling back to REST API job submission"
-        )
-        return await this.runDownloadRest(
-          workspace,
-          parameters,
-          targetRepository,
-          signal
-        )
-      }
-      throw error instanceof Error ? error : new Error(String(error))
-    }
+    return await this.runDownloadWebhook(
+      workspace,
+      parameters,
+      targetRepository,
+      signal
+    )
   }
 
   async runDataStreaming(
@@ -792,6 +781,25 @@ export class FmeFlowApiClient {
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
 
+      // Guard: if URL exceeds configured max length, abort with a clear error
+      try {
+        const maxLen = getMaxUrlLength()
+        if (
+          typeof maxLen === "number" &&
+          maxLen > 0 &&
+          fullUrl.length > maxLen
+        ) {
+          throw new FmeFlowApiError(
+            "Webhook URL too long",
+            "DATA_DOWNLOAD_ERROR",
+            0
+          )
+        }
+      } catch (lenErr) {
+        if (lenErr instanceof FmeFlowApiError) throw lenErr
+        // If any unexpected error occurs during length validation, proceed with webhook
+      }
+
       try {
         const safeParams = new URLSearchParams()
         for (const k of API.WEBHOOK_LOG_WHITELIST) {
@@ -823,54 +831,6 @@ export class FmeFlowApiClient {
       throw new FmeFlowApiError(
         `Failed to run data download webhook: ${message}`,
         "DATA_DOWNLOAD_ERROR",
-        status || 0
-      )
-    }
-  }
-
-  private async runDownloadRest(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse> {
-    try {
-      console.log(
-        "FME Export - Using REST API job submission for data download"
-      )
-
-      // Remove webhook-only params
-      const jobParameters: PrimitiveParams = { ...parameters }
-      for (const key of API.WEBHOOK_EXCLUDE_KEYS)
-        delete (jobParameters as any)[key]
-
-      const jobResponse = await this.submitJob(
-        workspace,
-        jobParameters,
-        repository,
-        signal
-      )
-
-      return {
-        data: {
-          serviceResponse: {
-            statusInfo: {
-              status: "success",
-              message: "Job submitted for processing",
-            },
-            jobID: jobResponse.data?.id,
-            mode: "async",
-            url: undefined,
-          },
-        },
-        status: 200,
-        statusText: "OK",
-      }
-    } catch (err) {
-      const { message, status } = getErrorInfo(err)
-      throw new FmeFlowApiError(
-        `Failed to run data download via REST API: ${message}`,
-        "REST_API_FALLBACK_ERROR",
         status || 0
       )
     }
@@ -920,7 +880,7 @@ export class FmeFlowApiClient {
 
     if (!isJson(contentType)) {
       throw new FmeFlowApiError(
-        "Webhook returned a non-JSON response - falling back to REST API",
+        "Webhook returned a non-JSON response",
         "WEBHOOK_AUTH_ERROR",
         response.status
       )
@@ -931,7 +891,7 @@ export class FmeFlowApiClient {
       responseData = await response.json()
     } catch {
       throw new FmeFlowApiError(
-        "Webhook returned malformed JSON - falling back to REST API",
+        "Webhook returned malformed JSON",
         "WEBHOOK_AUTH_ERROR",
         response.status
       )
@@ -939,7 +899,7 @@ export class FmeFlowApiClient {
 
     if (isAuthError(response.status)) {
       throw new FmeFlowApiError(
-        "Webhook authentication failed - falling back to REST API",
+        "Webhook authentication failed",
         "WEBHOOK_AUTH_ERROR",
         response.status
       )
@@ -1009,6 +969,16 @@ export class FmeFlowApiClient {
         responseType: "json",
         headers,
         signal: options.signal,
+      }
+      // Prefer explicit timeout from options, else fall back to client config
+      const timeoutMs =
+        typeof options.timeout === "number"
+          ? options.timeout
+          : typeof this.config.timeout === "number"
+            ? this.config.timeout
+            : undefined
+      if (typeof timeoutMs === "number" && timeoutMs > 0) {
+        requestOptions.timeout = timeoutMs
       }
       if (options.cacheHint !== undefined)
         requestOptions.cacheHint = options.cacheHint
