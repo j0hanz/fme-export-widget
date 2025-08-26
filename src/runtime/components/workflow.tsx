@@ -723,14 +723,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
           ? configuredEmail
           : undefined
 
-      // Compose the final message
+      // Compose message with support hint if needed
       let composedMessage = message
-      // If support text is provided, append it
       if (supportText && !email) {
         const supportHint = tokenRegex.test(supportText)
           ? translateRuntime("contactSupport")
           : supportText
         composedMessage = `${message} ${supportHint}`
+      } else if (!supportText && !email) {
+        // If no support text, use generic translation
+        composedMessage = `${message} ${translateRuntime("contactSupport")}`
       }
 
       return (

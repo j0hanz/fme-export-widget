@@ -32,8 +32,7 @@ export default {
   loadingMapServices: "Laddar karttjänster...",
 
   // Map configuration / settings
-  mapNotConfigured: "Ingen karta är vald i widgetens inställningar",
-  mapSelectionRequired: "Välj en karta i widgetens inställningar",
+  mapNotConfigured: "Ingen karta är vald i widgetens inställningar.",
   openSettingsAndSelectMap: "Öppna widgetens inställningar och välj en karta",
 
   // Drawing instructions used in widget.tsx

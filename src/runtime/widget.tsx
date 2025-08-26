@@ -946,7 +946,6 @@ export default function Widget(
           () => runStartupValidation()
         )
         // Override for map-specific UI hints
-        mapConfigError.userFriendlyMessage = translate("mapSelectionRequired")
         mapConfigError.suggestion = translate("openSettingsAndSelectMap")
         setValidationError(mapConfigError)
         return
@@ -1420,13 +1419,26 @@ export default function Widget(
       // Let Workflow handle startup validation errors
     } else {
       const e = reduxState.error
-
-      // Default error UI (header + support text + retry)
-      const supportText = e.userFriendlyMessage || translate("contactSupport")
+      // Derive localized message
       const messageText = translate(e.message)
+      const configuredEmail = props.config?.supportEmail
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const hintEmail =
+        (typeof configuredEmail === "string" && isValidEmail(configuredEmail)
+          ? configuredEmail
+          : undefined) ||
+        (typeof e.userFriendlyMessage === "string" &&
+        emailRegex.test(e.userFriendlyMessage)
+          ? e.userFriendlyMessage.match(emailRegex)?.[0]
+          : undefined)
+
+      const supportHint = hintEmail
+        ? translate("contactSupportWithEmail").replace("{email}", hintEmail)
+        : e.userFriendlyMessage
+          ? String(e.userFriendlyMessage)
+          : translate("contactSupport")
       const buttonText = translate("retry")
       const onAction = () => {
-        // Retry callbacks are transient and not stored in Redux; simply clear error
         dispatch(fmeActions.setError(null))
       }
 
@@ -1436,9 +1448,12 @@ export default function Widget(
             <div css={styles.typography.title}>{translate("errorTitle")}</div>
             {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
           </div>
-          <div css={styles.typography.caption}>
-            {supportText || messageText}
-          </div>
+          {/* Main message */}
+          <div css={styles.typography.caption}>{messageText}</div>
+          {/* Support hint */}
+          {supportHint ? (
+            <div css={styles.typography.caption}>{supportHint}</div>
+          ) : null}
           <Button
             text={buttonText}
             onClick={onAction}
