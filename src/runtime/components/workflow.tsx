@@ -362,7 +362,18 @@ const OrderResult = React.memo(function OrderResult({
     ? isSyncMode && orderResult.downloadUrl
       ? translate("directDownloadReady")
       : translate("emailNotificationSent")
-    : orderResult.message || translate("unknownErrorOccurred")
+    : (() => {
+        // Localize known failure messages/codes
+        const code = (orderResult.code || "").toString().toUpperCase()
+        const msg = String(orderResult.message || "")
+        if (
+          code === "FME_JOB_FAILURE" ||
+          /FME\s*Flow\s*transformation\s*failed/i.test(msg)
+        ) {
+          return translate("fmeFlowTransformationFailed")
+        }
+        return msg || translate("unknownErrorOccurred")
+      })()
 
   return (
     <>

@@ -34,6 +34,10 @@ export default {
   tooltipCancel: "Avbryt nuvarande åtgärd och börja om",
   tooltipReuseGeography: "Skapa ny beställning med samma geografi",
 
+  // Order result specific localized failure text
+  fmeFlowTransformationFailed:
+    "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
+
   // Error messages used in content.tsx
   failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",
   failedToLoadWorkspaceDetails:
