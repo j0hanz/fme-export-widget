@@ -10,7 +10,11 @@ import {
   updateStore,
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
-import Widget, { formatArea } from "../runtime/widget"
+import Widget, {
+  formatArea,
+  calcArea,
+  validatePolygon,
+} from "../runtime/widget"
 import { initialFmeState } from "../extensions/store"
 import { ViewMode, type FmeWidgetState } from "../shared/types"
 
@@ -89,6 +93,17 @@ jest.mock("../shared/api", () => {
 
 describe("FME Export Widget", () => {
   const renderWidget = widgetRender(false)
+
+  // Helper to create minimal EsriModules object with geometryEngine stub
+  const makeModules = (geometryEngine: any) =>
+    ({
+      SketchViewModel: jest.fn() as any,
+      GraphicsLayer: jest.fn() as any,
+      Graphic: jest.fn() as any,
+      Polygon: jest.fn() as any,
+      Extent: jest.fn() as any,
+      geometryEngine,
+    }) as any
 
   beforeAll(() => {
     initExtensions()
@@ -243,6 +258,141 @@ describe("FME Export Widget", () => {
     // 1,234,567 m² => 1.23 km² (sv-SE locale uses comma as decimal separator, but testing library env may vary)
     const out = formatArea(1_234_567)
     expect(out.endsWith(" km²")).toBe(true)
+  })
+
+  test("validatePolygon enforces polygon-only and ring rules", () => {
+    // Use simple=true to avoid self-intersection checks except where tested
+    const modules: any = makeModules({ isSimple: () => true })
+    // Invalid: no geometry
+    let res = validatePolygon(undefined as any, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_MISSING")
+
+    // Invalid: wrong type
+    const notPolygon: any = { type: "point" }
+    res = validatePolygon(notPolygon, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_TYPE_INVALID")
+
+    // Invalid: empty rings
+    const emptyPoly: any = { type: "polygon", rings: [] }
+    res = validatePolygon(emptyPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_NO_RINGS")
+
+    // Invalid ring: fewer than 3 unique points
+    const badRingPoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [0, 0],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(badRingPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_MIN_VERTICES")
+
+    // Invalid ring: not closed
+    const openRingPoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      ],
+    }
+    res = validatePolygon(openRingPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_RING_NOT_CLOSED")
+
+    // Valid simple polygon (closed and simple)
+    const simplePoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(simplePoly, modules)
+    expect(res.valid).toBe(true)
+
+    // Self-intersecting polygon detected by isSimple=false
+    const modulesIntersect: any = makeModules({ isSimple: () => false })
+    const bowtie: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [2, 2],
+          [0, 2],
+          [2, 0],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(bowtie, modulesIntersect)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_SELF_INTERSECTING")
+  })
+
+  test("calcArea chooses geodesic for geographic/WebMercator and planar otherwise", () => {
+    // Create a square polygon of 1x1 units; area depends on unit/system handled by engine stubs
+    const mkPoly = (sr: any) =>
+      ({
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+        spatialReference: sr,
+      }) as any
+
+    // Stub geometryEngine to record which method is called and return deterministic values
+    const geomEngGeo = {
+      geodesicArea: jest.fn(() => 123),
+      planarArea: jest.fn(() => 456),
+    }
+    const geomEngPlanar = {
+      geodesicArea: jest.fn(() => 0),
+      planarArea: jest.fn(() => 789),
+    }
+
+    // Geographic SR → geodesic
+    let modules: any = makeModules(geomEngGeo)
+    let area = calcArea(mkPoly({ isGeographic: true }), modules)
+    expect(area).toBe(123)
+    expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
+
+    // WebMercator SR → geodesic
+    geomEngGeo.geodesicArea.mockClear()
+    area = calcArea(mkPoly({ isWebMercator: true }), modules)
+    expect(area).toBe(123)
+    expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
+
+    // Projected SR → planar
+    modules = makeModules(geomEngPlanar)
+    area = calcArea(mkPoly({ wkid: 3006, isGeographic: false }), modules)
+    expect(area).toBe(789)
+    expect(geomEngPlanar.planarArea).toHaveBeenCalled()
+
+    // Non-polygon or missing engine → 0
+    expect(calcArea({ type: "point" } as any, modules)).toBe(0)
+    expect(calcArea(mkPoly({}), makeModules(null))).toBe(0)
   })
 
   test("form workflow navigation and validation", async () => {
