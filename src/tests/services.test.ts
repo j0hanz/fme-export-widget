@@ -8,7 +8,7 @@ import {
 
 describe("shared/services", () => {
   beforeAll(() => {
-    // Not strictly required for pure services, but safe for EXB test env
+    // Initialize EXB testing environment
     initExtensions()
     initStore()
   })

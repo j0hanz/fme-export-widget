@@ -1,6 +1,6 @@
 import { React } from "jimu-core"
 import { screen, fireEvent, within } from "@testing-library/react"
-import "@testing-library/jest-dom" // provide extended matchers like toBeInTheDocument
+import "@testing-library/jest-dom" // extended matchers like toBeInTheDocument
 import {
   initExtensions,
   initStore,
@@ -33,13 +33,13 @@ describe("UI components", () => {
   })
 
   test("Icon renders SVG and Tooltip behavior", () => {
-    // Icon renders an SVG element
+    // Icon renders inline SVG
     const { container } = renderWithProviders(
       <Icon src="/mock.svg" ariaLabel="Map" />
     )
     expect(container.querySelector("svg")).toBeTruthy()
 
-    // Tooltip adds aria-describedby when content present
+    // Tooltip adds aria-describedby when content exists
     renderWithProviders(
       <Tooltip content="Help text">
         <button aria-label="Do it">Click</button>
@@ -57,7 +57,7 @@ describe("UI components", () => {
     const plainBtn = screen.getByRole("button", { name: /Plain/i })
     expect(plainBtn.getAttribute("aria-describedby")).toBeNull()
 
-    // Tooltip wraps disabled child in span
+    // Tooltip wraps disabled child in span for accessibility
     const tooltipContainer = renderWithProviders(
       <Tooltip content="info">
         <button aria-label="Disabled child" disabled>
@@ -91,7 +91,7 @@ describe("UI components", () => {
     expect(input.getAttribute("aria-describedby")).toBeTruthy()
 
     fireEvent.change(input, { target: { value: "123" } })
-    // Wait for any microtasks queued by the jimu‑ui TextInput to complete.
+    // Flush microtasks from jimu‑ui input
     await waitForMilliseconds(0)
     expect(inputChange).toHaveBeenCalledWith("123")
 
@@ -110,7 +110,7 @@ describe("UI components", () => {
     expect(textArea.getAttribute("aria-describedby")).toBeTruthy()
 
     fireEvent.change(textArea, { target: { value: "hello" } })
-    // Allow the TextArea onChange handler to settle
+    // Flush microtasks from TextArea change
     await waitForMilliseconds(0)
     expect(textAreaChange).toHaveBeenCalledWith("hello")
   })
@@ -123,7 +123,7 @@ describe("UI components", () => {
       { label: "Gamma", value: "c" },
     ]
 
-    // Single select renders selected value
+    // Single select shows selected option
     renderWithProviders(
       <Select
         options={options}
@@ -135,7 +135,7 @@ describe("UI components", () => {
     const singleSelect = screen.getByRole("combobox")
     within(singleSelect).getByText(/Beta/i)
 
-    // Multi-select renders multiple selected options
+    // Multi-select shows multiple selected options
     renderWithProviders(
       <Select options={options} defaultValue={["a", "c"]} value={["a", "c"]} />
     )
@@ -169,13 +169,13 @@ describe("UI components", () => {
     expect(alert).toBeTruthy()
     const btn = screen.getByRole("button")
     fireEvent.click(btn)
-    // Give onClick handler a chance to fire
+    // Flush microtasks for onClick
     await waitForMilliseconds(0)
     expect(onAction).toHaveBeenCalled()
   })
 
   test("Button interactions and accessibility patterns", async () => {
-    // Button disabled prevents onClick and sets accessibility attributes
+    // Disabled button prevents onClick and sets aria-disabled
     const onClick = jest.fn()
     renderWithProviders(<Button text="Do" onClick={onClick} disabled />)
     const disabledBtn = screen.getByRole("button", { name: /Do/i })
@@ -184,7 +184,7 @@ describe("UI components", () => {
     expect(onClick).not.toHaveBeenCalled()
     expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
 
-    // Button loading prevents onClick interaction
+    // Loading button prevents onClick
     const onClick2 = jest.fn()
     renderWithProviders(<Button text="Load" onClick={onClick2} loading />)
     const loadingBtn = screen.getByRole("button", { name: /Load/i })
@@ -192,7 +192,7 @@ describe("UI components", () => {
     await waitForMilliseconds(0)
     expect(onClick2).not.toHaveBeenCalled()
 
-    // Button tooltip provides accessible label for icon-only buttons
+    // Tooltip provides accessible label for icon-only button
     renderWithProviders(<Button icon="/x.svg" tooltip="Hello" />)
     // Delay to allow tooltip aria-label injection
     await waitForMilliseconds(0)
@@ -200,7 +200,7 @@ describe("UI components", () => {
   })
 
   test("ButtonGroup and ButtonTabs interaction handling", async () => {
-    // ButtonGroup renders and handles left/right button clicks
+    // ButtonGroup handles left/right clicks
     const onLeft = jest.fn()
     const onRight = jest.fn()
     renderWithProviders(
@@ -215,7 +215,7 @@ describe("UI components", () => {
     expect(onLeft).toHaveBeenCalled()
     expect(onRight).toHaveBeenCalled()
 
-    // ButtonTabs emits onChange and onTabChange events
+    // ButtonTabs emits onChange and onTabChange
     const onChange = jest.fn()
     const onTabChange = jest.fn()
     const items = [
@@ -284,14 +284,14 @@ describe("UI components", () => {
     expect((listbox as HTMLSelectElement).style.width).toBe("321px")
   })
 
-  // Demonstrate advanced helpers for asynchronous flows and store injection
+  // Example: advanced helpers for async flows and store injection
   test("withStoreThemeIntlRender and runFuncAsync can be used for custom renders", async () => {
     const renderWithProviders = withStoreThemeIntlRender()
     const { getByRole } = renderWithProviders(<Button text="Click me" />)
     fireEvent.click(getByRole("button", { name: /Click me/i }))
-    // runFuncAsync returns a function that flushes microtasks once awaited.
+    // runFuncAsync flushes microtasks when awaited
     const flush = runFuncAsync(0)
-    // Execute a callback to allow any queued timers to complete
+    // Execute a callback to allow queued timers to complete
     await flush(() => {
       // Allow any pending state updates to process
       return Promise.resolve()

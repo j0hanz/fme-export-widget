@@ -54,7 +54,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     const esriConfig = (global as any).esriConfig
     expect(typeof esriConfig.request.maxUrlLength).toBe("number")
 
-    // Verify interceptor is added and configured
+    // Assert Authorization header is injected by interceptor
     const interceptors = esriConfig.request.interceptors
     if (interceptors.length > 0) {
       const interceptor = interceptors[0]
@@ -111,7 +111,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     } as any
 
     await client.submitGeometryJob("myws", polygon, { other: "x" }, "myrepo")
-    // Allow any pending asynchronous work scheduled by submitGeometryJob to complete
+    // Flush microtasks
     await waitForMilliseconds(0)
 
     expect(requestSpy).toHaveBeenCalled()
@@ -153,9 +153,9 @@ describe("FmeFlowApiClient (api.ts)", () => {
       .spyOn((FmeFlowApiClient as any).prototype, "request")
       .mockResolvedValue({ data: {}, status: 200, statusText: "OK" })
 
-    // Test streaming URL
+    // Streaming URL should be correctly constructed
     await client.runDataStreaming("workspace", {}, "repo")
-    // Give the client a chance to schedule and resolve microtasks before inspecting spies
+    // Flush microtasks
     await waitForMilliseconds(0)
     const streamingCall = requestSpy.mock.calls.find(
       (c) =>
@@ -196,7 +196,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       .spyOn((FmeFlowApiClient as any).prototype, "runDownloadRest")
       .mockResolvedValue(restResponse)
 
-    // Test HTML response fallback
+    // HTML response triggers REST fallback
     const fetchMock = jest.fn(() =>
       Promise.resolve({
         status: 200,
@@ -213,7 +213,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       "repo",
       undefined
     )
-    // Wait for any asynchronous callbacks to flush and then drain microtasks
+    // Flush microtasks
     await waitForMilliseconds(0)
     const flushHtml = runFuncAsync(0)
     await flushHtml(() => {
@@ -235,7 +235,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       { k: "v" },
       "repo"
     )
-    // Flush microtasks after the second download call
+    // Flush microtasks
     await waitForMilliseconds(0)
     const flushAuth = runFuncAsync(0)
     await flushAuth(() => {

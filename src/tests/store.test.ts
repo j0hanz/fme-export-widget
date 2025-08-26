@@ -33,7 +33,7 @@ describe("FME store - Redux store extension and reducer", () => {
     expect(ext.getStoreKey()).toBe("fme-state")
     expect(ext.getActions().sort()).toEqual(Object.values(FmeActionType).sort())
 
-    // Test action creator shapes
+    // Action creator shapes
     expect(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION)).toEqual({
       type: FmeActionType.SET_VIEW_MODE,
       viewMode: ViewMode.WORKSPACE_SELECTION,
@@ -184,7 +184,7 @@ describe("FME store - Redux store extension and reducer", () => {
       expect((state as any).clickCount).toBe(2)
       expect((state as any).drawingTool).toBe(DrawingTool.RECTANGLE)
 
-      // SET_DRAWING_STATE with partial parameters preserves unchanged values
+      // SET_DRAWING_STATE with partial parameters preserves other values
       state = reducer(state as any, fmeActions.setDrawingState(false))
       expect((state as any).isDrawing).toBe(false)
       expect((state as any).clickCount).toBe(2) // unchanged
@@ -294,7 +294,7 @@ describe("FME store - Redux store extension and reducer", () => {
 
       let state = makeState()
 
-      // Setting errors in different buckets
+      // Setting and clearing errors across buckets
       state = reducer(state as any, fmeActions.setError(baseError))
       expect((state as any).error).toEqual(baseError)
 

@@ -20,12 +20,12 @@ import Widget, {
 import { initialFmeState } from "../extensions/store"
 import { ViewMode, type FmeWidgetState } from "../shared/types"
 
-// Mock jimu-arcgis to avoid real JSAPI loading and map rendering
+// Mock jimu-arcgis to avoid JSAPI loading and map rendering
 jest.mock("jimu-arcgis", () => ({
   __esModule: true,
-  // Minimal stub; widget only renders this when a single map widget is configured
+  // Minimal stub for single map widget configuration
   JimuMapViewComponent: () => null,
-  // Resolve modules immediately with minimal shims
+  // Resolve modules with minimal shims
   loadArcGISJSAPIModules: jest.fn((modules: string[]) => {
     // Handle Portal module loading for email validation
     if (modules.includes("esri/portal/Portal")) {
@@ -41,34 +41,32 @@ jest.mock("jimu-arcgis", () => ({
     // Default sketch/graphics modules
     return Promise.resolve([
       function SketchViewModel() {
-        // no-op stub
+        // no-op
         return null as any
       },
       function GraphicsLayer(this: any) {
-        // no-op stub with method used by widget
-        this.removeAll = () => {
-          return undefined
-        }
+        // no-op with method used by widget
+        this.removeAll = () => undefined
         return null as any
       },
       function Graphic() {
-        // no-op stub
+        // no-op
         return null as any
       },
       function Polygon() {
-        // no-op stub
+        // no-op
         return null as any
       },
       function Extent() {
-        // no-op stub
+        // no-op
         return null as any
       },
       function AreaMeasurement2D() {
-        // no-op stub
+        // no-op
         return null as any
       },
       function DistanceMeasurement2D() {
-        // no-op stub
+        // no-op
         return null as any
       },
       { planarArea: jest.fn(), geodesicArea: jest.fn() },
@@ -76,7 +74,7 @@ jest.mock("jimu-arcgis", () => ({
   }),
 }))
 
-// Mock FME client so startup connection/auth checks pass without real network
+// Mock FME client so startup connection/auth checks pass without network
 jest.mock("../shared/api", () => {
   const ok = { status: 200, statusText: "OK", data: {} }
   return {
@@ -111,7 +109,7 @@ jest.mock("../shared/api", () => {
 describe("FME Export Widget", () => {
   const renderWidget = widgetRender(false)
 
-  // Helper to create minimal EsriModules object with geometryEngine stub
+  // Helper to create minimal EsriModules with geometryEngine stub
   const makeModules = (geometryEngine: any) =>
     ({
       SketchViewModel: jest.fn() as any,
@@ -131,7 +129,7 @@ describe("FME Export Widget", () => {
   test("widget state management for loading and error handling", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Startup validation state shows loading message
+    // Startup validation shows loading message
     const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
     screen.getByText(/Validerar konfiguration|Laddar karttjänster/i)
     unmount1()
@@ -150,9 +148,9 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
-    // Wait a tick to allow the store update to propagate before re‑rendering
+    // Wait a tick so store update propagates before re-render
     await waitForMilliseconds(0)
-    // Rerender widget with error state
+    // Rerender with error state
     renderWidget(
       <Wrapped
         widgetId="w2"
@@ -188,7 +186,7 @@ describe("FME Export Widget", () => {
   test("startup validation fails when user email is missing and shows support link", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Set up initial state with a startup validation error for missing email
+    // Startup validation error for missing email
     const errorState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.STARTUP_VALIDATION,
@@ -203,7 +201,7 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
-    // Pause briefly to allow the Redux store to apply the startup error state
+    // Wait for store to apply startup error state
     await waitForMilliseconds(0)
 
     renderWidget(
@@ -219,13 +217,13 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Look for the error message (translation key is displayed in test environment)
+    // Error message (translation key in test env)
     await waitFor(() => {
       const emailErrors = screen.getAllByText(/userEmailMissing/i)
       expect(emailErrors[0]).toBeInTheDocument()
     })
 
-    // And a support mailto link should be present (rendered by Workflow's renderError)
+    // Support mailto link rendered by Workflow
     const emailLink = await screen.findByRole("link", {
       name: /help@domain\.se/i,
     })
@@ -235,7 +233,7 @@ describe("FME Export Widget", () => {
   test("shows contact support with email when configured during startup error", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Error state with support email configured (startup validation error)
+    // Startup validation error with support email configured
     const errorState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.STARTUP_VALIDATION,
@@ -249,7 +247,7 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
-    // Let the state update commit before mounting the widget
+    // Wait for state update before mounting
     await waitForMilliseconds(0)
 
     renderWidget(
@@ -264,13 +262,13 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Expect an accessible mailto link for the support email (rendered by Workflow)
+    // Accessible mailto link for support email
     const emailLink = await screen.findByRole("link", {
       name: /help@domain\.se/i,
     })
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
 
-    // Check for translated support text (may vary based on translation)
+    // Support text present (translation may vary)
     await waitFor(() => {
       const nodes = screen.queryAllByText(/för hjälp|kontakta|support/i)
       expect(nodes.length).toBeGreaterThan(0)
@@ -281,13 +279,13 @@ describe("FME Export Widget", () => {
     expect(formatArea(NaN)).toBe("0 m²")
     expect(formatArea(0)).toBe("0 m²")
     expect(formatArea(12.3)).toBe("12 m²")
-    // 1,234,567 m² => 1.23 km² (sv-SE locale uses comma as decimal separator, but testing library env may vary)
+    // Large value switches to km² (locale may vary in tests)
     const out = formatArea(1_234_567)
     expect(out.endsWith(" km²")).toBe(true)
   })
 
   test("validatePolygon enforces polygon-only and ring rules", () => {
-    // Use simple=true to avoid self-intersection checks except where tested
+    // Use isSimple=true to bypass self-intersection except targeted test
     const modules: any = makeModules({ isSimple: () => true })
     // Invalid: no geometry
     let res = validatePolygon(undefined as any, modules)
@@ -372,7 +370,7 @@ describe("FME Export Widget", () => {
   })
 
   test("calcArea chooses geodesic for geographic/WebMercator and planar otherwise", () => {
-    // Create a square polygon of 1x1 units; area depends on unit/system handled by engine stubs
+    // Square polygon 1x1; area value comes from engine stubs
     const mkPoly = (sr: any) =>
       ({
         type: "polygon",
@@ -388,7 +386,7 @@ describe("FME Export Widget", () => {
         spatialReference: sr,
       }) as any
 
-    // Stub geometryEngine to record which method is called and return deterministic values
+    // Stub geometryEngine to return deterministic values
     const geomEngGeo = {
       geodesicArea: jest.fn(() => 123),
       planarArea: jest.fn(() => 456),
@@ -398,25 +396,25 @@ describe("FME Export Widget", () => {
       planarArea: jest.fn(() => 789),
     }
 
-    // Geographic SR → geodesic
+    // Geographic SR -> geodesic
     let modules: any = makeModules(geomEngGeo)
     let area = calcArea(mkPoly({ isGeographic: true }), modules)
     expect(area).toBe(123)
     expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
 
-    // WebMercator SR → geodesic
+    // WebMercator SR -> geodesic
     geomEngGeo.geodesicArea.mockClear()
     area = calcArea(mkPoly({ isWebMercator: true }), modules)
     expect(area).toBe(123)
     expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
 
-    // Projected SR → planar
+    // Projected SR -> planar
     modules = makeModules(geomEngPlanar)
     area = calcArea(mkPoly({ wkid: 3006, isGeographic: false }), modules)
     expect(area).toBe(789)
     expect(geomEngPlanar.planarArea).toHaveBeenCalled()
 
-    // Non-polygon or missing engine → 0
+    // Non-polygon or missing engine -> 0
     expect(calcArea({ type: "point" } as any, modules)).toBe(0)
     expect(calcArea(mkPoly({}), makeModules(null))).toBe(0)
   })
@@ -424,7 +422,7 @@ describe("FME Export Widget", () => {
   test("form workflow navigation and validation", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // ORDER_RESULT success state allows reuse navigation to workspace selection
+    // ORDER_RESULT success allows reuse navigation to workspace selection
     const successState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.ORDER_RESULT,
@@ -437,7 +435,7 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": successState })
-    // Wait for the success state to be processed before rendering
+    // Wait for success state to propagate before rendering
     await waitForMilliseconds(0)
     const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
 
@@ -462,7 +460,7 @@ describe("FME Export Widget", () => {
       name: /Ny beställning/i,
     })
     fireEvent.click(reuseBtn)
-    // Wait a tick to give any asynchronous handlers time to dispatch actions
+    // Wait a tick for async handlers to dispatch actions
     await waitForMilliseconds(0)
 
     expect(
@@ -475,7 +473,7 @@ describe("FME Export Widget", () => {
 
     unmount1()
 
-    // EXPORT_FORM with area too large triggers validation error
+    // EXPORT_FORM with area too large triggers AREA_TOO_LARGE
     const formState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.EXPORT_FORM,
@@ -486,7 +484,7 @@ describe("FME Export Widget", () => {
       geometryJson: { type: "polygon", rings: [[[0, 0]]] } as any,
     }
     updateStore({ "fme-state": formState })
-    // Allow the form state to propagate prior to rendering
+    // Wait for form state
     await waitForMilliseconds(0)
     storeDispatch.mockClear()
 
@@ -510,7 +508,7 @@ describe("FME Export Widget", () => {
 
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
     fireEvent.click(submitBtn)
-    // Allow validation and error dispatches to complete before assertions
+    // Wait for validation and error dispatches
     await waitForMilliseconds(0)
 
     expect(
@@ -525,10 +523,10 @@ describe("FME Export Widget", () => {
   test("submits with opt_servicemode=sync when syncMode is enabled", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Ensure portal returns a valid email for submission
+    // Provide portal email for submission
     ;(global as any).__TEST_PORTAL_EMAIL__ = "user@example.com"
 
-    // Prepare a valid form submission state
+    // Prepare valid form submission state
     const formState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.EXPORT_FORM,
@@ -551,7 +549,7 @@ describe("FME Export Widget", () => {
       } as any,
     }
     updateStore({ "fme-state": formState })
-    // Pause briefly to ensure the state update has been applied
+    // Wait for state update to apply
     await waitForMilliseconds(0)
 
     const { createFmeFlowClient } = require("../shared/api") as {
@@ -579,7 +577,7 @@ describe("FME Export Widget", () => {
 
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
     fireEvent.click(submitBtn)
-    // Allow asynchronous submission logic to run prior to assertions
+    // Wait for async submission logic
     await waitForMilliseconds(0)
 
     // Assert runDataDownload received sync service mode

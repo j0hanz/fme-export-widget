@@ -93,7 +93,7 @@ describe("Workflow component", () => {
   test("header reset functionality in different states", () => {
     const onReset = jest.fn()
 
-    // In DRAWING state, Cancel should be hidden until first click
+    // In DRAWING, Cancel hidden until first click
     const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -114,7 +114,7 @@ describe("Workflow component", () => {
 
     unmount1()
 
-    // After first click in DRAWING: Cancel should be visible and enabled
+    // After first click, Cancel visible and enabled
     const { unmount: unmount2 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -137,7 +137,7 @@ describe("Workflow component", () => {
 
     unmount2()
 
-    // In INITIAL state (even with area): Cancel should be hidden
+    // In INITIAL (even with area), Cancel hidden
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -314,13 +314,13 @@ describe("Workflow component", () => {
       />
     )
 
-    // Allow any microtasks to flush
+    // Flush microtasks
     await waitForMilliseconds(0)
 
-    // Error should be rendered by Workflow's renderError (StateView)
+    // Error rendered by Workflow's StateView
     expect(screen.queryByText(/Configuration error/i)).toBeTruthy()
 
-    // Should have mailto link due to email in userFriendlyMessage
+    // Mailto link present due to email in userFriendlyMessage
     const emailLink = screen.queryByRole("link", {
       name: /support@example\.com/i,
     })

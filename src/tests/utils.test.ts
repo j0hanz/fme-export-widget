@@ -1,6 +1,6 @@
 import { resolveMessageOrKey } from "../shared/utils"
 
-// Simple translator factory: looks up keys in a dict; otherwise echoes the key
+// Simple translator factory: looks up keys in a dict; otherwise returns the key
 const makeTranslator = (dict: { [key: string]: string }) => (key: string) =>
   Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : key
 

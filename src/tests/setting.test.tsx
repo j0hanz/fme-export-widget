@@ -9,7 +9,7 @@ import { screen, fireEvent } from "@testing-library/react"
 import Setting from "../setting/setting"
 const S = Setting as any
 
-// Mock API client used by Setting to avoid real network
+// Mock API client to avoid network calls in Setting tests
 jest.mock("../shared/api", () => ({
   __esModule: true,
   FmeFlowApiClient: class {
@@ -34,7 +34,7 @@ jest.mock("../shared/api", () => ({
   },
 }))
 
-// Mock builder-only advanced setting components to avoid DataSourceSelector crash in tests
+// Mock builder-only components to avoid DataSourceSelector rendering issues in tests
 jest.mock("jimu-ui/advanced/setting-components", () => ({
   __esModule: true,
   // Provide minimal stand-ins that won't throw during render
@@ -73,10 +73,10 @@ describe("Setting component", () => {
       />
     )
 
-    // Input ids are defined in Setting.ID
+    // Inputs use Setting.ID constants
     expect(container.querySelector("#setting-server-url")).toBeTruthy()
     expect(container.querySelector("#setting-token")).toBeTruthy()
-    // Repository is a Select that uses aria-describedby instead of id
+    // Repository uses aria-describedby instead of id
     const repoControl =
       container.querySelector('[aria-describedby="setting-repository"]') ||
       container.querySelector('[aria-describedby="setting-repository-error"]')
