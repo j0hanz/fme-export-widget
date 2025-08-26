@@ -422,13 +422,14 @@ const checkMaxArea = (
 // Build the base submission parameters object
 const buildFmeParams = (
   formData: unknown,
-  userEmail: string
+  userEmail: string,
+  serviceMode: "sync" | "async" = "async"
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   return {
     ...data,
     opt_requesteremail: userEmail,
-    opt_servicemode: "async",
+    opt_servicemode: serviceMode,
     opt_responseformat: "json",
     opt_showresult: "true",
   }
@@ -564,9 +565,11 @@ const prepFmeParams = (
   formData: unknown,
   userEmail: string,
   geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined
+  currentGeometry: __esri.Geometry | undefined,
+  config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  const base = buildFmeParams(formData, userEmail)
+  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
+  const base = buildFmeParams(formData, userEmail, mode)
   return attachAoi(base, geometryJson, currentGeometry)
 }
 
@@ -1302,7 +1305,8 @@ export default function Widget(
         formData,
         userEmail,
         reduxState.geometryJson,
-        currentGeometry
+        currentGeometry,
+        props.config
       )
 
       // Abort any existing submission
