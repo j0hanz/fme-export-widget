@@ -9,6 +9,7 @@ import type {
   PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
+import { isAuthError } from "./utils"
 
 // Import ArcGIS JSAPI modules dynamically or use global fallback
 let _esriRequest: unknown
@@ -164,18 +165,16 @@ const getErrorInfo = (
     const anyErr = err as any
 
     // Try multiple ways to extract status code
-    let status =
+    const status =
       anyErr.status ||
       anyErr.httpStatus ||
       anyErr.httpCode ||
       anyErr.code ||
       anyErr.response?.status ||
-      anyErr.details?.httpCode
-
-    // If no direct status property, try to extract from message
-    if (typeof status !== "number" && typeof anyErr.message === "string") {
-      status = extractStatusFromMessage(anyErr.message)
-    }
+      anyErr.details?.httpCode ||
+      (typeof anyErr.message === "string"
+        ? extractStatusFromMessage(anyErr.message)
+        : undefined)
 
     return {
       message:
@@ -189,9 +188,6 @@ const getErrorInfo = (
   return { message: toStr(err) }
 }
 
-const isAuthError = (status: number): boolean =>
-  status === 403 || status === 401
-
 const isJson = (contentType: string | null): boolean =>
   contentType?.includes("application/json") ?? false
 
@@ -201,19 +197,12 @@ const maskToken = (token: string): string =>
 
 // URL Building Utilities
 const normalizeUrl = (serverUrl: string): string =>
-  serverUrl.replace(/\/fmeserver$/, "").replace(/\/fmerest$/, "")
+  serverUrl.replace(/\/fme(?:server|rest)$/, "")
 
 const makeEndpoint = (basePath: string, ...segments: string[]): string => {
   const cleanSegments = segments.filter(Boolean).join("/")
   return `${basePath}/${cleanSegments}`
 }
-
-const buildWebhook = (
-  serverUrl: string,
-  service: string,
-  repository: string,
-  workspace: string
-): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
 
 const buildServiceUrl = (
   serverUrl: string,
@@ -221,6 +210,9 @@ const buildServiceUrl = (
   repository: string,
   workspace: string
 ): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
+
+// Alias for webhook URLs (same as buildServiceUrl)
+const buildWebhook = buildServiceUrl
 
 const resolveRequestUrl = (
   endpoint: string,
@@ -265,19 +257,6 @@ const buildWebhookParams = (
 }
 
 // Geometry Processing Utilities
-const calcArea = (polygon: __esri.Polygon): number => {
-  try {
-    const extent = polygon.extent
-    const widthMeters = extent.width
-    const heightMeters = extent.height
-    return Math.abs(widthMeters * heightMeters)
-  } catch (error) {
-    console.warn("Failed to calculate polygon area, using extent area", error)
-    const extent = polygon.extent
-    return extent.width * extent.height
-  }
-}
-
 const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
   // Convert Web Mercator to WGS84 if necessary
   if (geometry.spatialReference?.wkid === 3857) {
@@ -366,16 +345,16 @@ const processRequestError = (
   token: string
 ): { errorMessage: string; errorCode: string; httpStatus: number } => {
   const { message, status, details } = getErrorInfo(err)
-  let errorMessage = `Request failed: ${message}`
-  let errorCode = "NETWORK_ERROR"
   const httpStatus = status || 0
 
-  // Log the error with masked token
   console.error("FME API - request error", {
     url,
     token: maskToken(token),
     message,
   })
+
+  let errorMessage = `Request failed: ${message}`
+  let errorCode = "NETWORK_ERROR"
 
   if (message.includes("Unexpected token")) {
     console.error("FME API - Received HTML response instead of JSON. URL:", url)
@@ -383,7 +362,7 @@ const processRequestError = (
     errorCode = "INVALID_RESPONSE_FORMAT"
   }
 
-  const det: any = details as any
+  const det = details as any
   if (det?.error) {
     errorMessage = det.error.message || errorMessage
     errorCode = det.error.code || errorCode
@@ -421,45 +400,39 @@ export class FmeFlowApiClient {
 
   // addQuery helper removed (unused)
 
-  private formatJobParams(parameters: PrimitiveParams = {}):
-    | {
-        publishedParameters: Array<{ name: string; value: unknown }>
-        TMDirectives?: { ttc?: number; ttl?: number; tag?: string }
-      }
-    | PrimitiveParams {
+  private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
-    // Extract Task Manager directives from flat params if present
-    const p: any = parameters as any
-    const ttcRaw = p.tm_ttc
-    const ttlRaw = p.tm_ttl
-    const tagRaw = p.tm_tag
-    const toPosInt = (v: unknown): number | undefined => {
+    // Extract Task Manager directives
+    const params = parameters as any
+    const toPosInt = (v: unknown) => {
       const n = typeof v === "string" ? Number(v) : (v as number)
       return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
     }
-    const ttc = toPosInt(ttcRaw)
-    const ttl = toPosInt(ttlRaw)
-    const tag =
-      typeof tagRaw === "string" && tagRaw.trim().length > 0
-        ? tagRaw.trim()
-        : undefined
 
     const publishedParameters = Object.entries(parameters)
-      // Exclude tm_* keys from published parameters, they belong in TMDirectives for REST
-      .filter(
-        ([name]) => name !== "tm_ttc" && name !== "tm_ttl" && name !== "tm_tag"
-      )
+      .filter(([name]) => !name.startsWith("tm_"))
       .map(([name, value]) => ({ name, value }))
 
     const job: any = { publishedParameters }
-    if (ttc !== undefined || ttl !== undefined || tag !== undefined) {
-      job.TMDirectives = {
-        ...(ttc !== undefined ? { ttc } : {}),
-        ...(ttl !== undefined ? { ttl } : {}),
-        ...(tag !== undefined ? { tag } : {}),
-      }
+
+    // Add TM directives if present
+    const tmDirectives: any = {}
+    const ttc = toPosInt(params.tm_ttc)
+    const ttl = toPosInt(params.tm_ttl)
+    const tag =
+      typeof params.tm_tag === "string" && params.tm_tag.trim()
+        ? params.tm_tag.trim()
+        : undefined
+
+    if (ttc !== undefined) tmDirectives.ttc = ttc
+    if (ttl !== undefined) tmDirectives.ttl = ttl
+    if (tag !== undefined) tmDirectives.tag = tag
+
+    if (Object.keys(tmDirectives).length > 0) {
+      job.TMDirectives = tmDirectives
     }
+
     return job
   }
 
@@ -945,36 +918,28 @@ export class FmeFlowApiClient {
   private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
     const contentType = response.headers.get("content-type")
 
-    let responseData: any
-    if (isJson(contentType)) {
-      try {
-        responseData = await response.json()
-      } catch {
-        // Malformed JSON should trigger REST fallback
-        throw new FmeFlowApiError(
-          "Webhook returned malformed JSON - falling back to REST API",
-          "WEBHOOK_AUTH_ERROR",
-          response.status
-        )
-      }
-      // Check for specific error codes in JSON response
-      if (isAuthError(response.status)) {
-        throw new FmeFlowApiError(
-          "Webhook authentication failed - falling back to REST API",
-          "WEBHOOK_AUTH_ERROR",
-          response.status
-        )
-      }
-    } else {
-      const textContent = await response.text()
-      responseData = {
-        message: textContent,
-        status: response.status,
-        contentType: contentType || "text/plain",
-      }
-      // If the response is not JSON, we assume it's an error
+    if (!isJson(contentType)) {
       throw new FmeFlowApiError(
         "Webhook returned a non-JSON response - falling back to REST API",
+        "WEBHOOK_AUTH_ERROR",
+        response.status
+      )
+    }
+
+    let responseData: any
+    try {
+      responseData = await response.json()
+    } catch {
+      throw new FmeFlowApiError(
+        "Webhook returned malformed JSON - falling back to REST API",
+        "WEBHOOK_AUTH_ERROR",
+        response.status
+      )
+    }
+
+    if (isAuthError(response.status)) {
+      throw new FmeFlowApiError(
+        "Webhook authentication failed - falling back to REST API",
         "WEBHOOK_AUTH_ERROR",
         response.status
       )
@@ -993,43 +958,32 @@ export class FmeFlowApiClient {
     }
 
     const polygon = geometry as __esri.Polygon
-
-    // Calculate area using extent-based approach for SDK 4.29 compatibility
-    const area = calcArea(polygon)
     const extent = polygon.extent
     const projectedGeometry = toWgs84(geometry)
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
-    // sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
-    const aoj = (() => {
-      const json = (projectedGeometry as __esri.Polygon).toJSON()
-      if (json && Array.isArray(json.rings)) {
-        json.rings = json.rings.map((ring: any[]) =>
-          ring.map((pt: any) => [pt[0], pt[1]])
-        )
-      }
-      if (json) {
-        delete json.hasZ
-        delete json.hasM
-      }
-      if (
-        !json?.spatialReference &&
-        (projectedGeometry as __esri.Polygon).spatialReference
-      ) {
-        const sr = (projectedGeometry as __esri.Polygon).spatialReference as any
-        json.spatialReference =
-          typeof sr.toJSON === "function" ? sr.toJSON() : { wkid: sr.wkid }
-      }
-      return json
-    })()
+    // Sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
+    const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
+    if (esriJson?.rings) {
+      esriJson.rings = esriJson.rings.map((ring: any[]) =>
+        ring.map((pt: any) => [pt[0], pt[1]])
+      )
+      delete esriJson.hasZ
+      delete esriJson.hasM
+    }
+
+    if (!esriJson?.spatialReference && projectedGeometry.spatialReference) {
+      const sr = projectedGeometry.spatialReference as any
+      esriJson.spatialReference = sr.toJSON?.() || { wkid: sr.wkid }
+    }
 
     return {
       MAXX: extent.xmax,
       MAXY: extent.ymax,
       MINX: extent.xmin,
       MINY: extent.ymin,
-      AREA: area,
-      AreaOfInterest: JSON.stringify(aoj),
+      AREA: Math.abs(extent.width * extent.height),
+      AreaOfInterest: JSON.stringify(esriJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }

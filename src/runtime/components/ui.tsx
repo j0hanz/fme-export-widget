@@ -217,13 +217,6 @@ export const styles = {
 export const { caption, label, title, instruction, link, required } =
   styles.typography
 
-export const {
-  group: buttonGroup,
-  default: buttonDefault,
-  text: buttonText,
-  icon: buttonIcon,
-} = styles.button
-
 // Utility Hooks and Helper Functions
 let idSeq = 0
 
@@ -322,18 +315,20 @@ const BtnContent: React.FC<BtnContentProps> = ({
 }) => {
   if (loading) return <Loading type={LoadingType.Donut} />
   if (children) return <>{children}</>
+
   const hasIcon =
     (typeof icon === "string" && icon.length > 0) ||
     (icon != null && React.isValidElement(icon))
   const hasText = !!text
 
   if (!hasIcon && !hasText) return null
-  if (hasIcon && !hasText)
+  if (hasIcon && !hasText) {
     return typeof icon === "string" ? (
       <Icon src={icon} size={config.icon.large} />
     ) : (
       (icon as React.ReactElement)
     )
+  }
   if (hasText && !hasIcon) return <>{text}</>
 
   const iconEl =
@@ -342,6 +337,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
     ) : (
       (icon as React.ReactElement)
     )
+
   const iconWithPosition = (
     <span
       css={[styles.button.icon, css({ [iconPosition]: config.button.offset })]}
@@ -590,11 +586,13 @@ export const Select: React.FC<SelectProps> = (props) => {
           : undefined
         const selected = Array.from(target.selectedOptions).map((o) => {
           const raw = o.value
-          if (coerce === "number") return Number(raw)
-          if (coerce === "string") return String(raw)
-          return typeof first === "number" && !isNaN(Number(raw))
+          return coerce === "number"
             ? Number(raw)
-            : raw
+            : coerce === "string"
+              ? String(raw)
+              : typeof first === "number" && !isNaN(Number(raw))
+                ? Number(raw)
+                : raw
         })
         handleValueChange(selected as unknown as typeof controlled)
         onChange?.(selected as unknown as typeof controlled)
@@ -607,6 +605,7 @@ export const Select: React.FC<SelectProps> = (props) => {
               ? (evt.target as HTMLSelectElement).value
               : undefined
         if (raw === undefined || raw === null) return
+
         const finalValue = coerce
           ? coerce === "number"
             ? Number(raw)
@@ -733,14 +732,17 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
+  const presetProps =
+    preset === "primary"
+      ? { color: "primary" as const, variant: "contained" as const }
+      : preset === "secondary"
+        ? { color: "default" as const, variant: "outlined" as const }
+        : {}
+
   const buttonElement = (
     <JimuButton
       {...jimuProps}
-      {...(preset === "primary"
-        ? { color: "primary", variant: "contained" }
-        : preset === "secondary"
-          ? { color: "default", variant: "outlined" }
-          : {})}
+      {...presetProps}
       icon={!text && !!icon}
       onClick={handleClick}
       disabled={jimuProps.disabled || loading}
@@ -750,7 +752,6 @@ export const Button: React.FC<ButtonProps> = ({
       title={
         tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
       }
-      /* Ensure absolute-positioned icon anchors to this button */
       css={styles.relative}
       style={{ position: "relative", ...(jimuProps.style as any) }}
       block={block}
@@ -985,7 +986,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }
-
     return <Button {...btnConfig} block={false} css={styles.flex1} />
   }
 

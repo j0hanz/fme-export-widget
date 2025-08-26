@@ -1,6 +1,4 @@
 export default {
-  // General UI labels
-  errorTitle: "Ett fel uppstod",
   retry: "Försök igen",
   back: "Tillbaka",
   cancel: "Avbryt",
@@ -18,21 +16,20 @@ export default {
   connectionFailed: "Det gick inte att ansluta till FME Server",
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
-  userEmailMissing:
-    "Ingen e‑postadress hittades för din användare. Kontakta support eller uppdatera din profil.",
+  // Short error messages for specific startup errors
+  repoNotFound: "Repository hittades inte",
+  serverError: "Serverfel",
+  networkError: "Nätverksfel",
+  timeout: "Tidsgräns överskreds",
+  badResponse: "Ogiltigt serversvar",
   contactSupport: "Kontakta supporten för hjälp med konfigurationen",
   contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
   retryValidation: "Försök igen",
 
   // Loading messages used specifically in widget.tsx
-  preparingExportRequest: "Förbereder exportförfrågan...",
-  connectingToFmeServer: "Ansluter till FME Server...",
   submittingOrder: "Skickar beställningen...",
   preparingMapTools: "Förbereder kartverktygen...",
   loadingMapServices: "Laddar karttjänster...",
-
-  // Map configuration errors
-  mapNotConfigured: "Ingen karta har konfigurerats",
 
   // Drawing instructions used in widget.tsx
   rectangleDrawingInstructions:
@@ -44,20 +41,9 @@ export default {
   drawInstruction: "Rita ett område på kartan",
 
   // Order status used in widget.tsx
-  orderSubmitted: "Beställning skickad!",
   orderFailed: "Beställningen misslyckades",
 
-  // Geometry / validation errors
-  geometryMissing: "Geometri saknas",
-  geometryTypeInvalid: "Endast polygongeometri stöds",
-  polygonNoRings: "Polygon saknar ringar",
-  polygonMinVertices: "Polygon kräver minst 3 hörn",
-  polygonSelfIntersect: "Polygonen är självskärande",
-  areaTooLarge: "Området överstiger tillåten maxstorlek",
-
   // Generic unexpected / processing
-  unexpectedResponse: "Oväntat svar från FME-servern",
-  jobSubmissionFailed: "Det gick inte att skapa FME‑jobbet",
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
 }

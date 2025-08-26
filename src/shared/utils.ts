@@ -13,3 +13,17 @@ export function resolveMessageOrKey(
   const camel = translate(camelKey)
   return camel && camel !== camelKey ? camel : raw
 }
+
+// Shared utility functions
+export const isAuthError = (status: number): boolean =>
+  status === 403 || status === 401
+
+export function getErrorMessage(err: unknown): string {
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message: unknown }).message
+    return typeof message === "string" || typeof message === "number"
+      ? String(message)
+      : ""
+  }
+  return ""
+}

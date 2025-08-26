@@ -1,9 +1,7 @@
 export default {
-  errorTitle: "Något gick fel",
   back: "Tillbaka",
   submit: "Beställ",
   cancel: "Avbryt",
-  continue: "Fortsätt",
   ok: "OK",
   retry: "Försök igen",
 
@@ -13,7 +11,6 @@ export default {
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
   notificationEmail: "E‑postmeddelande",
-  downloadResult: "Ladda ner resultat",
   emailNotificationSent: "Ett e‑postmeddelande skickas när exporten är klar",
   downloadReady: "Nedladdning klar",
   clickToDownload: "Klicka för att ladda ner",
@@ -30,8 +27,6 @@ export default {
 
   // Drawing mode related
   drawingModeTooltip: "Välj ritläge för att definiera området",
-  drawingModePolygonTooltip: "Rita polygon",
-  drawingModeRectangleTooltip: "Rita rektangel",
 
   // Tooltips used in ui.tsx and content.tsx
   tooltipBackToOptions: "Återgå till exportalternativ",
@@ -39,8 +34,9 @@ export default {
   tooltipCancel: "Avbryt nuvarande åtgärd och börja om",
   tooltipReuseGeography: "Skapa ny beställning med samma geografi",
 
-  // Widget actions
-  widgetActions: "Widget-åtgärder",
+  // Order result specific localized failure text
+  fmeFlowTransformationFailed:
+    "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
 
   // Error messages used in content.tsx
   failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",
@@ -55,15 +51,12 @@ export default {
   formValidationMultipleErrors: "Vänligen fyll i alla obligatoriska fält.",
 
   // Error handling used in exports.tsx
-  configurationError: "Konfigurationsfel",
   missingExportConfiguration: "Saknar exportkonfiguration",
-  exportFormRequiresConfiguration:
-    "Exportformuläret kräver antingen arbetsyteparametrar eller en exportvariant.",
 
   // Dynamic form placeholders
-  placeholderSelect: "Välj {field}...",
-  placeholderEnter: "Ange {field}...",
-  // Removed unused: reuseGeometry, download
+  placeholderSelect: "{field}...",
+  placeholderEnter: "{field}...",
+
   // Generic placeholders and a11y labels used in ui.tsx
   placeholderSelectGeneric: "Välj ett alternativ",
   ariaButtonLabel: "Knapp",
