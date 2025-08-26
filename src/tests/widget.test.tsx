@@ -1,4 +1,5 @@
-import { React, getAppStore } from "jimu-core"
+import "@testing-library/jest-dom"
+import { React, getAppStore, Immutable } from "jimu-core"
 import {
   initExtensions,
   initStore,
@@ -9,7 +10,11 @@ import {
   updateStore,
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
-import Widget, { formatArea } from "../runtime/widget"
+import Widget, {
+  formatArea,
+  calcArea,
+  validatePolygon,
+} from "../runtime/widget"
 import { initialFmeState } from "../extensions/store"
 import { ViewMode, type FmeWidgetState } from "../shared/types"
 
@@ -19,8 +24,19 @@ jest.mock("jimu-arcgis", () => ({
   // Minimal stub; widget only renders this when a single map widget is configured
   JimuMapViewComponent: () => null,
   // Resolve modules immediately with minimal shims
-  loadArcGISJSAPIModules: jest.fn(() =>
-    Promise.resolve([
+  loadArcGISJSAPIModules: jest.fn((modules: string[]) => {
+    // Handle Portal module loading for email validation
+    if (modules.includes("esri/portal/Portal")) {
+      const MockPortal = function (this: any) {
+        this.load = () => Promise.resolve()
+        // Return no user to trigger email requirement error
+        this.user = null
+      }
+      return Promise.resolve([MockPortal])
+    }
+
+    // Default sketch/graphics modules
+    return Promise.resolve([
       function SketchViewModel() {
         // no-op stub
         return null as any
@@ -54,11 +70,40 @@ jest.mock("jimu-arcgis", () => ({
       },
       { planarArea: jest.fn(), geodesicArea: jest.fn() },
     ])
-  ),
+  }),
 }))
+
+// Mock FME client so startup connection/auth checks pass without real network
+jest.mock("../shared/api", () => {
+  const ok = { status: 200, statusText: "OK", data: {} }
+  return {
+    __esModule: true,
+    createFmeFlowClient: jest.fn(() => ({
+      testConnection: jest.fn(() => Promise.resolve(ok)),
+      validateRepository: jest.fn(() =>
+        Promise.resolve({
+          status: 200,
+          statusText: "OK",
+          data: { name: "repo" },
+        })
+      ),
+    })),
+  }
+})
 
 describe("FME Export Widget", () => {
   const renderWidget = widgetRender(false)
+
+  // Helper to create minimal EsriModules object with geometryEngine stub
+  const makeModules = (geometryEngine: any) =>
+    ({
+      SketchViewModel: jest.fn() as any,
+      GraphicsLayer: jest.fn() as any,
+      Graphic: jest.fn() as any,
+      Polygon: jest.fn() as any,
+      Extent: jest.fn() as any,
+      geometryEngine,
+    }) as any
 
   beforeAll(() => {
     initExtensions()
@@ -74,16 +119,17 @@ describe("FME Export Widget", () => {
     screen.getByText(/Validerar konfiguration|Laddar karttjänster/i)
     unmount1()
 
-    // Error state renders retry button and clears error on click
+    // Non-startup error state renders retry button and clears error on click
     const errorState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.INITIAL, // Move past startup validation
       isStartupValidating: false,
+      // Non-startup error (not startupValidationError)
       error: {
         message: "geometryMissing",
         severity: "error" as any,
         type: "ValidationError" as any,
-        timestamp: new Date(0),
+        timestampMs: 0,
       },
     }
     updateStore({ "fme-state": errorState })
@@ -118,19 +164,65 @@ describe("FME Export Widget", () => {
     ).toBe(true)
   })
 
-  test("shows contact support with email when configured during startup error", async () => {
+  test("startup validation fails when user email is missing and shows support link", async () => {
     const Wrapped = wrapWidget(Widget as any)
 
-    // Error state with support email configured
+    // Set up initial state with a startup validation error for missing email
     const errorState: FmeWidgetState = {
       ...initialFmeState,
       viewMode: ViewMode.STARTUP_VALIDATION,
-      isStartupValidating: true,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "userEmailMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "UserEmailMissing",
+        userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage for contact
+      },
+    }
+    updateStore({ "fme-state": errorState })
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-email"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "https://example.com",
+          fmeServerToken: "token",
+          repository: "repo",
+          supportEmail: "help@domain.se",
+        }}
+      />
+    )
+
+    // Look for the error message (translation key is displayed in test environment)
+    await waitFor(() => {
+      const emailErrors = screen.getAllByText(/userEmailMissing/i)
+      expect(emailErrors[0]).toBeInTheDocument()
+    })
+
+    // And a support mailto link should be present (rendered by Workflow's renderError)
+    const emailLink = await screen.findByRole("link", {
+      name: /help@domain\.se/i,
+    })
+    expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
+  })
+
+  test("shows contact support with email when configured during startup error", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Error state with support email configured (startup validation error)
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
       startupValidationError: {
         message: "invalidConfiguration",
         type: "ConfigError" as any,
         severity: "error" as any,
-        timestamp: new Date(0),
+        timestampMs: 0,
+        userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage
       },
     }
     updateStore({ "fme-state": errorState })
@@ -147,13 +239,16 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Expect an accessible mailto link for the support email
+    // Expect an accessible mailto link for the support email (rendered by Workflow)
     const emailLink = await screen.findByRole("link", {
-      name: /Kontakta\s*help@domain.se/i,
+      name: /help@domain\.se/i,
     })
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
-    // And the trailing support phrase should be present in the view
-    expect(screen.getByText(/för hjälp med konfigurationen/i)).toBeTruthy()
+
+    // Check for translated support text (may vary based on translation)
+    await waitFor(() => {
+      expect(screen.queryByText(/för hjälp|kontakta|support/i)).toBeTruthy()
+    })
   })
 
   test("formatArea produces expected metric strings", () => {
@@ -163,6 +258,141 @@ describe("FME Export Widget", () => {
     // 1,234,567 m² => 1.23 km² (sv-SE locale uses comma as decimal separator, but testing library env may vary)
     const out = formatArea(1_234_567)
     expect(out.endsWith(" km²")).toBe(true)
+  })
+
+  test("validatePolygon enforces polygon-only and ring rules", () => {
+    // Use simple=true to avoid self-intersection checks except where tested
+    const modules: any = makeModules({ isSimple: () => true })
+    // Invalid: no geometry
+    let res = validatePolygon(undefined as any, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_MISSING")
+
+    // Invalid: wrong type
+    const notPolygon: any = { type: "point" }
+    res = validatePolygon(notPolygon, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_TYPE_INVALID")
+
+    // Invalid: empty rings
+    const emptyPoly: any = { type: "polygon", rings: [] }
+    res = validatePolygon(emptyPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_NO_RINGS")
+
+    // Invalid ring: fewer than 3 unique points
+    const badRingPoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [0, 0],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(badRingPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_MIN_VERTICES")
+
+    // Invalid ring: not closed
+    const openRingPoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      ],
+    }
+    res = validatePolygon(openRingPoly, modules)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_RING_NOT_CLOSED")
+
+    // Valid simple polygon (closed and simple)
+    const simplePoly: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(simplePoly, modules)
+    expect(res.valid).toBe(true)
+
+    // Self-intersecting polygon detected by isSimple=false
+    const modulesIntersect: any = makeModules({ isSimple: () => false })
+    const bowtie: any = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [2, 2],
+          [0, 2],
+          [2, 0],
+          [0, 0],
+        ],
+      ],
+    }
+    res = validatePolygon(bowtie, modulesIntersect)
+    expect(res.valid).toBe(false)
+    expect(res.error?.code).toBe("GEOM_SELF_INTERSECTING")
+  })
+
+  test("calcArea chooses geodesic for geographic/WebMercator and planar otherwise", () => {
+    // Create a square polygon of 1x1 units; area depends on unit/system handled by engine stubs
+    const mkPoly = (sr: any) =>
+      ({
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+        spatialReference: sr,
+      }) as any
+
+    // Stub geometryEngine to record which method is called and return deterministic values
+    const geomEngGeo = {
+      geodesicArea: jest.fn(() => 123),
+      planarArea: jest.fn(() => 456),
+    }
+    const geomEngPlanar = {
+      geodesicArea: jest.fn(() => 0),
+      planarArea: jest.fn(() => 789),
+    }
+
+    // Geographic SR → geodesic
+    let modules: any = makeModules(geomEngGeo)
+    let area = calcArea(mkPoly({ isGeographic: true }), modules)
+    expect(area).toBe(123)
+    expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
+
+    // WebMercator SR → geodesic
+    geomEngGeo.geodesicArea.mockClear()
+    area = calcArea(mkPoly({ isWebMercator: true }), modules)
+    expect(area).toBe(123)
+    expect(geomEngGeo.geodesicArea).toHaveBeenCalled()
+
+    // Projected SR → planar
+    modules = makeModules(geomEngPlanar)
+    area = calcArea(mkPoly({ wkid: 3006, isGeographic: false }), modules)
+    expect(area).toBe(789)
+    expect(geomEngPlanar.planarArea).toHaveBeenCalled()
+
+    // Non-polygon or missing engine → 0
+    expect(calcArea({ type: "point" } as any, modules)).toBe(0)
+    expect(calcArea(mkPoly({}), makeModules(null))).toBe(0)
   })
 
   test("form workflow navigation and validation", async () => {

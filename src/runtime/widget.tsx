@@ -64,12 +64,8 @@ const MODULES: readonly string[] = [
   "esri/Graphic",
   "esri/geometry/Polygon",
   "esri/geometry/Extent",
-  "esri/widgets/AreaMeasurement2D",
-  "esri/widgets/DistanceMeasurement2D",
   "esri/geometry/geometryEngine",
 ] as const
-
-const FALLBACK_EMAIL = "no-reply@example.com"
 
 // Small utility helpers (behavior-preserving)
 const hasMessage = (x: unknown): x is { message?: unknown } =>
@@ -116,8 +112,6 @@ const useModules = (): {
           Graphic,
           Polygon,
           Extent,
-          AreaMeasurement2D,
-          DistanceMeasurement2D,
           geometryEngine,
         ] = loaded
         setModules({
@@ -126,8 +120,6 @@ const useModules = (): {
           Graphic,
           Polygon,
           Extent,
-          AreaMeasurement2D,
-          DistanceMeasurement2D,
           geometryEngine,
         } as unknown as EsriModules)
       })
@@ -151,12 +143,6 @@ const useMapState = () => {
     React.useState<__esri.SketchViewModel | null>(null)
   const [graphicsLayer, setGraphicsLayer] =
     React.useState<__esri.GraphicsLayer | null>(null)
-  const [measurementGraphicsLayer, setMeasurementGraphicsLayer] =
-    React.useState<__esri.GraphicsLayer | null>(null)
-  const [areaMeasurement2D, setAreaMeasurement2D] =
-    React.useState<__esri.AreaMeasurement2D | null>(null)
-  const [distanceMeasurement2D, setDistanceMeasurement2D] =
-    React.useState<__esri.DistanceMeasurement2D | null>(null)
   const [currentGeometry, setCurrentGeometry] =
     React.useState<__esri.Geometry | null>(null)
 
@@ -169,24 +155,9 @@ const useMapState = () => {
         setSketchViewModel(null)
       }
 
-      if (areaMeasurement2D) {
-        areaMeasurement2D.destroy()
-        setAreaMeasurement2D(null)
-      }
-
-      if (distanceMeasurement2D) {
-        distanceMeasurement2D.destroy()
-        setDistanceMeasurement2D(null)
-      }
-
       if (graphicsLayer && jimuMapView?.view?.map) {
         jimuMapView.view.map.remove(graphicsLayer)
         setGraphicsLayer(null)
-      }
-
-      if (measurementGraphicsLayer && jimuMapView?.view?.map) {
-        jimuMapView.view.map.remove(measurementGraphicsLayer)
-        setMeasurementGraphicsLayer(null)
       }
 
       setCurrentGeometry(null)
@@ -202,12 +173,6 @@ const useMapState = () => {
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
-    measurementGraphicsLayer,
-    setMeasurementGraphicsLayer,
-    areaMeasurement2D,
-    setAreaMeasurement2D,
-    distanceMeasurement2D,
-    setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
     cleanupResources,
@@ -242,76 +207,35 @@ const abortController = (
   }
 }
 
-// Area calculation helpers for cleaner separation of concerns
-const calculateExtentFallback = (polygon: __esri.Polygon): number => {
-  try {
-    const extent = polygon.extent
-    if (!extent) return 0
-
-    const fallbackArea = Math.abs(extent.width * extent.height)
-    return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
-  } catch {
-    return 0
-  }
-}
-
-const tryGeodesicArea = (
-  polygon: __esri.Polygon,
-  geomEng: { geodesicArea?: (g: __esri.Geometry, unit: string) => number }
-): number | null => {
-  if (!polygon.spatialReference?.isGeographic) return null
-  if (typeof geomEng.geodesicArea !== "function") return null
-
-  try {
-    const area = geomEng.geodesicArea(polygon, AREA_UNIT)
-    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
-      ? Math.abs(area)
-      : null
-  } catch {
-    return null
-  }
-}
-
-const tryPlanarArea = (
-  polygon: __esri.Polygon,
-  geomEng: { planarArea?: (g: __esri.Geometry, unit: string) => number }
-): number | null => {
-  if (typeof geomEng.planarArea !== "function") return null
-
-  try {
-    const area = geomEng.planarArea(polygon, AREA_UNIT)
-    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
-      ? Math.abs(area)
-      : null
-  } catch {
-    return null
-  }
-}
-
 // Calculate area of a polygon geometry using multiple methods
-const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
+export const calcArea = (
+  geometry: __esri.Geometry,
+  modules: EsriModules
+): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
   const polygon = geometry as __esri.Polygon
-  const geomEng = modules.geometryEngine as {
-    geodesicArea?: (g: __esri.Geometry, unit: string) => number
-    planarArea?: (g: __esri.Geometry, unit: string) => number
+  const sr = polygon.spatialReference
+  const geomEng = modules.geometryEngine as any
+  const useGeodesic = Boolean(sr?.isGeographic || (sr as any)?.isWebMercator)
+
+  try {
+    if (useGeodesic && typeof geomEng?.geodesicArea === "function") {
+      const a = geomEng.geodesicArea(polygon, AREA_UNIT)
+      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
+        ? Math.abs(a)
+        : 0
+    }
+    if (!useGeodesic && typeof geomEng?.planarArea === "function") {
+      const a = geomEng.planarArea(polygon, AREA_UNIT)
+      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
+        ? Math.abs(a)
+        : 0
+    }
+  } catch {
+    // Ignore area calculation errors
   }
-
-  // Try geodesic first for geographic SR
-  const geodesicArea = tryGeodesicArea(polygon, geomEng)
-  if (geodesicArea !== null) return geodesicArea
-
-  // Fallback to planar
-  const planarArea = tryPlanarArea(polygon, geomEng)
-  if (planarArea !== null) return planarArea
-
-  // Final fallback to extent
-  const extentArea = calculateExtentFallback(polygon)
-  if (extentArea === 0) {
-    console.warn(`FME Export Widget - all area calculation methods failed`)
-  }
-  return extentArea
+  return 0
 }
 
 // Polygon validation helpers for focused error checking
@@ -408,26 +332,42 @@ const validatePolygonSimplicity = (
 ): ErrorState | null => {
   try {
     const geometryEngine = modules.geometryEngine as any
-    if (geometryEngine?.simplify) {
-      const simplified = geometryEngine.simplify(polygon)
-      if (!simplified) {
+    // Check for self-intersections if geometryEngine is available
+    if (typeof geometryEngine?.isSimple === "function") {
+      const simple = geometryEngine.isSimple(polygon)
+      if (simple === false) {
         return errorService.createError(
           "POLYGON_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
-          {
-            code: "GEOM_SELF_INTERSECTING",
-          }
+          { code: "GEOM_SELF_INTERSECTING" }
         )
       }
     }
   } catch {
-    // Silently continue if simplify fails
+    // Ignore simplicity check errors
   }
   return null
 }
 
+// Simplify polygon geometry if possible
+const getSimplifiedPolygon = (
+  poly: __esri.Polygon,
+  modules: EsriModules
+): __esri.Polygon => {
+  try {
+    const geometryEngine = modules.geometryEngine as any
+    if (typeof geometryEngine?.simplify === "function") {
+      const simplified = geometryEngine.simplify(poly)
+      if (simplified && simplified.type === "polygon") return simplified
+    }
+  } catch {
+    // Ignore simplification errors
+  }
+  return poly
+}
+
 // Validate polygon geometry with focused validation steps
-const validatePolygon = (
+export const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
 ): { valid: boolean; error?: ErrorState } => {
@@ -596,17 +536,25 @@ const attachAoi = (
   return base
 }
 
-// Get user email with fallback
+// Get user email from the portal
 const getEmail = async (): Promise<string> => {
-  try {
-    const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
-    const portal = new Portal()
-    await portal.load()
-    return portal.user?.email || FALLBACK_EMAIL
-  } catch (error) {
-    console.warn("FME Export Widget - Failed to get user email", error)
-    return FALLBACK_EMAIL
+  const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
+  const portal = new Portal()
+  await portal.load()
+
+  const email = portal.user?.email
+  if (!email) {
+    throw new Error("User email is required but not available")
   }
+
+  return email
+}
+
+// Validate email format
+const isValidEmail = (email: unknown): boolean => {
+  if (typeof email !== "string" || !email) return false
+  if (/no-?reply/i.test(email)) return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 // Prepare FME parameters for submission
@@ -650,55 +598,18 @@ const applyDirectiveDefaults = (
   return out
 }
 
-// Initialize graphics layers for drawing and measurements
+// Initialize graphics layers for drawing
 const createLayers = (
   jmv: JimuMapView,
   modules: EsriModules,
-  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void,
-  setMeasurementGraphicsLayer: (layer: __esri.GraphicsLayer) => void
+  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
 ) => {
   // Main sketch layer
   const layer = new modules.GraphicsLayer(LAYER_CONFIG)
   jmv.view.map.add(layer)
   setGraphicsLayer(layer)
 
-  // Measurement layer
-  const measurementLayer = new modules.GraphicsLayer({
-    id: "measurement-labels-layer",
-    title: "Measurement Labels",
-  })
-  jmv.view.map.add(measurementLayer)
-  setMeasurementGraphicsLayer(measurementLayer)
-
   return layer
-}
-
-// Initialize measurement widgets for 2D views
-const createMeasureWidgets = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  setAreaMeasurement2D: (widget: __esri.AreaMeasurement2D) => void,
-  setDistanceMeasurement2D: (widget: __esri.DistanceMeasurement2D) => void
-) => {
-  if (jmv.view.type !== "2d") return
-
-  if (modules.AreaMeasurement2D) {
-    const areaMeasurement2D = new modules.AreaMeasurement2D({
-      view: jmv.view,
-      unit: "metric",
-      visible: false,
-    })
-    setAreaMeasurement2D(areaMeasurement2D)
-  }
-
-  if (modules.DistanceMeasurement2D) {
-    const distanceMeasurement2D = new modules.DistanceMeasurement2D({
-      view: jmv.view,
-      unit: "metric",
-      visible: false,
-    })
-    setDistanceMeasurement2D(distanceMeasurement2D)
-  }
 }
 
 // Create sketch VM
@@ -855,29 +766,7 @@ const setupSketchEventHandlers = (
   })
 }
 
-// Hide measurement widgets
-const hideMeasurementWidgets = (
-  areaMeasurement2D: __esri.AreaMeasurement2D | null,
-  distanceMeasurement2D: __esri.DistanceMeasurement2D | null
-) => {
-  if (areaMeasurement2D) {
-    try {
-      areaMeasurement2D.visible = false
-      areaMeasurement2D.viewModel.clear()
-    } catch (error) {
-      console.warn("Failed to hide area measurement widget:", error)
-    }
-  }
-
-  if (distanceMeasurement2D) {
-    try {
-      distanceMeasurement2D.visible = false
-      distanceMeasurement2D.viewModel.clear()
-    } catch (error) {
-      console.warn("Failed to hide distance measurement widget:", error)
-    }
-  }
-}
+// Measurement widgets removed as unused
 
 // Process FME response
 const processFmeResponse = (
@@ -982,12 +871,6 @@ export default function Widget(
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
-    measurementGraphicsLayer,
-    setMeasurementGraphicsLayer,
-    areaMeasurement2D,
-    setAreaMeasurement2D,
-    distanceMeasurement2D,
-    setDistanceMeasurement2D,
     currentGeometry,
     setCurrentGeometry,
     cleanupResources,
@@ -1003,18 +886,9 @@ export default function Widget(
         !config?.fmeServerToken ||
         !config?.repository
       ) {
-        const errorMsg = translate("invalidConfiguration")
         return {
           isValid: false,
-          error: errorService.createError(errorMsg, ErrorType.CONFIG, {
-            code: "ConfigMissing",
-            severity: ErrorSeverity.ERROR,
-            // Pass raw email; the error view will render an accessible mailto link
-            userFriendlyMessage: config?.supportEmail
-              ? String(config.supportEmail)
-              : translate("contactSupport"),
-            suggestion: translate("retryValidation"),
-          }),
+          error: createStartupError("invalidConfiguration", "ConfigMissing"),
         }
       }
       return { isValid: true }
@@ -1036,6 +910,20 @@ export default function Widget(
     dispatch(fmeActions.setStartupValidationState(false, undefined, error))
   })
 
+  // Small helper to build consistent startup validation errors
+  const createStartupError = hooks.useEventCallback(
+    (messageKey: string, code: string, retry?: () => void): ErrorState =>
+      errorService.createError(translate(messageKey), ErrorType.CONFIG, {
+        code,
+        severity: ErrorSeverity.ERROR,
+        userFriendlyMessage: props.config?.supportEmail
+          ? String(props.config.supportEmail)
+          : translate("contactSupport"),
+        suggestion: translate("retryValidation"),
+        retry,
+      })
+  )
+
   // Startup validation logic
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Reset any existing validation state
@@ -1052,15 +940,13 @@ export default function Widget(
         ? useMapWidgetIds.length > 0
         : false
       if (!hasMapConfigured) {
-        const msg = translate("mapNotConfigured")
-        const mapConfigError = errorService.createError(msg, ErrorType.CONFIG, {
-          code: "MapNotConfigured",
-          severity: ErrorSeverity.ERROR,
-          userFriendlyMessage: translate("mapSelectionRequired"),
-          suggestion: translate("openSettingsAndSelectMap"),
-          retry: () => runStartupValidation(),
-        })
-        dispatch(fmeActions.setError(mapConfigError))
+        const mapConfigError = createStartupError(
+          "mapNotConfigured",
+          "MapNotConfigured",
+          () => runStartupValidation()
+        )
+        // Override for map-specific UI hints
+        mapConfigError.suggestion = translate("openSettingsAndSelectMap")
         setValidationError(mapConfigError)
         return
       }
@@ -1068,32 +954,54 @@ export default function Widget(
       // Check if configuration exists and is valid
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
-        dispatchError(
-          dispatch,
-          configValidation.error.message,
-          ErrorType.CONFIG,
-          configValidation.error.code
-        )
         setValidationError(configValidation.error)
         return
       }
 
-      // Update validation step
-      setValidationStep(translate("validatingConnection"))
+      // Helper to run a labeled step with abort checks
+      const runStep = async (
+        stepKey: string,
+        action: () => Promise<unknown>
+      ): Promise<void> => {
+        setValidationStep(translate(stepKey))
+        const result = await action()
+        if (signal.aborted) throw new Error("AbortError")
+        return result as void
+      }
 
-      // Test FME server connection
       const client = createFmeFlowClient(config)
-      await client.testConnection(signal)
 
-      if (signal.aborted) return
+      // 1) Connection check
+      await runStep("validatingConnection", () => client.testConnection(signal))
+
+      // 2) Authentication (repo access)
+      await runStep("validatingAuthentication", () =>
+        client.validateRepository(config.repository, signal)
+      )
 
       // Update validation step
-      setValidationStep(translate("validatingAuthentication"))
+      setValidationStep(translate("validatingUserEmail"))
 
-      // Test repository access (validates token)
-      await client.validateRepository(config.repository, signal)
-
-      if (signal.aborted) return
+      // Validate that current user has an email address available
+      try {
+        const email = await getEmail()
+        if (!isValidEmail(email)) {
+          setValidationError(
+            createStartupError("userEmailMissing", "UserEmailMissing", () =>
+              runStartupValidation()
+            )
+          )
+          return
+        }
+      } catch (emailErr) {
+        // If email check itself fails, surface as missing email
+        setValidationError(
+          createStartupError("userEmailMissing", "UserEmailMissing", () =>
+            runStartupValidation()
+          )
+        )
+        return
+      }
 
       // Validation successful - transition to normal operation
       setValidationSuccess()
@@ -1105,22 +1013,9 @@ export default function Widget(
 
       const { code, message } = errorService.deriveStartupError(err, translate)
 
-      const validationError = errorService.createError(
-        message,
-        ErrorType.CONFIG,
-        {
-          code,
-          severity: ErrorSeverity.ERROR,
-          // Pass raw email; the error view will render an accessible mailto link
-          userFriendlyMessage: props.config?.supportEmail
-            ? String(props.config.supportEmail)
-            : translate("contactSupport"),
-          suggestion: translate("retryValidation"),
-          retry: () => runStartupValidation(),
-        }
+      setValidationError(
+        createStartupError(message, code, () => runStartupValidation())
       )
-
-      setValidationError(validationError)
     }
   })
 
@@ -1137,13 +1032,11 @@ export default function Widget(
   // Clear graphics
   const clearAllGraphics = hooks.useEventCallback(() => {
     graphicsLayer?.removeAll()
-    measurementGraphicsLayer?.removeAll()
   })
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
     clearAllGraphics()
-    hideMeasurementWidgets(areaMeasurement2D, distanceMeasurement2D)
   })
 
   // Drawing complete
@@ -1162,12 +1055,18 @@ export default function Widget(
           return
         }
 
+        // Prefer a simplified polygon when available to ensure clean rings
+        const geomForUse =
+          geometry.type === "polygon"
+            ? getSimplifiedPolygon(geometry, modules)
+            : geometry
+
         // Set symbol
         if (evt.graphic && modules) {
           evt.graphic.symbol = CSS.symbols.highlight as any
         }
 
-        const calculatedArea = calcArea(geometry, modules)
+        const calculatedArea = calcArea(geomForUse, modules)
 
         // Max area
         const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
@@ -1183,11 +1082,11 @@ export default function Widget(
           return
         }
 
-        dispatch(fmeActions.setGeometry(geometry, Math.abs(calculatedArea)))
+        dispatch(fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea)))
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         // Store current geometry in local state (not Redux - following golden rule)
-        setCurrentGeometry(geometry)
+        setCurrentGeometry(geomForUse)
 
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
@@ -1301,18 +1200,7 @@ export default function Widget(
     }
     try {
       setJimuMapView(jmv)
-      const layer = createLayers(
-        jmv,
-        modules,
-        setGraphicsLayer,
-        setMeasurementGraphicsLayer
-      )
-      createMeasureWidgets(
-        jmv,
-        modules,
-        setAreaMeasurement2D,
-        setDistanceMeasurement2D
-      )
+      const layer = createLayers(jmv, modules, setGraphicsLayer)
       const svm = createSketchVM(jmv, modules, layer, onDrawComplete, dispatch)
       setSketchViewModel(svm)
     } catch (error) {
@@ -1508,11 +1396,11 @@ export default function Widget(
 
   const navigateBack = hooks.useEventCallback(() => {
     const { viewMode, previousViewMode } = reduxState
-    const fallback = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
+    const defaultRoute = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
     const target =
       previousViewMode && previousViewMode !== viewMode
         ? previousViewMode
-        : fallback
+        : defaultRoute
     navigateTo(target)
   })
 
@@ -1524,56 +1412,57 @@ export default function Widget(
     return <StateView state={{ kind: "loading", message: loadingMessage }} />
   }
 
-  // Error state
+  // Error state - let Workflow handle all startup validation errors
   if (reduxState.error && reduxState.error.severity === "error") {
-    const e = reduxState.error
+    // Only handle non-startup errors here; startup errors are handled by Workflow
+    if (reduxState.startupValidationError) {
+      // Let Workflow handle startup validation errors
+    } else {
+      const e = reduxState.error
+      // Derive localized message
+      const messageText = translate(e.message)
+      const configuredEmail = props.config?.supportEmail
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const hintEmail =
+        (typeof configuredEmail === "string" && isValidEmail(configuredEmail)
+          ? configuredEmail
+          : undefined) ||
+        (typeof e.userFriendlyMessage === "string" &&
+        emailRegex.test(e.userFriendlyMessage)
+          ? e.userFriendlyMessage.match(emailRegex)?.[0]
+          : undefined)
 
-    // Special case for map not configured
-    if (e.code === "MapNotConfigured") {
-      // Use default message if no user-friendly message is provided
-      const defaultHint = translate("mapSelectionRequired")
-      const friendly =
-        e.userFriendlyMessage &&
-        e.userFriendlyMessage !== "mapSelectionRequired"
-          ? e.userFriendlyMessage
-          : defaultHint
+      const supportHint = hintEmail
+        ? translate("contactSupportWithEmail").replace("{email}", hintEmail)
+        : e.userFriendlyMessage
+          ? String(e.userFriendlyMessage)
+          : translate("contactSupport")
+      const buttonText = translate("retry")
+      const onAction = () => {
+        dispatch(fmeActions.setError(null))
+      }
 
       return (
-        <div css={styles.centered}>
-          <div
-            css={[styles.typography.caption, styles.textCenter]}
-            style={{ maxWidth: 420 }}
-          >
-            {friendly}
+        <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
+          <div css={styles.headerRow}>
+            <div css={styles.typography.title}>{translate("errorTitle")}</div>
+            {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
           </div>
+          {/* Main message */}
+          <div css={styles.typography.caption}>{messageText}</div>
+          {/* Support hint */}
+          {supportHint ? (
+            <div css={styles.typography.caption}>{supportHint}</div>
+          ) : null}
+          <Button
+            text={buttonText}
+            onClick={onAction}
+            logging={{ enabled: true, prefix: "FME-Export" }}
+            tooltipPlacement="bottom"
+          />
         </div>
       )
     }
-
-    // Default error UI (header + support text + retry)
-    const supportText = e.userFriendlyMessage || translate("contactSupport")
-    const messageText = translate(e.message)
-    const buttonText = translate("retry")
-    const onAction = () => {
-      // Retry callbacks are transient and not stored in Redux; simply clear error
-      dispatch(fmeActions.setError(null))
-    }
-
-    return (
-      <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
-        <div css={styles.headerRow}>
-          <div css={styles.typography.title}>{translate("errorTitle")}</div>
-          {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
-        </div>
-        <div css={styles.typography.caption}>{supportText || messageText}</div>
-        <Button
-          text={buttonText}
-          onClick={onAction}
-          logging={{ enabled: true, prefix: "FME-Export" }}
-          tooltipPlacement="bottom"
-        />
-      </div>
-    )
   }
 
   // derive simple view booleans for readability

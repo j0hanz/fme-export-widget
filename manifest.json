@@ -5,7 +5,7 @@
   "version": "1.18.0",
   "exbVersion": "1.18.0",
   "author": "j0hanz",
-  "description": "A widget for exporting data to FME.",
+  "description": "Draw an area and export via FME Flow.",
   "icon": "jimu-icons/svg/outlined/editor/download.svg",
   "dependency": "jimu-arcgis",
   "extensions": [
