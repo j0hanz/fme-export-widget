@@ -1,6 +1,12 @@
 import { React } from "jimu-core"
 import { screen, fireEvent } from "@testing-library/react"
-import { widgetRender, initExtensions, initStore } from "jimu-for-test"
+import {
+  initExtensions,
+  initStore,
+  widgetRender,
+  withStoreThemeIntlRender,
+  waitForMilliseconds,
+} from "jimu-for-test"
 import { Workflow } from "../runtime/components/workflow"
 import { ViewMode, type ExportResult } from "../shared/types"
 
@@ -16,6 +22,7 @@ describe("Workflow component", () => {
   })
 
   const renderWithProviders = widgetRender(true)
+  const renderSTI = withStoreThemeIntlRender()
 
   test("renders instruction text in DRAWING state", () => {
     renderWithProviders(
@@ -41,7 +48,7 @@ describe("Workflow component", () => {
       email: "x@y.z",
     }
 
-    const { unmount: unmount1 } = renderWithProviders(
+    const { unmount: unmount1 } = renderSTI(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.ORDER_RESULT}
@@ -67,7 +74,7 @@ describe("Workflow component", () => {
       code: "ERR",
     }
 
-    renderWithProviders(
+    renderSTI(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.ORDER_RESULT}
@@ -86,7 +93,7 @@ describe("Workflow component", () => {
   test("header reset functionality in different states", () => {
     const onReset = jest.fn()
 
-    // In DRAWING state, Cancel should be hidden until first click
+    // In DRAWING, Cancel hidden until first click
     const { unmount: unmount1 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -107,7 +114,7 @@ describe("Workflow component", () => {
 
     unmount1()
 
-    // After first click in DRAWING: Cancel should be visible and enabled
+    // After first click, Cancel visible and enabled
     const { unmount: unmount2 } = renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -130,7 +137,7 @@ describe("Workflow component", () => {
 
     unmount2()
 
-    // In INITIAL state (even with area): Cancel should be hidden
+    // In INITIAL (even with area), Cancel hidden
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
@@ -188,7 +195,7 @@ describe("Workflow component", () => {
       },
     ] as any
 
-    const { unmount: unmount1 } = renderWithProviders(
+    const { unmount: unmount1 } = renderSTI(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
@@ -237,7 +244,7 @@ describe("Workflow component", () => {
     ] as any
 
     onFormSubmit.mockClear()
-    renderWithProviders(
+    renderSTI(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.EXPORT_FORM}
@@ -266,7 +273,7 @@ describe("Workflow component", () => {
     expect(arg.data).toMatchObject({ Title: "Hello" })
   })
 
-  test("startup validation state handling", () => {
+  test("startup validation state handling", async () => {
     const onRetryValidation = jest.fn()
 
     // Loading state during validation
@@ -307,10 +314,13 @@ describe("Workflow component", () => {
       />
     )
 
-    // Error should be rendered by Workflow's renderError (StateView)
+    // Flush microtasks
+    await waitForMilliseconds(0)
+
+    // Error rendered by Workflow's StateView
     expect(screen.queryByText(/Configuration error/i)).toBeTruthy()
 
-    // Should have mailto link due to email in userFriendlyMessage
+    // Mailto link present due to email in userFriendlyMessage
     const emailLink = screen.queryByRole("link", {
       name: /support@example\.com/i,
     })
@@ -318,5 +328,115 @@ describe("Workflow component", () => {
     if (emailLink) {
       expect(emailLink.getAttribute("href")).toBe("mailto:support@example.com")
     }
+  })
+
+  test("ORDER_RESULT sync mode shows direct download and hides email", async () => {
+    const result: ExportResult = {
+      success: true,
+      jobId: 987,
+      workspaceName: "ws",
+      email: "dl@sample.io",
+      downloadUrl: "https://downloads.example.com/file.zip",
+      message: "Ready",
+    }
+
+    renderSTI(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.ORDER_RESULT}
+        orderResult={result}
+        config={{ syncMode: true } as any}
+      />
+    )
+
+    // Wait for any effect flush (no-op if not needed)
+    await waitForMilliseconds(0)
+
+    // Email should be hidden in sync mode
+    expect(screen.queryByText("dl@sample.io")).toBeNull()
+
+    // Download link should be present with expected href
+    const links = screen.getAllByRole("link")
+    const dlLink = links.find(
+      (a) => a.getAttribute("href") === result.downloadUrl
+    )
+    expect(dlLink).toBeTruthy()
+  })
+
+  test("ORDER_RESULT async mode renders success without download link", async () => {
+    const result: ExportResult = {
+      success: true,
+      jobId: 654,
+      workspaceName: "ws",
+      email: "notify@sample.io",
+      message: "Notification sent",
+    }
+
+    renderSTI(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.ORDER_RESULT}
+        orderResult={result}
+        config={{ syncMode: false } as any}
+      />
+    )
+
+    await waitForMilliseconds(0)
+    // No direct download link should be present in async mode without downloadUrl
+    const links = screen.queryAllByRole("link")
+    // Expect zero or at least no http/mailto links
+    const actionable = links.filter((a) => {
+      const href = a.getAttribute("href") || ""
+      return href.startsWith("http") || href.startsWith("mailto:")
+    })
+    expect(actionable.length).toBe(0)
+    // Success button should be present (reuse/new order)
+    const reuseBtn = await screen.findByRole("button", {
+      name: /Återanvänd geometri|Ny beställning/i,
+    })
+    expect(reuseBtn).toBeTruthy()
+  })
+
+  test("header reset hidden when canReset=false even after first click", () => {
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.DRAWING}
+        onReset={jest.fn()}
+        canReset={false}
+        showHeaderActions={true}
+        drawnArea={0}
+        isDrawing={true}
+        clickCount={1}
+      />
+    )
+
+    const headerBtn = screen.queryByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+    expect(headerBtn).toBeNull()
+  })
+
+  test("in DRAWING, reset visible when not actively drawing even before first click", () => {
+    const onReset = jest.fn()
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.DRAWING}
+        onReset={onReset}
+        canReset={true}
+        showHeaderActions={true}
+        drawnArea={0}
+        isDrawing={false}
+        clickCount={0}
+      />
+    )
+
+    const headerBtn = screen.getByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+    expect(headerBtn.getAttribute("aria-disabled")).toBe("false")
+    fireEvent.click(headerBtn)
+    expect(onReset).toHaveBeenCalled()
   })
 })

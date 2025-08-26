@@ -1003,7 +1003,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           value: localServerUrl,
           onChange: (val: string) => {
             setLocalServerUrl(val)
-            updateConfig("fmeServerUrl", val)
+            // Sanitize immediately on change to keep config clean (strip /fmeserver or /fmerest)
+            const { cleaned, changed } = sanitizeUrl(val)
+            updateConfig("fmeServerUrl", changed ? cleaned : val)
             // Validate immediately to surface inline error under the field
             const errKey = validateServerUrl(val)
             setFieldErrors((prev) => ({

@@ -1,11 +1,15 @@
 import { React } from "jimu-core"
 import { screen, fireEvent, within } from "@testing-library/react"
+import "@testing-library/jest-dom" // extended matchers like toBeInTheDocument
 import {
   initExtensions,
   initStore,
   widgetRender,
   setTheme,
   mockTheme,
+  waitForMilliseconds,
+  runFuncAsync,
+  withStoreThemeIntlRender,
 } from "jimu-for-test"
 import Button, {
   Icon,
@@ -29,13 +33,13 @@ describe("UI components", () => {
   })
 
   test("Icon renders SVG and Tooltip behavior", () => {
-    // Icon renders an SVG element
+    // Icon renders inline SVG
     const { container } = renderWithProviders(
       <Icon src="/mock.svg" ariaLabel="Map" />
     )
     expect(container.querySelector("svg")).toBeTruthy()
 
-    // Tooltip adds aria-describedby when content present
+    // Tooltip adds aria-describedby when content exists
     renderWithProviders(
       <Tooltip content="Help text">
         <button aria-label="Do it">Click</button>
@@ -53,7 +57,7 @@ describe("UI components", () => {
     const plainBtn = screen.getByRole("button", { name: /Plain/i })
     expect(plainBtn.getAttribute("aria-describedby")).toBeNull()
 
-    // Tooltip wraps disabled child in span
+    // Tooltip wraps disabled child in span for accessibility
     const tooltipContainer = renderWithProviders(
       <Tooltip content="info">
         <button aria-label="Disabled child" disabled>
@@ -69,7 +73,7 @@ describe("UI components", () => {
     expect(disabledBtn).toBeTruthy()
   })
 
-  test("Input and TextArea accessibility and interaction", () => {
+  test("Input and TextArea accessibility and interaction", async () => {
     // Input sets aria attributes and emits onChange
     const inputChange = jest.fn()
     renderWithProviders(
@@ -87,6 +91,8 @@ describe("UI components", () => {
     expect(input.getAttribute("aria-describedby")).toBeTruthy()
 
     fireEvent.change(input, { target: { value: "123" } })
+    // Flush microtasks from jimu‑ui input
+    await waitForMilliseconds(0)
     expect(inputChange).toHaveBeenCalledWith("123")
 
     // TextArea sets aria-invalid when errorText present
@@ -104,10 +110,12 @@ describe("UI components", () => {
     expect(textArea.getAttribute("aria-describedby")).toBeTruthy()
 
     fireEvent.change(textArea, { target: { value: "hello" } })
+    // Flush microtasks from TextArea change
+    await waitForMilliseconds(0)
     expect(textAreaChange).toHaveBeenCalledWith("hello")
   })
 
-  test("Select single and multi-select behavior", () => {
+  test("Select single and multi-select behavior", async () => {
     const onChange = jest.fn()
     const options = [
       { label: "Alpha", value: "a" },
@@ -115,7 +123,7 @@ describe("UI components", () => {
       { label: "Gamma", value: "c" },
     ]
 
-    // Single select renders selected value
+    // Single select shows selected option
     renderWithProviders(
       <Select
         options={options}
@@ -127,11 +135,13 @@ describe("UI components", () => {
     const singleSelect = screen.getByRole("combobox")
     within(singleSelect).getByText(/Beta/i)
 
-    // Multi-select renders multiple selected options
+    // Multi-select shows multiple selected options
     renderWithProviders(
       <Select options={options} defaultValue={["a", "c"]} value={["a", "c"]} />
     )
     const listbox = screen.getByRole("listbox")
+    // Wait for any asynchronous state updates triggered by rendering the multi‑select
+    await waitForMilliseconds(0)
     const selectedOptions = within(listbox).getAllByRole("option", {
       selected: true,
     })
@@ -140,7 +150,7 @@ describe("UI components", () => {
     within(listbox).getByRole("option", { name: /Gamma/i, selected: true })
   })
 
-  test("StateView renders loading and error roles appropriately", () => {
+  test("StateView renders loading and error roles appropriately", async () => {
     const { rerender } = renderWithProviders(
       <StateView state={{ kind: "loading", message: "Loading" } as any} />
     )
@@ -159,32 +169,38 @@ describe("UI components", () => {
     expect(alert).toBeTruthy()
     const btn = screen.getByRole("button")
     fireEvent.click(btn)
+    // Flush microtasks for onClick
+    await waitForMilliseconds(0)
     expect(onAction).toHaveBeenCalled()
   })
 
-  test("Button interactions and accessibility patterns", () => {
-    // Button disabled prevents onClick and sets accessibility attributes
+  test("Button interactions and accessibility patterns", async () => {
+    // Disabled button prevents onClick and sets aria-disabled
     const onClick = jest.fn()
     renderWithProviders(<Button text="Do" onClick={onClick} disabled />)
     const disabledBtn = screen.getByRole("button", { name: /Do/i })
     fireEvent.click(disabledBtn)
+    await waitForMilliseconds(0)
     expect(onClick).not.toHaveBeenCalled()
     expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
 
-    // Button loading prevents onClick interaction
+    // Loading button prevents onClick
     const onClick2 = jest.fn()
     renderWithProviders(<Button text="Load" onClick={onClick2} loading />)
     const loadingBtn = screen.getByRole("button", { name: /Load/i })
     fireEvent.click(loadingBtn)
+    await waitForMilliseconds(0)
     expect(onClick2).not.toHaveBeenCalled()
 
-    // Button tooltip provides accessible label for icon-only buttons
+    // Tooltip provides accessible label for icon-only button
     renderWithProviders(<Button icon="/x.svg" tooltip="Hello" />)
+    // Delay to allow tooltip aria-label injection
+    await waitForMilliseconds(0)
     screen.getByRole("button", { name: /Hello/i })
   })
 
-  test("ButtonGroup and ButtonTabs interaction handling", () => {
-    // ButtonGroup renders and handles left/right button clicks
+  test("ButtonGroup and ButtonTabs interaction handling", async () => {
+    // ButtonGroup handles left/right clicks
     const onLeft = jest.fn()
     const onRight = jest.fn()
     renderWithProviders(
@@ -195,10 +211,11 @@ describe("UI components", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: /Back/i }))
     fireEvent.click(screen.getByRole("button", { name: /Next/i }))
+    await waitForMilliseconds(0)
     expect(onLeft).toHaveBeenCalled()
     expect(onRight).toHaveBeenCalled()
 
-    // ButtonTabs emits onChange and onTabChange events
+    // ButtonTabs emits onChange and onTabChange
     const onChange = jest.fn()
     const onTabChange = jest.fn()
     const items = [
@@ -214,11 +231,12 @@ describe("UI components", () => {
       />
     )
     fireEvent.click(screen.getByRole("radio", { name: /Two/i }))
+    await waitForMilliseconds(0)
     expect(onChange).toHaveBeenCalledWith("2")
     expect(onTabChange).toHaveBeenCalled()
   })
 
-  test("Select aria-describedby passthrough (single and multi)", () => {
+  test("Select aria-describedby passthrough (single and multi)", async () => {
     const renderWithProviders = widgetRender(true)
     const options = [
       { label: "One", value: "1" },
@@ -230,6 +248,7 @@ describe("UI components", () => {
       <Select options={options} defaultValue="1" ariaDescribedBy="s-help" />
     )
     const combo = screen.getByRole("combobox")
+    await waitForMilliseconds(0)
     expect(combo.getAttribute("aria-describedby")).toBe("s-help")
 
     // Multi-select should also preserve provided aria-describedby
@@ -242,10 +261,11 @@ describe("UI components", () => {
       />
     )
     const listbox = screen.getByRole("listbox")
+    await waitForMilliseconds(0)
     expect(listbox.getAttribute("aria-describedby")).toBe("m-help")
   })
 
-  test("Select multi-select applies style to native select", () => {
+  test("Select multi-select applies style to native select", async () => {
     const renderWithProviders = widgetRender(true)
     const options = [
       { label: "A", value: "a" },
@@ -260,6 +280,22 @@ describe("UI components", () => {
       />
     )
     const listbox = screen.getByRole("listbox")
+    await waitForMilliseconds(0)
     expect((listbox as HTMLSelectElement).style.width).toBe("321px")
+  })
+
+  // Example: advanced helpers for async flows and store injection
+  test("withStoreThemeIntlRender and runFuncAsync can be used for custom renders", async () => {
+    const renderWithProviders = withStoreThemeIntlRender()
+    const { getByRole } = renderWithProviders(<Button text="Click me" />)
+    fireEvent.click(getByRole("button", { name: /Click me/i }))
+    // runFuncAsync flushes microtasks when awaited
+    const flush = runFuncAsync(0)
+    // Execute a callback to allow queued timers to complete
+    await flush(() => {
+      // Allow any pending state updates to process
+      return Promise.resolve()
+    }, [])
+    expect(getByRole("button", { name: /Click me/i })).toBeInTheDocument()
   })
 })

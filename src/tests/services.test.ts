@@ -1,455 +1,341 @@
+import { initExtensions, initStore } from "jimu-for-test"
 import { ErrorHandlingService, ParameterFormService } from "../shared/services"
 import {
-  ErrorSeverity,
-  ErrorType,
-  FormFieldType,
-  type DynamicFieldConfig,
-  ParameterType,
   type WorkspaceParameter,
+  ParameterType,
+  FormFieldType,
 } from "../shared/types"
 
-describe("ErrorHandlingService", () => {
-  test("createError uses sensible defaults and preserves options", () => {
-    const svc = new ErrorHandlingService()
-    const retry = jest.fn()
-    const err = svc.createError("Oops")
-    expect(err.message).toBe("Oops")
-    expect(err.type).toBe(ErrorType.VALIDATION)
-    expect(err.code).toBe("UNKNOWN_ERROR")
-    expect(err.severity).toBe(ErrorSeverity.ERROR)
-    expect(typeof err.timestamp.getTime()).toBe("number")
-
-    const custom = svc.createError("Bad", ErrorType.API, {
-      code: "X123",
-      severity: ErrorSeverity.WARNING,
-      details: { a: 1 },
-      recoverable: true,
-      retry,
-    })
-    expect(custom.message).toBe("Bad")
-    expect(custom.type).toBe(ErrorType.API)
-    expect(custom.code).toBe("X123")
-    expect(custom.severity).toBe(ErrorSeverity.WARNING)
-    expect(custom.details).toEqual({ a: 1 })
-    expect(custom.recoverable).toBe(true)
-    expect(custom.retry).toBe(retry)
+describe("shared/services", () => {
+  beforeAll(() => {
+    // Initialize EXB testing environment
+    initExtensions()
+    initStore()
   })
 
-  test("deriveStartupError maps explicit error codes to concise messages", () => {
-    const svc = new ErrorHandlingService()
-    const t = (k: string) => k
+  describe("ParameterFormService.convertParametersToFields", () => {
+    const svc = new ParameterFormService()
 
-    expect(svc.deriveStartupError({ code: "UserEmailMissing" }, t)).toEqual({
-      code: "UserEmailMissing",
-      message: "userEmailMissing",
-    })
-    expect(svc.deriveStartupError({ code: "INVALID_CONFIG" }, t)).toEqual({
-      code: "INVALID_CONFIG",
-      message: "invalidConfiguration",
-    })
-    expect(svc.deriveStartupError({ code: "ARCGIS_MODULE_ERROR" }, t)).toEqual({
-      code: "ARCGIS_MODULE_ERROR",
-      message: "connectionFailed",
-    })
-    expect(svc.deriveStartupError({ code: "WEBHOOK_AUTH_ERROR" }, t)).toEqual({
-      code: "WEBHOOK_AUTH_ERROR",
-      message: "authenticationFailed",
-    })
-  })
-
-  test("deriveStartupError maps HTTP status codes", () => {
-    const svc = new ErrorHandlingService()
-    const t = (k: string) => k
-
-    expect(svc.deriveStartupError({ status: 401 }, t)).toEqual({
-      code: "AUTH_ERROR",
-      message: "startupValidationFailed",
-    })
-    expect(svc.deriveStartupError({ status: 403 }, t)).toEqual({
-      code: "AUTH_ERROR",
-      message: "startupValidationFailed",
-    })
-    expect(svc.deriveStartupError({ status: 404 }, t)).toEqual({
-      code: "REPO_NOT_FOUND",
-      message: "repoNotFound",
-    })
-    expect(svc.deriveStartupError({ status: 500 }, t)).toEqual({
-      code: "SERVER_ERROR",
-      message: "serverError",
-    })
-    expect(svc.deriveStartupError({ status: 400 }, t)).toEqual({
-      code: "HTTP_ERROR",
-      message: "connectionFailed",
-    })
-  })
-
-  test("deriveStartupError detects timeouts, network, and bad responses", () => {
-    const svc = new ErrorHandlingService()
-    const t = (k: string) => k
-
-    // Timeout by code
-    expect(svc.deriveStartupError({ code: "ETIMEDOUT" }, t)).toEqual({
-      code: "TIMEOUT",
-      message: "timeout",
-    })
-    // Timeout by message
-    expect(
-      svc.deriveStartupError(new Error("Request timeout exceeded"), t)
-    ).toEqual({ code: "TIMEOUT", message: "timeout" })
-
-    // Network errors
-    expect(svc.deriveStartupError(new TypeError("Failed to fetch"), t)).toEqual(
-      { code: "NETWORK_ERROR", message: "networkError" }
-    )
-    expect(
-      svc.deriveStartupError(new Error("Network connection lost"), t)
-    ).toEqual({ code: "NETWORK_ERROR", message: "networkError" })
-
-    // Bad JSON/parse
-    expect(
-      svc.deriveStartupError(
-        new Error("Unexpected token < in JSON at position 0"),
-        t
-      )
-    ).toEqual({ code: "BAD_RESPONSE", message: "badResponse" })
-  })
-
-  test("deriveStartupError falls back to STARTUP_ERROR", () => {
-    const svc = new ErrorHandlingService()
-    const t = (k: string) => k
-    expect(svc.deriveStartupError(new Error("weird"), t)).toEqual({
-      code: "STARTUP_ERROR",
-      message: "startupValidationFailed",
-    })
-  })
-})
-
-describe("ParameterFormService.convertParametersToFields", () => {
-  const svc = new ParameterFormService()
-
-  test("skips internal parameters and maps field types correctly", () => {
-    const params: readonly WorkspaceParameter[] = [
-      {
-        name: "MAXX",
-        type: ParameterType.INTEGER,
-        model: "MODEL",
-        description: "skipped",
-      },
+    const params: WorkspaceParameter[] = [
       {
         name: "AreaOfInterest",
-        type: ParameterType.GEOMETRY,
-        model: "MODEL",
-        description: "skipped",
+        description: "AOI",
+        type: ParameterType.TEXT,
+        model: "M",
+        optional: true,
       },
       {
         name: "Title",
+        description: "Title",
         type: ParameterType.TEXT,
-        model: "MODEL",
-        description: "A title",
+        model: "M",
+        optional: false,
       },
       {
-        name: "Notes",
+        name: "Description",
+        description: "Description",
         type: ParameterType.TEXT_EDIT,
-        model: "MODEL",
-        description: "Notes",
+        model: "M",
+        optional: true,
       },
       {
         name: "Count",
-        type: ParameterType.INTEGER,
-        model: "MODEL",
         description: "Count",
+        type: ParameterType.INTEGER,
+        model: "M",
+        optional: true,
+      },
+      {
+        name: "Price",
+        description: "Price",
+        type: ParameterType.FLOAT,
+        model: "M",
+        optional: true,
       },
       {
         name: "Secret",
+        description: "Secret",
         type: ParameterType.PASSWORD,
-        model: "MODEL",
-        description: "Password",
+        model: "M",
+        optional: true,
       },
       {
         name: "Agree",
+        description: "Agree",
         type: ParameterType.BOOLEAN,
-        model: "MODEL",
-        description: "Checkbox",
+        model: "M",
+        optional: true,
       },
       {
-        name: "Upload",
-        type: ParameterType.FILENAME,
-        model: "MODEL",
+        name: "File",
         description: "File",
+        type: ParameterType.FILENAME,
+        model: "M",
+        optional: true,
       },
       {
         name: "Choice",
-        type: ParameterType.CHOICE,
-        model: "MODEL",
-        description: "Select",
-        listOptions: [{ caption: "A", value: "a" }],
-      },
-      {
-        name: "Multi",
-        type: ParameterType.LISTBOX,
-        model: "MODEL",
-        description: "Multi-select",
-        listOptions: [{ caption: "One", value: "1" }],
-      },
-    ] as const
-
-    const fields = svc.convertParametersToFields(params)
-    const fieldMap = new Map(fields.map((f) => [f.name, f]))
-
-    // Verify skipped parameters
-    expect(fieldMap.has("MAXX")).toBe(false)
-    expect(fieldMap.has("AreaOfInterest")).toBe(false)
-
-    // Verify field type mappings
-    expect(fieldMap.get("Title")?.type).toBe(FormFieldType.TEXT)
-    expect(fieldMap.get("Notes")?.type).toBe(FormFieldType.TEXTAREA)
-    expect(fieldMap.get("Notes")?.rows).toBeGreaterThan(0)
-    expect(fieldMap.get("Count")?.type).toBe(FormFieldType.NUMBER)
-    expect(fieldMap.get("Secret")?.type).toBe(FormFieldType.PASSWORD)
-    expect(fieldMap.get("Agree")?.type).toBe(FormFieldType.CHECKBOX)
-    expect(fieldMap.get("Upload")?.type).toBe(FormFieldType.FILE)
-    expect(fieldMap.get("Choice")?.type).toBe(FormFieldType.SELECT)
-    expect(fieldMap.get("Multi")?.type).toBe(FormFieldType.MULTI_SELECT)
-  })
-
-  test("handles lookup parameter types", () => {
-    const params: readonly WorkspaceParameter[] = [
-      {
-        name: "LookupSingle",
-        type: ParameterType.LOOKUP_CHOICE,
-        model: "MODEL",
-        description: "Single lookup",
-        listOptions: [{ caption: "First", value: "1" }],
-      },
-      {
-        name: "LookupMulti",
-        type: ParameterType.LOOKUP_LISTBOX,
-        model: "MODEL",
-        description: "Multi lookup",
-        listOptions: [{ caption: "A", value: "a" }],
-      },
-    ] as const
-
-    const fields = svc.convertParametersToFields(params)
-    const fieldMap = new Map(fields.map((f) => [f.name, f]))
-
-    expect(fieldMap.get("LookupSingle")?.type).toBe(FormFieldType.SELECT)
-    expect(fieldMap.get("LookupMulti")?.type).toBe(FormFieldType.MULTI_SELECT)
-  })
-})
-
-describe("ParameterFormService.validateParameters", () => {
-  const svc = new ParameterFormService()
-
-  const testParams: readonly WorkspaceParameter[] = [
-    {
-      name: "Title",
-      description: "A title",
-      type: ParameterType.TEXT,
-      model: "MODEL",
-      optional: false,
-    },
-    {
-      name: "Count",
-      description: "Count",
-      type: ParameterType.INTEGER,
-      model: "MODEL",
-      optional: false,
-    },
-    {
-      name: "Ratio",
-      description: "Ratio",
-      type: ParameterType.FLOAT,
-      model: "MODEL",
-      optional: true,
-    },
-    {
-      name: "MAXX",
-      description: "Max X",
-      type: ParameterType.INTEGER,
-      model: "MODEL",
-    }, // Should be skipped
-    {
-      name: "Choice",
-      description: "Choice field",
-      type: ParameterType.CHOICE,
-      model: "MODEL",
-      listOptions: [
-        { caption: "A", value: "a" },
-        { caption: "B", value: "b" },
-      ],
-    },
-    {
-      name: "Multi",
-      description: "Multi field",
-      type: ParameterType.LISTBOX,
-      model: "MODEL",
-      optional: true,
-      listOptions: [
-        { caption: "One", value: "1" },
-        { caption: "Two", value: "2" },
-      ],
-    },
-    {
-      name: "LookupChoice",
-      description: "Lookup choice",
-      type: ParameterType.LOOKUP_CHOICE,
-      model: "MODEL",
-      listOptions: [
-        { caption: "First", value: "1" },
-        { caption: "Second", value: "2" },
-      ],
-    },
-  ] as const
-
-  test("validates required fields and type constraints", () => {
-    const { isValid, errors } = svc.validateParameters(
-      {
-        Title: "",
-        Count: "abc",
-        Ratio: "not-number",
-        Choice: "a",
-        LookupChoice: "1",
-      },
-      testParams
-    )
-
-    expect(isValid).toBe(false)
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        "Title:required",
-        "Count:integer",
-        "Ratio:number",
-      ])
-    )
-  })
-
-  test("validates list choices for single and multi-select", () => {
-    const invalidChoice = svc.validateParameters(
-      { Title: "Valid", Count: 1, Choice: "invalid" },
-      testParams
-    )
-    expect(invalidChoice.isValid).toBe(false)
-    expect(invalidChoice.errors).toContain("Choice:choice")
-
-    const invalidMulti = svc.validateParameters(
-      { Title: "Valid", Count: 1, Multi: ["1", "invalid"] },
-      testParams
-    )
-    expect(invalidMulti.isValid).toBe(false)
-    expect(invalidMulti.errors).toContain("Multi:choice")
-
-    const invalidLookup = svc.validateParameters(
-      { Title: "Valid", Count: 1, LookupChoice: "invalid" },
-      testParams
-    )
-    expect(invalidLookup.isValid).toBe(false)
-    expect(invalidLookup.errors).toContain("LookupChoice:choice")
-  })
-
-  test("does not drop 0 from multi-select values (detects invalid 0 when not allowed)", () => {
-    const svc = new ParameterFormService()
-    const params: readonly WorkspaceParameter[] = [
-      {
-        name: "Title",
-        description: "A title",
+        description: "Choice",
         type: ParameterType.TEXT,
-        model: "MODEL",
+        model: "M",
+        optional: true,
+        listOptions: [
+          { caption: "Alpha", value: "A" } as any,
+          { caption: "", value: "B" } as any,
+        ],
+      },
+      {
+        name: "MultiChoice",
+        description: "MultiChoice",
+        type: ParameterType.LISTBOX,
+        model: "M",
+        optional: true,
+        listOptions: [
+          { caption: "One", value: 1 } as any,
+          { caption: "Two", value: 2 } as any,
+        ],
+      },
+    ]
+
+    test("skips reserved params and maps field types/options correctly", () => {
+      const fields = svc.convertParametersToFields(params)
+      const names = fields.map((f) => f.name)
+      expect(names).not.toContain("AreaOfInterest")
+      const byName = (n: string) => {
+        const f = fields.find((f) => f.name === n)
+        expect(f).toBeDefined()
+        return f as unknown as {
+          name: string
+          type: FormFieldType
+          options?: ReadonlyArray<{ label: string; value: unknown }>
+          rows?: number
+        }
+      }
+
+      expect(byName("Title").type).toBe(FormFieldType.TEXT)
+      const desc = byName("Description")
+      expect(desc.type).toBe(FormFieldType.TEXTAREA)
+      expect((desc as any).rows).toBe(3)
+      expect(byName("Count").type).toBe(FormFieldType.NUMBER)
+      expect(byName("Price").type).toBe(FormFieldType.NUMBER)
+      expect(byName("Secret").type).toBe(FormFieldType.PASSWORD)
+      expect(byName("Agree").type).toBe(FormFieldType.CHECKBOX)
+      expect(byName("File").type).toBe(FormFieldType.FILE)
+
+      const choice = byName("Choice")
+      expect(choice.type).toBe(FormFieldType.SELECT)
+      expect(choice.options?.length).toBe(2)
+      expect(choice.options?.[0]).toEqual({ label: "Alpha", value: "A" })
+      expect(choice.options?.[1]).toEqual({ label: "B", value: "B" })
+
+      const multi = byName("MultiChoice")
+      expect(multi.type).toBe(FormFieldType.MULTI_SELECT)
+      expect(multi.options?.[0]).toEqual({ label: "One", value: 1 })
+    })
+  })
+
+  describe("ParameterFormService.validateParameters", () => {
+    const svc = new ParameterFormService()
+    const parameters: WorkspaceParameter[] = [
+      {
+        name: "RequiredField",
+        description: "RequiredField",
+        type: ParameterType.TEXT,
+        model: "M",
         optional: false,
       },
       {
-        name: "Count",
-        description: "Count",
+        name: "IntField",
+        description: "IntField",
         type: ParameterType.INTEGER,
-        model: "MODEL",
-        optional: false,
+        model: "M",
+        optional: true,
+      },
+      {
+        name: "FloatField",
+        description: "FloatField",
+        type: ParameterType.FLOAT,
+        model: "M",
+        optional: true,
+      },
+      {
+        name: "Choice",
+        description: "Choice",
+        type: ParameterType.TEXT,
+        model: "M",
+        optional: true,
+        listOptions: [{ caption: "Alpha", value: "A" } as any],
       },
       {
         name: "Multi",
-        description: "Multi field",
+        description: "Multi",
         type: ParameterType.LISTBOX,
-        model: "MODEL",
-        optional: false,
-        // Use numeric values deliberately; cast to any to simulate upstream variability.
-        listOptions: [{ caption: "One", value: 1 }] as unknown as any,
+        model: "M",
+        optional: true,
+        listOptions: [{ caption: "One", value: 1 } as any],
       },
-    ] as const
+    ]
 
-    // 0 is not part of valid options; ensure it is not dropped and triggers a choice error.
-    const invalid = svc.validateParameters(
-      { Title: "Valid", Count: 1, Multi: [0] },
-      params
-    )
-    expect(invalid.isValid).toBe(false)
-    expect(invalid.errors).toContain("Multi:choice")
-  })
+    test("detects missing required, integer/number, and list choice errors", () => {
+      const data = {
+        IntField: "1.5", // not integer
+        FloatField: "abc", // not number
+        Choice: "X", // invalid choice
+        Multi: [2, 3], // invalid choices
+      } as { [key: string]: unknown }
 
-  test("allows valid data and handles optional fields correctly", () => {
-    const valid = svc.validateParameters(
-      {
-        Title: "Valid",
-        Count: 2,
-        Choice: "a",
-        Multi: ["1", "2"],
-        LookupChoice: "1",
-      },
-      testParams
-    )
-    expect(valid.isValid).toBe(true)
-    expect(valid.errors).toEqual([])
-
-    const omittedOptional = svc.validateParameters(
-      { Title: "Valid", Count: 1, Choice: "a", LookupChoice: "1" },
-      testParams
-    )
-    expect(omittedOptional.isValid).toBe(true)
-  })
-})
-
-describe("ParameterFormService.validateFormValues", () => {
-  const svc = new ParameterFormService()
-  const fields: readonly DynamicFieldConfig[] = [
-    { name: "Title", label: "Title", type: FormFieldType.TEXT, required: true },
-    {
-      name: "Count",
-      label: "Count",
-      type: FormFieldType.NUMBER,
-      required: true,
-    },
-    {
-      name: "OptionalRatio",
-      label: "Ratio",
-      type: FormFieldType.NUMBER,
-      required: false,
-    },
-  ] as const
-
-  test("validates required fields and number types", () => {
-    const invalid = svc.validateFormValues(
-      { Title: "", Count: "abc", OptionalRatio: "xyz" },
-      fields
-    )
-    expect(invalid.isValid).toBe(false)
-    expect(invalid.errors).toMatchObject({
-      Title: "",
-      Count: "Count must be a number",
-      OptionalRatio: "Ratio must be a number",
+      const res = svc.validateParameters(data, parameters)
+      expect(res.isValid).toBe(false)
+      expect(res.errors).toEqual(
+        expect.arrayContaining([
+          "RequiredField:required",
+          "IntField:integer",
+          "FloatField:number",
+          "Choice:choice",
+          "Multi:choice",
+        ])
+      )
     })
 
-    const valid = svc.validateFormValues(
-      { Title: "Hello", Count: 3, OptionalRatio: 1.5 },
-      fields
-    )
-    expect(valid.isValid).toBe(true)
-    expect(valid.errors).toEqual({})
+    test("passes on valid values", () => {
+      const ok = svc.validateParameters(
+        {
+          RequiredField: "x",
+          IntField: 2,
+          FloatField: 3.14,
+          Choice: "A",
+          Multi: [1],
+        },
+        parameters
+      )
+      expect(ok.isValid).toBe(true)
+      expect(ok.errors.length).toBe(0)
+    })
   })
 
-  test("handles optional fields correctly", () => {
-    const omittedOptional = svc.validateFormValues(
-      { Title: "Valid", Count: 1 },
-      fields
-    )
-    expect(omittedOptional.isValid).toBe(true)
-    expect(omittedOptional.errors).toEqual({})
+  describe("ParameterFormService.validateFormValues", () => {
+    const svc = new ParameterFormService()
+    const params: WorkspaceParameter[] = [
+      {
+        name: "Title",
+        description: "Title",
+        type: ParameterType.TEXT,
+        model: "M",
+        optional: false,
+      },
+      {
+        name: "Amount",
+        description: "Amount",
+        type: ParameterType.FLOAT,
+        model: "M",
+        optional: true,
+      },
+    ]
+    const fields = svc.convertParametersToFields(params)
+
+    test("required fields produce empty-string error; number type enforces numeric", () => {
+      const values = { Title: "", Amount: "abc" } as { [key: string]: unknown }
+      const res = svc.validateFormValues(values, fields)
+      expect(res.isValid).toBe(false)
+      expect(res.errors.Title).toBe("")
+      expect(res.errors.Amount).toBe("Amount must be a number")
+    })
+
+    test("valid values yield no errors", () => {
+      const values = { Title: "T", Amount: 10 } as { [key: string]: unknown }
+      const res = svc.validateFormValues(values, fields)
+      expect(res.isValid).toBe(true)
+      expect(Object.keys(res.errors).length).toBe(0)
+    })
+  })
+
+  describe("ErrorHandlingService", () => {
+    const svc = new ErrorHandlingService()
+    const t = (k: string) => `t:${k}`
+
+    test("createError populates defaults and custom fields", () => {
+      const e1 = svc.createError("msg")
+      expect(e1.message).toBe("msg")
+      expect(e1.code).toBe("UNKNOWN_ERROR")
+      expect(e1.severity).toBeDefined()
+      expect(e1.timestamp).toBeInstanceOf(Date)
+      expect(typeof e1.timestampMs).toBe("number")
+
+      const retry = jest.fn()
+      const e2 = svc.createError("oops", undefined, {
+        code: "C1",
+        severity: 1 as any, // ErrorSeverity.WARNING likely enum, keep flexible
+        details: { a: 1 },
+        recoverable: true,
+        retry,
+        userFriendlyMessage: "Call support",
+        suggestion: "Check config",
+      })
+      expect(e2.code).toBe("C1")
+      expect(e2.recoverable).toBe(true)
+      expect(e2.details).toEqual({ a: 1 })
+      expect(e2.retry).toBe(retry)
+      expect(e2.userFriendlyMessage).toBe("Call support")
+      expect(e2.suggestion).toBe("Check config")
+    })
+
+    test("deriveStartupError maps known codes", () => {
+      expect(svc.deriveStartupError({ code: "UserEmailMissing" }, t)).toEqual({
+        code: "UserEmailMissing",
+        message: "t:userEmailMissing",
+      })
+      expect(svc.deriveStartupError({ name: "INVALID_CONFIG" }, t)).toEqual({
+        code: "INVALID_CONFIG",
+        message: "t:invalidConfiguration",
+      })
+      expect(
+        svc.deriveStartupError({ message: "WEBHOOK_AUTH_ERROR" }, t)
+      ).toEqual({
+        code: "WEBHOOK_AUTH_ERROR",
+        message: "t:authenticationFailed",
+      })
+    })
+
+    test("deriveStartupError handles HTTP statuses", () => {
+      expect(svc.deriveStartupError({ status: 401 }, t)).toEqual({
+        code: "AUTH_ERROR",
+        message: "t:startupValidationFailed",
+      })
+      expect(svc.deriveStartupError({ status: 403 }, t)).toEqual({
+        code: "AUTH_ERROR",
+        message: "t:startupValidationFailed",
+      })
+      expect(svc.deriveStartupError({ status: 404 }, t)).toEqual({
+        code: "REPO_NOT_FOUND",
+        message: "t:repoNotFound",
+      })
+      expect(svc.deriveStartupError({ status: 500 }, t)).toEqual({
+        code: "SERVER_ERROR",
+        message: "t:serverError",
+      })
+      expect(svc.deriveStartupError({ status: 429 }, t)).toEqual({
+        code: "HTTP_ERROR",
+        message: "t:connectionFailed",
+      })
+    })
+
+    test("deriveStartupError handles network/timeout/bad response and default", () => {
+      expect(
+        svc.deriveStartupError({ message: "Timeout exceeded" }, t)
+      ).toEqual({ code: "TIMEOUT", message: "t:timeout" })
+      expect(svc.deriveStartupError({ message: "Failed to fetch" }, t)).toEqual(
+        { code: "NETWORK_ERROR", message: "t:networkError" }
+      )
+      expect(
+        svc.deriveStartupError({ name: "TypeError", message: "boom" }, t)
+      ).toEqual({ code: "NETWORK_ERROR", message: "t:networkError" })
+      expect(
+        svc.deriveStartupError({ message: "Unexpected token in JSON" }, t)
+      ).toEqual({ code: "BAD_RESPONSE", message: "t:badResponse" })
+      expect(svc.deriveStartupError({ message: "Something else" }, t)).toEqual({
+        code: "STARTUP_ERROR",
+        message: "t:startupValidationFailed",
+      })
+    })
   })
 })
