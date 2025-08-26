@@ -213,10 +213,6 @@ export const styles = {
   },
 } as const
 
-// Legacy style exports for backward compatibility
-export const { caption, label, title, instruction, link, required } =
-  styles.typography
-
 // Utility Hooks and Helper Functions
 let idSeq = 0
 

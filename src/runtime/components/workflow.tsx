@@ -1046,7 +1046,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderCurrent = () => {
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
-        const fallbackSupport =
+        const supportHint =
           config?.supportEmail || translateRuntime("contactSupport")
         return renderError(
           startupValidationError.message,
@@ -1056,7 +1056,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               window.location.reload()
             }),
           startupValidationError.code,
-          startupValidationError.userFriendlyMessage || fallbackSupport
+          startupValidationError.userFriendlyMessage || supportHint
         )
       }
 

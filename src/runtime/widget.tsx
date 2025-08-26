@@ -77,8 +77,6 @@ const isThenable = (
   (typeof v === "object" || typeof v === "function") &&
   typeof (v as { then?: unknown }).then === "function"
 
-// Note: Translations must come exclusively from default.ts files; no manual fallbacks
-
 // Area calculation and formatting constants
 const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
 const AREA_DECIMALS = 2
@@ -867,8 +865,7 @@ export default function Widget(
 
       // Choose which email to use (config > extracted)
       const supportEmail = configuredEmail || extractedEmail
-
-      // Build support hint (with email or fallback)
+      // Build support hint message
       let supportHint: string
       if (supportEmail) {
         // Use runtime translation for the contact email placeholder.

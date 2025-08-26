@@ -9,7 +9,7 @@ Export a user‑drawn Area of Interest (AOI) from an Experience Builder map to F
 - Computes planar area and displays it (Swedish locale; m²/km²)
 - Lists FME workspaces from a configured repository and loads their published parameters
 - Renders a dynamic form from workspace parameters (choices, numbers, text, booleans, files, etc.)
-- Submits an export job to FME Flow using a resilient webhook → REST fallback
+- Submits an export job to FME Flow using the Data Download webhook
 - Shows a confirmation with Job ID, email, and optional download URL
 
 Core flow: INITIAL → DRAWING → WORKSPACE_SELECTION → EXPORT_FORM → ORDER_RESULT.
@@ -72,7 +72,8 @@ Notes:
   - `opt_responseformat=json`, `opt_showresult=true`, `opt_servicemode=async`, plus your published parameters
   - AOI is attached as `AreaOfInterest` containing polygon Esri JSON (stringified)
   - Requester email is included as `opt_requesteremail` (pulled from Portal user, with a no‑reply fallback)
-- Fallback path: If the webhook returns 401/403 or HTML, the widget submits via REST at `/fmerest/v3/transformations/submit/{repository}/{workspace}` with `publishedParameters`.
+  
+  Note: The widget expects the Data Download webhook to return JSON; HTML or non-JSON responses are surfaced as authentication errors to the user.
 - Trusted server + token: All REST calls go through Esri’s `esri/request` with an interceptor that adds the FME token and trusts the server origin.
 
 Geometry submitted
@@ -96,7 +97,7 @@ Key files
 - `src/runtime/components/workflow.tsx` – views for drawing, selection, form, result
 - `src/runtime/components/ui.tsx` – small UI toolkit built on `jimu-ui`
 - `src/shared/types.ts` – complete domain model and Redux action/state types
-- `src/shared/api.ts` – `FmeFlowApiClient` with webhook→REST fallback and helpers
+- `src/shared/api.ts` – `FmeFlowApiClient` (webhook-based) and helpers
 - `src/shared/services.ts` – form generation and validation from workspace parameters
 - `src/extensions/store.ts` – Redux store extension (`storeKey: "fme-state"`)
 
@@ -136,7 +137,7 @@ node .\npm-bootstrap-extensions
 ## Troubleshooting
 
 - Webhook returns HTML or 401/403
-  - Expected when webhook endpoints require auth; the widget falls back to REST automatically.
+  - This usually indicates the webhook requires authentication; ensure the configured token and URL are correct.
 - No workspaces listed
   - Verify `repository` exists and token has rights; check CORS/trusted server if calls fail.
 - “Area too large” / validation error

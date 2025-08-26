@@ -11,7 +11,7 @@ import type {
 import { FmeFlowApiError, HttpMethod } from "./types"
 import { isAuthError } from "./utils"
 
-// Import ArcGIS JSAPI modules dynamically or use global fallback
+// Import ArcGIS JSAPI modules dynamically with runtime helper
 let _esriRequest: unknown
 let _esriConfig: unknown
 let _webMercatorUtils: unknown

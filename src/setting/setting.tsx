@@ -13,8 +13,8 @@ import {
   Input,
   Select,
   Tooltip,
-  required,
   config as uiConfig,
+  styles as UI_CSS,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -45,7 +45,7 @@ function getHttpStatus(err: unknown): number | undefined {
 
   if (typeof status === "number") return status
 
-  // Fallback: parse from message
+  // As a last resort parse HTTP status from message text
   const msg = getErrorMessage(err)
   const match = msg.match(/\b(\d{3})\b/)
   return match ? parseInt(match[1], 10) : undefined
@@ -354,7 +354,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
           <span
-            css={required}
+            css={UI_CSS.typography.required}
             aria-label={translate("ariaRequired")}
             role="img"
             aria-hidden={false}
