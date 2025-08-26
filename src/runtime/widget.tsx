@@ -13,7 +13,7 @@ import {
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import { StateView, Button, styles } from "./components/ui"
+import { StateView, styles } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -22,13 +22,14 @@ import type {
   ExportResult,
   IMStateWithFmeExport,
   FmeWidgetState,
-  ErrorState,
   WorkspaceParameter,
   WorkspaceItemDetail,
   FmeResponse,
   FmeServiceInfo,
+  ErrorState,
 } from "../shared/types"
 import {
+  makeErrorView,
   DrawingTool,
   ViewMode,
   ErrorType,
@@ -38,6 +39,7 @@ import {
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
+import { resolveMessageOrKey } from "../shared/utils"
 
 // Widget-specific styles
 const CSS = {
@@ -852,7 +854,123 @@ export default function Widget(
     return translateWidget(key)
   })
 
-  // Message component removed; use StateView + error state only
+  // Render error view with translation and support hints
+  const renderWidgetError = hooks.useEventCallback(
+    (
+      error: ErrorState | null,
+      onRetry?: () => void
+    ): React.ReactElement | null => {
+      if (!error) return null
+
+      // Determine base error message with translation
+      const baseMsgKey = error.message
+      let baseMessage = ""
+      if (typeof baseMsgKey === "string" && baseMsgKey) {
+        try {
+          baseMessage = resolveMessageOrKey(baseMsgKey, translate)
+        } catch {
+          baseMessage = String(baseMsgKey)
+        }
+      }
+      if (!baseMessage) {
+        baseMessage = translate("unknownErrorOccurred")
+      }
+
+      // Determine support email from config
+      const configuredEmailRaw = props.config?.supportEmail
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const configuredEmail =
+        typeof configuredEmailRaw === "string" &&
+        emailRegex.test(configuredEmailRaw)
+          ? configuredEmailRaw
+          : undefined
+
+      // Extract email from userFriendlyMessage if present
+      let extractedEmail: string | undefined
+      const ufm = error.userFriendlyMessage
+      if (typeof ufm === "string" && emailRegex.test(ufm)) {
+        const match = ufm.match(emailRegex)
+        extractedEmail = match ? match[0] : undefined
+      }
+
+      // Choose which email to use (config > extracted)
+      const supportEmail = configuredEmail || extractedEmail
+
+      // Build support hint (with email or fallback)
+      let supportHint: string
+      if (supportEmail) {
+        // Use runtime translation for the contact email placeholder.
+        supportHint = translate("contactSupportWithEmail").replace(
+          /\{\s*email\s*\}/i,
+          supportEmail
+        )
+      } else if (typeof ufm === "string" && ufm.trim()) {
+        supportHint = ufm
+      } else {
+        supportHint = translate("contactSupport")
+      }
+
+      // Create actions (retry clears error by default)
+      const actions: Array<{ label: string; onClick: () => void }> = []
+      const retryHandler =
+        onRetry ??
+        (() => {
+          dispatch(fmeActions.setError(null))
+        })
+      actions.push({ label: translate("retry"), onClick: retryHandler })
+
+      return (
+        <StateView
+          // Show the base error message only; render support hint separately below
+          state={makeErrorView(baseMessage, {
+            code: error.code,
+            actions,
+          })}
+          renderActions={(act, ariaLabel) => {
+            // If an email was found, render it as a mailto link for accessibility
+            return (
+              <div
+                role="group"
+                aria-label={ariaLabel}
+                data-actions-count={act?.length ?? 0}
+              >
+                {/* Render support hint on its own row */}
+                <div>
+                  {supportEmail
+                    ? translate("contactSupportWithEmail")
+                        .split(/\{\s*email\s*\}/i)
+                        .map((part, idx, arr) => {
+                          if (idx < arr.length - 1) {
+                            return (
+                              <React.Fragment key={idx}>
+                                {part}
+                                <a
+                                  href={`mailto:${supportEmail}`}
+                                  css={styles.typography.link}
+                                  aria-label={translate(
+                                    "contactSupportWithEmail",
+                                    { email: supportEmail }
+                                  )}
+                                >
+                                  {supportEmail}
+                                </a>
+                              </React.Fragment>
+                            )
+                          }
+                          return (
+                            <React.Fragment key={idx}>{part}</React.Fragment>
+                          )
+                        })
+                    : supportHint}
+                </div>
+              </div>
+            )
+          }}
+          center={false}
+        />
+      )
+    }
+  )
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
@@ -945,8 +1063,7 @@ export default function Widget(
           "MapNotConfigured",
           () => runStartupValidation()
         )
-        // Override for map-specific UI hints
-        mapConfigError.suggestion = translate("openSettingsAndSelectMap")
+        // Keep default suggestion for missing map
         setValidationError(mapConfigError)
         return
       }
@@ -1141,9 +1258,26 @@ export default function Widget(
   const handleSubmissionError = (error: unknown) => {
     const errorMessage =
       getErrorMessage(error) || translate("unknownErrorOccurred")
+    // Build localized failure message and append contact support hint
+    const contactHint = (() => {
+      const configured = props.config?.supportEmail
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+      const isValidSupport =
+        typeof configured === "string" && emailRegex.test(configured)
+      if (isValidSupport) {
+        return translate("contactSupportWithEmail").replace(
+          /\{\s*email\s*\}/i,
+          configured
+        )
+      }
+      return translate("contactSupport")
+    })()
+    const baseFailMessage = translate("orderFailed")
+    const resultMessage =
+      `${baseFailMessage}. ${errorMessage}. ${contactHint}`.trim()
     const result: ExportResult = {
       success: false,
-      message: `Failed to submit export order: ${errorMessage}`,
+      message: resultMessage,
       code: (error as { code?: string }).code || "SUBMISSION_ERROR",
     }
     finalizeOrder(result)
@@ -1418,50 +1552,8 @@ export default function Widget(
     if (reduxState.startupValidationError) {
       // Let Workflow handle startup validation errors
     } else {
-      const e = reduxState.error
-      // Derive localized message
-      const messageText = translate(e.message)
-      const configuredEmail = props.config?.supportEmail
-      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-      const hintEmail =
-        (typeof configuredEmail === "string" && isValidEmail(configuredEmail)
-          ? configuredEmail
-          : undefined) ||
-        (typeof e.userFriendlyMessage === "string" &&
-        emailRegex.test(e.userFriendlyMessage)
-          ? e.userFriendlyMessage.match(emailRegex)?.[0]
-          : undefined)
-
-      const supportHint = hintEmail
-        ? translate("contactSupportWithEmail").replace("{email}", hintEmail)
-        : e.userFriendlyMessage
-          ? String(e.userFriendlyMessage)
-          : translate("contactSupport")
-      const buttonText = translate("retry")
-      const onAction = () => {
-        dispatch(fmeActions.setError(null))
-      }
-
-      return (
-        <div css={[styles.col, styles.gapMedium, styles.paddingSmall]}>
-          <div css={styles.headerRow}>
-            <div css={styles.typography.title}>{translate("errorTitle")}</div>
-            {e.code ? <div css={styles.typography.title}>{e.code}</div> : null}
-          </div>
-          {/* Main message */}
-          <div css={styles.typography.caption}>{messageText}</div>
-          {/* Support hint */}
-          {supportHint ? (
-            <div css={styles.typography.caption}>{supportHint}</div>
-          ) : null}
-          <Button
-            text={buttonText}
-            onClick={onAction}
-            logging={{ enabled: true, prefix: "FME-Export" }}
-            tooltipPlacement="bottom"
-          />
-        </div>
-      )
+      // Other errors
+      return renderWidgetError(reduxState.error)
     }
   }
 
