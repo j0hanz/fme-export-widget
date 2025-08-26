@@ -45,6 +45,7 @@ import {
   ParameterFormService,
   ErrorHandlingService,
 } from "../../shared/services"
+import { resolveMessageOrKey } from "../../shared/utils"
 
 // Debounce interval for workspace loading
 const DEBOUNCE_MS = 500
@@ -225,8 +226,6 @@ const useFormStateManager = (
     setErrors,
   }
 }
-
-// Form utilities
 
 const normalizeValue = (
   value: FormPrimitive | undefined,
@@ -702,7 +701,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       code?: string,
       supportText?: string
     ) => {
-      // Build actions based on provided callbacks
+      // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
         actions.push({ label: translate("retry"), onClick: onRetry })
@@ -710,36 +709,56 @@ export const Workflow: React.FC<WorkflowProps> = ({
         actions.push({ label: translate("back"), onClick: onBack })
       }
 
-      // Extract email from support text or config
       const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
       const tokenRegex = /\{\s*email\s*\}/i
-      const configuredEmail = String(config?.supportEmail || "").trim()
-      const configuredIsEmail = emailRegex.test(configuredEmail)
 
-      const emailMatch = supportText?.match(emailRegex)
-      const email = emailMatch?.[0]
-        ? emailMatch[0]
-        : tokenRegex.test(supportText || "") && configuredIsEmail
-          ? configuredEmail
-          : undefined
+      // Validate configured support email if present
+      const configuredEmailRaw = String(config?.supportEmail || "").trim()
+      const configuredEmail = emailRegex.test(configuredEmailRaw)
+        ? configuredEmailRaw
+        : undefined
 
-      // Compose message with support hint if needed
-      let composedMessage = message
-      if (supportText && !email) {
-        const supportHint = tokenRegex.test(supportText)
-          ? translateRuntime("contactSupport")
-          : supportText
-        composedMessage = `${message} ${supportHint}`
-      } else if (!supportText && !email) {
-        // If no support text, use generic translation
-        composedMessage = `${message} ${translateRuntime("contactSupport")}`
+      // Extract email from support text if present
+      let extractedEmail: string | undefined = undefined
+      if (supportText) {
+        const match = supportText.match(emailRegex)
+        if (match) extractedEmail = match[0]
+      }
+
+      // Determine which email to use (configured takes precedence)
+      const email = configuredEmail || extractedEmail
+
+      // Build support hint with email or fallback
+      let supportHint: string
+      if (email) {
+        supportHint = translateRuntime("contactSupportWithEmail").replace(
+          tokenRegex,
+          email
+        )
+      } else if (supportText && supportText.trim()) {
+        if (tokenRegex.test(supportText)) {
+          supportHint = translateRuntime("contactSupport")
+        } else {
+          supportHint = supportText
+        }
+      } else {
+        supportHint = translateRuntime("contactSupport")
+      }
+
+      // Localize error message using shared helper; preserve capitalization on literals
+      let localizedMessage = message
+      try {
+        localizedMessage = resolveMessageOrKey(String(message), translate)
+      } catch {
+        /* swallow translation errors and keep raw message */
       }
 
       return (
         <StateView
-          state={makeErrorView(composedMessage, { code, actions })}
+          // Show the base error message only; render support hint on a separate row
+          state={makeErrorView(localizedMessage, { code, actions })}
           renderActions={(act, ariaLabel) => {
-            // Render actions with email link if available
+            // Render the email link as a separate element when an email exists to avoid nested buttons
             const actionsCount = act?.length ?? 0
             return (
               <div
@@ -747,30 +766,34 @@ export const Workflow: React.FC<WorkflowProps> = ({
                 aria-label={ariaLabel}
                 data-actions-count={actionsCount}
               >
-                {email &&
-                  (() => {
-                    // Render email link with translation
-                    const template = translateRuntime("contactSupportWithEmail")
-                    const parts = template.split(tokenRegex)
-                    const before = parts[0] || ""
-                    const after = parts[1] || ""
-                    return (
-                      <div>
-                        {before}
-                        <a
-                          href={`mailto:${email}`}
-                          css={styles.typography.link}
-                          aria-label={translateRuntime(
-                            "contactSupportWithEmail",
-                            { email }
-                          )}
-                        >
-                          {email}
-                        </a>
-                        {after}
-                      </div>
-                    )
-                  })()}
+                <div>
+                  {email
+                    ? (() => {
+                        const template = translateRuntime(
+                          "contactSupportWithEmail"
+                        )
+                        const parts = template.split(tokenRegex)
+                        const before = parts[0] || ""
+                        const after = parts[1] || ""
+                        return (
+                          <React.Fragment>
+                            {before}
+                            <a
+                              href={`mailto:${email}`}
+                              css={styles.typography.link}
+                              aria-label={translateRuntime(
+                                "contactSupportWithEmail",
+                                { email }
+                              )}
+                            >
+                              {email}
+                            </a>
+                            {after}
+                          </React.Fragment>
+                        )
+                      })()
+                    : supportHint}
+                </div>
               </div>
             )
           }}

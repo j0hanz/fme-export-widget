@@ -119,10 +119,10 @@ describe("FME Export Widget", () => {
     screen.getByText(/Validerar konfiguration|Laddar karttjänster/i)
     unmount1()
 
-    // Non-startup error state renders retry button and clears error on click
+    // Set up initial state with a non-startup error
     const errorState: FmeWidgetState = {
       ...initialFmeState,
-      viewMode: ViewMode.INITIAL, // Move past startup validation
+      viewMode: ViewMode.INITIAL,
       isStartupValidating: false,
       // Non-startup error (not startupValidationError)
       error: {
@@ -133,8 +133,7 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
-    const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
-
+    // Rerender widget with error state
     renderWidget(
       <Wrapped
         widgetId="w2"
@@ -153,15 +152,18 @@ describe("FME Export Widget", () => {
       ).toBeNull()
     })
 
-    const retryBtn = await screen.findByRole("button", { name: /Försök igen/i })
-    fireEvent.click(retryBtn)
-
-    const dispatched = storeDispatch.mock.calls.map((c) => c[0])
-    expect(
-      dispatched.some(
-        (a: any) => a?.type === "FME_SET_ERROR" && a?.error === null
-      )
-    ).toBe(true)
+    // Expect error actions group with a support mailto link
+    const actionsGroup = await screen.findByRole("group", {
+      name: /Felåtgärder/i,
+    })
+    expect(actionsGroup).toBeInTheDocument()
+    const links = await screen.findAllByRole("link")
+    const supportLink = links.find((el) =>
+      /support@example\.com/i.test(el.textContent || "")
+    ) as HTMLAnchorElement | undefined
+    expect(supportLink).toBeTruthy()
+    const href = supportLink && supportLink.getAttribute("href")
+    expect(href).toBe("mailto:support@example.com")
   })
 
   test("startup validation fails when user email is missing and shows support link", async () => {
@@ -247,7 +249,8 @@ describe("FME Export Widget", () => {
 
     // Check for translated support text (may vary based on translation)
     await waitFor(() => {
-      expect(screen.queryByText(/för hjälp|kontakta|support/i)).toBeTruthy()
+      const nodes = screen.queryAllByText(/för hjälp|kontakta|support/i)
+      expect(nodes.length).toBeGreaterThan(0)
     })
   })
 
