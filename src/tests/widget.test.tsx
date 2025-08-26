@@ -8,6 +8,8 @@ import {
   widgetRender,
   wrapWidget,
   updateStore,
+  waitForMilliseconds,
+  withStoreRender,
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
 import Widget, {
@@ -148,6 +150,8 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
+    // Wait a tick to allow the store update to propagate before re‑rendering
+    await waitForMilliseconds(0)
     // Rerender widget with error state
     renderWidget(
       <Wrapped
@@ -199,6 +203,8 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
+    // Pause briefly to allow the Redux store to apply the startup error state
+    await waitForMilliseconds(0)
 
     renderWidget(
       <Wrapped
@@ -243,6 +249,8 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": errorState })
+    // Let the state update commit before mounting the widget
+    await waitForMilliseconds(0)
 
     renderWidget(
       <Wrapped
@@ -429,6 +437,8 @@ describe("FME Export Widget", () => {
       },
     }
     updateStore({ "fme-state": successState })
+    // Wait for the success state to be processed before rendering
+    await waitForMilliseconds(0)
     const storeDispatch = jest.spyOn(getAppStore(), "dispatch")
 
     const { unmount: unmount1 } = renderWidget(
@@ -452,6 +462,8 @@ describe("FME Export Widget", () => {
       name: /Ny beställning/i,
     })
     fireEvent.click(reuseBtn)
+    // Wait a tick to give any asynchronous handlers time to dispatch actions
+    await waitForMilliseconds(0)
 
     expect(
       storeDispatch.mock.calls.some(
@@ -474,6 +486,8 @@ describe("FME Export Widget", () => {
       geometryJson: { type: "polygon", rings: [[[0, 0]]] } as any,
     }
     updateStore({ "fme-state": formState })
+    // Allow the form state to propagate prior to rendering
+    await waitForMilliseconds(0)
     storeDispatch.mockClear()
 
     renderWidget(
@@ -496,6 +510,8 @@ describe("FME Export Widget", () => {
 
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
     fireEvent.click(submitBtn)
+    // Allow validation and error dispatches to complete before assertions
+    await waitForMilliseconds(0)
 
     expect(
       storeDispatch.mock.calls.some(
@@ -535,6 +551,8 @@ describe("FME Export Widget", () => {
       } as any,
     }
     updateStore({ "fme-state": formState })
+    // Pause briefly to ensure the state update has been applied
+    await waitForMilliseconds(0)
 
     const { createFmeFlowClient } = require("../shared/api") as {
       createFmeFlowClient: jest.Mock
@@ -561,6 +579,8 @@ describe("FME Export Widget", () => {
 
     const submitBtn = await screen.findByRole("button", { name: /Beställ/i })
     fireEvent.click(submitBtn)
+    // Allow asynchronous submission logic to run prior to assertions
+    await waitForMilliseconds(0)
 
     // Assert runDataDownload received sync service mode
     await waitFor(() => {
@@ -576,5 +596,14 @@ describe("FME Export Widget", () => {
     // Cleanup
     unmount()
     ;(global as any).__TEST_PORTAL_EMAIL__ = undefined
+  })
+
+  test("calcArea returns zero for non-polygon geometries", () => {
+    // Use makeModules with null geometryEngine to simulate missing engine
+    const modules: any = makeModules(null)
+    const dummyRender = withStoreRender(false)
+    expect(typeof dummyRender).toBe("function")
+    const area = calcArea({ type: "point" } as any, modules)
+    expect(area).toBe(0)
   })
 })

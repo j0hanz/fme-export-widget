@@ -14,7 +14,12 @@ import FmeReduxStoreExtension, {
   fmeActions,
   initialFmeState,
 } from "../extensions/store"
-import { initExtensions, initStore } from "jimu-for-test"
+import {
+  initExtensions,
+  initStore,
+  waitForMilliseconds,
+  runFuncAsync,
+} from "jimu-for-test"
 
 describe("FME store - Redux store extension and reducer", () => {
   beforeAll(() => {
@@ -311,5 +316,18 @@ describe("FME store - Redux store extension and reducer", () => {
       state = reducer(state as any, fmeActions.setExportError(null))
       expect((state as any).exportError).toBeNull()
     })
+  })
+
+  test("microtask flush helpers work as expected", async () => {
+    let val = 0
+    // Schedule a microtask that increments val
+    Promise.resolve().then(() => {
+      val = 1
+    })
+    // Wait for the microtask to be scheduled and resolved
+    await waitForMilliseconds(0)
+    const flush = runFuncAsync(0)
+    await flush(() => undefined, [])
+    expect(val).toBe(1)
   })
 })

@@ -1,5 +1,6 @@
 import FmeFlowApiClient, { createFmeFlowClient } from "../shared/api"
 import { FmeFlowApiError, HttpMethod } from "../shared/types"
+import { waitForMilliseconds, runFuncAsync } from "jimu-for-test"
 
 // Minimal esriConfig mock shape used by api.ts
 interface Interceptor {
@@ -110,6 +111,8 @@ describe("FmeFlowApiClient (api.ts)", () => {
     } as any
 
     await client.submitGeometryJob("myws", polygon, { other: "x" }, "myrepo")
+    // Allow any pending asynchronous work scheduled by submitGeometryJob to complete
+    await waitForMilliseconds(0)
 
     expect(requestSpy).toHaveBeenCalled()
     const [endpoint, options] = requestSpy.mock.calls[0]
@@ -152,6 +155,8 @@ describe("FmeFlowApiClient (api.ts)", () => {
 
     // Test streaming URL
     await client.runDataStreaming("workspace", {}, "repo")
+    // Give the client a chance to schedule and resolve microtasks before inspecting spies
+    await waitForMilliseconds(0)
     const streamingCall = requestSpy.mock.calls.find(
       (c) =>
         typeof c[0] === "string" &&
@@ -208,6 +213,12 @@ describe("FmeFlowApiClient (api.ts)", () => {
       "repo",
       undefined
     )
+    // Wait for any asynchronous callbacks to flush and then drain microtasks
+    await waitForMilliseconds(0)
+    const flushHtml = runFuncAsync(0)
+    await flushHtml(() => {
+      return undefined
+    }, [])
     expect(fetchMock).toHaveBeenCalled()
     expect(restSpy).toHaveBeenCalledWith("ws", { p: 1 }, "repo", undefined)
     expect(htmlResult.status).toBe(200)
@@ -224,6 +235,12 @@ describe("FmeFlowApiClient (api.ts)", () => {
       { k: "v" },
       "repo"
     )
+    // Flush microtasks after the second download call
+    await waitForMilliseconds(0)
+    const flushAuth = runFuncAsync(0)
+    await flushAuth(() => {
+      return undefined
+    }, [])
     expect(webhookSpy).toHaveBeenCalled()
     expect(restSpy).toHaveBeenLastCalledWith(
       "workspace",
@@ -267,7 +284,8 @@ describe("FmeFlowApiClient (api.ts)", () => {
       },
       "repo"
     )
-
+    // Ensure the URL has been captured after asynchronous completion
+    await waitForMilliseconds(0)
     expect(capturedUrl).toMatch(
       /^https:\/\/example\.com\/fmedatadownload\/repo\/ws\?/
     )
@@ -296,6 +314,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       { a: 1, tm_ttc: 5, tm_ttl: 10, tm_tag: "q1" },
       "repo"
     )
+    await waitForMilliseconds(0)
 
     const [, options] = requestSpy.mock.calls[0] as [string, any]
     const payload = JSON.parse(options.body)
@@ -330,6 +349,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     ;(global as any).fetch = fetchMock
 
     await client.runDataDownload("ws", { a: 1 }, "repo")
+    await waitForMilliseconds(0)
 
     expect(capturedHeaders).toBeTruthy()
     expect(capturedHeaders["User-Agent"]).toBeUndefined()
@@ -364,6 +384,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     ;(global as any).fetch = fetchMock
 
     const result = await client.runDataDownload("ws", { p: 1 }, "repo")
+    await waitForMilliseconds(0)
     expect(restSpy).toHaveBeenCalled()
     expect(result.status).toBe(200)
 
@@ -481,6 +502,8 @@ describe("FmeFlowApiClient (api.ts)", () => {
       { p1: "v1", tm_ttc: 30, tm_ttl: 90, tm_tag: "prio" },
       "repo"
     )
+    // Flush asynchronous completion before asserting on payload
+    await waitForMilliseconds(0)
 
     const restCall = requestSpy.mock.calls.find(
       ([endpoint]) =>
@@ -519,6 +542,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       { foo: "bar", tm_ttc: 1, tm_ttl: 2, tm_tag: "t" },
       "repo"
     )
+    await waitForMilliseconds(0)
 
     const call = requestSpy.mock.calls.find(
       ([endpoint]) =>
@@ -553,6 +577,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       .mockResolvedValue({ data: { id: 5 }, status: 200, statusText: "OK" })
 
     await client.submitJob("ws", { tm_ttc: 1, tm_ttl: 2, tm_tag: "  " }, "repo")
+    await waitForMilliseconds(0)
 
     const [, opts] = requestSpy.mock.calls[0] as [string, any]
     const payload = JSON.parse(opts.body)
@@ -572,6 +597,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       .mockResolvedValue({ data: { id: 7 }, status: 200, statusText: "OK" })
 
     await client.submitJob("ws", { a: 1 }, "repo")
+    await waitForMilliseconds(0)
 
     const [, opts] = requestSpy.mock.calls[0] as [string, any]
     const payload = JSON.parse(opts.body)
@@ -598,6 +624,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       TMDirectives: { ttc: 3, ttl: 6, tag: "x" },
     }
     await client.submitJob("ws", prebuilt as any, "repo")
+    await waitForMilliseconds(0)
 
     const [, opts] = requestSpy.mock.calls[0] as [string, any]
     const payload = JSON.parse(opts.body)
