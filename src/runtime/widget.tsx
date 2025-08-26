@@ -207,76 +207,35 @@ const abortController = (
   }
 }
 
-// Area calculation helpers for cleaner separation of concerns
-const calculateExtentFallback = (polygon: __esri.Polygon): number => {
-  try {
-    const extent = polygon.extent
-    if (!extent) return 0
-
-    const fallbackArea = Math.abs(extent.width * extent.height)
-    return fallbackArea > MIN_VALID_AREA ? fallbackArea : 0
-  } catch {
-    return 0
-  }
-}
-
-const tryGeodesicArea = (
-  polygon: __esri.Polygon,
-  geomEng: { geodesicArea?: (g: __esri.Geometry, unit: string) => number }
-): number | null => {
-  if (!polygon.spatialReference?.isGeographic) return null
-  if (typeof geomEng.geodesicArea !== "function") return null
-
-  try {
-    const area = geomEng.geodesicArea(polygon, AREA_UNIT)
-    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
-      ? Math.abs(area)
-      : null
-  } catch {
-    return null
-  }
-}
-
-const tryPlanarArea = (
-  polygon: __esri.Polygon,
-  geomEng: { planarArea?: (g: __esri.Geometry, unit: string) => number }
-): number | null => {
-  if (typeof geomEng.planarArea !== "function") return null
-
-  try {
-    const area = geomEng.planarArea(polygon, AREA_UNIT)
-    return Number.isFinite(area) && Math.abs(area) > MIN_VALID_AREA
-      ? Math.abs(area)
-      : null
-  } catch {
-    return null
-  }
-}
-
 // Calculate area of a polygon geometry using multiple methods
-const calcArea = (geometry: __esri.Geometry, modules: EsriModules): number => {
+export const calcArea = (
+  geometry: __esri.Geometry,
+  modules: EsriModules
+): number => {
   if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
 
   const polygon = geometry as __esri.Polygon
-  const geomEng = modules.geometryEngine as {
-    geodesicArea?: (g: __esri.Geometry, unit: string) => number
-    planarArea?: (g: __esri.Geometry, unit: string) => number
+  const sr = polygon.spatialReference
+  const geomEng = modules.geometryEngine as any
+  const useGeodesic = Boolean(sr?.isGeographic || (sr as any)?.isWebMercator)
+
+  try {
+    if (useGeodesic && typeof geomEng?.geodesicArea === "function") {
+      const a = geomEng.geodesicArea(polygon, AREA_UNIT)
+      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
+        ? Math.abs(a)
+        : 0
+    }
+    if (!useGeodesic && typeof geomEng?.planarArea === "function") {
+      const a = geomEng.planarArea(polygon, AREA_UNIT)
+      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
+        ? Math.abs(a)
+        : 0
+    }
+  } catch {
+    // Ignore area calculation errors
   }
-
-  // Try geodesic first for geographic SR
-  const geodesicArea = tryGeodesicArea(polygon, geomEng)
-  if (geodesicArea !== null) return geodesicArea
-
-  // Fallback to planar
-  const planarArea = tryPlanarArea(polygon, geomEng)
-  if (planarArea !== null) return planarArea
-
-  // Final fallback to extent
-  const extentArea = calculateExtentFallback(polygon)
-  if (extentArea === 0) {
-    console.warn(`FME Export Widget - all area calculation methods failed`)
-  }
-  return extentArea
+  return 0
 }
 
 // Polygon validation helpers for focused error checking
@@ -373,26 +332,42 @@ const validatePolygonSimplicity = (
 ): ErrorState | null => {
   try {
     const geometryEngine = modules.geometryEngine as any
-    if (geometryEngine?.simplify) {
-      const simplified = geometryEngine.simplify(polygon)
-      if (!simplified) {
+    // Check for self-intersections if geometryEngine is available
+    if (typeof geometryEngine?.isSimple === "function") {
+      const simple = geometryEngine.isSimple(polygon)
+      if (simple === false) {
         return errorService.createError(
           "POLYGON_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
-          {
-            code: "GEOM_SELF_INTERSECTING",
-          }
+          { code: "GEOM_SELF_INTERSECTING" }
         )
       }
     }
   } catch {
-    // Silently continue if simplify fails
+    // Ignore simplicity check errors
   }
   return null
 }
 
+// Simplify polygon geometry if possible
+const getSimplifiedPolygon = (
+  poly: __esri.Polygon,
+  modules: EsriModules
+): __esri.Polygon => {
+  try {
+    const geometryEngine = modules.geometryEngine as any
+    if (typeof geometryEngine?.simplify === "function") {
+      const simplified = geometryEngine.simplify(poly)
+      if (simplified && simplified.type === "polygon") return simplified
+    }
+  } catch {
+    // Ignore simplification errors
+  }
+  return poly
+}
+
 // Validate polygon geometry with focused validation steps
-const validatePolygon = (
+export const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
 ): { valid: boolean; error?: ErrorState } => {
@@ -1081,12 +1056,18 @@ export default function Widget(
           return
         }
 
+        // Prefer a simplified polygon when available to ensure clean rings
+        const geomForUse =
+          geometry.type === "polygon"
+            ? getSimplifiedPolygon(geometry, modules)
+            : geometry
+
         // Set symbol
         if (evt.graphic && modules) {
           evt.graphic.symbol = CSS.symbols.highlight as any
         }
 
-        const calculatedArea = calcArea(geometry, modules)
+        const calculatedArea = calcArea(geomForUse, modules)
 
         // Max area
         const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
@@ -1102,11 +1083,11 @@ export default function Widget(
           return
         }
 
-        dispatch(fmeActions.setGeometry(geometry, Math.abs(calculatedArea)))
+        dispatch(fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea)))
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         // Store current geometry in local state (not Redux - following golden rule)
-        setCurrentGeometry(geometry)
+        setCurrentGeometry(geomForUse)
 
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
       } catch (error) {
@@ -1416,11 +1397,11 @@ export default function Widget(
 
   const navigateBack = hooks.useEventCallback(() => {
     const { viewMode, previousViewMode } = reduxState
-    const fallback = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
+    const defaultRoute = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
     const target =
       previousViewMode && previousViewMode !== viewMode
         ? previousViewMode
-        : fallback
+        : defaultRoute
     navigateTo(target)
   })
 
@@ -1436,8 +1417,7 @@ export default function Widget(
   if (reduxState.error && reduxState.error.severity === "error") {
     // Only handle non-startup errors here; startup errors are handled by Workflow
     if (reduxState.startupValidationError) {
-      // Let Workflow render startup validation errors
-      // Fall through to render Workflow
+      // Let Workflow handle startup validation errors
     } else {
       const e = reduxState.error
 
