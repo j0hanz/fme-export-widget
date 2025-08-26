@@ -34,6 +34,94 @@ describe("ErrorHandlingService", () => {
     expect(custom.recoverable).toBe(true)
     expect(custom.retry).toBe(retry)
   })
+
+  test("deriveStartupError maps explicit error codes to concise messages", () => {
+    const svc = new ErrorHandlingService()
+    const t = (k: string) => k
+
+    expect(svc.deriveStartupError({ code: "UserEmailMissing" }, t)).toEqual({
+      code: "UserEmailMissing",
+      message: "userEmailMissing",
+    })
+    expect(svc.deriveStartupError({ code: "INVALID_CONFIG" }, t)).toEqual({
+      code: "INVALID_CONFIG",
+      message: "invalidConfiguration",
+    })
+    expect(svc.deriveStartupError({ code: "ARCGIS_MODULE_ERROR" }, t)).toEqual({
+      code: "ARCGIS_MODULE_ERROR",
+      message: "connectionFailed",
+    })
+    expect(svc.deriveStartupError({ code: "WEBHOOK_AUTH_ERROR" }, t)).toEqual({
+      code: "WEBHOOK_AUTH_ERROR",
+      message: "authenticationFailed",
+    })
+  })
+
+  test("deriveStartupError maps HTTP status codes", () => {
+    const svc = new ErrorHandlingService()
+    const t = (k: string) => k
+
+    expect(svc.deriveStartupError({ status: 401 }, t)).toEqual({
+      code: "AUTH_ERROR",
+      message: "startupValidationFailed",
+    })
+    expect(svc.deriveStartupError({ status: 403 }, t)).toEqual({
+      code: "AUTH_ERROR",
+      message: "startupValidationFailed",
+    })
+    expect(svc.deriveStartupError({ status: 404 }, t)).toEqual({
+      code: "REPO_NOT_FOUND",
+      message: "repoNotFound",
+    })
+    expect(svc.deriveStartupError({ status: 500 }, t)).toEqual({
+      code: "SERVER_ERROR",
+      message: "serverError",
+    })
+    expect(svc.deriveStartupError({ status: 400 }, t)).toEqual({
+      code: "HTTP_ERROR",
+      message: "connectionFailed",
+    })
+  })
+
+  test("deriveStartupError detects timeouts, network, and bad responses", () => {
+    const svc = new ErrorHandlingService()
+    const t = (k: string) => k
+
+    // Timeout by code
+    expect(svc.deriveStartupError({ code: "ETIMEDOUT" }, t)).toEqual({
+      code: "TIMEOUT",
+      message: "timeout",
+    })
+    // Timeout by message
+    expect(
+      svc.deriveStartupError(new Error("Request timeout exceeded"), t)
+    ).toEqual({ code: "TIMEOUT", message: "timeout" })
+
+    // Network errors
+    expect(svc.deriveStartupError(new TypeError("Failed to fetch"), t)).toEqual(
+      { code: "NETWORK_ERROR", message: "networkError" }
+    )
+    expect(
+      svc.deriveStartupError(new Error("Network connection lost"), t)
+    ).toEqual({ code: "NETWORK_ERROR", message: "networkError" })
+
+    // Bad JSON/parse
+    expect(
+      svc.deriveStartupError(
+        new Error("Unexpected token < in JSON at position 0"),
+        t
+      )
+    ).toEqual({ code: "BAD_RESPONSE", message: "badResponse" })
+  })
+
+  test("deriveStartupError falls back to STARTUP_ERROR", () => {
+    const svc = new ErrorHandlingService()
+    const t = (k: string) => k
+    expect(svc.deriveStartupError(new Error("weird"), t)).toEqual({
+      code: "STARTUP_ERROR",
+      message: "startupValidationFailed",
+    })
+  })
 })
 
 describe("ParameterFormService.convertParametersToFields", () => {
@@ -343,7 +431,7 @@ describe("ParameterFormService.validateFormValues", () => {
     )
     expect(invalid.isValid).toBe(false)
     expect(invalid.errors).toMatchObject({
-      Title: "Title is required",
+      Title: "",
       Count: "Count must be a number",
       OptionalRatio: "Ratio must be a number",
     })

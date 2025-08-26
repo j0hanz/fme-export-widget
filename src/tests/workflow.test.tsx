@@ -211,6 +211,8 @@ describe("Workflow component", () => {
     if (submitBtn1) {
       fireEvent.click(submitBtn1)
       expect(onFormSubmit).not.toHaveBeenCalled()
+      const inlineReq1 = screen.queryByText(/is required/i)
+      expect(inlineReq1).toBeNull()
     } else {
       const missingCfg = screen.queryByText(
         /Saknar exportkonfiguration|Missing export configuration/i

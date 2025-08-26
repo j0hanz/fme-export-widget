@@ -39,7 +39,7 @@ import {
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
-import { resolveMessageOrKey } from "../shared/utils"
+import { resolveMessageOrKey, getErrorMessage } from "../shared/utils"
 
 // Widget-specific styles
 const CSS = {
@@ -70,15 +70,6 @@ const MODULES: readonly string[] = [
 ] as const
 
 // Small utility helpers (behavior-preserving)
-const hasMessage = (x: unknown): x is { message?: unknown } =>
-  typeof x === "object" && x !== null && "message" in x
-
-const getErrorMessage = (err: unknown): string =>
-  hasMessage(err) &&
-  (typeof err.message === "string" || typeof err.message === "number")
-    ? String(err.message)
-    : ""
-
 const isThenable = (
   v: unknown
 ): v is { then: (...args: unknown[]) => unknown } =>
@@ -88,12 +79,10 @@ const isThenable = (
 
 // Note: Translations must come exclusively from default.ts files; no manual fallbacks
 
-// Area formatting thresholds
+// Area calculation and formatting constants
 const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
 const AREA_DECIMALS = 2
 const COINCIDENT_EPSILON = 0.001
-
-// Area calculation constants
 const AREA_UNIT = "square-meters"
 const MIN_VALID_AREA = 0.001 // m²
 
@@ -240,26 +229,28 @@ export const calcArea = (
   return 0
 }
 
+// Shared validation error creation helper
+const createGeometryValidationError = (
+  messageKey: string,
+  code: string
+): ErrorState =>
+  errorService.createError(messageKey, ErrorType.GEOMETRY, { code })
+
 // Polygon validation helpers for focused error checking
 const validateGeometryExists = (
   geometry: __esri.Geometry | undefined
 ): ErrorState | null => {
   if (!geometry) {
-    return errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
-      code: "GEOM_MISSING",
-    })
+    return createGeometryValidationError("GEOMETRY_MISSING", "GEOM_MISSING")
   }
   return null
 }
 
 const validateGeometryType = (geometry: __esri.Geometry): ErrorState | null => {
   if (geometry.type !== "polygon") {
-    return errorService.createError(
+    return createGeometryValidationError(
       "GEOMETRY_TYPE_INVALID",
-      ErrorType.GEOMETRY,
-      {
-        code: "GEOM_TYPE_INVALID",
-      }
+      "GEOM_TYPE_INVALID"
     )
   }
   return null
@@ -267,21 +258,16 @@ const validateGeometryType = (geometry: __esri.Geometry): ErrorState | null => {
 
 const validatePolygonRings = (polygon: __esri.Polygon): ErrorState | null => {
   if (!polygon.rings?.length) {
-    return errorService.createError("POLYGON_NO_RINGS", ErrorType.GEOMETRY, {
-      code: "GEOM_NO_RINGS",
-    })
+    return createGeometryValidationError("POLYGON_NO_RINGS", "GEOM_NO_RINGS")
   }
   return null
 }
 
 const validateRingGeometry = (ring: unknown[]): ErrorState | null => {
   if (!Array.isArray(ring) || ring.length < 3) {
-    return errorService.createError(
+    return createGeometryValidationError(
       "POLYGON_MIN_VERTICES",
-      ErrorType.GEOMETRY,
-      {
-        code: "GEOM_MIN_VERTICES",
-      }
+      "GEOM_MIN_VERTICES"
     )
   }
 
@@ -292,12 +278,9 @@ const validateRingGeometry = (ring: unknown[]): ErrorState | null => {
   )
 
   if (uniquePoints.size < 3) {
-    return errorService.createError(
+    return createGeometryValidationError(
       "POLYGON_MIN_VERTICES",
-      ErrorType.GEOMETRY,
-      {
-        code: "GEOM_MIN_VERTICES",
-      }
+      "GEOM_MIN_VERTICES"
     )
   }
   return null
@@ -314,12 +297,9 @@ const validateRingClosure = (ring: unknown[]): ErrorState | null => {
       Math.abs(first[1] - last[1]) >= COINCIDENT_EPSILON
 
     if (notClosed) {
-      return errorService.createError(
+      return createGeometryValidationError(
         "POLYGON_RING_NOT_CLOSED",
-        ErrorType.GEOMETRY,
-        {
-          code: "GEOM_RING_NOT_CLOSED",
-        }
+        "GEOM_RING_NOT_CLOSED"
       )
     }
   } catch {
@@ -338,10 +318,9 @@ const validatePolygonSimplicity = (
     if (typeof geometryEngine?.isSimple === "function") {
       const simple = geometryEngine.isSimple(polygon)
       if (simple === false) {
-        return errorService.createError(
+        return createGeometryValidationError(
           "POLYGON_SELF_INTERSECTING",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_SELF_INTERSECTING" }
+          "GEOM_SELF_INTERSECTING"
         )
       }
     }
@@ -449,26 +428,41 @@ const sanitizePoint = (pt: unknown): unknown => {
   return [x, y]
 }
 
+// Check if two points are coincident within epsilon
+const arePointsCoincident = (p1: unknown[], p2: unknown[]): boolean => {
+  return (
+    Array.isArray(p1) &&
+    Array.isArray(p2) &&
+    Math.abs((p1[0] as number) - (p2[0] as number)) < COINCIDENT_EPSILON &&
+    Math.abs((p1[1] as number) - (p2[1] as number)) < COINCIDENT_EPSILON
+  )
+}
+
 const ensureRingClosure = (ring: unknown[]): unknown[] => {
   try {
     const first = ring[0]
     const last = ring[ring.length - 1]
 
-    const needsClosure =
-      Array.isArray(first) &&
-      Array.isArray(last) &&
-      (Math.abs((first[0] as number) - (last[0] as number)) >=
-        COINCIDENT_EPSILON ||
-        Math.abs((first[1] as number) - (last[1] as number)) >=
-          COINCIDENT_EPSILON)
-
-    if (needsClosure) {
+    if (!arePointsCoincident(first as unknown[], last as unknown[])) {
       return [...ring, [first[0] as number, first[1] as number]]
     }
   } catch {
     /* ignore closure enforcement errors */
   }
   return ring
+}
+
+// Calculate vertex count for a polygon (excluding closure point)
+const calculateVertexCount = (geometry: __esri.Polygon): number => {
+  const vertices = geometry.rings?.[0]
+  if (!vertices || vertices.length < 2) return 0
+
+  const firstPoint = vertices[0]
+  const lastPoint = vertices[vertices.length - 1]
+
+  // Check if polygon is auto-closed
+  const isAutoClosed = arePointsCoincident(firstPoint, lastPoint)
+  return isAutoClosed ? vertices.length - 1 : vertices.length
 }
 
 const sanitizeRing = (ring: unknown): unknown => {
@@ -479,19 +473,15 @@ const sanitizeRing = (ring: unknown): unknown => {
 }
 
 const removeZMFlags = (result: { [key: string]: unknown }): void => {
-  if (Object.prototype.hasOwnProperty.call(result, "hasZ")) {
-    delete result.hasZ
-  }
-  if (Object.prototype.hasOwnProperty.call(result, "hasM")) {
-    delete result.hasM
-  }
+  delete result.hasZ
+  delete result.hasM
 }
 
 const ensureSpatialReference = (
   result: { [key: string]: unknown },
   spatialRef?: unknown
 ): void => {
-  if (spatialRef && !("spatialReference" in result)) {
+  if (spatialRef && !result.spatialReference) {
     result.spatialReference = spatialRef
   }
 }
@@ -539,7 +529,13 @@ const attachAoi = (
   return base
 }
 
-// Get user email from the portal
+// Email validation utilities
+const isValidEmail = (email: unknown): boolean => {
+  if (typeof email !== "string" || !email) return false
+  if (/no-?reply/i.test(email)) return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
 const getEmail = async (): Promise<string> => {
   const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
   const portal = new Portal()
@@ -551,13 +547,6 @@ const getEmail = async (): Promise<string> => {
   }
 
   return email
-}
-
-// Validate email format
-const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (/no-?reply/i.test(email)) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
 // Prepare FME parameters for submission
@@ -654,11 +643,13 @@ const createSketchVM = (
 
 // Configure sketch view model symbols
 const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
+  const { colors } = CSS
+
   sketchViewModel.polygonSymbol = CSS.symbols.highlight as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
-    color: CSS.colors.orangeOutline,
+    color: colors.orangeOutline,
     width: 2,
     style: "solid",
   }
@@ -667,15 +658,14 @@ const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
     type: "simple-marker",
     style: "circle",
     size: 8,
-    color: CSS.colors.orangeOutline,
+    color: colors.orangeOutline,
     outline: {
-      color: CSS.colors.white,
+      color: colors.white,
       width: 1,
     },
   }
 }
 
-// Create a state manager for drawing state
 const createDrawingStateManager = (dispatch: (action: unknown) => void) => {
   let clickCount = 0
 
@@ -697,23 +687,6 @@ const createDrawingStateManager = (dispatch: (action: unknown) => void) => {
 
     getClickCount: () => clickCount,
   }
-}
-
-const calculateVertexCount = (geometry: __esri.Polygon): number => {
-  const vertices = geometry.rings?.[0]
-  if (!vertices || vertices.length < 2) return 0
-
-  const firstPoint = vertices[0]
-  const lastPoint = vertices[vertices.length - 1]
-
-  // Check if polygon is auto-closed
-  const isAutoClosed =
-    Array.isArray(firstPoint) &&
-    Array.isArray(lastPoint) &&
-    Math.abs(firstPoint[0] - lastPoint[0]) < COINCIDENT_EPSILON &&
-    Math.abs(firstPoint[1] - lastPoint[1]) < COINCIDENT_EPSILON
-
-  return isAutoClosed ? vertices.length - 1 : vertices.length
 }
 
 const processSketchEvent = (
@@ -757,8 +730,6 @@ const processSketchEvent = (
   }
 }
 
-// Handle sketch create events and track drawing progress
-// Create sketch event handlers with improved structure
 const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
@@ -770,8 +741,6 @@ const setupSketchEventHandlers = (
     processSketchEvent(evt, stateManager, onDrawComplete, dispatch)
   })
 }
-
-// Measurement widgets removed as unused
 
 // Process FME response
 const processFmeResponse = (
@@ -1641,7 +1610,6 @@ export default function Widget(
         startupValidationError={reduxState.startupValidationError}
         onRetryValidation={runStartupValidation}
       />
-      {/* Message component removed */}
     </>
   )
 }

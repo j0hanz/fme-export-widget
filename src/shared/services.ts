@@ -2,7 +2,6 @@ import type {
   ErrorState,
   WorkspaceParameter,
   DynamicFieldConfig,
-  FmeFlowApiError,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
 
@@ -13,25 +12,21 @@ const isEmpty = (v: unknown): boolean =>
   v === "" ||
   (Array.isArray(v) && v.length === 0)
 
+const isInt = (value: unknown): boolean => Number.isInteger(Number(value))
+const isNum = (value: unknown): boolean => !isNaN(Number(value))
+
 const filterUiParams = (
   parameters: readonly WorkspaceParameter[],
   skip: readonly string[]
-): readonly WorkspaceParameter[] =>
-  parameters.filter((p) => !skip.includes(p.name))
+) => parameters.filter((p) => !skip.includes(p.name))
 
-const makeFieldOpts = (
-  param: WorkspaceParameter
-): ReadonlyArray<{ label: string; value: string | number }> | undefined =>
+const makeFieldOpts = (param: WorkspaceParameter) =>
   param.listOptions?.map((o) => ({
     label: o.caption || o.value,
     value: o.value,
   }))
 
-const isInt = (value: unknown): boolean => Number.isInteger(Number(value))
-
-const isNum = (value: unknown): boolean => !isNaN(Number(value))
-
-const makeValError = (fieldName: string, errorType: string): string =>
+const makeValError = (fieldName: string, errorType: string) =>
   `${fieldName}:${errorType}`
 
 // Small helpers to reduce duplication
@@ -92,107 +87,88 @@ export class ErrorHandlingService {
     error: unknown,
     translate: (key: string) => string
   ): { code: string; message: string } {
-    // Explicit code handling first
     const explicitCode =
-      (error as any)?.code ||
-      ((error as any)?.name && String((error as any).name)) ||
-      (typeof (error as any)?.message === "string"
-        ? (error as any).message
-        : undefined)
+      (error as any)?.code || (error as any)?.name || (error as any)?.message
 
     if (typeof explicitCode === "string") {
       const code = explicitCode.trim()
-      // Known custom errors
-      if (/^UserEmailMissing$/i.test(code)) {
-        return {
-          code: "UserEmailMissing",
-          message: translate("userEmailMissing"),
-        }
+      const knownErrors: { [key: string]: string } = {
+        // Config / auth
+        UserEmailMissing: "userEmailMissing",
+        INVALID_CONFIG: "invalidConfiguration",
+        WEBHOOK_AUTH_ERROR: "authenticationFailed",
+        // ArcGIS runtime not available
+        ARCGIS_MODULE_ERROR: "connectionFailed",
       }
-      if (/^INVALID_CONFIG$/i.test(code)) {
-        return {
-          code: "INVALID_CONFIG",
-          message: translate("invalidConfiguration"),
-        }
-      }
-      if (/^ARCGIS_MODULE_ERROR$/i.test(code)) {
-        return {
-          code: "ARCGIS_MODULE_ERROR",
-          message: translate("connectionFailed"),
-        }
-      }
-      if (/^WEBHOOK_AUTH_ERROR$/i.test(code)) {
-        return {
-          code: "WEBHOOK_AUTH_ERROR",
-          message: translate("authenticationFailed"),
+
+      for (const [errorCode, messageKey] of Object.entries(knownErrors)) {
+        if (new RegExp(`^${errorCode}$`, "i").test(code)) {
+          return { code: errorCode, message: translate(messageKey) }
         }
       }
     }
 
-    const fmeErr = error as FmeFlowApiError
-    const status = (fmeErr && fmeErr.status) || (error as any)?.status
+    const status = (error as any)?.status
     const msg = (error as Error)?.message || ""
-
-    // Network/timeout heuristics
-    const isTimeout =
-      /timeout/i.test(msg) || (error as any)?.code === "ETIMEDOUT"
-    const isNetwork = /network/i.test(msg) || /Failed to fetch/i.test(msg)
-    const isNonJson = /Unexpected token|JSON|parse/i.test(msg)
 
     if (typeof status === "number") {
       if (status === 401 || status === 403) {
         return {
-          code: `TokenInvalid (${status})`,
-          message: translate("authenticationFailed"),
+          code: "AUTH_ERROR",
+          message: translate("startupValidationFailed"),
         }
       }
       if (status === 404) {
         return {
-          code: "RepoNotFound (404)",
-          message: translate("connectionFailed"),
+          code: "REPO_NOT_FOUND",
+          message: translate("repoNotFound"),
         }
       }
       if (status >= 500) {
         return {
-          code: `ServerError (${status})`,
-          message: translate("connectionFailed"),
+          code: "SERVER_ERROR",
+          message: translate("serverError"),
         }
       }
       return {
-        code: `FmeServerError (${status})`,
-        message: translate("startupValidationFailed"),
+        code: "HTTP_ERROR",
+        message: translate("connectionFailed"),
       }
     }
 
-    if (isTimeout)
-      return { code: "Timeout", message: translate("connectionFailed") }
-    if (isNetwork)
-      return { code: "NetworkError", message: translate("connectionFailed") }
-    if ((error as Error)?.name === "TypeError") {
-      return { code: "NetworkError", message: translate("connectionFailed") }
+    // Network/timeout heuristics
+    if (/timeout/i.test(msg) || (error as any)?.code === "ETIMEDOUT") {
+      return { code: "TIMEOUT", message: translate("timeout") }
     }
-    if (isNonJson)
+    if (
+      /network|failed to fetch/i.test(msg) ||
+      (error as Error)?.name === "TypeError"
+    ) {
+      return { code: "NETWORK_ERROR", message: translate("networkError") }
+    }
+    if (/unexpected token|json|parse/i.test(msg)) {
       return {
-        code: "BadResponse",
-        message: translate("startupValidationFailed"),
+        code: "BAD_RESPONSE",
+        message: translate("badResponse"),
       }
+    }
 
     return {
-      code: "StartupError",
+      code: "STARTUP_ERROR",
       message: translate("startupValidationFailed"),
     }
   }
 }
 
-// Service for handling workspace parameter forms
+// Service for converting and validating parameters
 export class ParameterFormService {
-  // Parameters that should be hidden from UI (handled programmatically)
+  // Parameters to skip from UI generation and validation
   private readonly skipParams: readonly string[] = [
     "MAXX",
     "MINX",
     "MAXY",
     "MINY",
-    "AreaOfInterest", // Geometry parameter - handled by drawing workflow
+    "AreaOfInterest",
   ]
 
   // Converts workspace parameters to dynamic field configurations
@@ -216,18 +192,14 @@ export class ParameterFormService {
       placeholder: param.description || `Enter ${param.name}`,
     }
 
-    // Handle list-based parameters
     const options = makeFieldOpts(param)
-    if (options) {
-      return { ...baseField, options }
-    }
+    const isTextEdit = param.type === ParameterType.TEXT_EDIT
 
-    // Add textarea rows for text edit fields
-    if (param.type === ParameterType.TEXT_EDIT) {
-      return { ...baseField, rows: 3 }
+    return {
+      ...baseField,
+      ...(options && { options }),
+      ...(isTextEdit && { rows: 3 }),
     }
-
-    return baseField
   }
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
@@ -268,31 +240,23 @@ export class ParameterFormService {
 
     for (const param of filteredParams) {
       const value = data[param.name]
+      const isRequired = !param.optional
+      const hasValue = !isEmpty(value)
 
-      if (!param.optional && isEmpty(value)) {
+      if (isRequired && !hasValue) {
         errors.push(makeValError(param.name, "required"))
         continue
       }
 
-      if (param.optional && isEmpty(value)) {
-        continue
-      }
-
-      const typeError = this.validateParamType(param, value)
-      if (typeError) {
-        errors.push(typeError)
-      }
-
-      const listError = this.validateParamList(param, value)
-      if (listError) {
-        errors.push(listError)
+      if (hasValue) {
+        const typeError = this.validateParamType(param, value)
+        const listError = this.validateParamList(param, value)
+        if (typeError) errors.push(typeError)
+        if (listError) errors.push(listError)
       }
     }
 
-    return {
-      isValid: errors.length === 0,
-      errors,
-    }
+    return { isValid: errors.length === 0, errors }
   }
 
   // Validates individual parameter type constraints
@@ -316,23 +280,20 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (!hasListOptions(param)) {
-      return null
-    }
+    if (!hasListOptions(param)) return null
 
     const validValues = param.listOptions.map((opt) => opt.value)
+    const isMulti = isMultiListParam(param)
 
-    if (isMultiListParam(param)) {
+    if (isMulti) {
       const arr = toArray(value)
       const invalid = arr.filter((v) => !validValues.includes(v as any))
-      if (invalid.length) {
-        return makeValError(param.name, "choice")
-      }
-    } else if (!validValues.includes(value as any)) {
-      return makeValError(param.name, "choice")
+      return invalid.length ? makeValError(param.name, "choice") : null
     }
 
-    return null
+    return validValues.includes(value as any)
+      ? null
+      : makeValError(param.name, "choice")
   }
 
   // Validates form values against dynamic field configurations
@@ -341,16 +302,20 @@ export class ParameterFormService {
     fields: readonly DynamicFieldConfig[]
   ): { isValid: boolean; errors: { [key: string]: string } } {
     const errors: { [key: string]: string } = {}
+
     for (const field of fields) {
       const value = values[field.name]
-      if (field.required && isEmpty(value)) {
-        errors[field.name] = `${field.label} is required`
-        continue
+      const hasValue = !isEmpty(value)
+
+      if (field.required && !hasValue) {
+        // Keep field invalid without inline text; UI shows * and form summary; empty string avoids duplicate messages.
+        errors[field.name] = ""
+      } else if (hasValue) {
+        const typeError = this.validateFieldType(field, value)
+        if (typeError) errors[field.name] = typeError
       }
-      if (!field.required && isEmpty(value)) continue
-      const typeError = this.validateFieldType(field, value)
-      if (typeError) errors[field.name] = typeError
     }
+
     return { isValid: Object.keys(errors).length === 0, errors }
   }
 

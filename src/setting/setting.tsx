@@ -18,6 +18,7 @@ import {
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
+import { isAuthError, getErrorMessage } from "../shared/utils"
 import type {
   WidgetConfig,
   IMWidgetConfig,
@@ -30,21 +31,6 @@ function isFmeFlowApiError(err: unknown): err is FmeFlowApiError {
   return err instanceof FmeFlowApiError
 }
 
-// Narrowing helpers to avoid any and centralize safe access
-function hasMessage(x: unknown): x is { message?: unknown } {
-  return typeof x === "object" && x !== null && "message" in x
-}
-
-function getErrorMessage(err: unknown): string {
-  if (
-    hasMessage(err) &&
-    (typeof err.message === "string" || typeof err.message === "number")
-  ) {
-    return String(err.message)
-  }
-  return ""
-}
-
 function extractErrorCode(err: unknown): string {
   if (isFmeFlowApiError(err)) return err.code || ""
   const code = (err as { [key: string]: unknown })?.code
@@ -54,30 +40,18 @@ function extractErrorCode(err: unknown): string {
 function getHttpStatus(err: unknown): number | undefined {
   const e = err as { [key: string]: unknown }
   const response = e?.response as { status?: unknown } | undefined
-  const candidates: unknown[] = [
-    e?.status,
-    response?.status,
-    e?.httpCode,
-    e?.httpStatus,
-  ]
-  const rawStatus = candidates.find((v) => typeof v === "number")
-  if (typeof rawStatus === "number") return rawStatus
+  const candidates = [e?.status, response?.status, e?.httpCode, e?.httpStatus]
+  const status = candidates.find((v) => typeof v === "number")
 
-  // Fallback: attempt to parse from message text
+  if (typeof status === "number") return status
+
+  // Fallback: parse from message
   const msg = getErrorMessage(err)
-  const statusMatch =
-    msg.match(/status:\s*(\d{3})/i) ||
-    msg.match(
-      /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
-    ) ||
-    msg.match(/\b(\d{3})\b/)
-  const code = statusMatch ? parseInt(statusMatch[1], 10) : undefined
-  return Number.isFinite(code) ? code : undefined
+  const match = msg.match(/\b(\d{3})\b/)
+  return match ? parseInt(match[1], 10) : undefined
 }
 
 // Module-level status checkers
-const isAuthError = (status: number): boolean =>
-  status === 401 || status === 403
 const isNotFoundError = (status: number): boolean => status === 404
 const isServerError = (status: number): boolean => status >= 500 && status < 600
 
@@ -88,6 +62,22 @@ function validateServerUrl(url: string): string | null {
   try {
     const u = new URL(url.trim())
     if (!/^https?:$/i.test(u.protocol)) return "errorInvalidServerUrl"
+    // Basic hostname checks (not exhaustive)
+    const host = (u.hostname || "").trim()
+    if (!host) return "errorInvalidServerUrl"
+    const isLocalhost = host.toLowerCase() === "localhost"
+    const isIPv4 =
+      /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) &&
+      host.split(".").every((o) => {
+        const n = Number(o)
+        return Number.isFinite(n) && n >= 0 && n <= 255
+      })
+    // IPv6 contains colons
+    const isIPv6 = host.includes(":")
+    const hasDotDomain = host.includes(".")
+    if (!(isLocalhost || isIPv4 || isIPv6 || hasDotDomain)) {
+      return "errorInvalidServerUrl"
+    }
     if (/\/fmerest\b/i.test(u.pathname) || /\/fmeserver\b/i.test(u.pathname))
       return "errorBadBaseUrl"
     return null
@@ -167,29 +157,23 @@ function mapStatusToFieldErrors(
   status: number | undefined,
   translate: (key: string, params?: { [key: string]: unknown }) => string
 ): Partial<{ serverUrl: string; token: string }> {
-  if (status === undefined) return {}
+  if (!status) return {}
 
-  const errorHandlers: {
-    [key: number]: () => Partial<{ serverUrl: string; token: string }>
-  } = {
-    401: () => ({ token: translate("errorTokenIsInvalid") }),
-    403: () => ({ token: translate("errorTokenIsInvalid") }),
-    404: () => ({ serverUrl: translate("errorNotFound") }),
-    0: () => ({ serverUrl: translate("errorNetworkShort") }),
-    408: () => ({ serverUrl: translate("errorTimeout", { status }) }),
-    504: () => ({ serverUrl: translate("errorTimeout", { status }) }),
+  if (isAuthError(status)) {
+    return { token: translate("errorTokenIsInvalid") }
   }
-
-  const handler = errorHandlers[status]
-  if (handler) return handler()
-
+  if (status === 404 || status === 0) {
+    const key = status === 404 ? "errorNotFound" : "errorNetworkShort"
+    return { serverUrl: translate(key) }
+  }
+  if (status === 408 || status === 504) {
+    return { serverUrl: translate("errorTimeout", { status }) }
+  }
   if (isServerError(status)) {
     return { serverUrl: translate("errorServer", { status }) }
   }
 
-  return typeof status === "number"
-    ? { serverUrl: translate("errorHttpStatus", { status }) }
-    : {}
+  return { serverUrl: translate("errorHttpStatus", { status }) }
 }
 
 // String-only config getter to avoid repetitive type assertions
@@ -204,6 +188,9 @@ function useStringConfigValue(config: IMWidgetConfig) {
 
 // Local CSS styles for the setting UI
 const CSS = {
+  ROW: {
+    width: "100%",
+  } as React.CSSProperties,
   ALERT_INLINE: {
     opacity: 0.8,
   } as React.CSSProperties,
@@ -212,11 +199,10 @@ const CSS = {
       width: "100%",
       display: "flex",
       flexDirection: "column",
-      gap: 6,
     } as React.CSSProperties,
     LIST: {
       display: "grid",
-      rowGap: 6,
+      rowGap: 2,
       opacity: 0.8,
       backgroundColor: "#181818",
       padding: 6,
@@ -405,13 +391,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Unified input validation
   const validateAllInputs = hooks.useEventCallback((skipRepoCheck = false) => {
-    const serverUrl = localServerUrl
-    const token = localToken
-    const repository = localRepository
-    const supportEmail = localSupportEmail
-    const tmTtc = localTmTtc
-    const tmTtl = localTmTtl
-
     const messages: Partial<{
       serverUrl: string
       token: string
@@ -419,49 +398,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       supportEmail: string
       tm_ttc: string
       tm_ttl: string
-      tm_tag: string
     }> = {}
 
-    // Validate and sanitize inputs
-    const serverUrlError = validateServerUrl(serverUrl)
-    const tokenError = validateToken(token)
+    const serverUrlError = validateServerUrl(localServerUrl)
+    const tokenError = validateToken(localToken)
     const repositoryError = skipRepoCheck
       ? null
-      : validateRepository(repository, availableRepos)
-    const emailError = validateEmail(supportEmail)
-    // Simple integer >= 0 validation; empty allowed (treated as 0)
-    const toInt = (s: string) => {
-      const n = Number(s)
-      return Number.isFinite(n) ? Math.floor(n) : NaN
+      : validateRepository(localRepository, availableRepos)
+    const emailError = validateEmail(localSupportEmail)
+
+    const validateNumeric = (v: string) => {
+      if (!v.trim()) return null
+      const n = Number(v)
+      return n < 0 || !Number.isFinite(n) ? "requiredField" : null
     }
-    const intErr = (v: string) =>
-      v.trim() === ""
-        ? null
-        : toInt(v) < 0 || !Number.isFinite(toInt(v))
-          ? "requiredField"
-          : null
-    const ttcErrKey = intErr(tmTtc)
-    const ttlErrKey = intErr(tmTtl)
-    const tagErrKey = null // allow any non-empty string
+
+    const ttcError = validateNumeric(localTmTtc)
+    const ttlError = validateNumeric(localTmTtl)
 
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
     if (repositoryError) messages.repository = translate(repositoryError)
     if (emailError) messages.supportEmail = translate(emailError)
-    if (ttcErrKey) (messages as any).tm_ttc = translate(ttcErrKey)
-    if (ttlErrKey) (messages as any).tm_ttl = translate(ttlErrKey)
-    if (tagErrKey) (messages as any).tm_tag = translate(tagErrKey)
+    if (ttcError) messages.tm_ttc = translate(ttcError)
+    if (ttlError) messages.tm_ttl = translate(ttlError)
 
-    // Update local field errors for UI highlighting
     setFieldErrors({
       serverUrl: messages.serverUrl,
       token: messages.token,
       repository: messages.repository,
       supportEmail: messages.supportEmail,
-      tm_ttc: (messages as any).tm_ttc,
-      tm_ttl: (messages as any).tm_ttl,
-      tm_tag: (messages as any).tm_tag,
+      tm_ttc: messages.tm_ttc,
+      tm_ttl: messages.tm_ttl,
+      tm_tag: undefined,
     })
+
     return {
       messages,
       hasErrors: !!(
@@ -699,27 +670,53 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep server URL, token, repository, and support email in sync with config
   React.useEffect(() => {
-    const repo = getStringConfig("repository") || ""
-    if (repo !== localRepository) setLocalRepository(repo)
-    const se = getStringConfig("supportEmail") || ""
-    if (se !== localSupportEmail) setLocalSupportEmail(se)
-    const sm = Boolean((config as any)?.syncMode)
-    if (sm !== localSyncMode) setLocalSyncMode(sm)
-    // Keep server URL and token in sync
-    const su = getStringConfig("fmeServerUrl") || ""
-    if (su !== localServerUrl) setLocalServerUrl(su)
-    const tk = getStringConfig("fmeServerToken") || ""
-    if (tk !== localToken) setLocalToken(tk)
-    // sync directives (coerce to string; defaults shown as 0/empty)
-    const cfgTtc = config?.tm_ttc
-    const cfgTtl = config?.tm_ttl
-    const cfgTag = config?.tm_tag
-    const nextTtc = typeof cfgTtc === "number" ? String(cfgTtc) : "0"
-    const nextTtl = typeof cfgTtl === "number" ? String(cfgTtl) : "0"
-    const nextTag = typeof cfgTag === "string" ? cfgTag : ""
-    if (nextTtc !== localTmTtc) setLocalTmTtc(nextTtc)
-    if (nextTtl !== localTmTtl) setLocalTmTtl(nextTtl)
-    if (nextTag !== localTmTag) setLocalTmTag(nextTag)
+    const updates: Array<[() => boolean, () => void]> = [
+      [
+        () => getStringConfig("repository") !== localRepository,
+        () => {
+          setLocalRepository(getStringConfig("repository") || "")
+        },
+      ],
+      [
+        () => getStringConfig("supportEmail") !== localSupportEmail,
+        () => {
+          setLocalSupportEmail(getStringConfig("supportEmail") || "")
+        },
+      ],
+      [
+        () => Boolean((config as any)?.syncMode) !== localSyncMode,
+        () => {
+          setLocalSyncMode(Boolean((config as any)?.syncMode))
+        },
+      ],
+      [
+        () => getStringConfig("fmeServerUrl") !== localServerUrl,
+        () => {
+          setLocalServerUrl(getStringConfig("fmeServerUrl") || "")
+        },
+      ],
+      [
+        () => getStringConfig("fmeServerToken") !== localToken,
+        () => {
+          setLocalToken(getStringConfig("fmeServerToken") || "")
+        },
+      ],
+    ]
+
+    updates.forEach(([needsUpdate, update]) => {
+      if (needsUpdate()) update()
+    })
+
+    // Handle job directives separately due to type conversion
+    const ttcValue =
+      typeof config?.tm_ttc === "number" ? String(config.tm_ttc) : "0"
+    const ttlValue =
+      typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : "0"
+    const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
+
+    if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
+    if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
+    if (tagValue !== localTmTag) setLocalTmTag(tagValue)
   }, [
     config,
     getStringConfig,
@@ -735,43 +732,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Fetch repository list when server URL or token changes
   React.useEffect(() => {
-    // Clear any previous values
     setAvailableRepos(null)
-    // Cancel previous fetch if any
     if (reposAbortRef.current) {
       reposAbortRef.current.abort()
       reposAbortRef.current = null
     }
 
-    const serverUrl = localServerUrl
-    const token = localToken
-    const serverUrlError = validateServerUrl(serverUrl)
-    const tokenError = validateToken(token)
-    // Do not fetch repositories if server URL or token are invalid
-    if (!serverUrl || !token || serverUrlError || tokenError) return
+    const serverUrlError = validateServerUrl(localServerUrl)
+    const tokenError = validateToken(localToken)
+    if (!localServerUrl || !localToken || serverUrlError || tokenError) return
 
     const controller = new AbortController()
     reposAbortRef.current = controller
-    const signal = controller.signal
 
     const client = new FmeFlowApiClient({
-      serverUrl,
-      token,
+      serverUrl: localServerUrl,
+      token: localToken,
       repository: localRepository || "_",
     })
 
     client
-      .getRepositories(signal)
+      .getRepositories(controller.signal)
       .then((resp) => {
-        if (signal.aborted) return
+        if (controller.signal.aborted) return
         const names = Array.isArray(resp?.data)
           ? (resp.data as Array<{ name: string }>)
               .map((r) => r?.name)
               .filter((n): n is string => typeof n === "string" && n.length > 0)
           : []
         setAvailableRepos(names)
-        const currentRepo = localRepository
-        if (currentRepo && names.length && !names.includes(currentRepo)) {
+
+        if (
+          localRepository &&
+          names.length &&
+          !names.includes(localRepository)
+        ) {
           setFieldErrors((prev) => ({
             ...prev,
             repository: translate("errorRepositoryNotFound"),
@@ -781,13 +776,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }
       })
       .catch((err) => {
-        if (signal.aborted) return
-        // If we cannot list repositories, clear the list
+        if (controller.signal.aborted) return
         setAvailableRepos([])
         const status = getHttpStatus(err)
         const fieldErrs = mapStatusToFieldErrors(status, translate)
-        if (Object.keys(fieldErrs).length > 0)
+        if (Object.keys(fieldErrs).length > 0) {
           setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+        }
       })
 
     return () => {
@@ -800,17 +795,92 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
-    if (!availableRepos || availableRepos.length === 0) return
-    const currentRepo = localRepository
-    if (currentRepo && !availableRepos.includes(currentRepo)) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        repository: translate("errorRepositoryNotFound"),
-      }))
-    } else {
-      setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-    }
+    if (!availableRepos?.length || !localRepository) return
+
+    const hasRepo = availableRepos.includes(localRepository)
+    setFieldErrors((prev) => ({
+      ...prev,
+      repository: hasRepo ? undefined : translate("errorRepositoryNotFound"),
+    }))
   }, [availableRepos, localRepository, translate])
+
+  // Helper for rendering input fields with error alerts
+  const renderInputField = hooks.useEventCallback(
+    ({
+      id,
+      label,
+      value,
+      onChange,
+      placeholder,
+      type = "text",
+      required = false,
+      inputMode,
+    }: {
+      id: string
+      label: React.ReactNode
+      value: string
+      onChange: (val: string) => void
+      placeholder?: string
+      type?: "text" | "email" | "password"
+      required?: boolean
+      inputMode?: "numeric"
+    }) => {
+      // Map control IDs to fieldErrors keys so the correct inline Alert renders
+      let key: keyof typeof fieldErrors | undefined
+      switch (id) {
+        case ID.serverUrl:
+          key = "serverUrl"
+          break
+        case ID.token:
+          key = "token"
+          break
+        case ID.repository:
+          key = "repository"
+          break
+        case ID.tm_ttc:
+          key = "tm_ttc"
+          break
+        case ID.tm_ttl:
+          key = "tm_ttl"
+          break
+        case ID.tm_tag:
+          key = "tm_tag"
+          break
+        case ID.supportEmail:
+          key = "supportEmail"
+          break
+        default:
+          key = undefined
+      }
+      const error = key ? fieldErrors[key] : undefined
+      return (
+        <SettingRow flow="wrap" label={label} level={1} tag="label">
+          <Input
+            id={id}
+            type={type}
+            required={required}
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            errorText={error}
+            inputMode={inputMode}
+          />
+          {error && (
+            <SettingRow flow="wrap" level={3} css={css(CSS.ROW as any)}>
+              <Alert
+                id={`${id}-error`}
+                fullWidth
+                css={css(CSS.ALERT_INLINE as any)}
+                text={error}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
+      )
+    }
+  )
 
   const renderConnectionStatus = (): React.ReactNode => {
     const rows: Array<{ label: string; status: StepStatus }> = [
@@ -883,8 +953,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   return (
     <>
-      <SettingSection title={translate("mapConfiguration")}>
-        <SettingRow level={1}>
+      <SettingSection>
+        <SettingRow flow="wrap" level={1} label={translate("mapConfiguration")}>
           <MapWidgetSelector
             useMapWidgetIds={useMapWidgetIds}
             onSelect={onMapWidgetSelected}
@@ -917,7 +987,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 id={`${ID.supportEmail}-error`}
                 fullWidth
                 css={css(CSS.ALERT_INLINE as any)}
-                text={translate("errorInvalidEmail")}
+                text={fieldErrors.supportEmail}
                 type="error"
                 closable={false}
               />
@@ -925,70 +995,44 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           )}
         </SettingRow>
       </SettingSection>
-      <SettingSection title={translate("fmeServerConfig")}>
+      <SettingSection>
         {/* FME Server URL */}
-        <SettingRow
-          flow="wrap"
-          label={renderRequiredLabel(translate("fmeServerUrl"))}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.serverUrl}
-            required
-            value={localServerUrl}
-            onChange={(val) => {
-              setLocalServerUrl(val)
-              updateConfig("fmeServerUrl", val)
-            }}
-            placeholder={translate("serverUrlPlaceholder")}
-            errorText={fieldErrors.serverUrl}
-          />
-          {fieldErrors.serverUrl && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.serverUrl}-error`}
-                fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
-                text={fieldErrors.serverUrl}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
+        {renderInputField({
+          id: ID.serverUrl,
+          label: renderRequiredLabel(translate("fmeServerUrl")),
+          value: localServerUrl,
+          onChange: (val: string) => {
+            setLocalServerUrl(val)
+            updateConfig("fmeServerUrl", val)
+            // Validate immediately to surface inline error under the field
+            const errKey = validateServerUrl(val)
+            setFieldErrors((prev) => ({
+              ...prev,
+              serverUrl: errKey ? translate(errKey) : undefined,
+            }))
+          },
+          placeholder: translate("serverUrlPlaceholder"),
+          required: true,
+        })}
         {/* FME Server Token */}
-        <SettingRow
-          flow="wrap"
-          label={renderRequiredLabel(translate("fmeServerToken"))}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.token}
-            type="password"
-            required
-            value={localToken}
-            onChange={(val) => {
-              setLocalToken(val)
-              updateConfig("fmeServerToken", val)
-            }}
-            placeholder={translate("tokenPlaceholder")}
-            errorText={fieldErrors.token}
-          />
-          {fieldErrors.token && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.token}-error`}
-                fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
-                text={fieldErrors.token}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
+        {renderInputField({
+          id: ID.token,
+          label: renderRequiredLabel(translate("fmeServerToken")),
+          value: localToken,
+          onChange: (val: string) => {
+            setLocalToken(val)
+            updateConfig("fmeServerToken", val)
+            // Validate immediately to surface inline error under the field
+            const errKey = validateToken(val)
+            setFieldErrors((prev) => ({
+              ...prev,
+              token: errKey ? translate(errKey) : undefined,
+            }))
+          },
+          placeholder: translate("tokenPlaceholder"),
+          type: "password",
+          required: true,
+        })}
         {/* Test connection */}
         <SettingRow flow="wrap" level={2}>
           <Button
@@ -1083,76 +1127,38 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {translate("serviceModeSyncHelper")}
         </SettingRow>
       </SettingSection>
-      <SettingSection title={translate("jobDirectives")}>
+      <SettingSection>
         {/* Job directives (admin defaults) */}
-        <SettingRow
-          flow="wrap"
-          label={translate("tm_ttcLabel")}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.tm_ttc}
-            value={localTmTtc}
-            onChange={(val) => {
-              setLocalTmTtc(val)
-              const n = Number(val)
-              updateConfig(
-                "tm_ttc",
-                Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-              )
-            }}
-            placeholder={"0"}
-            errorText={fieldErrors.tm_ttc}
-            inputMode="numeric"
-          />
-          {fieldErrors.tm_ttc && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.tm_ttc}-error`}
-                fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
-                text={fieldErrors.tm_ttc}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          label={translate("tm_ttlLabel")}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.tm_ttl}
-            value={localTmTtl}
-            onChange={(val) => {
-              setLocalTmTtl(val)
-              const n = Number(val)
-              updateConfig(
-                "tm_ttl",
-                Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-              )
-            }}
-            placeholder={"0"}
-            errorText={fieldErrors.tm_ttl}
-            inputMode="numeric"
-          />
-          {fieldErrors.tm_ttl && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.tm_ttl}-error`}
-                fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
-                text={fieldErrors.tm_ttl}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
+        {renderInputField({
+          id: ID.tm_ttc,
+          label: translate("tm_ttcLabel"),
+          value: localTmTtc,
+          onChange: (val: string) => {
+            setLocalTmTtc(val)
+            const n = Number(val)
+            updateConfig(
+              "tm_ttc",
+              Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+            )
+          },
+          placeholder: "0",
+          inputMode: "numeric",
+        })}
+        {renderInputField({
+          id: ID.tm_ttl,
+          label: translate("tm_ttlLabel"),
+          value: localTmTtl,
+          onChange: (val: string) => {
+            setLocalTmTtl(val)
+            const n = Number(val)
+            updateConfig(
+              "tm_ttl",
+              Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
+            )
+          },
+          placeholder: "0",
+          inputMode: "numeric",
+        })}
         <SettingRow
           flow="wrap"
           label={translate("tm_tagLabel")}

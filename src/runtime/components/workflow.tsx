@@ -66,10 +66,6 @@ const ERROR_NAMES = {
   ABORT: "AbortError",
 } as const
 
-const noOp = (): void => {
-  /* noop */
-}
-
 // Constants for drawing mode configuration
 const DRAWING_MODE_TABS = [
   {
@@ -109,10 +105,8 @@ const formatWorkspaceError = (
       : typeof err === "string"
         ? err
         : translate("unknownErrorOccurred")
-  // Sanitize HTML tags from the error message
-  const safe = String(raw).replace(/<[^>]*>/g, "")
-  const MAX_LEN = 300
-  const msg = safe.length > MAX_LEN ? `${safe.slice(0, MAX_LEN)}…` : safe
+  const safe = raw.replace(/<[^>]*>/g, "")
+  const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
   return `${translate(baseMessage)}: ${msg}`
 }
 
@@ -227,23 +221,17 @@ const useFormStateManager = (
   }
 }
 
-const normalizeValue = (
+const normalizeFormValue = (
   value: FormPrimitive | undefined,
   isMultiSelect: boolean
-): FormPrimitive => {
+): FormPrimitive | SelectValue => {
   if (value === undefined || value === null) {
     return isMultiSelect ? [] : ""
   }
-  return value
-}
-
-const toSelectValue = (
-  value: FormPrimitive,
-  isMultiSelect: boolean
-): SelectValue => {
-  if (Array.isArray(value)) return value as ReadonlyArray<string | number>
-  if (typeof value === "string" || typeof value === "number") return value
-  return isMultiSelect ? [] : ""
+  if (isMultiSelect) {
+    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
+  }
+  return typeof value === "string" || typeof value === "number" ? value : ""
 }
 
 const makePlaceholders = (
@@ -273,19 +261,17 @@ const syncForm = (values: FormValues): void => {
   dispatch(fmeActions.setFormValues(values))
 }
 
-// Remove leading label from validation error messages to avoid duplicate labels
-const stripLabelFromError = (
-  label: string,
-  errorText?: string
-): string | undefined => {
-  if (!errorText) return undefined
-  try {
-    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const re = new RegExp(`^${escaped}\\s+`, "i")
-    return errorText.replace(re, "")
-  } catch {
-    return errorText
-  }
+// Strip label from error messages for cleaner display
+const stripLabelFromError = (errorText?: string): string | undefined => {
+  const t = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
+  if (!t) return undefined
+  // "<Label>: <reason>" → "<reason>"
+  const colonIdx = t.indexOf(":")
+  if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
+  // "<Label> is <reason>" → "<reason>"
+  const isIdx = t.toLowerCase().indexOf(" is ")
+  if (isIdx > -1) return t.slice(isIdx + 1).trim()
+  return t
 }
 
 const renderInput = (
@@ -302,17 +288,12 @@ const renderInput = (
         return
       }
       const num = Number(val)
-      onChange(
-        Number.isFinite(num)
-          ? (num as unknown as FormPrimitive)
-          : ("" as FormPrimitive)
-      )
+      onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
     } else {
       onChange(val)
     }
   }
 
-  // Display value handling
   const displayValue =
     typeof fieldValue === "string" || typeof fieldValue === "number"
       ? String(fieldValue)
@@ -371,16 +352,16 @@ const OrderResult = React.memo(function OrderResult({
     ? translate("reuseGeography")
     : translate("retry")
 
-  const buttonHandler = isSuccess ? onReuseGeography || noOp : onBack || noOp
+  const buttonHandler = isSuccess ? onReuseGeography : onBack
 
   const showDownloadLink = isSuccess && orderResult.downloadUrl
   const showMessage = isSuccess || orderResult.message
-  
+
   // Conditional message based on sync mode
   const messageText = isSuccess
-    ? (isSyncMode && orderResult.downloadUrl
-        ? translate("directDownloadReady")
-        : translate("emailNotificationSent"))
+    ? isSyncMode && orderResult.downloadUrl
+      ? translate("directDownloadReady")
+      : translate("emailNotificationSent")
     : orderResult.message || translate("unknownErrorOccurred")
 
   return (
@@ -420,7 +401,7 @@ const DynamicField = React.memo(function DynamicField({
   translate,
 }: DynamicFieldProps) {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue = normalizeValue(value, isMulti)
+  const fieldValue = normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
 
   switch (field.type) {
@@ -428,7 +409,7 @@ const DynamicField = React.memo(function DynamicField({
     case FormFieldType.MULTI_SELECT:
       return (
         <Select
-          value={toSelectValue(fieldValue, isMulti)}
+          value={fieldValue as SelectValue}
           options={field.options || []}
           placeholder={placeholders.select}
           onChange={(val) => {
@@ -452,7 +433,7 @@ const DynamicField = React.memo(function DynamicField({
     case FormFieldType.NUMBER:
       return renderInput(
         "number",
-        fieldValue,
+        fieldValue as FormPrimitive,
         placeholders.enter,
         onChange,
         field.readOnly
@@ -471,7 +452,7 @@ const DynamicField = React.memo(function DynamicField({
     case FormFieldType.PASSWORD:
       return renderInput(
         "password",
-        fieldValue,
+        fieldValue as FormPrimitive,
         placeholders.enter,
         onChange,
         field.readOnly
@@ -495,7 +476,7 @@ const DynamicField = React.memo(function DynamicField({
     case FormFieldType.TEXT:
       return renderInput(
         "text",
-        fieldValue,
+        fieldValue as FormPrimitive,
         placeholders.enter,
         onChange,
         field.readOnly
@@ -601,15 +582,7 @@ const ExportForm = React.memo(function ExportForm({
   // Helper function to strip HTML tags from text safely
   const stripHtml = hooks.useEventCallback((html: string): string => {
     if (!html) return ""
-    try {
-      // Use DOMParser to safely parse HTML without executing scripts
-      const parser = new DOMParser()
-      const doc = parser.parseFromString(html, "text/html")
-      return doc.body.textContent || doc.body.innerText || ""
-    } catch {
-      // Fallback: return original text if parsing fails
-      return html
-    }
+    return html.replace(/<[^>]*>/g, "")
   })
 
   return (
@@ -710,7 +683,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       code?: string,
       supportText?: string
     ) => {
-      // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
         actions.push({ label: translate("retry"), onClick: onRetry })
@@ -718,43 +690,24 @@ export const Workflow: React.FC<WorkflowProps> = ({
         actions.push({ label: translate("back"), onClick: onBack })
       }
 
-      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-      const tokenRegex = /\{\s*email\s*\}/i
+      const email = config?.supportEmail
+      const supportHintNode = email
+        ? (() => {
+            const [pre, post = ""] = translateRuntime(
+              "contactSupportWithEmail"
+            ).split(/\{\s*email\s*\}/i)
+            return (
+              <>
+                {pre}
+                <a href={`mailto:${email}`} css={styles.typography.link}>
+                  {email}
+                </a>
+                {post}
+              </>
+            )
+          })()
+        : supportText || translateRuntime("contactSupport")
 
-      // Validate configured support email if present
-      const configuredEmailRaw = String(config?.supportEmail || "").trim()
-      const configuredEmail = emailRegex.test(configuredEmailRaw)
-        ? configuredEmailRaw
-        : undefined
-
-      // Extract email from support text if present
-      let extractedEmail: string | undefined = undefined
-      if (supportText) {
-        const match = supportText.match(emailRegex)
-        if (match) extractedEmail = match[0]
-      }
-
-      // Determine which email to use (configured takes precedence)
-      const email = configuredEmail || extractedEmail
-
-      // Build support hint with email or fallback
-      let supportHint: string
-      if (email) {
-        supportHint = translateRuntime("contactSupportWithEmail").replace(
-          tokenRegex,
-          email
-        )
-      } else if (supportText && supportText.trim()) {
-        if (tokenRegex.test(supportText)) {
-          supportHint = translateRuntime("contactSupport")
-        } else {
-          supportHint = supportText
-        }
-      } else {
-        supportHint = translateRuntime("contactSupport")
-      }
-
-      // Localize error message using shared helper; preserve capitalization on literals
       let localizedMessage = message
       try {
         localizedMessage = resolveMessageOrKey(String(message), translate)
@@ -764,48 +717,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
       return (
         <StateView
-          // Show the base error message only; render support hint on a separate row
           state={makeErrorView(localizedMessage, { code, actions })}
-          renderActions={(act, ariaLabel) => {
-            // Render the email link as a separate element when an email exists to avoid nested buttons
-            const actionsCount = act?.length ?? 0
-            return (
-              <div
-                role="group"
-                aria-label={ariaLabel}
-                data-actions-count={actionsCount}
-              >
-                <div>
-                  {email
-                    ? (() => {
-                        const template = translateRuntime(
-                          "contactSupportWithEmail"
-                        )
-                        const parts = template.split(tokenRegex)
-                        const before = parts[0] || ""
-                        const after = parts[1] || ""
-                        return (
-                          <React.Fragment>
-                            {before}
-                            <a
-                              href={`mailto:${email}`}
-                              css={styles.typography.link}
-                              aria-label={translateRuntime(
-                                "contactSupportWithEmail",
-                                { email }
-                              )}
-                            >
-                              {email}
-                            </a>
-                            {after}
-                          </React.Fragment>
-                        )
-                      })()
-                    : supportHint}
-                </div>
-              </div>
-            )
-          }}
+          renderActions={(_act, ariaLabel) => (
+            <div role="group" aria-label={ariaLabel}>
+              <>{supportHintNode}</>
+            </div>
+          )}
           center={false}
         />
       )
@@ -1034,15 +951,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderInitial = () => {
-    // Early returns for loading and error states
     if (isModulesLoading) {
       return renderLoading(undefined, translate("preparingMapTools"))
     }
 
-    // Main content
     return (
       <div css={styles.centered}>
-        {/* Drawing mode */}
         <ButtonTabs
           items={getDrawingModeItems()}
           value={drawingMode}
@@ -1060,7 +974,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const renderSelection = () => {
-    // Loading
     const shouldShowLoading = shouldShowWsLoading(
       isLoadingWorkspaces,
       workspaces,
@@ -1074,16 +987,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return renderLoading(message)
     }
 
-    // Error
     if (workspaceError) {
-      return renderError(workspaceError, onBack || noOp, loadWsList)
+      return renderError(workspaceError, onBack, loadWsList)
     }
 
-    // Empty
     if (!workspaces.length) {
       const actions = [
         { label: translate("retry"), onClick: loadWsList },
-        { label: translate("back"), onClick: onBack || noOp },
+        { label: translate("back"), onClick: onBack },
       ]
       return (
         <StateView
@@ -1092,7 +1003,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     }
 
-    // Content
     return (
       <div css={styles.button.default} role="list">
         {renderWsButtons()}
@@ -1101,20 +1011,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderForm = () => {
-    // Guard clause for missing handlers
     if (!onFormBack || !onFormSubmit) {
-      return renderError(
-        translate("missingExportConfiguration"),
-        onBack || noOp
-      )
+      return renderError(translate("missingExportConfiguration"), onBack)
     }
 
-    // Guard clause for missing workspace data
     if (!workspaceParameters || !selectedWorkspace) {
       return renderLoading(translate("loadingWorkspaceDetails"))
     }
 
-    // Main export form
     return (
       <ExportForm
         workspaceParameters={workspaceParameters}
@@ -1129,15 +1033,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderCurrent = () => {
-    // Startup validation
     if (state === ViewMode.STARTUP_VALIDATION) {
-      // Show validation error if exists
       if (startupValidationError) {
-        // Pass raw email so the error renderer can detect it and build an accessible mailto link.
-        // If no email is configured, provide a generic support phrase.
-        const fallbackSupport = config?.supportEmail
-          ? String(config.supportEmail)
-          : translateRuntime("contactSupport")
+        const fallbackSupport =
+          config?.supportEmail || translateRuntime("contactSupport")
         return renderError(
           startupValidationError.message,
           undefined,
@@ -1150,15 +1049,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
         )
       }
 
-      // Show loading state during validation
       const loadingMessage =
         startupValidationStep || translate("validatingStartup")
       return <StateView state={makeLoadingView(loadingMessage)} />
     }
 
-    // Order result
     if (state === ViewMode.ORDER_RESULT && orderResult) {
-      // Guard clause for missing order result
       return (
         <OrderResult
           orderResult={orderResult}
@@ -1170,26 +1066,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     }
 
-    // Submission loading
     if (isSubmittingOrder) {
       return renderLoading(translate("submittingOrder"))
     }
 
-    // General error
     if (error) {
-      if (error.severity !== "info") {
-        return renderError(
-          error.message,
-          undefined,
-          onBack || noOp,
-          error.code,
-          error.userFriendlyMessage
-        )
-      }
       return renderError(
         error.message,
         undefined,
-        undefined,
+        error.severity !== "info" ? onBack : undefined,
         error.code,
         error.userFriendlyMessage
       )
@@ -1199,7 +1084,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
-        // If drawing is not allowed, show error
         if (isDrawing && (clickCount || 0) === 0) {
           return (
             <div css={styles.centered}>
@@ -1221,17 +1105,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.EXPORT_FORM:
         return renderForm()
       case ViewMode.ORDER_RESULT:
-        // This case is handled above
-        return renderError(translate("orderResultMissing"), onBack || noOp)
+        return renderError(translate("orderResultMissing"), onBack)
     }
-    // Unexpected state
-    try {
-      // Log unexpected state to console for debugging
-      console.warn("FME Export - Unexpected view state:", state)
-    } catch {
-      /* no-op */
-    }
-    return renderError(translate("unknownErrorOccurred"), onBack || noOp)
   }
 
   return (
