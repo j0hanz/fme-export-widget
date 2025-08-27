@@ -74,12 +74,7 @@ export const styles = {
   relative: css({ position: "relative" }),
   block: css({ display: "block" }),
   marginTop: (value: number) => css({ marginTop: value }),
-
-  // Spacing utilities
-  gapSmall: css({ gap: "0.5rem" }),
-  gapMedium: css({ gap: "1rem" }),
-  gapLarge: css({ gap: "2rem" }),
-  paddingSmall: css({ padding: "0.5rem" }),
+  gapBtnGroup: css({ gap: "2rem" }),
 
   // Text utilities
   textCenter: css({ textAlign: "center" }),
@@ -198,12 +193,11 @@ export const styles = {
       display: "flex",
       flexFlow: "column",
       width: "100%",
-      gap: "1rem",
+      gap: "0.5rem",
     }),
 
     text: css({
       flex: 1,
-      textAlign: "end",
     }),
 
     icon: css({
@@ -838,7 +832,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
     <AdvancedButtonGroup
       role="radiogroup"
       aria-label={ariaLabel}
-      css={[styles.row, styles.gapLarge]}
+      css={[styles.row, styles.gapBtnGroup]}
       style={style}
       variant="contained"
     >
