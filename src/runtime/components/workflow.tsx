@@ -360,7 +360,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   // Conditional message based on sync mode
   const messageText = isSuccess
     ? isSyncMode && orderResult.downloadUrl
-      ? translate("directDownloadReady")
+      ? null
       : translate("emailNotificationSent")
     : (() => {
         // Localize known failure messages/codes
@@ -381,7 +381,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
       {rows}
       {showDownloadLink && (
         <div css={styles.typography.caption}>
-          {translate("downloadReady")}:{" "}
+          {translate("downloadReady")}{" "}
           <a
             href={orderResult.downloadUrl}
             target="_blank"
@@ -392,10 +392,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
           </a>
         </div>
       )}
-      {showMessage && <div css={styles.typography.caption}>{messageText}</div>}
+      {showMessage && messageText && (
+        <div css={styles.typography.caption}>{messageText}</div>
+      )}
       <Button
         text={buttonText}
         onClick={buttonHandler}
+        css={styles.marginTop(12)}
         logging={{ enabled: true, prefix: "FME-Export" }}
         tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
         tooltipPlacement="bottom"
@@ -1120,7 +1123,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (isSubmittingOrder) {
-      return renderLoading(translate("submittingOrder"))
+      const isSyncMode = Boolean(config?.syncMode)
+      const loadingMessageKey = isSyncMode
+        ? "submittingOrderSync"
+        : "submittingOrder"
+      return renderLoading(translate(loadingMessageKey))
     }
 
     if (error) {

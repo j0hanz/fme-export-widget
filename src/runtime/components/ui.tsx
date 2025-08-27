@@ -73,6 +73,7 @@ export const styles = {
   fullWidth: css({ width: "100%" }),
   relative: css({ position: "relative" }),
   block: css({ display: "block" }),
+  marginTop: (value: number) => css({ marginTop: value }),
 
   // Spacing utilities
   gapSmall: css({ gap: "0.5rem" }),
@@ -714,7 +715,7 @@ export const Button: React.FC<ButtonProps> = ({
   preset,
   size = "default",
   variant = "contained",
-  color = "inherit",
+  color = "default",
   htmlType = "button",
   ...jimuProps
 }) => {
@@ -743,23 +744,30 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  const presetProps =
-    preset === "primary"
-      ? { color: "primary" as const, variant: "contained" as const }
-      : preset === "secondary"
-        ? { color: "default" as const, variant: "outlined" as const }
-        : {
-            color:
-              color === "tertiary" || color === "danger"
-                ? ("default" as const)
-                : color,
-            variant,
-          }
+  // Determine final color and variant based on preset or props
+  const { finalColor, finalVariant } = (() => {
+    if (preset === "primary") {
+      return {
+        finalColor: "primary" as const,
+        finalVariant: "contained" as const,
+      }
+    }
+    if (preset === "secondary") {
+      return {
+        finalColor: "default" as const,
+        finalVariant: "outlined" as const,
+      }
+    }
+    const normalizedColor =
+      color === "tertiary" || color === "danger" ? ("default" as const) : color
+    return { finalColor: normalizedColor, finalVariant: variant }
+  })()
 
   const buttonElement = (
     <JimuButton
       {...jimuProps}
-      {...presetProps}
+      color={finalColor}
+      variant={finalVariant}
       size={size}
       htmlType={htmlType}
       icon={!text && !!icon}
