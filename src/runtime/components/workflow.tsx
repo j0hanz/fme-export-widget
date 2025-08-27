@@ -38,7 +38,7 @@ import {
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
 import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
-import listIcon from "jimu-icons/svg/outlined/application/folder.svg"
+import exportIcon from "jimu-icons/svg/outlined/editor/export.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import {
@@ -933,9 +933,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       <Button
         key={workspace.name}
         text={workspace.title || workspace.name}
-        icon={listIcon}
+        icon={exportIcon}
         role="listitem"
-        alignText="end"
         onClick={() => {
           loadWorkspace(workspace.name)
         }}
@@ -994,6 +993,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={onReset}
+        alignText="start"
         text={translate("cancel")}
         size="sm"
         aria-label={translate("cancel")}
