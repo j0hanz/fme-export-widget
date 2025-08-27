@@ -242,21 +242,6 @@ const utils = {
     return [value, handleChange] as const
   },
 
-  // Accessibility helpers
-  ariaDesc: (id?: string, suffix = "error"): string | undefined =>
-    id ? `${id}-${suffix}` : undefined,
-
-  getBtnAria: (
-    text?: React.ReactNode,
-    icon?: string | boolean,
-    jimuAriaLabel?: string,
-    tooltip?: string,
-    fallbackLabel?: string
-  ): string | undefined => {
-    if (text || !icon) return jimuAriaLabel
-    return (typeof tooltip === "string" && tooltip) || fallbackLabel
-  },
-
   // Form control ID management
   withId: (
     child: React.ReactNode,
@@ -294,7 +279,22 @@ const utils = {
 } as const
 
 // Export individual utilities for backward compatibility
-const { useId, useValue, ariaDesc, getBtnAria, withId, getTipContent } = utils
+const { useId, useValue, withId, getTipContent } = utils
+
+// Simple helper functions
+const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
+  id ? `${id}-${suffix}` : undefined
+
+const getBtnAria = (
+  text?: React.ReactNode,
+  icon?: string | boolean,
+  jimuAriaLabel?: string,
+  tooltip?: string,
+  fallbackLabel?: string
+): string | undefined => {
+  if (text || !icon) return jimuAriaLabel
+  return (typeof tooltip === "string" && tooltip) || fallbackLabel
+}
 
 // Button content component extracted from Button
 const BtnContent: React.FC<BtnContentProps> = ({
@@ -388,10 +388,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
   children,
   showArrow = config.tooltip.showArrow,
   placement = config.tooltip.position.top,
-  enterDelay = config.tooltip.delay.enter,
-  enterNextDelay = config.tooltip.delay.next,
-  enterTouchDelay = config.tooltip.delay.touch,
-  leaveDelay = config.tooltip.delay.leave,
   disabled = false,
   title,
   ...otherProps
@@ -429,10 +425,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
       title={tooltipContent}
       showArrow={showArrow}
       placement={placement}
-      enterDelay={enterDelay}
-      enterNextDelay={enterNextDelay}
-      enterTouchDelay={enterTouchDelay}
-      leaveDelay={leaveDelay}
+      enterDelay={config.tooltip.delay.enter}
+      enterNextDelay={config.tooltip.delay.next}
+      enterTouchDelay={config.tooltip.delay.touch}
+      leaveDelay={config.tooltip.delay.leave}
       disabled={disabled}
       {...otherProps}
     >
@@ -452,8 +448,6 @@ export const Input: React.FC<InputProps> = ({
   defaultValue,
   required = false,
   maxLength,
-  pattern,
-  validationMessage,
   errorText,
   type = "text",
   onChange,
@@ -483,15 +477,10 @@ export const Input: React.FC<InputProps> = ({
       onChange={handleChange}
       required={required}
       maxLength={maxLength}
-      pattern={pattern?.source}
-      title={validationMessage || errorText}
+      title={errorText}
       aria-required={required}
-      aria-invalid={!!(validationMessage || errorText)}
-      aria-describedby={
-        validationMessage || errorText
-          ? ariaDesc(props.id || "input")
-          : undefined
-      }
+      aria-invalid={!!errorText}
+      aria-describedby={errorText ? ariaDesc(props.id || "input") : undefined}
       css={styles.fullWidth}
       style={(props as any).style}
     />
@@ -544,8 +533,6 @@ export const Select: React.FC<SelectProps> = (props) => {
     onChange,
     placeholder,
     disabled = false,
-    ariaLabel,
-    ariaDescribedBy,
     style,
     coerce,
   } = props
@@ -625,8 +612,6 @@ export const Select: React.FC<SelectProps> = (props) => {
             }}
             placeholder={resolvedPlaceholder}
             disabled={disabled}
-            aria-label={ariaLabel}
-            aria-describedby={ariaDescribedBy}
           />
         </div>
       )
@@ -638,8 +623,6 @@ export const Select: React.FC<SelectProps> = (props) => {
         value={normalizedValue as string[]}
         onChange={handleMultiChange}
         disabled={disabled}
-        aria-label={ariaLabel}
-        aria-describedby={ariaDescribedBy}
         style={style}
       >
         {options.map((opt) => (
@@ -662,8 +645,6 @@ export const Select: React.FC<SelectProps> = (props) => {
       onChange={handleSingleChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
-      aria-label={ariaLabel}
-      aria-describedby={ariaDescribedBy}
       zIndex={config.zIndex.selectMenu}
       style={style}
     >
@@ -699,9 +680,6 @@ export const Button: React.FC<ButtonProps> = ({
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = config.button.defaults.tooltipPosition,
-  tooltipEnterDelay,
-  tooltipEnterNextDelay,
-  tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
@@ -791,13 +769,7 @@ export const Button: React.FC<ButtonProps> = ({
   )
 
   return tooltip && !tooltipDisabled ? (
-    <Tooltip
-      content={tooltip}
-      placement={tooltipPlacement}
-      enterDelay={tooltipEnterDelay}
-      enterNextDelay={tooltipEnterNextDelay}
-      leaveDelay={tooltipLeaveDelay}
-    >
+    <Tooltip content={tooltip} placement={tooltipPlacement}>
       {buttonElement}
     </Tooltip>
   ) : (
@@ -1052,7 +1024,6 @@ export const Form: React.FC<FormProps> = (props) => {
             onClick: onBack,
             disabled: loading,
             tooltip: translate("tooltipBackToOptions"),
-            tooltipPlacement: "bottom",
           }}
           rightButton={{
             text: translate("submit"),
@@ -1060,7 +1031,6 @@ export const Form: React.FC<FormProps> = (props) => {
             disabled: !isValid || loading,
             loading: loading,
             tooltip: translate("tooltipSubmitOrder"),
-            tooltipPlacement: "bottom",
           }}
         />
       </>

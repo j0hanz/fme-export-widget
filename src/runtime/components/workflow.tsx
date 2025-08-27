@@ -437,7 +437,6 @@ const renderInput = (
       placeholder={placeholder}
       onChange={handleChange}
       disabled={readOnly}
-      inputMode={type === "number" ? "numeric" : undefined}
     />
   )
 }
@@ -587,7 +586,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
-            ariaLabel={field.label}
+            aria-label={field.label}
             disabled={field.readOnly || isSingleOption}
           />
         )

@@ -874,7 +874,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onChange={onChange}
             placeholder={placeholder}
             errorText={error}
-            inputMode={inputMode}
           />
           {error && (
             <SettingRow flow="wrap" level={3} css={css(CSS.ROW as any)}>
@@ -1103,7 +1102,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }))
             }}
             disabled={testState.isTesting || availableRepos === null}
-            ariaDescribedBy={ID.repository}
+            aria-describedby={ID.repository}
             placeholder={"---"}
           />
           {fieldErrors.repository && (

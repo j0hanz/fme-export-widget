@@ -39,7 +39,11 @@ import {
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
-import { resolveMessageOrKey, getErrorMessage } from "../shared/utils"
+import {
+  resolveMessageOrKey,
+  getErrorMessage,
+  isValidEmail,
+} from "../shared/utils"
 
 // Widget-specific styles
 const CSS = {
@@ -258,6 +262,7 @@ const geometryUtils = {
       return 0
     }
   },
+
   validatePolygon(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
@@ -414,21 +419,6 @@ const geometryUtils = {
     }
     return result
   },
-
-  simplifyPolygon(poly: __esri.Polygon, modules: EsriModules): __esri.Polygon {
-    try {
-      const engine: any = modules?.geometryEngine
-      if (typeof engine?.simplify === "function") {
-        const simplified = engine.simplify(poly)
-        if (simplified && simplified.type === "polygon") {
-          return simplified as __esri.Polygon
-        }
-      }
-    } catch {
-      // Ignore simplify errors and fallback to original polygon
-    }
-    return poly
-  },
 }
 
 // Export calcArea and validatePolygon individually for tests and other modules
@@ -526,12 +516,6 @@ const attachAoi = (
 }
 
 // Email validation utilities
-const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (/no-?reply/i.test(email)) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
 const getEmail = async (): Promise<string> => {
   const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
   const portal = new Portal()
@@ -1133,10 +1117,7 @@ export default function Widget(
         }
 
         // Prefer a simplified polygon when available to ensure clean rings
-        const geomForUse =
-          geometry.type === "polygon"
-            ? geometryUtils.simplifyPolygon(geometry, modules)
-            : geometry
+        const geomForUse = geometry.type === "polygon" ? geometry : geometry
 
         // Set symbol
         if (evt.graphic && modules) {
