@@ -842,8 +842,6 @@ export interface EsriModules {
   readonly Graphic: typeof __esri.Graphic
   readonly Polygon: typeof __esri.Polygon
   readonly Extent: typeof __esri.Extent
-  readonly AreaMeasurement2D: typeof __esri.AreaMeasurement2D
-  readonly DistanceMeasurement2D: typeof __esri.DistanceMeasurement2D
   readonly geometryEngine: typeof __esri.geometryEngine
 }
 

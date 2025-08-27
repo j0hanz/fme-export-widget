@@ -87,6 +87,18 @@ const MODULES: readonly string[] = [
   "esri/geometry/geometryEngine",
 ] as const
 
+// Check for WebGL2 support
+const hasWebGL2Support = (): boolean => {
+  try {
+    const canvas = document.createElement("canvas")
+    // Some environments may have canvas but no gl context
+    const gl = canvas.getContext("webgl2")
+    return !!gl
+  } catch {
+    return false
+  }
+}
+
 // Small utility helpers (behavior-preserving)
 const isThenable = (
   v: unknown
@@ -128,7 +140,7 @@ const useModules = (): {
           Polygon,
           Extent,
           geometryEngine,
-        } as unknown as EsriModules)
+        } as EsriModules)
       })
       .catch((error) => {
         console.error(
@@ -1043,6 +1055,15 @@ export default function Widget(
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
         setValidationError(configValidation.error)
+        return
+      }
+      // Verify WebGL2 availability before continuing
+      if (!hasWebGL2Support()) {
+        setValidationError(
+          createStartupError("connectionFailed", "WebGL2Unsupported", () =>
+            runStartupValidation()
+          )
+        )
         return
       }
 

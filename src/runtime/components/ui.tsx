@@ -38,7 +38,7 @@ import type {
 
 // Consolidated UI constants and styles
 export const config = {
-  icon: { small: 16, medium: 18, large: 20 },
+  icon: { small: 14, medium: 16, large: 18 },
   tooltip: {
     delay: { enter: 1000, next: 500, leave: 100, touch: 500 },
     position: {
@@ -52,7 +52,7 @@ export const config = {
   button: {
     defaults: {
       block: true,
-      iconPosition: "left" as const,
+      iconPosition: "right" as const,
       tooltipPosition: "top" as const,
     },
     offset: "10px",
@@ -689,7 +689,7 @@ export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
   iconPosition = config.button.defaults.iconPosition,
-  alignText = "end",
+  alignText = "start",
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = config.button.defaults.tooltipPosition,
