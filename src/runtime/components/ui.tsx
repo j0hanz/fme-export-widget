@@ -8,6 +8,7 @@ import {
   AdvancedButtonGroup,
   Select as JimuSelect,
   Option as JimuOption,
+  MultiSelect,
   SVG,
   FormGroup,
   Label,
@@ -228,17 +229,17 @@ const utils = {
   },
 
   // Controlled/uncontrolled value helper
-  useValue: <T = string,>(
-    controlled?: T,
-    defaultValue?: T,
-    onChange?: (value: T) => void
+  useValue: (
+    controlled?: any,
+    defaultValue?: any,
+    onChange?: (value: any) => void
   ) => {
     const [value, setValue] = hooks.useControlled({
       controlled,
       default: defaultValue,
     })
 
-    const handleChange = hooks.useEventCallback((newValue: T) => {
+    const handleChange = hooks.useEventCallback((newValue: any) => {
       setValue(newValue)
       onChange?.(newValue)
     })
@@ -553,108 +554,121 @@ export const Select: React.FC<SelectProps> = (props) => {
     style,
     coerce,
   } = props
-  const translate = hooks.useTranslation(defaultMessages)
+
   const isMulti = Array.isArray(controlled)
-  const [value, handleValueChange] = useValue(controlled, defaultValue)
-
-  const isNativeSelectEvent = (
-    e: unknown
-  ): e is React.ChangeEvent<HTMLSelectElement> => {
-    return (
-      !!e &&
-      typeof e === "object" &&
-      "target" in (e as any) &&
-      !!(e as any).target &&
-      ("value" in (e as any).target || "selectedOptions" in (e as any).target)
-    )
-  }
-
-  const handleChange = hooks.useEventCallback(
-    (evt: unknown, selectedValue?: string | number) => {
-      if (isMulti) {
-        // Multi-select uses native <select multiple>, rely on event.selectedOptions
-        const target = isNativeSelectEvent(evt)
-          ? (evt.target as HTMLSelectElement)
-          : null
-        if (!target || !target.selectedOptions) return
-        const first = Array.isArray(controlled)
-          ? (controlled as unknown[])[0]
-          : undefined
-        const selected = Array.from(target.selectedOptions).map((o) => {
-          const raw = o.value
-          return coerce === "number"
-            ? Number(raw)
-            : coerce === "string"
-              ? String(raw)
-              : typeof first === "number" && !isNaN(Number(raw))
-                ? Number(raw)
-                : raw
-        })
-        handleValueChange(selected as unknown as typeof controlled)
-        onChange?.(selected as unknown as typeof controlled)
-      } else {
-        // Single-select (JimuSelect) sends (evt, value); fall back to evt.target.value if needed
-        const raw: string | number | undefined =
-          selectedValue !== undefined
-            ? selectedValue
-            : isNativeSelectEvent(evt)
-              ? (evt.target as HTMLSelectElement).value
-              : undefined
-        if (raw === undefined || raw === null) return
-
-        const finalValue = coerce
-          ? coerce === "number"
-            ? Number(raw)
-            : String(raw)
-          : typeof controlled === "number" && !isNaN(Number(raw as any))
-            ? Number(raw)
-            : (raw as unknown as typeof controlled)
-        handleValueChange(finalValue as unknown as typeof controlled)
-        onChange?.(finalValue as unknown as typeof controlled)
+  const [value, setValue] = useValue(controlled, defaultValue)
+  const translate = hooks.useTranslation(defaultMessages)
+  const coerceValue = hooks.useEventCallback(
+    (raw: string | number | undefined) => {
+      if (raw === undefined || raw === null) return raw
+      if (coerce === "number") return Number(raw)
+      if (coerce === "string") return String(raw)
+      const sample = Array.isArray(controlled) ? controlled[0] : controlled
+      if (typeof sample === "number") {
+        const n = Number(raw)
+        return isNaN(n) ? raw : n
       }
+      return raw
     }
   )
 
-  const normalizedValue = isMulti
-    ? (Array.isArray(value) ? value : []).map(String)
+  const handleSingleChange = hooks.useEventCallback(
+    (evt: unknown, selectedValue?: string | number) => {
+      const raw =
+        selectedValue !== undefined
+          ? selectedValue
+          : (evt as any)?.target?.value
+      const finalVal = coerceValue(raw)
+      setValue(finalVal)
+      onChange?.(finalVal)
+    }
+  )
+
+  const handleMultiChange = hooks.useEventCallback(
+    (evt: React.ChangeEvent<HTMLSelectElement>) => {
+      const target = evt?.target
+      if (!target?.selectedOptions) return
+      const selected: any[] = []
+      for (const option of Array.from(target.selectedOptions)) {
+        selected.push(coerceValue(option.value))
+      }
+      setValue(selected as any)
+      onChange?.(selected as any)
+    }
+  )
+
+  // Normalize the value to strings for the underlying select component(s).
+  const normalizedValue: any = isMulti
+    ? Array.isArray(value)
+      ? value.map((v) => String(v))
+      : []
     : value !== undefined
       ? String(value)
       : undefined
 
-  // Respect caller-provided aria-describedby without modifying it
-  const resolvedAriaDescribedBy = ariaDescribedBy
   const resolvedPlaceholder =
     placeholder ?? translate("placeholderSelectGeneric")
 
-  return isMulti ? (
-    <select
-      multiple
-      value={normalizedValue as string[]}
-      onChange={handleChange}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      aria-describedby={resolvedAriaDescribedBy}
-      style={style}
-    >
-      {options.map((opt) => (
-        <option
-          key={String(opt.value)}
-          value={String(opt.value)}
-          disabled={opt.disabled}
-          aria-label={opt.label}
-        >
-          {!opt.hideLabel && opt.label}
-        </option>
-      ))}
-    </select>
-  ) : (
+  if (isMulti) {
+    const Multi: any = (MultiSelect as any) || null
+    if (Multi) {
+      const items = options.map((opt) => ({
+        label: opt.label,
+        value: opt.value,
+        disabled: opt.disabled,
+      }))
+      // Wrap in a styled container to ensure width/inline styles are reflected in the DOM
+      return (
+        <div style={style}>
+          <Multi
+            items={items}
+            values={normalizedValue}
+            onChange={(vals: any[]) => {
+              const coerced = vals.map((v) => coerceValue(v))
+              setValue(coerced as any)
+              onChange?.(coerced as any)
+            }}
+            placeholder={resolvedPlaceholder}
+            disabled={disabled}
+            aria-label={ariaLabel}
+            aria-describedby={ariaDescribedBy}
+          />
+        </div>
+      )
+    }
+    // Fallback native multi select
+    return (
+      <select
+        multiple
+        value={normalizedValue as string[]}
+        onChange={handleMultiChange}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
+        style={style}
+      >
+        {options.map((opt) => (
+          <option
+            key={String(opt.value)}
+            value={String(opt.value)}
+            disabled={opt.disabled}
+            aria-label={opt.label}
+          >
+            {!opt.hideLabel && opt.label}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  return (
     <JimuSelect
-      value={normalizedValue as any}
-      onChange={handleChange}
+      value={normalizedValue}
+      onChange={handleSingleChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       aria-label={ariaLabel}
-      aria-describedby={resolvedAriaDescribedBy}
+      aria-describedby={ariaDescribedBy}
       zIndex={config.zIndex.selectMenu}
       style={style}
     >
@@ -665,14 +679,11 @@ export const Select: React.FC<SelectProps> = (props) => {
           active={String(option.value) === String(normalizedValue)}
           disabled={option.disabled}
           onClick={() => {
-            // If the underlying JimuSelect does not propagate onChange reliably,
-            // proactively trigger our handler with the selected value.
             if (!option.disabled) {
               const isSame =
                 String(option.value) === String(normalizedValue ?? "")
               if (!isSame) {
-                // Pass undefined for evt and selected value explicitly.
-                ;(handleChange as any)(undefined, option.value)
+                handleSingleChange(undefined as any, option.value)
               }
             }
           }}
@@ -701,6 +712,10 @@ export const Button: React.FC<ButtonProps> = ({
   children,
   block = config.button.defaults.block,
   preset,
+  size = "default",
+  variant = "contained",
+  color = "inherit",
+  htmlType = "button",
   ...jimuProps
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
@@ -733,12 +748,20 @@ export const Button: React.FC<ButtonProps> = ({
       ? { color: "primary" as const, variant: "contained" as const }
       : preset === "secondary"
         ? { color: "default" as const, variant: "outlined" as const }
-        : {}
+        : {
+            color:
+              color === "tertiary" || color === "danger"
+                ? ("default" as const)
+                : color,
+            variant,
+          }
 
   const buttonElement = (
     <JimuButton
       {...jimuProps}
       {...presetProps}
+      size={size}
+      htmlType={htmlType}
       icon={!text && !!icon}
       onClick={handleClick}
       disabled={jimuProps.disabled || loading}
@@ -1002,8 +1025,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
-  // Generate a stable auto ID for field elements
-  const fieldAutoId = useId("field")
 
   if (variant === "layout") {
     const {
@@ -1017,11 +1038,14 @@ export const Form: React.FC<FormProps> = (props) => {
 
     return (
       <>
+        {/* Header */}
         <div>
-          <div css={styles.typography.title}>{title}</div>
-          <div css={styles.typography.caption}>{subtitle}</div>
+          {title && <div css={styles.typography.title}>{title}</div>}
+          {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
         </div>
+        {/* Form contents */}
         {children}
+        {/* Action buttons */}
         <ButtonGroup
           leftButton={{
             text: translate("back"),
@@ -1045,48 +1069,18 @@ export const Form: React.FC<FormProps> = (props) => {
 
   if (variant === "field") {
     const { label, helper, required = false, readOnly = false, error } = props
-
-    const { id: fieldId, child: renderedChild } = withId(
-      children,
-      readOnly,
-      fieldAutoId
-    )
-
     return (
-      <FormGroup className={className} style={style}>
-        <Label
-          css={[styles.block, styles.typography.label]}
-          check={false}
-          for={fieldId}
-        >
-          {label}
-          {required && (
-            <Tooltip content={translate("requiredField")} placement="bottom">
-              <span
-                css={styles.typography.required}
-                aria-label={translate("ariaRequired")}
-                role="img"
-                aria-hidden="false"
-              >
-                {config.required}
-              </span>
-            </Tooltip>
-          )}
-        </Label>
-        {!readOnly && renderedChild}
-        {helper && !error && (
-          <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
-        )}
-        {error && (
-          <div
-            id={fieldId ? `${fieldId}-error` : undefined}
-            className="d-block"
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
-      </FormGroup>
+      <Field
+        className={className}
+        style={style}
+        label={label}
+        helper={helper}
+        required={required}
+        readOnly={readOnly}
+        error={error}
+      >
+        {children}
+      </Field>
     )
   }
 
