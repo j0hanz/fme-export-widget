@@ -13,8 +13,8 @@ import {
   Input,
   Select,
   Tooltip,
-  required,
   config as uiConfig,
+  styles as UI_CSS,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -44,46 +44,69 @@ function getHttpStatus(err: unknown): number | undefined {
   const status = candidates.find((v) => typeof v === "number")
 
   if (typeof status === "number") return status
-
-  // Fallback: parse from message
-  const msg = getErrorMessage(err)
-  const match = msg.match(/\b(\d{3})\b/)
-  return match ? parseInt(match[1], 10) : undefined
+  return undefined
 }
 
 // Module-level status checkers
 const isNotFoundError = (status: number): boolean => status === 404
 const isServerError = (status: number): boolean => status >= 500 && status < 600
 
+// Helper functions for URL validation
+const isValidIPv4 = (host: string): boolean => {
+  const ipv4Pattern = /^\d{1,3}(?:\.\d{1,3}){3}$/
+  if (!ipv4Pattern.test(host)) return false
+
+  return host.split(".").every((octet) => {
+    const num = Number(octet)
+    return Number.isFinite(num) && num >= 0 && num <= 255
+  })
+}
+
+const isValidHostname = (host: string): boolean => {
+  // Allow localhost, IPv4 addresses, domain names with dots, or FME Flow branded hostnames
+  const isLocalhost = host.toLowerCase() === "localhost"
+  const isIPv4Address = isValidIPv4(host)
+  const hasDomainDot = host.includes(".")
+  const isFmeFlowBranded = /fmeflow/i.test(host)
+
+  return isLocalhost || isIPv4Address || hasDomainDot || isFmeFlowBranded
+}
+
+const hasForbiddenPaths = (pathname: string): boolean => {
+  const lowerPath = pathname.toLowerCase()
+  return lowerPath.includes("/fmerest") || lowerPath.includes("/fmeserver")
+}
+
 // Validation functions for server URL, token, and repository
 function validateServerUrl(url: string): string | null {
-  if (!url?.trim()) return "errorMissingServerUrl"
+  const trimmedUrl = url?.trim()
 
+  // Check for empty or missing URL
+  if (!trimmedUrl) return "errorMissingServerUrl"
+
+  let parsedUrl: URL
   try {
-    const u = new URL(url.trim())
-    if (!/^https?:$/i.test(u.protocol)) return "errorInvalidServerUrl"
-    // Basic hostname checks (not exhaustive)
-    const host = (u.hostname || "").trim()
-    if (!host) return "errorInvalidServerUrl"
-    const isLocalhost = host.toLowerCase() === "localhost"
-    const isIPv4 =
-      /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) &&
-      host.split(".").every((o) => {
-        const n = Number(o)
-        return Number.isFinite(n) && n >= 0 && n <= 255
-      })
-    // IPv6 contains colons
-    const isIPv6 = host.includes(":")
-    const hasDotDomain = host.includes(".")
-    if (!(isLocalhost || isIPv4 || isIPv6 || hasDotDomain)) {
-      return "errorInvalidServerUrl"
-    }
-    if (/\/fmerest\b/i.test(u.pathname) || /\/fmeserver\b/i.test(u.pathname))
-      return "errorBadBaseUrl"
-    return null
+    parsedUrl = new URL(trimmedUrl)
   } catch {
     return "errorInvalidServerUrl"
   }
+
+  // Validate protocol (only HTTP/HTTPS allowed)
+  if (!/^https?:$/i.test(parsedUrl.protocol)) {
+    return "errorInvalidServerUrl"
+  }
+
+  // Check for forbidden FME-specific paths that should be stripped
+  if (hasForbiddenPaths(parsedUrl.pathname)) {
+    return "errorBadBaseUrl"
+  }
+
+  // Validate hostname/host
+  if (!isValidHostname(parsedUrl.hostname)) {
+    return "errorInvalidServerUrl"
+  }
+
+  return null
 }
 
 function validateToken(token: string): string | null {
@@ -110,8 +133,7 @@ function validateRepository(
 
 // Centralized email validation (returns i18n key or null)
 function validateEmail(email: string): string | null {
-  if (!email) return null
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? null : "errorInvalidEmail"
+  return null
 }
 
 const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
@@ -354,7 +376,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
           <span
-            css={required}
+            css={UI_CSS.typography.required}
             aria-label={translate("ariaRequired")}
             role="img"
             aria-hidden={false}
@@ -407,29 +429,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       : validateRepository(localRepository, availableRepos)
     const emailError = validateEmail(localSupportEmail)
 
-    const validateNumeric = (v: string) => {
-      if (!v.trim()) return null
-      const n = Number(v)
-      return n < 0 || !Number.isFinite(n) ? "requiredField" : null
-    }
-
-    const ttcError = validateNumeric(localTmTtc)
-    const ttlError = validateNumeric(localTmTtl)
-
     if (serverUrlError) messages.serverUrl = translate(serverUrlError)
     if (tokenError) messages.token = translate(tokenError)
     if (repositoryError) messages.repository = translate(repositoryError)
     if (emailError) messages.supportEmail = translate(emailError)
-    if (ttcError) messages.tm_ttc = translate(ttcError)
-    if (ttlError) messages.tm_ttl = translate(ttlError)
 
     setFieldErrors({
       serverUrl: messages.serverUrl,
       token: messages.token,
       repository: messages.repository,
       supportEmail: messages.supportEmail,
-      tm_ttc: messages.tm_ttc,
-      tm_ttl: messages.tm_ttl,
+      tm_ttc: undefined,
+      tm_ttl: undefined,
       tm_tag: undefined,
     })
 

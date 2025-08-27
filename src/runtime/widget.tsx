@@ -60,6 +60,24 @@ const CSS = {
   },
 }
 
+// Email placeholder pattern used in translated messages
+const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
+const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
+const getSupportEmail = (
+  configuredEmailRaw: unknown,
+  sourceText?: string
+): string | undefined => {
+  const cfg = typeof configuredEmailRaw === "string" ? configuredEmailRaw : ""
+  if (isValidEmail(cfg)) return cfg
+
+  if (typeof sourceText === "string" && EMAIL_REGEX.test(sourceText)) {
+    const match = sourceText.match(EMAIL_REGEX)
+    const found = match ? match[0] : undefined
+    if (found && isValidEmail(found)) return found
+  }
+  return undefined
+}
+
 const MODULES: readonly string[] = [
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
@@ -76,8 +94,6 @@ const isThenable = (
   !!v &&
   (typeof v === "object" || typeof v === "function") &&
   typeof (v as { then?: unknown }).then === "function"
-
-// Note: Translations must come exclusively from default.ts files; no manual fallbacks
 
 // Area calculation and formatting constants
 const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
@@ -848,32 +864,15 @@ export default function Widget(
         baseMessage = translate("unknownErrorOccurred")
       }
 
-      // Determine support email from config
-      const configuredEmailRaw = props.config?.supportEmail
-      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-      const configuredEmail =
-        typeof configuredEmailRaw === "string" &&
-        emailRegex.test(configuredEmailRaw)
-          ? configuredEmailRaw
-          : undefined
-
-      // Extract email from userFriendlyMessage if present
-      let extractedEmail: string | undefined
+      // Determine support email if configured or found in user-friendly message
       const ufm = error.userFriendlyMessage
-      if (typeof ufm === "string" && emailRegex.test(ufm)) {
-        const match = ufm.match(emailRegex)
-        extractedEmail = match ? match[0] : undefined
-      }
-
-      // Choose which email to use (config > extracted)
-      const supportEmail = configuredEmail || extractedEmail
-
-      // Build support hint (with email or fallback)
+      const supportEmail = getSupportEmail(props.config?.supportEmail, ufm)
+      // Build support hint message
       let supportHint: string
       if (supportEmail) {
         // Use runtime translation for the contact email placeholder.
         supportHint = translate("contactSupportWithEmail").replace(
-          /\{\s*email\s*\}/i,
+          EMAIL_PLACEHOLDER,
           supportEmail
         )
       } else if (typeof ufm === "string" && ufm.trim()) {
@@ -910,7 +909,7 @@ export default function Widget(
                 <div>
                   {supportEmail
                     ? translate("contactSupportWithEmail")
-                        .split(/\{\s*email\s*\}/i)
+                        .split(EMAIL_PLACEHOLDER)
                         .map((part, idx, arr) => {
                           if (idx < arr.length - 1) {
                             return (
@@ -1232,13 +1231,10 @@ export default function Widget(
       getErrorMessage(error) || translate("unknownErrorOccurred")
     // Build localized failure message and append contact support hint
     const contactHint = (() => {
-      const configured = props.config?.supportEmail
-      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-      const isValidSupport =
-        typeof configured === "string" && emailRegex.test(configured)
-      if (isValidSupport) {
+      const configured = getSupportEmail(props.config?.supportEmail)
+      if (configured) {
         return translate("contactSupportWithEmail").replace(
-          /\{\s*email\s*\}/i,
+          EMAIL_PLACEHOLDER,
           configured
         )
       }

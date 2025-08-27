@@ -311,13 +311,13 @@ const renderInput = (
   )
 }
 
-const OrderResult = React.memo(function OrderResult({
+const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
   onReuseGeography,
   onBack,
   config,
-}: OrderResultProps) {
+}) => {
   const isSuccess = !!orderResult.success
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
@@ -402,101 +402,138 @@ const OrderResult = React.memo(function OrderResult({
       />
     </>
   )
-})
+}
 
 // Dynamic field component for rendering various form fields based on configuration
-const DynamicField = React.memo(function DynamicField({
+const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
   onChange,
   translate,
-}: DynamicFieldProps) {
+}) => {
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
+  // Render field based on its type
+  const renderByType = (): JSX.Element => {
+    switch (field.type) {
+      case FormFieldType.SELECT:
+      case FormFieldType.MULTI_SELECT: {
+        const options = field.options || []
+        const isSingleOption = !isMulti && options.length === 1
 
-  switch (field.type) {
-    case FormFieldType.SELECT:
-    case FormFieldType.MULTI_SELECT:
-      return (
-        <Select
-          value={fieldValue as SelectValue}
-          options={field.options || []}
-          placeholder={placeholders.select}
-          onChange={(val) => {
-            onChange(val as FormPrimitive)
-          }}
-          ariaLabel={field.label}
-          disabled={field.readOnly}
-        />
-      )
-    case FormFieldType.TEXTAREA:
-      return (
-        <TextArea
-          value={fieldValue as string}
-          placeholder={placeholders.enter}
-          onChange={(val) => {
-            onChange(val)
-          }}
-          disabled={field.readOnly}
-        />
-      )
-    case FormFieldType.NUMBER:
-      return renderInput(
-        "number",
-        fieldValue as FormPrimitive,
-        placeholders.enter,
-        onChange,
-        field.readOnly
-      )
-    case FormFieldType.CHECKBOX:
-      return (
-        <Checkbox
-          checked={Boolean(fieldValue)}
-          onChange={(evt) => {
-            onChange(evt.target.checked)
-          }}
-          disabled={field.readOnly}
-          aria-label={field.label}
-        />
-      )
-    case FormFieldType.PASSWORD:
-      return renderInput(
-        "password",
-        fieldValue as FormPrimitive,
-        placeholders.enter,
-        onChange,
-        field.readOnly
-      )
-    case FormFieldType.FILE:
-      return (
-        <Input
-          type="file"
-          onFileChange={(evt) => {
-            const files = evt.target.files
-            onChange(
-              files
-                ? (files[0] as unknown as FormPrimitive)
-                : (null as FormPrimitive)
-            )
-          }}
-          disabled={field.readOnly}
-          aria-label={field.label}
-        />
-      )
-    case FormFieldType.TEXT:
-      return renderInput(
-        "text",
-        fieldValue as FormPrimitive,
-        placeholders.enter,
-        onChange,
-        field.readOnly
-      )
+        // Auto-select the only available option if applicable
+        hooks.useEffectOnce(() => {
+          if (isSingleOption) {
+            const onlyVal = options[0]?.value
+            const current = fieldValue as SelectValue
+            const isUnset =
+              current === undefined ||
+              (typeof current === "string" && current === "")
+            if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
+              onChange(onlyVal as unknown as FormPrimitive)
+            }
+          }
+        })
+
+        return (
+          <Select
+            value={
+              isSingleOption
+                ? (options[0]?.value as SelectValue)
+                : (fieldValue as SelectValue)
+            }
+            options={options}
+            placeholder={placeholders.select}
+            onChange={(val) => {
+              onChange(val as FormPrimitive)
+            }}
+            ariaLabel={field.label}
+            disabled={field.readOnly || isSingleOption}
+          />
+        )
+      }
+      case FormFieldType.TEXTAREA:
+        return (
+          <TextArea
+            value={fieldValue as string}
+            placeholder={placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            rows={field.rows}
+          />
+        )
+      case FormFieldType.NUMBER:
+        return renderInput(
+          "number",
+          fieldValue as FormPrimitive,
+          placeholders.enter,
+          onChange,
+          field.readOnly
+        )
+      case FormFieldType.CHECKBOX:
+        return (
+          <Checkbox
+            checked={Boolean(fieldValue)}
+            onChange={(evt) => {
+              onChange(evt.target.checked)
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
+        )
+      case FormFieldType.PASSWORD:
+        return (
+          <Input
+            type="password"
+            value={(fieldValue as string) || ""}
+            placeholder={field.placeholder || placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            maxLength={field.maxLength}
+          />
+        )
+      case FormFieldType.FILE:
+        return (
+          <Input
+            type="file"
+            onFileChange={(evt) => {
+              const files = evt.target.files
+              onChange(
+                files
+                  ? (files[0] as unknown as FormPrimitive)
+                  : (null as FormPrimitive)
+              )
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
+        )
+      case FormFieldType.TEXT:
+        return (
+          <Input
+            type="text"
+            value={(fieldValue as string) || ""}
+            placeholder={field.placeholder || placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            maxLength={field.maxLength}
+          />
+        )
+    }
   }
-})
+
+  return renderByType()
+}
 
 // ExportForm component - handles dynamic form generation and submission
-const ExportForm = React.memo(function ExportForm({
+const ExportForm: React.FC<ExportFormProps> = ({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -504,7 +541,7 @@ const ExportForm = React.memo(function ExportForm({
   onSubmit,
   isSubmitting,
   translate,
-}: ExportFormProps) {
+}) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
   const [fileMap, setFileMap] = React.useState<{
@@ -627,7 +664,7 @@ const ExportForm = React.memo(function ExportForm({
       ))}
     </Form>
   )
-})
+}
 
 // Main Workflow component
 export const Workflow: React.FC<WorkflowProps> = ({
@@ -1046,7 +1083,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderCurrent = () => {
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
-        const fallbackSupport =
+        const supportHint =
           config?.supportEmail || translateRuntime("contactSupport")
         return renderError(
           startupValidationError.message,
@@ -1056,7 +1093,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               window.location.reload()
             }),
           startupValidationError.code,
-          startupValidationError.userFriendlyMessage || fallbackSupport
+          startupValidationError.userFriendlyMessage || supportHint
         )
       }
 

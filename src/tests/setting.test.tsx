@@ -157,4 +157,44 @@ describe("Setting component", () => {
       expect(hadCleaned).toBe(true)
     }
   })
+
+  test("invalid single-label host shows server URL error; dotted host passes", () => {
+    const onSettingChange = jest.fn()
+    const { container } = renderSetting(
+      <S
+        id="s4"
+        widgetId="w-s4"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={baseConfig}
+      />
+    )
+
+    const serverInput = container.querySelector<HTMLInputElement>(
+      "#setting-server-url"
+    )
+    expect(serverInput).toBeTruthy()
+
+    // Enter single-label host (should be invalid per stricter rules)
+    if (serverInput)
+      fireEvent.change(serverInput, { target: { value: "https://fmef" } })
+
+    // Expect an inline error alert to be present for the server URL field
+    const inlineErr = container.querySelector(
+      "#setting-server-url-error, [id^=setting-server-url-error]"
+    )
+    expect(inlineErr).toBeTruthy()
+
+    // Now enter a dotted host which should be valid
+    if (serverInput)
+      fireEvent.change(serverInput, {
+        target: { value: "https://example.com" },
+      })
+
+    // Inline error should clear
+    const inlineErrAfter = container.querySelector(
+      "#setting-server-url-error, [id^=setting-server-url-error]"
+    )
+    expect(inlineErrAfter).toBeFalsy()
+  })
 })
