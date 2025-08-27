@@ -27,7 +27,6 @@ import {
   type DynamicFieldProps,
   type DynamicFieldConfig,
   type ApiResponse,
-  type RepositoryItems,
   ViewMode,
   DrawingTool,
   makeLoadingView,
@@ -50,17 +49,10 @@ import { resolveMessageOrKey } from "../../shared/utils"
 // Debounce interval for workspace loading
 const DEBOUNCE_MS = 500
 
-// Abort helper to cancel in-flight workspace requests safely
-const abortCurrentLoad = (
-  ref: React.MutableRefObject<AbortController | null>
-): void => {
-  if (ref.current) {
-    ref.current.abort()
-    ref.current = null
-  }
-}
-
+// Workspace item type constant
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
+
+// Error names used to detect cancellations from the FME API
 const ERROR_NAMES = {
   CANCELLED_PROMISE: "CancelledPromiseError",
   ABORT: "AbortError",
@@ -83,49 +75,6 @@ const DRAWING_MODE_TABS = [
     hideLabel: true,
   },
 ] as const
-
-// Helper for handling API errors within the component scope
-const formatWorkspaceError = (
-  err: unknown,
-  isMountedRef: React.MutableRefObject<boolean>,
-  translate: (key: string) => string,
-  baseMessage: string
-): string | null => {
-  const errName = (err as { name?: string } | null)?.name
-  if (
-    errName === ERROR_NAMES.CANCELLED_PROMISE ||
-    errName === ERROR_NAMES.ABORT ||
-    !isMountedRef.current
-  ) {
-    return null
-  }
-  const raw =
-    err instanceof Error
-      ? err.message
-      : typeof err === "string"
-        ? err
-        : translate("unknownErrorOccurred")
-  const safe = raw.replace(/<[^>]*>/g, "")
-  const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
-  return `${translate(baseMessage)}: ${msg}`
-}
-
-// Workspace list helpers: filter by type and sort deterministically
-const filterWorkspaces = (
-  items: readonly WorkspaceItem[] | undefined
-): readonly WorkspaceItem[] => {
-  if (!items || items.length === 0) return []
-  return items.filter((i) => i.type === WORKSPACE_ITEM_TYPE)
-}
-
-const sortWorkspaces = (
-  items: readonly WorkspaceItem[]
-): readonly WorkspaceItem[] =>
-  items.slice().sort((a, b) =>
-    (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-      sensitivity: "base",
-    })
-  )
 
 // Check if reset button should be enabled
 const canReset = (
@@ -274,6 +223,188 @@ const stripLabelFromError = (errorText?: string): string | undefined => {
   return t
 }
 
+const useWorkspaceLoader = (
+  config: any,
+  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null,
+  translate: (k: string) => string,
+  translateRuntime: (k: string) => string,
+  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>,
+  onWorkspaceSelected?: (
+    workspaceName: string,
+    params: readonly any[],
+    item: any
+  ) => void
+) => {
+  // Local state for workspaces, loading flag and error message
+  const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
+    []
+  )
+  const [isLoading, setIsLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Abort controller and timeout refs
+  const loadAbortRef = React.useRef<AbortController | null>(null)
+  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+
+  // Track mount to avoid state updates after unmount
+  const isMountedRef = React.useRef(true)
+  hooks.useEffectOnce(() => {
+    return () => {
+      isMountedRef.current = false
+      // Cancel any in‑flight request
+      if (loadAbortRef.current) {
+        loadAbortRef.current.abort()
+        loadAbortRef.current = null
+      }
+      // Clear any scheduled timeout
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current)
+        loadTimeoutRef.current = null
+      }
+    }
+  })
+
+  // Helper to format API errors into localized strings
+  const formatError = React.useCallback(
+    (err: unknown, baseKey: string): string | null => {
+      const errName = (err as { name?: string } | null)?.name
+      if (
+        errName === ERROR_NAMES.CANCELLED_PROMISE ||
+        errName === ERROR_NAMES.ABORT ||
+        !isMountedRef.current
+      ) {
+        return null
+      }
+      const raw =
+        err instanceof Error
+          ? err.message
+          : typeof err === "string"
+            ? err
+            : translateRuntime("unknownErrorOccurred")
+      const safe = raw.replace(/<[^>]*>/g, "")
+      const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
+      return `${translate(baseKey)}: ${msg}`
+    },
+    [translate, translateRuntime]
+  )
+
+  // Cancel any ongoing load
+  const cancelCurrent = () => {
+    if (loadAbortRef.current) {
+      loadAbortRef.current.abort()
+      loadAbortRef.current = null
+    }
+  }
+
+  // Load all workspaces in the configured repository
+  const loadAll = hooks.useEventCallback(async () => {
+    const fmeClient = getFmeClient()
+    if (!fmeClient || !config?.repository) return
+
+    cancelCurrent()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await makeCancelable(
+        fmeClient.getRepositoryItems(
+          config.repository,
+          WORKSPACE_ITEM_TYPE,
+          undefined,
+          undefined,
+          controller.signal
+        )
+      )
+      if (controller.signal.aborted) return
+      if (response.status === 200 && response.data.items) {
+        // Filter and sort by title or name
+        const items = (response.data.items as readonly any[]).filter(
+          (i: any) => i.type === WORKSPACE_ITEM_TYPE
+        ) as readonly WorkspaceItem[]
+        const sorted = items.slice().sort((a, b) =>
+          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+            sensitivity: "base",
+          })
+        )
+        if (isMountedRef.current) setWorkspaces(sorted)
+      } else {
+        throw new Error(translate("failedToLoadWorkspaces"))
+      }
+    } catch (err) {
+      const msg = formatError(err, "failedToLoadWorkspaces")
+      if (msg) setError(msg)
+    } finally {
+      if (isMountedRef.current) setIsLoading(false)
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null
+      }
+    }
+  })
+
+  // Load a single workspace and forward its parameters
+  const loadItem = hooks.useEventCallback(async (workspaceName: string) => {
+    const fmeClient = getFmeClient()
+    if (!fmeClient || !config?.repository) return
+
+    cancelCurrent()
+    const controller = new AbortController()
+    loadAbortRef.current = controller
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response: ApiResponse<any> = await makeCancelable(
+        fmeClient.getWorkspaceItem(
+          workspaceName,
+          config.repository,
+          controller.signal
+        )
+      )
+      if (response.status === 200 && response.data?.parameters) {
+        onWorkspaceSelected?.(
+          workspaceName,
+          response.data.parameters,
+          response.data
+        )
+      } else {
+        throw new Error(translate("failedToLoadWorkspaceDetails"))
+      }
+    } catch (err) {
+      const msg = formatError(err, "failedToLoadWorkspaceDetails")
+      if (msg) setError(msg)
+    } finally {
+      if (isMountedRef.current) setIsLoading(false)
+      if (loadAbortRef.current === controller) {
+        loadAbortRef.current = null
+      }
+    }
+  })
+
+  // Debounced loader
+  const scheduleLoad = hooks.useEventCallback(() => {
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current)
+    }
+    loadTimeoutRef.current = setTimeout(() => {
+      loadAll()
+      loadTimeoutRef.current = null
+    }, DEBOUNCE_MS)
+  })
+
+  return {
+    workspaces,
+    isLoading,
+    error,
+    loadAll,
+    loadItem,
+    scheduleLoad,
+  }
+}
+
 const renderInput = (
   type: "text" | "password" | "number",
   fieldValue: FormPrimitive,
@@ -360,7 +491,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   // Conditional message based on sync mode
   const messageText = isSuccess
     ? isSyncMode && orderResult.downloadUrl
-      ? translate("directDownloadReady")
+      ? null
       : translate("emailNotificationSent")
     : (() => {
         // Localize known failure messages/codes
@@ -381,7 +512,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
       {rows}
       {showDownloadLink && (
         <div css={styles.typography.caption}>
-          {translate("downloadReady")}:{" "}
+          {translate("downloadReady")}{" "}
           <a
             href={orderResult.downloadUrl}
             target="_blank"
@@ -392,10 +523,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
           </a>
         </div>
       )}
-      {showMessage && <div css={styles.typography.caption}>{messageText}</div>}
+      {showMessage && messageText && (
+        <div css={styles.typography.caption}>{messageText}</div>
+      )}
       <Button
         text={buttonText}
         onClick={buttonHandler}
+        css={styles.marginTop(12)}
         logging={{ enabled: true, prefix: "FME-Export" }}
         tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
         tooltipPlacement="bottom"
@@ -800,131 +934,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
     clientRef.current = null
   }, [config])
 
-  // Workspace selection state
-  const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
-    []
-  )
-  const [isLoadingWorkspaces, setIsLoadingWorkspaces] = React.useState(false)
-  const [workspaceError, setWorkspaceError] = React.useState<string | null>(
-    null
-  )
-
-  // Abort controller for workspace loading
-  const loadAbortRef = React.useRef<AbortController | null>(null)
-  // Timeout ref for scheduled workspace loading
-  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-
-  // Track mount
-  const isMountedRef = React.useRef(true)
-  hooks.useEffectOnce(() => {
-    return () => {
-      isMountedRef.current = false
-      // Cancel any pending workspace requests
-      abortCurrentLoad(loadAbortRef)
-      // Clear any pending scheduled load timeout
-      if (loadTimeoutRef.current) {
-        clearTimeout(loadTimeoutRef.current)
-        loadTimeoutRef.current = null
-      }
-    }
-  })
-
-  // Load workspaces with race condition protection
-  const loadWsList = hooks.useEventCallback(async () => {
-    const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) return
-
-    abortCurrentLoad(loadAbortRef)
-    const controller = new AbortController()
-    loadAbortRef.current = controller
-
-    setIsLoadingWorkspaces(true)
-    setWorkspaceError(null)
-
-    try {
-      const response: ApiResponse<RepositoryItems> = await makeCancelable(
-        fmeClient.getRepositoryItems(
-          config.repository,
-          WORKSPACE_ITEM_TYPE,
-          undefined,
-          undefined,
-          controller.signal
-        )
-      )
-
-      if (controller.signal.aborted) return
-
-      if (response.status === 200 && response.data.items) {
-        const items = filterWorkspaces(response.data.items as readonly any[])
-        const sorted = sortWorkspaces(items)
-        if (isMountedRef.current) setWorkspaces(sorted)
-      } else {
-        throw new Error(translate("failedToLoadWorkspaces"))
-      }
-    } catch (err: unknown) {
-      const errorMsg = formatWorkspaceError(
-        err,
-        isMountedRef,
-        translate,
-        "failedToLoadWorkspaces"
-      )
-      if (errorMsg) setWorkspaceError(errorMsg)
-    } finally {
-      if (isMountedRef.current) setIsLoadingWorkspaces(false)
-      if (loadAbortRef.current === controller) {
-        loadAbortRef.current = null
-      }
-    }
-  })
-
-  // Select workspace
-  const loadWorkspace = hooks.useEventCallback(
-    async (workspaceName: string) => {
-      const fmeClient = getFmeClient()
-      if (!fmeClient || !config?.repository) return
-
-      abortCurrentLoad(loadAbortRef)
-      const controller = new AbortController()
-      loadAbortRef.current = controller
-
-      setIsLoadingWorkspaces(true)
-      setWorkspaceError(null)
-
-      try {
-        const response: ApiResponse<any> = await makeCancelable(
-          fmeClient.getWorkspaceItem(
-            workspaceName,
-            config.repository,
-            controller.signal
-          )
-        )
-
-        if (response.status === 200 && response.data?.parameters) {
-          onWorkspaceSelected?.(
-            workspaceName,
-            response.data.parameters,
-            response.data
-          )
-        } else {
-          throw new Error(translate("failedToLoadWorkspaceDetails"))
-        }
-      } catch (err: unknown) {
-        const errorMsg = formatWorkspaceError(
-          err,
-          isMountedRef,
-          translate,
-          "failedToLoadWorkspaceDetails"
-        )
-        if (errorMsg) setWorkspaceError(errorMsg)
-      } finally {
-        if (isMountedRef.current) setIsLoadingWorkspaces(false)
-        if (loadAbortRef.current === controller) {
-          loadAbortRef.current = null
-        }
-      }
-    }
+  // Load workspaces using custom hook
+  const {
+    workspaces,
+    isLoading: isLoadingWorkspaces,
+    error: workspaceError,
+    loadAll: loadWsList,
+    loadItem: loadWorkspace,
+    scheduleLoad: scheduleWsLoad,
+  } = useWorkspaceLoader(
+    config,
+    getFmeClient,
+    translate,
+    translateRuntime,
+    makeCancelable,
+    onWorkspaceSelected
   )
 
   // Render workspace buttons
@@ -934,6 +958,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         key={workspace.name}
         text={workspace.title || workspace.name}
         icon={exportIcon}
+        size="lg"
         role="listitem"
         onClick={() => {
           loadWorkspace(workspace.name)
@@ -945,18 +970,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       />
     ))
 
-  // Schedule a workspace load (debounced) to prevent rapid successive calls
-  const scheduleWsLoad = hooks.useEventCallback(() => {
-    if (loadTimeoutRef.current) {
-      clearTimeout(loadTimeoutRef.current)
-    }
-    loadTimeoutRef.current = setTimeout(() => {
-      loadWsList()
-      loadTimeoutRef.current = null
-    }, DEBOUNCE_MS)
-  })
-
-  // Lazy load
+  // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
     if (
       state === ViewMode.WORKSPACE_SELECTION ||
@@ -993,6 +1007,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={onReset}
+        variant="text"
         alignText="start"
         text={translate("cancel")}
         size="sm"
@@ -1120,7 +1135,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (isSubmittingOrder) {
-      return renderLoading(translate("submittingOrder"))
+      const isSyncMode = Boolean(config?.syncMode)
+      const loadingMessageKey = isSyncMode
+        ? "submittingOrderSync"
+        : "submittingOrder"
+      return renderLoading(translate(loadingMessageKey))
     }
 
     if (error) {

@@ -18,7 +18,11 @@ const isNum = (value: unknown): boolean => !isNaN(Number(value))
 const filterUiParams = (
   parameters: readonly WorkspaceParameter[],
   skip: readonly string[]
-) => parameters.filter((p) => !skip.includes(p.name))
+): readonly WorkspaceParameter[] => {
+  if (!parameters?.length) return []
+  const skipSet = new Set(skip)
+  return parameters.filter((p) => !skipSet.has(p.name))
+}
 
 const makeFieldOpts = (param: WorkspaceParameter) =>
   param.listOptions?.map((o) => ({
@@ -203,31 +207,21 @@ export class ParameterFormService {
   }
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
-    // Handle list-based parameters first
     if (hasListOptions(param)) {
-      if (isMultiListParam(param)) {
-        return FormFieldType.MULTI_SELECT
-      }
-      return FormFieldType.SELECT
+      return isMultiListParam(param)
+        ? FormFieldType.MULTI_SELECT
+        : FormFieldType.SELECT
     }
-
-    // Handle specific parameter types
-    switch (param.type) {
-      case ParameterType.FLOAT:
-      case ParameterType.INTEGER:
-        return FormFieldType.NUMBER
-      case ParameterType.TEXT_EDIT:
-        return FormFieldType.TEXTAREA
-      case ParameterType.PASSWORD:
-        return FormFieldType.PASSWORD
-      case ParameterType.BOOLEAN:
-        return FormFieldType.CHECKBOX
-      case ParameterType.FILENAME:
-      case ParameterType.FILENAME_MUSTEXIST:
-        return FormFieldType.FILE
-      default:
-        return FormFieldType.TEXT
+    const typeMap: { [key in ParameterType]?: FormFieldType } = {
+      [ParameterType.FLOAT]: FormFieldType.NUMBER,
+      [ParameterType.INTEGER]: FormFieldType.NUMBER,
+      [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
+      [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
+      [ParameterType.BOOLEAN]: FormFieldType.CHECKBOX,
+      [ParameterType.FILENAME]: FormFieldType.FILE,
+      [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
     }
+    return typeMap[param.type] ?? FormFieldType.TEXT
   }
 
   // Validates data against workspace parameters

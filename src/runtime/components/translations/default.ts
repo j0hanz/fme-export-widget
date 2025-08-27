@@ -10,17 +10,18 @@ export default {
   orderSentError: "Beställningen misslyckades",
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
-  notificationEmail: "E‑postmeddelande",
-  emailNotificationSent: "Ett e‑postmeddelande skickas när exporten är klar",
-  downloadReady: "Nedladdning klar",
-  clickToDownload: "Klicka för att ladda ner",
-  directDownloadReady: "Filen är redo för nedladdning",
+  notificationEmail: "E‑post",
+  emailNotificationSent:
+    "När beställningen är klar skickas ett e‑postmeddelande till den här adressen.",
+  downloadReady: "Nedladdning klar:",
+  clickToDownload: "Ladda ner filen",
   reuseGeography: "Ny beställning",
   errorCode: "Felkod",
   orderResultMissing: "Inget tillgängligt",
 
   // Loading and status messages
   submittingOrder: "Skickar beställningen...",
+  submittingOrderSync: "Bearbetar beställningen... Detta kan ta flera minuter.",
   preparingMapTools: "Förbereder kartverktygen...",
   loadingWorkspaces: "Laddar arbetsytor...",
   loadingWorkspaceDetails: "Laddar information om arbetsytan...",

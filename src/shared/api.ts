@@ -240,9 +240,10 @@ const buildQuery = (
   excludeKeys: string[] = []
 ): URLSearchParams => {
   const urlParams = new URLSearchParams()
+  if (!params || typeof params !== "object") return urlParams
+  const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || excludeKeys.includes(key))
-      continue
+    if (value === undefined || value === null || excludeSet.has(key)) continue
     urlParams.append(key, toStr(value))
   }
   return urlParams

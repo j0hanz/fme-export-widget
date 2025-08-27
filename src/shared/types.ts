@@ -4,7 +4,7 @@ import type { IMState, ImmutableObject } from "jimu-core"
 export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
-  readonly variant?: "primary" | "default" | "danger"
+  readonly variant?: "contained" | "outlined" | "text"
   readonly disabled?: boolean
 }
 export interface LoadingView {
@@ -85,9 +85,16 @@ export interface ButtonProps {
   readonly style?: React.CSSProperties
   readonly tabIndex?: number
   readonly title?: string
-  readonly variant?: any
-  readonly color?: any
+  readonly variant?: "contained" | "outlined" | "text"
+  readonly color?:
+    | "default"
+    | "primary"
+    | "secondary"
+    | "tertiary"
+    | "danger"
+    | "inherit"
   readonly size?: "sm" | "default" | "lg"
+  readonly htmlType?: "submit" | "reset" | "button"
   readonly disabled?: boolean
   readonly className?: string
   readonly id?: string
