@@ -39,7 +39,7 @@ import type {
 
 // Consolidated UI constants and styles
 export const config = {
-  icon: { small: 14, medium: 16, large: 18 },
+  icon: { small: 14, medium: 16, large: 20 },
   tooltip: {
     delay: { enter: 1000, next: 500, leave: 100, touch: 500 },
     position: {
@@ -74,7 +74,7 @@ export const styles = {
   relative: css({ position: "relative" }),
   block: css({ display: "block" }),
   marginTop: (value: number) => css({ marginTop: value }),
-  gapBtnGroup: css({ gap: "2rem" }),
+  gapBtnGroup: css({ gap: "1rem" }),
 
   // Text utilities
   textCenter: css({ textAlign: "center" }),
@@ -813,7 +813,6 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   onChange,
   onTabChange,
   ariaLabel,
-  style,
 }) => {
   const [value, handleValueChange] = useValue(
     controlled,
@@ -833,8 +832,6 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       role="radiogroup"
       aria-label={ariaLabel}
       css={[styles.row, styles.gapBtnGroup]}
-      style={style}
-      variant="contained"
     >
       {items.map((item) => {
         const active = value === item.value
@@ -845,6 +842,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
+            variant="contained"
             role="radio"
             aria-checked={active}
             tooltip={item.tooltip}

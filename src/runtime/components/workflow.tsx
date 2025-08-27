@@ -937,6 +937,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         key={workspace.name}
         text={workspace.title || workspace.name}
         icon={exportIcon}
+        size="lg"
         role="listitem"
         onClick={() => {
           loadWorkspace(workspace.name)
@@ -996,6 +997,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={onReset}
+        variant="text"
         alignText="start"
         text={translate("cancel")}
         size="sm"
