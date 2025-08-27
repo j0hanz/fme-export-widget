@@ -6,6 +6,9 @@ import {
   hooks,
   jsx,
   type ImmutableObject,
+  ReactRedux,
+  type IMState,
+  WidgetState,
 } from "jimu-core"
 import {
   JimuMapViewComponent,
@@ -824,12 +827,17 @@ export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
   const {
-    id: widgetId,
+    id,
+    widgetId: widgetIdProp,
     useMapWidgetIds,
     dispatch,
     state: reduxState,
     config,
   } = props
+
+  // Determine widget ID for state management
+  const widgetId =
+    (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
   const highlightSymbol = useHighlightSymbol()
 
@@ -1431,6 +1439,11 @@ export default function Widget(
     ) as unknown as number
   })
 
+  // Track runtime (Controller) state to coordinate auto-start only when visible
+  const runtimeState = ReactRedux.useSelector(
+    (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
+  )
+
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
     reduxState.viewMode === ViewMode.DRAWING &&
@@ -1439,7 +1452,8 @@ export default function Widget(
     !reduxState.isSubmittingOrder
 
   hooks.useUpdateEffect(() => {
-    if (canAutoStartDrawing) {
+    // Only auto-start if not already started and widget is not closed
+    if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
       handleStartDrawing(reduxState.drawingTool)
     }
   }, [
@@ -1449,6 +1463,7 @@ export default function Widget(
     sketchViewModel,
     reduxState.isSubmittingOrder,
     handleStartDrawing,
+    runtimeState,
   ])
 
   // Reset handler
@@ -1484,6 +1499,17 @@ export default function Widget(
     // Reset view mode to initial
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
+
+  // Reset when widget is closed
+  const prevRuntimeStateRef = React.useRef<WidgetState | undefined>(undefined)
+  hooks.useUpdateEffect(() => {
+    const prev = prevRuntimeStateRef.current
+    // Trigger reset when transitioning into Closed from any non-Closed state
+    if (runtimeState === WidgetState.Closed && prev !== WidgetState.Closed) {
+      handleReset()
+    }
+    prevRuntimeStateRef.current = runtimeState
+  }, [runtimeState, handleReset])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(

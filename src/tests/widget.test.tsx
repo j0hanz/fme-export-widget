@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom"
-import { React, getAppStore, Immutable } from "jimu-core"
+import { React, getAppStore, Immutable, WidgetState } from "jimu-core"
 import {
   initExtensions,
   initStore,
@@ -603,5 +603,115 @@ describe("FME Export Widget", () => {
     expect(typeof dummyRender).toBe("function")
     const area = calcArea({ type: "point" } as any, modules)
     expect(area).toBe(0)
+  })
+
+  test("resets state when controller closes and stays in DRAWING on reopen", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Provide portal email so startup validation can pass
+    ;(global as any).__TEST_PORTAL_EMAIL__ = "user@example.com"
+
+    const widgetId = "wf-reset"
+    const { unmount } = renderWidget(
+      <Wrapped
+        widgetId={widgetId}
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "http://example.com",
+          fmeServerToken: "t",
+          repository: "repo",
+        }}
+      />
+    )
+
+    // Wait for loading to clear
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
+    })
+
+    // Seed FME state with non-empty values
+    const dirtyState: FmeWidgetState = {
+      ...initialFmeState,
+      isStartupValidating: false,
+      viewMode: ViewMode.EXPORT_FORM,
+      drawnArea: 123,
+      clickCount: 3,
+      geometryJson: {
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+      } as any,
+      selectedWorkspace: "ws1",
+      workspaceParameters: [],
+      orderResult: {
+        success: true,
+        jobId: 7,
+        workspaceName: "ws1",
+        email: "a@b.com",
+      },
+    }
+    updateStore({ "fme-state": dirtyState })
+    await waitForMilliseconds(0)
+
+    // Spy on dispatch to verify reset actions are issued
+    const dispatchSpy = jest.spyOn(getAppStore(), "dispatch")
+
+    // Simulate controller closing this widget
+    updateStore({
+      widgetsRuntimeInfo: { [widgetId]: { state: WidgetState.Closed } } as any,
+    })
+    await waitForMilliseconds(0)
+
+    // Assert reset actions akin to pressing Cancel (effect-driven, wait for dispatches)
+    await waitFor(() => {
+      const calls = dispatchSpy.mock.calls.map(([a]) => a as any)
+      const hasClearedGeometry = calls.some(
+        (a) =>
+          a?.type === "FME_SET_GEOMETRY" &&
+          a?.geometryJson === null &&
+          a?.drawnArea === 0
+      )
+      const hasClearedClickCount = calls.some(
+        (a) => a?.type === "FME_SET_CLICK_COUNT" && a?.clickCount === 0
+      )
+      const hasClearedWorkspace = calls.some(
+        (a) =>
+          a?.type === "FME_SET_SELECTED_WORKSPACE" && a?.workspaceName === null
+      )
+      const hasClearedOrder = calls.some(
+        (a) => a?.type === "FME_SET_ORDER_RESULT" && a?.orderResult === null
+      )
+      expect(hasClearedGeometry).toBe(true)
+      expect(hasClearedClickCount).toBe(true)
+      expect(hasClearedWorkspace).toBe(true)
+      expect(hasClearedOrder).toBe(true)
+    })
+
+    // Reopen the widget
+    const callCountAfterClose = dispatchSpy.mock.calls.length
+    updateStore({
+      widgetsRuntimeInfo: { [widgetId]: { state: WidgetState.Active } } as any,
+    })
+    await waitForMilliseconds(0)
+    const newCalls = dispatchSpy.mock.calls
+      .slice(callCountAfterClose)
+      .map(([a]) => a as any)
+    // Should not navigate away from DRAWING due to reopen
+    const movedAway = newCalls.some(
+      (a) => a?.type === "FME_SET_VIEW_MODE" && a?.viewMode !== ViewMode.DRAWING
+    )
+    expect(movedAway).toBe(false)
+
+    unmount()
+    ;(global as any).__TEST_PORTAL_EMAIL__ = undefined
   })
 })
