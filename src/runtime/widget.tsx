@@ -12,8 +12,10 @@ import {
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
+
+import { useTheme } from "jimu-theme"
 import { Workflow } from "./components/workflow"
-import { StateView, styles } from "./components/ui"
+import { StateView, useStyles } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -62,6 +64,25 @@ const CSS = {
       },
     },
   },
+}
+
+// Highlight symbol derived from theme primary color
+const useHighlightSymbol = () => {
+  const theme = useTheme()
+  const primaryHex =
+    (theme as any)?.sys?.color?.primary?.main ||
+    (theme as any)?.colors?.palette?.primary?.[500] ||
+    "#0079c1"
+  const [r, g, b] = hexToRgb(String(primaryHex))
+  return {
+    type: "simple-fill" as const,
+    color: [r, g, b, 0.2] as [number, number, number, number],
+    outline: {
+      color: [r, g, b] as [number, number, number],
+      width: 2,
+      style: "solid" as const,
+    },
+  }
 }
 
 // Email placeholder pattern used in translated messages
@@ -119,6 +140,11 @@ const GEOMETRY_CONSTS = {
   AREA_UNIT: "square-meters",
   MIN_VALID_AREA: 1e-3, // minimum valid area in m²
 } as const
+const hexToRgb = (hex: string): [number, number, number] => {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!m) return [0, 121, 193] // fallback to Esri blue
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+}
 
 // Load ArcGIS modules once and memoize result
 const useModules = (): {
@@ -592,7 +618,8 @@ const createSketchVM = (
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  polygonSymbol: unknown
 ) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -615,17 +642,20 @@ const createSketchVM = (
     },
   })
 
-  setSketchSymbols(sketchViewModel)
+  setSketchSymbols(sketchViewModel, polygonSymbol)
   setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
 
   return sketchViewModel
 }
 
 // Configure sketch view model symbols
-const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
+const setSketchSymbols = (
+  sketchViewModel: __esri.SketchViewModel,
+  polygonSymbol: unknown
+) => {
   const { colors } = CSS
 
-  sketchViewModel.polygonSymbol = CSS.symbols.highlight as any
+  sketchViewModel.polygonSymbol = polygonSymbol as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
@@ -800,6 +830,10 @@ export default function Widget(
     state: reduxState,
     config,
   } = props
+
+  const highlightSymbol = useHighlightSymbol()
+
+  const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
   // Translation function
   const translate = hooks.useEventCallback((key: string): string => {
@@ -1121,7 +1155,7 @@ export default function Widget(
 
         // Set symbol
         if (evt.graphic && modules) {
-          evt.graphic.symbol = CSS.symbols.highlight as any
+          evt.graphic.symbol = highlightSymbol as any
         }
 
         const calculatedArea = calcArea(geomForUse, modules)
@@ -1274,7 +1308,14 @@ export default function Widget(
     try {
       setJimuMapView(jmv)
       const layer = createLayers(jmv, modules, setGraphicsLayer)
-      const svm = createSketchVM(jmv, modules, layer, onDrawComplete, dispatch)
+      const svm = createSketchVM(
+        jmv,
+        modules,
+        layer,
+        onDrawComplete,
+        dispatch,
+        highlightSymbol
+      )
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(
@@ -1508,7 +1549,7 @@ export default function Widget(
   )
 
   return (
-    <>
+    <div css={styles.parent}>
       {hasSingleMapWidget && (
         <JimuMapViewComponent
           useMapWidgetId={useMapWidgetIds[0]}
@@ -1576,7 +1617,7 @@ export default function Widget(
         startupValidationError={reduxState.startupValidationError}
         onRetryValidation={runStartupValidation}
       />
-    </>
+    </div>
   )
 }
 

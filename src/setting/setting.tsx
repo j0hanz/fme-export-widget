@@ -1,6 +1,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx, css } from "jimu-core"
+import { useTheme } from "jimu-theme"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
 import {
   MapWidgetSelector,
@@ -14,7 +15,7 @@ import {
   Select,
   Tooltip,
   config as uiConfig,
-  styles as UI_CSS,
+  useStyles,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
@@ -208,45 +209,43 @@ function useStringConfigValue(config: IMWidgetConfig) {
   )
 }
 
-// Local CSS styles for the setting UI
-const CSS = {
-  ROW: {
-    width: "100%",
-  } as React.CSSProperties,
-  ALERT_INLINE: {
-    opacity: 0.8,
-  } as React.CSSProperties,
-  STATUS: {
-    CONTAINER: {
-      width: "100%",
-      display: "flex",
-      flexDirection: "column",
-    } as React.CSSProperties,
-    LIST: {
-      display: "grid",
-      rowGap: 2,
-      opacity: 0.8,
-      backgroundColor: "#181818",
-      padding: 6,
-      borderRadius: 2,
-    } as React.CSSProperties,
-    ROW: {
-      display: "flex",
-      justifyContent: "space-between",
-      lineHeight: 2,
-    } as React.CSSProperties,
-    LABEL_GROUP: {
-      display: "flex",
-      alignItems: "center",
-    } as React.CSSProperties,
-    COLOR: {
-      OK: { color: "#09cf74" },
-      FAIL: { color: "#e1001b" },
-      SKIP: { color: "#ffea1d" },
-      PENDING: { color: "#089bdc" },
-    } as { [k: string]: React.CSSProperties },
-  },
-} as const
+// Create theme-aware styles for the setting UI
+const createSettingStyles = (theme: any) => {
+  return {
+    ROW: css({ width: "100%" }),
+    ALERT_INLINE: css({ opacity: 0.8 }),
+    STATUS: {
+      CONTAINER: css({
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+      }),
+      LIST: css({
+        display: "grid",
+        rowGap: 2,
+        opacity: 0.8,
+        backgroundColor: "#181818",
+        padding: 6,
+        borderRadius: theme?.sys?.shape?.shape1 || 2,
+      }),
+      ROW: css({
+        display: "flex",
+        justifyContent: "space-between",
+        lineHeight: 2,
+      }),
+      LABEL_GROUP: css({
+        display: "flex",
+        alignItems: "center",
+      }),
+      COLOR: {
+        OK: css({ color: theme?.sys?.color?.success?.main || "#2e7d32" }),
+        FAIL: css({ color: theme?.sys?.color?.error?.main || "#d32f2f" }),
+        SKIP: css({ color: theme?.sys?.color?.warning?.main || "#ed6c02" }),
+        PENDING: css({ color: theme?.sys?.color?.info?.main || "#0288d1" }),
+      } as { [k: string]: any },
+    },
+  } as const
+}
 
 // Small helper to centralize config updates
 function useUpdateConfig(
@@ -265,12 +264,27 @@ function useUpdateConfig(
   )
 }
 
+const useSettingStyles = () => {
+  const theme = useTheme()
+  const stylesRef = React.useRef<ReturnType<typeof createSettingStyles>>(
+    createSettingStyles(theme)
+  )
+  const themeRef = React.useRef<any>(theme)
+  if (themeRef.current !== theme) {
+    stylesRef.current = createSettingStyles(theme)
+    themeRef.current = theme
+  }
+  return stylesRef.current
+}
+
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
+  const sstyles = useSettingStyles()
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
-  // Stable element IDs for a11y wiring (avoid useMemo per repo guidance)
+  // Stable ID references for form fields
   const ID = {
     supportEmail: "setting-support-email",
     serverUrl: "setting-server-url",
@@ -376,7 +390,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
           <span
-            css={UI_CSS.typography.required}
+            css={styles.typography.required}
             aria-label={translate("ariaRequired")}
             role="img"
             aria-hidden={false}
@@ -876,11 +890,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={error}
           />
           {error && (
-            <SettingRow flow="wrap" level={3} css={css(CSS.ROW as any)}>
+            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
               <Alert
                 id={`${id}-error`}
                 fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
+                css={css(sstyles.ALERT_INLINE as any)}
                 text={error}
                 type="error"
                 closable={false}
@@ -900,17 +914,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     ]
 
     // Map step -> icon and color style
-    const getStatusIcon = (s: StepStatus): { color: React.CSSProperties } => {
+    const getStatusIcon = (s: StepStatus): { color: unknown } => {
       switch (s) {
         case "ok":
-          return { color: CSS.STATUS.COLOR.OK }
+          return { color: sstyles.STATUS.COLOR.OK }
         case "fail":
-          return { color: CSS.STATUS.COLOR.FAIL }
+          return { color: sstyles.STATUS.COLOR.FAIL }
         case "skip":
-          return { color: CSS.STATUS.COLOR.SKIP }
+          return { color: sstyles.STATUS.COLOR.SKIP }
         case "pending":
         case "idle":
-          return { color: CSS.STATUS.COLOR.PENDING }
+          return { color: sstyles.STATUS.COLOR.PENDING }
       }
     }
 
@@ -923,8 +937,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }) => {
       const { color } = getStatusIcon(status)
       return (
-        <div css={css(CSS.STATUS.ROW as any)}>
-          <div css={css(CSS.STATUS.LABEL_GROUP as any)}>
+        <div css={css(sstyles.STATUS.ROW as any)}>
+          <div css={css(sstyles.STATUS.LABEL_GROUP as any)}>
             <>
               {label}
               {translate("colon")}
@@ -944,7 +958,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     return (
-      <div css={css(CSS.STATUS.CONTAINER as any)}>
+      <div css={css(sstyles.STATUS.CONTAINER as any)}>
         {testState.isTesting && (
           <Loading
             type={LoadingType.Bar}
@@ -952,7 +966,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
         )}
 
-        <div css={css(CSS.STATUS.LIST as any)}>
+        <div css={css(sstyles.STATUS.LIST as any)}>
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
@@ -996,7 +1010,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <Alert
                 id={`${ID.supportEmail}-error`}
                 fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
+                css={css(sstyles.ALERT_INLINE as any)}
                 text={fieldErrors.supportEmail}
                 type="error"
                 closable={false}
@@ -1110,7 +1124,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <Alert
                 id={`${ID.repository}-error`}
                 fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
+                css={css(sstyles.ALERT_INLINE as any)}
                 text={fieldErrors.repository}
                 type="error"
                 closable={false}
@@ -1135,7 +1149,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             aria-label={translate("serviceModeSync")}
           />
         </SettingRow>
-        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)} level={3}>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
           {translate("serviceModeSyncHelper")}
         </SettingRow>
       </SettingSection>
@@ -1192,7 +1210,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <Alert
                 id={`${ID.tm_tag}-error`}
                 fullWidth
-                css={css(CSS.ALERT_INLINE as any)}
+                css={css(sstyles.ALERT_INLINE as any)}
                 text={fieldErrors.tm_tag}
                 type="error"
                 closable={false}
@@ -1200,7 +1218,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        <SettingRow flow="wrap" css={css(CSS.ALERT_INLINE as any)} level={3}>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
           {translate("jobDirectivesHelper")}
         </SettingRow>
       </SettingSection>

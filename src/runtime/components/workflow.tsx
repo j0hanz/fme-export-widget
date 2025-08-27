@@ -11,7 +11,7 @@ import {
   Input,
   Checkbox,
   ButtonTabs,
-  styles,
+  useStyles,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import runtimeMessages from "../translations/default"
@@ -448,6 +448,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   onBack,
   config,
 }) => {
+  const styles = useStyles()
   const isSuccess = !!orderResult.success
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
@@ -843,6 +844,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const translateRuntime = hooks.useTranslation(runtimeMessages)
+  const styles = useStyles()
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Stable getter for drawing mode items using event callback
