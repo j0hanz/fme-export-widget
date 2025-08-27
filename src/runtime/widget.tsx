@@ -108,11 +108,13 @@ const isThenable = (
   typeof (v as { then?: unknown }).then === "function"
 
 // Area calculation and formatting constants
-const M2_PER_KM2 = 1_000_000 // m² -> 1 km²
-const AREA_DECIMALS = 2
-const COINCIDENT_EPSILON = 0.001
-const AREA_UNIT = "square-meters"
-const MIN_VALID_AREA = 0.001 // m²
+const GEOMETRY_CONSTS = {
+  M2_PER_KM2: 1_000_000, // m² -> 1 km²
+  AREA_DECIMALS: 2,
+  COINCIDENT_EPSILON: 1e-3,
+  AREA_UNIT: "square-meters",
+  MIN_VALID_AREA: 1e-3, // minimum valid area in m²
+} as const
 
 // Load ArcGIS modules once and memoize result
 const useModules = (): {
@@ -226,189 +228,219 @@ const abortController = (
   }
 }
 
-// Calculate area of a polygon geometry using multiple methods
-export const calcArea = (
-  geometry: __esri.Geometry,
-  modules: EsriModules
-): number => {
-  if (geometry.type !== "polygon" || !modules.geometryEngine) return 0
-
-  const polygon = geometry as __esri.Polygon
-  const sr = polygon.spatialReference
-  const geomEng = modules.geometryEngine as any
-  const useGeodesic = Boolean(sr?.isGeographic || (sr as any)?.isWebMercator)
-
-  try {
-    if (useGeodesic && typeof geomEng?.geodesicArea === "function") {
-      const a = geomEng.geodesicArea(polygon, AREA_UNIT)
-      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
-        ? Math.abs(a)
+const geometryUtils = {
+  calcArea(
+    geometry: __esri.Geometry | undefined,
+    modules: EsriModules
+  ): number {
+    if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
+      return 0
+    }
+    const polygon = geometry as __esri.Polygon
+    const sr: any = polygon.spatialReference || {}
+    const engine: any = modules.geometryEngine
+    const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
+    try {
+      let area: number | undefined
+      if (useGeodesic && typeof engine.geodesicArea === "function") {
+        area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+      } else if (!useGeodesic && typeof engine.planarArea === "function") {
+        area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+      }
+      // Ensure area is a positive finite number
+      return Number.isFinite(area) &&
+        area !== undefined &&
+        Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
+        ? Math.abs(area)
         : 0
+    } catch {
+      // On error, return zero
+      return 0
     }
-    if (!useGeodesic && typeof geomEng?.planarArea === "function") {
-      const a = geomEng.planarArea(polygon, AREA_UNIT)
-      return Number.isFinite(a) && Math.abs(a) > MIN_VALID_AREA
-        ? Math.abs(a)
-        : 0
-    }
-  } catch {
-    // Ignore area calculation errors
-  }
-  return 0
-}
-
-// Shared validation error creation helper
-const createGeometryValidationError = (
-  messageKey: string,
-  code: string
-): ErrorState =>
-  errorService.createError(messageKey, ErrorType.GEOMETRY, { code })
-
-// Polygon validation helpers for focused error checking
-const validateGeometryExists = (
-  geometry: __esri.Geometry | undefined
-): ErrorState | null => {
-  if (!geometry) {
-    return createGeometryValidationError("GEOMETRY_MISSING", "GEOM_MISSING")
-  }
-  return null
-}
-
-const validateGeometryType = (geometry: __esri.Geometry): ErrorState | null => {
-  if (geometry.type !== "polygon") {
-    return createGeometryValidationError(
-      "GEOMETRY_TYPE_INVALID",
-      "GEOM_TYPE_INVALID"
-    )
-  }
-  return null
-}
-
-const validatePolygonRings = (polygon: __esri.Polygon): ErrorState | null => {
-  if (!polygon.rings?.length) {
-    return createGeometryValidationError("POLYGON_NO_RINGS", "GEOM_NO_RINGS")
-  }
-  return null
-}
-
-const validateRingGeometry = (ring: unknown[]): ErrorState | null => {
-  if (!Array.isArray(ring) || ring.length < 3) {
-    return createGeometryValidationError(
-      "POLYGON_MIN_VERTICES",
-      "GEOM_MIN_VERTICES"
-    )
-  }
-
-  const uniquePoints = new Set(
-    ring
-      .filter((p) => Array.isArray(p) && p.length >= 2)
-      .map((p) => `${p[0]}:${p[1]}`)
-  )
-
-  if (uniquePoints.size < 3) {
-    return createGeometryValidationError(
-      "POLYGON_MIN_VERTICES",
-      "GEOM_MIN_VERTICES"
-    )
-  }
-  return null
-}
-
-const validateRingClosure = (ring: unknown[]): ErrorState | null => {
-  try {
-    const first = ring[0]
-    const last = ring[ring.length - 1]
-    const notClosed =
-      !Array.isArray(first) ||
-      !Array.isArray(last) ||
-      Math.abs(first[0] - last[0]) >= COINCIDENT_EPSILON ||
-      Math.abs(first[1] - last[1]) >= COINCIDENT_EPSILON
-
-    if (notClosed) {
-      return createGeometryValidationError(
-        "POLYGON_RING_NOT_CLOSED",
-        "GEOM_RING_NOT_CLOSED"
-      )
-    }
-  } catch {
-    /* ignore ring closure check errors */
-  }
-  return null
-}
-
-const validatePolygonSimplicity = (
-  polygon: __esri.Polygon,
-  modules: EsriModules
-): ErrorState | null => {
-  try {
-    const geometryEngine = modules.geometryEngine as any
-    // Check for self-intersections if geometryEngine is available
-    if (typeof geometryEngine?.isSimple === "function") {
-      const simple = geometryEngine.isSimple(polygon)
-      if (simple === false) {
-        return createGeometryValidationError(
-          "POLYGON_SELF_INTERSECTING",
-          "GEOM_SELF_INTERSECTING"
-        )
+  },
+  validatePolygon(
+    geometry: __esri.Geometry | undefined,
+    modules: EsriModules
+  ): { valid: boolean; error?: ErrorState } {
+    // Existence check
+    if (!geometry) {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "GEOMETRY_MISSING",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_MISSING" }
+        ),
       }
     }
-  } catch {
-    // Ignore simplicity check errors
-  }
-  return null
-}
-
-// Simplify polygon geometry if possible
-const getSimplifiedPolygon = (
-  poly: __esri.Polygon,
-  modules: EsriModules
-): __esri.Polygon => {
-  try {
-    const geometryEngine = modules.geometryEngine as any
-    if (typeof geometryEngine?.simplify === "function") {
-      const simplified = geometryEngine.simplify(poly)
-      if (simplified && simplified.type === "polygon") return simplified
+    // Type check
+    if (geometry.type !== "polygon") {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "GEOMETRY_TYPE_INVALID",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_TYPE_INVALID" }
+        ),
+      }
     }
-  } catch {
-    // Ignore simplification errors
-  }
-  return poly
+    const polygon = geometry as __esri.Polygon
+    // Rings existence check
+    if (!Array.isArray(polygon.rings) || polygon.rings.length === 0) {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "POLYGON_NO_RINGS",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_NO_RINGS" }
+        ),
+      }
+    }
+    // Validate each ring
+    for (const ring of polygon.rings) {
+      // Must be an array with at least 3 coordinate pairs
+      if (!Array.isArray(ring) || ring.length < 3) {
+        return {
+          valid: false,
+          error: errorService.createError(
+            "POLYGON_MIN_VERTICES",
+            ErrorType.GEOMETRY,
+            { code: "GEOM_MIN_VERTICES" }
+          ),
+        }
+      }
+      // Require at least three unique positions
+      const unique = new Set(
+        ring
+          .filter((p) => Array.isArray(p) && p.length >= 2)
+          .map((p) => `${p[0]}:${p[1]}`)
+      )
+      if (unique.size < 3) {
+        return {
+          valid: false,
+          error: errorService.createError(
+            "POLYGON_MIN_VERTICES",
+            ErrorType.GEOMETRY,
+            { code: "GEOM_MIN_VERTICES" }
+          ),
+        }
+      }
+      // Check that the ring is closed (first and last points coincide)
+      try {
+        const first = ring[0] as any
+        const last = ring[ring.length - 1] as any
+        const closed =
+          Array.isArray(first) &&
+          Array.isArray(last) &&
+          Math.abs((first[0] as number) - (last[0] as number)) <
+            GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
+          Math.abs((first[1] as number) - (last[1] as number)) <
+            GEOMETRY_CONSTS.COINCIDENT_EPSILON
+        if (!closed) {
+          return {
+            valid: false,
+            error: errorService.createError(
+              "POLYGON_RING_NOT_CLOSED",
+              ErrorType.GEOMETRY,
+              { code: "GEOM_RING_NOT_CLOSED" }
+            ),
+          }
+        }
+      } catch {
+        return {
+          valid: false,
+          error: errorService.createError(
+            "POLYGON_RING_NOT_CLOSED",
+            ErrorType.GEOMETRY,
+            { code: "GEOM_RING_NOT_CLOSED" }
+          ),
+        }
+      }
+    }
+    // Self‑intersection check using geometryEngine if available
+    try {
+      const engine: any = modules?.geometryEngine
+      if (typeof engine?.isSimple === "function") {
+        const simple = engine.isSimple(polygon)
+        if (simple === false) {
+          return {
+            valid: false,
+            error: errorService.createError(
+              "POLYGON_SELF_INTERSECTING",
+              ErrorType.GEOMETRY,
+              { code: "GEOM_SELF_INTERSECTING" }
+            ),
+          }
+        }
+      }
+    } catch {
+      // Ignore errors from isSimple; assume valid if we cannot determine
+    }
+    return { valid: true }
+  },
+
+  sanitizePolygonJson(value: unknown, spatialRef?: unknown): unknown {
+    if (!value || typeof value !== "object") return value
+    const src: any = value
+    if (!Array.isArray(src.rings)) return value
+    const ensureClosure = (ring: any[]): any[] => {
+      const cleaned = ring.map((pt: any) => {
+        if (!Array.isArray(pt) || pt.length < 2) return pt
+        const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
+        const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
+        return [x, y]
+      })
+      try {
+        const first = cleaned[0]
+        const last = cleaned[cleaned.length - 1]
+        const closed =
+          Array.isArray(first) &&
+          Array.isArray(last) &&
+          Math.abs(first[0] - last[0]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
+          Math.abs(first[1] - last[1]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON
+        return closed ? cleaned : [...cleaned, [first[0], first[1]]]
+      } catch {
+        return cleaned
+      }
+    }
+    const cleanedRings = src.rings.map((r: any) => ensureClosure(r))
+    const result: any = { ...src, rings: cleanedRings }
+    // Remove Z/M flags
+    delete result.hasZ
+    delete result.hasM
+    // Preserve spatial reference if provided and missing
+    if (spatialRef && !result.spatialReference) {
+      result.spatialReference = spatialRef
+    }
+    return result
+  },
+
+  simplifyPolygon(poly: __esri.Polygon, modules: EsriModules): __esri.Polygon {
+    try {
+      const engine: any = modules?.geometryEngine
+      if (typeof engine?.simplify === "function") {
+        const simplified = engine.simplify(poly)
+        if (simplified && simplified.type === "polygon") {
+          return simplified as __esri.Polygon
+        }
+      }
+    } catch {
+      // Ignore simplify errors and fallback to original polygon
+    }
+    return poly
+  },
 }
 
-// Validate polygon geometry with focused validation steps
+// Export calcArea and validatePolygon individually for tests and other modules
+export const calcArea = (
+  geometry: __esri.Geometry | undefined,
+  modules: EsriModules
+): number => geometryUtils.calcArea(geometry, modules)
 export const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
-): { valid: boolean; error?: ErrorState } => {
-  // Check geometry existence
-  const existenceError = validateGeometryExists(geometry)
-  if (existenceError) return { valid: false, error: existenceError }
-
-  // Check geometry type
-  const typeError = validateGeometryType(geometry)
-  if (typeError) return { valid: false, error: typeError }
-
-  const polygon = geometry as __esri.Polygon
-
-  // Check rings existence
-  const ringsError = validatePolygonRings(polygon)
-  if (ringsError) return { valid: false, error: ringsError }
-
-  // Validate each ring
-  for (const ring of polygon.rings) {
-    const ringGeometryError = validateRingGeometry(ring)
-    if (ringGeometryError) return { valid: false, error: ringGeometryError }
-
-    const ringClosureError = validateRingClosure(ring)
-    if (ringClosureError) return { valid: false, error: ringClosureError }
-  }
-
-  // Check for self-intersection
-  const simplicityError = validatePolygonSimplicity(polygon, modules)
-  if (simplicityError) return { valid: false, error: simplicityError }
-
-  return { valid: true }
-}
+): { valid: boolean; error?: ErrorState } =>
+  geometryUtils.validatePolygon(geometry, modules)
 
 // Validate area constraints
 const checkMaxArea = (
@@ -447,40 +479,19 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return !!value && typeof value === "object" && "rings" in (value as any)
 }
 
-// Polygon sanitization helpers for cleaner ring processing
-const sanitizePoint = (pt: unknown): unknown => {
-  if (!Array.isArray(pt) || pt.length < 2) return pt
-
-  const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
-  const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
-  return [x, y]
-}
-
-// Check if two points are coincident within epsilon
+// Point coincidence helper reused for vertex counting. Left here because
+// calculateVertexCount still relies on it. Uses GEOMETRY_CONSTS for epsilon.
 const arePointsCoincident = (p1: unknown[], p2: unknown[]): boolean => {
   return (
     Array.isArray(p1) &&
     Array.isArray(p2) &&
-    Math.abs((p1[0] as number) - (p2[0] as number)) < COINCIDENT_EPSILON &&
-    Math.abs((p1[1] as number) - (p2[1] as number)) < COINCIDENT_EPSILON
+    Math.abs((p1[0] as number) - (p2[0] as number)) <
+      GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
+    Math.abs((p1[1] as number) - (p2[1] as number)) <
+      GEOMETRY_CONSTS.COINCIDENT_EPSILON
   )
 }
 
-const ensureRingClosure = (ring: unknown[]): unknown[] => {
-  try {
-    const first = ring[0]
-    const last = ring[ring.length - 1]
-
-    if (!arePointsCoincident(first as unknown[], last as unknown[])) {
-      return [...ring, [first[0] as number, first[1] as number]]
-    }
-  } catch {
-    /* ignore closure enforcement errors */
-  }
-  return ring
-}
-
-// Calculate vertex count for a polygon (excluding closure point)
 const calculateVertexCount = (geometry: __esri.Polygon): number => {
   const vertices = geometry.rings?.[0]
   if (!vertices || vertices.length < 2) return 0
@@ -491,50 +502,6 @@ const calculateVertexCount = (geometry: __esri.Polygon): number => {
   // Check if polygon is auto-closed
   const isAutoClosed = arePointsCoincident(firstPoint, lastPoint)
   return isAutoClosed ? vertices.length - 1 : vertices.length
-}
-
-const sanitizeRing = (ring: unknown): unknown => {
-  if (!Array.isArray(ring)) return ring
-
-  const cleanedPoints = (ring as unknown[]).map(sanitizePoint)
-  return ensureRingClosure(cleanedPoints)
-}
-
-const removeZMFlags = (result: { [key: string]: unknown }): void => {
-  delete result.hasZ
-  delete result.hasM
-}
-
-const ensureSpatialReference = (
-  result: { [key: string]: unknown },
-  spatialRef?: unknown
-): void => {
-  if (spatialRef && !result.spatialReference) {
-    result.spatialReference = spatialRef
-  }
-}
-
-// Sanitize polygon JSON to ensure valid structure
-const sanitizePolygonJson = (value: unknown, spatialRef?: unknown): unknown => {
-  if (!value || typeof value !== "object") return value
-
-  const src = value as {
-    rings?: unknown
-    spatialReference?: unknown
-    hasZ?: unknown
-    hasM?: unknown
-    [key: string]: unknown
-  }
-
-  if (!Array.isArray(src.rings)) return value
-
-  const cleanedRings = (src.rings as unknown[]).map(sanitizeRing)
-  const result = { ...src, rings: cleanedRings }
-
-  removeZMFlags(result)
-  ensureSpatialReference(result, spatialRef)
-
-  return result
 }
 
 // Attach polygon AOI if present
@@ -551,7 +518,8 @@ const attachAoi = (
     } catch {
       /* ignore SR derivation errors */
     }
-    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
+    // Use consolidated sanitization from geometryUtils
+    const polygonJson = geometryUtils.sanitizePolygonJson(geometryToUse, sr)
     return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
   }
   return base
@@ -823,14 +791,14 @@ const NF_SV_NO_DECIMALS = new Intl.NumberFormat("sv-SE", {
 })
 const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
   minimumFractionDigits: 0,
-  maximumFractionDigits: AREA_DECIMALS,
+  maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
 })
 
 // Format area (metric; returns localized string)
 export function formatArea(area: number): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
-  if (area >= M2_PER_KM2) {
-    const areaInSqKm = area / M2_PER_KM2
+  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
+    const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
     const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
     return `${formattedKm} km²`
   }
@@ -1167,7 +1135,7 @@ export default function Widget(
         // Prefer a simplified polygon when available to ensure clean rings
         const geomForUse =
           geometry.type === "polygon"
-            ? getSimplifiedPolygon(geometry, modules)
+            ? geometryUtils.simplifyPolygon(geometry, modules)
             : geometry
 
         // Set symbol

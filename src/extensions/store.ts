@@ -15,28 +15,28 @@ import {
   type LoadingFlags,
 } from "../shared/types"
 
-// Action creator helpers for type safety
-const makePayload = <
+const makeAction = <
   T extends FmeActionType,
-  P extends { [key: string]: unknown },
+  P extends { [key: string]: unknown } = { [key: string]: never },
 >(
   type: T,
-  payload: P
-) => ({ type, ...payload }) as { type: T } & P
-
-const makeSimple = <T extends FmeActionType>(type: T) => ({ type })
+  payload?: P
+) => {
+  const data = payload ?? ({} as P)
+  return { type, ...data } as { type: T } & P
+}
 
 // View actions
 const view = {
   setViewMode: (viewMode: ViewMode) =>
-    makePayload(FmeActionType.SET_VIEW_MODE, { viewMode }),
-  resetState: () => makeSimple(FmeActionType.RESET_STATE),
+    makeAction(FmeActionType.SET_VIEW_MODE, { viewMode }),
+  resetState: () => makeAction(FmeActionType.RESET_STATE),
   setStartupValidationState: (
     isValidating: boolean,
     validationStep?: string,
     validationError?: ErrorState | SerializableErrorState | null
   ) =>
-    makePayload(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
+    makeAction(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
       isValidating,
       validationStep,
       validationError,
@@ -46,7 +46,7 @@ const view = {
 // Drawing actions
 const draw = {
   setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) =>
-    makePayload(FmeActionType.SET_GEOMETRY, {
+    makeAction(FmeActionType.SET_GEOMETRY, {
       geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
       drawnArea,
     }),
@@ -55,45 +55,45 @@ const draw = {
     clickCount?: number,
     drawingTool?: DrawingTool
   ) =>
-    makePayload(FmeActionType.SET_DRAWING_STATE, {
+    makeAction(FmeActionType.SET_DRAWING_STATE, {
       isDrawing,
       clickCount,
       drawingTool,
     }),
   setDrawingTool: (drawingTool: DrawingTool) =>
-    makePayload(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
+    makeAction(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
   setClickCount: (clickCount: number) =>
-    makePayload(FmeActionType.SET_CLICK_COUNT, { clickCount }),
+    makeAction(FmeActionType.SET_CLICK_COUNT, { clickCount }),
 }
 
 // Export actions
 const exp = {
   setFormValues: (formValues: { [key: string]: unknown }) =>
-    makePayload(FmeActionType.SET_FORM_VALUES, { formValues }),
+    makeAction(FmeActionType.SET_FORM_VALUES, { formValues }),
   setOrderResult: (orderResult: ExportResult | null) =>
-    makePayload(FmeActionType.SET_ORDER_RESULT, { orderResult }),
+    makeAction(FmeActionType.SET_ORDER_RESULT, { orderResult }),
 }
 
 // Workspace actions
 const ws = {
   setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) =>
-    makePayload(FmeActionType.SET_WORKSPACE_ITEMS, {
+    makeAction(FmeActionType.SET_WORKSPACE_ITEMS, {
       workspaceItems,
     }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string
   ) =>
-    makePayload(FmeActionType.SET_WORKSPACE_PARAMETERS, {
+    makeAction(FmeActionType.SET_WORKSPACE_PARAMETERS, {
       workspaceParameters,
       workspaceName,
     }),
   setSelectedWorkspace: (workspaceName: string | null) =>
-    makePayload(FmeActionType.SET_SELECTED_WORKSPACE, {
+    makeAction(FmeActionType.SET_SELECTED_WORKSPACE, {
       workspaceName,
     }),
   setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) =>
-    makePayload(FmeActionType.SET_WORKSPACE_ITEM, {
+    makeAction(FmeActionType.SET_WORKSPACE_ITEM, {
       workspaceItem,
     }),
 }
@@ -101,7 +101,7 @@ const ws = {
 // Loading actions
 const load = {
   setLoadingFlags: (flags: LoadingFlags) =>
-    makePayload(
+    makeAction(
       FmeActionType.SET_LOADING_FLAGS,
       flags as { [key: string]: unknown }
     ),
@@ -125,13 +125,13 @@ const toSerializable = (
 
 const err = {
   setError: (error: ErrorState | SerializableErrorState | null) =>
-    makePayload(FmeActionType.SET_ERROR, { error: toSerializable(error) }),
+    makeAction(FmeActionType.SET_ERROR, { error: toSerializable(error) }),
   setImportError: (error: ErrorState | SerializableErrorState | null) =>
-    makePayload(FmeActionType.SET_IMPORT_ERROR, {
+    makeAction(FmeActionType.SET_IMPORT_ERROR, {
       error: toSerializable(error),
     }),
   setExportError: (error: ErrorState | SerializableErrorState | null) =>
-    makePayload(FmeActionType.SET_EXPORT_ERROR, {
+    makeAction(FmeActionType.SET_EXPORT_ERROR, {
       error: toSerializable(error),
     }),
 }
