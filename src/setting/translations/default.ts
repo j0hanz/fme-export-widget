@@ -47,10 +47,10 @@ export default {
   jobDirectives: "Jobbdirektiv",
   jobDirectivesHelper:
     "Standardvärden för FME-jobb. 0 = avstängt. Explicit angivna värden i beställningen/scriptet har företräde.",
-  tm_ttcLabel: "tm_ttc – Max tid att köra (sek)",
-  tm_ttlLabel: "tm_ttl – Max tid i kö (sek)",
-  tm_tagLabel: "tm_tag – Kö/queue (valfritt)",
-  tm_tagPlaceholder: "t.ex. high",
+  tm_ttcLabel: "Max körtid (s)",
+  tm_ttlLabel: "Max kötid (s)",
+  tm_tagLabel: "Kö (valfritt)",
+  tm_tagPlaceholder: "t.ex. hög",
   serviceModeSync: "Direkt nedladdning (synkront)",
   serviceModeSyncHelper:
     "När detta är på visas en direkt nedladdningslänk när jobbet är klart. Av = länk via e‑post.",
