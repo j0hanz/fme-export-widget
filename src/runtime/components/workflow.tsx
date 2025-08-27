@@ -414,27 +414,32 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
+
+  // Determine if the field is a select type
+  const isSelectType =
+    field.type === FormFieldType.SELECT ||
+    field.type === FormFieldType.MULTI_SELECT
+  const selectOptions = (field.options || []) as ReadonlyArray<{
+    readonly value?: unknown
+  }>
+  const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
+  const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
+
+  hooks.useEffectOnce(() => {
+    if (!isSingleOption) return
+    const current = fieldValue as SelectValue
+    const isUnset =
+      current === undefined || (typeof current === "string" && current === "")
+    if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
+      onChange(onlyVal as FormPrimitive)
+    }
+  })
   // Render field based on its type
   const renderByType = (): JSX.Element => {
     switch (field.type) {
       case FormFieldType.SELECT:
       case FormFieldType.MULTI_SELECT: {
         const options = field.options || []
-        const isSingleOption = !isMulti && options.length === 1
-
-        // Auto-select the only available option if applicable
-        hooks.useEffectOnce(() => {
-          if (isSingleOption) {
-            const onlyVal = options[0]?.value
-            const current = fieldValue as SelectValue
-            const isUnset =
-              current === undefined ||
-              (typeof current === "string" && current === "")
-            if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
-              onChange(onlyVal as unknown as FormPrimitive)
-            }
-          }
-        })
 
         return (
           <Select
