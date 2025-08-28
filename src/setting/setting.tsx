@@ -19,7 +19,7 @@ import {
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import FmeFlowApiClient from "../shared/api"
-import { isAuthError, getErrorMessage } from "../shared/utils"
+import { isAuthError, getErrorMessage, isValidEmail } from "../shared/utils"
 import type {
   WidgetConfig,
   IMWidgetConfig,
@@ -134,7 +134,8 @@ function validateRepository(
 
 // Centralized email validation (returns i18n key or null)
 function validateEmail(email: string): string | null {
-  return null
+  if (!email) return null // Optional field
+  return isValidEmail(email) ? null : "errorInvalidEmail"
 }
 
 const STATUS_ERROR_MAP: { readonly [status: number]: string } = {

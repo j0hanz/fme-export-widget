@@ -9,7 +9,7 @@ import type {
   PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
-import { isAuthError } from "./utils"
+import { isAuthError, sanitizePolygonJson } from "./utils"
 
 // Import ArcGIS JSAPI modules dynamically with runtime helper
 let _esriRequest: unknown
@@ -308,37 +308,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
     Number(esriConfig.request.maxUrlLength) || 0,
     API.MAX_URL_LENGTH
   )
-  const serverDomain = new URL(config.serverUrl).origin
-
-  // Avoid duplicate interceptor
-  const hasExistingInterceptor = esriConfig.request.interceptors.some(
-    (interceptor: any) => {
-      const urls = interceptor.urls as Array<string | RegExp> | undefined
-      if (!urls || !Array.isArray(urls)) return false
-      return urls.some((u: string | RegExp) =>
-        typeof u === "string" ? u.includes(serverDomain) : u.test(serverDomain)
-      )
-    }
-  )
-
-  if (!hasExistingInterceptor) {
-    esriConfig.request.interceptors.push({
-      urls: [serverDomain],
-      before: (params: any) => {
-        if (!params.requestOptions.headers) {
-          params.requestOptions.headers = {}
-        }
-        params.requestOptions.headers.Authorization = `fmetoken token=${config.token}`
-        // Prefer JSON responses to keep parsing deterministic
-        if (!params.requestOptions.headers.Accept) {
-          params.requestOptions.headers.Accept = "application/json"
-        }
-        if (!params.requestOptions.responseType) {
-          params.requestOptions.responseType = "json"
-        }
-      },
-    })
-  }
 }
 
 // Request Processing Utilities
@@ -959,36 +928,14 @@ export class FmeFlowApiClient {
     const projectedGeometry = toWgs84(geometry)
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
-    // Sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
+    // Sanitize the Esri JSON to ensure it is compliant with FME expectations
     const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
-    if (esriJson?.rings) {
-      esriJson.rings = esriJson.rings.map((ring: unknown[]) => {
-        if (!Array.isArray(ring)) {
-          throw new Error("Invalid polygon ring structure - expected array")
-        }
-        return ring.map((pt: unknown) => {
-          if (!Array.isArray(pt) || pt.length < 2) {
-            throw new Error(
-              "Invalid polygon point structure - expected [x, y] coordinate array"
-            )
-          }
-          const [x, y] = pt as number[]
-          if (typeof x !== "number" || typeof y !== "number") {
-            throw new Error(
-              "Invalid polygon coordinates - expected numeric x,y values"
-            )
-          }
-          return [x, y] as [number, number]
-        })
-      })
-      delete esriJson.hasZ
-      delete esriJson.hasM
-    }
-
-    if (!esriJson?.spatialReference && projectedGeometry.spatialReference) {
-      const sr = projectedGeometry.spatialReference as any
-      esriJson.spatialReference = sr.toJSON?.() || { wkid: sr.wkid }
-    }
+    const sanitizedJson = sanitizePolygonJson(
+      esriJson,
+      projectedGeometry.spatialReference?.toJSON?.() || {
+        wkid: projectedGeometry.spatialReference?.wkid,
+      }
+    )
 
     return {
       MAXX: extent.xmax,
@@ -996,7 +943,7 @@ export class FmeFlowApiClient {
       MINX: extent.xmin,
       MINY: extent.ymin,
       AREA: Math.abs(extent.width * extent.height),
-      AreaOfInterest: JSON.stringify(esriJson),
+      AreaOfInterest: JSON.stringify(sanitizedJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }

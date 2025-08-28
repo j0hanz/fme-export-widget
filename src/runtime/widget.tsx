@@ -48,6 +48,7 @@ import {
   resolveMessageOrKey,
   getErrorMessage,
   isValidEmail,
+  sanitizePolygonJson,
 } from "../shared/utils"
 
 // Widget-specific styles
@@ -55,17 +56,6 @@ const CSS = {
   colors: {
     white: [255, 255, 255, 1] as [number, number, number, number],
     orangeOutline: [255, 140, 0] as [number, number, number],
-  },
-  symbols: {
-    highlight: {
-      type: "simple-fill" as const,
-      color: [255, 165, 0, 0.2] as [number, number, number, number],
-      outline: {
-        color: [255, 140, 0] as [number, number, number],
-        width: 2,
-        style: "solid" as const,
-      },
-    },
   },
 }
 
@@ -104,18 +94,6 @@ const MODULES: readonly string[] = [
   "esri/geometry/Extent",
   "esri/geometry/geometryEngine",
 ] as const
-
-// Check for WebGL2 support
-const hasWebGL2Support = (): boolean => {
-  try {
-    const canvas = document.createElement("canvas")
-    // Some environments may have canvas but no gl context
-    const gl = canvas.getContext("webgl2")
-    return !!gl
-  } catch {
-    return false
-  }
-}
 
 // Area calculation and formatting constants
 const GEOMETRY_CONSTS = {
@@ -189,10 +167,6 @@ const useMapState = () => {
         try {
           if (sketchViewModel.activeTool) {
             sketchViewModel.cancel()
-          }
-          // Remove event listeners if any were added
-          if (sketchViewModel.hasEventListener) {
-            sketchViewModel.removeHandles?.()
           }
           sketchViewModel.destroy?.()
           setSketchViewModel(null)
@@ -450,43 +424,6 @@ const geometryUtils = {
     }
     return { valid: true }
   },
-
-  sanitizePolygonJson(value: unknown, spatialRef?: unknown): unknown {
-    if (!value || typeof value !== "object") return value
-    const src: any = value
-    if (!Array.isArray(src.rings)) return value
-    const ensureClosure = (ring: any[]): any[] => {
-      const cleaned = ring.map((pt: any) => {
-        if (!Array.isArray(pt) || pt.length < 2) return pt
-        const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
-        const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
-        return [x, y]
-      })
-      try {
-        const first = cleaned[0]
-        const last = cleaned[cleaned.length - 1]
-        const closed =
-          Array.isArray(first) &&
-          Array.isArray(last) &&
-          Math.abs(first[0] - last[0]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-          Math.abs(first[1] - last[1]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON
-        return closed ? cleaned : [...cleaned, [first[0], first[1]]]
-      } catch (closureError) {
-        console.warn("Widget - Ring closure processing failed:", closureError)
-        return cleaned
-      }
-    }
-    const cleanedRings = src.rings.map((r: any) => ensureClosure(r))
-    const result: any = { ...src, rings: cleanedRings }
-    // Remove Z/M flags
-    delete result.hasZ
-    delete result.hasM
-    // Preserve spatial reference if provided and missing
-    if (spatialRef && !result.spatialReference) {
-      result.spatialReference = spatialRef
-    }
-    return result
-  },
 }
 
 // Export calcArea and validatePolygon individually for tests and other modules
@@ -580,8 +517,8 @@ const attachAoi = (
       )
       /* ignore SR derivation errors */
     }
-    // Use consolidated sanitization from geometryUtils
-    const polygonJson = geometryUtils.sanitizePolygonJson(geometryToUse, sr)
+    // Use shared sanitization helper
+    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
     return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
   }
   return base
@@ -1092,15 +1029,6 @@ export default function Widget(
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
         setValidationError(configValidation.error)
-        return
-      }
-      // Verify WebGL2 availability before continuing
-      if (!hasWebGL2Support()) {
-        setValidationError(
-          createStartupError("connectionFailed", "WebGL2Unsupported", () =>
-            runStartupValidation()
-          )
-        )
         return
       }
 

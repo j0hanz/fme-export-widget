@@ -751,11 +751,13 @@ export const Button: React.FC<ButtonProps> = ({
     if (jimuProps.disabled || loading || !onClick) return
     if (jimuProps.logging?.enabled) {
       try {
-        // Lightweight client-side logging hook
-        console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
-          id: jimuProps.id,
-          text: typeof text === "string" ? text : undefined,
-        })
+        // Lightweight client-side logging hook (development only)
+        if (process.env.NODE_ENV !== "production") {
+          console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
+            id: jimuProps.id,
+            text: typeof text === "string" ? text : undefined,
+          })
+        }
       } catch {
         // no-op
       }
