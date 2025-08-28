@@ -889,6 +889,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onChange={onChange}
             placeholder={placeholder}
             errorText={error}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
           />
           {error && (
             <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
@@ -959,7 +961,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     return (
-      <div css={css(sstyles.STATUS.CONTAINER as any)}>
+      <div
+        css={css(sstyles.STATUS.CONTAINER as any)}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
         {testState.isTesting && (
           <Loading
             type={LoadingType.Bar}
@@ -1073,7 +1080,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onClick={() => testConnection(false)}
           />
         </SettingRow>
-        {testState.message && (
+        {(testState.isTesting || testState.message) && (
           <SettingRow flow="wrap" level={3}>
             {renderConnectionStatus()}
           </SettingRow>
@@ -1117,7 +1124,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }))
             }}
             disabled={testState.isTesting || availableRepos === null}
-            aria-describedby={ID.repository}
+            aria-describedby={
+              fieldErrors.repository ? `${ID.repository}-error` : undefined
+            }
+            aria-invalid={fieldErrors.repository ? true : undefined}
             placeholder={"---"}
           />
           {fieldErrors.repository && (
