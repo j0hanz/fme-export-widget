@@ -465,7 +465,11 @@ const buildFmeParams = (
 
 // Type guard for polygon-like JSON (Esri)
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
-  return !!value && typeof value === "object" && "rings" in (value as any)
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("rings" in v)) return false
+  const rings = v.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
 // Point coincidence helper reused for vertex counting. Left here because
@@ -733,14 +737,15 @@ const setupSketchEventHandlers = (
 const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
-  userEmail: string
+  userEmail: string,
+  translateFn: (key: string) => string
 ): ExportResult => {
   const response = fmeResponse as FmeResponse
   const data = response?.data
   if (!data) {
     return {
       success: false,
-      message: "Unexpected response from FME server",
+      message: translateFn("unexpectedFmeResponse"),
       code: "INVALID_RESPONSE",
     }
   }
@@ -757,7 +762,7 @@ const processFmeResponse = (
   if (status === "success") {
     return {
       success: true,
-      message: "Export order submitted successfully",
+      message: translateFn("exportOrderSubmitted"),
       jobId,
       workspaceName: workspace,
       email: userEmail,
@@ -770,7 +775,7 @@ const processFmeResponse = (
     message:
       serviceInfo?.statusInfo?.message ||
       serviceInfo?.message ||
-      "FME job submission failed",
+      translateFn("fmeJobSubmissionFailed"),
     code: "FME_JOB_FAILURE",
   }
 }
@@ -1164,7 +1169,12 @@ export default function Widget(
     workspace: string,
     userEmail: string
   ) => {
-    const result = processFmeResponse(fmeResponse, workspace, userEmail)
+    const result = processFmeResponse(
+      fmeResponse,
+      workspace,
+      userEmail,
+      translate
+    )
     finalizeOrder(result)
   }
 
