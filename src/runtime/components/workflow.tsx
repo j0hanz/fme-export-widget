@@ -1033,7 +1033,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div css={styles.typography.instruction}>{instructionText}</div>
+    <div
+      css={styles.typography.instruction}
+      role="status"
+      aria-live="polite"
+      aria-atomic={true}
+    >
+      {instructionText}
+    </div>
   )
 
   const renderSelection = () => {
