@@ -43,6 +43,11 @@ export default {
   // Order status used in widget.tsx
   orderFailed: "Beställningen misslyckades",
 
+  // FME response messages
+  unexpectedFmeResponse: "Oväntat svar från FME Server",
+  exportOrderSubmitted: "Exportbeställningen har skickats",
+  fmeJobSubmissionFailed: "Det gick inte att skicka FME‑jobbet",
+
   // Generic unexpected / processing
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
