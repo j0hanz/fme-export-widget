@@ -1,6 +1,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
+import { React as ReactNS } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -37,6 +38,7 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../shared/types"
+import { EMAIL_PLACEHOLDER, type TranslateFn } from "../../shared/utils"
 
 // Consolidated UI constants and styles
 export const config = {
@@ -1192,4 +1194,35 @@ export type {
   TextAreaProps,
   ButtonTabsProps,
   TabItem,
+}
+
+// Render support hint with optional email link
+export const renderSupportHint = (
+  supportEmail: string | undefined,
+  translate: TranslateFn,
+  styles: ReturnType<typeof useStyles>,
+  fallbackText: string
+): ReactNS.ReactNode => {
+  if (!supportEmail) return <>{fallbackText}</>
+  return translate("contactSupportWithEmail")
+    .split(EMAIL_PLACEHOLDER)
+    .map((part, idx, arr) => {
+      if (idx < arr.length - 1) {
+        return (
+          <ReactNS.Fragment key={idx}>
+            {part}
+            <a
+              href={`mailto:${supportEmail}`}
+              css={styles.typography.link}
+              aria-label={translate("contactSupportWithEmail", {
+                email: supportEmail,
+              })}
+            >
+              {supportEmail}
+            </a>
+          </ReactNS.Fragment>
+        )
+      }
+      return <ReactNS.Fragment key={idx}>{part}</ReactNS.Fragment>
+    })
 }

@@ -35,6 +35,41 @@ export const isValidEmail = (email: unknown): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+// Support hint utilities
+export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
+
+export type TranslateFn = (
+  key: string,
+  vars?: { [key: string]: unknown }
+) => string
+
+// Build support hint text with optional email or custom message
+export const buildSupportHintText = (
+  translate: TranslateFn,
+  supportEmail?: string,
+  userFriendly?: string
+): string => {
+  if (supportEmail) {
+    return translate("contactSupportWithEmail").replace(
+      EMAIL_PLACEHOLDER,
+      supportEmail
+    )
+  }
+  if (typeof userFriendly === "string" && userFriendly.trim()) {
+    return userFriendly
+  }
+  return translate("contactSupport")
+}
+
+// Extract and validate a configured support email using enterprise-safe rules
+export const getSupportEmail = (
+  configuredEmailRaw: unknown
+): string | undefined => {
+  const cfg =
+    typeof configuredEmailRaw === "string" ? configuredEmailRaw.trim() : ""
+  return isValidEmail(cfg) ? cfg : undefined
+}
+
 // Geometry processing constants
 const GEOMETRY_CONSTS = {
   COINCIDENT_EPSILON: 1e-3,

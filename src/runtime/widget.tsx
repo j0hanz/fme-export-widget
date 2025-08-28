@@ -18,7 +18,7 @@ import {
 
 import { useTheme } from "jimu-theme"
 import { Workflow } from "./components/workflow"
-import { StateView, useStyles } from "./components/ui"
+import { StateView, useStyles, renderSupportHint } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -48,7 +48,9 @@ import {
   resolveMessageOrKey,
   getErrorMessage,
   isValidEmail,
+  buildSupportHintText,
   sanitizePolygonJson,
+  getSupportEmail,
 } from "../shared/utils"
 
 // Widget-specific styles
@@ -76,14 +78,6 @@ const useHighlightSymbol = () => {
       style: "solid" as const,
     },
   }
-}
-
-// Email placeholder pattern used in translated messages
-const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-// Validate configured support email
-const getSupportEmail = (configuredEmailRaw: unknown): string | undefined => {
-  const cfg = typeof configuredEmailRaw === "string" ? configuredEmailRaw : ""
-  return isValidEmail(cfg) ? cfg : undefined
 }
 
 const MODULES: readonly string[] = [
@@ -850,22 +844,14 @@ export default function Widget(
         baseMessage = translate("unknownErrorOccurred")
       }
 
-      // Determine support email if configured or found in user-friendly message
+      // Determine support hint
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(props.config?.supportEmail)
-      // Build support hint message
-      let supportHint: string
-      if (supportEmail) {
-        // Use runtime translation for the contact email placeholder.
-        supportHint = translate("contactSupportWithEmail").replace(
-          EMAIL_PLACEHOLDER,
-          supportEmail
-        )
-      } else if (typeof ufm === "string" && ufm.trim()) {
-        supportHint = ufm
-      } else {
-        supportHint = translate("contactSupport")
-      }
+      const supportHint = buildSupportHintText(
+        translate,
+        supportEmail,
+        typeof ufm === "string" ? ufm : undefined
+      )
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -884,7 +870,7 @@ export default function Widget(
             actions,
           })}
           renderActions={(act, ariaLabel) => {
-            // If an email was found, render it as a mailto link for accessibility
+            // Render support hint, linking email if present
             return (
               <div
                 role="group"
@@ -893,32 +879,12 @@ export default function Widget(
               >
                 {/* Render support hint on its own row */}
                 <div>
-                  {supportEmail
-                    ? translate("contactSupportWithEmail")
-                        .split(EMAIL_PLACEHOLDER)
-                        .map((part, idx, arr) => {
-                          if (idx < arr.length - 1) {
-                            return (
-                              <React.Fragment key={idx}>
-                                {part}
-                                <a
-                                  href={`mailto:${supportEmail}`}
-                                  css={styles.typography.link}
-                                  aria-label={translate(
-                                    "contactSupportWithEmail",
-                                    { email: supportEmail }
-                                  )}
-                                >
-                                  {supportEmail}
-                                </a>
-                              </React.Fragment>
-                            )
-                          }
-                          return (
-                            <React.Fragment key={idx}>{part}</React.Fragment>
-                          )
-                        })
-                    : supportHint}
+                  {renderSupportHint(
+                    supportEmail,
+                    translate,
+                    styles,
+                    supportHint
+                  )}
                 </div>
               </div>
             )
@@ -1207,16 +1173,8 @@ export default function Widget(
     const errorMessage =
       getErrorMessage(error) || translate("unknownErrorOccurred")
     // Build localized failure message and append contact support hint
-    const contactHint = (() => {
-      const configured = getSupportEmail(props.config?.supportEmail)
-      if (configured) {
-        return translate("contactSupportWithEmail").replace(
-          EMAIL_PLACEHOLDER,
-          configured
-        )
-      }
-      return translate("contactSupport")
-    })()
+    const configured = getSupportEmail(props.config?.supportEmail)
+    const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("orderFailed")
     const resultMessage =
       `${baseFailMessage}. ${errorMessage}. ${contactHint}`.trim()

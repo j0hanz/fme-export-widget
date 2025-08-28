@@ -12,6 +12,7 @@ import {
   Checkbox,
   ButtonTabs,
   useStyles,
+  renderSupportHint,
 } from "./ui"
 import defaultMessages from "./translations/default"
 import runtimeMessages from "../translations/default"
@@ -44,7 +45,11 @@ import {
   ParameterFormService,
   ErrorHandlingService,
 } from "../../shared/services"
-import { resolveMessageOrKey } from "../../shared/utils"
+import {
+  resolveMessageOrKey,
+  buildSupportHintText,
+  getSupportEmail,
+} from "../../shared/utils"
 
 // Debounce interval for workspace loading
 const DEBOUNCE_MS = 500
@@ -877,24 +882,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
       } else if (onBack) {
         actions.push({ label: translate("back"), onClick: onBack })
       }
-
-      const email = config?.supportEmail
-      const supportHintNode = email
-        ? (() => {
-            const [pre, post = ""] = translateRuntime(
-              "contactSupportWithEmail"
-            ).split(/\{\s*email\s*\}/i)
-            return (
-              <>
-                {pre}
-                <a href={`mailto:${email}`} css={styles.typography.link}>
-                  {email}
-                </a>
-                {post}
-              </>
-            )
-          })()
-        : supportText || translateRuntime("contactSupport")
+      // Build consistent support hint and link if email configured
+      const rawEmail = getSupportEmail(config?.supportEmail)
+      const hintText = buildSupportHintText(
+        translateRuntime,
+        rawEmail,
+        supportText
+      )
 
       let localizedMessage = message
       try {
@@ -908,7 +902,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           state={makeErrorView(localizedMessage, { code, actions })}
           renderActions={(_act, ariaLabel) => (
             <div role="group" aria-label={ariaLabel}>
-              <>{supportHintNode}</>
+              {renderSupportHint(rawEmail, translateRuntime, styles, hintText)}
             </div>
           )}
           center={false}
