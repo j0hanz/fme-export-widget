@@ -229,7 +229,7 @@ const dispatchError = (
   )
 }
 
-const abortController = (
+const cancelController = (
   ref: React.MutableRefObject<AbortController | null>
 ) => {
   if (ref.current && !ref.current.signal.aborted) {
@@ -931,8 +931,7 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
-  // Debounce pending sketch create starts
-  const drawStartTimerRef = React.useRef<number | null>(null)
+  // Drawing start is invoked directly after cancel (no debounce timer)
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
   // Startup validation controller
@@ -1002,7 +1001,7 @@ export default function Widget(
   // Startup validation logic
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Reset any existing validation state
-    abortController(startupValidationAbortRef)
+    cancelController(startupValidationAbortRef)
     startupValidationAbortRef.current = new AbortController()
     const signal = startupValidationAbortRef.current.signal
 
@@ -1099,18 +1098,13 @@ export default function Widget(
 
     return () => {
       // Cleanup validation on unmount
-      abortController(startupValidationAbortRef)
+      cancelController(startupValidationAbortRef)
     }
-  })
-
-  // Clear graphics
-  const clearAllGraphics = hooks.useEventCallback(() => {
-    graphicsLayer?.removeAll()
   })
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    clearAllGraphics()
+    graphicsLayer?.removeAll()
   })
 
   // Drawing complete
@@ -1258,7 +1252,7 @@ export default function Widget(
       )
 
       // Abort any existing submission
-      abortController(submissionAbortRef)
+      cancelController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
       const fmeResponse = await fmeClient.runDataDownload(
@@ -1325,15 +1319,7 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Cleanup resources on unmount
-      abortController(submissionAbortRef)
-      if (drawStartTimerRef.current != null) {
-        try {
-          clearTimeout(drawStartTimerRef.current)
-        } catch {
-          /* noop */
-        }
-        drawStartTimerRef.current = null
-      }
+      cancelController(submissionAbortRef)
       cleanupResources()
     }
   })
@@ -1377,32 +1363,17 @@ export default function Widget(
       /* noop */
     }
 
-    // Begin create on next tick to avoid overlapping internal async operations
-    const startCreate = () => {
-      try {
-        const svm = sketchViewModel as unknown as {
-          create: (t: "rectangle" | "polygon") => unknown
-        }
-        const arg: "rectangle" | "polygon" =
-          tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-        // Invoke create
-        void svm.create(arg)
-      } catch {
-        /* noop */
+    // Start drawing immediately; prior cancel avoids overlap
+    try {
+      const svm = sketchViewModel as unknown as {
+        create: (t: "rectangle" | "polygon") => unknown
       }
+      const arg: "rectangle" | "polygon" =
+        tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+      void svm.create(arg)
+    } catch {
+      /* noop */
     }
-    if (drawStartTimerRef.current != null) {
-      try {
-        clearTimeout(drawStartTimerRef.current)
-      } catch {
-        /* noop */
-      }
-      drawStartTimerRef.current = null
-    }
-    drawStartTimerRef.current = window.setTimeout(
-      startCreate,
-      0
-    ) as unknown as number
   })
 
   // Track runtime (Controller) state to coordinate auto-start only when visible
@@ -1438,8 +1409,8 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Abort any ongoing submission
-    abortController(submissionAbortRef)
-    abortController(startupValidationAbortRef)
+    cancelController(submissionAbortRef)
+    cancelController(startupValidationAbortRef)
 
     // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
