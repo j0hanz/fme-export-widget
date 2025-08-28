@@ -90,20 +90,10 @@ const useHighlightSymbol = () => {
 
 // Email placeholder pattern used in translated messages
 const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-const getSupportEmail = (
-  configuredEmailRaw: unknown,
-  sourceText?: string
-): string | undefined => {
+// Validate configured support email
+const getSupportEmail = (configuredEmailRaw: unknown): string | undefined => {
   const cfg = typeof configuredEmailRaw === "string" ? configuredEmailRaw : ""
-  if (isValidEmail(cfg)) return cfg
-
-  if (typeof sourceText === "string" && EMAIL_REGEX.test(sourceText)) {
-    const match = sourceText.match(EMAIL_REGEX)
-    const found = match ? match[0] : undefined
-    if (found && isValidEmail(found)) return found
-  }
-  return undefined
+  return isValidEmail(cfg) ? cfg : undefined
 }
 
 const MODULES: readonly string[] = [
@@ -126,14 +116,6 @@ const hasWebGL2Support = (): boolean => {
     return false
   }
 }
-
-// Small utility helpers (behavior-preserving)
-const isThenable = (
-  v: unknown
-): v is { then: (...args: unknown[]) => unknown } =>
-  !!v &&
-  (typeof v === "object" || typeof v === "function") &&
-  typeof (v as { then?: unknown }).then === "function"
 
 // Area calculation and formatting constants
 const GEOMETRY_CONSTS = {
@@ -190,7 +172,6 @@ const useModules = (): {
   return { modules, loading }
 }
 
-// Custom hook to manage local map state
 const useMapState = () => {
   const [jimuMapView, setJimuMapView] = React.useState<JimuMapView | null>(null)
   const [sketchViewModel, setSketchViewModel] =
@@ -200,23 +181,49 @@ const useMapState = () => {
   const [currentGeometry, setCurrentGeometry] =
     React.useState<__esri.Geometry | null>(null)
 
-  // Cleanup function to remove all resources
+  // Cleanup function to release resources
   const cleanupResources = hooks.useEventCallback(() => {
     try {
+      // Cancel any ongoing sketch operations
       if (sketchViewModel) {
-        sketchViewModel.cancel()
-        sketchViewModel.destroy()
-        setSketchViewModel(null)
+        try {
+          if (sketchViewModel.activeTool) {
+            sketchViewModel.cancel()
+          }
+          // Remove event listeners if any were added
+          if (sketchViewModel.hasEventListener) {
+            sketchViewModel.removeHandles?.()
+          }
+          sketchViewModel.destroy?.()
+          setSketchViewModel(null)
+        } catch (sketchError) {
+          console.warn(
+            "Widget - Error cleaning up SketchViewModel:",
+            sketchError
+          )
+        }
       }
 
-      if (graphicsLayer && jimuMapView?.view?.map) {
-        jimuMapView.view.map.remove(graphicsLayer)
-        setGraphicsLayer(null)
+      // Remove graphics layer from map
+      if (graphicsLayer) {
+        try {
+          if (jimuMapView?.view?.map && graphicsLayer.parent) {
+            jimuMapView.view.map.remove(graphicsLayer)
+          }
+          // Clear all graphics
+          graphicsLayer.removeAll?.()
+          setGraphicsLayer(null)
+        } catch (layerError) {
+          console.warn("Widget - Error cleaning up GraphicsLayer:", layerError)
+        }
       }
 
-      setCurrentGeometry(null)
+      // Clear geometry references
+      if (currentGeometry) {
+        setCurrentGeometry(null)
+      }
     } catch (error) {
-      console.warn("FME Export Widget - Error during resource cleanup:", error)
+      console.error("Widget - Critical error during resource cleanup:", error)
     }
   })
 
@@ -251,14 +258,14 @@ const dispatchError = (
 const abortController = (
   ref: React.MutableRefObject<AbortController | null>
 ) => {
-  if (ref.current) {
+  if (ref.current && !ref.current.signal.aborted) {
     try {
       ref.current.abort()
-    } catch {
-      // Ignore abort errors
+    } catch (error) {
+      console.warn("Widget - Error aborting controller:", error)
     }
-    ref.current = null
   }
+  ref.current = null
 }
 
 const geometryUtils = {
@@ -266,28 +273,54 @@ const geometryUtils = {
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
-      return 0
-    }
-    const polygon = geometry as __esri.Polygon
-    const sr: any = polygon.spatialReference || {}
-    const engine: any = modules.geometryEngine
-    const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
     try {
-      let area: number | undefined
-      if (useGeodesic && typeof engine.geodesicArea === "function") {
-        area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-      } else if (!useGeodesic && typeof engine.planarArea === "function") {
-        area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+      if (
+        !geometry ||
+        geometry.type !== "polygon" ||
+        !modules?.geometryEngine
+      ) {
+        return 0
       }
-      // Ensure area is a positive finite number
-      return Number.isFinite(area) &&
-        area !== undefined &&
-        Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
-        ? Math.abs(area)
-        : 0
-    } catch {
-      // On error, return zero
+      const polygon = geometry as __esri.Polygon
+      const sr: any = polygon.spatialReference || {}
+      const engine: any = modules.geometryEngine
+      const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
+
+      try {
+        let area: number | undefined
+        if (useGeodesic && typeof engine.geodesicArea === "function") {
+          area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+        } else if (!useGeodesic && typeof engine.planarArea === "function") {
+          area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+        }
+        // Ensure area is a positive finite number
+        if (
+          Number.isFinite(area) &&
+          area !== undefined &&
+          Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
+        ) {
+          return Math.abs(area)
+        }
+        // Fallback: approximate using extent if engine returns invalid
+        const ext = polygon.extent
+        const approx = Math.abs(ext?.width * ext?.height || 0)
+        return Number.isFinite(approx) && approx > 0 ? approx : 0
+      } catch (calcError) {
+        console.warn(
+          "Widget - Area calculation failed, using extent fallback:",
+          calcError
+        )
+        // On error, fallback to extent-based approximation
+        try {
+          const ext = polygon.extent
+          return Math.abs(ext?.width * ext?.height || 0)
+        } catch (extentError) {
+          console.warn("Widget - Extent fallback also failed:", extentError)
+          return 0
+        }
+      }
+    } catch (error) {
+      console.warn("Widget - Geometry area calculation error:", error)
       return 0
     }
   },
@@ -380,7 +413,8 @@ const geometryUtils = {
             ),
           }
         }
-      } catch {
+      } catch (ringError) {
+        console.warn("Widget - Ring validation error:", ringError)
         return {
           valid: false,
           error: errorService.createError(
@@ -407,7 +441,11 @@ const geometryUtils = {
           }
         }
       }
-    } catch {
+    } catch (intersectionError) {
+      console.warn(
+        "Widget - Self-intersection check failed, assuming valid:",
+        intersectionError
+      )
       // Ignore errors from isSimple; assume valid if we cannot determine
     }
     return { valid: true }
@@ -433,7 +471,8 @@ const geometryUtils = {
           Math.abs(first[0] - last[0]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
           Math.abs(first[1] - last[1]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON
         return closed ? cleaned : [...cleaned, [first[0], first[1]]]
-      } catch {
+      } catch (closureError) {
+        console.warn("Widget - Ring closure processing failed:", closureError)
         return cleaned
       }
     }
@@ -534,7 +573,11 @@ const attachAoi = (
     let sr: unknown
     try {
       sr = currentGeometry?.toJSON()?.spatialReference
-    } catch {
+    } catch (srError) {
+      console.warn(
+        "Widget - Failed to derive spatial reference from geometry:",
+        srError
+      )
       /* ignore SR derivation errors */
     }
     // Use consolidated sanitization from geometryUtils
@@ -777,8 +820,8 @@ const processFmeResponse = (
   const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
   const parsedId =
     typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
-  const jobId: number =
-    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : Date.now()
+  const jobId: number | undefined =
+    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : undefined
 
   if (status === "success") {
     return {
@@ -872,7 +915,7 @@ export default function Widget(
 
       // Determine support email if configured or found in user-friendly message
       const ufm = error.userFriendlyMessage
-      const supportEmail = getSupportEmail(props.config?.supportEmail, ufm)
+      const supportEmail = getSupportEmail(props.config?.supportEmail)
       // Build support hint message
       let supportHint: string
       if (supportEmail) {
@@ -1158,8 +1201,8 @@ export default function Widget(
           return
         }
 
-        // Prefer a simplified polygon when available to ensure clean rings
-        const geomForUse = geometry.type === "polygon" ? geometry : geometry
+        // Geometry is valid polygon here
+        const geomForUse = geometry as __esri.Polygon
 
         // Set symbol
         if (evt.graphic && modules) {
@@ -1414,13 +1457,8 @@ export default function Widget(
         }
         const arg: "rectangle" | "polygon" =
           tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-        const res = svm.create(arg)
-        // Inline promise check since it's only used here
-        if (isThenable(res)) {
-          ;(res as Promise<unknown>).catch(() => {
-            /* ignore expected cancellation errors */
-          })
-        }
+        // Invoke create
+        void svm.create(arg)
       } catch {
         /* noop */
       }
@@ -1615,7 +1653,11 @@ export default function Widget(
             // Cancel any ongoing drawing
             try {
               sketchViewModel.cancel()
-            } catch {
+            } catch (cancelError) {
+              console.warn(
+                "Widget - Failed to cancel sketch operation:",
+                cancelError
+              )
               /* noop */
             }
             // Start new drawing with the selected tool

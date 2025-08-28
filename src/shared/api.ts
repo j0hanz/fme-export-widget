@@ -33,6 +33,7 @@ async function loadArcgisHelper(): Promise<
       return pkg.loadArcGISJSAPIModules
     }
   } catch {
+    console.warn("FME API - Failed to import jimu-arcgis module")
     // ignore and try globals
   }
   const g: any = globalThis as any
@@ -78,7 +79,9 @@ async function ensureEsri(): Promise<void> {
         _webMercatorUtils = {}
       } else {
         _loadPromise = null
-        throw e instanceof Error ? e : new Error(String(e))
+        const error = e instanceof Error ? e : new Error(String(e))
+        console.error("FME API - Failed to load ArcGIS modules:", error)
+        throw error
       }
     }
   })()
@@ -136,6 +139,10 @@ const toStr = (val: unknown): string => {
     try {
       return JSON.stringify(val)
     } catch {
+      console.warn(
+        "FME API - Failed to stringify value for parameter conversion:",
+        val
+      )
       return Object.prototype.toString.call(val)
     }
   }
@@ -272,7 +279,11 @@ const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
       if (webMercatorUtils?.webMercatorToGeographic) {
         return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
       }
-    } catch {
+    } catch (error) {
+      console.warn(
+        "FME API - Web Mercator conversion failed, using original geometry:",
+        error
+      )
       // Fall back to original geometry if conversion fails
     }
   }
@@ -813,6 +824,7 @@ export class FmeFlowApiClient {
           `params=${safeParams.toString()}`
         )
       } catch {
+        console.warn("FME API - Failed to log webhook parameters safely")
         /* ignore logging issues */
       }
 
@@ -864,14 +876,26 @@ export class FmeFlowApiClient {
   }
 
   cancelAllRequests(): void {
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch (error) {
+        console.warn("FME API - Error aborting controller:", error)
+      }
     }
+    this.abortController = null
   }
 
   createAbortController(): AbortController {
-    if (this.abortController) this.abortController.abort()
+    // Safely abort existing controller
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch (error) {
+        console.warn("FME API - Error aborting previous controller:", error)
+      }
+    }
+
     this.abortController = new AbortController()
     return this.abortController
   }
@@ -891,6 +915,7 @@ export class FmeFlowApiClient {
     try {
       responseData = await response.json()
     } catch {
+      console.warn("FME API - Failed to parse webhook JSON response")
       throw new FmeFlowApiError(
         "Webhook returned malformed JSON",
         "WEBHOOK_AUTH_ERROR",
@@ -914,21 +939,48 @@ export class FmeFlowApiClient {
   }
 
   private toFmeParams(geometry: __esri.Geometry): PrimitiveParams {
+    if (!geometry) {
+      throw new Error("Geometry is required but was null or undefined")
+    }
+
     if (geometry.type !== "polygon") {
-      throw new Error("Only polygon geometries are supported")
+      throw new Error(
+        `Only polygon geometries are supported, received: ${geometry.type}`
+      )
     }
 
     const polygon = geometry as __esri.Polygon
     const extent = polygon.extent
+
+    if (!extent) {
+      throw new Error("Polygon geometry must have a valid extent")
+    }
+
     const projectedGeometry = toWgs84(geometry)
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
     // Sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
     const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
     if (esriJson?.rings) {
-      esriJson.rings = esriJson.rings.map((ring: any[]) =>
-        ring.map((pt: any) => [pt[0], pt[1]])
-      )
+      esriJson.rings = esriJson.rings.map((ring: unknown[]) => {
+        if (!Array.isArray(ring)) {
+          throw new Error("Invalid polygon ring structure - expected array")
+        }
+        return ring.map((pt: unknown) => {
+          if (!Array.isArray(pt) || pt.length < 2) {
+            throw new Error(
+              "Invalid polygon point structure - expected [x, y] coordinate array"
+            )
+          }
+          const [x, y] = pt as number[]
+          if (typeof x !== "number" || typeof y !== "number") {
+            throw new Error(
+              "Invalid polygon coordinates - expected numeric x,y values"
+            )
+          }
+          return [x, y] as [number, number]
+        })
+      })
       delete esriJson.hasZ
       delete esriJson.hasM
     }
