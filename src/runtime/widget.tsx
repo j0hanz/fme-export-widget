@@ -74,18 +74,15 @@ const useDrawingColors = () => {
   }
 }
 
-const MODULES: readonly string[] = [
+// ArcGIS JS API modules
+const MODULES = [
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
-  "esri/Graphic",
-  "esri/geometry/Polygon",
-  "esri/geometry/Extent",
   "esri/geometry/geometryEngine",
-  "esri/geometry/projection",
   "esri/geometry/support/webMercatorUtils",
-  "esri/geometry/SpatialReference",
-  "esri/intl",
-  "esri/core/units",
+  "esri/core/reactiveUtils",
+  "esri/geometry/Polyline",
+  "esri/geometry/Polygon",
 ] as const
 
 // Area calculation and formatting constants
@@ -108,28 +105,20 @@ const useModules = (): {
         const [
           SketchViewModel,
           GraphicsLayer,
-          Graphic,
-          Polygon,
-          Extent,
           geometryEngine,
-          projection,
           webMercatorUtils,
-          SpatialReference,
-          intl,
-          units,
+          reactiveUtils,
+          Polyline,
+          Polygon,
         ] = loaded
         setModules({
           SketchViewModel,
           GraphicsLayer,
-          Graphic,
-          Polygon,
-          Extent,
           geometryEngine,
-          projection,
           webMercatorUtils,
-          SpatialReference,
-          intl,
-          units,
+          reactiveUtils,
+          Polyline,
+          Polygon,
         } as EsriModules)
       })
       .catch((error) => {
@@ -243,11 +232,18 @@ const geometryUtils = {
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
+    if (
+      !geometry ||
+      geometry.type !== "polygon" ||
+      !modules?.geometryEngine ||
+      !modules?.Polygon
+    ) {
       return 0
     }
 
-    const polygon = geometry as __esri.Polygon
+    // Use native Polygon properties if modules available
+    const polygonJson = geometry.toJSON()
+    const polygon = modules.Polygon.fromJSON(polygonJson)
     const engine: any = modules.geometryEngine
     const sr = polygon.spatialReference
     const simplified = engine.simplify(polygon) || polygon
@@ -283,15 +279,19 @@ const geometryUtils = {
         ),
       }
     }
-    if (!modules?.geometryEngine) {
-      // Assume valid if no engine available
+
+    // Use native Polygon construction instead of unsafe casting
+    if (!modules?.Polygon || !modules?.geometryEngine) {
+      // Assume valid if modules not available
       return { valid: true }
     }
 
-    const polygon = geometry as __esri.Polygon
-    const engine: any = modules.geometryEngine
+    // Create proper Polygon instance from geometry JSON
+    const polygonJson = geometry.toJSON()
+    const polygon = modules.Polygon.fromJSON(polygonJson)
 
-    if (!engine.isSimple(polygon)) {
+    // Check for self-intersections
+    if (!modules.geometryEngine.isSimple(polygon)) {
       return {
         valid: false,
         error: errorService.createError(
@@ -358,10 +358,23 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
-const calculateVertexCount = (geometry: __esri.Polygon): number => {
+const calculateVertexCount = (
+  geometry: __esri.Polygon,
+  modules?: EsriModules
+): number => {
+  // Use native Polygon properties if modules available
+  if (modules?.Polygon) {
+    const polygonJson = geometry.toJSON()
+    const polygon = modules.Polygon.fromJSON(polygonJson)
+    const vertices = polygon.rings?.[0]
+    if (!vertices) return 0
+    // Subtract one if the last vertex is coincident with the first
+    return Math.max(0, vertices.length - 1)
+  }
+
+  // Fallback to JSON inspection
   const vertices = geometry.rings?.[0]
   if (!vertices) return 0
-  // Subtract one if the last vertex is coincident with the first
   return Math.max(0, vertices.length - 1)
 }
 
@@ -519,7 +532,7 @@ const createSketchVM = ({
   })
 
   setSketchSymbols(sketchViewModel, polygonSymbol, drawingColors)
-  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
+  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch, modules)
 
   return sketchViewModel
 }
@@ -581,7 +594,8 @@ const processSketchEvent = (
   evt: __esri.SketchCreateEvent,
   stateManager: ReturnType<typeof createDrawingStateManager>,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  modules?: EsriModules
 ) => {
   const { resetState, updateClicks, getClickCount } = stateManager
 
@@ -600,7 +614,7 @@ const processSketchEvent = (
     case "active":
       if (evt.tool === "polygon" && evt.graphic?.geometry) {
         const geometry = evt.graphic.geometry as __esri.Polygon
-        const actualClicks = calculateVertexCount(geometry)
+        const actualClicks = calculateVertexCount(geometry, modules)
         updateClicks(actualClicks)
       } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
         updateClicks(1)
@@ -621,12 +635,13 @@ const processSketchEvent = (
 const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  modules?: EsriModules
 ) => {
   const stateManager = createDrawingStateManager(dispatch)
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    processSketchEvent(evt, stateManager, onDrawComplete, dispatch)
+    processSketchEvent(evt, stateManager, onDrawComplete, dispatch, modules)
   })
 }
 

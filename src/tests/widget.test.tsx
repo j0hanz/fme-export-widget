@@ -119,15 +119,16 @@ describe("FME Export Widget", () => {
     ({
       SketchViewModel: jest.fn() as any,
       GraphicsLayer: jest.fn() as any,
-      Graphic: jest.fn() as any,
-      Polygon: jest.fn() as any,
-      Extent: jest.fn() as any,
       geometryEngine,
-      projection: {} as any, // 4.29-compatible projection module
-      webMercatorUtils: {} as any, // 4.29-compatible webMercatorUtils module
-      SpatialReference: jest.fn() as any,
-      intl: { formatNumber: jest.fn((n: number) => n.toLocaleString()) } as any,
-      units: {} as any,
+      webMercatorUtils: {} as any,
+      reactiveUtils: {} as any,
+      Polyline: jest.fn() as any,
+      Polygon: {
+        fromJSON: jest.fn((json: any) => ({
+          rings: json.rings,
+          spatialReference: json.spatialReference,
+        })),
+      } as any,
     }) as any
 
   beforeAll(() => {
@@ -462,13 +463,24 @@ describe("FME Export Widget", () => {
     expect(res.error?.code).toBe("GEOM_MISSING")
 
     // Invalid: wrong type
-    const notPolygon: any = { type: "point" }
+    const notPolygon: any = {
+      type: "point",
+      toJSON() {
+        return this
+      },
+    }
     res = validatePolygon(notPolygon, modules)
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_TYPE_INVALID")
 
     // Empty polygon is considered valid (no rings to be invalid)
-    const emptyPoly: any = { type: "polygon", rings: [] }
+    const emptyPoly: any = {
+      type: "polygon",
+      rings: [],
+      toJSON() {
+        return this
+      },
+    }
     res = validatePolygon(emptyPoly, modules)
     expect(res.valid).toBe(true)
 
@@ -481,6 +493,9 @@ describe("FME Export Widget", () => {
           [1, 1],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(openRingPoly, modules)
     expect(res.valid).toBe(true)
@@ -497,6 +512,9 @@ describe("FME Export Widget", () => {
           [0, 0],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(simplePoly, modules)
     expect(res.valid).toBe(true)
@@ -517,6 +535,9 @@ describe("FME Export Widget", () => {
           [0, 0],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(bowtie, modulesIntersect)
     expect(res.valid).toBe(false)
@@ -543,6 +564,9 @@ describe("FME Export Widget", () => {
           ],
         ],
         spatialReference: sr,
+        toJSON() {
+          return this
+        },
       }) as any
 
     // Stub geometryEngine to return deterministic values
@@ -578,7 +602,17 @@ describe("FME Export Widget", () => {
     expect(geomEngPlanar.planarArea).toHaveBeenCalled()
 
     // Non-polygon or missing engine -> 0
-    expect(calcArea({ type: "point" } as any, modules)).toBe(0)
+    expect(
+      calcArea(
+        {
+          type: "point",
+          toJSON() {
+            return this
+          },
+        } as any,
+        modules
+      )
+    ).toBe(0)
     expect(calcArea(mkPoly({}), makeModules(null))).toBe(0)
   })
 
@@ -764,7 +798,15 @@ describe("FME Export Widget", () => {
     const modules: any = makeModules(null)
     const dummyRender = withStoreRender(false)
     expect(typeof dummyRender).toBe("function")
-    const area = calcArea({ type: "point" } as any, modules)
+    const area = calcArea(
+      {
+        type: "point",
+        toJSON() {
+          return this
+        },
+      } as any,
+      modules
+    )
     expect(area).toBe(0)
   })
 

@@ -16,8 +16,8 @@
     }
   ],
   "defaultSize": {
-    "width": 360,
-    "height": 400
+    "width": 375,
+    "height": 415
   },
   "translatedLocales": ["sv-SE"],
   "settingDependency": ["jimu-arcgis"]

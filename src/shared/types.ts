@@ -828,15 +828,11 @@ export interface JobResult {
 export interface EsriModules {
   readonly SketchViewModel: typeof __esri.SketchViewModel
   readonly GraphicsLayer: typeof __esri.GraphicsLayer
-  readonly Graphic: typeof __esri.Graphic
-  readonly Polygon: typeof __esri.Polygon
-  readonly Extent: typeof __esri.Extent
   readonly geometryEngine: typeof __esri.geometryEngine
-  readonly projection: any
   readonly webMercatorUtils: any
-  readonly SpatialReference: typeof __esri.SpatialReference
-  readonly intl: any
-  readonly units: any
+  readonly reactiveUtils: any
+  readonly Polyline: typeof __esri.Polyline
+  readonly Polygon: typeof __esri.Polygon
 }
 
 // Result from FME export job submission
