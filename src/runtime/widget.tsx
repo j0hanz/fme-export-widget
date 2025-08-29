@@ -620,6 +620,37 @@ const createSketchVM = ({
       selfEnabled: true,
       featureEnabled: true,
     },
+    tooltipOptions: {
+      enabled: true,
+      inputEnabled: true,
+      visibleElements: {
+        area: true,
+        totalLength: true,
+        distance: true,
+        coordinates: false,
+        elevation: false,
+        rotation: false,
+        scale: false,
+        size: false,
+        radius: true,
+        direction: true,
+        header: true,
+        helpMessage: true,
+      },
+    },
+    valueOptions: {
+      directionMode: "relative",
+      displayUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+      inputUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+    },
   })
 
   setSketchSymbols(sketchViewModel, polygonSymbol, drawingColors)
