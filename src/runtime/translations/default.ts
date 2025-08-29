@@ -13,6 +13,9 @@ export default {
   validatingConfiguration: "Kontrollerar konfigurationen...",
   startupValidationFailed: "Konfigurationsfel uppstod",
   invalidConfiguration: "Widgetens konfiguration saknas eller är ogiltig",
+  serverUrlMissing: "FME Server-URL saknas",
+  tokenMissing: "FME API-nyckel saknas",
+  repositoryMissing: "Repository saknas",
   connectionFailed: "Det gick inte att ansluta till FME Server",
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",

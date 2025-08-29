@@ -926,16 +926,34 @@ export default function Widget(
     (
       config: FmeExportConfig | undefined
     ): { isValid: boolean; error?: ErrorState } => {
-      if (
-        !config?.fmeServerUrl ||
-        !config?.fmeServerToken ||
-        !config?.repository
-      ) {
+      if (!config) {
         return {
           isValid: false,
           error: createStartupError("invalidConfiguration", "ConfigMissing"),
         }
       }
+
+      // Check required fields
+      if (!config.fmeServerUrl || config.fmeServerUrl.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("serverUrlMissing", "ServerUrlEmpty"),
+        }
+      }
+      if (!config.fmeServerToken || config.fmeServerToken.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("tokenMissing", "TokenEmpty"),
+        }
+      }
+      if (!config.repository || config.repository.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("repositoryMissing", "RepositoryEmpty"),
+        }
+      }
+
+      // Workspace is optional, but warn if empty
       return { isValid: true }
     }
   )
