@@ -47,7 +47,6 @@ import {
   getErrorMessage,
   isValidEmail,
   buildSupportHintText,
-  sanitizePolygonJson,
   getSupportEmail,
 } from "../shared/utils"
 
@@ -82,15 +81,17 @@ const MODULES: readonly string[] = [
   "esri/geometry/Polygon",
   "esri/geometry/Extent",
   "esri/geometry/geometryEngine",
+  "esri/geometry/projection",
+  "esri/geometry/support/webMercatorUtils",
+  "esri/geometry/SpatialReference",
+  "esri/intl",
+  "esri/core/units",
 ] as const
 
 // Area calculation and formatting constants
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000, // m² -> 1 km²
   AREA_DECIMALS: 2,
-  COINCIDENT_EPSILON: 1e-3,
-  AREA_UNIT: "square-meters",
-  MIN_VALID_AREA: 1e-3, // minimum valid area in m²
 } as const
 
 // Load ArcGIS modules once and memoize result
@@ -111,6 +112,11 @@ const useModules = (): {
           Polygon,
           Extent,
           geometryEngine,
+          projection,
+          webMercatorUtils,
+          SpatialReference,
+          intl,
+          units,
         ] = loaded
         setModules({
           SketchViewModel,
@@ -119,6 +125,11 @@ const useModules = (): {
           Polygon,
           Extent,
           geometryEngine,
+          projection,
+          webMercatorUtils,
+          SpatialReference,
+          intl,
+          units,
         } as EsriModules)
       })
       .catch((error) => {
@@ -226,32 +237,25 @@ const cancelController = (
   ref.current = null
 }
 
+// Geometry utilities and validation
 const geometryUtils = {
   calcArea(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    // Rely on geometry engine for area calculations
     if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
       return 0
     }
+
     const polygon = geometry as __esri.Polygon
-    const sr: any = polygon.spatialReference || {}
     const engine: any = modules.geometryEngine
-    const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
+    const sr = polygon.spatialReference
+    const simplified = engine.simplify(polygon) || polygon
+    const useGeodesic = sr?.isGeographic || sr?.isWebMercator
+    const area = useGeodesic
+      ? engine.geodesicArea(simplified, "square-meters")
+      : engine.planarArea(simplified, "square-meters")
 
-    // Simplify geometry first to clean up coincident edges
-    const polyForArea: __esri.Polygon =
-      (typeof engine.simplify === "function"
-        ? (engine.simplify(polygon) as __esri.Polygon | null)
-        : null) || polygon
-
-    let area: number | undefined
-    if (useGeodesic && typeof engine.geodesicArea === "function") {
-      area = engine.geodesicArea(polyForArea, GEOMETRY_CONSTS.AREA_UNIT)
-    } else if (!useGeodesic && typeof engine.planarArea === "function") {
-      area = engine.planarArea(polyForArea, GEOMETRY_CONSTS.AREA_UNIT)
-    }
     return Number.isFinite(area) && area !== undefined ? Math.abs(area) : 0
   },
 
@@ -259,7 +263,6 @@ const geometryUtils = {
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): { valid: boolean; error?: ErrorState } {
-    // Minimal, engine-first validation
     if (!geometry) {
       return {
         valid: false,
@@ -287,29 +290,23 @@ const geometryUtils = {
 
     const polygon = geometry as __esri.Polygon
     const engine: any = modules.geometryEngine
-    const simplified =
-      (typeof engine.simplify === "function"
-        ? (engine.simplify(polygon) as __esri.Polygon | null)
-        : null) || polygon
 
-    if (typeof engine.isSimple === "function") {
-      const simple = engine.isSimple(simplified)
-      if (!simple) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_SELF_INTERSECTING",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_SELF_INTERSECTING" }
-          ),
-        }
+    if (!engine.isSimple(polygon)) {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "POLYGON_SELF_INTERSECTING",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_SELF_INTERSECTING" }
+        ),
       }
     }
+
     return { valid: true }
   },
 }
 
-// Export calcArea and validatePolygon individually for tests and other modules
+// Exported geometry utilities
 export const calcArea = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
@@ -376,19 +373,7 @@ const attachAoi = (
 ): { [key: string]: unknown } => {
   const geometryToUse = geometryJson || currentGeometry?.toJSON()
   if (isPolygonJson(geometryToUse)) {
-    let sr: unknown
-    try {
-      sr = currentGeometry?.toJSON()?.spatialReference
-    } catch (srError) {
-      console.warn(
-        "Widget - Failed to derive spatial reference from geometry:",
-        srError
-      )
-      /* ignore SR derivation errors */
-    }
-    // Use shared sanitization helper
-    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
-    return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
+    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
   }
   return base
 }
@@ -692,26 +677,36 @@ const processFmeResponse = (
   }
 }
 
-// Number formatting for Swedish locale
-const NF_SV_NO_DECIMALS = new Intl.NumberFormat("sv-SE", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-})
-const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
-})
-
-// Format area (metric; returns localized string)
-export function formatArea(area: number): string {
+// Format area with intl module if available
+export function formatArea(area: number, modules?: EsriModules): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
+  // Use intl module if available for proper localization
+  const intlModule = (modules as any)?.intl
+  if (intlModule && typeof intlModule.formatNumber === "function") {
+    if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
+      const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
+      const formatted = intlModule.formatNumber(areaInSqKm, {
+        style: "decimal",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
+      })
+      return `${formatted} km²`
+    } else {
+      const formatted = intlModule.formatNumber(Math.round(area), {
+        style: "decimal",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })
+      return `${formatted} m²`
+    }
+  }
+
+  // Fallback if intl module not available
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
-    const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
-    return `${formattedKm} km²`
+    return `${areaInSqKm.toFixed(GEOMETRY_CONSTS.AREA_DECIMALS)} km²`
   }
-  const formatted = NF_SV_NO_DECIMALS.format(Math.round(area))
-  return `${formatted} m²`
+  return `${Math.round(area).toLocaleString()} m²`
 }
 
 export default function Widget(
@@ -939,9 +934,8 @@ export default function Widget(
         action: () => Promise<unknown>
       ): Promise<void> => {
         setValidationStep(translate(stepKey))
-        const result = await action()
+        await action()
         if (signal.aborted) throw new Error("AbortError")
-        return result as void
       }
 
       const client = createFmeFlowClient(config)
@@ -1173,12 +1167,12 @@ export default function Widget(
 
   // Map view ready handler
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
+    // Always capture active JimuMapView
+    setJimuMapView(jmv)
     if (!modules) {
-      setJimuMapView(jmv)
       return
     }
     try {
-      setJimuMapView(jmv)
       const layer = createLayers(jmv, modules, setGraphicsLayer)
       const svm = createSketchVM({
         jmv,
@@ -1257,22 +1251,13 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Ensure any in-progress draw is canceled before starting a new one
-    try {
-      sketchViewModel.cancel()
-    } catch {
-      /* noop */
-    }
+    sketchViewModel.cancel()
 
     // Start drawing immediately; prior cancel avoids overlap
-    try {
-      const svm = sketchViewModel as unknown as {
-        create: (t: "rectangle" | "polygon") => unknown
-      }
-      const arg: "rectangle" | "polygon" =
-        tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-      void svm.create(arg)
-    } catch {
-      /* noop */
+    const arg: "rectangle" | "polygon" =
+      tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+    if (sketchViewModel?.create) {
+      sketchViewModel.create(arg)
     }
   })
 
@@ -1431,6 +1416,7 @@ export default function Widget(
           reduxState.clickCount
         )}
         isModulesLoading={modulesLoading}
+        modules={modules}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
@@ -1439,7 +1425,7 @@ export default function Widget(
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
-        formatArea={formatArea}
+        formatArea={(area: number) => formatArea(area, modules)}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool))
@@ -1450,15 +1436,7 @@ export default function Widget(
             sketchViewModel
           ) {
             // Cancel any ongoing drawing
-            try {
-              sketchViewModel.cancel()
-            } catch (cancelError) {
-              console.warn(
-                "Widget - Failed to cancel sketch operation:",
-                cancelError
-              )
-              /* noop */
-            }
+            sketchViewModel.cancel()
             // Start new drawing with the selected tool
             handleStartDrawing(tool)
           }

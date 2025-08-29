@@ -832,6 +832,11 @@ export interface EsriModules {
   readonly Polygon: typeof __esri.Polygon
   readonly Extent: typeof __esri.Extent
   readonly geometryEngine: typeof __esri.geometryEngine
+  readonly projection: any
+  readonly webMercatorUtils: any
+  readonly SpatialReference: typeof __esri.SpatialReference
+  readonly intl: any
+  readonly units: any
 }
 
 // Result from FME export job submission
@@ -933,13 +938,14 @@ interface WorkflowCoreProps {
   readonly error?: ErrorState | SerializableErrorState | null
   readonly onBack?: () => void
   readonly isModulesLoading: boolean
+  readonly modules?: EsriModules | null
 }
 
 interface WorkflowDrawingFeatures {
   readonly canStartDrawing: boolean
   readonly onAngeUtbredning: () => void
   readonly drawnArea?: number | null
-  readonly formatArea?: (area: number) => string
+  readonly formatArea?: (area: number, modules?: EsriModules) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
   readonly isDrawing?: boolean

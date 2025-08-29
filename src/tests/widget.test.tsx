@@ -69,7 +69,12 @@ jest.mock("jimu-arcgis", () => ({
         // no-op
         return null as any
       },
-      { planarArea: jest.fn(), geodesicArea: jest.fn() },
+      {
+        planarArea: jest.fn(),
+        geodesicArea: jest.fn(),
+        simplify: jest.fn((geom) => geom),
+        isSimple: jest.fn(() => true),
+      },
     ])
   }),
 }))
@@ -118,6 +123,11 @@ describe("FME Export Widget", () => {
       Polygon: jest.fn() as any,
       Extent: jest.fn() as any,
       geometryEngine,
+      projection: {} as any, // 4.29-compatible projection module
+      webMercatorUtils: {} as any, // 4.29-compatible webMercatorUtils module
+      SpatialReference: jest.fn() as any,
+      intl: { formatNumber: jest.fn((n: number) => n.toLocaleString()) } as any,
+      units: {} as any,
     }) as any
 
   beforeAll(() => {
@@ -442,7 +452,10 @@ describe("FME Export Widget", () => {
 
   test("validatePolygon checks existence, polygon type, and self-intersection via engine", () => {
     // Use makeModules to create EsriModules with geometryEngine stub
-    const modules: any = makeModules({ isSimple: () => true })
+    const modules: any = makeModules({
+      isSimple: () => true,
+      simplify: (g: any) => g,
+    })
     // Invalid: no geometry
     let res = validatePolygon(undefined as any, modules)
     expect(res.valid).toBe(false)
@@ -489,7 +502,10 @@ describe("FME Export Widget", () => {
     expect(res.valid).toBe(true)
 
     // Self-intersecting polygon detected by isSimple=false
-    const modulesIntersect: any = makeModules({ isSimple: () => false })
+    const modulesIntersect: any = makeModules({
+      isSimple: () => false,
+      simplify: (g: any) => g,
+    })
     const bowtie: any = {
       type: "polygon",
       rings: [
@@ -533,10 +549,14 @@ describe("FME Export Widget", () => {
     const geomEngGeo = {
       geodesicArea: jest.fn(() => 123),
       planarArea: jest.fn(() => 456),
+      simplify: jest.fn((geom) => geom),
+      isSimple: jest.fn(() => true),
     }
     const geomEngPlanar = {
       geodesicArea: jest.fn(() => 0),
       planarArea: jest.fn(() => 789),
+      simplify: jest.fn((geom) => geom),
+      isSimple: jest.fn(() => true),
     }
 
     // Geographic SR -> geodesic

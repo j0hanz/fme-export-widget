@@ -9,12 +9,14 @@ import type {
   PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
-import { isAuthError, sanitizePolygonJson } from "./utils"
+import { isAuthError } from "./utils"
 
 // Import ArcGIS JSAPI modules dynamically with runtime helper
 let _esriRequest: unknown
 let _esriConfig: unknown
+let _projection: unknown
 let _webMercatorUtils: unknown
+let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
 
 const isTestEnv = (): boolean =>
@@ -43,48 +45,72 @@ async function loadArcgisHelper(): Promise<
 }
 
 async function ensureEsri(): Promise<void> {
-  if (_esriRequest && _esriConfig && _webMercatorUtils) return
   if (_loadPromise) return _loadPromise
+
+  if (
+    _esriRequest &&
+    _esriConfig &&
+    _projection &&
+    _webMercatorUtils &&
+    _SpatialReference
+  )
+    return
   _loadPromise = (async () => {
     try {
-      const helper = await loadArcgisHelper()
-      const [esriRequest, esriConfig, webMercatorUtils] = await helper([
+      const loadModules = await loadArcgisHelper()
+      const [
+        requestMod,
+        configMod,
+        projectionMod,
+        webMercatorMod,
+        spatialRefMod,
+      ] = await loadModules([
         "esri/request",
         "esri/config",
+        "esri/geometry/projection",
         "esri/geometry/support/webMercatorUtils",
+        "esri/geometry/SpatialReference",
       ])
-      const reqMod: any = esriRequest
-      const cfgMod: any = esriConfig
-      const wmMod: any = webMercatorUtils
-      _esriRequest = reqMod && reqMod.default ? reqMod.default : reqMod
-      _esriConfig = cfgMod && cfgMod.default ? cfgMod.default : cfgMod
-      _webMercatorUtils = wmMod && wmMod.default ? wmMod.default : wmMod
-    } catch (e) {
+      _esriRequest =
+        requestMod && requestMod.default ? requestMod.default : requestMod
+      _esriConfig =
+        configMod && configMod.default ? configMod.default : configMod
+      _projection =
+        projectionMod && projectionMod.default
+          ? projectionMod.default
+          : projectionMod
+      _webMercatorUtils =
+        webMercatorMod && webMercatorMod.default
+          ? webMercatorMod.default
+          : webMercatorMod
+      _SpatialReference =
+        spatialRefMod && spatialRefMod.default
+          ? spatialRefMod.default
+          : spatialRefMod
+      // Load the projection dependencies for client-side transformation
+      if (_projection && typeof (_projection as any).load === "function") {
+        await (_projection as any).load()
+      }
+    } catch (error) {
+      // In test environment, provide basic stubs
       if (isTestEnv()) {
-        // Minimal shims for unit tests (no ArcGIS runtime)
-        _esriRequest = async (url: string, options: any) => {
-          const resp = await fetch(url, {
-            method: (options?.method || "get").toUpperCase(),
-            headers: options?.headers,
-            body: options?.body,
-            signal: options?.signal,
-          })
-          const ct = resp.headers.get("content-type") || ""
-          const data = ct.includes("application/json")
-            ? await resp.json()
-            : await resp.text()
-          return { data, httpStatus: resp.status }
-        }
+        console.warn(
+          "FME API - ArcGIS modules not available in test environment"
+        )
+        _esriRequest = () => Promise.resolve({ data: null })
         _esriConfig = { request: { maxUrlLength: 4000, interceptors: [] } }
+        _projection = {}
         _webMercatorUtils = {}
+        _SpatialReference = function () {
+          return {}
+        }
       } else {
-        _loadPromise = null
-        const error = e instanceof Error ? e : new Error(String(e))
         console.error("FME API - Failed to load ArcGIS modules:", error)
-        throw error
+        throw new Error("Failed to load ArcGIS modules")
       }
     }
   })()
+
   return _loadPromise
 }
 
@@ -92,23 +118,39 @@ async function ensureEsri(): Promise<void> {
 const asEsriRequest = (
   v: unknown
 ): ((url: string, options: any) => Promise<any>) | null => {
-  const fn = v as any
-  return typeof fn === "function" ? fn : null
+  return typeof v === "function" ? (v as any) : null
 }
 
 const asEsriConfig = (
   v: unknown
 ): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
-  const cfg = v as any
-  if (cfg && cfg.request && Array.isArray(cfg.request.interceptors)) return cfg
-  return null
+  if (!v || typeof v !== "object") return null
+  const obj = v as any
+  return obj.request ? obj : null
+}
+
+const asProjection = (
+  v: unknown
+): {
+  project?: (geometries: any[], spatialReference: any) => Promise<any[]>
+  load?: () => Promise<void>
+} | null => {
+  if (!v || typeof v !== "object") return null
+  return v as any
 }
 
 const asWebMercatorUtils = (
   v: unknown
-): { webMercatorToGeographic?: (g: any) => any } | null => {
-  const u = v as any
-  return u || null
+): {
+  webMercatorToGeographic?: (geometry: any) => any
+  geographicToWebMercator?: (geometry: any) => any
+} | null => {
+  if (!v || typeof v !== "object") return null
+  return v as any
+}
+
+const asSpatialReference = (v: unknown): new (props: any) => any => {
+  return typeof v === "function" ? (v as any) : ((() => ({})) as any)
 }
 const API = {
   BASE_PATH: "/fmerest/v3",
@@ -270,24 +312,45 @@ const buildWebhookParams = (
   return params
 }
 
-// Geometry Processing Utilities
-const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
-  // Convert Web Mercator to WGS84 if necessary
-  if (geometry.spatialReference?.wkid === 3857) {
-    try {
-      const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-      if (webMercatorUtils?.webMercatorToGeographic) {
-        return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
-      }
-    } catch (error) {
-      console.warn(
-        "FME API - Web Mercator conversion failed, using original geometry:",
-        error
-      )
-      // Fall back to original geometry if conversion fails
-    }
+// Geometry Processing Utilities using 4.29-compatible modules
+const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
+  await ensureEsri()
+
+  if (geometry.spatialReference?.wkid === 4326) {
+    return geometry
   }
-  return geometry
+
+  const SpatialReference = asSpatialReference(_SpatialReference)
+  const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
+  const projection = asProjection(_projection)
+
+  try {
+    // Handle Web Mercator (3857) using webMercatorUtils for efficiency
+    if (geometry.spatialReference?.wkid === 3857) {
+      if (webMercatorUtils && webMercatorUtils.webMercatorToGeographic) {
+        const projected = webMercatorUtils.webMercatorToGeographic(geometry)
+        return projected || geometry
+      }
+    }
+
+    // Handle other coordinate systems using the projection module
+    if (projection && projection.project && SpatialReference) {
+      const wgs84SR = new SpatialReference({ wkid: 4326 })
+      const projected = await projection.project([geometry], wgs84SR)
+      return projected && projected[0] ? projected[0] : geometry
+    }
+
+    console.warn(
+      "FME API - Coordinate transformation not available, using original geometry"
+    )
+    return geometry
+  } catch (error) {
+    console.warn(
+      "FME API - Coordinate transformation failed, using original geometry:",
+      error
+    )
+    return geometry
+  }
 }
 
 const makeGeoJson = (polygon: __esri.Polygon) => ({
@@ -645,7 +708,7 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResponse>> {
-    const geometryParams = this.toFmeParams(geometry)
+    const geometryParams = await this.toFmeParams(geometry)
     return this.submitJob(
       workspace,
       { ...parameters, ...geometryParams },
@@ -907,7 +970,9 @@ export class FmeFlowApiClient {
     }
   }
 
-  private toFmeParams(geometry: __esri.Geometry): PrimitiveParams {
+  private async toFmeParams(
+    geometry: __esri.Geometry
+  ): Promise<PrimitiveParams> {
     if (!geometry) {
       throw new Error("Geometry is required but was null or undefined")
     }
@@ -925,17 +990,13 @@ export class FmeFlowApiClient {
       throw new Error("Polygon geometry must have a valid extent")
     }
 
-    const projectedGeometry = toWgs84(geometry)
+    // Reproject to WGS84
+    const projectedGeometry = await toWgs84(geometry)
+
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
-    // Sanitize the Esri JSON to ensure it is compliant with FME expectations
+    // Convert to Esri JSON for FME
     const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
-    const sanitizedJson = sanitizePolygonJson(
-      esriJson,
-      projectedGeometry.spatialReference?.toJSON?.() || {
-        wkid: projectedGeometry.spatialReference?.wkid,
-      }
-    )
 
     return {
       MAXX: extent.xmax,
@@ -943,7 +1004,7 @@ export class FmeFlowApiClient {
       MINX: extent.xmin,
       MINY: extent.ymin,
       AREA: Math.abs(extent.width * extent.height),
-      AreaOfInterest: JSON.stringify(sanitizedJson),
+      AreaOfInterest: JSON.stringify(esriJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }
