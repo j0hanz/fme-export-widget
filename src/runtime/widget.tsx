@@ -83,6 +83,7 @@ const MODULES = [
   "esri/core/reactiveUtils",
   "esri/geometry/Polyline",
   "esri/geometry/Polygon",
+  "esri/Graphic",
 ] as const
 
 // Area calculation and formatting constants
@@ -110,6 +111,7 @@ const useModules = (): {
           reactiveUtils,
           Polyline,
           Polygon,
+          Graphic,
         ] = loaded
         setModules({
           SketchViewModel,
@@ -119,6 +121,7 @@ const useModules = (): {
           reactiveUtils,
           Polyline,
           Polygon,
+          Graphic,
         } as EsriModules)
       })
       .catch((error) => {
@@ -241,7 +244,6 @@ const geometryUtils = {
       return 0
     }
 
-    // Use native Polygon properties if modules available
     const polygonJson = geometry.toJSON()
     const polygon = modules.Polygon.fromJSON(polygonJson)
     const engine: any = modules.geometryEngine
@@ -280,9 +282,8 @@ const geometryUtils = {
       }
     }
 
-    // Use native Polygon construction instead of unsafe casting
-    if (!modules?.Polygon || !modules?.geometryEngine) {
-      // Assume valid if modules not available
+    // If no geometryEngine available, assume valid if geometry exists and is polygon
+    if (!modules?.geometryEngine) {
       return { valid: true }
     }
 
@@ -303,6 +304,30 @@ const geometryUtils = {
     }
 
     return { valid: true }
+  },
+
+  // Restore graphic from JSON
+  restoreGraphicFromJson(
+    graphicJson: unknown,
+    modules: EsriModules
+  ): __esri.Graphic | null {
+    if (!modules?.Graphic || !graphicJson) return null
+
+    try {
+      return modules.Graphic.fromJSON(graphicJson)
+    } catch (error) {
+      console.warn("Failed to restore graphic from JSON:", error)
+      return null
+    }
+  },
+
+  // Extract geometry from graphic JSON
+  extractGeometryFromGraphicJson(
+    graphicJson: unknown,
+    modules: EsriModules
+  ): __esri.Geometry | null {
+    const graphic = this.restoreGraphicFromJson(graphicJson, modules)
+    return graphic?.geometry || null
   },
 }
 
@@ -349,7 +374,21 @@ const buildFmeParams = (
   }
 }
 
-// Type guard for polygon-like JSON (Esri)
+// Type guard for graphic JSON with geometry
+const isGraphicJsonWithPolygon = (
+  value: unknown
+): value is { geometry: { rings: unknown } } => {
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("geometry" in v)) return false
+  const geometry = v.geometry
+  if (!geometry || typeof geometry !== "object") return false
+  if (!("rings" in geometry)) return false
+  const rings = geometry.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
+}
+
+// Type guard for polygon geometry JSON
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   if (!value || typeof value !== "object") return false
   const v: any = value
@@ -358,36 +397,28 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
-const calculateVertexCount = (
-  geometry: __esri.Polygon,
-  modules?: EsriModules
-): number => {
-  // Use native Polygon properties if modules available
-  if (modules?.Polygon) {
-    const polygonJson = geometry.toJSON()
-    const polygon = modules.Polygon.fromJSON(polygonJson)
-    const vertices = polygon.rings?.[0]
-    if (!vertices) return 0
-    // Subtract one if the last vertex is coincident with the first
-    return Math.max(0, vertices.length - 1)
-  }
-
-  // Fallback to JSON inspection
-  const vertices = geometry.rings?.[0]
-  if (!vertices) return 0
-  return Math.max(0, vertices.length - 1)
-}
-
-// Attach polygon AOI if present
+// Attach AOI geometry to parameters
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
 ): { [key: string]: unknown } => {
-  const geometryToUse = geometryJson || currentGeometry?.toJSON()
+  // Prefer graphic JSON with geometry property
+  if (isGraphicJsonWithPolygon(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
+  }
+
+  // Use direct geometry JSON
+  if (isPolygonJson(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
+  }
+
+  // Use current geometry as last resort
+  const geometryToUse = currentGeometry?.toJSON()
   if (isPolygonJson(geometryToUse)) {
     return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
   }
+
   return base
 }
 
@@ -595,7 +626,7 @@ const processSketchEvent = (
   stateManager: ReturnType<typeof createDrawingStateManager>,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void,
-  modules?: EsriModules
+  modules: EsriModules
 ) => {
   const { resetState, updateClicks, getClickCount } = stateManager
 
@@ -614,7 +645,8 @@ const processSketchEvent = (
     case "active":
       if (evt.tool === "polygon" && evt.graphic?.geometry) {
         const geometry = evt.graphic.geometry as __esri.Polygon
-        const actualClicks = calculateVertexCount(geometry, modules)
+        const vertices = geometry.rings?.[0]
+        const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
         updateClicks(actualClicks)
       } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
         updateClicks(1)
@@ -636,7 +668,7 @@ const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void,
-  modules?: EsriModules
+  modules: EsriModules
 ) => {
   const stateManager = createDrawingStateManager(dispatch)
 
@@ -693,9 +725,10 @@ const processFmeResponse = (
 }
 
 // Format area with intl module if available
-export function formatArea(area: number, modules?: EsriModules): string {
+export function formatArea(area: number, modules: EsriModules): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
-  // Use intl module if available for proper localization
+
+  // Use intl module for proper localization
   const intlModule = (modules as any)?.intl
   if (intlModule && typeof intlModule.formatNumber === "function") {
     if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
@@ -716,7 +749,7 @@ export function formatArea(area: number, modules?: EsriModules): string {
     }
   }
 
-  // Fallback if intl module not available
+  // Standard formatting when intl not available
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
     return `${areaInSqKm.toFixed(GEOMETRY_CONSTS.AREA_DECIMALS)} km²`
@@ -1015,10 +1048,12 @@ export default function Widget(
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    graphicsLayer?.removeAll()
+    if (graphicsLayer) {
+      graphicsLayer.removeAll()
+    }
   })
 
-  // Drawing complete
+  // Drawing complete with enhanced Graphic functionality
   const onDrawComplete = hooks.useEventCallback(
     (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
@@ -1037,14 +1072,9 @@ export default function Widget(
         // Geometry is valid polygon here
         const geomForUse = geometry as __esri.Polygon
 
-        // Set symbol
-        if (evt.graphic && modules) {
-          evt.graphic.symbol = highlightSymbol as any
-        }
-
         const calculatedArea = calcArea(geomForUse, modules)
 
-        // Max area
+        // Max area validation
         const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
@@ -1058,7 +1088,14 @@ export default function Widget(
           return
         }
 
-        dispatch(fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea)))
+        // Set visual symbol
+        if (evt.graphic) {
+          evt.graphic.symbol = highlightSymbol as any
+        }
+
+        // Store graphic JSON in Redux for persistence
+        const graphicJson = evt.graphic?.toJSON()
+        dispatch(fmeActions.setGeometry(graphicJson, Math.abs(calculatedArea)))
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         // Store current geometry in local state (not Redux - following golden rule)
@@ -1104,6 +1141,7 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
   })
 
+  // Handle successful submission
   const handleSubmissionSuccess = (
     fmeResponse: unknown,
     workspace: string,

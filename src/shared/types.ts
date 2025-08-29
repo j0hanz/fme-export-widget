@@ -833,6 +833,7 @@ export interface EsriModules {
   readonly reactiveUtils: any
   readonly Polyline: typeof __esri.Polyline
   readonly Polygon: typeof __esri.Polygon
+  readonly Graphic: typeof __esri.Graphic
 }
 
 // Result from FME export job submission

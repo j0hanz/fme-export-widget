@@ -49,7 +49,15 @@ jest.mock("jimu-arcgis", () => ({
         this.removeAll = () => undefined
         return null as any
       },
-      function Graphic() {
+      {
+        planarArea: jest.fn(),
+        geodesicArea: jest.fn(),
+        simplify: jest.fn((geom) => geom),
+        isSimple: jest.fn(() => true),
+      }, // geometryEngine
+      {}, // webMercatorUtils
+      {}, // reactiveUtils
+      function Polyline() {
         // no-op
         return null as any
       },
@@ -57,23 +65,9 @@ jest.mock("jimu-arcgis", () => ({
         // no-op
         return null as any
       },
-      function Extent() {
+      function Graphic() {
         // no-op
         return null as any
-      },
-      function AreaMeasurement2D() {
-        // no-op
-        return null as any
-      },
-      function DistanceMeasurement2D() {
-        // no-op
-        return null as any
-      },
-      {
-        planarArea: jest.fn(),
-        geodesicArea: jest.fn(),
-        simplify: jest.fn((geom) => geom),
-        isSimple: jest.fn(() => true),
       },
     ])
   }),
@@ -127,6 +121,15 @@ describe("FME Export Widget", () => {
         fromJSON: jest.fn((json: any) => ({
           rings: json.rings,
           spatialReference: json.spatialReference,
+        })),
+      } as any,
+      Graphic: {
+        fromJSON: jest.fn((json: any) => ({
+          geometry: json.geometry,
+          attributes: json.attributes,
+          symbol: json.symbol,
+          popupTemplate: json.popupTemplate,
+          toJSON: jest.fn(() => json),
         })),
       } as any,
     }) as any
@@ -443,11 +446,17 @@ describe("FME Export Widget", () => {
   })
 
   test("formatArea produces expected metric strings", () => {
-    expect(formatArea(NaN)).toBe("0 m²")
-    expect(formatArea(0)).toBe("0 m²")
-    expect(formatArea(12.3)).toBe("12 m²")
+    // Create mock modules for formatArea function
+    const mockModules = makeModules({
+      isSimple: () => true,
+      simplify: (g: any) => g,
+    })
+
+    expect(formatArea(NaN, mockModules)).toBe("0 m²")
+    expect(formatArea(0, mockModules)).toBe("0 m²")
+    expect(formatArea(12.3, mockModules)).toBe("12 m²")
     // Large value switches to km² (locale may vary in tests)
-    const out = formatArea(1_234_567)
+    const out = formatArea(1_234_567, mockModules)
     expect(out.endsWith(" km²")).toBe(true)
   })
 

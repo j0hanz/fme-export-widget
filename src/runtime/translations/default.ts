@@ -55,6 +55,17 @@ export default {
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
 
+  // Graphic popup template labels
+  drawnAreaTitle: "Ritat område",
+  exportJobTitle: "Exportjobb",
+  areaLabel: "Område",
+  vertexCountLabel: "Antal punkter",
+  geometryTypeLabel: "Geometrityp",
+  exportStatusLabel: "Exportstatus",
+  workspaceLabel: "Arbetsyta",
+  jobIdLabel: "Jobb-ID",
+  submissionTimeLabel: "Skickat",
+
   // Map configuration validation
   mapNotConfigured: "Ingen karta är konfigurerad",
 
