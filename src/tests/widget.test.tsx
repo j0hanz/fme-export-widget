@@ -440,8 +440,8 @@ describe("FME Export Widget", () => {
     expect(out.endsWith(" km²")).toBe(true)
   })
 
-  test("validatePolygon enforces polygon-only and ring rules", () => {
-    // Use isSimple=true to bypass self-intersection except targeted test
+  test("validatePolygon checks existence, polygon type, and self-intersection via engine", () => {
+    // Use makeModules to create EsriModules with geometryEngine stub
     const modules: any = makeModules({ isSimple: () => true })
     // Invalid: no geometry
     let res = validatePolygon(undefined as any, modules)
@@ -454,28 +454,11 @@ describe("FME Export Widget", () => {
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_TYPE_INVALID")
 
-    // Invalid: empty rings
+    // Empty polygon is considered valid (no rings to be invalid)
     const emptyPoly: any = { type: "polygon", rings: [] }
     res = validatePolygon(emptyPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_NO_RINGS")
+    expect(res.valid).toBe(true)
 
-    // Invalid ring: fewer than 3 unique points
-    const badRingPoly: any = {
-      type: "polygon",
-      rings: [
-        [
-          [0, 0],
-          [0, 0],
-          [0, 0],
-        ],
-      ],
-    }
-    res = validatePolygon(badRingPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_MIN_VERTICES")
-
-    // Invalid ring: not closed
     const openRingPoly: any = {
       type: "polygon",
       rings: [
@@ -487,8 +470,7 @@ describe("FME Export Widget", () => {
       ],
     }
     res = validatePolygon(openRingPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_RING_NOT_CLOSED")
+    expect(res.valid).toBe(true)
 
     // Valid simple polygon (closed and simple)
     const simplePoly: any = {
@@ -523,6 +505,11 @@ describe("FME Export Widget", () => {
     res = validatePolygon(bowtie, modulesIntersect)
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_SELF_INTERSECTING")
+
+    // Without geometryEngine, assume valid if geometry exists and is polygon
+    const noEngine: any = makeModules(null)
+    res = validatePolygon(simplePoly, noEngine)
+    expect(res.valid).toBe(true)
   })
 
   test("calcArea chooses geodesic for geographic/WebMercator and planar otherwise", () => {

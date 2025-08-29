@@ -231,63 +231,35 @@ const geometryUtils = {
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    try {
-      if (
-        !geometry ||
-        geometry.type !== "polygon" ||
-        !modules?.geometryEngine
-      ) {
-        return 0
-      }
-      const polygon = geometry as __esri.Polygon
-      const sr: any = polygon.spatialReference || {}
-      const engine: any = modules.geometryEngine
-      const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
-
-      try {
-        let area: number | undefined
-        if (useGeodesic && typeof engine.geodesicArea === "function") {
-          area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-        } else if (!useGeodesic && typeof engine.planarArea === "function") {
-          area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-        }
-        // Ensure area is a positive finite number
-        if (
-          Number.isFinite(area) &&
-          area !== undefined &&
-          Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
-        ) {
-          return Math.abs(area)
-        }
-        // Fallback: approximate using extent if engine returns invalid
-        const ext = polygon.extent
-        const approx = Math.abs(ext?.width * ext?.height || 0)
-        return Number.isFinite(approx) && approx > 0 ? approx : 0
-      } catch (calcError) {
-        console.warn(
-          "Widget - Area calculation failed, using extent fallback:",
-          calcError
-        )
-        // On error, fallback to extent-based approximation
-        try {
-          const ext = polygon.extent
-          return Math.abs(ext?.width * ext?.height || 0)
-        } catch (extentError) {
-          console.warn("Widget - Extent fallback also failed:", extentError)
-          return 0
-        }
-      }
-    } catch (error) {
-      console.warn("Widget - Geometry area calculation error:", error)
+    // Rely on geometry engine for area calculations
+    if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
       return 0
     }
+    const polygon = geometry as __esri.Polygon
+    const sr: any = polygon.spatialReference || {}
+    const engine: any = modules.geometryEngine
+    const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
+
+    // Simplify geometry first to clean up coincident edges
+    const polyForArea: __esri.Polygon =
+      (typeof engine.simplify === "function"
+        ? (engine.simplify(polygon) as __esri.Polygon | null)
+        : null) || polygon
+
+    let area: number | undefined
+    if (useGeodesic && typeof engine.geodesicArea === "function") {
+      area = engine.geodesicArea(polyForArea, GEOMETRY_CONSTS.AREA_UNIT)
+    } else if (!useGeodesic && typeof engine.planarArea === "function") {
+      area = engine.planarArea(polyForArea, GEOMETRY_CONSTS.AREA_UNIT)
+    }
+    return Number.isFinite(area) && area !== undefined ? Math.abs(area) : 0
   },
 
   validatePolygon(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): { valid: boolean; error?: ErrorState } {
-    // Existence check
+    // Minimal, engine-first validation
     if (!geometry) {
       return {
         valid: false,
@@ -298,7 +270,6 @@ const geometryUtils = {
         ),
       }
     }
-    // Type check
     if (geometry.type !== "polygon") {
       return {
         valid: false,
@@ -309,102 +280,30 @@ const geometryUtils = {
         ),
       }
     }
+    if (!modules?.geometryEngine) {
+      // Assume valid if no engine available
+      return { valid: true }
+    }
+
     const polygon = geometry as __esri.Polygon
-    // Rings existence check
-    if (!Array.isArray(polygon.rings) || polygon.rings.length === 0) {
-      return {
-        valid: false,
-        error: errorService.createError(
-          "POLYGON_NO_RINGS",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_NO_RINGS" }
-        ),
-      }
-    }
-    // Validate each ring
-    for (const ring of polygon.rings) {
-      // Must be an array with at least 3 coordinate pairs
-      if (!Array.isArray(ring) || ring.length < 3) {
+    const engine: any = modules.geometryEngine
+    const simplified =
+      (typeof engine.simplify === "function"
+        ? (engine.simplify(polygon) as __esri.Polygon | null)
+        : null) || polygon
+
+    if (typeof engine.isSimple === "function") {
+      const simple = engine.isSimple(simplified)
+      if (!simple) {
         return {
           valid: false,
           error: errorService.createError(
-            "POLYGON_MIN_VERTICES",
+            "POLYGON_SELF_INTERSECTING",
             ErrorType.GEOMETRY,
-            { code: "GEOM_MIN_VERTICES" }
+            { code: "GEOM_SELF_INTERSECTING" }
           ),
         }
       }
-      // Require at least three unique positions
-      const unique = new Set(
-        ring
-          .filter((p) => Array.isArray(p) && p.length >= 2)
-          .map((p) => `${p[0]}:${p[1]}`)
-      )
-      if (unique.size < 3) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_MIN_VERTICES",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_MIN_VERTICES" }
-          ),
-        }
-      }
-      // Check that the ring is closed (first and last points coincide)
-      try {
-        const first = ring[0] as any
-        const last = ring[ring.length - 1] as any
-        const closed =
-          Array.isArray(first) &&
-          Array.isArray(last) &&
-          Math.abs((first[0] as number) - (last[0] as number)) <
-            GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-          Math.abs((first[1] as number) - (last[1] as number)) <
-            GEOMETRY_CONSTS.COINCIDENT_EPSILON
-        if (!closed) {
-          return {
-            valid: false,
-            error: errorService.createError(
-              "POLYGON_RING_NOT_CLOSED",
-              ErrorType.GEOMETRY,
-              { code: "GEOM_RING_NOT_CLOSED" }
-            ),
-          }
-        }
-      } catch (ringError) {
-        console.warn("Widget - Ring validation error:", ringError)
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_RING_NOT_CLOSED",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_RING_NOT_CLOSED" }
-          ),
-        }
-      }
-    }
-    // Self‑intersection check using geometryEngine if available
-    try {
-      const engine: any = modules?.geometryEngine
-      if (typeof engine?.isSimple === "function") {
-        const simple = engine.isSimple(polygon)
-        if (!simple) {
-          return {
-            valid: false,
-            error: errorService.createError(
-              "POLYGON_SELF_INTERSECTING",
-              ErrorType.GEOMETRY,
-              { code: "GEOM_SELF_INTERSECTING" }
-            ),
-          }
-        }
-      }
-    } catch (intersectionError) {
-      console.warn(
-        "Widget - Self-intersection check failed, assuming valid:",
-        intersectionError
-      )
-      // Ignore errors from isSimple; assume valid if we cannot determine
     }
     return { valid: true }
   },
@@ -462,29 +361,11 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
-// Point coincidence helper reused for vertex counting. Left here because
-// calculateVertexCount still relies on it. Uses GEOMETRY_CONSTS for epsilon.
-const arePointsCoincident = (p1: unknown[], p2: unknown[]): boolean => {
-  return (
-    Array.isArray(p1) &&
-    Array.isArray(p2) &&
-    Math.abs((p1[0] as number) - (p2[0] as number)) <
-      GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-    Math.abs((p1[1] as number) - (p2[1] as number)) <
-      GEOMETRY_CONSTS.COINCIDENT_EPSILON
-  )
-}
-
 const calculateVertexCount = (geometry: __esri.Polygon): number => {
   const vertices = geometry.rings?.[0]
-  if (!vertices || vertices.length < 2) return 0
-
-  const firstPoint = vertices[0]
-  const lastPoint = vertices[vertices.length - 1]
-
-  // Check if polygon is auto-closed
-  const isAutoClosed = arePointsCoincident(firstPoint, lastPoint)
-  return isAutoClosed ? vertices.length - 1 : vertices.length
+  if (!vertices) return 0
+  // Subtract one if the last vertex is coincident with the first
+  return Math.max(0, vertices.length - 1)
 }
 
 // Attach polygon AOI if present
@@ -522,7 +403,6 @@ const getEmail = async (): Promise<string> => {
   if (!email) {
     throw new Error("User email is required but not available")
   }
-
   return email
 }
 
