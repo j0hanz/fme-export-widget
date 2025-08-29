@@ -15,8 +15,6 @@ import {
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
-
-import { useTheme } from "jimu-theme"
 import { Workflow } from "./components/workflow"
 import { StateView, useStyles, renderSupportHint } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
@@ -53,22 +51,9 @@ import {
   getSupportEmail,
 } from "../shared/utils"
 
-// Widget-specific styles
-const CSS = {
-  colors: {
-    white: [255, 255, 255, 1] as [number, number, number, number],
-    orangeOutline: [255, 140, 0] as [number, number, number],
-  },
-}
-
-// Highlight symbol derived from theme primary color
+// Highlight symbol
 const useHighlightSymbol = () => {
-  const theme = useTheme()
-  const primaryHex =
-    (theme as any)?.sys?.color?.primary?.main ||
-    (theme as any)?.colors?.palette?.primary?.[500] ||
-    "#0079c1"
-  const [r, g, b] = hexToRgb(String(primaryHex))
+  const [r, g, b] = [0, 121, 193]
   return {
     type: "simple-fill" as const,
     color: [r, g, b, 0.2] as [number, number, number, number],
@@ -77,6 +62,16 @@ const useHighlightSymbol = () => {
       width: 2,
       style: "solid" as const,
     },
+  }
+}
+
+// Drawing symbols
+const useDrawingColors = () => {
+  const [r, g, b] = [0, 121, 193]
+
+  return {
+    primary: [r, g, b] as [number, number, number],
+    white: [255, 255, 255, 1] as [number, number, number, number],
   }
 }
 
@@ -97,11 +92,6 @@ const GEOMETRY_CONSTS = {
   AREA_UNIT: "square-meters",
   MIN_VALID_AREA: 1e-3, // minimum valid area in m²
 } as const
-const hexToRgb = (hex: string): [number, number, number] => {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!m) return [0, 121, 193] // fallback to Esri blue
-  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
-}
 
 // Load ArcGIS modules once and memoize result
 const useModules = (): {
@@ -398,7 +388,7 @@ const geometryUtils = {
       const engine: any = modules?.geometryEngine
       if (typeof engine?.isSimple === "function") {
         const simple = engine.isSimple(polygon)
-        if (simple === false) {
+        if (!simple) {
           return {
             valid: false,
             error: errorService.createError(
@@ -594,14 +584,23 @@ const createLayers = (
 }
 
 // Create sketch VM
-const createSketchVM = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  layer: __esri.GraphicsLayer,
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void,
+const createSketchVM = ({
+  jmv,
+  modules,
+  layer,
+  onDrawComplete,
+  dispatch,
+  polygonSymbol,
+  drawingColors,
+}: {
+  jmv: JimuMapView
+  modules: EsriModules
+  layer: __esri.GraphicsLayer
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
   polygonSymbol: unknown
-) => {
+  drawingColors: ReturnType<typeof useDrawingColors>
+}) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
     layer,
@@ -623,7 +622,7 @@ const createSketchVM = (
     },
   })
 
-  setSketchSymbols(sketchViewModel, polygonSymbol)
+  setSketchSymbols(sketchViewModel, polygonSymbol, drawingColors)
   setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
 
   return sketchViewModel
@@ -632,15 +631,17 @@ const createSketchVM = (
 // Configure sketch view model symbols
 const setSketchSymbols = (
   sketchViewModel: __esri.SketchViewModel,
-  polygonSymbol: unknown
+  polygonSymbol: unknown,
+  drawingColors: {
+    primary: [number, number, number]
+    white: [number, number, number, number]
+  }
 ) => {
-  const { colors } = CSS
-
   sketchViewModel.polygonSymbol = polygonSymbol as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
-    color: colors.orangeOutline,
+    color: drawingColors.primary,
     width: 2,
     style: "solid",
   }
@@ -649,9 +650,9 @@ const setSketchSymbols = (
     type: "simple-marker",
     style: "circle",
     size: 8,
-    color: colors.orangeOutline,
+    color: drawingColors.primary,
     outline: {
-      color: colors.white,
+      color: drawingColors.white,
       width: 1,
     },
   }
@@ -819,6 +820,7 @@ export default function Widget(
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
   const highlightSymbol = useHighlightSymbol()
+  const drawingColors = useDrawingColors()
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -1267,14 +1269,15 @@ export default function Widget(
     try {
       setJimuMapView(jmv)
       const layer = createLayers(jmv, modules, setGraphicsLayer)
-      const svm = createSketchVM(
+      const svm = createSketchVM({
         jmv,
         modules,
         layer,
         onDrawComplete,
         dispatch,
-        highlightSymbol
-      )
+        polygonSymbol: highlightSymbol,
+        drawingColors,
+      })
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(

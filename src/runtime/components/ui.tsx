@@ -1,7 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
-import { React as ReactNS } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -1202,14 +1201,14 @@ export const renderSupportHint = (
   translate: TranslateFn,
   styles: ReturnType<typeof useStyles>,
   fallbackText: string
-): ReactNS.ReactNode => {
+): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
   return translate("contactSupportWithEmail")
     .split(EMAIL_PLACEHOLDER)
     .map((part, idx, arr) => {
       if (idx < arr.length - 1) {
         return (
-          <ReactNS.Fragment key={idx}>
+          <React.Fragment key={idx}>
             {part}
             <a
               href={`mailto:${supportEmail}`}
@@ -1220,9 +1219,9 @@ export const renderSupportHint = (
             >
               {supportEmail}
             </a>
-          </ReactNS.Fragment>
+          </React.Fragment>
         )
       }
-      return <ReactNS.Fragment key={idx}>{part}</ReactNS.Fragment>
+      return <React.Fragment key={idx}>{part}</React.Fragment>
     })
 }
