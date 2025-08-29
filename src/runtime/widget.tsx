@@ -858,11 +858,16 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
-  // Drawing start is invoked directly after cancel (no debounce timer)
-  // Abort controller
+
+  // Keep abort controllers for form submission where we need direct control
   const submissionAbortRef = React.useRef<AbortController | null>(null)
-  // Startup validation controller
-  const startupValidationAbortRef = React.useRef<AbortController | null>(null)
+
+  // Debounced functions for better performance
+  const debouncedSetValidation = hooks.useDebounceCallback((step: string) => {
+    dispatch(fmeActions.setStartupValidationState(true, step))
+  }, 150)
+
+  // Drawing start is invoked directly after cancel (no debounce timer)
 
   // Destructure local map state
   const {
@@ -914,9 +919,9 @@ export default function Widget(
     }
   )
 
-  // Validation state management helpers
+  // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    dispatch(fmeActions.setStartupValidationState(true, step))
+    debouncedSetValidation(step)
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
@@ -943,13 +948,8 @@ export default function Widget(
       })
   )
 
-  // Startup validation logic
+  // Run startup validation with improved error handling
   const runStartupValidation = hooks.useEventCallback(async () => {
-    // Reset any existing validation state
-    cancelController(startupValidationAbortRef)
-    startupValidationAbortRef.current = new AbortController()
-    const signal = startupValidationAbortRef.current.signal
-
     setValidationStep(translate("validatingConfiguration"))
 
     try {
@@ -976,25 +976,11 @@ export default function Widget(
         return
       }
 
-      // Helper to run a labeled step with abort checks
-      const runStep = async (
-        stepKey: string,
-        action: () => Promise<unknown>
-      ): Promise<void> => {
-        setValidationStep(translate(stepKey))
-        await action()
-        if (signal.aborted) throw new Error("AbortError")
-      }
-
       const client = createFmeFlowClient(config)
-
-      // 1) Connection check
-      await runStep("validatingConnection", () => client.testConnection(signal))
-
-      // 2) Authentication (repo access)
-      await runStep("validatingAuthentication", () =>
-        client.validateRepository(config.repository, signal)
-      )
+      setValidationStep(translate("validatingConnection"))
+      await client.testConnection()
+      setValidationStep(translate("validatingAuthentication"))
+      await client.validateRepository(config.repository)
 
       // Update validation step
       setValidationStep(translate("validatingUserEmail"))
@@ -1023,9 +1009,6 @@ export default function Widget(
       // Validation successful - transition to normal operation
       setValidationSuccess()
     } catch (err: unknown) {
-      // Swallow aborts
-      if ((err as Error)?.name === "AbortError") return
-
       console.error("FME Export - Startup validation failed:", err)
 
       const { code, message } = errorService.deriveStartupError(err, translate)
@@ -1039,11 +1022,6 @@ export default function Widget(
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     runStartupValidation()
-
-    return () => {
-      // Cleanup validation on unmount
-      cancelController(startupValidationAbortRef)
-    }
   })
 
   // Reset/hide measurement UI and clear layers
@@ -1319,6 +1297,9 @@ export default function Widget(
     (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
   )
 
+  // Previous runtime state for comparison
+  const prevRuntimeState = hooks.usePrevious(runtimeState)
+
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
     reduxState.viewMode === ViewMode.DRAWING &&
@@ -1348,7 +1329,6 @@ export default function Widget(
 
     // Abort any ongoing submission
     cancelController(submissionAbortRef)
-    cancelController(startupValidationAbortRef)
 
     // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
@@ -1374,17 +1354,15 @@ export default function Widget(
     // Reset view mode to initial
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
-
-  // Reset when widget is closed
-  const prevRuntimeStateRef = React.useRef<WidgetState | undefined>(undefined)
   hooks.useUpdateEffect(() => {
-    const prev = prevRuntimeStateRef.current
-    // Trigger reset when transitioning into Closed from any non-Closed state
-    if (runtimeState === WidgetState.Closed && prev !== WidgetState.Closed) {
+    // Reset when widget is closed
+    if (
+      runtimeState === WidgetState.Closed &&
+      prevRuntimeState !== WidgetState.Closed
+    ) {
       handleReset()
     }
-    prevRuntimeStateRef.current = runtimeState
-  }, [runtimeState, handleReset])
+  }, [runtimeState, prevRuntimeState, handleReset])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
