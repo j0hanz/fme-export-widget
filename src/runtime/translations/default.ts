@@ -51,4 +51,16 @@ export default {
   // Generic unexpected / processing
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
+
+  // Map configuration validation
+  mapNotConfigured: "Ingen karta är konfigurerad",
+
+  // User email validation
+  userEmailMissing:
+    "Användarens e-postadress krävs för att använda denna funktion",
+
+  // Workspace loading errors
+  failedToLoadWorkspaces: "Det gick inte att ladda tillgängliga arbetsytor",
+  failedToLoadWorkspaceDetails:
+    "Det gick inte att ladda detaljer för vald arbetsyta",
 }
