@@ -275,6 +275,162 @@ describe("FME Export Widget", () => {
     })
   })
 
+  test("startup validation shows specific error for empty server URL", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty server URL
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "serverUrlMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "ServerUrlEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-server-url-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "", // Empty server URL
+          fmeServerToken: "valid-token",
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for missing server URL
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation shows specific error for empty token", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty token
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "tokenMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "TokenEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-token-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "https://example.com",
+          fmeServerToken: "", // Empty token
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for missing token
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/tokenMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation shows specific error for empty repository", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty repository
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "repositoryMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "RepositoryEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-repo-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "https://example.com",
+          fmeServerToken: "valid-token",
+          repository: "", // Empty repository
+        }}
+      />
+    )
+
+    // Error message for missing repository
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/repositoryMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation handles whitespace-only fields as empty", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for whitespace-only server URL
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "serverUrlMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "ServerUrlEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-whitespace"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "   ", // Whitespace-only server URL
+          fmeServerToken: "valid-token",
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for empty server URL (whitespace treated as empty)
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
   test("formatArea produces expected metric strings", () => {
     expect(formatArea(NaN)).toBe("0 m²")
     expect(formatArea(0)).toBe("0 m²")
