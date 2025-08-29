@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom"
-import { React, getAppStore, Immutable } from "jimu-core"
+import { React, getAppStore, Immutable, WidgetState } from "jimu-core"
 import {
   initExtensions,
   initStore,
@@ -272,6 +272,162 @@ describe("FME Export Widget", () => {
     await waitFor(() => {
       const nodes = screen.queryAllByText(/för hjälp|kontakta|support/i)
       expect(nodes.length).toBeGreaterThan(0)
+    })
+  })
+
+  test("startup validation shows specific error for empty server URL", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty server URL
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "serverUrlMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "ServerUrlEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-server-url-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "", // Empty server URL
+          fmeServerToken: "valid-token",
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for missing server URL
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation shows specific error for empty token", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty token
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "tokenMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "TokenEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-token-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "https://example.com",
+          fmeServerToken: "", // Empty token
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for missing token
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/tokenMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation shows specific error for empty repository", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for empty repository
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "repositoryMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "RepositoryEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-repo-empty"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "https://example.com",
+          fmeServerToken: "valid-token",
+          repository: "", // Empty repository
+        }}
+      />
+    )
+
+    // Error message for missing repository
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/repositoryMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
+    })
+  })
+
+  test("startup validation handles whitespace-only fields as empty", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Startup validation error for whitespace-only server URL
+    const errorState: FmeWidgetState = {
+      ...initialFmeState,
+      viewMode: ViewMode.STARTUP_VALIDATION,
+      isStartupValidating: false,
+      startupValidationError: {
+        message: "serverUrlMissing",
+        type: "ConfigError" as any,
+        severity: "error" as any,
+        timestampMs: 0,
+        code: "ServerUrlEmpty",
+        userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
+      },
+    }
+    updateStore({ "fme-state": errorState })
+    await waitForMilliseconds(0)
+
+    renderWidget(
+      <Wrapped
+        widgetId="w-whitespace"
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "   ", // Whitespace-only server URL
+          fmeServerToken: "valid-token",
+          repository: "valid-repo",
+        }}
+      />
+    )
+
+    // Error message for empty server URL (whitespace treated as empty)
+    await waitFor(() => {
+      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      expect(errorElements[0]).toBeInTheDocument()
     })
   })
 
@@ -603,5 +759,115 @@ describe("FME Export Widget", () => {
     expect(typeof dummyRender).toBe("function")
     const area = calcArea({ type: "point" } as any, modules)
     expect(area).toBe(0)
+  })
+
+  test("resets state when controller closes and stays in DRAWING on reopen", async () => {
+    const Wrapped = wrapWidget(Widget as any)
+
+    // Provide portal email so startup validation can pass
+    ;(global as any).__TEST_PORTAL_EMAIL__ = "user@example.com"
+
+    const widgetId = "wf-reset"
+    const { unmount } = renderWidget(
+      <Wrapped
+        widgetId={widgetId}
+        useMapWidgetIds={Immutable(["map-1"]) as any}
+        config={{
+          fmeServerUrl: "http://example.com",
+          fmeServerToken: "t",
+          repository: "repo",
+        }}
+      />
+    )
+
+    // Wait for loading to clear
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
+    })
+
+    // Seed FME state with non-empty values
+    const dirtyState: FmeWidgetState = {
+      ...initialFmeState,
+      isStartupValidating: false,
+      viewMode: ViewMode.EXPORT_FORM,
+      drawnArea: 123,
+      clickCount: 3,
+      geometryJson: {
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+      } as any,
+      selectedWorkspace: "ws1",
+      workspaceParameters: [],
+      orderResult: {
+        success: true,
+        jobId: 7,
+        workspaceName: "ws1",
+        email: "a@b.com",
+      },
+    }
+    updateStore({ "fme-state": dirtyState })
+    await waitForMilliseconds(0)
+
+    // Spy on dispatch to verify reset actions are issued
+    const dispatchSpy = jest.spyOn(getAppStore(), "dispatch")
+
+    // Simulate controller closing this widget
+    updateStore({
+      widgetsRuntimeInfo: { [widgetId]: { state: WidgetState.Closed } } as any,
+    })
+    await waitForMilliseconds(0)
+
+    // Assert reset actions akin to pressing Cancel (effect-driven, wait for dispatches)
+    await waitFor(() => {
+      const calls = dispatchSpy.mock.calls.map(([a]) => a as any)
+      const hasClearedGeometry = calls.some(
+        (a) =>
+          a?.type === "FME_SET_GEOMETRY" &&
+          a?.geometryJson === null &&
+          a?.drawnArea === 0
+      )
+      const hasClearedClickCount = calls.some(
+        (a) => a?.type === "FME_SET_CLICK_COUNT" && a?.clickCount === 0
+      )
+      const hasClearedWorkspace = calls.some(
+        (a) =>
+          a?.type === "FME_SET_SELECTED_WORKSPACE" && a?.workspaceName === null
+      )
+      const hasClearedOrder = calls.some(
+        (a) => a?.type === "FME_SET_ORDER_RESULT" && a?.orderResult === null
+      )
+      expect(hasClearedGeometry).toBe(true)
+      expect(hasClearedClickCount).toBe(true)
+      expect(hasClearedWorkspace).toBe(true)
+      expect(hasClearedOrder).toBe(true)
+    })
+
+    // Reopen the widget
+    const callCountAfterClose = dispatchSpy.mock.calls.length
+    updateStore({
+      widgetsRuntimeInfo: { [widgetId]: { state: WidgetState.Active } } as any,
+    })
+    await waitForMilliseconds(0)
+    const newCalls = dispatchSpy.mock.calls
+      .slice(callCountAfterClose)
+      .map(([a]) => a as any)
+    // Should not navigate away from DRAWING due to reopen
+    const movedAway = newCalls.some(
+      (a) => a?.type === "FME_SET_VIEW_MODE" && a?.viewMode !== ViewMode.DRAWING
+    )
+    expect(movedAway).toBe(false)
+
+    unmount()
+    ;(global as any).__TEST_PORTAL_EMAIL__ = undefined
   })
 })

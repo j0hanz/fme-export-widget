@@ -13,6 +13,9 @@ export default {
   validatingConfiguration: "Kontrollerar konfigurationen...",
   startupValidationFailed: "Konfigurationsfel uppstod",
   invalidConfiguration: "Widgetens konfiguration saknas eller är ogiltig",
+  serverUrlMissing: "FME Server-URL saknas",
+  tokenMissing: "FME API-nyckel saknas",
+  repositoryMissing: "Repository saknas",
   connectionFailed: "Det gick inte att ansluta till FME Server",
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
@@ -43,7 +46,24 @@ export default {
   // Order status used in widget.tsx
   orderFailed: "Beställningen misslyckades",
 
+  // FME response messages
+  unexpectedFmeResponse: "Oväntat svar från FME Server",
+  exportOrderSubmitted: "Exportbeställningen har skickats",
+  fmeJobSubmissionFailed: "Det gick inte att skicka FME‑jobbet",
+
   // Generic unexpected / processing
   mapInitFailed: "Misslyckades att initiera kartan",
   drawingCompleteFailed: "Misslyckades att avsluta ritning",
+
+  // Map configuration validation
+  mapNotConfigured: "Ingen karta är konfigurerad",
+
+  // User email validation
+  userEmailMissing:
+    "Användarens e-postadress krävs för att använda denna funktion",
+
+  // Workspace loading errors
+  failedToLoadWorkspaces: "Det gick inte att ladda tillgängliga arbetsytor",
+  failedToLoadWorkspaceDetails:
+    "Det gick inte att ladda detaljer för vald arbetsyta",
 }

@@ -6,14 +6,19 @@ import {
   hooks,
   jsx,
   type ImmutableObject,
+  ReactRedux,
+  type IMState,
+  WidgetState,
 } from "jimu-core"
 import {
   JimuMapViewComponent,
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
+
+import { useTheme } from "jimu-theme"
 import { Workflow } from "./components/workflow"
-import { StateView, styles } from "./components/ui"
+import { StateView, useStyles, renderSupportHint } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -39,7 +44,14 @@ import {
 } from "../shared/types"
 import { ErrorHandlingService } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
-import { resolveMessageOrKey, getErrorMessage } from "../shared/utils"
+import {
+  resolveMessageOrKey,
+  getErrorMessage,
+  isValidEmail,
+  buildSupportHintText,
+  sanitizePolygonJson,
+  getSupportEmail,
+} from "../shared/utils"
 
 // Widget-specific styles
 const CSS = {
@@ -47,35 +59,25 @@ const CSS = {
     white: [255, 255, 255, 1] as [number, number, number, number],
     orangeOutline: [255, 140, 0] as [number, number, number],
   },
-  symbols: {
-    highlight: {
-      type: "simple-fill" as const,
-      color: [255, 165, 0, 0.2] as [number, number, number, number],
-      outline: {
-        color: [255, 140, 0] as [number, number, number],
-        width: 2,
-        style: "solid" as const,
-      },
-    },
-  },
 }
 
-// Email placeholder pattern used in translated messages
-const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-const EMAIL_REGEX = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i
-const getSupportEmail = (
-  configuredEmailRaw: unknown,
-  sourceText?: string
-): string | undefined => {
-  const cfg = typeof configuredEmailRaw === "string" ? configuredEmailRaw : ""
-  if (isValidEmail(cfg)) return cfg
-
-  if (typeof sourceText === "string" && EMAIL_REGEX.test(sourceText)) {
-    const match = sourceText.match(EMAIL_REGEX)
-    const found = match ? match[0] : undefined
-    if (found && isValidEmail(found)) return found
+// Highlight symbol derived from theme primary color
+const useHighlightSymbol = () => {
+  const theme = useTheme()
+  const primaryHex =
+    (theme as any)?.sys?.color?.primary?.main ||
+    (theme as any)?.colors?.palette?.primary?.[500] ||
+    "#0079c1"
+  const [r, g, b] = hexToRgb(String(primaryHex))
+  return {
+    type: "simple-fill" as const,
+    color: [r, g, b, 0.2] as [number, number, number, number],
+    outline: {
+      color: [r, g, b] as [number, number, number],
+      width: 2,
+      style: "solid" as const,
+    },
   }
-  return undefined
 }
 
 const MODULES: readonly string[] = [
@@ -87,26 +89,6 @@ const MODULES: readonly string[] = [
   "esri/geometry/geometryEngine",
 ] as const
 
-// Check for WebGL2 support
-const hasWebGL2Support = (): boolean => {
-  try {
-    const canvas = document.createElement("canvas")
-    // Some environments may have canvas but no gl context
-    const gl = canvas.getContext("webgl2")
-    return !!gl
-  } catch {
-    return false
-  }
-}
-
-// Small utility helpers (behavior-preserving)
-const isThenable = (
-  v: unknown
-): v is { then: (...args: unknown[]) => unknown } =>
-  !!v &&
-  (typeof v === "object" || typeof v === "function") &&
-  typeof (v as { then?: unknown }).then === "function"
-
 // Area calculation and formatting constants
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000, // m² -> 1 km²
@@ -115,6 +97,11 @@ const GEOMETRY_CONSTS = {
   AREA_UNIT: "square-meters",
   MIN_VALID_AREA: 1e-3, // minimum valid area in m²
 } as const
+const hexToRgb = (hex: string): [number, number, number] => {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  if (!m) return [0, 121, 193] // fallback to Esri blue
+  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
+}
 
 // Load ArcGIS modules once and memoize result
 const useModules = (): {
@@ -157,7 +144,6 @@ const useModules = (): {
   return { modules, loading }
 }
 
-// Custom hook to manage local map state
 const useMapState = () => {
   const [jimuMapView, setJimuMapView] = React.useState<JimuMapView | null>(null)
   const [sketchViewModel, setSketchViewModel] =
@@ -167,23 +153,45 @@ const useMapState = () => {
   const [currentGeometry, setCurrentGeometry] =
     React.useState<__esri.Geometry | null>(null)
 
-  // Cleanup function to remove all resources
+  // Cleanup function to release resources
   const cleanupResources = hooks.useEventCallback(() => {
     try {
+      // Cancel any ongoing sketch operations
       if (sketchViewModel) {
-        sketchViewModel.cancel()
-        sketchViewModel.destroy()
-        setSketchViewModel(null)
+        try {
+          if (sketchViewModel.activeTool) {
+            sketchViewModel.cancel()
+          }
+          sketchViewModel.destroy?.()
+          setSketchViewModel(null)
+        } catch (sketchError) {
+          console.warn(
+            "Widget - Error cleaning up SketchViewModel:",
+            sketchError
+          )
+        }
       }
 
-      if (graphicsLayer && jimuMapView?.view?.map) {
-        jimuMapView.view.map.remove(graphicsLayer)
-        setGraphicsLayer(null)
+      // Remove graphics layer from map
+      if (graphicsLayer) {
+        try {
+          if (jimuMapView?.view?.map && graphicsLayer.parent) {
+            jimuMapView.view.map.remove(graphicsLayer)
+          }
+          // Clear all graphics
+          graphicsLayer.removeAll?.()
+          setGraphicsLayer(null)
+        } catch (layerError) {
+          console.warn("Widget - Error cleaning up GraphicsLayer:", layerError)
+        }
       }
 
-      setCurrentGeometry(null)
+      // Clear geometry references
+      if (currentGeometry) {
+        setCurrentGeometry(null)
+      }
     } catch (error) {
-      console.warn("FME Export Widget - Error during resource cleanup:", error)
+      console.error("Widget - Critical error during resource cleanup:", error)
     }
   })
 
@@ -215,17 +223,17 @@ const dispatchError = (
   )
 }
 
-const abortController = (
+const cancelController = (
   ref: React.MutableRefObject<AbortController | null>
 ) => {
-  if (ref.current) {
+  if (ref.current && !ref.current.signal.aborted) {
     try {
       ref.current.abort()
-    } catch {
-      // Ignore abort errors
+    } catch (error) {
+      console.warn("Widget - Error aborting controller:", error)
     }
-    ref.current = null
   }
+  ref.current = null
 }
 
 const geometryUtils = {
@@ -233,31 +241,58 @@ const geometryUtils = {
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
-      return 0
-    }
-    const polygon = geometry as __esri.Polygon
-    const sr: any = polygon.spatialReference || {}
-    const engine: any = modules.geometryEngine
-    const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
     try {
-      let area: number | undefined
-      if (useGeodesic && typeof engine.geodesicArea === "function") {
-        area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-      } else if (!useGeodesic && typeof engine.planarArea === "function") {
-        area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+      if (
+        !geometry ||
+        geometry.type !== "polygon" ||
+        !modules?.geometryEngine
+      ) {
+        return 0
       }
-      // Ensure area is a positive finite number
-      return Number.isFinite(area) &&
-        area !== undefined &&
-        Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
-        ? Math.abs(area)
-        : 0
-    } catch {
-      // On error, return zero
+      const polygon = geometry as __esri.Polygon
+      const sr: any = polygon.spatialReference || {}
+      const engine: any = modules.geometryEngine
+      const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
+
+      try {
+        let area: number | undefined
+        if (useGeodesic && typeof engine.geodesicArea === "function") {
+          area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+        } else if (!useGeodesic && typeof engine.planarArea === "function") {
+          area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
+        }
+        // Ensure area is a positive finite number
+        if (
+          Number.isFinite(area) &&
+          area !== undefined &&
+          Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
+        ) {
+          return Math.abs(area)
+        }
+        // Fallback: approximate using extent if engine returns invalid
+        const ext = polygon.extent
+        const approx = Math.abs(ext?.width * ext?.height || 0)
+        return Number.isFinite(approx) && approx > 0 ? approx : 0
+      } catch (calcError) {
+        console.warn(
+          "Widget - Area calculation failed, using extent fallback:",
+          calcError
+        )
+        // On error, fallback to extent-based approximation
+        try {
+          const ext = polygon.extent
+          return Math.abs(ext?.width * ext?.height || 0)
+        } catch (extentError) {
+          console.warn("Widget - Extent fallback also failed:", extentError)
+          return 0
+        }
+      }
+    } catch (error) {
+      console.warn("Widget - Geometry area calculation error:", error)
       return 0
     }
   },
+
   validatePolygon(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
@@ -346,7 +381,8 @@ const geometryUtils = {
             ),
           }
         }
-      } catch {
+      } catch (ringError) {
+        console.warn("Widget - Ring validation error:", ringError)
         return {
           valid: false,
           error: errorService.createError(
@@ -373,61 +409,14 @@ const geometryUtils = {
           }
         }
       }
-    } catch {
+    } catch (intersectionError) {
+      console.warn(
+        "Widget - Self-intersection check failed, assuming valid:",
+        intersectionError
+      )
       // Ignore errors from isSimple; assume valid if we cannot determine
     }
     return { valid: true }
-  },
-
-  sanitizePolygonJson(value: unknown, spatialRef?: unknown): unknown {
-    if (!value || typeof value !== "object") return value
-    const src: any = value
-    if (!Array.isArray(src.rings)) return value
-    const ensureClosure = (ring: any[]): any[] => {
-      const cleaned = ring.map((pt: any) => {
-        if (!Array.isArray(pt) || pt.length < 2) return pt
-        const x = typeof pt[0] === "number" ? pt[0] : Number(pt[0])
-        const y = typeof pt[1] === "number" ? pt[1] : Number(pt[1])
-        return [x, y]
-      })
-      try {
-        const first = cleaned[0]
-        const last = cleaned[cleaned.length - 1]
-        const closed =
-          Array.isArray(first) &&
-          Array.isArray(last) &&
-          Math.abs(first[0] - last[0]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-          Math.abs(first[1] - last[1]) < GEOMETRY_CONSTS.COINCIDENT_EPSILON
-        return closed ? cleaned : [...cleaned, [first[0], first[1]]]
-      } catch {
-        return cleaned
-      }
-    }
-    const cleanedRings = src.rings.map((r: any) => ensureClosure(r))
-    const result: any = { ...src, rings: cleanedRings }
-    // Remove Z/M flags
-    delete result.hasZ
-    delete result.hasM
-    // Preserve spatial reference if provided and missing
-    if (spatialRef && !result.spatialReference) {
-      result.spatialReference = spatialRef
-    }
-    return result
-  },
-
-  simplifyPolygon(poly: __esri.Polygon, modules: EsriModules): __esri.Polygon {
-    try {
-      const engine: any = modules?.geometryEngine
-      if (typeof engine?.simplify === "function") {
-        const simplified = engine.simplify(poly)
-        if (simplified && simplified.type === "polygon") {
-          return simplified as __esri.Polygon
-        }
-      }
-    } catch {
-      // Ignore simplify errors and fallback to original polygon
-    }
-    return poly
   },
 }
 
@@ -476,7 +465,11 @@ const buildFmeParams = (
 
 // Type guard for polygon-like JSON (Esri)
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
-  return !!value && typeof value === "object" && "rings" in (value as any)
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("rings" in v)) return false
+  const rings = v.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
 // Point coincidence helper reused for vertex counting. Left here because
@@ -515,23 +508,21 @@ const attachAoi = (
     let sr: unknown
     try {
       sr = currentGeometry?.toJSON()?.spatialReference
-    } catch {
+    } catch (srError) {
+      console.warn(
+        "Widget - Failed to derive spatial reference from geometry:",
+        srError
+      )
       /* ignore SR derivation errors */
     }
-    // Use consolidated sanitization from geometryUtils
-    const polygonJson = geometryUtils.sanitizePolygonJson(geometryToUse, sr)
+    // Use shared sanitization helper
+    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
     return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
   }
   return base
 }
 
 // Email validation utilities
-const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (/no-?reply/i.test(email)) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
 const getEmail = async (): Promise<string> => {
   const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
   const portal = new Portal()
@@ -608,7 +599,8 @@ const createSketchVM = (
   modules: EsriModules,
   layer: __esri.GraphicsLayer,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  polygonSymbol: unknown
 ) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -631,17 +623,20 @@ const createSketchVM = (
     },
   })
 
-  setSketchSymbols(sketchViewModel)
+  setSketchSymbols(sketchViewModel, polygonSymbol)
   setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
 
   return sketchViewModel
 }
 
 // Configure sketch view model symbols
-const setSketchSymbols = (sketchViewModel: __esri.SketchViewModel) => {
+const setSketchSymbols = (
+  sketchViewModel: __esri.SketchViewModel,
+  polygonSymbol: unknown
+) => {
   const { colors } = CSS
 
-  sketchViewModel.polygonSymbol = CSS.symbols.highlight as any
+  sketchViewModel.polygonSymbol = polygonSymbol as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
@@ -742,14 +737,15 @@ const setupSketchEventHandlers = (
 const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
-  userEmail: string
+  userEmail: string,
+  translateFn: (key: string) => string
 ): ExportResult => {
   const response = fmeResponse as FmeResponse
   const data = response?.data
   if (!data) {
     return {
       success: false,
-      message: "Unexpected response from FME server",
+      message: translateFn("unexpectedFmeResponse"),
       code: "INVALID_RESPONSE",
     }
   }
@@ -760,13 +756,13 @@ const processFmeResponse = (
   const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
   const parsedId =
     typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
-  const jobId: number =
-    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : Date.now()
+  const jobId: number | undefined =
+    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : undefined
 
   if (status === "success") {
     return {
       success: true,
-      message: "Export order submitted successfully",
+      message: translateFn("exportOrderSubmitted"),
       jobId,
       workspaceName: workspace,
       email: userEmail,
@@ -779,7 +775,7 @@ const processFmeResponse = (
     message:
       serviceInfo?.statusInfo?.message ||
       serviceInfo?.message ||
-      "FME job submission failed",
+      translateFn("fmeJobSubmissionFailed"),
     code: "FME_JOB_FAILURE",
   }
 }
@@ -810,12 +806,21 @@ export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
 ): React.ReactElement {
   const {
-    id: widgetId,
+    id,
+    widgetId: widgetIdProp,
     useMapWidgetIds,
     dispatch,
     state: reduxState,
     config,
   } = props
+
+  // Determine widget ID for state management
+  const widgetId =
+    (id as unknown as string) ?? (widgetIdProp as unknown as string)
+
+  const highlightSymbol = useHighlightSymbol()
+
+  const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
   // Translation function
   const translate = hooks.useEventCallback((key: string): string => {
@@ -844,22 +849,14 @@ export default function Widget(
         baseMessage = translate("unknownErrorOccurred")
       }
 
-      // Determine support email if configured or found in user-friendly message
+      // Determine support hint
       const ufm = error.userFriendlyMessage
-      const supportEmail = getSupportEmail(props.config?.supportEmail, ufm)
-      // Build support hint message
-      let supportHint: string
-      if (supportEmail) {
-        // Use runtime translation for the contact email placeholder.
-        supportHint = translate("contactSupportWithEmail").replace(
-          EMAIL_PLACEHOLDER,
-          supportEmail
-        )
-      } else if (typeof ufm === "string" && ufm.trim()) {
-        supportHint = ufm
-      } else {
-        supportHint = translate("contactSupport")
-      }
+      const supportEmail = getSupportEmail(props.config?.supportEmail)
+      const supportHint = buildSupportHintText(
+        translate,
+        supportEmail,
+        typeof ufm === "string" ? ufm : undefined
+      )
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -878,7 +875,7 @@ export default function Widget(
             actions,
           })}
           renderActions={(act, ariaLabel) => {
-            // If an email was found, render it as a mailto link for accessibility
+            // Render support hint, linking email if present
             return (
               <div
                 role="group"
@@ -887,32 +884,12 @@ export default function Widget(
               >
                 {/* Render support hint on its own row */}
                 <div>
-                  {supportEmail
-                    ? translate("contactSupportWithEmail")
-                        .split(EMAIL_PLACEHOLDER)
-                        .map((part, idx, arr) => {
-                          if (idx < arr.length - 1) {
-                            return (
-                              <React.Fragment key={idx}>
-                                {part}
-                                <a
-                                  href={`mailto:${supportEmail}`}
-                                  css={styles.typography.link}
-                                  aria-label={translate(
-                                    "contactSupportWithEmail",
-                                    { email: supportEmail }
-                                  )}
-                                >
-                                  {supportEmail}
-                                </a>
-                              </React.Fragment>
-                            )
-                          }
-                          return (
-                            <React.Fragment key={idx}>{part}</React.Fragment>
-                          )
-                        })
-                    : supportHint}
+                  {renderSupportHint(
+                    supportEmail,
+                    translate,
+                    styles,
+                    supportHint
+                  )}
                 </div>
               </div>
             )
@@ -925,8 +902,7 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
-  // Debounce pending sketch create starts
-  const drawStartTimerRef = React.useRef<number | null>(null)
+  // Drawing start is invoked directly after cancel (no debounce timer)
   // Abort controller
   const submissionAbortRef = React.useRef<AbortController | null>(null)
   // Startup validation controller
@@ -950,16 +926,34 @@ export default function Widget(
     (
       config: FmeExportConfig | undefined
     ): { isValid: boolean; error?: ErrorState } => {
-      if (
-        !config?.fmeServerUrl ||
-        !config?.fmeServerToken ||
-        !config?.repository
-      ) {
+      if (!config) {
         return {
           isValid: false,
           error: createStartupError("invalidConfiguration", "ConfigMissing"),
         }
       }
+
+      // Check required fields
+      if (!config.fmeServerUrl || config.fmeServerUrl.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("serverUrlMissing", "ServerUrlEmpty"),
+        }
+      }
+      if (!config.fmeServerToken || config.fmeServerToken.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("tokenMissing", "TokenEmpty"),
+        }
+      }
+      if (!config.repository || config.repository.trim() === "") {
+        return {
+          isValid: false,
+          error: createStartupError("repositoryMissing", "RepositoryEmpty"),
+        }
+      }
+
+      // Workspace is optional, but warn if empty
       return { isValid: true }
     }
   )
@@ -996,7 +990,7 @@ export default function Widget(
   // Startup validation logic
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Reset any existing validation state
-    abortController(startupValidationAbortRef)
+    cancelController(startupValidationAbortRef)
     startupValidationAbortRef.current = new AbortController()
     const signal = startupValidationAbortRef.current.signal
 
@@ -1023,15 +1017,6 @@ export default function Widget(
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
         setValidationError(configValidation.error)
-        return
-      }
-      // Verify WebGL2 availability before continuing
-      if (!hasWebGL2Support()) {
-        setValidationError(
-          createStartupError("connectionFailed", "WebGL2Unsupported", () =>
-            runStartupValidation()
-          )
-        )
         return
       }
 
@@ -1102,18 +1087,13 @@ export default function Widget(
 
     return () => {
       // Cleanup validation on unmount
-      abortController(startupValidationAbortRef)
+      cancelController(startupValidationAbortRef)
     }
-  })
-
-  // Clear graphics
-  const clearAllGraphics = hooks.useEventCallback(() => {
-    graphicsLayer?.removeAll()
   })
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    clearAllGraphics()
+    graphicsLayer?.removeAll()
   })
 
   // Drawing complete
@@ -1132,15 +1112,12 @@ export default function Widget(
           return
         }
 
-        // Prefer a simplified polygon when available to ensure clean rings
-        const geomForUse =
-          geometry.type === "polygon"
-            ? geometryUtils.simplifyPolygon(geometry, modules)
-            : geometry
+        // Geometry is valid polygon here
+        const geomForUse = geometry as __esri.Polygon
 
         // Set symbol
         if (evt.graphic && modules) {
-          evt.graphic.symbol = CSS.symbols.highlight as any
+          evt.graphic.symbol = highlightSymbol as any
         }
 
         const calculatedArea = calcArea(geomForUse, modules)
@@ -1210,7 +1187,12 @@ export default function Widget(
     workspace: string,
     userEmail: string
   ) => {
-    const result = processFmeResponse(fmeResponse, workspace, userEmail)
+    const result = processFmeResponse(
+      fmeResponse,
+      workspace,
+      userEmail,
+      translate
+    )
     finalizeOrder(result)
   }
 
@@ -1219,16 +1201,8 @@ export default function Widget(
     const errorMessage =
       getErrorMessage(error) || translate("unknownErrorOccurred")
     // Build localized failure message and append contact support hint
-    const contactHint = (() => {
-      const configured = getSupportEmail(props.config?.supportEmail)
-      if (configured) {
-        return translate("contactSupportWithEmail").replace(
-          EMAIL_PLACEHOLDER,
-          configured
-        )
-      }
-      return translate("contactSupport")
-    })()
+    const configured = getSupportEmail(props.config?.supportEmail)
+    const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("orderFailed")
     const resultMessage =
       `${baseFailMessage}. ${errorMessage}. ${contactHint}`.trim()
@@ -1264,7 +1238,7 @@ export default function Widget(
       )
 
       // Abort any existing submission
-      abortController(submissionAbortRef)
+      cancelController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
       const fmeResponse = await fmeClient.runDataDownload(
@@ -1293,7 +1267,14 @@ export default function Widget(
     try {
       setJimuMapView(jmv)
       const layer = createLayers(jmv, modules, setGraphicsLayer)
-      const svm = createSketchVM(jmv, modules, layer, onDrawComplete, dispatch)
+      const svm = createSketchVM(
+        jmv,
+        modules,
+        layer,
+        onDrawComplete,
+        dispatch,
+        highlightSymbol
+      )
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(
@@ -1324,15 +1305,7 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Cleanup resources on unmount
-      abortController(submissionAbortRef)
-      if (drawStartTimerRef.current != null) {
-        try {
-          clearTimeout(drawStartTimerRef.current)
-        } catch {
-          /* noop */
-        }
-        drawStartTimerRef.current = null
-      }
+      cancelController(submissionAbortRef)
       cleanupResources()
     }
   })
@@ -1376,38 +1349,23 @@ export default function Widget(
       /* noop */
     }
 
-    // Begin create on next tick to avoid overlapping internal async operations
-    const startCreate = () => {
-      try {
-        const svm = sketchViewModel as unknown as {
-          create: (t: "rectangle" | "polygon") => unknown
-        }
-        const arg: "rectangle" | "polygon" =
-          tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-        const res = svm.create(arg)
-        // Inline promise check since it's only used here
-        if (isThenable(res)) {
-          ;(res as Promise<unknown>).catch(() => {
-            /* ignore expected cancellation errors */
-          })
-        }
-      } catch {
-        /* noop */
+    // Start drawing immediately; prior cancel avoids overlap
+    try {
+      const svm = sketchViewModel as unknown as {
+        create: (t: "rectangle" | "polygon") => unknown
       }
+      const arg: "rectangle" | "polygon" =
+        tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+      void svm.create(arg)
+    } catch {
+      /* noop */
     }
-    if (drawStartTimerRef.current != null) {
-      try {
-        clearTimeout(drawStartTimerRef.current)
-      } catch {
-        /* noop */
-      }
-      drawStartTimerRef.current = null
-    }
-    drawStartTimerRef.current = window.setTimeout(
-      startCreate,
-      0
-    ) as unknown as number
   })
+
+  // Track runtime (Controller) state to coordinate auto-start only when visible
+  const runtimeState = ReactRedux.useSelector(
+    (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
+  )
 
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
@@ -1417,7 +1375,8 @@ export default function Widget(
     !reduxState.isSubmittingOrder
 
   hooks.useUpdateEffect(() => {
-    if (canAutoStartDrawing) {
+    // Only auto-start if not already started and widget is not closed
+    if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
       handleStartDrawing(reduxState.drawingTool)
     }
   }, [
@@ -1427,6 +1386,7 @@ export default function Widget(
     sketchViewModel,
     reduxState.isSubmittingOrder,
     handleStartDrawing,
+    runtimeState,
   ])
 
   // Reset handler
@@ -1435,8 +1395,8 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Abort any ongoing submission
-    abortController(submissionAbortRef)
-    abortController(startupValidationAbortRef)
+    cancelController(submissionAbortRef)
+    cancelController(startupValidationAbortRef)
 
     // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
@@ -1462,6 +1422,17 @@ export default function Widget(
     // Reset view mode to initial
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
+
+  // Reset when widget is closed
+  const prevRuntimeStateRef = React.useRef<WidgetState | undefined>(undefined)
+  hooks.useUpdateEffect(() => {
+    const prev = prevRuntimeStateRef.current
+    // Trigger reset when transitioning into Closed from any non-Closed state
+    if (runtimeState === WidgetState.Closed && prev !== WidgetState.Closed) {
+      handleReset()
+    }
+    prevRuntimeStateRef.current = runtimeState
+  }, [runtimeState, handleReset])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
@@ -1527,7 +1498,7 @@ export default function Widget(
   )
 
   return (
-    <>
+    <div css={styles.parent}>
       {hasSingleMapWidget && (
         <JimuMapViewComponent
           useMapWidgetId={useMapWidgetIds[0]}
@@ -1567,7 +1538,11 @@ export default function Widget(
             // Cancel any ongoing drawing
             try {
               sketchViewModel.cancel()
-            } catch {
+            } catch (cancelError) {
+              console.warn(
+                "Widget - Failed to cancel sketch operation:",
+                cancelError
+              )
               /* noop */
             }
             // Start new drawing with the selected tool
@@ -1595,7 +1570,7 @@ export default function Widget(
         startupValidationError={reduxState.startupValidationError}
         onRetryValidation={runStartupValidation}
       />
-    </>
+    </div>
   )
 }
 

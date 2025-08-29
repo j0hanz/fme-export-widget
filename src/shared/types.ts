@@ -75,16 +75,11 @@ export interface ButtonProps {
   readonly tooltip?: string
   readonly tooltipDisabled?: boolean
   readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
-  readonly tooltipEnterDelay?: number
-  readonly tooltipEnterNextDelay?: number
-  readonly tooltipLeaveDelay?: number
   readonly logging?: { enabled: boolean; prefix: string }
   readonly preset?: "primary" | "secondary" | "danger" | "link"
   readonly children?: React.ReactNode
   readonly block?: boolean
   readonly style?: React.CSSProperties
-  readonly tabIndex?: number
-  readonly title?: string
   readonly variant?: "contained" | "outlined" | "text"
   readonly color?:
     | "default"
@@ -98,8 +93,6 @@ export interface ButtonProps {
   readonly disabled?: boolean
   readonly className?: string
   readonly id?: string
-  readonly type?: any
-  // Allow any other jimu-ui Button props
   readonly [key: string]: any
 }
 
@@ -111,7 +104,6 @@ export interface GroupButtonConfig {
   readonly disabled?: boolean
   readonly loading?: boolean
   readonly tooltip?: string
-  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
 }
 
 export interface ButtonGroupProps {
@@ -119,7 +111,6 @@ export interface ButtonGroupProps {
   readonly rightButton?: GroupButtonConfig
   readonly className?: string
   readonly style?: React.CSSProperties
-  readonly logging?: { enabled: boolean; prefix: string }
 }
 
 export interface OptionItem {
@@ -139,8 +130,6 @@ export interface SelectProps {
   readonly options?: readonly OptionItem[]
   readonly placeholder?: string
   readonly disabled?: boolean
-  readonly ariaLabel?: string
-  readonly ariaDescribedBy?: string
   readonly style?: React.CSSProperties
   readonly coerce?: "number" | "string"
 }
@@ -176,14 +165,11 @@ export interface InputProps {
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly required?: boolean
   readonly maxLength?: number
-  readonly pattern?: RegExp
-  readonly validationMessage?: string
   readonly type?: "text" | "password" | "email" | "tel" | "url" | "file"
   readonly placeholder?: string
   readonly disabled?: boolean
   readonly id?: string
   readonly errorText?: string
-  readonly inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"]
 }
 
 export interface TextAreaProps {
@@ -206,10 +192,6 @@ export interface TooltipProps {
   readonly children: React.ReactElement
   readonly showArrow?: boolean
   readonly placement?: "top" | "bottom" | "left" | "right"
-  readonly enterDelay?: number
-  readonly enterNextDelay?: number
-  readonly enterTouchDelay?: number
-  readonly leaveDelay?: number
   readonly disabled?: boolean
   readonly title?: React.ReactNode
   readonly id?: string

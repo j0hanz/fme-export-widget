@@ -186,21 +186,11 @@ export const initialFmeState: FmeWidgetState = {
 
 // Reducer helpers
 const helpers = {
-  getErrorField: (
-    type: FmeActionType
-  ): "error" | "importError" | "exportError" =>
-    type === FmeActionType.SET_ERROR
-      ? "error"
-      : type === FmeActionType.SET_IMPORT_ERROR
-        ? "importError"
-        : "exportError",
-
   setView: (
     state: ImmutableObject<FmeWidgetState>,
     newViewMode: ViewMode
   ): ImmutableObject<FmeWidgetState> => {
     if (state.viewMode === newViewMode) {
-      // No change in view mode, return current state
       return state
     }
     return state
@@ -223,38 +213,6 @@ const helpers = {
     }
 
     return newState
-  },
-
-  setDrawing: (
-    state: ImmutableObject<FmeWidgetState>,
-    action: {
-      isDrawing: boolean
-      clickCount?: number
-      drawingTool?: DrawingTool
-    }
-  ): ImmutableObject<FmeWidgetState> => {
-    return state
-      .set("isDrawing", action.isDrawing)
-      .set("clickCount", action.clickCount ?? state.clickCount)
-      .set("drawingTool", action.drawingTool ?? state.drawingTool)
-  },
-
-  setWsParams: (
-    state: ImmutableObject<FmeWidgetState>,
-    workspaceParameters: readonly WorkspaceParameter[],
-    workspaceName: string
-  ): ImmutableObject<FmeWidgetState> => {
-    return state
-      .set("workspaceParameters", workspaceParameters)
-      .set("selectedWorkspace", workspaceName)
-  },
-
-  setError: (
-    state: ImmutableObject<FmeWidgetState>,
-    action: { type: FmeActionType; error: SerializableErrorState | null }
-  ): ImmutableObject<FmeWidgetState> => {
-    const errorField = helpers.getErrorField(action.type)
-    return state.set(errorField, action.error)
   },
 }
 
@@ -287,7 +245,10 @@ const fmeReducer = (
         .set("drawnArea", action.drawnArea ?? 0)
 
     case FmeActionType.SET_DRAWING_STATE:
-      return helpers.setDrawing(state, action)
+      return state
+        .set("isDrawing", action.isDrawing)
+        .set("clickCount", action.clickCount ?? state.clickCount)
+        .set("drawingTool", action.drawingTool ?? state.drawingTool)
 
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)
@@ -309,11 +270,9 @@ const fmeReducer = (
       return state.set("workspaceItems", action.workspaceItems)
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS:
-      return helpers.setWsParams(
-        state,
-        action.workspaceParameters,
-        action.workspaceName
-      )
+      return state
+        .set("workspaceParameters", action.workspaceParameters)
+        .set("selectedWorkspace", action.workspaceName)
 
     case FmeActionType.SET_SELECTED_WORKSPACE:
       return state.set("selectedWorkspace", action.workspaceName)
@@ -327,9 +286,13 @@ const fmeReducer = (
 
     // Error cases
     case FmeActionType.SET_ERROR:
+      return state.set("error", action.error)
+
     case FmeActionType.SET_IMPORT_ERROR:
+      return state.set("importError", action.error)
+
     case FmeActionType.SET_EXPORT_ERROR:
-      return helpers.setError(state, action)
+      return state.set("exportError", action.error)
   }
 }
 

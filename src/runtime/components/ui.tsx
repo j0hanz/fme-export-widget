@@ -1,6 +1,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, css, jsx } from "jimu-core"
+import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
+import { React as ReactNS } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -17,6 +18,7 @@ import {
   LoadingType,
   Checkbox as JimuCheckbox,
 } from "jimu-ui"
+import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import type {
   ButtonProps,
@@ -36,6 +38,7 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../shared/types"
+import { EMAIL_PLACEHOLDER, type TranslateFn } from "../../shared/utils"
 
 // Consolidated UI constants and styles
 export const config = {
@@ -64,150 +67,198 @@ export const config = {
   required: "*",
 } as const
 
-// Centralized styles using emotion CSS
-export const styles = {
-  // Layout utilities
-  row: css({ display: "flex" }),
-  col: css({ display: "flex", flexDirection: "column" }),
-  flex1: css({ flex: 1 }),
-  fullWidth: css({ width: "100%" }),
-  relative: css({ position: "relative" }),
-  block: css({ display: "block" }),
-  marginTop: (value: number) => css({ marginTop: value }),
-  gapBtnGroup: css({ gap: "1rem" }),
+// Create theme-aware styles
+const createStyles = (theme: IMThemeVariables) =>
+  ({
+    // Layout utilities
+    row: css({ display: "flex" }),
+    col: css({ display: "flex", flexDirection: "column" }),
+    flex1: css({ flex: 1 }),
+    fullWidth: css({ width: "100%" }),
+    relative: css({ position: "relative" }),
+    block: css({ display: "block" }),
+    marginTop: (value: number) => css({ marginTop: value }),
+    gapBtnGroup: css({ gap: theme.sys.spacing?.(2) || "1rem" }),
 
-  // Text utilities
-  textCenter: css({ textAlign: "center" }),
-  textEnd: css({ textAlign: "end" }),
+    // Text utilities
+    textCenter: css({ textAlign: "center" }),
+    textEnd: css({ textAlign: "end" }),
 
-  // Interactive utilities
-  disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
-  textareaResize: css({ resize: "vertical" }),
+    // Interactive utilities
+    disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
+    textareaResize: css({ resize: "vertical" }),
 
-  // Common flex patterns
-  flexCentered: css({
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-  }),
-
-  flexBetween: css({
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-  }),
-
-  // Layout patterns
-  parent: css({
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-    height: "100%",
-    position: "relative",
-    padding: "0.4rem",
-  }),
-
-  header: css({
-    display: "flex",
-    justifyContent: "end",
-    flexShrink: 0,
-  }),
-
-  content: css({
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    flex: "1 1 auto",
-  }),
-
-  headerRow: css({
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    gap: "0.5rem",
-  }),
-
-  // State patterns
-  centered: css({
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    gap: "0.5rem",
-    height: "100%",
-  }),
-
-  overlay: css({
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    textAlign: "center",
-    zIndex: config.zIndex.overlay,
-  }),
-
-  // Typography styles
-  typography: {
-    caption: css({
-      fontSize: "0.8125rem",
-      margin: "0.5rem 0",
-    }),
-
-    label: css({
-      display: "block",
-      fontSize: "0.8125rem",
-      marginBottom: 0,
-    }),
-
-    title: css({
-      fontSize: "1rem",
-      fontWeight: 500,
-    }),
-
-    instruction: css({
-      fontSize: "0.8125rem",
-      margin: "1rem 0",
-      textAlign: "center",
-    }),
-
-    link: css({
-      fontSize: "0.875rem",
-      fontWeight: 500,
-      textDecoration: "underline",
-      wordBreak: "break-all",
-    }),
-
-    required: css({
-      marginLeft: "0.25rem",
-    }),
-  },
-
-  // Button patterns
-  button: {
-    group: css({
+    // Common flex patterns
+    flexCentered: css({
       display: "flex",
-      gap: "0.5rem",
+      flexDirection: "column",
+      justifyContent: "center",
+      alignItems: "center",
     }),
 
-    default: css({
+    flexBetween: css({
       display: "flex",
-      flexFlow: "column",
-      width: "100%",
-      gap: "0.5rem",
+      justifyContent: "space-between",
+      alignItems: "baseline",
     }),
 
-    text: css({
-      flex: 1,
+    parent: css({
+      display: "flex",
+      flexDirection: "column",
+      overflowY: "auto",
+      height: "100%",
+      position: "relative",
+      padding: theme.sys.spacing?.(1) || "0.4rem",
+      backgroundColor:
+        theme.sys.color.surface?.paper ||
+        theme.ref?.palette?.white ||
+        theme.sys.color.surface?.background ||
+        "transparent",
     }),
 
-    icon: css({
+    header: css({
+      display: "flex",
+      justifyContent: "end",
+      flexShrink: 0,
+    }),
+
+    content: css({
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      flex: "1 1 auto",
+    }),
+
+    headerRow: css({
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "baseline",
+      gap: theme.sys.spacing?.(1) || "0.5rem",
+    }),
+
+    // State patterns
+    centered: css({
+      display: "flex",
+      flexDirection: "column",
+      justifyContent: "center",
+      gap: theme.sys.spacing?.(1) || "0.5rem",
+      height: "100%",
+    }),
+
+    overlay: css({
       position: "absolute",
-      zIndex: 1,
       top: "50%",
-      transform: "translateY(-50%)",
+      left: "50%",
+      transform: "translate(-50%, -50%)",
+      textAlign: "center",
+      zIndex: config.zIndex.overlay,
     }),
-  },
-} as const
+
+    // Typography styles with theme support
+    typography: {
+      caption: css({
+        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
+        color:
+          theme.sys.color.surface?.backgroundText ||
+          theme.ref.palette?.neutral[1200] ||
+          "inherit",
+        margin: `${theme.sys.spacing?.(1) || "0.5rem"} 0`,
+      }),
+
+      label: css({
+        display: "block",
+        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
+        color:
+          theme.sys.color.surface?.backgroundText ||
+          theme.ref.palette?.neutral[1200] ||
+          "inherit",
+        marginBottom: 0,
+      }),
+
+      title: css({
+        fontSize: theme?.sys?.typography?.body1?.fontSize || "1rem",
+        fontWeight: theme?.sys?.typography?.body1?.fontWeight || 500,
+        color:
+          theme.sys.color.surface?.backgroundText ||
+          theme.ref.palette?.neutral[1200] ||
+          "inherit",
+      }),
+
+      instruction: css({
+        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
+        color:
+          theme.sys.color.surface?.backgroundText ||
+          theme.ref.palette?.neutral[1200] ||
+          "inherit",
+        margin: `${theme.sys.spacing?.(3) || "1rem"} 0`,
+        textAlign: "center",
+      }),
+
+      link: css({
+        fontSize: theme?.sys?.typography?.body1?.fontSize || "0.875rem",
+        fontWeight: theme?.sys?.typography?.body1?.fontWeight || 500,
+        color:
+          theme.sys.color.action.link?.default ||
+          theme.sys.color?.primary.main ||
+          theme.sys.color?.info.main ||
+          "#0079c1",
+        textDecoration: "underline",
+        wordBreak: "break-all",
+        "&:hover": {
+          color:
+            theme.sys.color.action.link?.hover ||
+            theme.sys.color?.primary.main ||
+            "#005a87",
+          textDecoration: "underline",
+        },
+      }),
+
+      required: css({
+        marginLeft: "0.25rem",
+        color: theme.sys.color?.error.main || "#d32f2f",
+      }),
+    },
+
+    // Button patterns with theme support
+    button: {
+      group: css({
+        display: "flex",
+        gap: theme.sys.spacing?.(1) || "0.5rem",
+      }),
+
+      default: css({
+        display: "flex",
+        flexFlow: "column",
+        width: "100%",
+        gap: theme.sys.spacing?.(1) || "0.5rem",
+      }),
+
+      text: css({
+        flex: 1,
+      }),
+
+      icon: css({
+        position: "absolute",
+        zIndex: 1,
+        top: "50%",
+        transform: "translateY(-50%)",
+      }),
+    },
+  }) as const
+
+// Export theme-aware styles hook
+export const useStyles = () => {
+  const theme = useTheme()
+  const stylesRef = React.useRef<ReturnType<typeof createStyles>>(
+    createStyles(theme)
+  )
+  const themeRef = React.useRef<IMThemeVariables>(theme)
+  if (themeRef.current !== theme) {
+    stylesRef.current = createStyles(theme)
+    themeRef.current = theme
+  }
+  return stylesRef.current
+}
 
 // Utility Hooks and Helper Functions
 let idSeq = 0
@@ -240,21 +291,6 @@ const utils = {
     })
 
     return [value, handleChange] as const
-  },
-
-  // Accessibility helpers
-  ariaDesc: (id?: string, suffix = "error"): string | undefined =>
-    id ? `${id}-${suffix}` : undefined,
-
-  getBtnAria: (
-    text?: React.ReactNode,
-    icon?: string | boolean,
-    jimuAriaLabel?: string,
-    tooltip?: string,
-    fallbackLabel?: string
-  ): string | undefined => {
-    if (text || !icon) return jimuAriaLabel
-    return (typeof tooltip === "string" && tooltip) || fallbackLabel
   },
 
   // Form control ID management
@@ -294,7 +330,22 @@ const utils = {
 } as const
 
 // Export individual utilities for backward compatibility
-const { useId, useValue, ariaDesc, getBtnAria, withId, getTipContent } = utils
+const { useId, useValue, withId, getTipContent } = utils
+
+// Simple helper functions
+const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
+  id ? `${id}-${suffix}` : undefined
+
+const getBtnAria = (
+  text?: React.ReactNode,
+  icon?: string | boolean,
+  jimuAriaLabel?: string,
+  tooltip?: string,
+  fallbackLabel?: string
+): string | undefined => {
+  if (text || !icon) return jimuAriaLabel
+  return (typeof tooltip === "string" && tooltip) || fallbackLabel
+}
 
 // Button content component extracted from Button
 const BtnContent: React.FC<BtnContentProps> = ({
@@ -305,6 +356,8 @@ const BtnContent: React.FC<BtnContentProps> = ({
   iconPosition,
   alignText,
 }) => {
+  const styles = useStyles()
+
   if (loading) return <Loading type={LoadingType.Donut} />
   if (children) return <>{children}</>
 
@@ -388,14 +441,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
   children,
   showArrow = config.tooltip.showArrow,
   placement = config.tooltip.position.top,
-  enterDelay = config.tooltip.delay.enter,
-  enterNextDelay = config.tooltip.delay.next,
-  enterTouchDelay = config.tooltip.delay.touch,
-  leaveDelay = config.tooltip.delay.leave,
   disabled = false,
   title,
   ...otherProps
 }) => {
+  const styles = useStyles()
   const autoId = useId("tooltip")
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
@@ -429,10 +479,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
       title={tooltipContent}
       showArrow={showArrow}
       placement={placement}
-      enterDelay={enterDelay}
-      enterNextDelay={enterNextDelay}
-      enterTouchDelay={enterTouchDelay}
-      leaveDelay={leaveDelay}
+      enterDelay={config.tooltip.delay.enter}
+      enterNextDelay={config.tooltip.delay.next}
+      enterTouchDelay={config.tooltip.delay.touch}
+      leaveDelay={config.tooltip.delay.leave}
       disabled={disabled}
       {...otherProps}
     >
@@ -452,14 +502,13 @@ export const Input: React.FC<InputProps> = ({
   defaultValue,
   required = false,
   maxLength,
-  pattern,
-  validationMessage,
   errorText,
   type = "text",
   onChange,
   onFileChange,
   ...props
 }) => {
+  const styles = useStyles()
   const [value, handleValueChange] = useValue(controlled, defaultValue || "")
 
   const handleChange = hooks.useEventCallback(
@@ -483,15 +532,10 @@ export const Input: React.FC<InputProps> = ({
       onChange={handleChange}
       required={required}
       maxLength={maxLength}
-      pattern={pattern?.source}
-      title={validationMessage || errorText}
+      title={errorText}
       aria-required={required}
-      aria-invalid={!!(validationMessage || errorText)}
-      aria-describedby={
-        validationMessage || errorText
-          ? ariaDesc(props.id || "input")
-          : undefined
-      }
+      aria-invalid={!!errorText}
+      aria-describedby={errorText ? ariaDesc(props.id || "input") : undefined}
       css={styles.fullWidth}
       style={(props as any).style}
     />
@@ -505,6 +549,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   onChange,
   ...props
 }) => {
+  const styles = useStyles()
   const [value, handleValueChange] = useValue(controlled, defaultValue || "")
 
   const handleChange = hooks.useEventCallback(
@@ -544,8 +589,6 @@ export const Select: React.FC<SelectProps> = (props) => {
     onChange,
     placeholder,
     disabled = false,
-    ariaLabel,
-    ariaDescribedBy,
     style,
     coerce,
   } = props
@@ -625,8 +668,6 @@ export const Select: React.FC<SelectProps> = (props) => {
             }}
             placeholder={resolvedPlaceholder}
             disabled={disabled}
-            aria-label={ariaLabel}
-            aria-describedby={ariaDescribedBy}
           />
         </div>
       )
@@ -638,8 +679,6 @@ export const Select: React.FC<SelectProps> = (props) => {
         value={normalizedValue as string[]}
         onChange={handleMultiChange}
         disabled={disabled}
-        aria-label={ariaLabel}
-        aria-describedby={ariaDescribedBy}
         style={style}
       >
         {options.map((opt) => (
@@ -662,8 +701,6 @@ export const Select: React.FC<SelectProps> = (props) => {
       onChange={handleSingleChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
-      aria-label={ariaLabel}
-      aria-describedby={ariaDescribedBy}
       zIndex={config.zIndex.selectMenu}
       style={style}
     >
@@ -699,9 +736,6 @@ export const Button: React.FC<ButtonProps> = ({
   tooltip,
   tooltipDisabled = false,
   tooltipPlacement = config.button.defaults.tooltipPosition,
-  tooltipEnterDelay,
-  tooltipEnterNextDelay,
-  tooltipLeaveDelay,
   loading = false,
   onClick,
   children,
@@ -713,16 +747,19 @@ export const Button: React.FC<ButtonProps> = ({
   htmlType = "button",
   ...jimuProps
 }) => {
+  const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
     if (jimuProps.logging?.enabled) {
       try {
-        // Lightweight client-side logging hook
-        console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
-          id: jimuProps.id,
-          text: typeof text === "string" ? text : undefined,
-        })
+        // Lightweight client-side logging hook (development only)
+        if (process.env.NODE_ENV !== "production") {
+          console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
+            id: jimuProps.id,
+            text: typeof text === "string" ? text : undefined,
+          })
+        }
       } catch {
         // no-op
       }
@@ -791,13 +828,7 @@ export const Button: React.FC<ButtonProps> = ({
   )
 
   return tooltip && !tooltipDisabled ? (
-    <Tooltip
-      content={tooltip}
-      placement={tooltipPlacement}
-      enterDelay={tooltipEnterDelay}
-      enterNextDelay={tooltipEnterNextDelay}
-      leaveDelay={tooltipLeaveDelay}
-    >
+    <Tooltip content={tooltip} placement={tooltipPlacement}>
       {buttonElement}
     </Tooltip>
   ) : (
@@ -814,6 +845,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   onTabChange,
   ariaLabel,
 }) => {
+  const styles = useStyles()
   const [value, handleValueChange] = useValue(
     controlled,
     defaultValue || items[0]?.value
@@ -866,6 +898,7 @@ const StateView: React.FC<StateViewProps> = ({
   testId,
   center,
 }) => {
+  const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const DefaultActions = hooks.useEventCallback(
     ({
@@ -990,6 +1023,8 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   className,
   style,
 }) => {
+  const styles = useStyles()
+
   if (!leftButton && !rightButton) {
     console.warn(
       "ButtonGroup requires at least one button (leftButton or rightButton)"
@@ -1025,6 +1060,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
 
   if (variant === "layout") {
     const {
@@ -1052,7 +1088,6 @@ export const Form: React.FC<FormProps> = (props) => {
             onClick: onBack,
             disabled: loading,
             tooltip: translate("tooltipBackToOptions"),
-            tooltipPlacement: "bottom",
           }}
           rightButton={{
             text: translate("submit"),
@@ -1060,7 +1095,6 @@ export const Form: React.FC<FormProps> = (props) => {
             disabled: !isValid || loading,
             loading: loading,
             tooltip: translate("tooltipSubmitOrder"),
-            tooltipPlacement: "bottom",
           }}
         />
       </>
@@ -1098,6 +1132,7 @@ export const Field: React.FC<FieldProps> = ({
   error,
   children,
 }) => {
+  const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const autoId = useId("field")
   const { id: fieldId, child: renderedChild } = withId(
@@ -1159,4 +1194,35 @@ export type {
   TextAreaProps,
   ButtonTabsProps,
   TabItem,
+}
+
+// Render support hint with optional email link
+export const renderSupportHint = (
+  supportEmail: string | undefined,
+  translate: TranslateFn,
+  styles: ReturnType<typeof useStyles>,
+  fallbackText: string
+): ReactNS.ReactNode => {
+  if (!supportEmail) return <>{fallbackText}</>
+  return translate("contactSupportWithEmail")
+    .split(EMAIL_PLACEHOLDER)
+    .map((part, idx, arr) => {
+      if (idx < arr.length - 1) {
+        return (
+          <ReactNS.Fragment key={idx}>
+            {part}
+            <a
+              href={`mailto:${supportEmail}`}
+              css={styles.typography.link}
+              aria-label={translate("contactSupportWithEmail", {
+                email: supportEmail,
+              })}
+            >
+              {supportEmail}
+            </a>
+          </ReactNS.Fragment>
+        )
+      }
+      return <ReactNS.Fragment key={idx}>{part}</ReactNS.Fragment>
+    })
 }

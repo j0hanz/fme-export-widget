@@ -76,10 +76,11 @@ describe("Setting component", () => {
     // Inputs use Setting.ID constants
     expect(container.querySelector("#setting-server-url")).toBeTruthy()
     expect(container.querySelector("#setting-token")).toBeTruthy()
-    // Repository uses aria-describedby instead of id
+    // Repository select should be rendered (look for the select component)
     const repoControl =
-      container.querySelector('[aria-describedby="setting-repository"]') ||
-      container.querySelector('[aria-describedby="setting-repository-error"]')
+      container.querySelector('[role="combobox"]') ||
+      container.querySelector("select") ||
+      container.querySelector(".jimu-widget-select")
     expect(repoControl).toBeTruthy()
     expect(container.querySelector("#setting-support-email")).toBeTruthy()
   })

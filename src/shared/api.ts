@@ -9,7 +9,7 @@ import type {
   PrimitiveParams,
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
-import { isAuthError } from "./utils"
+import { isAuthError, sanitizePolygonJson } from "./utils"
 
 // Import ArcGIS JSAPI modules dynamically with runtime helper
 let _esriRequest: unknown
@@ -33,6 +33,7 @@ async function loadArcgisHelper(): Promise<
       return pkg.loadArcGISJSAPIModules
     }
   } catch {
+    console.warn("FME API - Failed to import jimu-arcgis module")
     // ignore and try globals
   }
   const g: any = globalThis as any
@@ -78,7 +79,9 @@ async function ensureEsri(): Promise<void> {
         _webMercatorUtils = {}
       } else {
         _loadPromise = null
-        throw e instanceof Error ? e : new Error(String(e))
+        const error = e instanceof Error ? e : new Error(String(e))
+        console.error("FME API - Failed to load ArcGIS modules:", error)
+        throw error
       }
     }
   })()
@@ -136,6 +139,10 @@ const toStr = (val: unknown): string => {
     try {
       return JSON.stringify(val)
     } catch {
+      console.warn(
+        "FME API - Failed to stringify value for parameter conversion:",
+        val
+      )
       return Object.prototype.toString.call(val)
     }
   }
@@ -272,7 +279,11 @@ const toWgs84 = (geometry: __esri.Geometry): __esri.Geometry => {
       if (webMercatorUtils?.webMercatorToGeographic) {
         return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
       }
-    } catch {
+    } catch (error) {
+      console.warn(
+        "FME API - Web Mercator conversion failed, using original geometry:",
+        error
+      )
       // Fall back to original geometry if conversion fails
     }
   }
@@ -297,37 +308,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
     Number(esriConfig.request.maxUrlLength) || 0,
     API.MAX_URL_LENGTH
   )
-  const serverDomain = new URL(config.serverUrl).origin
-
-  // Avoid duplicate interceptor
-  const hasExistingInterceptor = esriConfig.request.interceptors.some(
-    (interceptor: any) => {
-      const urls = interceptor.urls as Array<string | RegExp> | undefined
-      if (!urls || !Array.isArray(urls)) return false
-      return urls.some((u: string | RegExp) =>
-        typeof u === "string" ? u.includes(serverDomain) : u.test(serverDomain)
-      )
-    }
-  )
-
-  if (!hasExistingInterceptor) {
-    esriConfig.request.interceptors.push({
-      urls: [serverDomain],
-      before: (params: any) => {
-        if (!params.requestOptions.headers) {
-          params.requestOptions.headers = {}
-        }
-        params.requestOptions.headers.Authorization = `fmetoken token=${config.token}`
-        // Prefer JSON responses to keep parsing deterministic
-        if (!params.requestOptions.headers.Accept) {
-          params.requestOptions.headers.Accept = "application/json"
-        }
-        if (!params.requestOptions.responseType) {
-          params.requestOptions.responseType = "json"
-        }
-      },
-    })
-  }
 }
 
 // Request Processing Utilities
@@ -813,6 +793,7 @@ export class FmeFlowApiClient {
           `params=${safeParams.toString()}`
         )
       } catch {
+        console.warn("FME API - Failed to log webhook parameters safely")
         /* ignore logging issues */
       }
 
@@ -864,14 +845,26 @@ export class FmeFlowApiClient {
   }
 
   cancelAllRequests(): void {
-    if (this.abortController) {
-      this.abortController.abort()
-      this.abortController = null
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch (error) {
+        console.warn("FME API - Error aborting controller:", error)
+      }
     }
+    this.abortController = null
   }
 
   createAbortController(): AbortController {
-    if (this.abortController) this.abortController.abort()
+    // Safely abort existing controller
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch (error) {
+        console.warn("FME API - Error aborting previous controller:", error)
+      }
+    }
+
     this.abortController = new AbortController()
     return this.abortController
   }
@@ -891,6 +884,7 @@ export class FmeFlowApiClient {
     try {
       responseData = await response.json()
     } catch {
+      console.warn("FME API - Failed to parse webhook JSON response")
       throw new FmeFlowApiError(
         "Webhook returned malformed JSON",
         "WEBHOOK_AUTH_ERROR",
@@ -914,29 +908,34 @@ export class FmeFlowApiClient {
   }
 
   private toFmeParams(geometry: __esri.Geometry): PrimitiveParams {
+    if (!geometry) {
+      throw new Error("Geometry is required but was null or undefined")
+    }
+
     if (geometry.type !== "polygon") {
-      throw new Error("Only polygon geometries are supported")
+      throw new Error(
+        `Only polygon geometries are supported, received: ${geometry.type}`
+      )
     }
 
     const polygon = geometry as __esri.Polygon
     const extent = polygon.extent
+
+    if (!extent) {
+      throw new Error("Polygon geometry must have a valid extent")
+    }
+
     const projectedGeometry = toWgs84(geometry)
     const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
 
-    // Sanitize polygon Esri JSON: drop Z/M and ensure spatialReference
+    // Sanitize the Esri JSON to ensure it is compliant with FME expectations
     const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
-    if (esriJson?.rings) {
-      esriJson.rings = esriJson.rings.map((ring: any[]) =>
-        ring.map((pt: any) => [pt[0], pt[1]])
-      )
-      delete esriJson.hasZ
-      delete esriJson.hasM
-    }
-
-    if (!esriJson?.spatialReference && projectedGeometry.spatialReference) {
-      const sr = projectedGeometry.spatialReference as any
-      esriJson.spatialReference = sr.toJSON?.() || { wkid: sr.wkid }
-    }
+    const sanitizedJson = sanitizePolygonJson(
+      esriJson,
+      projectedGeometry.spatialReference?.toJSON?.() || {
+        wkid: projectedGeometry.spatialReference?.wkid,
+      }
+    )
 
     return {
       MAXX: extent.xmax,
@@ -944,7 +943,7 @@ export class FmeFlowApiClient {
       MINX: extent.xmin,
       MINY: extent.ymin,
       AREA: Math.abs(extent.width * extent.height),
-      AreaOfInterest: JSON.stringify(esriJson),
+      AreaOfInterest: JSON.stringify(sanitizedJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
   }
