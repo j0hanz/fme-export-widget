@@ -10,8 +10,9 @@ import type {
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 import { isAuthError } from "./utils"
+import { loadArcGISJSAPIModules } from "jimu-arcgis"
 
-// Import ArcGIS JSAPI modules dynamically with runtime helper
+// ArcGIS module references
 let _esriRequest: unknown
 let _esriConfig: unknown
 let _projection: unknown
@@ -25,25 +26,6 @@ const isTestEnv = (): boolean =>
   (!!(process as any).env.JEST_WORKER_ID ||
     (process as any).env.NODE_ENV === "test")
 
-async function loadArcgisHelper(): Promise<
-  (modules: string[]) => Promise<any[]>
-> {
-  // Try dynamic import first
-  try {
-    const pkg: any = await import("jimu-arcgis")
-    if (pkg && typeof pkg.loadArcGISJSAPIModules === "function") {
-      return pkg.loadArcGISJSAPIModules
-    }
-  } catch {
-    console.warn("FME API - Failed to import jimu-arcgis module")
-    // ignore and try globals
-  }
-  const g: any = globalThis as any
-  const fn = g.loadArcGISJSAPIModules || g.jimuArcgis?.loadArcGISJSAPIModules
-  if (typeof fn === "function") return fn
-  throw new Error("loadArcGISJSAPIModules not available")
-}
-
 async function ensureEsri(): Promise<void> {
   if (_loadPromise) return _loadPromise
 
@@ -55,9 +37,10 @@ async function ensureEsri(): Promise<void> {
     _SpatialReference
   )
     return
+
   _loadPromise = (async () => {
     try {
-      const loadModules = await loadArcgisHelper()
+      const loadModules = loadArcGISJSAPIModules
       const [
         requestMod,
         configMod,
@@ -71,22 +54,12 @@ async function ensureEsri(): Promise<void> {
         "esri/geometry/support/webMercatorUtils",
         "esri/geometry/SpatialReference",
       ])
-      _esriRequest =
-        requestMod && requestMod.default ? requestMod.default : requestMod
-      _esriConfig =
-        configMod && configMod.default ? configMod.default : configMod
-      _projection =
-        projectionMod && projectionMod.default
-          ? projectionMod.default
-          : projectionMod
-      _webMercatorUtils =
-        webMercatorMod && webMercatorMod.default
-          ? webMercatorMod.default
-          : webMercatorMod
-      _SpatialReference =
-        spatialRefMod && spatialRefMod.default
-          ? spatialRefMod.default
-          : spatialRefMod
+      const unwrap = (m: any) => (m && m.default ? m.default : m)
+      _esriRequest = unwrap(requestMod)
+      _esriConfig = unwrap(configMod)
+      _projection = unwrap(projectionMod)
+      _webMercatorUtils = unwrap(webMercatorMod)
+      _SpatialReference = unwrap(spatialRefMod)
       // Load the projection dependencies for client-side transformation
       if (_projection && typeof (_projection as any).load === "function") {
         await (_projection as any).load()
@@ -1051,12 +1024,13 @@ export class FmeFlowApiClient {
           "ARCGIS_MODULE_ERROR"
         )
       }
+
       const response = await esriRequestFn(url, requestOptions)
 
       return {
         data: response.data,
-        status: response.httpStatus || 200,
-        statusText: "OK",
+        status: response.httpStatus || response.status || 200,
+        statusText: response.statusText || "OK",
       }
     } catch (err) {
       // Handle specific error cases
