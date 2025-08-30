@@ -26,6 +26,9 @@ import { makeErrorView } from "../shared/types"
 describe("UI components", () => {
   const renderWithProviders = widgetRender(true)
 
+  // Small test helper to flush microtasks (reduces repetition)
+  const flush = async () => await waitForMilliseconds(0)
+
   beforeAll(() => {
     initExtensions()
     initStore()
@@ -92,7 +95,7 @@ describe("UI components", () => {
 
     fireEvent.change(input, { target: { value: "123" } })
     // Flush microtasks from jimu‑ui input
-    await waitForMilliseconds(0)
+    await flush()
     expect(inputChange).toHaveBeenCalledWith("123")
 
     // TextArea sets aria-invalid when errorText present
@@ -111,7 +114,7 @@ describe("UI components", () => {
 
     fireEvent.change(textArea, { target: { value: "hello" } })
     // Flush microtasks from TextArea change
-    await waitForMilliseconds(0)
+    await flush()
     expect(textAreaChange).toHaveBeenCalledWith("hello")
   })
 
@@ -137,7 +140,7 @@ describe("UI components", () => {
     renderWithProviders(
       <Select options={options} defaultValue={["a", "c"]} value={["a", "c"]} />
     )
-    await waitForMilliseconds(0)
+    await flush()
     // Expect both selected option labels to appear somewhere in the DOM
     expect(screen.getByText(/Alpha/i)).toBeInTheDocument()
     expect(screen.getByText(/Gamma/i)).toBeInTheDocument()
@@ -163,7 +166,7 @@ describe("UI components", () => {
     const btn = screen.getByRole("button")
     fireEvent.click(btn)
     // Flush microtasks for onClick
-    await waitForMilliseconds(0)
+    await flush()
     expect(onAction).toHaveBeenCalled()
   })
 
@@ -173,7 +176,7 @@ describe("UI components", () => {
     renderWithProviders(<Button text="Do" onClick={onClick} disabled />)
     const disabledBtn = screen.getByRole("button", { name: /Do/i })
     fireEvent.click(disabledBtn)
-    await waitForMilliseconds(0)
+    await flush()
     expect(onClick).not.toHaveBeenCalled()
     expect(disabledBtn.getAttribute("aria-disabled")).toBe("true")
 
@@ -182,7 +185,7 @@ describe("UI components", () => {
     renderWithProviders(<Button text="Load" onClick={onClick2} loading />)
     const loadingBtn = screen.getByRole("button", { name: /Load/i })
     fireEvent.click(loadingBtn)
-    await waitForMilliseconds(0)
+    await flush()
     expect(onClick2).not.toHaveBeenCalled()
 
     // Tooltip provides accessible label for icon-only button
@@ -230,7 +233,7 @@ describe("UI components", () => {
   })
 
   test("Select component renders correctly", async () => {
-    const renderWithProviders = widgetRender(true)
+    // reuse top-level renderWithProviders
     const options = [
       { label: "One", value: "1" },
       { label: "Two", value: "2" },
@@ -241,7 +244,7 @@ describe("UI components", () => {
       <Select options={options} defaultValue="1" />
     )
     const combo = screen.getByRole("combobox")
-    await waitForMilliseconds(0)
+    await flush()
     expect(combo).toBeTruthy()
 
     // Clean up first render before second
@@ -256,7 +259,7 @@ describe("UI components", () => {
   })
 
   test("Select multi-select applies style to native select", async () => {
-    const renderWithProviders = widgetRender(true)
+    // reuse top-level renderWithProviders
     const options = [
       { label: "A", value: "a" },
       { label: "B", value: "b" },
@@ -269,7 +272,7 @@ describe("UI components", () => {
         style={{ width: 321 }}
       />
     )
-    await waitForMilliseconds(0)
+    await flush()
     const selectEl = screen.queryByRole("listbox")
     if (selectEl) {
       expect((selectEl as HTMLSelectElement).style.width).toBe("321px")

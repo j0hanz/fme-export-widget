@@ -27,6 +27,15 @@ describe("FME store - Redux store extension and reducer", () => {
     initStore()
   })
 
+  // Shared test helpers
+  const makeState = () => Immutable(initialFmeState)
+
+  const microtaskFlush = async () => {
+    await waitForMilliseconds(0)
+    const flush = runFuncAsync(0)
+    await flush(() => undefined, [])
+  }
+
   test("extension metadata and action creators", () => {
     const ext = new FmeReduxStoreExtension()
     expect(ext.id).toBe("fme-export_store")
@@ -78,8 +87,7 @@ describe("FME store - Redux store extension and reducer", () => {
   describe("reducer transitions", () => {
     const ext = new FmeReduxStoreExtension()
     const reducer = ext.getReducer()
-
-    const makeState = () => Immutable(initialFmeState)
+    // Use the shared makeState helper declared at top-level
 
     test("SET_VIEW_MODE transitions and RESET_STATE", () => {
       const state = makeState()
@@ -324,10 +332,8 @@ describe("FME store - Redux store extension and reducer", () => {
     Promise.resolve().then(() => {
       val = 1
     })
-    // Wait for the microtask to be scheduled and resolved
-    await waitForMilliseconds(0)
-    const flush = runFuncAsync(0)
-    await flush(() => undefined, [])
+    // Use the shared helper to flush microtasks and queued timers
+    await microtaskFlush()
     expect(val).toBe(1)
   })
 })

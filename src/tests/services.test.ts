@@ -4,6 +4,8 @@ import {
   type WorkspaceParameter,
   ParameterType,
   FormFieldType,
+  ErrorType,
+  ErrorSeverity,
 } from "../shared/types"
 
 describe("shared/services", () => {
@@ -132,6 +134,45 @@ describe("shared/services", () => {
       expect(multi.type).toBe(FormFieldType.MULTI_SELECT)
       expect(multi.options?.[0]).toEqual({ label: "One", value: 1 })
     })
+
+    test("handles reserved MINX/MAXX and preserves defaultValue and FILENAME_MUSTEXIST mapping", () => {
+      const params: WorkspaceParameter[] = [
+        {
+          name: "MINX",
+          description: "minx",
+          type: ParameterType.FLOAT,
+          model: "M",
+          optional: true,
+        },
+        {
+          name: "MAXY",
+          description: "maxy",
+          type: ParameterType.FLOAT,
+          model: "M",
+          optional: true,
+        },
+        {
+          name: "Output",
+          description: "Out",
+          type: ParameterType.FILENAME_MUSTEXIST,
+          model: "M",
+          optional: true,
+          defaultValue: "out.txt",
+        },
+      ]
+
+      const fields = svc.convertParametersToFields(params)
+      const names = fields.map((f) => f.name)
+      // Reserved names should be skipped
+      expect(names).not.toContain("MINX")
+      // MAXY is reserved and should be skipped
+      expect(names).not.toContain("MAXY")
+
+      const out = fields.find((f) => f.name === "Output")
+      expect(out).toBeDefined()
+      expect(out?.type).toBe(FormFieldType.FILE)
+      expect(out?.defaultValue).toBe("out.txt")
+    })
   })
 
   describe("ParameterFormService.validateParameters", () => {
@@ -195,6 +236,28 @@ describe("shared/services", () => {
           "Multi:choice",
         ])
       )
+    })
+
+    test("multi list accepts single scalar value and validates correctly", () => {
+      const p: WorkspaceParameter[] = [
+        {
+          name: "Multi",
+          description: "Multi",
+          type: ParameterType.LISTBOX,
+          model: "M",
+          optional: true,
+          listOptions: [{ caption: "One", value: 1 } as any],
+        },
+      ]
+
+      // single scalar value should be accepted if it's valid
+      const res1 = svc.validateParameters({ Multi: 1 }, p)
+      expect(res1.isValid).toBe(true)
+
+      // single scalar that's invalid should produce error
+      const res2 = svc.validateParameters({ Multi: 2 }, p)
+      expect(res2.isValid).toBe(false)
+      expect(res2.errors).toEqual(expect.arrayContaining(["Multi:choice"]))
     })
 
     test("passes on valid values", () => {
@@ -277,6 +340,15 @@ describe("shared/services", () => {
       expect(e2.retry).toBe(retry)
       expect(e2.userFriendlyMessage).toBe("Call support")
       expect(e2.suggestion).toBe("Check config")
+    })
+
+    test("createError honors type and severity", () => {
+      const e3 = svc.createError("typed", ErrorType.VALIDATION, {
+        severity: ErrorSeverity.WARNING as any,
+      })
+      expect(e3.message).toBe("typed")
+      expect(e3.type).toBe(ErrorType.VALIDATION)
+      expect(e3.severity).toBe(ErrorSeverity.WARNING)
     })
 
     test("deriveStartupError maps known codes", () => {

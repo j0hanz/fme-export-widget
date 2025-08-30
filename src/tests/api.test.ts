@@ -31,6 +31,19 @@ describe("FmeFlowApiClient (api.ts)", () => {
         }),
       }),
     }
+    // Provide a default esriRequest mock so request pipeline can be exercised
+    ;(global as any).esriRequest = jest.fn(() =>
+      Promise.resolve({ data: null })
+    )
+  })
+
+  afterEach(() => {
+    // Restore all spied methods to their original implementations
+    jest.restoreAllMocks()
+    // Clean up any fetch mocks created during tests
+    if ((global as any).fetch) {
+      delete (global as any).fetch
+    }
   })
 
   test("createFmeFlowClient validates required config", () => {
@@ -533,5 +546,168 @@ describe("FmeFlowApiClient (api.ts)", () => {
     const payload = JSON.parse(opts.body)
     expect(payload).toEqual(prebuilt)
     requestSpy.mockRestore()
+  })
+
+  test("normalizeUrl and resolveRequestUrl behavior for absolute and relative endpoints", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com/fmeserver/",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    // Spy on console.log which the request() method uses to log the resolved URL
+    const logSpy = jest
+      .spyOn(console, "log")
+      .mockImplementation(function _noop() {
+        return undefined
+      })
+
+    // Absolute endpoint should be used as-is when passed to request()
+    await (client as any).request("https://other.example.com/foo")
+    expect((logSpy.mock.calls[0] as any)[1]).toBe(
+      "https://other.example.com/foo"
+    )
+
+    // Endpoint starting with /fme should be resolved against normalized serverUrl
+    await (client as any).request("/fmedatadownload/foo")
+    const maybeUrl = String((logSpy.mock.calls[1] as any)[1])
+    expect(maybeUrl.startsWith("https://example.com")).toBe(true)
+    logSpy.mockRestore()
+  })
+
+  // AbortError behavior is covered indirectly by cancellation tests; direct
+  // simulation of internal AbortError is environment-dependent and omitted.
+
+  test("getRepositories wraps errors and extracts status from message", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    // Simulate underlying request throwing an error with an embedded status
+    const err = { message: "Request failed status: 401" }
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockRejectedValue(err)
+
+    await expect(client.getRepositories()).rejects.toMatchObject({
+      code: "REPOSITORIES_ERROR",
+      status: 401,
+    })
+
+    requestSpy.mockRestore()
+  })
+
+  test("runDataDownload rejects on JSON webhook with auth status (401)", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    const fetchMock = jest.fn(() =>
+      Promise.resolve({
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ ok: false }),
+      } as any)
+    )
+    ;(global as any).fetch = fetchMock
+
+    await expect(
+      client.runDataDownload("ws", {}, "repo")
+    ).rejects.toMatchObject({
+      code: "WEBHOOK_AUTH_ERROR",
+      status: 401,
+    })
+  })
+
+  test("setApiSettings preserves larger platform maxUrlLength", () => {
+    // Simulate platform providing a large maxUrlLength
+    ;(global as any).esriConfig = {
+      request: { maxUrlLength: 10000, interceptors: [] },
+    }
+
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    // Use the client variable to satisfy lint rules (client creation triggers setApiSettings)
+    expect(client).toBeTruthy()
+
+    const esriCfg = (global as any).esriConfig
+    expect(esriCfg.request.maxUrlLength).toBeGreaterThanOrEqual(10000)
+  })
+
+  test("runDataDownload rejects when webhook URL exceeds configured max length", async () => {
+    // Build an extremely long serverUrl so the webhook fullUrl is too long
+    const longHost = `https://${"a".repeat(5000)}.example.com`
+    const client = createFmeFlowClient({
+      fmeServerUrl: longHost,
+      fmeServerToken: "tok-xyz",
+      repository: "repo",
+    })
+
+    await expect(
+      client.runDataDownload("ws", { a: 1 }, "repo")
+    ).rejects.toMatchObject({
+      code: "DATA_DOWNLOAD_ERROR",
+    })
+  })
+
+  test("buildQuery converts circular objects to string fallback (form POST)", () => {
+    // Use POST with application/x-www-form-urlencoded so parameters are
+    // serialized by buildQuery into a string body.
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    // Create circular object
+    const circ: any = { a: 1 }
+    circ.self = circ
+
+    const requestSpy = jest
+      .spyOn((FmeFlowApiClient as any).prototype, "request")
+      .mockResolvedValue({ data: {}, status: 200, statusText: "OK" })
+
+    return client
+      .customRequest(
+        "/foo",
+        HttpMethod.POST,
+        { circ },
+        "application/x-www-form-urlencoded"
+      )
+      .then(() => {
+        const call = requestSpy.mock.calls[0] as [string, any]
+        expect(typeof call[1].body).toBe("string")
+        expect(call[1].body).toContain("circ=")
+        requestSpy.mockRestore()
+      })
+  })
+
+  test("submitGeometryJob rejects when polygon has no valid extent", async () => {
+    const client = createFmeFlowClient({
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tok-1",
+      repository: "repo",
+    })
+
+    const polygonNoExtent = {
+      type: "polygon",
+      rings: [],
+      extent: undefined,
+      spatialReference: { wkid: 3857 },
+      toJSON: () => ({ type: "polygon", rings: [] as any }),
+    } as any
+
+    await expect(
+      client.submitGeometryJob("ws", polygonNoExtent, {}, "repo")
+    ).rejects.toThrow(/Polygon geometry must have a valid extent/i)
   })
 })
