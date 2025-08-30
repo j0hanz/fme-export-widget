@@ -20,57 +20,10 @@ import Widget, {
 import { initialFmeState } from "../extensions/store"
 import { ViewMode, type FmeWidgetState } from "../shared/types"
 
-// Mock jimu-arcgis to avoid JSAPI loading and map rendering
+// Mock JimuMapViewComponent to avoid loading actual map view during tests
 jest.mock("jimu-arcgis", () => ({
   __esModule: true,
-  // Minimal stub for single map widget configuration
   JimuMapViewComponent: () => null,
-  // Resolve modules with minimal shims
-  loadArcGISJSAPIModules: jest.fn((modules: string[]) => {
-    // Handle Portal module loading for email validation
-    if (modules.includes("esri/portal/Portal")) {
-      const MockPortal = function (this: any) {
-        this.load = () => Promise.resolve()
-        // Allow tests to control presence of user email via global flag
-        const email = (global as any).__TEST_PORTAL_EMAIL__
-        this.user = email ? { email } : null
-      }
-      return Promise.resolve([MockPortal])
-    }
-
-    // Default sketch/graphics modules
-    return Promise.resolve([
-      function SketchViewModel() {
-        // no-op
-        return null as any
-      },
-      function GraphicsLayer(this: any) {
-        // no-op with method used by widget
-        this.removeAll = () => undefined
-        return null as any
-      },
-      {
-        planarArea: jest.fn(),
-        geodesicArea: jest.fn(),
-        simplify: jest.fn((geom) => geom),
-        isSimple: jest.fn(() => true),
-      }, // geometryEngine
-      {}, // webMercatorUtils
-      {}, // reactiveUtils
-      function Polyline() {
-        // no-op
-        return null as any
-      },
-      function Polygon() {
-        // no-op
-        return null as any
-      },
-      function Graphic() {
-        // no-op
-        return null as any
-      },
-    ])
-  }),
 }))
 
 // Mock FME client so startup connection/auth checks pass without network
@@ -87,9 +40,11 @@ jest.mock("../shared/api", () => {
           data: { name: "repo" },
         })
       ),
+
       // Default runDataDownload mock resolves with success and echoes a jobID
-      runDataDownload: jest.fn(() =>
-        Promise.resolve({
+      runDataDownload: jest.fn((workspace: string, params: any) => {
+        ;(global as any).__LAST_FME_CALL__ = { workspace, params }
+        return Promise.resolve({
           status: 200,
           statusText: "OK",
           data: {
@@ -100,7 +55,7 @@ jest.mock("../shared/api", () => {
             },
           },
         })
-      ),
+      }),
     })),
   }
 })
@@ -155,6 +110,58 @@ describe("FME Export Widget", () => {
     initStore()
     setTheme(mockTheme)
   })
+
+  // Set up global ESRI module loader stub before each test
+  beforeEach(() => {
+    ;(global as any).__ESRI_TEST_STUB__ = async (modules: string[]) => {
+      if (modules.includes("esri/portal/Portal")) {
+        const MockPortal = function (this: any) {
+          this.load = () => Promise.resolve()
+          const email =
+            (global as any).__TEST_PORTAL_EMAIL__ ??
+            (global as any).__TEST_PORTAL_EMAIL_
+          this.user = email ? { email } : null
+        }
+        return [MockPortal]
+      }
+      return [
+        function SketchViewModel() {
+          return null as any
+        },
+        function GraphicsLayer(this: any) {
+          this.removeAll = () => undefined
+          return null as any
+        },
+        {
+          planarArea: jest.fn(),
+          geodesicArea: jest.fn(),
+          simplify: jest.fn((g: any) => g),
+          isSimple: jest.fn(() => true),
+        },
+        {},
+        {},
+        function Polyline() {
+          return null as any
+        },
+        function Polygon() {
+          return null as any
+        },
+        function Graphic() {
+          return null as any
+        },
+      ]
+    }
+  })
+
+  afterEach(() => {
+    try {
+      delete (global as any).__ESRI_TEST_STUB__
+    } catch {
+      ;(global as any).__ESRI_TEST_STUB__ = undefined
+    }
+  })
+
+  // Note: api is mocked in this test file; no need to reset internal api cache here
 
   test("widget state management for loading and error handling", async () => {
     const Wrapped = WrappedComponent
@@ -788,15 +795,12 @@ describe("FME Export Widget", () => {
     // Wait for async submission logic
     await waitForMilliseconds(0)
 
-    // Assert runDataDownload received sync service mode
+    // Assert runDataDownload was called with opt_servicemode=sync and AreaOfInterest param
     await waitFor(() => {
-      const results = createFmeFlowClient.mock.results
-      const lastInstance = results[results.length - 1]?.value
-      const calls = lastInstance?.runDataDownload?.mock?.calls || []
-      expect(calls.length).toBeGreaterThan(0)
-      const [, params] = calls[0]
-      expect(params.opt_servicemode).toBe("sync")
-      expect(typeof params.AreaOfInterest).toBe("string")
+      const last = (global as any).__LAST_FME_CALL__
+      expect(last).toBeDefined()
+      expect(last.params.opt_servicemode).toBe("sync")
+      expect(typeof last.params.AreaOfInterest).toBe("string")
     })
 
     // Cleanup

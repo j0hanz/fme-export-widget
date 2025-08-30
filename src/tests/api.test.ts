@@ -1,4 +1,7 @@
-import FmeFlowApiClient, { createFmeFlowClient } from "../shared/api"
+import FmeFlowApiClient, {
+  createFmeFlowClient,
+  isWebhookUrlTooLong,
+} from "../shared/api"
 import { FmeFlowApiError, HttpMethod } from "../shared/types"
 import { waitForMilliseconds } from "jimu-for-test"
 
@@ -354,6 +357,143 @@ describe("FmeFlowApiClient (api.ts)", () => {
       client.runDataDownload("ws", { p: 1 }, "repo")
     ).rejects.toMatchObject({ code: "WEBHOOK_AUTH_ERROR" })
     await waitForMilliseconds(0)
+  })
+
+  describe("toFmeParams (merged)", () => {
+    // Simple loader stub helper
+    const makeLoader =
+      (overrides: any = {}) =>
+      async (modules: string[]) => {
+        const results: any[] = []
+        for (const m of modules) {
+          if (m === "esri/request")
+            results.push(() => Promise.resolve({ data: null }))
+          else if (m === "esri/config")
+            results.push({ request: { maxUrlLength: 4000, interceptors: [] } })
+          else if (m === "esri/geometry/projection")
+            results.push({ project: async (geoms: any[]) => geoms })
+          else if (m === "esri/geometry/support/webMercatorUtils")
+            results.push({
+              webMercatorToGeographic: (g: any) => g,
+              geographicToWebMercator: (g: any) => g,
+            })
+          else if (m === "esri/geometry/SpatialReference") {
+            const SR = function (props: any) {
+              return { wkid: props?.wkid }
+            }
+            results.push(SR)
+          } else results.push({})
+        }
+        return results
+      }
+
+    beforeEach(() => {
+      jest.resetModules()
+      ;(global as any).__ESRI_TEST_STUB__ = makeLoader()
+    })
+
+    afterEach(() => {
+      try {
+        delete (global as any).__ESRI_TEST_STUB__
+      } catch {
+        ;(global as any).__ESRI_TEST_STUB__ = undefined
+      }
+    })
+
+    function makePolygonWGS84() {
+      return {
+        type: "polygon",
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+        extent: { xmin: 0, ymin: 0, xmax: 1, ymax: 1, width: 1, height: 1 },
+        spatialReference: { wkid: 4326 },
+        toJSON() {
+          return { rings: this.rings, spatialReference: this.spatialReference }
+        },
+      }
+    }
+
+    it("should return AREA and Extent and AreaOfInterest when given a WGS84 polygon", async () => {
+      const poly = makePolygonWGS84() as any
+      const client = createFmeFlowClient({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "token",
+        repository: "repo",
+      } as any)
+      const res = await (client as any).toFmeParams(poly)
+
+      expect(res).toBeDefined()
+      expect(res.AREA).toBeDefined()
+      expect(res.ExtentGeoJson).toBeDefined()
+      expect(typeof res.AreaOfInterest).toBe("string")
+      expect(res.AREA).toBeGreaterThanOrEqual(0)
+      const eg = JSON.parse(res.ExtentGeoJson)
+      expect(eg.type).toBe("Polygon")
+      expect(Array.isArray(eg.coordinates)).toBe(true)
+    })
+
+    it("throws when geometry is not a polygon", async () => {
+      const badGeom: any = { type: "point" }
+      const client = createFmeFlowClient({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "token",
+        repository: "repo",
+      } as any)
+      await expect((client as any).toFmeParams(badGeom)).rejects.toThrow(
+        /Only polygon geometries are supported/
+      )
+    })
+  })
+
+  describe("runDownloadWebhook max URL length (merged)", () => {
+    beforeEach(() => {
+      jest.resetModules()
+      // small max to force detection
+      ;(global as any).__ESRI_TEST_STUB__ = async (modules: string[]) => [
+        () => Promise.resolve({ data: null }),
+        { request: { maxUrlLength: 10, interceptors: [] } },
+        {},
+        {},
+        function SpatialReference() {
+          return {}
+        },
+      ]
+      global.fetch = jest.fn()
+    })
+    afterEach(() => {
+      try {
+        delete (global as any).__ESRI_TEST_STUB__
+      } catch {
+        ;(global as any).__ESRI_TEST_STUB__ = undefined
+      }
+      if (global.fetch) delete (global as any).fetch
+    })
+
+    it("detects too-long webhook URLs and avoids fetch", async () => {
+      const client = createFmeFlowClient({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "token",
+        repository: "repo",
+      } as any)
+      const params: any = {}
+      for (let i = 0; i < 50; i++) params[`k${i}`] = "x".repeat(24)
+      const tooLong = isWebhookUrlTooLong(
+        "https://example.com",
+        "repo",
+        "ws",
+        params,
+        10
+      )
+      expect(tooLong).toBe(true)
+      expect(global.fetch).not.toHaveBeenCalled()
+    })
   })
 
   test("customRequest handles different HTTP methods and content types", async () => {

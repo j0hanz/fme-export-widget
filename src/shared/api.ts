@@ -10,7 +10,22 @@ import type {
 } from "./types"
 import { FmeFlowApiError, HttpMethod } from "./types"
 import { isAuthError } from "./utils"
-import { loadArcGISJSAPIModules } from "jimu-arcgis"
+
+// Inline loader helper that uses test stub when present or defers to jimu-arcgis
+async function loadEsriModules(modules: string[]): Promise<any[]> {
+  const stub = (global as any).__ESRI_TEST_STUB__
+  if (typeof stub === "function") return stub(modules)
+
+  // Defer to jimu-arcgis loader in production code
+  const mod = require("jimu-arcgis")
+  const loader = mod.loadArcGISJSAPIModules
+  if (typeof loader !== "function") {
+    throw new Error("ArcGIS module loader not available")
+  }
+  const loaded = await loader(modules)
+  const unwrap = (m: any) => (m && m.default ? m.default : m)
+  return (loaded || []).map(unwrap)
+}
 
 // ArcGIS module references
 let _esriRequest: unknown
@@ -19,6 +34,16 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
+
+// Reset loaded ArcGIS modules (for testing purposes)
+export function __resetEsriCache(): void {
+  _esriRequest = undefined
+  _esriConfig = undefined
+  _projection = undefined
+  _webMercatorUtils = undefined
+  _SpatialReference = undefined
+  _loadPromise = null
+}
 
 const isTestEnv = (): boolean =>
   typeof process !== "undefined" &&
@@ -40,7 +65,7 @@ async function ensureEsri(): Promise<void> {
 
   _loadPromise = (async () => {
     try {
-      const loadModules = loadArcGISJSAPIModules
+      const loadModules = loadEsriModules
       const [
         requestMod,
         configMod,
@@ -241,6 +266,30 @@ const buildServiceUrl = (
 
 // Alias for webhook URLs (same as buildServiceUrl)
 const buildWebhook = buildServiceUrl
+
+// Check if a webhook URL with parameters would exceed max length
+export function isWebhookUrlTooLong(
+  serverUrl: string,
+  repository: string,
+  workspace: string,
+  parameters: PrimitiveParams = {},
+  maxLen: number = API.MAX_URL_LENGTH
+): boolean {
+  const webhookUrl = buildWebhook(
+    serverUrl,
+    "fmedatadownload",
+    repository,
+    workspace
+  )
+  const params = buildWebhookParams(parameters, [
+    ...API.WEBHOOK_EXCLUDE_KEYS,
+    "tm_ttc",
+    "tm_ttl",
+    "tm_tag",
+  ])
+  const fullUrl = `${webhookUrl}?${params.toString()}`
+  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
+}
 
 const resolveRequestUrl = (
   endpoint: string,
