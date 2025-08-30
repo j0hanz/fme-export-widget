@@ -862,13 +862,6 @@ export default function Widget(
   // Keep abort controllers for form submission where we need direct control
   const submissionAbortRef = React.useRef<AbortController | null>(null)
 
-  // Debounced functions for better performance
-  const debouncedSetValidation = hooks.useDebounceCallback((step: string) => {
-    dispatch(fmeActions.setStartupValidationState(true, step))
-  }, 150)
-
-  // Drawing start is invoked directly after cancel (no debounce timer)
-
   // Destructure local map state
   const {
     jimuMapView,
@@ -921,7 +914,7 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    debouncedSetValidation(step)
+    dispatch(fmeActions.setStartupValidationState(true, step))
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
