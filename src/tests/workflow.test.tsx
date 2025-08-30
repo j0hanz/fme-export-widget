@@ -24,6 +24,21 @@ describe("Workflow component", () => {
   const renderWithProviders = widgetRender(true)
   const renderSTI = withStoreThemeIntlRender()
 
+  // Test helpers
+  const headerCancelQuery = () =>
+    screen.queryByRole("button", {
+      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
+    })
+
+  const expectMailto = (email: string) => {
+    const emailLink = screen.queryByRole("link", {
+      name: new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+    })
+    expect(emailLink).toBeTruthy()
+    if (emailLink)
+      expect(emailLink.getAttribute("href")).toBe(`mailto:${email}`)
+  }
+
   test("renders instruction text in DRAWING state", () => {
     renderWithProviders(
       <Workflow
@@ -107,9 +122,7 @@ describe("Workflow component", () => {
       />
     )
 
-    const absentBtn = screen.queryByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
+    const absentBtn = headerCancelQuery()
     expect(absentBtn).toBeNull()
 
     unmount1()
@@ -149,9 +162,7 @@ describe("Workflow component", () => {
       />
     )
 
-    const initialBtn = screen.queryByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
+    const initialBtn = headerCancelQuery()
     expect(initialBtn).toBeNull()
   })
 
@@ -321,13 +332,7 @@ describe("Workflow component", () => {
     expect(screen.queryByText(/Configuration error/i)).toBeTruthy()
 
     // Mailto link present due to email in userFriendlyMessage
-    const emailLink = screen.queryByRole("link", {
-      name: /support@example\.com/i,
-    })
-    expect(emailLink).toBeTruthy()
-    if (emailLink) {
-      expect(emailLink.getAttribute("href")).toBe("mailto:support@example.com")
-    }
+    expectMailto("support@example.com")
   })
 
   test("ORDER_RESULT sync mode shows direct download and hides email", async () => {

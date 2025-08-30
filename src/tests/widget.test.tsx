@@ -107,6 +107,22 @@ jest.mock("../shared/api", () => {
 
 describe("FME Export Widget", () => {
   const renderWidget = widgetRender(false)
+  // Reuse a single wrapped widget factory to keep tests consistent
+  const WrappedComponent = wrapWidget(Widget as any)
+
+  // Small helpers to reduce repetition in tests
+  const setFmeState = async (state: FmeWidgetState) => {
+    updateStore({ "fme-state": state })
+    await waitForMilliseconds(0)
+  }
+
+  const waitForLoadingClear = async () => {
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
+      ).toBeNull()
+    })
+  }
 
   // Helper to create minimal EsriModules with geometryEngine stub
   const makeModules = (geometryEngine: any) =>
@@ -141,7 +157,7 @@ describe("FME Export Widget", () => {
   })
 
   test("widget state management for loading and error handling", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation shows loading message
     const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
@@ -161,9 +177,7 @@ describe("FME Export Widget", () => {
         timestampMs: 0,
       },
     }
-    updateStore({ "fme-state": errorState })
-    // Wait a tick so store update propagates before re-render
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
     // Rerender with error state
     renderWidget(
       <Wrapped
@@ -177,11 +191,7 @@ describe("FME Export Widget", () => {
       />
     )
 
-    await waitFor(() => {
-      expect(
-        screen.queryByText(/Validerar konfiguration|Laddar karttjänster/i)
-      ).toBeNull()
-    })
+    await waitForLoadingClear()
 
     // Expect error actions group with a support mailto link
     const actionsGroup = await screen.findByRole("group", {
@@ -198,7 +208,7 @@ describe("FME Export Widget", () => {
   })
 
   test("startup validation fails when user email is missing and shows support link", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error for missing email
     const errorState: FmeWidgetState = {
@@ -214,9 +224,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage for contact
       },
     }
-    updateStore({ "fme-state": errorState })
-    // Wait for store to apply startup error state
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped
@@ -245,7 +253,7 @@ describe("FME Export Widget", () => {
   })
 
   test("shows contact support with email when configured during startup error", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error with support email configured
     const errorState: FmeWidgetState = {
@@ -260,9 +268,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage
       },
     }
-    updateStore({ "fme-state": errorState })
-    // Wait for state update before mounting
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped
@@ -290,7 +296,7 @@ describe("FME Export Widget", () => {
   })
 
   test("startup validation shows specific error for empty server URL", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error for empty server URL
     const errorState: FmeWidgetState = {
@@ -306,8 +312,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
-    updateStore({ "fme-state": errorState })
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped
@@ -329,7 +334,7 @@ describe("FME Export Widget", () => {
   })
 
   test("startup validation shows specific error for empty token", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error for empty token
     const errorState: FmeWidgetState = {
@@ -345,8 +350,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
-    updateStore({ "fme-state": errorState })
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped
@@ -368,7 +372,7 @@ describe("FME Export Widget", () => {
   })
 
   test("startup validation shows specific error for empty repository", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error for empty repository
     const errorState: FmeWidgetState = {
@@ -384,8 +388,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
-    updateStore({ "fme-state": errorState })
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped
@@ -407,7 +410,7 @@ describe("FME Export Widget", () => {
   })
 
   test("startup validation handles whitespace-only fields as empty", async () => {
-    const Wrapped = wrapWidget(Widget as any)
+    const Wrapped = WrappedComponent
 
     // Startup validation error for whitespace-only server URL
     const errorState: FmeWidgetState = {
@@ -423,8 +426,7 @@ describe("FME Export Widget", () => {
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
-    updateStore({ "fme-state": errorState })
-    await waitForMilliseconds(0)
+    await setFmeState(errorState)
 
     renderWidget(
       <Wrapped

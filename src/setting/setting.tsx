@@ -357,6 +357,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Track in-flight repository listing request for cancellation
   const reposAbortRef = React.useRef<AbortController | null>(null)
 
+  // Cleanup on unmount
+  hooks.useUnmount(() => {
+    if (abortRef.current) {
+      try {
+        abortRef.current.abort()
+      } catch {}
+      abortRef.current = null
+    }
+    if (reposAbortRef.current) {
+      try {
+        reposAbortRef.current.abort()
+      } catch {}
+      reposAbortRef.current = null
+    }
+  })
+
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
     const code = extractErrorCode(err)
@@ -680,20 +696,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Cleanup: abort any in-flight requests on unmount
-  React.useEffect(() => {
-    return () => {
-      if (abortRef.current) {
-        abortRef.current.abort()
-        abortRef.current = null
-      }
-      if (reposAbortRef.current) {
-        reposAbortRef.current.abort()
-        reposAbortRef.current = null
-      }
-    }
-  }, [])
-
   // Keep server URL, token, repository, and support email in sync with config
   React.useEffect(() => {
     const updates: Array<[() => boolean, () => void]> = [
@@ -756,7 +758,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localTmTag,
   ])
 
-  // Fetch repository list when server URL or token changes
+  // Auto-fetch repository list immediately when server URL, token, or repository changes
   React.useEffect(() => {
     setAvailableRepos(null)
     if (reposAbortRef.current) {
@@ -766,7 +768,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     const serverUrlError = validateServerUrl(localServerUrl)
     const tokenError = validateToken(localToken)
-    if (!localServerUrl || !localToken || serverUrlError || tokenError) return
+    if (!localServerUrl || !localToken || serverUrlError || tokenError) {
+      return () => {
+        if (reposAbortRef.current) {
+          try {
+            reposAbortRef.current.abort()
+          } catch {}
+          reposAbortRef.current = null
+        }
+      }
+    }
 
     const controller = new AbortController()
     reposAbortRef.current = controller
@@ -813,7 +824,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     return () => {
       if (reposAbortRef.current) {
-        reposAbortRef.current.abort()
+        try {
+          reposAbortRef.current.abort()
+        } catch {}
         reposAbortRef.current = null
       }
     }

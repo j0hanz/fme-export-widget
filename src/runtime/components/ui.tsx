@@ -39,7 +39,7 @@ import type {
 } from "../../shared/types"
 import { EMAIL_PLACEHOLDER, type TranslateFn } from "../../shared/utils"
 
-// Consolidated UI constants and styles
+// Configuration
 export const config = {
   icon: { small: 14, medium: 16, large: 20 },
   tooltip: {
@@ -77,7 +77,7 @@ const createStyles = (theme: IMThemeVariables) =>
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
-    gapBtnGroup: css({ gap: theme.sys.spacing?.(2) || "1rem" }),
+    gapBtnGroup: css({ gap: theme.sys.spacing?.(2) }),
 
     // Text utilities
     textCenter: css({ textAlign: "center" }),
@@ -107,12 +107,8 @@ const createStyles = (theme: IMThemeVariables) =>
       overflowY: "auto",
       height: "100%",
       position: "relative",
-      padding: theme.sys.spacing?.(1) || "0.4rem",
-      backgroundColor:
-        theme.sys.color.surface?.paper ||
-        theme.ref?.palette?.white ||
-        theme.sys.color.surface?.background ||
-        "transparent",
+      padding: theme.sys.spacing?.(1),
+      backgroundColor: theme.sys.color.surface?.paper,
     }),
 
     header: css({
@@ -132,7 +128,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       justifyContent: "space-between",
       alignItems: "baseline",
-      gap: theme.sys.spacing?.(1) || "0.5rem",
+      gap: theme.sys.spacing?.(1),
     }),
 
     // State patterns
@@ -140,7 +136,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: theme.sys.spacing?.(1) || "0.5rem",
+      gap: theme.sys.spacing?.(1),
       height: "100%",
     }),
 
@@ -156,65 +152,46 @@ const createStyles = (theme: IMThemeVariables) =>
     // Typography styles with theme support
     typography: {
       caption: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
-        color:
-          theme.sys.color.surface?.backgroundText ||
-          theme.ref.palette?.neutral[1200] ||
-          "inherit",
-        margin: `${theme.sys.spacing?.(1) || "0.5rem"} 0`,
+        fontSize: theme?.sys?.typography?.label2?.fontSize,
+        color: theme.sys.color.surface?.backgroundText,
+        margin: `${theme.sys.spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
-        color:
-          theme.sys.color.surface?.backgroundText ||
-          theme.ref.palette?.neutral[1200] ||
-          "inherit",
+        fontSize: theme?.sys?.typography?.label2?.fontSize,
+        color: theme.sys.color.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize || "1rem",
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight || 500,
-        color:
-          theme.sys.color.surface?.backgroundText ||
-          theme.ref.palette?.neutral[1200] ||
-          "inherit",
+        fontSize: theme?.sys?.typography?.body1?.fontSize,
+        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
+        color: theme.sys.color.surface?.backgroundText,
       }),
 
       instruction: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize || "0.8125rem",
-        color:
-          theme.sys.color.surface?.backgroundText ||
-          theme.ref.palette?.neutral[1200] ||
-          "inherit",
-        margin: `${theme.sys.spacing?.(3) || "1rem"} 0`,
+        fontSize: theme?.sys?.typography?.label2?.fontSize,
+        color: theme.sys.color.surface?.backgroundText,
+        margin: `${theme.sys.spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize || "0.875rem",
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight || 500,
-        color:
-          theme.sys.color.action.link?.default ||
-          theme.sys.color?.primary.main ||
-          theme.sys.color?.info.main ||
-          "#0079c1",
+        fontSize: theme?.sys?.typography?.body1?.fontSize,
+        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
+        color: theme.sys.color.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",
         "&:hover": {
-          color:
-            theme.sys.color.action.link?.hover ||
-            theme.sys.color?.primary.main ||
-            "#005a87",
+          color: theme.sys.color.action.link?.hover,
           textDecoration: "underline",
         },
       }),
 
       required: css({
         marginLeft: "0.25rem",
-        color: theme.sys.color?.error.main || "#d32f2f",
+        color: theme.sys.color?.error.main,
       }),
     },
 
@@ -222,14 +199,14 @@ const createStyles = (theme: IMThemeVariables) =>
     button: {
       group: css({
         display: "flex",
-        gap: theme.sys.spacing?.(1) || "0.5rem",
+        gap: theme.sys.spacing?.(1),
       }),
 
       default: css({
         display: "flex",
         flexFlow: "column",
         width: "100%",
-        gap: theme.sys.spacing?.(1) || "0.5rem",
+        gap: theme.sys.spacing?.(1),
       }),
 
       text: css({
@@ -259,79 +236,61 @@ export const useStyles = () => {
   return stylesRef.current
 }
 
-// Utility Hooks and Helper Functions
+// Utility functions
 let idSeq = 0
 
-const utils = {
-  // ID generation utility
-  useId: (prefix = "fme"): string => {
-    const idRef = React.useRef<string>()
-    if (!idRef.current) {
-      idSeq += 1
-      idRef.current = `${prefix}-${idSeq}`
+const useId = (): string => {
+  const idRef = React.useRef<string>()
+  if (!idRef.current) {
+    idSeq += 1
+    idRef.current = `fme-${idSeq}`
+  }
+  return idRef.current
+}
+
+const useValue = (
+  controlled?: any,
+  defaultValue?: any,
+  onChange?: (value: any) => void
+) => {
+  const [value, setValue] = hooks.useControlled({
+    controlled,
+    default: defaultValue,
+  })
+
+  const handleChange = hooks.useEventCallback((newValue: any) => {
+    setValue(newValue)
+    onChange?.(newValue)
+  })
+
+  return [value, handleChange] as const
+}
+
+const withId = (
+  child: React.ReactNode,
+  readOnly: boolean,
+  fallbackId: string
+): { id: string | undefined; child: React.ReactNode } => {
+  if (!readOnly && React.isValidElement(child)) {
+    const childProps = (child.props || {}) as { [key: string]: unknown }
+    const id = (childProps.id as string) || fallbackId
+    if (!childProps.id) {
+      const cloned = React.cloneElement(child as React.ReactElement, { id })
+      return { id, child: cloned }
     }
-    return idRef.current
-  },
+    return { id, child }
+  }
+  return { id: undefined, child }
+}
 
-  // Controlled/uncontrolled value helper
-  useValue: (
-    controlled?: any,
-    defaultValue?: any,
-    onChange?: (value: any) => void
-  ) => {
-    const [value, setValue] = hooks.useControlled({
-      controlled,
-      default: defaultValue,
-    })
+const getTipContent = (
+  title?: React.ReactNode,
+  content?: React.ReactNode
+): React.ReactNode => {
+  return title ?? content
+}
 
-    const handleChange = hooks.useEventCallback((newValue: any) => {
-      setValue(newValue)
-      onChange?.(newValue)
-    })
-
-    return [value, handleChange] as const
-  },
-
-  // Form control ID management
-  withId: (
-    child: React.ReactNode,
-    readOnly: boolean,
-    fallbackId: string
-  ): { id: string | undefined; child: React.ReactNode } => {
-    if (!readOnly && React.isValidElement(child)) {
-      const childProps = (child.props || {}) as { [key: string]: unknown }
-      const id = (childProps.id as string) || fallbackId
-      if (!childProps.id) {
-        const cloned = React.cloneElement(child as React.ReactElement, { id })
-        return { id, child: cloned }
-      }
-      return { id, child }
-    }
-    return { id: undefined, child }
-  },
-
-  // Tooltip content resolution
-  getTipContent: (
-    title?: React.ReactNode,
-    content?: React.ReactNode,
-    children?: React.ReactElement
-  ): React.ReactNode => {
-    if (title || content) return title || content
-    if (React.isValidElement(children)) {
-      const props = children.props as { [key: string]: unknown }
-      return (
-        (props?.title as React.ReactNode) ||
-        (props?.["aria-label"] as React.ReactNode)
-      )
-    }
-    return undefined
-  },
-} as const
-
-// Export individual utilities for backward compatibility
-const { useId, useValue, withId, getTipContent } = utils
-
-// Simple helper functions
+// Helper functions
 const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
   id ? `${id}-${suffix}` : undefined
 
@@ -342,7 +301,13 @@ const getBtnAria = (
   tooltip?: string,
   fallbackLabel?: string
 ): string | undefined => {
-  if (text || !icon) return jimuAriaLabel
+  // If there's an explicit aria-label, use it
+  if (jimuAriaLabel) return jimuAriaLabel
+  // If there's visible text, use it
+  if (typeof text === "string" && text.length > 0) return text
+  // if no icon, no need for aria-label
+  if (!icon) return undefined
+  // If there's an icon but no text, use tooltip or fallback label
   return (typeof tooltip === "string" && tooltip) || fallbackLabel
 }
 
@@ -445,11 +410,11 @@ export const Tooltip: React.FC<TooltipProps> = ({
   ...otherProps
 }) => {
   const styles = useStyles()
-  const autoId = useId("tooltip")
+  const autoId = useId()
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
-  const tooltipContent = getTipContent(title, content, children)
+  const tooltipContent = getTipContent(title, content)
   if (!tooltipContent || disabled) return children
 
   const tooltipId = otherProps.id || autoId
@@ -579,6 +544,48 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
+// Multi-select rendering component
+const MultiSelectComponent: React.FC<{
+  options: readonly any[]
+  normalizedValue: any
+  setValue: (val: any) => void
+  onChange?: (val: any) => void
+  placeholder: string
+  disabled: boolean
+  style?: React.CSSProperties
+}> = ({
+  options,
+  normalizedValue,
+  setValue,
+  onChange,
+  placeholder,
+  disabled,
+  style,
+}) => {
+  const items = options.map((opt) => ({
+    label: opt.label,
+    value: opt.value,
+    disabled: opt.disabled,
+  }))
+
+  const handleMultiSelectChange = hooks.useEventCallback((vals: any[]) => {
+    setValue(vals)
+    onChange?.(vals)
+  })
+
+  return (
+    <div style={style}>
+      <MultiSelect
+        items={items as any}
+        values={normalizedValue}
+        onChange={handleMultiSelectChange}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
+    </div>
+  )
+}
+
 // Select component
 export const Select: React.FC<SelectProps> = (props) => {
   const {
@@ -589,52 +596,13 @@ export const Select: React.FC<SelectProps> = (props) => {
     placeholder,
     disabled = false,
     style,
-    coerce,
   } = props
 
   const isMulti = Array.isArray(controlled)
   const [value, setValue] = useValue(controlled, defaultValue)
   const translate = hooks.useTranslation(defaultMessages)
-  const coerceValue = hooks.useEventCallback(
-    (raw: string | number | undefined) => {
-      if (raw === undefined || raw === null) return raw
-      if (coerce === "number") return Number(raw)
-      if (coerce === "string") return String(raw)
-      const sample = Array.isArray(controlled) ? controlled[0] : controlled
-      if (typeof sample === "number") {
-        const n = Number(raw)
-        return isNaN(n) ? raw : n
-      }
-      return raw
-    }
-  )
 
-  const handleSingleChange = hooks.useEventCallback(
-    (evt: unknown, selectedValue?: string | number) => {
-      const raw =
-        selectedValue !== undefined
-          ? selectedValue
-          : (evt as any)?.target?.value
-      const finalVal = coerceValue(raw)
-      setValue(finalVal)
-      onChange?.(finalVal)
-    }
-  )
-
-  const handleMultiChange = hooks.useEventCallback(
-    (evt: React.ChangeEvent<HTMLSelectElement>) => {
-      const target = evt?.target
-      if (!target?.selectedOptions) return
-      const selected: any[] = []
-      for (const option of Array.from(target.selectedOptions)) {
-        selected.push(coerceValue(option.value))
-      }
-      setValue(selected as any)
-      onChange?.(selected as any)
-    }
-  )
-
-  // Normalize the value to strings for the underlying select component(s).
+  // Normalize the value to strings for the underlying select component(s)
   const normalizedValue: any = isMulti
     ? Array.isArray(value)
       ? value.map((v) => String(v))
@@ -646,51 +614,29 @@ export const Select: React.FC<SelectProps> = (props) => {
   const resolvedPlaceholder =
     placeholder ?? translate("placeholderSelectGeneric")
 
-  if (isMulti) {
-    const Multi: any = (MultiSelect as any) || null
-    if (Multi) {
-      const items = options.map((opt) => ({
-        label: opt.label,
-        value: opt.value,
-        disabled: opt.disabled,
-      }))
-      // Wrap in a styled container to ensure width/inline styles are reflected in the DOM
-      return (
-        <div style={style}>
-          <Multi
-            items={items}
-            values={normalizedValue}
-            onChange={(vals: any[]) => {
-              const coerced = vals.map((v) => coerceValue(v))
-              setValue(coerced as any)
-              onChange?.(coerced as any)
-            }}
-            placeholder={resolvedPlaceholder}
-            disabled={disabled}
-          />
-        </div>
-      )
+  // Handle single select change
+  const handleSingleChange = hooks.useEventCallback(
+    (evt: unknown, selectedValue?: string | number) => {
+      const raw =
+        selectedValue !== undefined
+          ? selectedValue
+          : (evt as any)?.target?.value
+      setValue(raw)
+      onChange?.(raw)
     }
-    // Fallback native multi select
+  )
+
+  if (isMulti) {
     return (
-      <select
-        multiple
-        value={normalizedValue as string[]}
-        onChange={handleMultiChange}
+      <MultiSelectComponent
+        options={options}
+        normalizedValue={normalizedValue}
+        setValue={setValue}
+        onChange={onChange}
+        placeholder={resolvedPlaceholder}
         disabled={disabled}
         style={style}
-      >
-        {options.map((opt) => (
-          <option
-            key={String(opt.value)}
-            value={String(opt.value)}
-            disabled={opt.disabled}
-            aria-label={opt.label}
-          >
-            {!opt.hideLabel && opt.label}
-          </option>
-        ))}
-      </select>
+      />
     )
   }
 
@@ -739,7 +685,6 @@ export const Button: React.FC<ButtonProps> = ({
   onClick,
   children,
   block = config.button.defaults.block,
-  preset,
   size = "default",
   variant = "contained",
   color = "default",
@@ -748,21 +693,9 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
+
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
-    if (jimuProps.logging?.enabled) {
-      try {
-        // Lightweight client-side logging hook (development only)
-        if (process.env.NODE_ENV !== "production") {
-          console.debug(`[${jimuProps.logging.prefix || "Button"}] clicked`, {
-            id: jimuProps.id,
-            text: typeof text === "string" ? text : undefined,
-          })
-        }
-      } catch {
-        // no-op
-      }
-    }
     onClick()
   })
 
@@ -774,30 +707,24 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Determine final color and variant based on preset or props
-  const { finalColor, finalVariant } = (() => {
-    if (preset === "primary") {
-      return {
-        finalColor: "primary" as const,
-        finalVariant: "contained" as const,
+  const safeColor: "default" | "inherit" | "primary" | "secondary" =
+    ((): any => {
+      switch (color) {
+        case "default":
+        case "inherit":
+        case "primary":
+        case "secondary":
+          return color
+        default:
+          return "default"
       }
-    }
-    if (preset === "secondary") {
-      return {
-        finalColor: "default" as const,
-        finalVariant: "outlined" as const,
-      }
-    }
-    const normalizedColor =
-      color === "tertiary" || color === "danger" ? ("default" as const) : color
-    return { finalColor: normalizedColor, finalVariant: variant }
-  })()
+    })()
 
   const buttonElement = (
     <JimuButton
       {...jimuProps}
-      color={finalColor}
-      variant={finalVariant}
+      color={safeColor}
+      variant={variant}
       size={size}
       htmlType={htmlType}
       icon={!text && !!icon}
@@ -806,9 +733,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-busy={loading}
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
-      title={
-        tooltip ? undefined : typeof text === "string" ? text : jimuProps.title
-      }
+      title={tooltip ? undefined : jimuProps.title}
       css={styles.relative}
       style={{ position: "relative", ...(jimuProps.style as any) }}
       block={block}
@@ -1133,7 +1058,7 @@ export const Field: React.FC<FieldProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
-  const autoId = useId("field")
+  const autoId = useId()
   const { id: fieldId, child: renderedChild } = withId(
     children,
     readOnly,

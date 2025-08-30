@@ -51,7 +51,7 @@ import {
 } from "../shared/utils"
 
 // Highlight symbol
-const useHighlightSymbol = () => {
+const getHighlightSymbol = () => {
   const [r, g, b] = [0, 121, 193]
   return {
     type: "simple-fill" as const,
@@ -65,7 +65,7 @@ const useHighlightSymbol = () => {
 }
 
 // Drawing symbols
-const useDrawingColors = () => {
+const getDrawingColors = () => {
   const [r, g, b] = [0, 121, 193]
 
   return {
@@ -508,7 +508,7 @@ const createSketchVM = ({
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void
   dispatch: (action: unknown) => void
   polygonSymbol: unknown
-  drawingColors: ReturnType<typeof useDrawingColors>
+  drawingColors: ReturnType<typeof getDrawingColors>
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -773,8 +773,8 @@ export default function Widget(
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
-  const highlightSymbol = useHighlightSymbol()
-  const drawingColors = useDrawingColors()
+  const highlightSymbol = getHighlightSymbol()
+  const drawingColors = getDrawingColors()
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -782,6 +782,8 @@ export default function Widget(
   const translate = hooks.useEventCallback((key: string): string => {
     return translateWidget(key)
   })
+
+  const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Render error view with translation and support hints
   const renderWidgetError = hooks.useEventCallback(
@@ -858,6 +860,9 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
+
+  // Redux state selector and dispatcher
+  const isActive = hooks.useWidgetActived(widgetId)
 
   // Keep abort controllers for form submission where we need direct control
   const submissionAbortRef = React.useRef<AbortController | null>(null)
@@ -971,9 +976,9 @@ export default function Widget(
 
       const client = createFmeFlowClient(config)
       setValidationStep(translate("validatingConnection"))
-      await client.testConnection()
+      await makeCancelable(client.testConnection())
       setValidationStep(translate("validatingAuthentication"))
-      await client.validateRepository(config.repository)
+      await makeCancelable(client.validateRepository(config.repository))
 
       // Update validation step
       setValidationStep(translate("validatingUserEmail"))
@@ -1172,11 +1177,13 @@ export default function Widget(
       cancelController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
-      const fmeResponse = await fmeClient.runDataDownload(
-        workspace,
-        applyDirectiveDefaults(fmeParameters, props.config),
-        undefined,
-        submissionAbortRef.current.signal
+      const fmeResponse = await makeCancelable(
+        fmeClient.runDataDownload(
+          workspace,
+          applyDirectiveDefaults(fmeParameters, props.config),
+          undefined,
+          submissionAbortRef.current.signal
+        )
       )
 
       handleSubmissionSuccess(fmeResponse, workspace, userEmail)
@@ -1223,6 +1230,17 @@ export default function Widget(
       handleMapViewReady(jimuMapView)
     }
   }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
+
+  // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
+  hooks.useUpdateEffect(() => {
+    if (!isActive && sketchViewModel) {
+      try {
+        sketchViewModel.cancel()
+      } catch (e) {
+        // noop
+      }
+    }
+  }, [isActive, sketchViewModel])
 
   // Cleanup on map view change
   hooks.useUpdateEffect(() => {
@@ -1275,7 +1293,11 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Ensure any in-progress draw is canceled before starting a new one
-    sketchViewModel.cancel()
+    try {
+      sketchViewModel.cancel()
+    } catch (e) {
+      // ignore cancellation errors
+    }
 
     // Start drawing immediately; prior cancel avoids overlap
     const arg: "rectangle" | "polygon" =
@@ -1324,7 +1346,13 @@ export default function Widget(
     cancelController(submissionAbortRef)
 
     // Cancel any in-progress drawing
-    if (sketchViewModel) sketchViewModel.cancel()
+    if (sketchViewModel) {
+      try {
+        sketchViewModel.cancel()
+      } catch (e) {
+        // ignore cancellation errors
+      }
+    }
 
     // Reset Redux state
     dispatch(fmeActions.setGeometry(null, 0))
