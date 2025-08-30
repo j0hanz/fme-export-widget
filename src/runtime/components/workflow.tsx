@@ -272,7 +272,7 @@ const useWorkspaceLoader = (
   })
 
   // Helper to format API errors into localized strings
-  const formatError = React.useCallback(
+  const formatError = hooks.useEventCallback(
     (err: unknown, baseKey: string): string | null => {
       const errName = (err as { name?: string } | null)?.name
       if (
@@ -291,8 +291,7 @@ const useWorkspaceLoader = (
       const safe = raw.replace(/<[^>]*>/g, "")
       const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
       return `${translate(baseKey)}: ${msg}`
-    },
-    [translate, translateRuntime]
+    }
   )
 
   // Cancel any ongoing load
@@ -564,6 +563,23 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
   const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
 
+  // Compute if select values can be coerced to numbers
+  const computeSelectCoerce = (): "number" | "string" | undefined => {
+    if (!isSelectType || !selectOptions.length) return undefined
+    const vals = selectOptions.map((o) => o.value)
+    const allNumeric = vals.every((v) => {
+      if (typeof v === "number") return Number.isFinite(v)
+      if (typeof v === "string") {
+        if (v.trim() === "") return false
+        const n = Number(v)
+        return Number.isFinite(n) && String(n) === v
+      }
+      return false
+    })
+    return allNumeric ? "number" : undefined
+  }
+  const selectCoerce = computeSelectCoerce()
+
   hooks.useEffectOnce(() => {
     if (!isSingleOption) return
     const current = fieldValue as SelectValue
@@ -594,6 +610,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             }}
             aria-label={field.label}
             disabled={field.readOnly || isSingleOption}
+            coerce={selectCoerce}
           />
         )
       }
