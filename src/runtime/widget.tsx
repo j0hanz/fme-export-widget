@@ -51,7 +51,7 @@ import {
 } from "../shared/utils"
 
 // Highlight symbol
-const useHighlightSymbol = () => {
+const getHighlightSymbol = () => {
   const [r, g, b] = [0, 121, 193]
   return {
     type: "simple-fill" as const,
@@ -65,7 +65,7 @@ const useHighlightSymbol = () => {
 }
 
 // Drawing symbols
-const useDrawingColors = () => {
+const getDrawingColors = () => {
   const [r, g, b] = [0, 121, 193]
 
   return {
@@ -508,7 +508,7 @@ const createSketchVM = ({
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void
   dispatch: (action: unknown) => void
   polygonSymbol: unknown
-  drawingColors: ReturnType<typeof useDrawingColors>
+  drawingColors: ReturnType<typeof getDrawingColors>
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -773,8 +773,8 @@ export default function Widget(
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
-  const highlightSymbol = useHighlightSymbol()
-  const drawingColors = useDrawingColors()
+  const highlightSymbol = getHighlightSymbol()
+  const drawingColors = getDrawingColors()
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -1293,7 +1293,11 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Ensure any in-progress draw is canceled before starting a new one
-    sketchViewModel.cancel()
+    try {
+      sketchViewModel.cancel()
+    } catch (e) {
+      // ignore cancellation errors
+    }
 
     // Start drawing immediately; prior cancel avoids overlap
     const arg: "rectangle" | "polygon" =
@@ -1342,7 +1346,13 @@ export default function Widget(
     cancelController(submissionAbortRef)
 
     // Cancel any in-progress drawing
-    if (sketchViewModel) sketchViewModel.cancel()
+    if (sketchViewModel) {
+      try {
+        sketchViewModel.cancel()
+      } catch (e) {
+        // ignore cancellation errors
+      }
+    }
 
     // Reset Redux state
     dispatch(fmeActions.setGeometry(null, 0))
