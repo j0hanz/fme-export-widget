@@ -783,6 +783,8 @@ export default function Widget(
     return translateWidget(key)
   })
 
+  const makeCancelable = hooks.useCancelablePromiseMaker()
+
   // Render error view with translation and support hints
   const renderWidgetError = hooks.useEventCallback(
     (
@@ -858,6 +860,9 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
+
+  // Redux state selector and dispatcher
+  const isActive = hooks.useWidgetActived(widgetId)
 
   // Keep abort controllers for form submission where we need direct control
   const submissionAbortRef = React.useRef<AbortController | null>(null)
@@ -971,9 +976,9 @@ export default function Widget(
 
       const client = createFmeFlowClient(config)
       setValidationStep(translate("validatingConnection"))
-      await client.testConnection()
+      await makeCancelable(client.testConnection())
       setValidationStep(translate("validatingAuthentication"))
-      await client.validateRepository(config.repository)
+      await makeCancelable(client.validateRepository(config.repository))
 
       // Update validation step
       setValidationStep(translate("validatingUserEmail"))
@@ -1172,11 +1177,13 @@ export default function Widget(
       cancelController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
-      const fmeResponse = await fmeClient.runDataDownload(
-        workspace,
-        applyDirectiveDefaults(fmeParameters, props.config),
-        undefined,
-        submissionAbortRef.current.signal
+      const fmeResponse = await makeCancelable(
+        fmeClient.runDataDownload(
+          workspace,
+          applyDirectiveDefaults(fmeParameters, props.config),
+          undefined,
+          submissionAbortRef.current.signal
+        )
       )
 
       handleSubmissionSuccess(fmeResponse, workspace, userEmail)
@@ -1223,6 +1230,17 @@ export default function Widget(
       handleMapViewReady(jimuMapView)
     }
   }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
+
+  // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
+  hooks.useUpdateEffect(() => {
+    if (!isActive && sketchViewModel) {
+      try {
+        sketchViewModel.cancel()
+      } catch (e) {
+        // noop
+      }
+    }
+  }, [isActive, sketchViewModel])
 
   // Cleanup on map view change
   hooks.useUpdateEffect(() => {

@@ -12,7 +12,7 @@ const S = Setting as any
 // Mock API client to avoid network calls in Setting tests
 jest.mock("../shared/api", () => ({
   __esModule: true,
-  FmeFlowApiClient: class {
+  default: class FmeFlowApiClient {
     serverUrl: string
     token: string
     repository: string
@@ -21,12 +21,15 @@ jest.mock("../shared/api", () => ({
       this.token = opts.token
       this.repository = opts.repository
     }
-    listRepositories() {
+    getRepositories() {
       return Promise.resolve({
         status: 200,
         statusText: "OK",
         data: [{ name: "repo" }],
       })
+    }
+    validateRepository() {
+      return Promise.resolve({ status: 200, statusText: "OK" })
     }
     testConnection() {
       return Promise.resolve({ status: 200, statusText: "OK", data: {} })
