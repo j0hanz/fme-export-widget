@@ -828,10 +828,12 @@ export interface JobResult {
 export interface EsriModules {
   readonly SketchViewModel: typeof __esri.SketchViewModel
   readonly GraphicsLayer: typeof __esri.GraphicsLayer
-  readonly Graphic: typeof __esri.Graphic
-  readonly Polygon: typeof __esri.Polygon
-  readonly Extent: typeof __esri.Extent
   readonly geometryEngine: typeof __esri.geometryEngine
+  readonly webMercatorUtils: any
+  readonly reactiveUtils: any
+  readonly Polyline: typeof __esri.Polyline
+  readonly Polygon: typeof __esri.Polygon
+  readonly Graphic: typeof __esri.Graphic
 }
 
 // Result from FME export job submission
@@ -933,13 +935,14 @@ interface WorkflowCoreProps {
   readonly error?: ErrorState | SerializableErrorState | null
   readonly onBack?: () => void
   readonly isModulesLoading: boolean
+  readonly modules?: EsriModules | null
 }
 
 interface WorkflowDrawingFeatures {
   readonly canStartDrawing: boolean
   readonly onAngeUtbredning: () => void
   readonly drawnArea?: number | null
-  readonly formatArea?: (area: number) => string
+  readonly formatArea?: (area: number, modules?: EsriModules) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (mode: DrawingTool) => void
   readonly isDrawing?: boolean

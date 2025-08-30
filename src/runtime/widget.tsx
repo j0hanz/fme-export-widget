@@ -15,8 +15,6 @@ import {
   type JimuMapView,
   loadArcGISJSAPIModules,
 } from "jimu-arcgis"
-
-import { useTheme } from "jimu-theme"
 import { Workflow } from "./components/workflow"
 import { StateView, useStyles, renderSupportHint } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
@@ -49,26 +47,12 @@ import {
   getErrorMessage,
   isValidEmail,
   buildSupportHintText,
-  sanitizePolygonJson,
   getSupportEmail,
 } from "../shared/utils"
 
-// Widget-specific styles
-const CSS = {
-  colors: {
-    white: [255, 255, 255, 1] as [number, number, number, number],
-    orangeOutline: [255, 140, 0] as [number, number, number],
-  },
-}
-
-// Highlight symbol derived from theme primary color
+// Highlight symbol
 const useHighlightSymbol = () => {
-  const theme = useTheme()
-  const primaryHex =
-    (theme as any)?.sys?.color?.primary?.main ||
-    (theme as any)?.colors?.palette?.primary?.[500] ||
-    "#0079c1"
-  const [r, g, b] = hexToRgb(String(primaryHex))
+  const [r, g, b] = [0, 121, 193]
   return {
     type: "simple-fill" as const,
     color: [r, g, b, 0.2] as [number, number, number, number],
@@ -80,28 +64,33 @@ const useHighlightSymbol = () => {
   }
 }
 
-const MODULES: readonly string[] = [
+// Drawing symbols
+const useDrawingColors = () => {
+  const [r, g, b] = [0, 121, 193]
+
+  return {
+    primary: [r, g, b] as [number, number, number],
+    white: [255, 255, 255, 1] as [number, number, number, number],
+  }
+}
+
+// ArcGIS JS API modules
+const MODULES = [
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
-  "esri/Graphic",
-  "esri/geometry/Polygon",
-  "esri/geometry/Extent",
   "esri/geometry/geometryEngine",
+  "esri/geometry/support/webMercatorUtils",
+  "esri/core/reactiveUtils",
+  "esri/geometry/Polyline",
+  "esri/geometry/Polygon",
+  "esri/Graphic",
 ] as const
 
 // Area calculation and formatting constants
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000, // m² -> 1 km²
   AREA_DECIMALS: 2,
-  COINCIDENT_EPSILON: 1e-3,
-  AREA_UNIT: "square-meters",
-  MIN_VALID_AREA: 1e-3, // minimum valid area in m²
 } as const
-const hexToRgb = (hex: string): [number, number, number] => {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!m) return [0, 121, 193] // fallback to Esri blue
-  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)]
-}
 
 // Load ArcGIS modules once and memoize result
 const useModules = (): {
@@ -117,18 +106,22 @@ const useModules = (): {
         const [
           SketchViewModel,
           GraphicsLayer,
-          Graphic,
-          Polygon,
-          Extent,
           geometryEngine,
+          webMercatorUtils,
+          reactiveUtils,
+          Polyline,
+          Polygon,
+          Graphic,
         ] = loaded
         setModules({
           SketchViewModel,
           GraphicsLayer,
-          Graphic,
-          Polygon,
-          Extent,
           geometryEngine,
+          webMercatorUtils,
+          reactiveUtils,
+          Polyline,
+          Polygon,
+          Graphic,
         } as EsriModules)
       })
       .catch((error) => {
@@ -236,68 +229,38 @@ const cancelController = (
   ref.current = null
 }
 
+// Geometry utilities and validation
 const geometryUtils = {
   calcArea(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): number {
-    try {
-      if (
-        !geometry ||
-        geometry.type !== "polygon" ||
-        !modules?.geometryEngine
-      ) {
-        return 0
-      }
-      const polygon = geometry as __esri.Polygon
-      const sr: any = polygon.spatialReference || {}
-      const engine: any = modules.geometryEngine
-      const useGeodesic = Boolean(sr.isGeographic || sr.isWebMercator)
-
-      try {
-        let area: number | undefined
-        if (useGeodesic && typeof engine.geodesicArea === "function") {
-          area = engine.geodesicArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-        } else if (!useGeodesic && typeof engine.planarArea === "function") {
-          area = engine.planarArea(polygon, GEOMETRY_CONSTS.AREA_UNIT)
-        }
-        // Ensure area is a positive finite number
-        if (
-          Number.isFinite(area) &&
-          area !== undefined &&
-          Math.abs(area) > GEOMETRY_CONSTS.MIN_VALID_AREA
-        ) {
-          return Math.abs(area)
-        }
-        // Fallback: approximate using extent if engine returns invalid
-        const ext = polygon.extent
-        const approx = Math.abs(ext?.width * ext?.height || 0)
-        return Number.isFinite(approx) && approx > 0 ? approx : 0
-      } catch (calcError) {
-        console.warn(
-          "Widget - Area calculation failed, using extent fallback:",
-          calcError
-        )
-        // On error, fallback to extent-based approximation
-        try {
-          const ext = polygon.extent
-          return Math.abs(ext?.width * ext?.height || 0)
-        } catch (extentError) {
-          console.warn("Widget - Extent fallback also failed:", extentError)
-          return 0
-        }
-      }
-    } catch (error) {
-      console.warn("Widget - Geometry area calculation error:", error)
+    if (
+      !geometry ||
+      geometry.type !== "polygon" ||
+      !modules?.geometryEngine ||
+      !modules?.Polygon
+    ) {
       return 0
     }
+
+    const polygonJson = geometry.toJSON()
+    const polygon = modules.Polygon.fromJSON(polygonJson)
+    const engine: any = modules.geometryEngine
+    const sr = polygon.spatialReference
+    const simplified = engine.simplify(polygon) || polygon
+    const useGeodesic = sr?.isGeographic || sr?.isWebMercator
+    const area = useGeodesic
+      ? engine.geodesicArea(simplified, "square-meters")
+      : engine.planarArea(simplified, "square-meters")
+
+    return Number.isFinite(area) && area !== undefined ? Math.abs(area) : 0
   },
 
   validatePolygon(
     geometry: __esri.Geometry | undefined,
     modules: EsriModules
   ): { valid: boolean; error?: ErrorState } {
-    // Existence check
     if (!geometry) {
       return {
         valid: false,
@@ -308,7 +271,6 @@ const geometryUtils = {
         ),
       }
     }
-    // Type check
     if (geometry.type !== "polygon") {
       return {
         valid: false,
@@ -319,108 +281,57 @@ const geometryUtils = {
         ),
       }
     }
-    const polygon = geometry as __esri.Polygon
-    // Rings existence check
-    if (!Array.isArray(polygon.rings) || polygon.rings.length === 0) {
+
+    // If no geometryEngine available, assume valid if geometry exists and is polygon
+    if (!modules?.geometryEngine) {
+      return { valid: true }
+    }
+
+    // Create proper Polygon instance from geometry JSON
+    const polygonJson = geometry.toJSON()
+    const polygon = modules.Polygon.fromJSON(polygonJson)
+
+    // Check for self-intersections
+    if (!modules.geometryEngine.isSimple(polygon)) {
       return {
         valid: false,
         error: errorService.createError(
-          "POLYGON_NO_RINGS",
+          "POLYGON_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
-          { code: "GEOM_NO_RINGS" }
+          { code: "GEOM_SELF_INTERSECTING" }
         ),
       }
     }
-    // Validate each ring
-    for (const ring of polygon.rings) {
-      // Must be an array with at least 3 coordinate pairs
-      if (!Array.isArray(ring) || ring.length < 3) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_MIN_VERTICES",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_MIN_VERTICES" }
-          ),
-        }
-      }
-      // Require at least three unique positions
-      const unique = new Set(
-        ring
-          .filter((p) => Array.isArray(p) && p.length >= 2)
-          .map((p) => `${p[0]}:${p[1]}`)
-      )
-      if (unique.size < 3) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_MIN_VERTICES",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_MIN_VERTICES" }
-          ),
-        }
-      }
-      // Check that the ring is closed (first and last points coincide)
-      try {
-        const first = ring[0] as any
-        const last = ring[ring.length - 1] as any
-        const closed =
-          Array.isArray(first) &&
-          Array.isArray(last) &&
-          Math.abs((first[0] as number) - (last[0] as number)) <
-            GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-          Math.abs((first[1] as number) - (last[1] as number)) <
-            GEOMETRY_CONSTS.COINCIDENT_EPSILON
-        if (!closed) {
-          return {
-            valid: false,
-            error: errorService.createError(
-              "POLYGON_RING_NOT_CLOSED",
-              ErrorType.GEOMETRY,
-              { code: "GEOM_RING_NOT_CLOSED" }
-            ),
-          }
-        }
-      } catch (ringError) {
-        console.warn("Widget - Ring validation error:", ringError)
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_RING_NOT_CLOSED",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_RING_NOT_CLOSED" }
-          ),
-        }
-      }
-    }
-    // Self‑intersection check using geometryEngine if available
-    try {
-      const engine: any = modules?.geometryEngine
-      if (typeof engine?.isSimple === "function") {
-        const simple = engine.isSimple(polygon)
-        if (simple === false) {
-          return {
-            valid: false,
-            error: errorService.createError(
-              "POLYGON_SELF_INTERSECTING",
-              ErrorType.GEOMETRY,
-              { code: "GEOM_SELF_INTERSECTING" }
-            ),
-          }
-        }
-      }
-    } catch (intersectionError) {
-      console.warn(
-        "Widget - Self-intersection check failed, assuming valid:",
-        intersectionError
-      )
-      // Ignore errors from isSimple; assume valid if we cannot determine
-    }
+
     return { valid: true }
+  },
+
+  // Restore graphic from JSON
+  restoreGraphicFromJson(
+    graphicJson: unknown,
+    modules: EsriModules
+  ): __esri.Graphic | null {
+    if (!modules?.Graphic || !graphicJson) return null
+
+    try {
+      return modules.Graphic.fromJSON(graphicJson)
+    } catch (error) {
+      console.warn("Failed to restore graphic from JSON:", error)
+      return null
+    }
+  },
+
+  // Extract geometry from graphic JSON
+  extractGeometryFromGraphicJson(
+    graphicJson: unknown,
+    modules: EsriModules
+  ): __esri.Geometry | null {
+    const graphic = this.restoreGraphicFromJson(graphicJson, modules)
+    return graphic?.geometry || null
   },
 }
 
-// Export calcArea and validatePolygon individually for tests and other modules
+// Exported geometry utilities
 export const calcArea = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
@@ -463,7 +374,21 @@ const buildFmeParams = (
   }
 }
 
-// Type guard for polygon-like JSON (Esri)
+// Type guard for graphic JSON with geometry
+const isGraphicJsonWithPolygon = (
+  value: unknown
+): value is { geometry: { rings: unknown } } => {
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("geometry" in v)) return false
+  const geometry = v.geometry
+  if (!geometry || typeof geometry !== "object") return false
+  if (!("rings" in geometry)) return false
+  const rings = geometry.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
+}
+
+// Type guard for polygon geometry JSON
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   if (!value || typeof value !== "object") return false
   const v: any = value
@@ -472,53 +397,28 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
-// Point coincidence helper reused for vertex counting. Left here because
-// calculateVertexCount still relies on it. Uses GEOMETRY_CONSTS for epsilon.
-const arePointsCoincident = (p1: unknown[], p2: unknown[]): boolean => {
-  return (
-    Array.isArray(p1) &&
-    Array.isArray(p2) &&
-    Math.abs((p1[0] as number) - (p2[0] as number)) <
-      GEOMETRY_CONSTS.COINCIDENT_EPSILON &&
-    Math.abs((p1[1] as number) - (p2[1] as number)) <
-      GEOMETRY_CONSTS.COINCIDENT_EPSILON
-  )
-}
-
-const calculateVertexCount = (geometry: __esri.Polygon): number => {
-  const vertices = geometry.rings?.[0]
-  if (!vertices || vertices.length < 2) return 0
-
-  const firstPoint = vertices[0]
-  const lastPoint = vertices[vertices.length - 1]
-
-  // Check if polygon is auto-closed
-  const isAutoClosed = arePointsCoincident(firstPoint, lastPoint)
-  return isAutoClosed ? vertices.length - 1 : vertices.length
-}
-
-// Attach polygon AOI if present
+// Attach AOI geometry to parameters
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
 ): { [key: string]: unknown } => {
-  const geometryToUse = geometryJson || currentGeometry?.toJSON()
-  if (isPolygonJson(geometryToUse)) {
-    let sr: unknown
-    try {
-      sr = currentGeometry?.toJSON()?.spatialReference
-    } catch (srError) {
-      console.warn(
-        "Widget - Failed to derive spatial reference from geometry:",
-        srError
-      )
-      /* ignore SR derivation errors */
-    }
-    // Use shared sanitization helper
-    const polygonJson = sanitizePolygonJson(geometryToUse, sr)
-    return { ...base, AreaOfInterest: JSON.stringify(polygonJson) }
+  // Prefer graphic JSON with geometry property
+  if (isGraphicJsonWithPolygon(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
   }
+
+  // Use direct geometry JSON
+  if (isPolygonJson(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
+  }
+
+  // Use current geometry as last resort
+  const geometryToUse = currentGeometry?.toJSON()
+  if (isPolygonJson(geometryToUse)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+  }
+
   return base
 }
 
@@ -532,7 +432,6 @@ const getEmail = async (): Promise<string> => {
   if (!email) {
     throw new Error("User email is required but not available")
   }
-
   return email
 }
 
@@ -594,14 +493,23 @@ const createLayers = (
 }
 
 // Create sketch VM
-const createSketchVM = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  layer: __esri.GraphicsLayer,
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void,
+const createSketchVM = ({
+  jmv,
+  modules,
+  layer,
+  onDrawComplete,
+  dispatch,
+  polygonSymbol,
+  drawingColors,
+}: {
+  jmv: JimuMapView
+  modules: EsriModules
+  layer: __esri.GraphicsLayer
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
   polygonSymbol: unknown
-) => {
+  drawingColors: ReturnType<typeof useDrawingColors>
+}) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
     layer,
@@ -621,10 +529,41 @@ const createSketchVM = (
       selfEnabled: true,
       featureEnabled: true,
     },
+    tooltipOptions: {
+      enabled: true,
+      inputEnabled: true,
+      visibleElements: {
+        area: true,
+        totalLength: true,
+        distance: true,
+        coordinates: false,
+        elevation: false,
+        rotation: false,
+        scale: false,
+        size: false,
+        radius: true,
+        direction: true,
+        header: true,
+        helpMessage: true,
+      },
+    },
+    valueOptions: {
+      directionMode: "relative",
+      displayUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+      inputUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+    },
   })
 
-  setSketchSymbols(sketchViewModel, polygonSymbol)
-  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch)
+  setSketchSymbols(sketchViewModel, polygonSymbol, drawingColors)
+  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch, modules)
 
   return sketchViewModel
 }
@@ -632,15 +571,17 @@ const createSketchVM = (
 // Configure sketch view model symbols
 const setSketchSymbols = (
   sketchViewModel: __esri.SketchViewModel,
-  polygonSymbol: unknown
+  polygonSymbol: unknown,
+  drawingColors: {
+    primary: [number, number, number]
+    white: [number, number, number, number]
+  }
 ) => {
-  const { colors } = CSS
-
   sketchViewModel.polygonSymbol = polygonSymbol as any
 
   sketchViewModel.polylineSymbol = {
     type: "simple-line",
-    color: colors.orangeOutline,
+    color: drawingColors.primary,
     width: 2,
     style: "solid",
   }
@@ -649,9 +590,9 @@ const setSketchSymbols = (
     type: "simple-marker",
     style: "circle",
     size: 8,
-    color: colors.orangeOutline,
+    color: drawingColors.primary,
     outline: {
-      color: colors.white,
+      color: drawingColors.white,
       width: 1,
     },
   }
@@ -684,7 +625,8 @@ const processSketchEvent = (
   evt: __esri.SketchCreateEvent,
   stateManager: ReturnType<typeof createDrawingStateManager>,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  modules: EsriModules
 ) => {
   const { resetState, updateClicks, getClickCount } = stateManager
 
@@ -703,7 +645,8 @@ const processSketchEvent = (
     case "active":
       if (evt.tool === "polygon" && evt.graphic?.geometry) {
         const geometry = evt.graphic.geometry as __esri.Polygon
-        const actualClicks = calculateVertexCount(geometry)
+        const vertices = geometry.rings?.[0]
+        const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
         updateClicks(actualClicks)
       } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
         updateClicks(1)
@@ -724,12 +667,13 @@ const processSketchEvent = (
 const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void
+  dispatch: (action: unknown) => void,
+  modules: EsriModules
 ) => {
   const stateManager = createDrawingStateManager(dispatch)
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    processSketchEvent(evt, stateManager, onDrawComplete, dispatch)
+    processSketchEvent(evt, stateManager, onDrawComplete, dispatch, modules)
   })
 }
 
@@ -780,26 +724,37 @@ const processFmeResponse = (
   }
 }
 
-// Number formatting for Swedish locale
-const NF_SV_NO_DECIMALS = new Intl.NumberFormat("sv-SE", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 0,
-})
-const NF_SV_AREA_KM = new Intl.NumberFormat("sv-SE", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
-})
-
-// Format area (metric; returns localized string)
-export function formatArea(area: number): string {
+// Format area with intl module if available
+export function formatArea(area: number, modules: EsriModules): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
+
+  // Use intl module for proper localization
+  const intlModule = (modules as any)?.intl
+  if (intlModule && typeof intlModule.formatNumber === "function") {
+    if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
+      const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
+      const formatted = intlModule.formatNumber(areaInSqKm, {
+        style: "decimal",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
+      })
+      return `${formatted} km²`
+    } else {
+      const formatted = intlModule.formatNumber(Math.round(area), {
+        style: "decimal",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })
+      return `${formatted} m²`
+    }
+  }
+
+  // Standard formatting when intl not available
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
-    const formattedKm = NF_SV_AREA_KM.format(areaInSqKm)
-    return `${formattedKm} km²`
+    return `${areaInSqKm.toFixed(GEOMETRY_CONSTS.AREA_DECIMALS)} km²`
   }
-  const formatted = NF_SV_NO_DECIMALS.format(Math.round(area))
-  return `${formatted} m²`
+  return `${Math.round(area).toLocaleString()} m²`
 }
 
 export default function Widget(
@@ -819,6 +774,7 @@ export default function Widget(
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
   const highlightSymbol = useHighlightSymbol()
+  const drawingColors = useDrawingColors()
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -902,11 +858,9 @@ export default function Widget(
 
   const { modules, loading: modulesLoading } = useModules()
   const localMapState = useMapState()
-  // Drawing start is invoked directly after cancel (no debounce timer)
-  // Abort controller
+
+  // Keep abort controllers for form submission where we need direct control
   const submissionAbortRef = React.useRef<AbortController | null>(null)
-  // Startup validation controller
-  const startupValidationAbortRef = React.useRef<AbortController | null>(null)
 
   // Destructure local map state
   const {
@@ -958,7 +912,7 @@ export default function Widget(
     }
   )
 
-  // Validation state management helpers
+  // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
     dispatch(fmeActions.setStartupValidationState(true, step))
   })
@@ -987,13 +941,8 @@ export default function Widget(
       })
   )
 
-  // Startup validation logic
+  // Run startup validation with improved error handling
   const runStartupValidation = hooks.useEventCallback(async () => {
-    // Reset any existing validation state
-    cancelController(startupValidationAbortRef)
-    startupValidationAbortRef.current = new AbortController()
-    const signal = startupValidationAbortRef.current.signal
-
     setValidationStep(translate("validatingConfiguration"))
 
     try {
@@ -1020,26 +969,11 @@ export default function Widget(
         return
       }
 
-      // Helper to run a labeled step with abort checks
-      const runStep = async (
-        stepKey: string,
-        action: () => Promise<unknown>
-      ): Promise<void> => {
-        setValidationStep(translate(stepKey))
-        const result = await action()
-        if (signal.aborted) throw new Error("AbortError")
-        return result as void
-      }
-
       const client = createFmeFlowClient(config)
-
-      // 1) Connection check
-      await runStep("validatingConnection", () => client.testConnection(signal))
-
-      // 2) Authentication (repo access)
-      await runStep("validatingAuthentication", () =>
-        client.validateRepository(config.repository, signal)
-      )
+      setValidationStep(translate("validatingConnection"))
+      await client.testConnection()
+      setValidationStep(translate("validatingAuthentication"))
+      await client.validateRepository(config.repository)
 
       // Update validation step
       setValidationStep(translate("validatingUserEmail"))
@@ -1068,9 +1002,6 @@ export default function Widget(
       // Validation successful - transition to normal operation
       setValidationSuccess()
     } catch (err: unknown) {
-      // Swallow aborts
-      if ((err as Error)?.name === "AbortError") return
-
       console.error("FME Export - Startup validation failed:", err)
 
       const { code, message } = errorService.deriveStartupError(err, translate)
@@ -1084,19 +1015,16 @@ export default function Widget(
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     runStartupValidation()
-
-    return () => {
-      // Cleanup validation on unmount
-      cancelController(startupValidationAbortRef)
-    }
   })
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    graphicsLayer?.removeAll()
+    if (graphicsLayer) {
+      graphicsLayer.removeAll()
+    }
   })
 
-  // Drawing complete
+  // Drawing complete with enhanced Graphic functionality
   const onDrawComplete = hooks.useEventCallback(
     (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
@@ -1115,14 +1043,9 @@ export default function Widget(
         // Geometry is valid polygon here
         const geomForUse = geometry as __esri.Polygon
 
-        // Set symbol
-        if (evt.graphic && modules) {
-          evt.graphic.symbol = highlightSymbol as any
-        }
-
         const calculatedArea = calcArea(geomForUse, modules)
 
-        // Max area
+        // Max area validation
         const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
@@ -1136,7 +1059,14 @@ export default function Widget(
           return
         }
 
-        dispatch(fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea)))
+        // Set visual symbol
+        if (evt.graphic) {
+          evt.graphic.symbol = highlightSymbol as any
+        }
+
+        // Store graphic JSON in Redux for persistence
+        const graphicJson = evt.graphic?.toJSON()
+        dispatch(fmeActions.setGeometry(graphicJson, Math.abs(calculatedArea)))
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         // Store current geometry in local state (not Redux - following golden rule)
@@ -1182,6 +1112,7 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
   })
 
+  // Handle successful submission
   const handleSubmissionSuccess = (
     fmeResponse: unknown,
     workspace: string,
@@ -1260,21 +1191,22 @@ export default function Widget(
 
   // Map view ready handler
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
+    // Always capture active JimuMapView
+    setJimuMapView(jmv)
     if (!modules) {
-      setJimuMapView(jmv)
       return
     }
     try {
-      setJimuMapView(jmv)
       const layer = createLayers(jmv, modules, setGraphicsLayer)
-      const svm = createSketchVM(
+      const svm = createSketchVM({
         jmv,
         modules,
         layer,
         onDrawComplete,
         dispatch,
-        highlightSymbol
-      )
+        polygonSymbol: highlightSymbol,
+        drawingColors,
+      })
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(
@@ -1343,22 +1275,13 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Ensure any in-progress draw is canceled before starting a new one
-    try {
-      sketchViewModel.cancel()
-    } catch {
-      /* noop */
-    }
+    sketchViewModel.cancel()
 
     // Start drawing immediately; prior cancel avoids overlap
-    try {
-      const svm = sketchViewModel as unknown as {
-        create: (t: "rectangle" | "polygon") => unknown
-      }
-      const arg: "rectangle" | "polygon" =
-        tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-      void svm.create(arg)
-    } catch {
-      /* noop */
+    const arg: "rectangle" | "polygon" =
+      tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+    if (sketchViewModel?.create) {
+      sketchViewModel.create(arg)
     }
   })
 
@@ -1366,6 +1289,9 @@ export default function Widget(
   const runtimeState = ReactRedux.useSelector(
     (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
   )
+
+  // Previous runtime state for comparison
+  const prevRuntimeState = hooks.usePrevious(runtimeState)
 
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
@@ -1396,7 +1322,6 @@ export default function Widget(
 
     // Abort any ongoing submission
     cancelController(submissionAbortRef)
-    cancelController(startupValidationAbortRef)
 
     // Cancel any in-progress drawing
     if (sketchViewModel) sketchViewModel.cancel()
@@ -1422,17 +1347,15 @@ export default function Widget(
     // Reset view mode to initial
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
   })
-
-  // Reset when widget is closed
-  const prevRuntimeStateRef = React.useRef<WidgetState | undefined>(undefined)
   hooks.useUpdateEffect(() => {
-    const prev = prevRuntimeStateRef.current
-    // Trigger reset when transitioning into Closed from any non-Closed state
-    if (runtimeState === WidgetState.Closed && prev !== WidgetState.Closed) {
+    // Reset when widget is closed
+    if (
+      runtimeState === WidgetState.Closed &&
+      prevRuntimeState !== WidgetState.Closed
+    ) {
       handleReset()
     }
-    prevRuntimeStateRef.current = runtimeState
-  }, [runtimeState, handleReset])
+  }, [runtimeState, prevRuntimeState, handleReset])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
@@ -1517,6 +1440,7 @@ export default function Widget(
           reduxState.clickCount
         )}
         isModulesLoading={modulesLoading}
+        modules={modules}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
@@ -1525,7 +1449,7 @@ export default function Widget(
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
-        formatArea={formatArea}
+        formatArea={(area: number) => formatArea(area, modules)}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool))
@@ -1536,15 +1460,7 @@ export default function Widget(
             sketchViewModel
           ) {
             // Cancel any ongoing drawing
-            try {
-              sketchViewModel.cancel()
-            } catch (cancelError) {
-              console.warn(
-                "Widget - Failed to cancel sketch operation:",
-                cancelError
-              )
-              /* noop */
-            }
+            sketchViewModel.cancel()
             // Start new drawing with the selected tool
             handleStartDrawing(tool)
           }

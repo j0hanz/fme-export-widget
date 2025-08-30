@@ -49,7 +49,15 @@ jest.mock("jimu-arcgis", () => ({
         this.removeAll = () => undefined
         return null as any
       },
-      function Graphic() {
+      {
+        planarArea: jest.fn(),
+        geodesicArea: jest.fn(),
+        simplify: jest.fn((geom) => geom),
+        isSimple: jest.fn(() => true),
+      }, // geometryEngine
+      {}, // webMercatorUtils
+      {}, // reactiveUtils
+      function Polyline() {
         // no-op
         return null as any
       },
@@ -57,19 +65,10 @@ jest.mock("jimu-arcgis", () => ({
         // no-op
         return null as any
       },
-      function Extent() {
+      function Graphic() {
         // no-op
         return null as any
       },
-      function AreaMeasurement2D() {
-        // no-op
-        return null as any
-      },
-      function DistanceMeasurement2D() {
-        // no-op
-        return null as any
-      },
-      { planarArea: jest.fn(), geodesicArea: jest.fn() },
     ])
   }),
 }))
@@ -114,10 +113,25 @@ describe("FME Export Widget", () => {
     ({
       SketchViewModel: jest.fn() as any,
       GraphicsLayer: jest.fn() as any,
-      Graphic: jest.fn() as any,
-      Polygon: jest.fn() as any,
-      Extent: jest.fn() as any,
       geometryEngine,
+      webMercatorUtils: {} as any,
+      reactiveUtils: {} as any,
+      Polyline: jest.fn() as any,
+      Polygon: {
+        fromJSON: jest.fn((json: any) => ({
+          rings: json.rings,
+          spatialReference: json.spatialReference,
+        })),
+      } as any,
+      Graphic: {
+        fromJSON: jest.fn((json: any) => ({
+          geometry: json.geometry,
+          attributes: json.attributes,
+          symbol: json.symbol,
+          popupTemplate: json.popupTemplate,
+          toJSON: jest.fn(() => json),
+        })),
+      } as any,
     }) as any
 
   beforeAll(() => {
@@ -432,50 +446,53 @@ describe("FME Export Widget", () => {
   })
 
   test("formatArea produces expected metric strings", () => {
-    expect(formatArea(NaN)).toBe("0 m²")
-    expect(formatArea(0)).toBe("0 m²")
-    expect(formatArea(12.3)).toBe("12 m²")
+    // Create mock modules for formatArea function
+    const mockModules = makeModules({
+      isSimple: () => true,
+      simplify: (g: any) => g,
+    })
+
+    expect(formatArea(NaN, mockModules)).toBe("0 m²")
+    expect(formatArea(0, mockModules)).toBe("0 m²")
+    expect(formatArea(12.3, mockModules)).toBe("12 m²")
     // Large value switches to km² (locale may vary in tests)
-    const out = formatArea(1_234_567)
+    const out = formatArea(1_234_567, mockModules)
     expect(out.endsWith(" km²")).toBe(true)
   })
 
-  test("validatePolygon enforces polygon-only and ring rules", () => {
-    // Use isSimple=true to bypass self-intersection except targeted test
-    const modules: any = makeModules({ isSimple: () => true })
+  test("validatePolygon checks existence, polygon type, and self-intersection via engine", () => {
+    // Use makeModules to create EsriModules with geometryEngine stub
+    const modules: any = makeModules({
+      isSimple: () => true,
+      simplify: (g: any) => g,
+    })
     // Invalid: no geometry
     let res = validatePolygon(undefined as any, modules)
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_MISSING")
 
     // Invalid: wrong type
-    const notPolygon: any = { type: "point" }
+    const notPolygon: any = {
+      type: "point",
+      toJSON() {
+        return this
+      },
+    }
     res = validatePolygon(notPolygon, modules)
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_TYPE_INVALID")
 
-    // Invalid: empty rings
-    const emptyPoly: any = { type: "polygon", rings: [] }
-    res = validatePolygon(emptyPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_NO_RINGS")
-
-    // Invalid ring: fewer than 3 unique points
-    const badRingPoly: any = {
+    // Empty polygon is considered valid (no rings to be invalid)
+    const emptyPoly: any = {
       type: "polygon",
-      rings: [
-        [
-          [0, 0],
-          [0, 0],
-          [0, 0],
-        ],
-      ],
+      rings: [],
+      toJSON() {
+        return this
+      },
     }
-    res = validatePolygon(badRingPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_MIN_VERTICES")
+    res = validatePolygon(emptyPoly, modules)
+    expect(res.valid).toBe(true)
 
-    // Invalid ring: not closed
     const openRingPoly: any = {
       type: "polygon",
       rings: [
@@ -485,10 +502,12 @@ describe("FME Export Widget", () => {
           [1, 1],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(openRingPoly, modules)
-    expect(res.valid).toBe(false)
-    expect(res.error?.code).toBe("GEOM_RING_NOT_CLOSED")
+    expect(res.valid).toBe(true)
 
     // Valid simple polygon (closed and simple)
     const simplePoly: any = {
@@ -502,12 +521,18 @@ describe("FME Export Widget", () => {
           [0, 0],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(simplePoly, modules)
     expect(res.valid).toBe(true)
 
     // Self-intersecting polygon detected by isSimple=false
-    const modulesIntersect: any = makeModules({ isSimple: () => false })
+    const modulesIntersect: any = makeModules({
+      isSimple: () => false,
+      simplify: (g: any) => g,
+    })
     const bowtie: any = {
       type: "polygon",
       rings: [
@@ -519,10 +544,18 @@ describe("FME Export Widget", () => {
           [0, 0],
         ],
       ],
+      toJSON() {
+        return this
+      },
     }
     res = validatePolygon(bowtie, modulesIntersect)
     expect(res.valid).toBe(false)
     expect(res.error?.code).toBe("GEOM_SELF_INTERSECTING")
+
+    // Without geometryEngine, assume valid if geometry exists and is polygon
+    const noEngine: any = makeModules(null)
+    res = validatePolygon(simplePoly, noEngine)
+    expect(res.valid).toBe(true)
   })
 
   test("calcArea chooses geodesic for geographic/WebMercator and planar otherwise", () => {
@@ -540,16 +573,23 @@ describe("FME Export Widget", () => {
           ],
         ],
         spatialReference: sr,
+        toJSON() {
+          return this
+        },
       }) as any
 
     // Stub geometryEngine to return deterministic values
     const geomEngGeo = {
       geodesicArea: jest.fn(() => 123),
       planarArea: jest.fn(() => 456),
+      simplify: jest.fn((geom) => geom),
+      isSimple: jest.fn(() => true),
     }
     const geomEngPlanar = {
       geodesicArea: jest.fn(() => 0),
       planarArea: jest.fn(() => 789),
+      simplify: jest.fn((geom) => geom),
+      isSimple: jest.fn(() => true),
     }
 
     // Geographic SR -> geodesic
@@ -571,7 +611,17 @@ describe("FME Export Widget", () => {
     expect(geomEngPlanar.planarArea).toHaveBeenCalled()
 
     // Non-polygon or missing engine -> 0
-    expect(calcArea({ type: "point" } as any, modules)).toBe(0)
+    expect(
+      calcArea(
+        {
+          type: "point",
+          toJSON() {
+            return this
+          },
+        } as any,
+        modules
+      )
+    ).toBe(0)
     expect(calcArea(mkPoly({}), makeModules(null))).toBe(0)
   })
 
@@ -757,7 +807,15 @@ describe("FME Export Widget", () => {
     const modules: any = makeModules(null)
     const dummyRender = withStoreRender(false)
     expect(typeof dummyRender).toBe("function")
-    const area = calcArea({ type: "point" } as any, modules)
+    const area = calcArea(
+      {
+        type: "point",
+        toJSON() {
+          return this
+        },
+      } as any,
+      modules
+    )
     expect(area).toBe(0)
   })
 
