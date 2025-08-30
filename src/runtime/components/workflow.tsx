@@ -51,8 +51,8 @@ import {
   getSupportEmail,
 } from "../../shared/utils"
 
-// Debounce interval for workspace loading
-const DEBOUNCE_MS = 500
+// Loading delay to avoid flicker on fast operations
+const MS_LOADING = 500
 
 // Workspace item type constant
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
@@ -247,8 +247,11 @@ const useWorkspaceLoader = (
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  // Abort controller ref
+  // Abort controller and timeout refs
   const loadAbortRef = React.useRef<AbortController | null>(null)
+  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
 
   // Track mount to avoid state updates after unmount
   const isMountedRef = React.useRef(true)
@@ -259,6 +262,11 @@ const useWorkspaceLoader = (
       if (loadAbortRef.current) {
         loadAbortRef.current.abort()
         loadAbortRef.current = null
+      }
+      // Clear any scheduled timeout
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current)
+        loadTimeoutRef.current = null
       }
     }
   })
@@ -382,12 +390,14 @@ const useWorkspaceLoader = (
   })
 
   // Debounced loader
-  const debouncedLoadAll = hooks.useDebounceCallback(() => {
-    return loadAll()
-  }, DEBOUNCE_MS)
-
   const scheduleLoad = hooks.useEventCallback(() => {
-    debouncedLoadAll()
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current)
+    }
+    loadTimeoutRef.current = setTimeout(() => {
+      loadAll()
+      loadTimeoutRef.current = null
+    }, MS_LOADING)
   })
 
   return {

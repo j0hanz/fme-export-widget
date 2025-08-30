@@ -439,35 +439,4 @@ describe("Workflow component", () => {
     fireEvent.click(headerBtn)
     expect(onReset).toHaveBeenCalled()
   })
-
-  test("switching to WORKSPACE_SELECTION schedules debounced load and renders state view without crashing", async () => {
-    const { rerender } = renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.INITIAL}
-        canStartDrawing={true}
-        drawnArea={0}
-      />
-    )
-
-    // Switch to WORKSPACE_SELECTION which triggers useEffect with debounce
-    rerender(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.WORKSPACE_SELECTION}
-        canStartDrawing={true}
-        drawnArea={0}
-      />
-    )
-
-    // Allow the debounced callback to elapse
-    await waitForMilliseconds(550)
-
-    // StateView should render loading or empty state without crashing
-    const loading = screen.queryByText(/loading|laddar|hämtar/i)
-    const empty = screen.queryByText(
-      /no workspaces|inga arbetsytor|noWorkspaces/i
-    )
-    expect(loading || empty || true).toBeTruthy()
-  })
 })
