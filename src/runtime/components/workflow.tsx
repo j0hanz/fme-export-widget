@@ -20,9 +20,6 @@ import {
   FormFieldType,
   type WorkflowProps,
   type WorkspaceItem,
-  type WorkspaceParameter,
-  type WorkspaceItemDetail,
-  type FmeExportConfig,
   type FormPrimitive,
   type FormValues,
   type SelectValue,
@@ -120,19 +117,15 @@ const shouldShowWsLoading = (
 // Form validation helpers for better separation of concerns
 const createFormValidator = (
   parameterService: ParameterFormService,
-  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceParameters: readonly any[]
 ) => {
-  const getFormConfig = hooks.useEventCallback(() =>
+  const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
-  )
 
-  const validateValues = hooks.useEventCallback((values: FormValues) =>
+  const validateValues = (values: FormValues) =>
     parameterService.validateFormValues(values, getFormConfig())
-  )
 
-  const initializeValues = hooks.useEventCallback(() =>
-    initValues(getFormConfig())
-  )
+  const initializeValues = () => initValues(getFormConfig())
 
   return { getFormConfig, validateValues, initializeValues }
 }
@@ -236,15 +229,15 @@ const stripLabelFromError = (errorText?: string): string | undefined => {
 }
 
 const useWorkspaceLoader = (
-  config: FmeExportConfig | undefined,
+  config: any,
   getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null,
   translate: (k: string) => string,
   translateRuntime: (k: string) => string,
   makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>,
   onWorkspaceSelected?: (
     workspaceName: string,
-    params: readonly WorkspaceParameter[],
-    item: WorkspaceItemDetail
+    params: readonly any[],
+    item: any
   ) => void
 ) => {
   // Local state for workspaces, loading flag and error message
@@ -333,9 +326,9 @@ const useWorkspaceLoader = (
       if (controller.signal.aborted) return
       if (response.status === 200 && response.data.items) {
         // Filter and sort by title or name
-        const items = (response.data.items as readonly WorkspaceItem[]).filter(
-          (i: WorkspaceItem) => i.type === WORKSPACE_ITEM_TYPE
-        )
+        const items = (response.data.items as readonly any[]).filter(
+          (i: any) => i.type === WORKSPACE_ITEM_TYPE
+        ) as readonly WorkspaceItem[]
         const sorted = items.slice().sort((a, b) =>
           (a.title || a.name).localeCompare(b.title || b.name, undefined, {
             sensitivity: "base",
@@ -368,7 +361,7 @@ const useWorkspaceLoader = (
     setError(null)
 
     try {
-      const response: ApiResponse<WorkspaceItemDetail> = await makeCancelable(
+      const response: ApiResponse<any> = await makeCancelable(
         fmeClient.getWorkspaceItem(
           workspaceName,
           config.repository,
@@ -550,155 +543,155 @@ const OrderResult: React.FC<OrderResultProps> = ({
 }
 
 // Dynamic field component for rendering various form fields based on configuration
-const DynamicField: React.FC<DynamicFieldProps> = React.memo(
-  ({ field, value, onChange, translate }) => {
-    const isMulti = field.type === FormFieldType.MULTI_SELECT
-    const fieldValue = normalizeFormValue(value, isMulti)
-    const placeholders = makePlaceholders(translate, field.label)
+const DynamicField: React.FC<DynamicFieldProps> = ({
+  field,
+  value,
+  onChange,
+  translate,
+}) => {
+  const isMulti = field.type === FormFieldType.MULTI_SELECT
+  const fieldValue = normalizeFormValue(value, isMulti)
+  const placeholders = makePlaceholders(translate, field.label)
 
-    // Determine if the field is a select type
-    const isSelectType =
-      field.type === FormFieldType.SELECT ||
-      field.type === FormFieldType.MULTI_SELECT
-    const selectOptions = (field.options || []) as ReadonlyArray<{
-      readonly value?: unknown
-    }>
-    const isSingleOption =
-      isSelectType && !isMulti && selectOptions.length === 1
-    const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
+  // Determine if the field is a select type
+  const isSelectType =
+    field.type === FormFieldType.SELECT ||
+    field.type === FormFieldType.MULTI_SELECT
+  const selectOptions = (field.options || []) as ReadonlyArray<{
+    readonly value?: unknown
+  }>
+  const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
+  const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
 
-    // Compute if select values can be coerced to numbers
-    const computeSelectCoerce = hooks.useEventCallback(
-      (): "number" | "string" | undefined => {
-        if (!isSelectType || !selectOptions.length) return undefined
-        const vals = selectOptions.map((o) => o.value)
-        const allNumeric = vals.every((v) => {
-          if (typeof v === "number") return Number.isFinite(v)
-          if (typeof v === "string") {
-            if (v.trim() === "") return false
-            const n = Number(v)
-            return Number.isFinite(n) && String(n) === v
-          }
-          return false
-        })
-        return allNumeric ? "number" : undefined
+  // Compute if select values can be coerced to numbers
+  const computeSelectCoerce = (): "number" | "string" | undefined => {
+    if (!isSelectType || !selectOptions.length) return undefined
+    const vals = selectOptions.map((o) => o.value)
+    const allNumeric = vals.every((v) => {
+      if (typeof v === "number") return Number.isFinite(v)
+      if (typeof v === "string") {
+        if (v.trim() === "") return false
+        const n = Number(v)
+        return Number.isFinite(n) && String(n) === v
       }
-    )
-    const selectCoerce = computeSelectCoerce()
-
-    hooks.useEffectOnce(() => {
-      if (!isSingleOption) return
-      const current = fieldValue as SelectValue
-      const isUnset =
-        current === undefined || (typeof current === "string" && current === "")
-      if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
-        onChange(onlyVal as FormPrimitive)
-      }
+      return false
     })
-    // Render field based on its type
-    const renderByType = (): JSX.Element => {
-      switch (field.type) {
-        case FormFieldType.SELECT:
-        case FormFieldType.MULTI_SELECT: {
-          const options = field.options || []
-
-          return (
-            <Select
-              value={
-                isSingleOption
-                  ? (options[0]?.value as SelectValue)
-                  : (fieldValue as SelectValue)
-              }
-              options={options}
-              placeholder={placeholders.select}
-              onChange={(val) => {
-                onChange(val as FormPrimitive)
-              }}
-              aria-label={field.label}
-              disabled={field.readOnly || isSingleOption}
-              coerce={selectCoerce}
-            />
-          )
-        }
-        case FormFieldType.TEXTAREA:
-          return (
-            <TextArea
-              value={fieldValue as string}
-              placeholder={placeholders.enter}
-              onChange={(val) => {
-                onChange(val)
-              }}
-              disabled={field.readOnly}
-              rows={field.rows}
-            />
-          )
-        case FormFieldType.NUMBER:
-          return renderInput(
-            "number",
-            fieldValue as FormPrimitive,
-            placeholders.enter,
-            onChange,
-            field.readOnly
-          )
-        case FormFieldType.CHECKBOX:
-          return (
-            <Checkbox
-              checked={Boolean(fieldValue)}
-              onChange={(evt) => {
-                onChange(evt.target.checked)
-              }}
-              disabled={field.readOnly}
-              aria-label={field.label}
-            />
-          )
-        case FormFieldType.PASSWORD:
-          return (
-            <Input
-              type="password"
-              value={(fieldValue as string) || ""}
-              placeholder={field.placeholder || placeholders.enter}
-              onChange={(val) => {
-                onChange(val)
-              }}
-              disabled={field.readOnly}
-              maxLength={field.maxLength}
-            />
-          )
-        case FormFieldType.FILE:
-          return (
-            <Input
-              type="file"
-              onFileChange={(evt) => {
-                const files = evt.target.files
-                onChange(
-                  files
-                    ? (files[0] as unknown as FormPrimitive)
-                    : (null as FormPrimitive)
-                )
-              }}
-              disabled={field.readOnly}
-              aria-label={field.label}
-            />
-          )
-        case FormFieldType.TEXT:
-          return (
-            <Input
-              type="text"
-              value={(fieldValue as string) || ""}
-              placeholder={field.placeholder || placeholders.enter}
-              onChange={(val) => {
-                onChange(val)
-              }}
-              disabled={field.readOnly}
-              maxLength={field.maxLength}
-            />
-          )
-      }
-    }
-
-    return renderByType()
+    return allNumeric ? "number" : undefined
   }
-)
+  const selectCoerce = computeSelectCoerce()
+
+  hooks.useEffectOnce(() => {
+    if (!isSingleOption) return
+    const current = fieldValue as SelectValue
+    const isUnset =
+      current === undefined || (typeof current === "string" && current === "")
+    if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
+      onChange(onlyVal as FormPrimitive)
+    }
+  })
+  // Render field based on its type
+  const renderByType = (): JSX.Element => {
+    switch (field.type) {
+      case FormFieldType.SELECT:
+      case FormFieldType.MULTI_SELECT: {
+        const options = field.options || []
+
+        return (
+          <Select
+            value={
+              isSingleOption
+                ? (options[0]?.value as SelectValue)
+                : (fieldValue as SelectValue)
+            }
+            options={options}
+            placeholder={placeholders.select}
+            onChange={(val) => {
+              onChange(val as FormPrimitive)
+            }}
+            aria-label={field.label}
+            disabled={field.readOnly || isSingleOption}
+            coerce={selectCoerce}
+          />
+        )
+      }
+      case FormFieldType.TEXTAREA:
+        return (
+          <TextArea
+            value={fieldValue as string}
+            placeholder={placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            rows={field.rows}
+          />
+        )
+      case FormFieldType.NUMBER:
+        return renderInput(
+          "number",
+          fieldValue as FormPrimitive,
+          placeholders.enter,
+          onChange,
+          field.readOnly
+        )
+      case FormFieldType.CHECKBOX:
+        return (
+          <Checkbox
+            checked={Boolean(fieldValue)}
+            onChange={(evt) => {
+              onChange(evt.target.checked)
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
+        )
+      case FormFieldType.PASSWORD:
+        return (
+          <Input
+            type="password"
+            value={(fieldValue as string) || ""}
+            placeholder={field.placeholder || placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            maxLength={field.maxLength}
+          />
+        )
+      case FormFieldType.FILE:
+        return (
+          <Input
+            type="file"
+            onFileChange={(evt) => {
+              const files = evt.target.files
+              onChange(
+                files
+                  ? (files[0] as unknown as FormPrimitive)
+                  : (null as FormPrimitive)
+              )
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
+        )
+      case FormFieldType.TEXT:
+        return (
+          <Input
+            type="text"
+            value={(fieldValue as string) || ""}
+            placeholder={field.placeholder || placeholders.enter}
+            onChange={(val) => {
+              onChange(val)
+            }}
+            disabled={field.readOnly}
+            maxLength={field.maxLength}
+          />
+        )
+    }
+  }
+
+  return renderByType()
+}
 
 // ExportForm component - handles dynamic form generation and submission
 const ExportForm: React.FC<ExportFormProps> = ({
@@ -885,20 +878,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
-  // Render drawing mode selection tabs
-  const renderDrawingModeTabs = hooks.useEventCallback(() => (
-    <div css={styles.centered}>
-      <ButtonTabs
-        items={getDrawingModeItems()}
-        value={drawingMode}
-        onChange={(val) => {
-          onDrawingModeChange?.(val as DrawingTool)
-        }}
-        ariaLabel={translate("drawingModeTooltip")}
-      />
-    </div>
-  ))
-
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
@@ -967,8 +946,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     clientRef.current = null
   }, [config])
 
-  // Workspace loading utilities
-  const workspaceHooks = useWorkspaceLoader(
+  // Load workspaces using custom hook
+  const {
+    workspaces,
+    isLoading: isLoadingWorkspaces,
+    error: workspaceError,
+    loadAll: loadWsList,
+    loadItem: loadWorkspace,
+    scheduleLoad: scheduleWsLoad,
+  } = useWorkspaceLoader(
     config,
     getFmeClient,
     translate,
@@ -977,17 +963,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     onWorkspaceSelected
   )
 
-  const {
-    workspaces,
-    isLoading: isLoadingWorkspaces,
-    error: workspaceError,
-    loadAll: loadWsList,
-    loadItem: loadWorkspace,
-    scheduleLoad: scheduleWsLoad,
-  } = workspaceHooks
-
-  // Render workspace buttons with stable event callbacks
-  const renderWsButtons = hooks.useEventCallback(() =>
+  // Render workspace buttons
+  const renderWsButtons = () =>
     workspaces.map((workspace) => (
       <Button
         key={workspace.name}
@@ -1004,7 +981,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
         }}
       />
     ))
-  )
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
@@ -1024,8 +1000,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     scheduleWsLoad,
   ])
 
-  // Header rendering with stable callbacks
-  const renderHeader = hooks.useEventCallback(() => {
+  // Header
+  const renderHeader = () => {
     const resetEnabled = canReset(
       onReset,
       canResetProp,
@@ -1052,17 +1028,28 @@ export const Workflow: React.FC<WorkflowProps> = ({
         block={false}
       />
     )
-  })
+  }
 
-  const renderInitial = hooks.useEventCallback(() => {
+  const renderInitial = () => {
     if (isModulesLoading) {
       return renderLoading(undefined, translate("preparingMapTools"))
     }
 
-    return renderDrawingModeTabs()
-  })
+    return (
+      <div css={styles.centered}>
+        <ButtonTabs
+          items={getDrawingModeItems()}
+          value={drawingMode}
+          onChange={(val) => {
+            onDrawingModeChange?.(val as DrawingTool)
+          }}
+          ariaLabel={translate("drawingModeTooltip")}
+        />
+      </div>
+    )
+  }
 
-  const renderDrawing = hooks.useEventCallback(() => (
+  const renderDrawing = () => (
     <div
       css={styles.typography.instruction}
       role="status"
@@ -1071,9 +1058,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     >
       {instructionText}
     </div>
-  ))
+  )
 
-  const renderSelection = hooks.useEventCallback(() => {
+  const renderSelection = () => {
     const shouldShowLoading = shouldShowWsLoading(
       isLoadingWorkspaces,
       workspaces,
@@ -1108,9 +1095,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         {renderWsButtons()}
       </div>
     )
-  })
+  }
 
-  const renderForm = hooks.useEventCallback(() => {
+  const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
       return renderError(translate("missingExportConfiguration"), onBack)
     }
@@ -1130,9 +1117,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         translate={translate}
       />
     )
-  })
+  }
 
-  const renderCurrent = hooks.useEventCallback(() => {
+  const renderCurrent = () => {
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
         const supportHint =
@@ -1188,11 +1175,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
-        // Show drawing mode tabs only if not actively drawing
         if ((clickCount || 0) === 0) {
-          return renderDrawingModeTabs()
+          return (
+            <div css={styles.centered}>
+              <ButtonTabs
+                items={getDrawingModeItems()}
+                value={drawingMode}
+                onChange={(val) => {
+                  onDrawingModeChange?.(val as DrawingTool)
+                }}
+                ariaLabel={translate("drawingModeTooltip")}
+              />
+            </div>
+          )
         }
-        // Otherwise show drawing instructions
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:
@@ -1202,7 +1198,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.ORDER_RESULT:
         return renderError(translate("orderResultMissing"), onBack)
     }
-  })
+  }
 
   return (
     <div css={styles.parent}>
