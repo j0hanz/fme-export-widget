@@ -5,7 +5,6 @@ import {
   type AllWidgetProps,
   hooks,
   jsx,
-  type ImmutableObject,
   ReactRedux,
   type IMState,
   WidgetState,
@@ -1460,9 +1459,11 @@ export default function Widget(
 }
 
 // Map extra state props for the widget
-;(Widget as unknown as { mapExtraStateProps: unknown }).mapExtraStateProps = (
-  state: IMStateWithFmeExport
-) => {
-  const widgetState = state["fme-state"] as ImmutableObject<FmeWidgetState>
-  return { state: widgetState || initialFmeState }
-}
+Reflect.set(
+  Widget as any,
+  "mapExtraStateProps",
+  (state: IMStateWithFmeExport) => {
+    const widgetState = state["fme-state"]
+    return { state: (widgetState as any) || initialFmeState }
+  }
+)

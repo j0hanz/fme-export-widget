@@ -2,6 +2,7 @@ import type {
   ErrorState,
   WorkspaceParameter,
   DynamicFieldConfig,
+  FormPrimitive,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
 
@@ -284,7 +285,7 @@ export class ParameterFormService {
       required: !param.optional,
       readOnly: false,
       description: param.description,
-      defaultValue: param.defaultValue,
+      defaultValue: param.defaultValue as FormPrimitive,
       placeholder: param.description || `Enter ${param.name}`,
     }
 
