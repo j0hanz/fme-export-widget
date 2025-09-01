@@ -48,38 +48,45 @@ import {
 
 // Dynamic ESRI module loader with test stub support
 const loadEsriModules = async (modules: string[]): Promise<any[]> => {
-  // Test stub for unit tests
   const testStub = (global as any).__ESRI_TEST_STUB__
   if (typeof testStub === "function") return testStub(modules)
-  // Use jimu-arcgis loader directly
+
   const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
   const loaded = await loadArcGISJSAPIModules(modules)
-  // Unwrap default exports consistently
   return loaded.map((m: any) => m?.default ?? m)
 }
 
-// Highlight symbol
-const getHighlightSymbol = () => {
-  const [r, g, b] = [0, 121, 193]
-  return {
-    type: "simple-fill" as const,
-    color: [r, g, b, 0.2] as [number, number, number, number],
-    outline: {
-      color: [r, g, b] as [number, number, number],
-      width: 2,
-      style: "solid" as const,
-    },
-  }
+// Constants for styling and symbols
+const DRAWING_COLOR = [0, 121, 193] as const
+
+const HIGHLIGHT_SYMBOL = {
+  type: "simple-fill" as const,
+  color: [...DRAWING_COLOR, 0.2] as [number, number, number, number],
+  outline: {
+    color: DRAWING_COLOR,
+    width: 2,
+    style: "solid" as const,
+  },
 }
 
-// Drawing symbols
-const getDrawingColors = () => {
-  const [r, g, b] = [0, 121, 193]
-
-  return {
-    primary: [r, g, b] as [number, number, number],
-    white: [255, 255, 255, 1] as [number, number, number, number],
-  }
+const DRAWING_SYMBOLS = {
+  polygon: HIGHLIGHT_SYMBOL,
+  polyline: {
+    type: "simple-line",
+    color: DRAWING_COLOR,
+    width: 2,
+    style: "solid",
+  },
+  point: {
+    type: "simple-marker",
+    style: "circle",
+    size: 8,
+    color: DRAWING_COLOR,
+    outline: {
+      color: [255, 255, 255],
+      width: 1,
+    },
+  },
 }
 
 // ArcGIS JS API modules
@@ -270,116 +277,83 @@ const useAbortController = () => {
   return { ref, cancel, create }
 }
 
-// Optimized geometry utilities with consistent error handling
-const geometryUtils = {
-  calcArea(
-    geometry: __esri.Geometry | undefined,
-    modules: EsriModules
-  ): number {
-    if (
-      !geometry ||
-      geometry.type !== "polygon" ||
-      !modules?.geometryEngine ||
-      !modules?.Polygon
-    ) {
-      return 0
-    }
+// Simple geometry calculation utility
+const calcArea = (
+  geometry: __esri.Geometry | undefined,
+  modules: EsriModules
+): number => {
+  if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
+    return 0
+  }
 
-    try {
-      const polygon = modules.Polygon.fromJSON(geometry.toJSON())
-      const engine = modules.geometryEngine
-      const simplified = (engine.simplify(polygon) || polygon) as __esri.Polygon
+  try {
+    const polygon = modules.Polygon.fromJSON(geometry.toJSON())
+    const engine = modules.geometryEngine
+    const simplified = (engine.simplify(polygon) || polygon) as __esri.Polygon
 
-      // Use geodesic calculation for geographic/web mercator spatial references
-      const sr = polygon.spatialReference
-      const useGeodesic = sr?.isGeographic || sr?.isWebMercator
-      const area = useGeodesic
-        ? engine.geodesicArea(simplified, "square-meters")
-        : engine.planarArea(simplified, "square-meters")
+    const sr = polygon.spatialReference
+    const useGeodesic = sr?.isGeographic || sr?.isWebMercator
+    const area = useGeodesic
+      ? engine.geodesicArea(simplified, "square-meters")
+      : engine.planarArea(simplified, "square-meters")
 
-      return Number.isFinite(area) ? Math.abs(area) : 0
-    } catch (error) {
-      console.warn("Error calculating geometry area:", error)
-      return 0
-    }
-  },
-
-  validatePolygon(
-    geometry: __esri.Geometry | undefined,
-    modules: EsriModules
-  ): { valid: boolean; error?: ErrorState } {
-    if (!geometry) {
-      return {
-        valid: false,
-        error: errorService.createError(
-          "GEOMETRY_MISSING",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_MISSING" }
-        ),
-      }
-    }
-
-    if (geometry.type !== "polygon") {
-      return {
-        valid: false,
-        error: errorService.createError(
-          "GEOMETRY_TYPE_INVALID",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_TYPE_INVALID" }
-        ),
-      }
-    }
-
-    // Skip complex validation if geometryEngine unavailable
-    if (!modules?.geometryEngine) {
-      return { valid: true }
-    }
-
-    try {
-      const polygon = modules.Polygon.fromJSON(geometry.toJSON())
-      if (!modules.geometryEngine.isSimple(polygon)) {
-        return {
-          valid: false,
-          error: errorService.createError(
-            "POLYGON_SELF_INTERSECTING",
-            ErrorType.GEOMETRY,
-            { code: "GEOM_SELF_INTERSECTING" }
-          ),
-        }
-      }
-    } catch (error) {
-      console.warn("Error validating polygon:", error)
-      // Allow geometry to pass validation if engine fails
-    }
-
-    return { valid: true }
-  },
-
-  // Simplified graphic restoration
-  restoreGraphicFromJson(
-    graphicJson: unknown,
-    modules: EsriModules
-  ): __esri.Graphic | null {
-    if (!modules?.Graphic || !graphicJson) return null
-    try {
-      return modules.Graphic.fromJSON(graphicJson)
-    } catch (error) {
-      console.warn("Failed to restore graphic from JSON:", error)
-      return null
-    }
-  },
+    return Number.isFinite(area) ? Math.abs(area) : 0
+  } catch (error) {
+    console.warn("Error calculating geometry area:", error)
+    return 0
+  }
 }
 
-// Exported geometry utilities
-export const calcArea = (
+// Simple polygon validation
+const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
-): number => geometryUtils.calcArea(geometry, modules)
-export const validatePolygon = (
-  geometry: __esri.Geometry | undefined,
-  modules: EsriModules
-): { valid: boolean; error?: ErrorState } =>
-  geometryUtils.validatePolygon(geometry, modules)
+): { valid: boolean; error?: ErrorState } => {
+  if (!geometry) {
+    return {
+      valid: false,
+      error: errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
+        code: "GEOM_MISSING",
+      }),
+    }
+  }
+
+  if (geometry.type !== "polygon") {
+    return {
+      valid: false,
+      error: errorService.createError(
+        "GEOMETRY_TYPE_INVALID",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_TYPE_INVALID" }
+      ),
+    }
+  }
+
+  if (!modules?.geometryEngine) {
+    return { valid: true }
+  }
+
+  try {
+    const polygon = modules.Polygon.fromJSON(geometry.toJSON())
+    if (!modules.geometryEngine.isSimple(polygon)) {
+      return {
+        valid: false,
+        error: errorService.createError(
+          "POLYGON_SELF_INTERSECTING",
+          ErrorType.GEOMETRY,
+          { code: "GEOM_SELF_INTERSECTING" }
+        ),
+      }
+    }
+  } catch (error) {
+    console.warn("Error validating polygon:", error)
+  }
+
+  return { valid: true }
+}
+
+// Export utility functions
+export { calcArea, validatePolygon }
 
 // Validate area constraints
 const checkMaxArea = (
@@ -397,68 +371,49 @@ const checkMaxArea = (
   }
 }
 
-// Build the base submission parameters object
-const buildFmeParams = (
+// Prepare FME parameters with geometry
+const prepareFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: "sync" | "async" = "async"
+  geometryJson: unknown,
+  currentGeometry: __esri.Geometry | undefined,
+  config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
-  return {
+  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
+
+  const params: { [key: string]: unknown } = {
     ...data,
     opt_requesteremail: userEmail,
-    opt_servicemode: serviceMode,
+    opt_servicemode: mode,
     opt_responseformat: "json",
     opt_showresult: "true",
   }
-}
 
-// Type guard for graphic JSON with geometry
-const isGraphicJsonWithPolygon = (
-  value: unknown
-): value is { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
-  const v: any = value
-  if (!("geometry" in v)) return false
-  const geometry = v.geometry
-  if (!geometry || typeof geometry !== "object") return false
-  if (!("rings" in geometry)) return false
-  const rings = geometry.rings
-  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
-}
+  // Attach geometry
+  let geometryToAttach: unknown = null
 
-// Type guard for polygon geometry JSON
-const isPolygonJson = (value: unknown): value is { rings: unknown } => {
-  if (!value || typeof value !== "object") return false
-  const v: any = value
-  if (!("rings" in v)) return false
-  const rings = v.rings
-  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
-}
-
-// Attach AOI geometry to parameters
-const attachAoi = (
-  base: { [key: string]: unknown },
-  geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined
-): { [key: string]: unknown } => {
-  // Prefer graphic JSON with geometry property
-  if (isGraphicJsonWithPolygon(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
+  if (geometryJson && typeof geometryJson === "object") {
+    const gj = geometryJson as any
+    if (gj.geometry?.rings) {
+      geometryToAttach = gj.geometry
+    } else if (gj.rings) {
+      geometryToAttach = gj
+    }
   }
 
-  // Use direct geometry JSON
-  if (isPolygonJson(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
+  if (!geometryToAttach && currentGeometry) {
+    const geomJson = currentGeometry.toJSON()
+    if (geomJson?.rings) {
+      geometryToAttach = geomJson
+    }
   }
 
-  // Use current geometry as last resort
-  const geometryToUse = currentGeometry?.toJSON()
-  if (isPolygonJson(geometryToUse)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+  if (geometryToAttach) {
+    params.AreaOfInterest = JSON.stringify(geometryToAttach)
   }
 
-  return base
+  return params
 }
 
 // Optimized email validation utilities
@@ -486,9 +441,13 @@ const prepFmeParams = (
   currentGeometry: __esri.Geometry | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
-  const base = buildFmeParams(formData, userEmail, mode)
-  return attachAoi(base, geometryJson, currentGeometry)
+  return prepareFmeParams(
+    formData,
+    userEmail,
+    geometryJson,
+    currentGeometry,
+    config
+  )
 }
 
 // Apply admin defaults for FME Task Manager directives with proper precedence
@@ -535,27 +494,26 @@ const createLayers = (
   return layer
 }
 
-// Create sketch VM
+// Create and configure SketchViewModel
 const createSketchVM = ({
   jmv,
   modules,
   layer,
   onDrawComplete,
   dispatch,
-  polygonSymbol,
-  drawingColors,
 }: {
   jmv: JimuMapView
   modules: EsriModules
   layer: __esri.GraphicsLayer
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void
   dispatch: (action: unknown) => void
-  polygonSymbol: unknown
-  drawingColors: ReturnType<typeof getDrawingColors>
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
     layer,
+    polygonSymbol: DRAWING_SYMBOLS.polygon as any,
+    polylineSymbol: DRAWING_SYMBOLS.polyline as any,
+    pointSymbol: DRAWING_SYMBOLS.point as any,
     defaultCreateOptions: {
       hasZ: false,
       mode: "click",
@@ -605,120 +563,63 @@ const createSketchVM = ({
     },
   })
 
-  setSketchSymbols(sketchViewModel, polygonSymbol, drawingColors)
   setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch, modules)
-
   return sketchViewModel
 }
 
-// Configure sketch view model symbols
-const setSketchSymbols = (
-  sketchViewModel: __esri.SketchViewModel,
-  polygonSymbol: unknown,
-  drawingColors: {
-    primary: [number, number, number]
-    white: [number, number, number, number]
-  }
-) => {
-  sketchViewModel.polygonSymbol = polygonSymbol as any
-
-  sketchViewModel.polylineSymbol = {
-    type: "simple-line",
-    color: drawingColors.primary,
-    width: 2,
-    style: "solid",
-  }
-
-  sketchViewModel.pointSymbol = {
-    type: "simple-marker",
-    style: "circle",
-    size: 8,
-    color: drawingColors.primary,
-    outline: {
-      color: drawingColors.white,
-      width: 1,
-    },
-  }
-}
-
-// Optimized drawing state manager with jimu patterns
-const createDrawingStateManager = (dispatch: (action: unknown) => void) => {
-  let clickCount = 0
-
-  return {
-    resetState: () => {
-      clickCount = 0
-      dispatch(fmeActions.setDrawingState(false, 0, undefined))
-    },
-
-    updateClicks: (newCount: number) => {
-      if (newCount > clickCount) {
-        clickCount = newCount
-        dispatch(fmeActions.setClickCount(newCount))
-        if (newCount === 1) {
-          dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
-        }
-      }
-    },
-
-    getClickCount: () => clickCount,
-  }
-}
-
-// Optimized sketch event processor
-const processSketchEvent = (
-  evt: __esri.SketchCreateEvent,
-  stateManager: ReturnType<typeof createDrawingStateManager>,
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void,
-  modules: EsriModules
-) => {
-  const { resetState, updateClicks, getClickCount } = stateManager
-
-  switch (evt.state) {
-    case "start":
-      resetState()
-      dispatch(
-        fmeActions.setDrawingState(
-          true,
-          0,
-          evt.tool === "rectangle" ? DrawingTool.RECTANGLE : DrawingTool.POLYGON
-        )
-      )
-      break
-
-    case "active":
-      if (evt.tool === "polygon" && evt.graphic?.geometry) {
-        const geometry = evt.graphic.geometry as __esri.Polygon
-        const vertices = geometry.rings?.[0]
-        const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
-        updateClicks(actualClicks)
-      } else if (evt.tool === "rectangle" && getClickCount() !== 1) {
-        updateClicks(1)
-      }
-      break
-
-    case "complete":
-      resetState()
-      onDrawComplete(evt)
-      break
-
-    case "cancel":
-      resetState()
-      break
-  }
-}
-
+// Setup SketchViewModel event handlers
 const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void,
   modules: EsriModules
 ) => {
-  const stateManager = createDrawingStateManager(dispatch)
+  let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    processSketchEvent(evt, stateManager, onDrawComplete, dispatch, modules)
+    switch (evt.state) {
+      case "start":
+        clickCount = 0
+        dispatch(
+          fmeActions.setDrawingState(
+            true,
+            0,
+            evt.tool === "rectangle"
+              ? DrawingTool.RECTANGLE
+              : DrawingTool.POLYGON
+          )
+        )
+        break
+
+      case "active":
+        if (evt.tool === "polygon" && evt.graphic?.geometry) {
+          const geometry = evt.graphic.geometry as __esri.Polygon
+          const vertices = geometry.rings?.[0]
+          const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
+          if (actualClicks > clickCount) {
+            clickCount = actualClicks
+            dispatch(fmeActions.setClickCount(actualClicks))
+            if (actualClicks === 1) {
+              dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+            }
+          }
+        } else if (evt.tool === "rectangle" && clickCount !== 1) {
+          clickCount = 1
+          dispatch(fmeActions.setClickCount(1))
+        }
+        break
+
+      case "complete":
+        clickCount = 0
+        dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        onDrawComplete(evt)
+        break
+
+      case "cancel":
+        clickCount = 0
+        dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        break
+    }
   })
 }
 
@@ -769,37 +670,36 @@ const processFmeResponse = (
   }
 }
 
-// Format area with intl module if available
+// Simple area formatting
 export function formatArea(area: number, modules: EsriModules): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
 
-  // Use intl module for proper localization
   const intlModule = (modules as any)?.intl
-  if (intlModule && typeof intlModule.formatNumber === "function") {
-    if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
-      const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
+  const hasIntl = intlModule && typeof intlModule.formatNumber === "function"
+
+  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
+    const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
+    if (hasIntl) {
       const formatted = intlModule.formatNumber(areaInSqKm, {
         style: "decimal",
         minimumFractionDigits: 0,
         maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
       })
       return `${formatted} km²`
-    } else {
-      const formatted = intlModule.formatNumber(Math.round(area), {
-        style: "decimal",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
-      })
-      return `${formatted} m²`
     }
-  }
-
-  // Standard formatting when intl not available
-  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
-    const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
     return `${areaInSqKm.toFixed(GEOMETRY_CONSTS.AREA_DECIMALS)} km²`
   }
-  return `${Math.round(area).toLocaleString()} m²`
+
+  const roundedArea = Math.round(area)
+  if (hasIntl) {
+    const formatted = intlModule.formatNumber(roundedArea, {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    })
+    return `${formatted} m²`
+  }
+  return `${roundedArea.toLocaleString()} m²`
 }
 
 export default function Widget(
@@ -817,9 +717,6 @@ export default function Widget(
   // Determine widget ID for state management
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
-
-  const highlightSymbol = getHighlightSymbol()
-  const drawingColors = getDrawingColors()
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -1108,7 +1005,7 @@ export default function Widget(
 
         // Set visual symbol
         if (evt.graphic) {
-          evt.graphic.symbol = highlightSymbol as any
+          evt.graphic.symbol = HIGHLIGHT_SYMBOL as any
         }
 
         // Store graphic JSON in Redux for persistence
@@ -1255,8 +1152,6 @@ export default function Widget(
         layer,
         onDrawComplete,
         dispatch,
-        polygonSymbol: highlightSymbol,
-        drawingColors,
       })
       setSketchViewModel(svm)
     } catch (error) {
