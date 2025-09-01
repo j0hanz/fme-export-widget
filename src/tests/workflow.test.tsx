@@ -39,13 +39,33 @@ describe("Workflow component", () => {
       expect(emailLink.getAttribute("href")).toBe(`mailto:${email}`)
   }
 
-  test("renders instruction text in DRAWING state", () => {
+  test("renders drawing mode tabs in DRAWING state with no clicks", () => {
     renderWithProviders(
       <Workflow
         {...(baseProps as any)}
         state={ViewMode.DRAWING}
         canStartDrawing={true}
         drawnArea={0}
+        clickCount={0}
+      />
+    )
+
+    // Should show drawing mode toggle buttons
+    const polygonBtn = screen.getByLabelText(/Polygon/i)
+    const rectangleBtn = screen.getByLabelText(/Rektangel|Rectangle/i)
+    expect(polygonBtn).toBeTruthy()
+    expect(rectangleBtn).toBeTruthy()
+  })
+
+  test("renders instruction text in DRAWING state when actively drawing", () => {
+    renderWithProviders(
+      <Workflow
+        {...(baseProps as any)}
+        state={ViewMode.DRAWING}
+        canStartDrawing={true}
+        drawnArea={0}
+        clickCount={1}
+        isDrawing={true}
       />
     )
 

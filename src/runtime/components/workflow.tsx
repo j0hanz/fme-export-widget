@@ -885,6 +885,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
+  // Render drawing mode selection tabs
+  const renderDrawingModeTabs = hooks.useEventCallback(() => (
+    <div css={styles.centered}>
+      <ButtonTabs
+        items={getDrawingModeItems()}
+        value={drawingMode}
+        onChange={(val) => {
+          onDrawingModeChange?.(val as DrawingTool)
+        }}
+        ariaLabel={translate("drawingModeTooltip")}
+      />
+    </div>
+  ))
+
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
@@ -1045,18 +1059,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return renderLoading(undefined, translate("preparingMapTools"))
     }
 
-    return (
-      <div css={styles.centered}>
-        <ButtonTabs
-          items={getDrawingModeItems()}
-          value={drawingMode}
-          onChange={(val) => {
-            onDrawingModeChange?.(val as DrawingTool)
-          }}
-          ariaLabel={translate("drawingModeTooltip")}
-        />
-      </div>
-    )
+    return renderDrawingModeTabs()
   })
 
   const renderDrawing = hooks.useEventCallback(() => (
@@ -1185,20 +1188,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
+        // Show drawing mode tabs only if not actively drawing
         if ((clickCount || 0) === 0) {
-          return (
-            <div css={styles.centered}>
-              <ButtonTabs
-                items={getDrawingModeItems()}
-                value={drawingMode}
-                onChange={(val) => {
-                  onDrawingModeChange?.(val as DrawingTool)
-                }}
-                ariaLabel={translate("drawingModeTooltip")}
-              />
-            </div>
-          )
+          return renderDrawingModeTabs()
         }
+        // Otherwise show drawing instructions
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:

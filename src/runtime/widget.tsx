@@ -1524,15 +1524,18 @@ export default function Widget(
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool))
-          // If currently in DRAWING mode and no clicks, switch to the selected tool
+
+          // If already in drawing mode, restart drawing with new tool
           if (
             reduxState.viewMode === ViewMode.DRAWING &&
             reduxState.clickCount === 0 &&
             sketchViewModel
           ) {
-            // Cancel any ongoing drawing
-            sketchViewModel.cancel()
-            // Start new drawing with the selected tool
+            try {
+              sketchViewModel.cancel()
+            } catch (e) {
+              // ignore cancellation errors
+            }
             handleStartDrawing(tool)
           }
         }}
