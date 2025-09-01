@@ -370,66 +370,82 @@ const checkMaxArea = (
   }
 }
 
-// Prepare FME parameters with geometry
-const prepareFmeParams = (
+// Build base FME parameters
+const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined,
-  config?: FmeExportConfig
+  serviceMode: "sync" | "async" = "async"
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
-  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
-
-  const params: { [key: string]: unknown } = {
+  return {
     ...data,
     opt_requesteremail: userEmail,
-    opt_servicemode: mode,
+    opt_servicemode: serviceMode,
     opt_responseformat: "json",
     opt_showresult: "true",
   }
+}
 
-  // Attach geometry
-  let geometryToAttach: unknown = null
+// Type guard for graphic JSON with geometry property
+const isGraphicJsonWithPolygon = (
+  value: unknown
+): value is { geometry: { rings: unknown } } => {
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("geometry" in v)) return false
+  const geometry = v.geometry
+  if (!geometry || typeof geometry !== "object") return false
+  if (!("rings" in geometry)) return false
+  const rings = geometry.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
+}
 
-  if (geometryJson && typeof geometryJson === "object") {
-    const gj = geometryJson as any
-    if (gj.geometry?.rings) {
-      geometryToAttach = gj.geometry
-    } else if (gj.rings) {
-      geometryToAttach = gj
-    }
+// Type guard for polygon geometry JSON
+const isPolygonJson = (value: unknown): value is { rings: unknown } => {
+  if (!value || typeof value !== "object") return false
+  const v: any = value
+  if (!("rings" in v)) return false
+  const rings = v.rings
+  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
+}
+
+// Attach AOI to FME parameters
+const attachAoi = (
+  base: { [key: string]: unknown },
+  geometryJson: unknown,
+  currentGeometry: __esri.Geometry | undefined
+): { [key: string]: unknown } => {
+  // Prefer graphic JSON with geometry property
+  if (isGraphicJsonWithPolygon(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
   }
 
-  if (!geometryToAttach && currentGeometry) {
-    const geomJson = currentGeometry.toJSON()
-    if (geomJson?.rings) {
-      geometryToAttach = geomJson
-    }
+  // Use direct geometry JSON
+  if (isPolygonJson(geometryJson)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
   }
 
-  if (geometryToAttach) {
-    params.AreaOfInterest = JSON.stringify(geometryToAttach)
+  // Use current geometry as last resort
+  const geometryToUse = currentGeometry?.toJSON()
+  if (isPolygonJson(geometryToUse)) {
+    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
   }
 
-  return params
+  return base
 }
 
 // Optimized email validation utilities
-const getUserEmail = async (): Promise<string> => {
-  try {
-    const [Portal] = await loadEsriModules(["esri/portal/Portal"])
-    const portal = new Portal()
-    await portal.load()
+// Email validation utilities
+const getEmail = async (): Promise<string> => {
+  const [Portal] = await loadEsriModules(["esri/portal/Portal"])
+  const portal = new Portal()
+  await portal.load()
 
-    const email = portal.user?.email
-    if (!email || !isValidEmail(email)) {
-      throw new Error("User email is required but not available or invalid")
-    }
-    return email
-  } catch (error) {
-    throw new Error(`Failed to retrieve user email: ${error.message}`)
+  const email = portal.user?.email
+  if (!email) {
+    throw new Error("User email is required but not available")
   }
+  return email
 }
 
 // Prepare FME parameters for submission
@@ -440,13 +456,9 @@ const prepFmeParams = (
   currentGeometry: __esri.Geometry | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  return prepareFmeParams(
-    formData,
-    userEmail,
-    geometryJson,
-    currentGeometry,
-    config
-  )
+  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
+  const base = buildFmeParams(formData, userEmail, mode)
+  return attachAoi(base, geometryJson, currentGeometry)
 }
 
 // Apply admin defaults for FME Task Manager directives with proper precedence
@@ -928,7 +940,7 @@ export default function Widget(
 
       // Validate that current user has an email address available
       try {
-        const email = await getUserEmail()
+        const email = await getEmail()
         if (!isValidEmail(email)) {
           setValidationError(
             createStartupError("userEmailMissing", "UserEmailMissing", () =>
@@ -1094,9 +1106,11 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      const userEmail = await getUserEmail()
+      const userEmail = await getEmail()
       const fmeClient = createFmeFlowClient(props.config)
       const workspace = reduxState.selectedWorkspace
+
+      // Prepare parameters differently for sync vs async
       const fmeParameters = prepFmeParams(
         formData,
         userEmail,
@@ -1117,6 +1131,7 @@ export default function Widget(
         // ignore any issues writing to global in constrained runtimes
       }
 
+      // Submit to FME Flow
       const fmeResponse = await makeCancelable(
         fmeClient.runDataDownload(
           workspace,

@@ -1074,10 +1074,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             id={ID.supportEmail}
             type="email"
             value={localSupportEmail}
-            onChange={(val) => {
-              setLocalSupportEmail(val as string)
+            onChange={(val: string) => {
+              setLocalSupportEmail(val)
               updateConfig("supportEmail", val)
-              const errKey = validateEmail(val as string)
+              const errKey = validateEmail(val)
               const err = errKey ? translate(errKey) : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
             }}
@@ -1283,8 +1283,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Input
             id={ID.tm_tag}
             value={localTmTag}
-            onChange={(val) => {
-              setLocalTmTag(val as string)
+            onChange={(val: string) => {
+              setLocalTmTag(val)
               updateConfig("tm_tag", val)
             }}
             placeholder={translate("tm_tagPlaceholder")}
