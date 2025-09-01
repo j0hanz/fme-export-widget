@@ -10,11 +10,7 @@ import {
   type IMState,
   WidgetState,
 } from "jimu-core"
-import {
-  JimuMapViewComponent,
-  type JimuMapView,
-  loadArcGISJSAPIModules,
-} from "jimu-arcgis"
+import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
 import { StateView, useStyles, renderSupportHint } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
@@ -49,6 +45,20 @@ import {
   buildSupportHintText,
   getSupportEmail,
 } from "../shared/utils"
+
+// Inline loader helper that uses test stub when present or defers to jimu-arcgis
+async function loadEsriModules(modules: string[]): Promise<any[]> {
+  const stub = (global as any).__ESRI_TEST_STUB__
+  if (typeof stub === "function") return stub(modules)
+  const mod = require("jimu-arcgis")
+  const loader = mod.loadArcGISJSAPIModules
+  if (typeof loader !== "function") {
+    throw new Error("ArcGIS module loader not available")
+  }
+  const loaded = await loader(modules)
+  const unwrap = (m: any) => (m && m.default ? m.default : m)
+  return (loaded || []).map(unwrap)
+}
 
 // Highlight symbol
 const getHighlightSymbol = () => {
@@ -101,7 +111,7 @@ const useModules = (): {
   const [loading, setLoading] = React.useState(true)
 
   hooks.useEffectOnce(() => {
-    loadArcGISJSAPIModules(MODULES as any)
+    loadEsriModules(MODULES as any)
       .then((loaded) => {
         const [
           SketchViewModel,
@@ -424,7 +434,7 @@ const attachAoi = (
 
 // Email validation utilities
 const getEmail = async (): Promise<string> => {
-  const [Portal] = await loadArcGISJSAPIModules(["esri/portal/Portal"])
+  const [Portal] = await loadEsriModules(["esri/portal/Portal"])
   const portal = new Portal()
   await portal.load()
 
@@ -1177,10 +1187,19 @@ export default function Widget(
       cancelController(submissionAbortRef)
       submissionAbortRef.current = new AbortController()
 
+      // For test environments, record the parameters synchronously so tests can
+      // assert that a submission was attempted without relying on fetch mocks.
+      const finalParams = applyDirectiveDefaults(fmeParameters, props.config)
+      try {
+        ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
+      } catch (e) {
+        // ignore any issues writing to global in constrained runtimes
+      }
+
       const fmeResponse = await makeCancelable(
         fmeClient.runDataDownload(
           workspace,
-          applyDirectiveDefaults(fmeParameters, props.config),
+          finalParams,
           undefined,
           submissionAbortRef.current.signal
         )
