@@ -363,7 +363,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     // Simple loader stub helper
     const makeLoader =
       (overrides: any = {}) =>
-      async (modules: string[]) => {
+      (modules: string[]) => {
         const results: any[] = []
         for (const m of modules) {
           if (m === "esri/request")
@@ -371,7 +371,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
           else if (m === "esri/config")
             results.push({ request: { maxUrlLength: 4000, interceptors: [] } })
           else if (m === "esri/geometry/projection")
-            results.push({ project: async (geoms: any[]) => geoms })
+            results.push({ project: (geoms: any[]) => Promise.resolve(geoms) })
           else if (m === "esri/geometry/support/webMercatorUtils")
             results.push({
               webMercatorToGeographic: (g: any) => g,
@@ -456,7 +456,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     beforeEach(() => {
       jest.resetModules()
       // small max to force detection
-      ;(global as any).__ESRI_TEST_STUB__ = async (modules: string[]) => [
+      ;(global as any).__ESRI_TEST_STUB__ = (modules: string[]) => [
         () => Promise.resolve({ data: null }),
         { request: { maxUrlLength: 10, interceptors: [] } },
         {},
@@ -476,12 +476,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
       if (global.fetch) delete (global as any).fetch
     })
 
-    it("detects too-long webhook URLs and avoids fetch", async () => {
-      const client = createFmeFlowClient({
-        fmeServerUrl: "https://example.com",
-        fmeServerToken: "token",
-        repository: "repo",
-      } as any)
+    it("detects too-long webhook URLs and avoids fetch", () => {
       const params: any = {}
       for (let i = 0; i < 50; i++) params[`k${i}`] = "x".repeat(24)
       const tooLong = isWebhookUrlTooLong(

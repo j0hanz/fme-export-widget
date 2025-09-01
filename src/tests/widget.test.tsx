@@ -113,7 +113,7 @@ describe("FME Export Widget", () => {
 
   // Set up global ESRI module loader stub before each test
   beforeEach(() => {
-    ;(global as any).__ESRI_TEST_STUB__ = async (modules: string[]) => {
+    ;(global as any).__ESRI_TEST_STUB__ = (modules: string[]) => {
       if (modules.includes("esri/portal/Portal")) {
         const MockPortal = function (this: any) {
           this.load = () => Promise.resolve()
@@ -767,9 +767,8 @@ describe("FME Export Widget", () => {
     // Wait for state update to apply
     await waitForMilliseconds(0)
 
-    const { createFmeFlowClient } = require("../shared/api") as {
-      createFmeFlowClient: jest.Mock
-    }
+    // Mock api to track runDataDownload calls
+    require("../shared/api")
 
     const { unmount } = renderWidget(
       <Wrapped

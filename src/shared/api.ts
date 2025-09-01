@@ -36,7 +36,7 @@ let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
 
 // Reset loaded ArcGIS modules (for testing purposes)
-export function __resetEsriCache(): void {
+export function resetEsriCache(): void {
   _esriRequest = undefined
   _esriConfig = undefined
   _projection = undefined
