@@ -181,6 +181,8 @@ describe("FME Export Widget", () => {
         message: "geometryMissing",
         severity: "error" as any,
         type: "ValidationError" as any,
+        code: "GEOMETRY_MISSING",
+        recoverable: true,
         timestampMs: 0,
       },
     }
@@ -228,6 +230,7 @@ describe("FME Export Widget", () => {
         severity: "error" as any,
         timestampMs: 0,
         code: "UserEmailMissing",
+        recoverable: false,
         userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage for contact
       },
     }
@@ -272,6 +275,8 @@ describe("FME Export Widget", () => {
         type: "ConfigError" as any,
         severity: "error" as any,
         timestampMs: 0,
+        code: "INVALID_CONFIG",
+        recoverable: false,
         userFriendlyMessage: "help@domain.se", // Email passed as userFriendlyMessage
       },
     }
@@ -316,6 +321,7 @@ describe("FME Export Widget", () => {
         severity: "error" as any,
         timestampMs: 0,
         code: "ServerUrlEmpty",
+        recoverable: false,
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
@@ -354,6 +360,7 @@ describe("FME Export Widget", () => {
         severity: "error" as any,
         timestampMs: 0,
         code: "TokenEmpty",
+        recoverable: false,
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
@@ -392,6 +399,7 @@ describe("FME Export Widget", () => {
         severity: "error" as any,
         timestampMs: 0,
         code: "RepositoryEmpty",
+        recoverable: false,
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
@@ -430,6 +438,7 @@ describe("FME Export Widget", () => {
         severity: "error" as any,
         timestampMs: 0,
         code: "ServerUrlEmpty",
+        recoverable: false,
         userFriendlyMessage: "Kontakta supporten för hjälp med konfigurationen",
       },
     }
@@ -644,6 +653,8 @@ describe("FME Export Widget", () => {
       isStartupValidating: false, // Past startup validation
       orderResult: {
         success: true,
+        message: "Export completed successfully",
+
         jobId: 1,
         workspaceName: "ws",
         email: "a@b.com",
@@ -681,7 +692,7 @@ describe("FME Export Widget", () => {
     expect(
       storeDispatch.mock.calls.some(
         ([action]: any[]) =>
-          action?.type === "FME_SET_VIEW_MODE" &&
+          action?.type === "fme/SET_VIEW_MODE" &&
           action?.viewMode === ViewMode.WORKSPACE_SELECTION
       )
     ).toBe(true)
@@ -729,7 +740,7 @@ describe("FME Export Widget", () => {
     expect(
       storeDispatch.mock.calls.some(
         ([action]: any[]) =>
-          action?.type === "FME_SET_ERROR" &&
+          action?.type === "fme/SET_ERROR" &&
           action?.error?.code === "AREA_TOO_LARGE"
       )
     ).toBe(true)
@@ -873,6 +884,8 @@ describe("FME Export Widget", () => {
       workspaceParameters: [],
       orderResult: {
         success: true,
+        message: "Export completed successfully",
+
         jobId: 7,
         workspaceName: "ws1",
         email: "a@b.com",
@@ -895,19 +908,19 @@ describe("FME Export Widget", () => {
       const calls = dispatchSpy.mock.calls.map(([a]) => a as any)
       const hasClearedGeometry = calls.some(
         (a) =>
-          a?.type === "FME_SET_GEOMETRY" &&
+          a?.type === "fme/SET_GEOMETRY" &&
           a?.geometryJson === null &&
           a?.drawnArea === 0
       )
       const hasClearedClickCount = calls.some(
-        (a) => a?.type === "FME_SET_CLICK_COUNT" && a?.clickCount === 0
+        (a) => a?.type === "fme/SET_CLICK_COUNT" && a?.clickCount === 0
       )
       const hasClearedWorkspace = calls.some(
         (a) =>
-          a?.type === "FME_SET_SELECTED_WORKSPACE" && a?.workspaceName === null
+          a?.type === "fme/SET_SELECTED_WORKSPACE" && a?.workspaceName === null
       )
       const hasClearedOrder = calls.some(
-        (a) => a?.type === "FME_SET_ORDER_RESULT" && a?.orderResult === null
+        (a) => a?.type === "fme/SET_ORDER_RESULT" && a?.orderResult === null
       )
       expect(hasClearedGeometry).toBe(true)
       expect(hasClearedClickCount).toBe(true)
@@ -926,7 +939,7 @@ describe("FME Export Widget", () => {
       .map(([a]) => a as any)
     // Should not navigate away from DRAWING due to reopen
     const movedAway = newCalls.some(
-      (a) => a?.type === "FME_SET_VIEW_MODE" && a?.viewMode !== ViewMode.DRAWING
+      (a) => a?.type === "fme/SET_VIEW_MODE" && a?.viewMode !== ViewMode.DRAWING
     )
     expect(movedAway).toBe(false)
 

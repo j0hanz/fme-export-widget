@@ -425,8 +425,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const tooltipId = otherProps.id || autoId
 
   const isDisabled =
-    (children.props as any)?.disabled ||
-    (children.props as any)?.["aria-disabled"]
+    children.props?.disabled || children.props?.["aria-disabled"]
   const baseChildProps = (children.props || {}) as { [key: string]: any }
   // Omit title to avoid conflicts with tooltip
   const { title: _omitTitle, ...safeChildProps } = baseChildProps
@@ -497,7 +496,7 @@ export const Input: React.FC<InputProps> = ({
     <TextInput
       {...props}
       type={type as any}
-      value={value}
+      value={value as string | number}
       onChange={handleChange}
       required={required}
       maxLength={maxLength}
@@ -534,7 +533,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   return (
     <JimuTextArea
       {...props}
-      value={value}
+      value={value as string}
       onChange={handleChange}
       css={styles.textareaResize}
       style={props.style}
@@ -620,7 +619,8 @@ export const Select: React.FC<SelectProps> = (props) => {
         ? Array.isArray(value)
           ? value.map((v) => String(v))
           : []
-        : value !== undefined
+        : value !== undefined &&
+            (typeof value === "string" || typeof value === "number")
           ? String(value)
           : undefined,
     [isMulti, value]
@@ -761,7 +761,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
       css={styles.relative}
-      style={{ position: "relative", ...(jimuProps.style as any) }}
+      style={{ position: "relative", ...jimuProps.style }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -803,10 +803,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    const previous = value
     handleValueChange(final as any)
     onChange?.(final as any)
-    onTabChange?.(final as any, previous)
+    onTabChange?.(final as any)
   })
 
   return (
@@ -815,11 +814,15 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       aria-label={ariaLabel}
       css={[styles.row, styles.gapBtnGroup]}
     >
-      {items.map((item) => {
+      {items.map((item, i) => {
         const active = value === item.value
         return (
           <Button
-            key={String(item.value)}
+            key={
+              typeof item.value === "string" || typeof item.value === "number"
+                ? String(item.value)
+                : `tab-${i}-${item.label}`
+            }
             icon={item.icon}
             text={!item.hideLabel ? item.label : undefined}
             active={active}

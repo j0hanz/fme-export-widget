@@ -1074,7 +1074,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             id={ID.supportEmail}
             type="email"
             value={localSupportEmail}
-            onChange={(val) => {
+            onChange={(val: string) => {
               setLocalSupportEmail(val)
               updateConfig("supportEmail", val)
               const errKey = validateEmail(val)
@@ -1185,7 +1185,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             })()}
             value={localRepository || undefined}
             onChange={(val) => {
-              const next = String(val ?? "")
+              const next =
+                typeof val === "string" || typeof val === "number"
+                  ? String(val)
+                  : ""
               setLocalRepository(next)
               updateConfig("repository", next)
               const error = validateRepository(val as string, availableRepos)
@@ -1280,7 +1283,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Input
             id={ID.tm_tag}
             value={localTmTag}
-            onChange={(val) => {
+            onChange={(val: string) => {
               setLocalTmTag(val)
               updateConfig("tm_tag", val)
             }}

@@ -128,7 +128,7 @@ const initFormValues = (
   const result: FormValues = {}
   for (const field of formConfig) {
     if (field.defaultValue !== undefined) {
-      result[field.name] = field.defaultValue as FormPrimitive
+      result[field.name] = field.defaultValue
     }
   }
   return result
@@ -313,13 +313,11 @@ const useWorkspaceLoader = (
         const items = (response.data.items as readonly any[]).filter(
           (i: any) => i.type === WORKSPACE_ITEM_TYPE
         ) as readonly WorkspaceItem[]
-        const sorted = items
-          .slice()
-          .sort((a, b) =>
-            (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-              sensitivity: "base",
-            })
-          )
+        const sorted = items.slice().sort((a, b) =>
+          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+            sensitivity: "base",
+          })
+        )
         if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
@@ -598,7 +596,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             value={fieldValue as string}
             placeholder={placeholders.enter}
             onChange={(val) => {
-              onChange(val)
+              onChange(val as FormPrimitive)
             }}
             disabled={field.readOnly}
             rows={field.rows}
@@ -630,7 +628,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             value={(fieldValue as string) || ""}
             placeholder={field.placeholder || placeholders.enter}
             onChange={(val) => {
-              onChange(val)
+              onChange(val as FormPrimitive)
             }}
             disabled={field.readOnly}
             maxLength={field.maxLength}
@@ -659,7 +657,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             value={(fieldValue as string) || ""}
             placeholder={field.placeholder || placeholders.enter}
             onChange={(val) => {
-              onChange(val)
+              onChange(val as FormPrimitive)
             }}
             disabled={field.readOnly}
             maxLength={field.maxLength}
@@ -779,7 +777,7 @@ const ExportForm: React.FC<ExportFormProps> = ({
       subtitle={
         workspaceItem?.description
           ? stripHtml(workspaceItem.description)
-          : translate("configureWorkspaceParameters", { workspaceName })
+          : translate("configureWorkspaceParameters")
       }
       onBack={onBack}
       onSubmit={handleSubmit}
