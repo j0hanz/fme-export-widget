@@ -131,50 +131,6 @@ describe("Setting component", () => {
     ).toBe(true)
   })
 
-  test("sanitizes serverUrl by stripping /fmeserver and triggers onSettingChange", async () => {
-    const onSettingChange = jest.fn()
-    const { container } = renderSetting(
-      <S
-        id="s3"
-        widgetId="w-s3"
-        onSettingChange={onSettingChange as any}
-        useMapWidgetIds={[] as any}
-        config={baseConfig}
-      />
-    )
-
-    const serverInput = container.querySelector<HTMLInputElement>(
-      "#setting-server-url"
-    )
-    const tokenInput =
-      container.querySelector<HTMLInputElement>("#setting-token")
-    expect(serverInput).toBeTruthy()
-    expect(tokenInput).toBeTruthy()
-
-    // Enter a URL that includes /fmeserver and a valid token
-    if (serverInput)
-      fireEvent.change(serverInput, {
-        target: { value: "https://example.com/fmeserver" },
-      })
-    if (tokenInput)
-      fireEvent.change(tokenInput, { target: { value: "abcdefghij" } })
-
-    // Click a button that triggers connection test (which sanitizes URL)
-    const testBtn = getTestButton()
-    if (testBtn) {
-      fireEvent.click(testBtn)
-      await waitForMilliseconds(0)
-      // Expect at least one onSettingChange call with cleaned URL applied
-      const calls = onSettingChange.mock.calls as Array<[any]>
-      const hadCleaned = calls.some((args) => {
-        const cfg = args?.[0]?.config
-        const val = cfg?.get?.("fmeServerUrl") ?? cfg?.fmeServerUrl
-        return val === "https://example.com"
-      })
-      expect(hadCleaned).toBe(true)
-    }
-  })
-
   test("invalid single-label host shows server URL error; dotted host passes", () => {
     const onSettingChange = jest.fn()
     const { container } = renderSetting(
@@ -269,40 +225,6 @@ describe("Setting component", () => {
       fireEvent.change(emailInput, { target: { value: "a@b.com" } })
       const errAfter = container.querySelector("#setting-support-email-error")
       expect(errAfter).toBeFalsy()
-    }
-  })
-
-  test("sanitizes serverUrl immediately on change and triggers onSettingChange", async () => {
-    const onSettingChange = jest.fn()
-    const { container } = renderSetting(
-      <S
-        id="s7"
-        widgetId="w-s7"
-        onSettingChange={onSettingChange as any}
-        useMapWidgetIds={[] as any}
-        config={baseConfig}
-      />
-    )
-
-    const serverInput = container.querySelector<HTMLInputElement>(
-      "#setting-server-url"
-    )
-    expect(serverInput).toBeTruthy()
-
-    if (serverInput) {
-      fireEvent.change(serverInput, {
-        target: { value: "https://example.com/fmeserver" },
-      })
-      // allow handlers to run
-      await waitForMilliseconds(0)
-
-      const calls = onSettingChange.mock.calls as Array<[any]>
-      const hadCleaned = calls.some((args) => {
-        const cfg = args?.[0]?.config
-        const val = cfg?.get?.("fmeServerUrl") ?? cfg?.fmeServerUrl
-        return val === "https://example.com"
-      })
-      expect(hadCleaned).toBe(true)
     }
   })
 

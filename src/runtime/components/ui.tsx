@@ -20,24 +20,28 @@ import {
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import type {
+  ViewAction,
   ButtonProps,
+  GroupButtonConfig,
   ButtonGroupProps,
+  OptionItem,
+  SelectProps,
+  TabItem,
+  ButtonTabsProps,
+  InputProps,
+  TextAreaProps,
   TooltipProps,
   FormProps,
   FieldProps,
-  GroupButtonConfig,
-  InputProps,
-  OptionItem,
-  SelectProps,
-  TextAreaProps,
-  ButtonTabsProps,
-  TabItem,
-  ViewAction,
   BtnContentProps,
   IconProps,
   StateViewProps,
 } from "../../shared/types"
-import { EMAIL_PLACEHOLDER, type TranslateFn } from "../../shared/utils"
+
+type TranslateFn = (key: string, params?: any) => string
+
+// Email placeholder pattern for support links
+const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
 
 // Configuration
 export const config = {
@@ -248,17 +252,17 @@ const useId = (): string => {
   return idRef.current
 }
 
-const useValue = (
-  controlled?: any,
-  defaultValue?: any,
-  onChange?: (value: any) => void
-) => {
+const useValue = <T = unknown,>(
+  controlled?: T,
+  defaultValue?: T,
+  onChange?: (value: T) => void
+): readonly [T, (value: T) => void] => {
   const [value, setValue] = hooks.useControlled({
     controlled,
     default: defaultValue,
   })
 
-  const handleChange = hooks.useEventCallback((newValue: any) => {
+  const handleChange = hooks.useEventCallback((newValue: T) => {
     setValue(newValue)
     onChange?.(newValue)
   })
@@ -411,6 +415,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
 }) => {
   const styles = useStyles()
   const autoId = useId()
+
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
@@ -546,10 +551,10 @@ export const TextArea: React.FC<TextAreaProps> = ({
 
 // Multi-select rendering component
 const MultiSelectComponent: React.FC<{
-  options: readonly any[]
-  normalizedValue: any
-  setValue: (val: any) => void
-  onChange?: (val: any) => void
+  options: readonly OptionItem[]
+  normalizedValue: Array<string | number>
+  setValue: (val: Array<string | number>) => void
+  onChange?: (val: Array<string | number>) => void
   placeholder: string
   disabled: boolean
   style?: React.CSSProperties
@@ -562,16 +567,22 @@ const MultiSelectComponent: React.FC<{
   disabled,
   style,
 }) => {
-  const items = options.map((opt) => ({
-    label: opt.label,
-    value: opt.value,
-    disabled: opt.disabled,
-  }))
+  const items = React.useMemo(
+    () =>
+      options.map((opt) => ({
+        label: opt.label,
+        value: opt.value,
+        disabled: opt.disabled,
+      })),
+    [options]
+  )
 
-  const handleMultiSelectChange = hooks.useEventCallback((vals: any[]) => {
-    setValue(vals)
-    onChange?.(vals)
-  })
+  const handleMultiSelectChange = hooks.useEventCallback(
+    (vals: Array<string | number>) => {
+      setValue(vals)
+      onChange?.(vals)
+    }
+  )
 
   return (
     <div style={style}>
@@ -603,16 +614,22 @@ export const Select: React.FC<SelectProps> = (props) => {
   const translate = hooks.useTranslation(defaultMessages)
 
   // Normalize the value to strings for the underlying select component(s)
-  const normalizedValue: any = isMulti
-    ? Array.isArray(value)
-      ? value.map((v) => String(v))
-      : []
-    : value !== undefined
-      ? String(value)
-      : undefined
+  const normalizedValue: string | Array<string | number> = React.useMemo(
+    () =>
+      isMulti
+        ? Array.isArray(value)
+          ? value.map((v) => String(v))
+          : []
+        : value !== undefined
+          ? String(value)
+          : undefined,
+    [isMulti, value]
+  )
 
-  const resolvedPlaceholder =
-    placeholder ?? translate("placeholderSelectGeneric")
+  const resolvedPlaceholder = React.useMemo(
+    () => placeholder ?? translate("placeholderSelectGeneric"),
+    [placeholder, translate]
+  )
 
   // Handle single select change
   const handleSingleChange = hooks.useEventCallback(
@@ -626,30 +643,9 @@ export const Select: React.FC<SelectProps> = (props) => {
     }
   )
 
-  if (isMulti) {
-    return (
-      <MultiSelectComponent
-        options={options}
-        normalizedValue={normalizedValue}
-        setValue={setValue}
-        onChange={onChange}
-        placeholder={resolvedPlaceholder}
-        disabled={disabled}
-        style={style}
-      />
-    )
-  }
-
-  return (
-    <JimuSelect
-      value={normalizedValue}
-      onChange={handleSingleChange}
-      disabled={disabled}
-      placeholder={resolvedPlaceholder}
-      zIndex={config.zIndex.selectMenu}
-      style={style}
-    >
-      {options.map((option) => (
+  const optionElements = React.useMemo(
+    () =>
+      options.map((option) => (
         <JimuOption
           key={String(option.value)}
           value={option.value}
@@ -667,7 +663,34 @@ export const Select: React.FC<SelectProps> = (props) => {
         >
           {!option.hideLabel && option.label}
         </JimuOption>
-      ))}
+      )),
+    [options, normalizedValue, handleSingleChange]
+  )
+
+  if (isMulti) {
+    return (
+      <MultiSelectComponent
+        options={options}
+        normalizedValue={normalizedValue as Array<string | number>}
+        setValue={setValue}
+        onChange={onChange}
+        placeholder={resolvedPlaceholder}
+        disabled={disabled}
+        style={style}
+      />
+    )
+  }
+
+  return (
+    <JimuSelect
+      value={normalizedValue as string}
+      onChange={handleSingleChange}
+      disabled={disabled}
+      placeholder={resolvedPlaceholder}
+      zIndex={config.zIndex.selectMenu}
+      style={style}
+    >
+      {optionElements}
     </JimuSelect>
   )
 }
@@ -707,18 +730,21 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  const safeColor: "default" | "inherit" | "primary" | "secondary" =
-    ((): any => {
-      switch (color) {
-        case "default":
-        case "inherit":
-        case "primary":
-        case "secondary":
-          return color
-        default:
-          return "default"
-      }
-    })()
+  const safeColor: "default" | "inherit" | "primary" | "secondary" = (():
+    | "default"
+    | "inherit"
+    | "primary"
+    | "secondary" => {
+    switch (color) {
+      case "default":
+      case "inherit":
+      case "primary":
+      case "secondary":
+        return color
+      default:
+        return "default"
+    }
+  })()
 
   const buttonElement = (
     <JimuButton
@@ -1128,25 +1154,45 @@ export const renderSupportHint = (
   fallbackText: string
 ): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
-  return translate("contactSupportWithEmail")
-    .split(EMAIL_PLACEHOLDER)
-    .map((part, idx, arr) => {
-      if (idx < arr.length - 1) {
-        return (
-          <React.Fragment key={idx}>
-            {part}
-            <a
-              href={`mailto:${supportEmail}`}
-              css={styles.typography.link}
-              aria-label={translate("contactSupportWithEmail", {
-                email: supportEmail,
-              })}
-            >
-              {supportEmail}
-            </a>
-          </React.Fragment>
-        )
-      }
-      return <React.Fragment key={idx}>{part}</React.Fragment>
-    })
+
+  const fullText = translate("contactSupportWithEmail")
+  const parts = fullText.split(EMAIL_PLACEHOLDER)
+
+  if (parts.length < 2) {
+    // Fallback if the translation doesn't contain the email placeholder
+    return (
+      <>
+        {fullText}{" "}
+        <a
+          href={`mailto:${supportEmail}`}
+          css={styles.typography.link}
+          aria-label={translate("contactSupportWithEmail", {
+            email: supportEmail,
+          })}
+        >
+          {supportEmail}
+        </a>
+      </>
+    )
+  }
+
+  return parts.map((part, idx) => {
+    if (idx < parts.length - 1) {
+      return (
+        <React.Fragment key={idx}>
+          {part}
+          <a
+            href={`mailto:${supportEmail}`}
+            css={styles.typography.link}
+            aria-label={translate("contactSupportWithEmail", {
+              email: supportEmail,
+            })}
+          >
+            {supportEmail}
+          </a>
+        </React.Fragment>
+      )
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>
+  })
 }

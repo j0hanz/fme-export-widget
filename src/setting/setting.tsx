@@ -25,8 +25,40 @@ import type {
   IMWidgetConfig,
   ConnectionSettings,
   TestState,
+  FieldErrors,
+  StepStatus,
+  CheckSteps,
+  ValidationResult,
+  SanitizationResult,
 } from "../shared/types"
 import { FmeFlowApiError } from "../shared/types"
+
+// Constants
+const CONSTANTS = {
+  VALIDATION: {
+    MIN_TOKEN_LENGTH: 10,
+    DEFAULT_TTL_VALUE: "0",
+    DEFAULT_TTC_VALUE: "0",
+  },
+  HTTP_STATUS: {
+    UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
+    NOT_FOUND: 404,
+    BAD_REQUEST: 400,
+    TIMEOUT: 408,
+    GATEWAY_TIMEOUT: 504,
+    TOO_MANY_REQUESTS: 429,
+    BAD_GATEWAY: 502,
+    SERVICE_UNAVAILABLE: 503,
+    NETWORK_ERROR: 0,
+  },
+  PATHS: {
+    FME_REST: "/fmerest",
+  },
+  COLORS: {
+    BACKGROUND_DARK: "#181818",
+  },
+} as const
 
 function isFmeFlowApiError(err: unknown): err is FmeFlowApiError {
   return err instanceof FmeFlowApiError
@@ -75,10 +107,14 @@ const isValidHostname = (host: string): boolean => {
 
 const hasForbiddenPaths = (pathname: string): boolean => {
   const lowerPath = pathname.toLowerCase()
-  return lowerPath.includes("/fmerest") || lowerPath.includes("/fmeserver")
+  return lowerPath.includes(CONSTANTS.PATHS.FME_REST)
 }
 
-// Validation functions for server URL, token, and repository
+/**
+ * Validates the server URL format and checks for common issues
+ * @param url - The server URL to validate
+ * @returns Error key if invalid, null if valid
+ */
 function validateServerUrl(url: string): string | null {
   const trimmedUrl = url?.trim()
 
@@ -110,12 +146,28 @@ function validateServerUrl(url: string): string | null {
   return null
 }
 
+/**
+ * Validates the authentication token
+ * @param token - The token to validate
+ * @returns Error key if invalid, null if valid
+ */
 function validateToken(token: string): string | null {
   if (!token) return "errorMissingToken"
-  if (/\s/.test(token) || token.length < 10) return "errorTokenIsInvalid"
+  if (
+    /\s/.test(token) ||
+    token.length < CONSTANTS.VALIDATION.MIN_TOKEN_LENGTH
+  ) {
+    return "errorTokenIsInvalid"
+  }
   return null
 }
 
+/**
+ * Validates the selected repository against available repositories
+ * @param repository - The repository name to validate
+ * @param availableRepos - List of available repositories from server
+ * @returns Error key if invalid, null if valid
+ */
 function validateRepository(
   repository: string,
   availableRepos: string[] | null
@@ -132,23 +184,27 @@ function validateRepository(
   return null
 }
 
-// Centralized email validation (returns i18n key or null)
+/**
+ * Centralized email validation
+ * @param email - The email to validate (optional field)
+ * @returns Error key if invalid, null if valid or empty
+ */
 function validateEmail(email: string): string | null {
   if (!email) return null // Optional field
   return isValidEmail(email) ? null : "errorInvalidEmail"
 }
 
 const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
-  401: "errorUnauthorized",
-  403: "errorUnauthorized",
-  404: "errorNotFound",
-  400: "errorBadRequest",
-  408: "errorTimeout",
-  504: "errorTimeout",
-  429: "errorTooManyRequests",
-  502: "errorGateway",
-  503: "errorServiceUnavailable",
-  0: "errorNetworkShort",
+  [CONSTANTS.HTTP_STATUS.UNAUTHORIZED]: "errorUnauthorized",
+  [CONSTANTS.HTTP_STATUS.FORBIDDEN]: "errorUnauthorized",
+  [CONSTANTS.HTTP_STATUS.NOT_FOUND]: "errorNotFound",
+  [CONSTANTS.HTTP_STATUS.BAD_REQUEST]: "errorBadRequest",
+  [CONSTANTS.HTTP_STATUS.TIMEOUT]: "errorTimeout",
+  [CONSTANTS.HTTP_STATUS.GATEWAY_TIMEOUT]: "errorTimeout",
+  [CONSTANTS.HTTP_STATUS.TOO_MANY_REQUESTS]: "errorTooManyRequests",
+  [CONSTANTS.HTTP_STATUS.BAD_GATEWAY]: "errorGateway",
+  [CONSTANTS.HTTP_STATUS.SERVICE_UNAVAILABLE]: "errorServiceUnavailable",
+  [CONSTANTS.HTTP_STATUS.NETWORK_ERROR]: "errorNetworkShort",
 }
 
 function getStatusErrorMessage(
@@ -158,7 +214,7 @@ function getStatusErrorMessage(
   const errorKey = STATUS_ERROR_MAP[status]
 
   if (errorKey) {
-    if (status === 0) {
+    if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
       return translate(errorKey)
     }
     if (isAuthError(status)) {
@@ -186,11 +242,20 @@ function mapStatusToFieldErrors(
   if (isAuthError(status)) {
     return { token: translate("errorTokenIsInvalid") }
   }
-  if (status === 404 || status === 0) {
-    const key = status === 404 ? "errorNotFound" : "errorNetworkShort"
+  if (
+    status === CONSTANTS.HTTP_STATUS.NOT_FOUND ||
+    status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR
+  ) {
+    const key =
+      status === CONSTANTS.HTTP_STATUS.NOT_FOUND
+        ? "errorNotFound"
+        : "errorNetworkShort"
     return { serverUrl: translate(key) }
   }
-  if (status === 408 || status === 504) {
+  if (
+    status === CONSTANTS.HTTP_STATUS.TIMEOUT ||
+    status === CONSTANTS.HTTP_STATUS.GATEWAY_TIMEOUT
+  ) {
     return { serverUrl: translate("errorTimeout", { status }) }
   }
   if (isServerError(status)) {
@@ -225,7 +290,7 @@ const createSettingStyles = (theme: any) => {
         display: "grid",
         rowGap: 2,
         opacity: 0.8,
-        backgroundColor: "#181818",
+        backgroundColor: CONSTANTS.COLORS.BACKGROUND_DARK,
         padding: 6,
         borderRadius: theme?.sys?.shape?.shape1 || 2,
       }),
@@ -243,7 +308,7 @@ const createSettingStyles = (theme: any) => {
         FAIL: css({ color: theme?.sys?.color?.error?.main || "#d32f2f" }),
         SKIP: css({ color: theme?.sys?.color?.warning?.main || "#ed6c02" }),
         PENDING: css({ color: theme?.sys?.color?.info?.main || "#0288d1" }),
-      } as { [k: string]: any },
+      },
     },
   } as const
 }
@@ -304,22 +369,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     type: "info",
   })
   // Fine-grained step status for the connection test UI
-  type StepStatus = "idle" | "pending" | "ok" | "fail" | "skip"
-  const [checkSteps, setCheckSteps] = React.useState<{
-    serverUrl: StepStatus
-    token: StepStatus
-    repository: StepStatus
-    version?: string
-  }>({ serverUrl: "idle", token: "idle", repository: "idle", version: "" })
-  const [fieldErrors, setFieldErrors] = React.useState<{
-    serverUrl?: string
-    token?: string
-    repository?: string
-    supportEmail?: string
-    tm_ttc?: string
-    tm_ttl?: string
-    tm_tag?: string
-  }>({})
+  const [checkSteps, setCheckSteps] = React.useState<CheckSteps>({
+    serverUrl: "idle",
+    token: "idle",
+    repository: "idle",
+    version: "",
+  })
+  const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
   )
@@ -338,11 +394,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = (config as any)?.tm_ttc
-    return typeof v === "number" ? String(v) : "0"
+    return typeof v === "number"
+      ? String(v)
+      : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
   })
   const [localTmTtl, setLocalTmTtl] = React.useState<string>(() => {
     const v = (config as any)?.tm_ttl
-    return typeof v === "number" ? String(v) : "0"
+    return typeof v === "number"
+      ? String(v)
+      : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
   })
   const [localTmTag, setLocalTmTag] = React.useState<string>(() => {
     const v = (config as any)?.tm_tag
@@ -419,22 +479,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     )
   )
 
-  // Utilities: URL validation and sanitization (strip /fmeserver or /fmerest)
+  // Utilities: URL validation and sanitization (strip /fmerest)
   const sanitizeUrl = hooks.useEventCallback(
-    (rawUrl: string): { cleaned: string; changed: boolean } => {
+    (rawUrl: string): SanitizationResult => {
       try {
         const trimmed = (rawUrl || "").trim()
         const u = new URL(trimmed)
         let path = u.pathname || "/"
         const lower = path.toLowerCase()
-        const idxServer = lower.indexOf("/fmeserver")
-        const idxRest = lower.indexOf("/fmerest")
-        if (idxServer >= 0) path = path.substring(0, idxServer) || "/"
-        else if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
+        const idxRest = lower.indexOf(CONSTANTS.PATHS.FME_REST)
+        if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
         const cleaned = new URL(u.origin + path).toString().replace(/\/$/, "")
-        const changed =
-          cleaned !== trimmed.replace(/\/$/, "") &&
-          (idxServer >= 0 || idxRest >= 0)
+        const changed = cleaned !== trimmed.replace(/\/$/, "") && idxRest >= 0
         return { cleaned, changed }
       } catch {
         return { cleaned: rawUrl, changed: false }
@@ -443,48 +499,43 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Unified input validation
-  const validateAllInputs = hooks.useEventCallback((skipRepoCheck = false) => {
-    const messages: Partial<{
-      serverUrl: string
-      token: string
-      repository: string
-      supportEmail: string
-      tm_ttc: string
-      tm_ttl: string
-    }> = {}
+  const validateAllInputs = hooks.useEventCallback(
+    (skipRepoCheck = false): ValidationResult => {
+      const messages: Partial<FieldErrors> = {}
 
-    const serverUrlError = validateServerUrl(localServerUrl)
-    const tokenError = validateToken(localToken)
-    const repositoryError = skipRepoCheck
-      ? null
-      : validateRepository(localRepository, availableRepos)
-    const emailError = validateEmail(localSupportEmail)
+      const serverUrlError = validateServerUrl(localServerUrl)
+      const tokenError = validateToken(localToken)
+      const repositoryError = skipRepoCheck
+        ? null
+        : validateRepository(localRepository, availableRepos)
+      const emailError = validateEmail(localSupportEmail)
 
-    if (serverUrlError) messages.serverUrl = translate(serverUrlError)
-    if (tokenError) messages.token = translate(tokenError)
-    if (repositoryError) messages.repository = translate(repositoryError)
-    if (emailError) messages.supportEmail = translate(emailError)
+      if (serverUrlError) messages.serverUrl = translate(serverUrlError)
+      if (tokenError) messages.token = translate(tokenError)
+      if (repositoryError) messages.repository = translate(repositoryError)
+      if (emailError) messages.supportEmail = translate(emailError)
 
-    setFieldErrors({
-      serverUrl: messages.serverUrl,
-      token: messages.token,
-      repository: messages.repository,
-      supportEmail: messages.supportEmail,
-      tm_ttc: undefined,
-      tm_ttl: undefined,
-      tm_tag: undefined,
-    })
+      setFieldErrors({
+        serverUrl: messages.serverUrl,
+        token: messages.token,
+        repository: messages.repository,
+        supportEmail: messages.supportEmail,
+        tm_ttc: undefined,
+        tm_ttl: undefined,
+        tm_tag: undefined,
+      })
 
-    return {
-      messages,
-      hasErrors: !!(
-        messages.serverUrl ||
-        messages.token ||
-        (!skipRepoCheck && messages.repository) ||
-        messages.supportEmail
-      ),
+      return {
+        messages,
+        hasErrors: !!(
+          messages.serverUrl ||
+          messages.token ||
+          (!skipRepoCheck && messages.repository) ||
+          messages.supportEmail
+        ),
+      }
     }
-  })
+  )
 
   // Validate connection settings
   const validateConnectionSettings = hooks.useEventCallback(
@@ -576,7 +627,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }))
       } catch (infoErr) {
         const status = getHttpStatus(infoErr)
-        if (status === 401 || status === 403) {
+        if (
+          status === CONSTANTS.HTTP_STATUS.UNAUTHORIZED ||
+          status === CONSTANTS.HTTP_STATUS.FORBIDDEN
+        ) {
           // Server reachable, but token invalid
           setCheckSteps((prev) => ({ ...prev, serverUrl: "ok", token: "fail" }))
         } else {
@@ -737,9 +791,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Handle job directives separately due to type conversion
     const ttcValue =
-      typeof config?.tm_ttc === "number" ? String(config.tm_ttc) : "0"
+      typeof config?.tm_ttc === "number"
+        ? String(config.tm_ttc)
+        : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
     const ttlValue =
-      typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : "0"
+      typeof config?.tm_ttl === "number"
+        ? String(config.tm_ttl)
+        : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
     const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
 
     if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
@@ -1048,7 +1106,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           value: localServerUrl,
           onChange: (val: string) => {
             setLocalServerUrl(val)
-            // Sanitize immediately on change to keep config clean (strip /fmeserver or /fmerest)
+            // Sanitize immediately on change to keep config clean (strip /fmerest)
             const { cleaned, changed } = sanitizeUrl(val)
             updateConfig("fmeServerUrl", changed ? cleaned : val)
             // Validate immediately to surface inline error under the field

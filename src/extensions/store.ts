@@ -13,6 +13,7 @@ import {
   type WorkspaceParameter,
   type ExportResult,
   type LoadingFlags,
+  type FormValues,
 } from "../shared/types"
 
 const makeAction = <
@@ -68,7 +69,7 @@ const draw = {
 
 // Export actions
 const exp = {
-  setFormValues: (formValues: { [key: string]: unknown }) =>
+  setFormValues: (formValues: FormValues) =>
     makeAction(FmeActionType.SET_FORM_VALUES, { formValues }),
   setOrderResult: (orderResult: ExportResult | null) =>
     makeAction(FmeActionType.SET_ORDER_RESULT, { orderResult }),
