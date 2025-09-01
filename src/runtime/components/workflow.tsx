@@ -51,19 +51,15 @@ import {
   getSupportEmail,
 } from "../../shared/utils"
 
-// Loading delay to avoid flicker on fast operations
+// Constants
 const MS_LOADING = 500
-
-// Workspace item type constant
 const WORKSPACE_ITEM_TYPE = "WORKSPACE"
 
-// Error names used to detect cancellations from the FME API
 const ERROR_NAMES = {
   CANCELLED_PROMISE: "CancelledPromiseError",
   ABORT: "AbortError",
 } as const
 
-// Constants for drawing mode configuration
 const DRAWING_MODE_TABS = [
   {
     value: DrawingTool.POLYGON,
@@ -81,8 +77,8 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Check if reset button should be enabled
-const canReset = (
+// Simple utility functions
+const canResetButton = (
   onReset: (() => void) | undefined,
   canResetFlag: boolean,
   state: ViewMode,
@@ -101,8 +97,7 @@ const canReset = (
   return hasArea && state !== ViewMode.INITIAL
 }
 
-// Check if workspace list should show loading
-const shouldShowWsLoading = (
+const shouldShowWorkspaceLoading = (
   isLoading: boolean,
   workspaces: readonly WorkspaceItem[],
   state: ViewMode,
@@ -114,19 +109,53 @@ const shouldShowWsLoading = (
   return isLoading || (!workspaces.length && needsLoading)
 }
 
-// Form validation helpers for better separation of concerns
+const normalizeFormValue = (
+  value: FormPrimitive | undefined,
+  isMultiSelect: boolean
+): FormPrimitive | SelectValue => {
+  if (value === undefined || value === null) {
+    return isMultiSelect ? [] : ""
+  }
+  if (isMultiSelect) {
+    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
+  }
+  return typeof value === "string" || typeof value === "number" ? value : ""
+}
+
+const initFormValues = (
+  formConfig: readonly DynamicFieldConfig[]
+): FormValues => {
+  const result: FormValues = {}
+  for (const field of formConfig) {
+    if (field.defaultValue !== undefined) {
+      result[field.name] = field.defaultValue as FormPrimitive
+    }
+  }
+  return result
+}
+
+const stripErrorLabel = (errorText?: string): string | undefined => {
+  const t = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
+  if (!t) return undefined
+
+  const colonIdx = t.indexOf(":")
+  if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
+
+  const isIdx = t.toLowerCase().indexOf(" is ")
+  if (isIdx > -1) return t.slice(isIdx + 1).trim()
+  return t
+}
+
+// Form validation helpers
 const createFormValidator = (
   parameterService: ParameterFormService,
   workspaceParameters: readonly any[]
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
-
   const validateValues = (values: FormValues) =>
     parameterService.validateFormValues(values, getFormConfig())
-
-  const initializeValues = () => initValues(getFormConfig())
-
+  const initializeValues = () => initFormValues(getFormConfig())
   return { getFormConfig, validateValues, initializeValues }
 }
 
@@ -175,59 +204,23 @@ const useFormStateManager = (
   }
 }
 
-const normalizeFormValue = (
-  value: FormPrimitive | undefined,
-  isMultiSelect: boolean
-): FormPrimitive | SelectValue => {
-  if (value === undefined || value === null) {
-    return isMultiSelect ? [] : ""
-  }
-  if (isMultiSelect) {
-    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
-  }
-  return typeof value === "string" || typeof value === "number" ? value : ""
-}
-
-const makePlaceholders = (
-  translate: (k: string, p?: any) => string,
-  fieldLabel: string
-) =>
-  ({
-    enter: translate("placeholderEnter", { field: fieldLabel }),
-    select: translate("placeholderSelect", { field: fieldLabel }),
-  }) as const
-
-const initValues = (formConfig: readonly DynamicFieldConfig[]): FormValues => {
-  const result: FormValues = {}
-  for (const field of formConfig) {
-    if (field.defaultValue !== undefined) {
-      result[field.name] = field.defaultValue as FormPrimitive
-    }
-  }
-  return result
-}
-
-const syncForm = (values: FormValues): void => {
-  // Dispatch form values to the Redux store
+// Form helper functions
+const syncFormToStore = (values: FormValues): void => {
   const dispatch = getAppStore().dispatch as (
     action: ReturnType<typeof fmeActions.setFormValues>
   ) => void
   dispatch(fmeActions.setFormValues(values))
 }
 
-// Strip label from error messages for cleaner display
-const stripLabelFromError = (errorText?: string): string | undefined => {
-  const t = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
-  if (!t) return undefined
-  // "<Label>: <reason>" → "<reason>"
-  const colonIdx = t.indexOf(":")
-  if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
-  // "<Label> is <reason>" → "<reason>"
-  const isIdx = t.toLowerCase().indexOf(" is ")
-  if (isIdx > -1) return t.slice(isIdx + 1).trim()
-  return t
-}
+const makePlaceholders = (
+  translate: (k: string, p?: any) => string,
+  fieldLabel: string
+) => ({
+  enter: translate("placeholderEnter", { field: fieldLabel }),
+  select: translate("placeholderSelect", { field: fieldLabel }),
+})
 
+// Simplified workspace loader hook
 const useWorkspaceLoader = (
   config: any,
   getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null,
@@ -240,30 +233,25 @@ const useWorkspaceLoader = (
     item: any
   ) => void
 ) => {
-  // Local state for workspaces, loading flag and error message
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
     []
   )
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  // Abort controller and timeout refs
   const loadAbortRef = React.useRef<AbortController | null>(null)
   const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   )
-
-  // Track mount to avoid state updates after unmount
   const isMountedRef = React.useRef(true)
+
   hooks.useEffectOnce(() => {
     return () => {
       isMountedRef.current = false
-      // Cancel any in‑flight request
       if (loadAbortRef.current) {
         loadAbortRef.current.abort()
         loadAbortRef.current = null
       }
-      // Clear any scheduled timeout
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current)
         loadTimeoutRef.current = null
@@ -271,7 +259,6 @@ const useWorkspaceLoader = (
     }
   })
 
-  // Helper to format API errors into localized strings
   const formatError = hooks.useEventCallback(
     (err: unknown, baseKey: string): string | null => {
       const errName = (err as { name?: string } | null)?.name
@@ -294,7 +281,6 @@ const useWorkspaceLoader = (
     }
   )
 
-  // Cancel any ongoing load
   const cancelCurrent = () => {
     if (loadAbortRef.current) {
       loadAbortRef.current.abort()
@@ -302,7 +288,6 @@ const useWorkspaceLoader = (
     }
   }
 
-  // Load all workspaces in the configured repository
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
     if (!fmeClient || !config?.repository) return
@@ -325,15 +310,16 @@ const useWorkspaceLoader = (
       )
       if (controller.signal.aborted) return
       if (response.status === 200 && response.data.items) {
-        // Filter and sort by title or name
         const items = (response.data.items as readonly any[]).filter(
           (i: any) => i.type === WORKSPACE_ITEM_TYPE
         ) as readonly WorkspaceItem[]
-        const sorted = items.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        )
+        const sorted = items
+          .slice()
+          .sort((a, b) =>
+            (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+              sensitivity: "base",
+            })
+          )
         if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
@@ -349,7 +335,6 @@ const useWorkspaceLoader = (
     }
   })
 
-  // Load a single workspace and forward its parameters
   const loadItem = hooks.useEventCallback(async (workspaceName: string) => {
     const fmeClient = getFmeClient()
     if (!fmeClient || !config?.repository) return
@@ -388,7 +373,6 @@ const useWorkspaceLoader = (
     }
   })
 
-  // Debounced loader
   const scheduleLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
@@ -399,17 +383,11 @@ const useWorkspaceLoader = (
     }, MS_LOADING)
   })
 
-  return {
-    workspaces,
-    isLoading,
-    error,
-    loadAll,
-    loadItem,
-    scheduleLoad,
-  }
+  return { workspaces, isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
-const renderInput = (
+// Simplified input rendering
+const renderInputField = (
   type: "text" | "password" | "number",
   fieldValue: FormPrimitive,
   placeholder: string,
@@ -627,7 +605,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.NUMBER:
-        return renderInput(
+        return renderInputField(
           "number",
           fieldValue as FormPrimitive,
           placeholders.enter,
@@ -720,11 +698,11 @@ const ExportForm: React.FC<ExportFormProps> = ({
   const validator = createFormValidator(parameterService, workspaceParameters)
 
   // Use form state manager hook
-  const formState = useFormStateManager(validator, syncForm)
+  const formState = useFormStateManager(validator, syncFormToStore)
 
   // Initialize form values in Redux store only once
   hooks.useEffectOnce(() => {
-    syncForm(formState.values)
+    syncFormToStore(formState.values)
   })
 
   // Validate form on mount and when dependencies change
@@ -813,7 +791,7 @@ const ExportForm: React.FC<ExportFormProps> = ({
           key={field.name}
           label={field.label}
           required={field.required}
-          error={stripLabelFromError(formState.errors[field.name])}
+          error={stripErrorLabel(formState.errors[field.name])}
         >
           <DynamicField
             field={field}
@@ -1002,7 +980,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Header
   const renderHeader = () => {
-    const resetEnabled = canReset(
+    const resetEnabled = canResetButton(
       onReset,
       canResetProp,
       state,
@@ -1061,7 +1039,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const renderSelection = () => {
-    const shouldShowLoading = shouldShowWsLoading(
+    const shouldShowLoading = shouldShowWorkspaceLoading(
       isLoadingWorkspaces,
       workspaces,
       state,
