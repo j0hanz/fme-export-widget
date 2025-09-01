@@ -379,23 +379,51 @@ export class ParameterFormService {
   ): string | null {
     if (!hasListOptions(param) || !param.listOptions) return null
 
-    const validValues = param.listOptions
+    // Extract valid values from list options
+    const rawValidValues = param.listOptions
       .filter((opt) => opt && opt.value !== undefined && opt.value !== null)
       .map((opt) => opt.value)
 
-    if (validValues.length === 0) return null
+    if (rawValidValues.length === 0) return null
 
     const isMulti = isMultiListParam(param)
 
+    // Check if all valid values are numeric (number or numeric string)
+    const allNumeric = rawValidValues.every((vv) => {
+      if (typeof vv === "number") return Number.isFinite(vv)
+      if (typeof vv === "string") {
+        const t = vv.trim()
+        if (!t) return false
+        const n = Number(t)
+        return Number.isFinite(n) && String(n) === t
+      }
+      return false
+    })
+
+    // Normalizers
+    const norm = (x: unknown): unknown => {
+      if (allNumeric) {
+        if (typeof x === "number") return x
+        if (typeof x === "string") {
+          const t = x.trim()
+          const n = Number(t)
+          return Number.isFinite(n) ? n : t
+        }
+      }
+      return typeof x === "string" || typeof x === "number" ? String(x) : x
+    }
+
+    const validValues = rawValidValues.map(norm)
+
     if (isMulti) {
-      const arr = toArray(value)
+      const arr = toArray(value).map(norm)
       const invalid = arr.filter(
         (v) => !validValues.some((valid) => valid === v)
       )
       return invalid.length ? makeValError(param.name, "choice") : null
     }
 
-    return validValues.some((valid) => valid === value)
+    return validValues.some((valid) => valid === norm(value))
       ? null
       : makeValError(param.name, "choice")
   }

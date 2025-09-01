@@ -48,7 +48,9 @@ import {
 // Dynamic ESRI module loader with test stub support
 const loadEsriModules = async (modules: string[]): Promise<any[]> => {
   const testStub = (global as any).__ESRI_TEST_STUB__
-  if (typeof testStub === "function") return testStub(modules)
+  if (typeof testStub === "function" && process.env.NODE_ENV === "test") {
+    return testStub(modules)
+  }
 
   const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
   const loaded = await loadArcGISJSAPIModules(modules)
@@ -391,19 +393,20 @@ const isGraphicJsonWithPolygon = (
   value: unknown
 ): value is { geometry: { rings: unknown } } => {
   if (!value || typeof value !== "object") return false
-  const v: any = value
+  const v = value as { [key: string]: unknown }
   if (!("geometry" in v)) return false
   const geometry = v.geometry
   if (!geometry || typeof geometry !== "object") return false
-  if (!("rings" in geometry)) return false
-  const rings = geometry.rings
+  const g = geometry as { [key: string]: unknown }
+  if (!("rings" in g)) return false
+  const rings = g.rings
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
 // Type guard for polygon geometry JSON
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   if (!value || typeof value !== "object") return false
-  const v: any = value
+  const v = value as { [key: string]: unknown }
   if (!("rings" in v)) return false
   const rings = v.rings
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
@@ -434,8 +437,7 @@ const attachAoi = (
   return base
 }
 
-// Optimized email validation utilities
-// Email validation utilities
+// Email utilities (uses Portal to fetch current user's email)
 const getEmail = async (): Promise<string> => {
   const [Portal] = await loadEsriModules(["esri/portal/Portal"])
   const portal = new Portal()
@@ -445,6 +447,12 @@ const getEmail = async (): Promise<string> => {
   if (!email) {
     throw new Error("User email is required but not available")
   }
+
+  // Validate email format
+  if (!isValidEmail(email)) {
+    throw new Error(`Invalid email format: ${email}`)
+  }
+
   return email
 }
 
@@ -931,9 +939,12 @@ export default function Widget(
 
       const client = createFmeFlowClient(config)
       setValidationStep(translate("validatingConnection"))
-      await makeCancelable(client.testConnection())
-      setValidationStep(translate("validatingAuthentication"))
-      await makeCancelable(client.validateRepository(config.repository))
+      await makeCancelable(
+        Promise.all([
+          client.testConnection(),
+          client.validateRepository(config.repository),
+        ])
+      )
 
       // Update validation step
       setValidationStep(translate("validatingUserEmail"))
