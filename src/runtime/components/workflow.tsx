@@ -1185,7 +1185,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
-        if (isDrawing && (clickCount || 0) === 0) {
+        if ((clickCount || 0) === 0) {
           return (
             <div css={styles.centered}>
               <ButtonTabs
