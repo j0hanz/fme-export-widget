@@ -727,6 +727,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             message: successHelper,
             type: "success",
           })
+          // Trigger config update to mark it as changed (for save button)
+          try {
+            updateConfig(
+              "configRevision",
+              Date.now() as unknown as WidgetConfig["configRevision"]
+            )
+          } catch {}
         } else {
           setTestState((prev) => ({ ...prev, isTesting: false }))
         }
