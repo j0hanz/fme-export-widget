@@ -844,25 +844,35 @@ const StateView: React.FC<StateViewProps> = ({
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
 
-  // Manage delayed loading indicator
+  // Manage loading indicator with minimum display time
   const [showLoading, setShowLoading] = React.useState(false)
   const loadingStartedAtRef = React.useRef<number | null>(null)
   React.useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
+
     if (state.kind === "loading") {
-      // Start or continue loading delay timer
+      setShowLoading(true)
       if (loadingStartedAtRef.current == null) {
         loadingStartedAtRef.current = Date.now()
       }
+    } else if (loadingStartedAtRef.current != null) {
       const elapsed = Date.now() - loadingStartedAtRef.current
       const remaining = Math.max(0, config.loading.delay - elapsed)
-      timer = setTimeout(() => {
-        setShowLoading(true)
-      }, remaining)
+
+      if (remaining > 0) {
+        timer = setTimeout(() => {
+          setShowLoading(false)
+          loadingStartedAtRef.current = null
+        }, remaining)
+      } else {
+        setShowLoading(false)
+        loadingStartedAtRef.current = null
+      }
     } else {
       setShowLoading(false)
       loadingStartedAtRef.current = null
     }
+
     return () => {
       if (timer) clearTimeout(timer)
     }
