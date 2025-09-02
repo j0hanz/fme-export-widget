@@ -1076,42 +1076,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onSelect={onMapWidgetSelected}
           />
         </SettingRow>
-        {/* Support email (optional) */}
-        <SettingRow
-          flow="wrap"
-          label={translate("supportEmail")}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.supportEmail}
-            type="email"
-            value={localSupportEmail}
-            onChange={(val: string) => {
-              setLocalSupportEmail(val)
-              updateConfig("supportEmail", val)
-              const errKey = validateEmail(val)
-              const err = errKey ? translate(errKey) : undefined
-              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-            }}
-            placeholder={translate("supportEmailPlaceholder")}
-            errorText={fieldErrors.supportEmail}
-          />
-          {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.supportEmail}-error`}
-                fullWidth
-                css={css(sstyles.ALERT_INLINE as any)}
-                text={fieldErrors.supportEmail}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
-      </SettingSection>
-      <SettingSection>
         {/* FME Server URL */}
         {renderInputField({
           id: ID.serverUrl,
@@ -1253,6 +1217,40 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           level={3}
         >
           {translate("serviceModeSyncHelper")}
+        </SettingRow>
+        {/* Support email (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("supportEmail")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.supportEmail}
+            type="email"
+            value={localSupportEmail}
+            onChange={(val: string) => {
+              setLocalSupportEmail(val)
+              updateConfig("supportEmail", val)
+              const errKey = validateEmail(val)
+              const err = errKey ? translate(errKey) : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
+          />
+          {fieldErrors.supportEmail && (
+            <SettingRow flow="wrap" level={3}>
+              <Alert
+                id={`${ID.supportEmail}-error`}
+                fullWidth
+                css={css(sstyles.ALERT_INLINE as any)}
+                text={fieldErrors.supportEmail}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
       </SettingSection>
       <SettingSection>
