@@ -452,12 +452,12 @@ const getEmail = async (): Promise<string> => {
   const email = user?.email
 
   if (!email) {
-    throw new Error("User email is required but not available from the session")
+    throw new Error("UserEmailMissing")
   }
 
   // Validate email format
   if (!isValidEmail(email)) {
-    throw new Error(`Invalid email format: ${email}`)
+    throw new Error("INVALID_EMAIL")
   }
 
   return email
@@ -765,6 +765,15 @@ export default function Widget(
     ): React.ReactElement | null => {
       if (!error) return null
 
+      // Suppress cancelled/aborted errors
+      if (
+        error.code === "CANCELLED" ||
+        error.code === "ABORT" ||
+        /cancel/i.test(error.message)
+      ) {
+        return null
+      }
+
       // Determine base error message with translation
       const baseMsgKey = error.message
       let baseMessage = ""
@@ -776,7 +785,13 @@ export default function Widget(
         }
       }
       if (!baseMessage) {
-        baseMessage = translate("unknownErrorOccurred")
+        // Try error.suggestion or error.message as fallback
+        if (error.code) {
+          try {
+            baseMessage = resolveMessageOrKey(error.code, translate)
+          } catch {}
+        }
+        if (!baseMessage) baseMessage = translate("unknownErrorOccurred")
       }
 
       // Determine support hint
@@ -796,6 +811,21 @@ export default function Widget(
           dispatch(fmeActions.setError(null))
         })
       actions.push({ label: translate("retry"), onClick: retryHandler })
+
+      // If offline, offer a reload action for convenience
+      try {
+        const nav = (globalThis as any)?.navigator
+        if (nav && nav.onLine === false) {
+          actions.push({
+            label: translate("reload"),
+            onClick: () => {
+              try {
+                ;(globalThis as any).location?.reload()
+              } catch {}
+            },
+          })
+        }
+      } catch {}
 
       return (
         <StateView

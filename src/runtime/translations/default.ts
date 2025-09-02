@@ -3,6 +3,7 @@ export default {
   back: "Tillbaka",
   cancel: "Avbryt",
   unknownErrorOccurred: "Ett okänt fel inträffade",
+  reload: "Ladda om",
 
   // Startup validation messages
   validatingStartup: "Validerar konfiguration...",
@@ -28,6 +29,19 @@ export default {
   contactSupport: "Kontakta supporten för hjälp med konfigurationen",
   contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
   retryValidation: "Försök igen",
+  requestAborted: "Åtgärden avbröts",
+  operationCancelled: "Åtgärden har avbrutits",
+  corsError: "Blockerad av CORS-policy",
+  offline: "Ingen internetanslutning",
+  sslError: "SSL/TLS‑fel",
+  invalidUrl: "Ogiltig URL",
+  rateLimited: "För många förfrågningar (rate limit)",
+  badGateway: "Felaktig gateway",
+  serviceUnavailable: "Tjänsten otillgänglig",
+  gatewayTimeout: "Gateway‑timeout",
+  badRequest: "Ogiltig begäran",
+  payloadTooLarge: "För stor begäran",
+  invalidEmail: "Ogiltig e‑post",
 
   // Loading messages used specifically in widget.tsx
   submittingOrder: "Skickar beställningen...",

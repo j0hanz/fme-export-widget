@@ -66,7 +66,7 @@ export const config = {
     textPadding: "18px",
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200 },
+  loading: { width: 200, height: 200, delay: 1000 },
   required: "*",
 } as const
 
@@ -843,6 +843,40 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
+
+  // Manage loading indicator with minimum display time
+  const [showLoading, setShowLoading] = React.useState(false)
+  const loadingStartedAtRef = React.useRef<number | null>(null)
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    if (state.kind === "loading") {
+      setShowLoading(true)
+      if (loadingStartedAtRef.current == null) {
+        loadingStartedAtRef.current = Date.now()
+      }
+    } else if (loadingStartedAtRef.current != null) {
+      const elapsed = Date.now() - loadingStartedAtRef.current
+      const remaining = Math.max(0, config.loading.delay - elapsed)
+
+      if (remaining > 0) {
+        timer = setTimeout(() => {
+          setShowLoading(false)
+          loadingStartedAtRef.current = null
+        }, remaining)
+      } else {
+        setShowLoading(false)
+        loadingStartedAtRef.current = null
+      }
+    } else {
+      setShowLoading(false)
+      loadingStartedAtRef.current = null
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [state.kind])
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -884,11 +918,13 @@ const StateView: React.FC<StateViewProps> = ({
       case "loading":
         return (
           <div css={styles.centered} role="status" aria-live="polite">
-            <Loading
-              type={LoadingType.Donut}
-              width={config.loading.width}
-              height={config.loading.height}
-            />
+            {showLoading && (
+              <Loading
+                type={LoadingType.Donut}
+                width={config.loading.width}
+                height={config.loading.height}
+              />
+            )}
             {(state.message || state.detail) && (
               <div
                 css={styles.overlay}
