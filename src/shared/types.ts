@@ -213,55 +213,51 @@ export interface ErrorState {
 export type SerializableErrorState = Omit<ErrorState, "timestamp" | "retry"> & {
   readonly timestampMs: number
 }
+
 // UI component interfaces
-export interface BaseInteractiveProps {
-  readonly onClick?: () => void
+export interface BaseProps {
+  readonly className?: string
+  readonly style?: React.CSSProperties
   readonly disabled?: boolean
   readonly loading?: boolean
-  readonly tooltip?: string
-  readonly tooltipDisabled?: boolean
-  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
+  readonly onClick?: () => void
 }
 
-export interface BaseInputProps {
+export interface InputProps extends BaseProps {
   readonly value?: unknown
   readonly onChange?: (value: unknown) => void
   readonly placeholder?: string
-  readonly disabled?: boolean
   readonly readOnly?: boolean
   readonly required?: boolean
+  readonly type?: "text" | "password" | "number" | "file" | "email"
+  readonly maxLength?: number
+  readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
+  readonly "aria-label"?: string
+  readonly defaultValue?: FormPrimitive
+  readonly errorText?: string
+  readonly id?: string
+  readonly rows?: number // for textarea
 }
 
-export interface ButtonProps extends BaseInteractiveProps {
+export interface ButtonProps extends BaseProps {
   readonly text?: React.ReactNode
   readonly icon?: string | React.ReactNode
   readonly iconPosition?: "left" | "right"
-  readonly alignText?: "start" | "center" | "end"
   readonly variant?: "contained" | "outlined" | "text"
   readonly size?: "sm" | "lg" | "default"
+  readonly tooltip?: string
+  readonly tooltipPlacement?: "top" | "bottom" | "left" | "right"
+  readonly alignText?: string
+  readonly tooltipDisabled?: boolean
+  readonly children?: React.ReactNode
   readonly block?: boolean
+  readonly color?: string
+  readonly htmlType?: "submit" | "button" | "reset"
+  readonly title?: string
+  readonly tabIndex?: number
+  readonly active?: boolean
   readonly role?: string
   readonly logging?: { enabled: boolean; prefix: string }
-  readonly [key: string]: any
-}
-
-export interface ButtonGroupProps {
-  readonly items?: readonly ButtonProps[]
-  readonly orientation?: "horizontal" | "vertical"
-  readonly gap?: number
-  readonly leftButton?: ButtonProps
-  readonly rightButton?: ButtonProps
-  readonly className?: string
-  readonly style?: React.CSSProperties
-}
-
-export interface GroupButtonConfig {
-  readonly leftButton?: ButtonProps
-  readonly rightButton?: ButtonProps
-  readonly className?: string
-  readonly style?: React.CSSProperties
-  readonly variant?: "contained" | "outlined" | "text"
-  readonly color?: "primary" | "default" | "secondary"
 }
 
 export interface OptionItem {
@@ -271,12 +267,16 @@ export interface OptionItem {
   readonly hideLabel?: boolean
 }
 
-export interface SelectProps extends BaseInputProps {
+export interface SelectProps extends BaseProps {
+  readonly value?: unknown
+  readonly onChange?: (value: unknown) => void
+  readonly placeholder?: string
+  readonly readOnly?: boolean
+  readonly required?: boolean
   readonly options?: readonly OptionItem[]
   readonly coerce?: "number" | "string"
   readonly "aria-label"?: string
   readonly defaultValue?: SelectValue
-  readonly style?: React.CSSProperties
 }
 
 export interface TabItem {
@@ -288,32 +288,13 @@ export interface TabItem {
   readonly disabled?: boolean
 }
 
-export interface ButtonTabsProps {
+export interface ButtonTabsProps extends BaseProps {
   readonly items: readonly TabItem[]
   readonly value?: unknown
   readonly onChange?: (value: unknown) => void
   readonly ariaLabel?: string
   readonly defaultValue?: unknown
   readonly onTabChange?: (value: unknown) => void
-}
-
-export interface InputProps extends BaseInputProps {
-  readonly type?: "text" | "password" | "number" | "file" | "email"
-  readonly maxLength?: number
-  readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
-  readonly "aria-label"?: string
-  readonly defaultValue?: FormPrimitive
-  readonly errorText?: string
-  readonly id?: string
-  readonly style?: React.CSSProperties
-}
-
-export interface TextAreaProps extends BaseInputProps {
-  readonly rows?: number
-  readonly defaultValue?: FormPrimitive
-  readonly errorText?: string
-  readonly id?: string
-  readonly style?: React.CSSProperties
 }
 
 export interface TooltipProps {
@@ -326,17 +307,118 @@ export interface TooltipProps {
   readonly id?: string
 }
 
-export interface FormProps {
+// Additional UI component types needed by components
+export interface GroupButtonConfig {
+  readonly icon: string
+  readonly text: string
+  readonly tooltip: string
+  readonly variant?: string
+  readonly color?: string
+}
+
+export interface ButtonGroupProps extends BaseProps {
+  readonly buttons?: readonly GroupButtonConfig[]
+  readonly activeIndex?: number
+  readonly onChange?: (index: number) => void
+  readonly leftButton?: any
+  readonly rightButton?: any
+}
+
+export interface TextAreaProps extends BaseProps {
+  readonly value?: string
+  readonly onChange?: (value: string) => void
+  readonly placeholder?: string
+  readonly rows?: number
+  readonly defaultValue?: string
+  readonly errorText?: string
+  readonly required?: boolean
+  readonly id?: string
+}
+
+export interface BtnContentProps {
+  readonly icon?: string | React.ReactNode
+  readonly text?: string | React.ReactNode
+  readonly loading?: boolean
+  readonly children?: React.ReactNode
+  readonly iconPosition?: "left" | "right"
+  readonly alignText?: string
+}
+
+export interface IconProps extends BaseProps {
+  readonly icon?: string
+  readonly src?: string
+  readonly size?: number
+  readonly ariaLabel?: string
+}
+
+// Setting panel types
+export interface ConnectionSettings {
+  readonly serverUrl: string
+  readonly token: string
+  readonly repository: string
+  readonly timeout?: number
+}
+
+export interface TestState {
+  readonly status: "idle" | "running" | "success" | "error"
+  readonly message?: string
+  readonly isTesting?: boolean
+  readonly type?: "error" | "success" | "info" | "warning"
+}
+
+export interface FieldErrors {
+  [key: string]: string | undefined
+}
+
+export interface StepStatus {
+  readonly completed: boolean
+  readonly error?: string
+}
+
+export interface CheckSteps {
+  [key: string]: StepStatus | string
+}
+
+export interface SanitizationResult {
+  readonly isValid: boolean
+  readonly cleaned: string
+  readonly errors: string[]
+  readonly changed?: boolean
+}
+
+// Workflow component types
+export interface OrderResultProps {
+  readonly result?: ExportResult
+  readonly onDownload?: () => void
+  readonly onClose?: () => void
+  readonly orderResult?: ExportResult
+  readonly translate?: (key: string, values?: any) => string
+  readonly onReuseGeography?: () => void
+  readonly onBack?: () => void
+  readonly config?: any
+}
+
+export interface ExportFormProps {
+  readonly parameters?: WorkspaceParameter[]
+  readonly values?: FormValues
+  readonly onChange?: (values: FormValues) => void
+  readonly onSubmit?: (data: any) => void
+  readonly workspaceParameters?: readonly WorkspaceParameter[]
+  readonly workspaceName?: string
+  readonly workspaceItem?: any
+  readonly onBack?: () => void
+  readonly isSubmitting?: boolean
+  readonly translate?: (key: string, values?: any) => string
+}
+
+export interface FormProps extends BaseProps {
   readonly title?: string
   readonly subtitle?: string
   readonly onSubmit?: () => void
   readonly onBack?: () => void
   readonly isValid?: boolean
-  readonly loading?: boolean
   readonly variant?: "layout" | "inline" | "field"
   readonly children?: React.ReactNode
-  readonly className?: string
-  readonly style?: React.CSSProperties
   readonly label?: string
   readonly helper?: string
   readonly required?: boolean
@@ -344,43 +426,22 @@ export interface FormProps {
   readonly error?: string
 }
 
-export interface FieldProps {
+export interface FieldProps extends BaseProps {
   readonly label?: string
   readonly required?: boolean
   readonly error?: string
   readonly children?: React.ReactNode
-  readonly className?: string
-  readonly style?: React.CSSProperties
   readonly helper?: string
   readonly readOnly?: boolean
 }
 
-export interface BtnContentProps {
-  readonly loading?: boolean
-  readonly children?: React.ReactNode
-  readonly text?: React.ReactNode
-  readonly icon?: string | React.ReactNode
-  readonly iconPosition?: "left" | "right"
-  readonly alignText?: "start" | "center" | "end"
-}
-
-export interface IconProps {
-  readonly src: string
-  readonly size?: number
-  readonly className?: string
-  readonly ariaLabel?: string
-  readonly style?: React.CSSProperties
-}
-
-export interface StateViewProps {
+export interface StateViewProps extends BaseProps {
   readonly state: ViewState
   readonly center?: boolean
   readonly renderActions?: (
     actions?: readonly ViewAction[],
     ariaLabel?: string
   ) => React.ReactNode
-  readonly className?: string
-  readonly style?: React.CSSProperties
   readonly testId?: string
 }
 
@@ -526,42 +587,18 @@ export interface WorkspaceParameter {
   readonly listOptions?: readonly ParameterChoice[]
 }
 
-export interface JobRequest {
-  readonly publishedParameters?: ReadonlyArray<{ name: string; value: unknown }>
-  readonly TMDirectives?: {
-    readonly ttc?: number
-    readonly ttl?: number
-    readonly tag?: string
-  }
-  readonly NMDirectives?: {
-    readonly successTopics?: readonly string[]
-    readonly failureTopics?: readonly string[]
-  }
-}
-
-export interface TMDirectives {
+export interface JobDirectives {
   readonly ttc?: number
   readonly ttl?: number
   readonly tag?: string
-}
-
-export interface NMDirectives {
   readonly successTopics?: readonly string[]
   readonly failureTopics?: readonly string[]
 }
 
-export interface JobResponse {
-  readonly id: number
-  readonly status: JobStatus
-  readonly statusMessage?: string
-  readonly timeSubmitted?: string
-  readonly timeStarted?: string
-  readonly timeFinished?: string
-  readonly result?: {
-    readonly numFeaturesOutput?: number
-    readonly statusMessage?: string
-    readonly logMessages?: readonly string[]
-  }
+export interface JobRequest {
+  readonly publishedParameters?: ReadonlyArray<{ name: string; value: unknown }>
+  readonly TMDirectives?: JobDirectives
+  readonly NMDirectives?: JobDirectives
 }
 
 export interface JobResult {
@@ -577,6 +614,9 @@ export interface JobResult {
     readonly logMessages?: readonly string[]
   }
 }
+
+// JobResponse is same as JobResult for simplicity
+export type JobResponse = JobResult
 
 export interface EsriModules {
   readonly SketchViewModel: any
@@ -608,177 +648,70 @@ export interface EsriGeometryJson {
   readonly [key: string]: any
 }
 
-// Redux state management
-export interface FmeAction<T extends FmeActionType = FmeActionType> {
-  readonly type: T
+// Redux state
+export interface FmeAction {
+  readonly type: FmeActionType
   readonly [key: string]: any
 }
 
-export type SetViewModeAction = FmeAction<FmeActionType.SET_VIEW_MODE> & {
-  readonly viewMode: ViewMode
-}
-export type ResetStateAction = FmeAction<FmeActionType.RESET_STATE>
-export type SetStartupValidationStateAction =
-  FmeAction<FmeActionType.SET_STARTUP_VALIDATION_STATE> & {
-    readonly isValidating: boolean
-    readonly validationStep?: string
-    readonly validationError?: ErrorState | SerializableErrorState | null
-  }
-export type SetGeometryAction = FmeAction<FmeActionType.SET_GEOMETRY> & {
-  readonly geometryJson: unknown
-  readonly drawnArea?: number
-}
-export type SetDrawingStateAction =
-  FmeAction<FmeActionType.SET_DRAWING_STATE> & {
-    readonly isDrawing: boolean
-    readonly clickCount?: number
-    readonly drawingTool?: DrawingTool
-  }
-export type SetDrawingToolAction = FmeAction<FmeActionType.SET_DRAWING_TOOL> & {
-  readonly drawingTool: DrawingTool
-}
-export type SetClickCountAction = FmeAction<FmeActionType.SET_CLICK_COUNT> & {
-  readonly clickCount: number
-}
-export type SetFormValuesAction = FmeAction<FmeActionType.SET_FORM_VALUES> & {
-  readonly formValues: FormValues
-}
-export type SetOrderResultAction = FmeAction<FmeActionType.SET_ORDER_RESULT> & {
-  readonly orderResult: ExportResult | null
-}
-export type SetWorkspaceItemsAction =
-  FmeAction<FmeActionType.SET_WORKSPACE_ITEMS> & {
-    readonly workspaceItems: readonly WorkspaceItem[]
-  }
-export type SetWorkspaceParametersAction =
-  FmeAction<FmeActionType.SET_WORKSPACE_PARAMETERS> & {
-    readonly workspaceParameters: readonly WorkspaceParameter[]
-    readonly workspaceName: string
-  }
-export type SetSelectedWorkspaceAction =
-  FmeAction<FmeActionType.SET_SELECTED_WORKSPACE> & {
-    readonly workspaceName: string | null
-  }
-export type SetWorkspaceItemAction =
-  FmeAction<FmeActionType.SET_WORKSPACE_ITEM> & {
-    readonly workspaceItem: WorkspaceItemDetail | null
-  }
-export type SetLoadingFlagsAction =
-  FmeAction<FmeActionType.SET_LOADING_FLAGS> & {
-    readonly isModulesLoading?: boolean
-    readonly isSubmittingOrder?: boolean
-  }
-export type SetErrorAction = FmeAction<FmeActionType.SET_ERROR> & {
-  readonly error: SerializableErrorState | null
-}
-export type SetImportErrorAction = FmeAction<FmeActionType.SET_IMPORT_ERROR> & {
-  readonly error: SerializableErrorState | null
-}
-export type SetExportErrorAction = FmeAction<FmeActionType.SET_EXPORT_ERROR> & {
-  readonly error: SerializableErrorState | null
-}
+export type FmeActions = FmeAction
 
-export type FmeViewActions =
-  | SetViewModeAction
-  | ResetStateAction
-  | SetStartupValidationStateAction
-export type FmeDrawingActions =
-  | SetGeometryAction
-  | SetDrawingStateAction
-  | SetDrawingToolAction
-  | SetClickCountAction
-export type FmeExportActions = SetFormValuesAction | SetOrderResultAction
-export type FmeWorkspaceActions =
-  | SetWorkspaceItemsAction
-  | SetWorkspaceParametersAction
-  | SetSelectedWorkspaceAction
-  | SetWorkspaceItemAction
-export type FmeLoadingErrorActions =
-  | SetLoadingFlagsAction
-  | SetErrorAction
-  | SetImportErrorAction
-  | SetExportErrorAction
-
-export type FmeActions =
-  | FmeViewActions
-  | FmeDrawingActions
-  | FmeExportActions
-  | FmeWorkspaceActions
-  | FmeLoadingErrorActions
-
-// Widget state interfaces
-export interface FmeViewState {
+// Widget state
+export interface FmeWidgetState {
+  // View state
   readonly viewMode: ViewMode
   readonly previousViewMode: ViewMode | null
   readonly isStartupValidating: boolean
   readonly startupValidationStep?: string
   readonly startupValidationError: SerializableErrorState | null
-}
 
-export interface FmeDrawingState {
+  // Drawing state
   readonly isDrawing: boolean
   readonly drawingTool: DrawingTool
   readonly clickCount: number
   readonly geometryJson: unknown
   readonly drawnArea: number
-}
 
-export interface FmeExportState {
+  // Export state
   readonly formValues: FormValues
   readonly orderResult: ExportResult | null
-}
 
-export interface FmeWorkspaceState {
+  // Workspace state
   readonly workspaceItems: readonly WorkspaceItem[]
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
   readonly isLoadingWorkspaces: boolean
   readonly isLoadingParameters: boolean
-}
 
-export interface FmeLoadingState {
+  // Loading and error state
   readonly isModulesLoading: boolean
   readonly isSubmittingOrder: boolean
-}
-
-export interface FmeErrorState {
   readonly error: SerializableErrorState | null
   readonly importError: SerializableErrorState | null
   readonly exportError: SerializableErrorState | null
 }
 
-export interface FmeWidgetState
-  extends FmeViewState,
-    FmeDrawingState,
-    FmeExportState,
-    FmeWorkspaceState,
-    FmeLoadingState,
-    FmeErrorState {}
-
 export interface IMStateWithFmeExport extends IMState {
   readonly "fme-state": ImmutableObject<FmeWidgetState>
 }
+
 // Component props interfaces
-export interface OrderResultProps {
-  readonly orderResult: ExportResult
+export interface ComponentProps extends BaseProps {
+  readonly orderResult?: ExportResult
   readonly translate: (key: string) => string
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
   readonly config?: FmeExportConfig
-}
-
-export interface ExportFormProps {
-  readonly workspaceParameters: readonly WorkspaceParameter[]
-  readonly workspaceName: string
+  readonly workspaceParameters?: readonly WorkspaceParameter[]
+  readonly workspaceName?: string
   readonly workspaceItem?: WorkspaceItemDetail
-  readonly onBack?: () => void
   readonly onSubmit?: (data: unknown) => void
   readonly isSubmitting?: boolean
-  readonly translate: (key: string) => string
 }
 
-export interface WorkflowProps {
+// Workflow props
+export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig
   readonly state: ViewMode
@@ -833,53 +766,10 @@ export interface WidgetConfig {
 }
 
 export type IMWidgetConfig = ImmutableObject<WidgetConfig>
-export interface ConnectionSettings {
-  readonly serverUrl: string
-  readonly token: string
-  readonly repository: string
-}
-
-export interface TestState {
-  readonly isTestingConnection?: boolean
-  readonly connectionResult?: string | null
-  readonly isTesting?: boolean
-  readonly message?: string
-  readonly type?: "success" | "error" | "warning" | "info"
-}
-
-export interface FieldErrors {
-  serverUrl?: string
-  token?: string
-  repository?: string
-  workspace?: string
-  maxArea?: string
-  requestTimeout?: string
-  supportEmail?: string
-  tm_ttc?: string
-  tm_ttl?: string
-  tm_tag?: string
-}
-
-export type StepStatus = "idle" | "pending" | "ok" | "fail" | "skip"
-export interface CheckSteps {
-  readonly connection?: StepStatus
-  readonly authentication?: StepStatus
-  readonly repository?: StepStatus
-  readonly serverUrl?: StepStatus
-  readonly token?: StepStatus
-  readonly version?: string
-}
 
 export interface ValidationResult {
   readonly isValid?: boolean
-  readonly errors?: FieldErrors
-  readonly messages?: Partial<FieldErrors>
+  readonly errors?: { [key: string]: string }
+  readonly messages?: { [key: string]: string }
   readonly hasErrors?: boolean
-}
-
-export interface SanitizationResult {
-  readonly isValid?: boolean
-  readonly config?: WidgetConfig
-  readonly cleaned?: string
-  readonly changed?: boolean
 }

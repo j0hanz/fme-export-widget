@@ -80,11 +80,11 @@ function getHttpStatus(err: unknown): number | undefined {
   return undefined
 }
 
-// Module-level status checkers
+// HTTP status helpers
 const isNotFoundError = (status: number): boolean => status === 404
 const isServerError = (status: number): boolean => status >= 500 && status < 600
 
-// Helper functions for URL validation
+// URL validation helpers
 const isValidIPv4 = (host: string): boolean => {
   const ipv4Pattern = /^\d{1,3}(?:\.\d{1,3}){3}$/
   if (!ipv4Pattern.test(host)) return false
@@ -364,6 +364,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Consolidated test state
   const [testState, setTestState] = React.useState<TestState>({
+    status: "idle",
     isTesting: false,
     message: null,
     type: "info",
@@ -491,9 +492,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
         const cleaned = new URL(u.origin + path).toString().replace(/\/$/, "")
         const changed = cleaned !== trimmed.replace(/\/$/, "") && idxRest >= 0
-        return { cleaned, changed }
+        return { isValid: true, cleaned, changed, errors: [] }
       } catch {
-        return { cleaned: rawUrl, changed: false }
+        return {
+          isValid: false,
+          cleaned: rawUrl,
+          changed: false,
+          errors: ["Invalid URL"],
+        }
       }
     }
   )
@@ -576,7 +582,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (!localServerUrl || !localToken) {
       if (!silent) {
         const message = translate("fixErrorsAbove")
-        setTestState({ isTesting: false, message, type: "error" })
+        setTestState({
+          status: "error",
+          isTesting: false,
+          message,
+          type: "error",
+        })
       }
       return
     }
@@ -587,6 +598,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (!settings) {
       if (!silent) {
         setTestState({
+          status: "error",
           isTesting: false,
           message: translate("fixErrorsAbove"),
           type: "error",
@@ -597,6 +609,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Reset state for new test (do not clear existing list to keep Select usable)
     setTestState({
+      status: "running",
       isTesting: true,
       message: silent ? null : translate("testingConnection"),
       type: "info",
@@ -604,7 +617,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setCheckSteps({
       serverUrl: "pending",
       token: "pending",
-      repository: (settings.repository ? "pending" : "skip") as StepStatus,
+      repository: settings.repository ? "pending" : "skip",
       version: "",
     })
 
@@ -647,12 +660,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
         if (!silent) {
           setTestState({
+            status: "error",
             isTesting: false,
             message: processError(infoErr),
             type: "error",
           })
         } else {
-          setTestState((prev) => ({ ...prev, isTesting: false }))
+          setTestState((prev) => ({
+            ...prev,
+            status: "error",
+            isTesting: false,
+          }))
         }
         return
       }
@@ -704,6 +722,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           const successHelper = translate("connectionOk")
 
           setTestState({
+            status: "success",
             isTesting: false,
             message: successHelper,
             type: "success",
@@ -716,12 +735,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
         if (!silent) {
           setTestState({
+            status: "error",
             isTesting: false,
             message: processError(repoErr),
             type: "warning",
           })
         } else {
-          setTestState((prev) => ({ ...prev, isTesting: false }))
+          setTestState((prev) => ({
+            ...prev,
+            status: "error",
+            isTesting: false,
+          }))
         }
 
         setFieldErrors((prev) => ({
@@ -740,12 +764,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       if (!silent) {
         setTestState({
+          status: "error",
           isTesting: false,
           message: processError(err),
           type: "error",
         })
       } else {
-        setTestState((prev) => ({ ...prev, isTesting: false }))
+        setTestState((prev) => ({ ...prev, status: "error", isTesting: false }))
       }
     }
   })
@@ -981,14 +1006,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   const renderConnectionStatus = (): React.ReactNode => {
-    const rows: Array<{ label: string; status: StepStatus }> = [
+    const rows: Array<{ label: string; status: StepStatus | string }> = [
       { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
       { label: translate("fmeServerToken"), status: checkSteps.token },
       { label: translate("fmeRepository"), status: checkSteps.repository },
     ]
 
     // Map step -> icon and color style
-    const getStatusIcon = (s: StepStatus): { color: unknown } => {
+    const getStatusIcon = (s: StepStatus | string): { color: unknown } => {
       switch (s) {
         case "ok":
           return { color: sstyles.STATUS.COLOR.OK }
@@ -999,6 +1024,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         case "pending":
         case "idle":
           return { color: sstyles.STATUS.COLOR.PENDING }
+        default:
+          // Handle StepStatus objects
+          if (typeof s === "object" && s !== null) {
+            return s.completed
+              ? { color: sstyles.STATUS.COLOR.OK }
+              : { color: sstyles.STATUS.COLOR.FAIL }
+          }
+          return { color: sstyles.STATUS.COLOR.PENDING }
       }
     }
 
@@ -1007,7 +1040,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       status,
     }: {
       label: string
-      status: StepStatus
+      status: StepStatus | string
     }) => {
       const { color } = getStatusIcon(status)
       return (
@@ -1019,11 +1052,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </>
           </div>
           <div css={css(color as any)}>
-            {status === "ok"
+            {(typeof status === "string" && status === "ok") ||
+            (typeof status === "object" && status?.completed)
               ? translate("ok")
-              : status === "fail"
+              : (typeof status === "string" && status === "fail") ||
+                  (typeof status === "object" && status?.error)
                 ? translate("failed")
-                : status === "skip"
+                : typeof status === "string" && status === "skip"
                   ? translate("skipped")
                   : translate("checking")}
           </div>

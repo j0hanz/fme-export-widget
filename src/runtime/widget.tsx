@@ -46,16 +46,24 @@ import {
 } from "../shared/utils"
 
 // Dynamic ESRI module loader with test stub support
-const loadEsriModules = async (modules: string[]): Promise<any[]> => {
-  const testStub = (global as any).__ESRI_TEST_STUB__
-  if (typeof testStub === "function") return testStub(modules)
+const loadEsriModules = async (
+  modules: readonly string[]
+): Promise<unknown[]> => {
+  // Check for test environment first for better performance
+  if (process.env.NODE_ENV === "test") {
+    const testStub = (global as any).__ESRI_TEST_STUB__
+    if (typeof testStub === "function") {
+      return testStub(modules)
+    }
+  }
 
+  // Use jimu-arcgis loader in production - EXB best practice
   const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
-  const loaded = await loadArcGISJSAPIModules(modules)
+  const loaded = await loadArcGISJSAPIModules(modules as string[])
   return loaded.map((m: any) => m?.default ?? m)
 }
 
-// Constants for styling and symbols
+// Styling and symbols
 const DRAWING_COLOR = [0, 121, 193] as const
 
 const HIGHLIGHT_SYMBOL = {
@@ -100,13 +108,13 @@ const MODULES = [
   "esri/Graphic",
 ] as const
 
-// Area calculation and formatting constants
+// Area calculation and formatting
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000, // m² -> 1 km²
   AREA_DECIMALS: 2,
 } as const
 
-// Optimized module loading hook using jimu patterns
+// Module loading hook
 const useModules = (): {
   modules: EsriModules | null
   loading: boolean
@@ -121,7 +129,7 @@ const useModules = (): {
 
     const loadModules = async () => {
       try {
-        const loaded = await loadEsriModules(MODULES as any)
+        const loaded = await loadEsriModules(MODULES)
         if (cancelled) return
 
         const [
@@ -158,7 +166,8 @@ const useModules = (): {
         }
       }
     }
-    loadModules()
+
+    void loadModules()
     return () => {
       cancelled = true
     }
@@ -167,7 +176,7 @@ const useModules = (): {
   return state
 }
 
-// Optimized map state management with better cleanup patterns
+// Map state management
 const useMapState = () => {
   const [mapResources, setMapResources] = React.useState<{
     jimuMapView: JimuMapView | null
@@ -190,27 +199,31 @@ const useMapState = () => {
     }
   )
 
-  // Centralized cleanup with better error handling
+  // Centralized cleanup with improved error handling and safety checks
   const cleanupResources = hooks.useEventCallback(() => {
     const { sketchViewModel, graphicsLayer, jimuMapView } = mapResources
 
-    // Cancel sketch operations
+    // Safely cancel sketch operations
     if (sketchViewModel?.activeTool) {
       try {
         sketchViewModel.cancel()
-        sketchViewModel.destroy?.()
+        if (typeof sketchViewModel.destroy === "function") {
+          sketchViewModel.destroy()
+        }
       } catch (error) {
         console.warn("Widget - Error cleaning up SketchViewModel:", error)
       }
     }
 
-    // Remove and clear graphics layer
+    // Safely remove and clear graphics layer
     if (graphicsLayer) {
       try {
         if (jimuMapView?.view?.map && graphicsLayer.parent) {
           jimuMapView.view.map.remove(graphicsLayer)
         }
-        graphicsLayer.removeAll?.()
+        if (typeof graphicsLayer.removeAll === "function") {
+          graphicsLayer.removeAll()
+        }
       } catch (error) {
         console.warn("Widget - Error cleaning up GraphicsLayer:", error)
       }
@@ -239,36 +252,28 @@ const useMapState = () => {
   }
 }
 
-// Shared error service instance
-const errorService = new ErrorHandlingService()
-
-// Optimized error dispatching utility
+// Error handling
 const useErrorDispatcher = (dispatch: (action: unknown) => void) =>
   hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
-    dispatch(
-      fmeActions.setError(
-        errorService.createError(message, type, code ? { code } : undefined)
-      )
+    const error = new ErrorHandlingService().createError(
+      message,
+      type,
+      code ? { code } : undefined
     )
+    dispatch(fmeActions.setError(error))
   })
 
-// Optimized abort controller management
+// Abort controller
 const useAbortController = () => {
   const ref = React.useRef<AbortController | null>(null)
 
   const cancel = hooks.useEventCallback(() => {
-    if (ref.current && !ref.current.signal.aborted) {
-      try {
-        ref.current.abort()
-      } catch (error) {
-        console.warn("Widget - Error aborting controller:", error)
-      }
-    }
+    ref.current?.abort()
     ref.current = null
   })
 
   const create = hooks.useEventCallback(() => {
-    cancel() // Cancel existing controller
+    cancel()
     ref.current = new AbortController()
     return ref.current
   })
@@ -276,7 +281,7 @@ const useAbortController = () => {
   return { ref, cancel, create }
 }
 
-// Simple geometry calculation utility
+// Geometry area calculation
 const calcArea = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
@@ -303,7 +308,7 @@ const calcArea = (
   }
 }
 
-// Simple polygon validation
+// Polygon validation
 const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: EsriModules
@@ -311,16 +316,20 @@ const validatePolygon = (
   if (!geometry) {
     return {
       valid: false,
-      error: errorService.createError("GEOMETRY_MISSING", ErrorType.GEOMETRY, {
-        code: "GEOM_MISSING",
-      }),
+      error: new ErrorHandlingService().createError(
+        "GEOMETRY_MISSING",
+        ErrorType.GEOMETRY,
+        {
+          code: "GEOM_MISSING",
+        }
+      ),
     }
   }
 
   if (geometry.type !== "polygon") {
     return {
       valid: false,
-      error: errorService.createError(
+      error: new ErrorHandlingService().createError(
         "GEOMETRY_TYPE_INVALID",
         ErrorType.GEOMETRY,
         { code: "GEOM_TYPE_INVALID" }
@@ -337,7 +346,7 @@ const validatePolygon = (
     if (!modules.geometryEngine.isSimple(polygon)) {
       return {
         valid: false,
-        error: errorService.createError(
+        error: new ErrorHandlingService().createError(
           "POLYGON_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
           { code: "GEOM_SELF_INTERSECTING" }
@@ -354,7 +363,7 @@ const validatePolygon = (
 // Export utility functions
 export { calcArea, validatePolygon }
 
-// Validate area constraints
+// Area constraints
 const checkMaxArea = (
   area: number,
   maxArea?: number
@@ -386,24 +395,25 @@ const buildFmeParams = (
   }
 }
 
-// Type guard for graphic JSON with geometry property
+// Type guard: graphic JSON with geometry
 const isGraphicJsonWithPolygon = (
   value: unknown
 ): value is { geometry: { rings: unknown } } => {
   if (!value || typeof value !== "object") return false
-  const v: any = value
+  const v = value as { [key: string]: unknown }
   if (!("geometry" in v)) return false
   const geometry = v.geometry
   if (!geometry || typeof geometry !== "object") return false
-  if (!("rings" in geometry)) return false
-  const rings = geometry.rings
+  const g = geometry as { [key: string]: unknown }
+  if (!("rings" in g)) return false
+  const rings = g.rings
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
 }
 
-// Type guard for polygon geometry JSON
+// Type guard: polygon geometry JSON
 const isPolygonJson = (value: unknown): value is { rings: unknown } => {
   if (!value || typeof value !== "object") return false
-  const v: any = value
+  const v = value as { [key: string]: unknown }
   if (!("rings" in v)) return false
   const rings = v.rings
   return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
@@ -434,17 +444,22 @@ const attachAoi = (
   return base
 }
 
-// Optimized email validation utilities
-// Email validation utilities
+// Email utilities (fetch current user's email via Portal)
 const getEmail = async (): Promise<string> => {
   const [Portal] = await loadEsriModules(["esri/portal/Portal"])
-  const portal = new Portal()
+  const portal = new (Portal as any)()
   await portal.load()
 
   const email = portal.user?.email
   if (!email) {
     throw new Error("User email is required but not available")
   }
+
+  // Validate email format
+  if (!isValidEmail(email)) {
+    throw new Error(`Invalid email format: ${email}`)
+  }
+
   return email
 }
 
@@ -461,7 +476,7 @@ const prepFmeParams = (
   return attachAoi(base, geometryJson, currentGeometry)
 }
 
-// Apply admin defaults for FME Task Manager directives with proper precedence
+// Apply admin defaults for FME Task Manager directives
 const applyDirectiveDefaults = (
   params: { [key: string]: unknown },
   config?: FmeExportConfig
@@ -681,36 +696,35 @@ const processFmeResponse = (
   }
 }
 
-// Simple area formatting
+// Area formatting with i18n support
 export function formatArea(area: number, modules: EsriModules): string {
   if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
 
-  const intlModule = (modules as any)?.intl
-  const hasIntl = intlModule && typeof intlModule.formatNumber === "function"
+  // Use consistent formatting approach
+  const formatNumber = (value: number, decimals: number): string => {
+    const intlModule = (modules as any)?.intl
+    if (intlModule && typeof intlModule.formatNumber === "function") {
+      return intlModule.formatNumber(value, {
+        style: "decimal",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: decimals,
+      })
+    }
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: decimals,
+    })
+  }
 
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
-    if (hasIntl) {
-      const formatted = intlModule.formatNumber(areaInSqKm, {
-        style: "decimal",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: GEOMETRY_CONSTS.AREA_DECIMALS,
-      })
-      return `${formatted} km²`
-    }
-    return `${areaInSqKm.toFixed(GEOMETRY_CONSTS.AREA_DECIMALS)} km²`
+    const formatted = formatNumber(areaInSqKm, GEOMETRY_CONSTS.AREA_DECIMALS)
+    return `${formatted} km²`
   }
 
   const roundedArea = Math.round(area)
-  if (hasIntl) {
-    const formatted = intlModule.formatNumber(roundedArea, {
-      style: "decimal",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    })
-    return `${formatted} m²`
-  }
-  return `${roundedArea.toLocaleString()} m²`
+  const formatted = formatNumber(roundedArea, 0)
+  return `${formatted} m²`
 }
 
 export default function Widget(
@@ -739,7 +753,7 @@ export default function Widget(
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
-  // Optimized error handling
+  // Error handling
   const dispatchError = useErrorDispatcher(dispatch)
   const submissionController = useAbortController()
 
@@ -835,7 +849,7 @@ export default function Widget(
     cleanupResources,
   } = localMapState
 
-  // Configuration validation helper
+  // Configuration validation helper with improved error handling
   const validateConfiguration = hooks.useEventCallback(
     (
       config: FmeExportConfig | undefined
@@ -847,27 +861,34 @@ export default function Widget(
         }
       }
 
-      // Check required fields
-      if (!config.fmeServerUrl || config.fmeServerUrl.trim() === "") {
-        return {
-          isValid: false,
-          error: createStartupError("serverUrlMissing", "ServerUrlEmpty"),
-        }
-      }
-      if (!config.fmeServerToken || config.fmeServerToken.trim() === "") {
-        return {
-          isValid: false,
-          error: createStartupError("tokenMissing", "TokenEmpty"),
-        }
-      }
-      if (!config.repository || config.repository.trim() === "") {
-        return {
-          isValid: false,
-          error: createStartupError("repositoryMissing", "RepositoryEmpty"),
+      // Check required fields with more specific error messages
+      const requiredFields = [
+        {
+          field: config.fmeServerUrl?.trim(),
+          key: "serverUrlMissing",
+          code: "ServerUrlEmpty",
+        },
+        {
+          field: config.fmeServerToken?.trim(),
+          key: "tokenMissing",
+          code: "TokenEmpty",
+        },
+        {
+          field: config.repository?.trim(),
+          key: "repositoryMissing",
+          code: "RepositoryEmpty",
+        },
+      ]
+
+      for (const { field, key, code } of requiredFields) {
+        if (!field) {
+          return {
+            isValid: false,
+            error: createStartupError(key, code),
+          }
         }
       }
 
-      // Workspace is optional, but warn if empty
       return { isValid: true }
     }
   )
@@ -890,84 +911,93 @@ export default function Widget(
   // Small helper to build consistent startup validation errors
   const createStartupError = hooks.useEventCallback(
     (messageKey: string, code: string, retry?: () => void): ErrorState =>
-      errorService.createError(translate(messageKey), ErrorType.CONFIG, {
-        code,
-        severity: ErrorSeverity.ERROR,
-        userFriendlyMessage: props.config?.supportEmail
-          ? String(props.config.supportEmail)
-          : translate("contactSupport"),
-        suggestion: translate("retryValidation"),
-        retry,
-      })
+      new ErrorHandlingService().createError(
+        translate(messageKey),
+        ErrorType.CONFIG,
+        {
+          code,
+          severity: ErrorSeverity.ERROR,
+          userFriendlyMessage: props.config?.supportEmail
+            ? String(props.config.supportEmail)
+            : translate("contactSupport"),
+          suggestion: translate("retryValidation"),
+          retry,
+        }
+      )
   )
 
-  // Run startup validation with improved error handling
+  // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
     setValidationStep(translate("validatingConfiguration"))
 
     try {
       // Step 1: validate map configuration
       setValidationStep(translate("validatingMapConfiguration"))
-      const hasMapConfigured = Array.isArray(useMapWidgetIds)
-        ? useMapWidgetIds.length > 0
-        : false
+      const hasMapConfigured =
+        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
       if (!hasMapConfigured) {
         const mapConfigError = createStartupError(
           "mapNotConfigured",
           "MapNotConfigured",
-          () => runStartupValidation()
+          runStartupValidation
         )
-        // Keep default suggestion for missing map
         setValidationError(mapConfigError)
         return
       }
 
-      // Check if configuration exists and is valid
+      // Step 2: validate widget configuration
       const configValidation = validateConfiguration(config)
       if (!configValidation.isValid && configValidation.error) {
         setValidationError(configValidation.error)
         return
       }
 
+      // Step 3: validate connection and repository
       const client = createFmeFlowClient(config)
       setValidationStep(translate("validatingConnection"))
-      await makeCancelable(client.testConnection())
-      setValidationStep(translate("validatingAuthentication"))
-      await makeCancelable(client.validateRepository(config.repository))
 
-      // Update validation step
+      await makeCancelable(
+        Promise.all([
+          client.testConnection(),
+          client.validateRepository(config.repository),
+        ])
+      )
+
+      // Step 4: validate user email
       setValidationStep(translate("validatingUserEmail"))
-
-      // Validate that current user has an email address available
       try {
         const email = await getEmail()
         if (!isValidEmail(email)) {
           setValidationError(
-            createStartupError("userEmailMissing", "UserEmailMissing", () =>
-              runStartupValidation()
+            createStartupError(
+              "userEmailMissing",
+              "UserEmailMissing",
+              runStartupValidation
             )
           )
           return
         }
       } catch (emailErr) {
-        // If email check itself fails, surface as missing email
         setValidationError(
-          createStartupError("userEmailMissing", "UserEmailMissing", () =>
-            runStartupValidation()
+          createStartupError(
+            "userEmailMissing",
+            "UserEmailMissing",
+            runStartupValidation
           )
         )
         return
       }
 
-      // Validation successful - transition to normal operation
+      // All validation passed
       setValidationSuccess()
     } catch (err: unknown) {
       console.error("FME Export - Startup validation failed:", err)
-
-      const { code, message } = errorService.deriveStartupError(err, translate)
-
+      const { code, message } = new ErrorHandlingService().deriveStartupError(
+        err,
+        translate
+      )
       setValidationError(
-        createStartupError(message, code, () => runStartupValidation())
+        createStartupError(message, code, runStartupValidation)
       )
     }
   })
@@ -1094,23 +1124,21 @@ export default function Widget(
     finalizeOrder(result)
   }
 
-  // Form submission handler with FME export
+  // Form submission handler
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    if (reduxState.isSubmittingOrder) {
-      return
-    }
-    if (!canSubmit()) {
+    if (reduxState.isSubmittingOrder || !canSubmit()) {
       return
     }
 
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
 
     try {
-      const userEmail = await getEmail()
-      const fmeClient = createFmeFlowClient(props.config)
-      const workspace = reduxState.selectedWorkspace
+      const [userEmail, fmeClient] = await Promise.all([
+        getEmail(),
+        Promise.resolve(createFmeFlowClient(props.config)),
+      ])
 
-      // Prepare parameters differently for sync vs async
+      const workspace = reduxState.selectedWorkspace
       const fmeParameters = prepFmeParams(
         formData,
         userEmail,
@@ -1119,16 +1147,15 @@ export default function Widget(
         props.config
       )
 
-      // Use the optimized abort controller
+      // Create abort controller for this request
       const controller = submissionController.create()
 
-      // For test environments, record the parameters synchronously so tests can
-      // assert that a submission was attempted without relying on fetch mocks.
+      // Apply admin defaults and record for testing
       const finalParams = applyDirectiveDefaults(fmeParameters, props.config)
       try {
         ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
-      } catch (e) {
-        // ignore any issues writing to global in constrained runtimes
+      } catch {
+        // Ignore global write errors in constrained environments
       }
 
       // Submit to FME Flow
@@ -1146,7 +1173,6 @@ export default function Widget(
       handleSubmissionError(error)
     } finally {
       dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: false }))
-      // Clear controller after completion
       submissionController.cancel()
     }
   })
