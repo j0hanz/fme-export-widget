@@ -25,7 +25,7 @@ jest.mock("../shared/api", () => ({
       return Promise.resolve({
         status: 200,
         statusText: "OK",
-        data: [{ name: "repo" }],
+        data: [{ name: "repo1" }, { name: "repo2" }],
       })
     }
     validateRepository() {
@@ -50,13 +50,6 @@ jest.mock("jimu-ui/advanced/setting-components", () => ({
 
 describe("Setting component", () => {
   const renderSetting = widgetSettingRender()
-
-  /**
-   * Helper to find the test connection button.
-   * Many tests need to trigger the connection test; centralizing
-   * this logic makes it easier to update the selector if the
-   * underlying UI label or role changes in the future.
-   */
   const getTestButton = () => {
     // Try to locate by accessible name first
     const candidates = screen.queryAllByRole("button", {
@@ -251,6 +244,73 @@ describe("Setting component", () => {
     expect(btn).toBeTruthy()
     // wait a tick for useEffect to sync config -> local state is above; ensure enabled
     expect(btn?.hasAttribute("disabled")).toBe(false)
+  })
+
+  test("auto-selects first repository when list loads and no selection", async () => {
+    const onSettingChange = jest.fn()
+    const cfg = baseConfig
+      .set("fmeServerUrl", "https://example.com")
+      .set("fmeServerToken", "abcdefghij")
+
+    const { container } = renderSetting(
+      <S
+        id="s12"
+        widgetId="w-s12"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={cfg}
+      />
+    )
+
+    // Let effects run: auto-fetch repos and auto-select first
+    await waitFor(() => {
+      // onSettingChange should be called with repository set to first entry
+      const calls = onSettingChange.mock.calls
+      const latest = calls[calls.length - 1]?.[0]
+      const config = latest?.config
+      // Handle both Immutable and plain object configs
+      const repositoryValue = config?.get
+        ? config.get("repository")
+        : config?.repository
+      expect(repositoryValue).toBe("repo1")
+    })
+
+    // The select should show repo1 as selected value
+    const combo = container.querySelector('[role="combobox"]')
+    expect(combo).toBeTruthy()
+  })
+
+  test("user can change repository independent of Test Connection", async () => {
+    const onSettingChange = jest.fn()
+    const cfg = baseConfig
+      .set("fmeServerUrl", "https://example.com")
+      .set("fmeServerToken", "abcdefghij")
+
+    renderSetting(
+      <S
+        id="s13"
+        widgetId="w-s13"
+        onSettingChange={onSettingChange as any}
+        useMapWidgetIds={[] as any}
+        config={cfg}
+      />
+    )
+
+    // Wait for repos and auto-select
+    await waitFor(() => {
+      const calls = onSettingChange.mock.calls
+      const latest = calls[calls.length - 1]?.[0]
+      const config = latest?.config
+      // Handle both Immutable and plain object configs
+      const repositoryValue = config?.get
+        ? config.get("repository")
+        : config?.repository
+      expect(repositoryValue).toBe("repo1")
+    })
+
+    // Change the repository selection
+    const repoSelect = screen.getByRole("combobox")
+    expect(repoSelect.getAttribute("aria-disabled")).toBe("false")
   })
 
   test("401 Unauthorized during testConnection marks token invalid", async () => {

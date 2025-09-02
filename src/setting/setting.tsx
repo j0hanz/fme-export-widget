@@ -893,6 +893,64 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [localServerUrl, localToken])
 
+  // Auto-fetch repositories when server URL and token are valid
+  React.useEffect(() => {
+    const hasValidServer = !validateServerUrl(localServerUrl)
+    const hasValidToken = !validateToken(localToken)
+    if (!hasValidServer || !hasValidToken) return
+
+    // Cancel any in-flight repository request
+    if (reposAbortRef.current) {
+      try {
+        reposAbortRef.current.abort()
+      } catch {}
+      reposAbortRef.current = null
+    }
+
+    const controller = new AbortController()
+    reposAbortRef.current = controller
+    const signal = controller.signal
+
+    try {
+      const { cleaned } = sanitizeUrl(localServerUrl || "")
+      const client = new FmeFlowApiClient({
+        serverUrl: cleaned,
+        token: localToken,
+        repository: "_",
+      })
+      ;(async () => {
+        try {
+          const reposResp = await client.getRepositories(signal)
+          const names: string[] = Array.isArray((reposResp as any)?.data)
+            ? ((reposResp as any).data as Array<{ name: string }>)
+                .map((r) => r?.name)
+                .filter((n) => typeof n === "string" && n.length > 0)
+            : []
+          setAvailableRepos(names)
+        } catch (e) {
+          // Keep silent in auto mode; just clear the list
+          setAvailableRepos([])
+        } finally {
+          // Cleanup controller reference if it's still ours
+          if (reposAbortRef.current === controller) {
+            reposAbortRef.current = null
+          }
+        }
+      })()
+    } catch {
+      setAvailableRepos([])
+    }
+
+    return () => {
+      if (reposAbortRef.current === controller) {
+        try {
+          reposAbortRef.current.abort()
+        } catch {}
+        reposAbortRef.current = null
+      }
+    }
+  }, [localServerUrl, localToken, sanitizeUrl])
+
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
     if (!availableRepos?.length || !localRepository) return
@@ -903,6 +961,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       repository: hasRepo ? undefined : translate("errorRepositoryNotFound"),
     }))
   }, [availableRepos, localRepository, translate])
+
+  // Auto-select the first repository when a valid list is loaded and current selection is empty or invalid
+  React.useEffect(() => {
+    if (!Array.isArray(availableRepos) || availableRepos.length === 0) return
+
+    const current = localRepository
+    const inList = current ? availableRepos.includes(current) : false
+    if (!current || !inList) {
+      const first = availableRepos[0]
+      setLocalRepository(first)
+      updateConfig("repository", first)
+      setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+    }
+  }, [availableRepos, localRepository, updateConfig])
 
   // Helper for rendering input fields with error alerts
   const renderInputField = hooks.useEventCallback(
@@ -1142,6 +1214,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         >
           <Select
             options={(() => {
+              // If server URL or token are invalid, show no options so placeholder '---' appears
+              const hasValidServer = !validateServerUrl(localServerUrl)
+              const hasValidToken = !validateToken(localToken)
+              if (!hasValidServer || !hasValidToken) {
+                return []
+              }
+
               // Use availableRepos if populated; otherwise, if not yet loaded, use current value if any
               const src =
                 availableRepos && availableRepos.length > 0
@@ -1160,7 +1239,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }
               return opts
             })()}
-            value={localRepository || undefined}
+            value={(() => {
+              const hasValidServer = !validateServerUrl(localServerUrl)
+              const hasValidToken = !validateToken(localToken)
+              if (!hasValidServer || !hasValidToken) return undefined
+              return localRepository || undefined
+            })()}
             onChange={(val) => {
               const next =
                 typeof val === "string" || typeof val === "number"
@@ -1174,7 +1258,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 repository: error ? translate(error) : undefined,
               }))
             }}
-            disabled={testState.isTesting || availableRepos === null}
+            // Keep the repository selection independent from the Test Connection button/state
+            disabled={false}
             aria-describedby={
               fieldErrors.repository ? `${ID.repository}-error` : undefined
             }
