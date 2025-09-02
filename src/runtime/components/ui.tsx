@@ -66,7 +66,7 @@ export const config = {
     textPadding: "18px",
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200 },
+  loading: { width: 200, height: 200, delay: 1000 },
   required: "*",
 } as const
 
@@ -843,6 +843,22 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
+
+  // Manage delayed loading indicator
+  const [showLoading, setShowLoading] = React.useState(false)
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    if (state.kind === "loading") {
+      timer = setTimeout(() => {
+        setShowLoading(true)
+      }, config.loading.delay)
+    } else {
+      setShowLoading(false)
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [state.kind])
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -884,11 +900,13 @@ const StateView: React.FC<StateViewProps> = ({
       case "loading":
         return (
           <div css={styles.centered} role="status" aria-live="polite">
-            <Loading
-              type={LoadingType.Donut}
-              width={config.loading.width}
-              height={config.loading.height}
-            />
+            {showLoading && (
+              <Loading
+                type={LoadingType.Donut}
+                width={config.loading.width}
+                height={config.loading.height}
+              />
+            )}
             {(state.message || state.detail) && (
               <div
                 css={styles.overlay}

@@ -93,9 +93,22 @@ export class ErrorHandlingService {
     // Check known codes
     const knownCodes: { [key: string]: string } = {
       UserEmailMissing: "userEmailMissing",
+      INVALID_EMAIL: "invalidEmail",
       INVALID_CONFIG: "invalidConfiguration",
       WEBHOOK_AUTH_ERROR: "authenticationFailed",
       ARCGIS_MODULE_ERROR: "connectionFailed",
+      ABORT: "requestAborted",
+      CANCELLED: "operationCancelled",
+      CORS_ERROR: "corsError",
+      OFFLINE: "offline",
+      SSL_ERROR: "sslError",
+      INVALID_URL: "invalidUrl",
+      RATE_LIMITED: "rateLimited",
+      BAD_GATEWAY: "badGateway",
+      SERVICE_UNAVAILABLE: "serviceUnavailable",
+      GATEWAY_TIMEOUT: "gatewayTimeout",
+      BAD_REQUEST: "badRequest",
+      PAYLOAD_TOO_LARGE: "payloadTooLarge",
     }
 
     // Check if message itself is a known code
@@ -105,6 +118,14 @@ export class ErrorHandlingService {
 
     if (errorCode && knownCodes[errorCode]) {
       return { code: errorCode, message: translate(knownCodes[errorCode]) }
+    }
+
+    // Check specific error codes
+    if (errorCode === "AbortError" || errorCode === "ABORT") {
+      return { code: "ABORT", message: translate("requestAborted") }
+    }
+    if (errorCode === "CancelledPromiseError" || /cancel/i.test(message)) {
+      return { code: "CANCELLED", message: translate("operationCancelled") }
     }
 
     // Check HTTP status codes
@@ -118,6 +139,25 @@ export class ErrorHandlingService {
         return { code: "REPO_NOT_FOUND", message: translate("repoNotFound") }
       if (status === 429)
         return { code: "HTTP_ERROR", message: translate("connectionFailed") }
+      if (status === 413)
+        return {
+          code: "PAYLOAD_TOO_LARGE",
+          message: translate("payloadTooLarge"),
+        }
+      if (status === 400 || status === 422)
+        return { code: "BAD_REQUEST", message: translate("badRequest") }
+      if (status === 502)
+        return { code: "BAD_GATEWAY", message: translate("badGateway") }
+      if (status === 503)
+        return {
+          code: "SERVICE_UNAVAILABLE",
+          message: translate("serviceUnavailable"),
+        }
+      if (status === 504)
+        return {
+          code: "GATEWAY_TIMEOUT",
+          message: translate("gatewayTimeout"),
+        }
       if (status >= 500)
         return { code: "SERVER_ERROR", message: translate("serverError") }
     }
@@ -126,12 +166,38 @@ export class ErrorHandlingService {
     if (typeof message === "string") {
       if (/timeout/i.test(message))
         return { code: "TIMEOUT", message: translate("timeout") }
+      if (/^TypeError: Failed to fetch$/i.test(message)) {
+        // Could be CORS or offline - check if offline
+        try {
+          // navigator may not exist in tests
+          const nav = (globalThis as any)?.navigator
+          if (nav && nav.onLine === false) {
+            return { code: "OFFLINE", message: translate("offline") }
+          }
+        } catch {}
+        return { code: "CORS_ERROR", message: translate("corsError") }
+      }
       if (/network|failed to fetch/i.test(message))
         return { code: "NETWORK_ERROR", message: translate("networkError") }
       if (/unexpected token|json|parse/i.test(message))
         return { code: "BAD_RESPONSE", message: translate("badResponse") }
+      if (/invalid url/i.test(message))
+        return { code: "INVALID_URL", message: translate("invalidUrl") }
+      if (/ssl|certificate/i.test(message))
+        return { code: "SSL_ERROR", message: translate("sslError") }
       if ((error as Error)?.name === "TypeError")
         return { code: "NETWORK_ERROR", message: translate("networkError") }
+    }
+
+    // Check status === 0 (often CORS or offline)
+    if (status === 0) {
+      try {
+        const nav = (globalThis as any)?.navigator
+        if (nav && nav.onLine === false) {
+          return { code: "OFFLINE", message: translate("offline") }
+        }
+      } catch {}
+      return { code: "CORS_ERROR", message: translate("corsError") }
     }
 
     return {

@@ -150,6 +150,9 @@ describe("UI components", () => {
     const { rerender } = renderWithProviders(
       <StateView state={{ kind: "loading", message: "Loading" } as any} />
     )
+    const status = screen.getByRole("status")
+    expect(status).toBeTruthy()
+    await waitForMilliseconds(1100)
     expect(screen.getByRole("status")).toBeTruthy()
 
     const onAction = jest.fn()
