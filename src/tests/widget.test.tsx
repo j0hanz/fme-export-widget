@@ -177,9 +177,11 @@ describe("FME Export Widget", () => {
     const Wrapped = WrappedComponent
 
     // Startup validation shows loading message
-  const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
-  await waitForMilliseconds(1100)
-  screen.getByText(/Validerar konfiguration|Laddar karttjänster|validatingStartup/i)
+    const { unmount: unmount1 } = renderWidget(<Wrapped widgetId="w1" />)
+    await waitForMilliseconds(1100)
+    screen.getByText(
+      /Validerar konfiguration|Laddar karttjänster|validatingStartup/i
+    )
     unmount1()
 
     // Set up initial state with a non-startup error
