@@ -973,8 +973,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setLocalRepository(first)
       updateConfig("repository", first)
       setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+      // Trigger runtime reload to clear cached workspace data when auto-selecting
+      bumpConfigRevision()
     }
-  }, [availableRepos, localRepository, updateConfig])
+  }, [availableRepos, localRepository, updateConfig, bumpConfigRevision])
 
   // Helper for rendering input fields with error alerts
   const renderInputField = hooks.useEventCallback(
@@ -1164,6 +1166,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               ...prev,
               serverUrl: errKey ? translate(errKey) : undefined,
             }))
+            // Trigger runtime reload when server URL changes
+            bumpConfigRevision()
           },
           placeholder: translate("serverUrlPlaceholder"),
           required: true,
@@ -1182,6 +1186,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               ...prev,
               token: errKey ? translate(errKey) : undefined,
             }))
+            // Trigger runtime reload when token changes
+            bumpConfigRevision()
           },
           placeholder: translate("tokenPlaceholder"),
           type: "password",
@@ -1257,6 +1263,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 ...prev,
                 repository: error ? translate(error) : undefined,
               }))
+              // Trigger runtime reload to clear cached workspace data
+              bumpConfigRevision()
             }}
             // Keep the repository selection independent from the Test Connection button/state
             disabled={false}
@@ -1292,6 +1300,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               const checked = evt?.target?.checked ?? !localSyncMode
               setLocalSyncMode(checked)
               updateConfig("syncMode", checked)
+              // Trigger runtime reload when sync mode changes
+              bumpConfigRevision()
             }}
             aria-label={translate("serviceModeSync")}
           />

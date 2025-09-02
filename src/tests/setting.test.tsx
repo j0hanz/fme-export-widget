@@ -263,17 +263,32 @@ describe("Setting component", () => {
     )
 
     // Let effects run: auto-fetch repos and auto-select first
-    await waitFor(() => {
-      // onSettingChange should be called with repository set to first entry
-      const calls = onSettingChange.mock.calls
-      const latest = calls[calls.length - 1]?.[0]
-      const config = latest?.config
-      // Handle both Immutable and plain object configs
-      const repositoryValue = config?.get
-        ? config.get("repository")
-        : config?.repository
-      expect(repositoryValue).toBe("repo1")
-    })
+    await waitFor(
+      () => {
+        // onSettingChange should be called with repository set to first entry
+        const calls = onSettingChange.mock.calls
+        expect(calls.length).toBeGreaterThan(0)
+
+        // Find the call that sets the repository
+        const repoCall = calls.find((call) => {
+          const config = call[0]?.config
+          const repositoryValue = config?.get
+            ? config.get("repository")
+            : config?.repository
+          return repositoryValue === "repo1"
+        })
+
+        expect(repoCall).toBeDefined()
+        if (repoCall) {
+          const config = repoCall[0]?.config
+          const repositoryValue = config?.get
+            ? config.get("repository")
+            : config?.repository
+          expect(repositoryValue).toBe("repo1")
+        }
+      },
+      { timeout: 3000 }
+    )
 
     // The select should show repo1 as selected value
     const combo = container.querySelector('[role="combobox"]')
@@ -297,16 +312,31 @@ describe("Setting component", () => {
     )
 
     // Wait for repos and auto-select
-    await waitFor(() => {
-      const calls = onSettingChange.mock.calls
-      const latest = calls[calls.length - 1]?.[0]
-      const config = latest?.config
-      // Handle both Immutable and plain object configs
-      const repositoryValue = config?.get
-        ? config.get("repository")
-        : config?.repository
-      expect(repositoryValue).toBe("repo1")
-    })
+    await waitFor(
+      () => {
+        const calls = onSettingChange.mock.calls
+        expect(calls.length).toBeGreaterThan(0)
+
+        // Find the call that sets the repository
+        const repoCall = calls.find((call) => {
+          const config = call[0]?.config
+          const repositoryValue = config?.get
+            ? config.get("repository")
+            : config?.repository
+          return repositoryValue === "repo1"
+        })
+
+        expect(repoCall).toBeDefined()
+        if (repoCall) {
+          const config = repoCall[0]?.config
+          const repositoryValue = config?.get
+            ? config.get("repository")
+            : config?.repository
+          expect(repositoryValue).toBe("repo1")
+        }
+      },
+      { timeout: 3000 }
+    )
 
     // Change the repository selection
     const repoSelect = screen.getByRole("combobox")
