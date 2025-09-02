@@ -841,69 +841,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localTmTag,
   ])
 
-  // Auto-fetch repository list immediately when server URL, token, or repository changes
+  // Auto-run connection test when server URL or token changes and are non-empty
   React.useEffect(() => {
+    // Clear any previous results and cancel in-flight fetches
     setAvailableRepos(null)
+    setFieldErrors((prev) => ({ ...prev, repository: undefined }))
     if (reposAbortRef.current) {
-      reposAbortRef.current.abort()
+      try {
+        reposAbortRef.current.abort()
+      } catch {}
       reposAbortRef.current = null
     }
-
-    const serverUrlError = validateServerUrl(localServerUrl)
-    const tokenError = validateToken(localToken)
-    if (!localServerUrl || !localToken || serverUrlError || tokenError) {
-      return () => {
-        if (reposAbortRef.current) {
-          try {
-            reposAbortRef.current.abort()
-          } catch {}
-          reposAbortRef.current = null
-        }
-      }
-    }
-
-    const controller = new AbortController()
-    reposAbortRef.current = controller
-
-    const client = new FmeFlowApiClient({
-      serverUrl: localServerUrl,
-      token: localToken,
-      repository: localRepository || "_",
-    })
-
-    client
-      .getRepositories(controller.signal)
-      .then((resp) => {
-        if (controller.signal.aborted) return
-        const names = Array.isArray(resp?.data)
-          ? (resp.data as Array<{ name: string }>)
-              .map((r) => r?.name)
-              .filter((n): n is string => typeof n === "string" && n.length > 0)
-          : []
-        setAvailableRepos(names)
-
-        if (
-          localRepository &&
-          names.length &&
-          !names.includes(localRepository)
-        ) {
-          setFieldErrors((prev) => ({
-            ...prev,
-            repository: translate("errorRepositoryNotFound"),
-          }))
-        } else {
-          setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-        }
-      })
-      .catch((err) => {
-        if (controller.signal.aborted) return
-        setAvailableRepos([])
-        const status = getHttpStatus(err)
-        const fieldErrs = mapStatusToFieldErrors(status, translate)
-        if (Object.keys(fieldErrs).length > 0) {
-          setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
-        }
-      })
 
     return () => {
       if (reposAbortRef.current) {
@@ -913,7 +861,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         reposAbortRef.current = null
       }
     }
-  }, [localServerUrl, localToken, localRepository, translate])
+  }, [localServerUrl, localToken])
 
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
