@@ -8,6 +8,7 @@ import {
   ReactRedux,
   type IMState,
   WidgetState,
+  SessionManager,
 } from "jimu-core"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
@@ -444,15 +445,14 @@ const attachAoi = (
   return base
 }
 
-// Email utilities (fetch current user's email via Portal)
+// Get and validate user email
 const getEmail = async (): Promise<string> => {
-  const [Portal] = await loadEsriModules(["esri/portal/Portal"])
-  const portal = new (Portal as any)()
-  await portal.load()
+  // Get user info from session
+  const user = await SessionManager.getInstance().getUserInfo()
+  const email = user?.email
 
-  const email = portal.user?.email
   if (!email) {
-    throw new Error("User email is required but not available")
+    throw new Error("User email is required but not available from the session")
   }
 
   // Validate email format
