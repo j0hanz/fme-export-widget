@@ -1037,6 +1037,23 @@ export default function Widget(
     runStartupValidation()
   })
 
+  // React to configuration changes by re-running startup validation
+  const prevConfigRevRef = React.useRef<number | undefined>(undefined)
+  React.useEffect(() => {
+    const rev = (props.config as any)?.configRevision
+    // Skip if revision is missing or unchanged
+    if (typeof rev !== "number" || prevConfigRevRef.current === rev) return
+    prevConfigRevRef.current = rev
+
+    try {
+      dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION))
+      dispatch(fmeActions.setGeometry(null, 0))
+      dispatch(fmeActions.setDrawingState(false, 0))
+    } catch {}
+
+    runStartupValidation()
+  }, [props.config, dispatch, runStartupValidation])
+
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
     if (graphicsLayer) {

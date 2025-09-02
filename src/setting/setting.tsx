@@ -350,6 +350,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const sstyles = useSettingStyles()
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
+  // Stable ref to avoid unnecessary bumps
+  const lastBumpedRef = React.useRef<number>(0)
+  const bumpConfigRevision = hooks.useEventCallback(() => {
+    const now = Date.now()
+    const next = now <= lastBumpedRef.current ? lastBumpedRef.current + 1 : now
+    lastBumpedRef.current = next
+    try {
+      updateConfig(
+        "configRevision",
+        next as unknown as WidgetConfig["configRevision"]
+      )
+    } catch {}
+  })
   // Stable ID references for form fields
   const ID = {
     supportEmail: "setting-support-email",
@@ -588,6 +601,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message,
           type: "error",
         })
+        // Trigger runtime reload to reflect error UI in widget
+        bumpConfigRevision()
       }
       return
     }
@@ -603,6 +618,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message: translate("fixErrorsAbove"),
           type: "error",
         })
+        // Trigger runtime reload to reflect error UI in widget
+        bumpConfigRevision()
       }
       return
     }
@@ -665,6 +682,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             message: processError(infoErr),
             type: "error",
           })
+          // Trigger runtime reload to reflect error UI in widget
+          bumpConfigRevision()
         } else {
           setTestState((prev) => ({
             ...prev,
@@ -727,6 +746,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             message: successHelper,
             type: "success",
           })
+          // Trigger config update to mark it as changed (for save button)
+          try {
+            updateConfig(
+              "configRevision",
+              Date.now() as unknown as WidgetConfig["configRevision"]
+            )
+          } catch {}
         } else {
           setTestState((prev) => ({ ...prev, isTesting: false }))
         }
@@ -740,6 +766,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             message: processError(repoErr),
             type: "warning",
           })
+          // Trigger runtime reload to reflect error UI in widget
+          bumpConfigRevision()
         } else {
           setTestState((prev) => ({
             ...prev,
@@ -769,6 +797,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message: processError(err),
           type: "error",
         })
+        // Trigger runtime reload to reflect error UI in widget
+        bumpConfigRevision()
       } else {
         setTestState((prev) => ({ ...prev, status: "error", isTesting: false }))
       }
