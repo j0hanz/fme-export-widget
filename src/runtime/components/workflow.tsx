@@ -77,7 +77,7 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Simple utility functions
+// Utility functions
 const canResetButton = (
   onReset: (() => void) | undefined,
   canResetFlag: boolean,
@@ -220,7 +220,7 @@ const makePlaceholders = (
   select: translate("placeholderSelect", { field: fieldLabel }),
 })
 
-// Simplified workspace loader hook
+// Workspace loader hook
 const useWorkspaceLoader = (
   config: any,
   getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null,
@@ -245,6 +245,7 @@ const useWorkspaceLoader = (
   )
   const isMountedRef = React.useRef(true)
 
+  // Cleanup on unmount
   hooks.useEffectOnce(() => {
     return () => {
       isMountedRef.current = false
@@ -259,6 +260,7 @@ const useWorkspaceLoader = (
     }
   })
 
+  // Error formatting
   const formatError = hooks.useEventCallback(
     (err: unknown, baseKey: string): string | null => {
       const errName = (err as { name?: string } | null)?.name
@@ -269,24 +271,27 @@ const useWorkspaceLoader = (
       ) {
         return null
       }
+
       const raw =
         err instanceof Error
           ? err.message
           : typeof err === "string"
             ? err
             : translateRuntime("unknownErrorOccurred")
+
+      // Sanitize HTML and limit length
       const safe = raw.replace(/<[^>]*>/g, "")
       const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
       return `${translate(baseKey)}: ${msg}`
     }
   )
 
-  const cancelCurrent = () => {
+  const cancelCurrent = React.useCallback(() => {
     if (loadAbortRef.current) {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
     }
-  }
+  }, [])
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
@@ -308,23 +313,27 @@ const useWorkspaceLoader = (
           controller.signal
         )
       )
+
       if (controller.signal.aborted) return
+
       if (response.status === 200 && response.data.items) {
         const items = (response.data.items as readonly any[]).filter(
           (i: any) => i.type === WORKSPACE_ITEM_TYPE
         ) as readonly WorkspaceItem[]
+
         const sorted = items.slice().sort((a, b) =>
           (a.title || a.name).localeCompare(b.title || b.name, undefined, {
             sensitivity: "base",
           })
         )
+
         if (isMountedRef.current) setWorkspaces(sorted)
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
       const msg = formatError(err, "failedToLoadWorkspaces")
-      if (msg) setError(msg)
+      if (msg && isMountedRef.current) setError(msg)
     } finally {
       if (isMountedRef.current) setIsLoading(false)
       if (loadAbortRef.current === controller) {
@@ -351,6 +360,7 @@ const useWorkspaceLoader = (
           controller.signal
         )
       )
+
       if (response.status === 200 && response.data?.parameters) {
         onWorkspaceSelected?.(
           workspaceName,
@@ -362,7 +372,7 @@ const useWorkspaceLoader = (
       }
     } catch (err) {
       const msg = formatError(err, "failedToLoadWorkspaceDetails")
-      if (msg) setError(msg)
+      if (msg && isMountedRef.current) setError(msg)
     } finally {
       if (isMountedRef.current) setIsLoading(false)
       if (loadAbortRef.current === controller) {
@@ -376,7 +386,7 @@ const useWorkspaceLoader = (
       clearTimeout(loadTimeoutRef.current)
     }
     loadTimeoutRef.current = setTimeout(() => {
-      loadAll()
+      void loadAll()
       loadTimeoutRef.current = null
     }, MS_LOADING)
   })
@@ -384,7 +394,7 @@ const useWorkspaceLoader = (
   return { workspaces, isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
-// Simplified input rendering
+// Input rendering helper
 const renderInputField = (
   type: "text" | "password" | "number",
   fieldValue: FormPrimitive,
@@ -518,7 +528,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   )
 }
 
-// Dynamic field component for rendering various form fields based on configuration
+// Dynamic field component renders various form fields based on configuration
 const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
@@ -669,7 +679,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
   return renderByType()
 }
 
-// ExportForm component - handles dynamic form generation and submission
+// ExportForm component: dynamic form generation and submission
 const ExportForm: React.FC<ExportFormProps> = ({
   workspaceParameters,
   workspaceName,

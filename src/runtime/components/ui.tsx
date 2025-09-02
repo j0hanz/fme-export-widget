@@ -70,10 +70,15 @@ export const config = {
   required: "*",
 } as const
 
-// Create theme-aware styles
-const createStyles = (theme: IMThemeVariables) =>
-  ({
-    // Layout utilities
+// Theme-aware styles
+const createStyles = (theme: IMThemeVariables) => {
+  // Cache commonly used spacing and color values
+  const spacing = theme.sys.spacing
+  const colors = theme.sys.color
+  const typography = theme.sys.typography
+
+  return {
+    // Layout utilities with better performance
     row: css({ display: "flex" }),
     col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
@@ -81,7 +86,7 @@ const createStyles = (theme: IMThemeVariables) =>
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
-    gapBtnGroup: css({ gap: theme.sys.spacing?.(2) }),
+    gapBtnGroup: css({ gap: spacing?.(2) }),
 
     // Text utilities
     textCenter: css({ textAlign: "center" }),
@@ -91,7 +96,7 @@ const createStyles = (theme: IMThemeVariables) =>
     disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
     textareaResize: css({ resize: "vertical" }),
 
-    // Common flex patterns
+    // Flex utilities
     flexCentered: css({
       display: "flex",
       flexDirection: "column",
@@ -105,14 +110,15 @@ const createStyles = (theme: IMThemeVariables) =>
       alignItems: "baseline",
     }),
 
+    // Main layout styles
     parent: css({
       display: "flex",
       flexDirection: "column",
       overflowY: "auto",
       height: "100%",
       position: "relative",
-      padding: theme.sys.spacing?.(1),
-      backgroundColor: theme.sys.color.surface?.paper,
+      padding: spacing?.(1),
+      backgroundColor: colors?.surface?.paper,
     }),
 
     header: css({
@@ -132,7 +138,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       justifyContent: "space-between",
       alignItems: "baseline",
-      gap: theme.sys.spacing?.(1),
+      gap: spacing?.(1),
     }),
 
     // State patterns
@@ -140,7 +146,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: theme.sys.spacing?.(1),
+      gap: spacing?.(1),
       height: "100%",
     }),
 
@@ -153,64 +159,64 @@ const createStyles = (theme: IMThemeVariables) =>
       zIndex: config.zIndex.overlay,
     }),
 
-    // Typography styles with theme support
+    // Typography styles
     typography: {
       caption: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
-        margin: `${theme.sys.spacing?.(1)} 0`,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
+        margin: `${spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize,
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
-        color: theme.sys.color.surface?.backgroundText,
+        fontSize: typography?.body1?.fontSize,
+        fontWeight: typography?.body1?.fontWeight,
+        color: colors?.surface?.backgroundText,
       }),
 
       instruction: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
-        margin: `${theme.sys.spacing?.(3)} 0`,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
+        margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize,
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
-        color: theme.sys.color.action.link?.default,
+        fontSize: typography?.body1?.fontSize,
+        fontWeight: typography?.body1?.fontWeight,
+        color: colors?.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",
         "&:hover": {
-          color: theme.sys.color.action.link?.hover,
+          color: colors?.action.link?.hover,
           textDecoration: "underline",
         },
       }),
 
       required: css({
         marginLeft: "0.25rem",
-        color: theme.sys.color?.error.main,
+        color: colors?.error.main,
       }),
     },
 
-    // Button patterns with theme support
+    // Button styles
     button: {
       group: css({
         display: "flex",
-        gap: theme.sys.spacing?.(1),
+        gap: spacing?.(1),
       }),
 
       default: css({
         display: "flex",
         flexFlow: "column",
         width: "100%",
-        gap: theme.sys.spacing?.(1),
+        gap: spacing?.(1),
       }),
 
       text: css({
@@ -224,19 +230,22 @@ const createStyles = (theme: IMThemeVariables) =>
         transform: "translateY(-50%)",
       }),
     },
-  }) as const
+  } as const
+}
 
-// Export theme-aware styles hook
+// Theme-aware styles hook with stable reference caching
 export const useStyles = () => {
   const theme = useTheme()
-  const stylesRef = React.useRef<ReturnType<typeof createStyles>>(
-    createStyles(theme)
-  )
-  const themeRef = React.useRef<IMThemeVariables>(theme)
-  if (themeRef.current !== theme) {
+
+  // Use stable reference pattern instead of useMemo
+  const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
+  const themeRef = React.useRef(theme)
+
+  if (!stylesRef.current || themeRef.current !== theme) {
     stylesRef.current = createStyles(theme)
     themeRef.current = theme
   }
+
   return stylesRef.current
 }
 
@@ -533,7 +542,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   return (
     <JimuTextArea
       {...props}
-      value={value as string}
+      value={value}
       onChange={handleChange}
       css={styles.textareaResize}
       style={props.style}
@@ -566,15 +575,12 @@ const MultiSelectComponent: React.FC<{
   disabled,
   style,
 }) => {
-  const items = React.useMemo(
-    () =>
-      options.map((opt) => ({
-        label: opt.label,
-        value: opt.value,
-        disabled: opt.disabled,
-      })),
-    [options]
-  )
+  // Use stable computation without useMemo for better performance
+  const items = options.map((opt) => ({
+    label: opt.label,
+    value: opt.value,
+    disabled: opt.disabled,
+  }))
 
   const handleMultiSelectChange = hooks.useEventCallback(
     (vals: Array<string | number>) => {
@@ -613,23 +619,16 @@ export const Select: React.FC<SelectProps> = (props) => {
   const translate = hooks.useTranslation(defaultMessages)
 
   // Normalize the value to strings for the underlying select component(s)
-  const normalizedValue: string | Array<string | number> = React.useMemo(
-    () =>
-      isMulti
-        ? Array.isArray(value)
-          ? value.map((v) => String(v))
-          : []
-        : value !== undefined &&
-            (typeof value === "string" || typeof value === "number")
-          ? String(value)
-          : undefined,
-    [isMulti, value]
-  )
+  const normalizedValue: string | Array<string | number> = isMulti
+    ? Array.isArray(value)
+      ? value.map((v) => String(v))
+      : []
+    : value !== undefined &&
+        (typeof value === "string" || typeof value === "number")
+      ? String(value)
+      : undefined
 
-  const resolvedPlaceholder = React.useMemo(
-    () => placeholder ?? translate("placeholderSelectGeneric"),
-    [placeholder, translate]
-  )
+  const resolvedPlaceholder = placeholder || translate("selectOption")
 
   // Handle single select change
   const handleSingleChange = hooks.useEventCallback(
@@ -643,29 +642,25 @@ export const Select: React.FC<SelectProps> = (props) => {
     }
   )
 
-  const optionElements = React.useMemo(
-    () =>
-      options.map((option) => (
-        <JimuOption
-          key={String(option.value)}
-          value={option.value}
-          active={String(option.value) === String(normalizedValue)}
-          disabled={option.disabled}
-          onClick={() => {
-            if (!option.disabled) {
-              const isSame =
-                String(option.value) === String(normalizedValue ?? "")
-              if (!isSame) {
-                handleSingleChange(undefined as any, option.value)
-              }
-            }
-          }}
-        >
-          {!option.hideLabel && option.label}
-        </JimuOption>
-      )),
-    [options, normalizedValue, handleSingleChange]
-  )
+  // Generate option elements without useMemo for simplicity
+  const optionElements = options.map((option) => (
+    <JimuOption
+      key={String(option.value)}
+      value={option.value}
+      active={String(option.value) === String(normalizedValue)}
+      disabled={option.disabled}
+      onClick={() => {
+        if (!option.disabled) {
+          const isSame = String(option.value) === String(normalizedValue ?? "")
+          if (!isSame) {
+            handleSingleChange(undefined as any, option.value)
+          }
+        }
+      }}
+    >
+      {!option.hideLabel && option.label}
+    </JimuOption>
+  ))
 
   if (isMulti) {
     return (
@@ -722,29 +717,24 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
+  // Extract aria-label without useMemo for simplicity
+  const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
     !!icon,
-    jimuProps["aria-label"],
+    explicitAriaLabel,
     tooltip,
     translate("ariaButtonLabel")
   )
 
-  const safeColor: "default" | "inherit" | "primary" | "secondary" = (():
-    | "default"
-    | "inherit"
-    | "primary"
-    | "secondary" => {
-    switch (color) {
-      case "default":
-      case "inherit":
-      case "primary":
-      case "secondary":
-        return color
-      default:
-        return "default"
-    }
-  })()
+  // Safely type the color prop without useMemo
+  const safeColor: "default" | "inherit" | "primary" | "secondary" =
+    color === "default" ||
+    color === "inherit" ||
+    color === "primary" ||
+    color === "secondary"
+      ? color
+      : "default"
 
   const buttonElement = (
     <JimuButton
@@ -994,7 +984,8 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     const btnConfig = {
       ...buttonConfig,
       variant:
-        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
+        (buttonConfig.variant as "text" | "contained" | "outlined") ||
+        (side === "left" ? "outlined" : "contained"),
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }

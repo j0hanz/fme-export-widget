@@ -12,140 +12,110 @@ import {
   type WorkspaceItemDetail,
   type WorkspaceParameter,
   type ExportResult,
-  type LoadingFlags,
   type FormValues,
 } from "../shared/types"
 
-const makeAction = <
-  T extends FmeActionType,
-  P extends { [key: string]: unknown } = { [key: string]: never },
->(
-  type: T,
-  payload?: P
-) => {
-  const data = payload ?? ({} as P)
-  return { type, ...data } as { type: T } & P
-}
-
-// View actions
-const view = {
-  setViewMode: (viewMode: ViewMode) =>
-    makeAction(FmeActionType.SET_VIEW_MODE, { viewMode }),
-  resetState: () => makeAction(FmeActionType.RESET_STATE),
-  setStartupValidationState: (
-    isValidating: boolean,
-    validationStep?: string,
-    validationError?: ErrorState | SerializableErrorState | null
-  ) =>
-    makeAction(FmeActionType.SET_STARTUP_VALIDATION_STATE, {
-      isValidating,
-      validationStep,
-      validationError,
-    }),
-}
-
-// Drawing actions
-const draw = {
-  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) =>
-    makeAction(FmeActionType.SET_GEOMETRY, {
-      geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
-      drawnArea,
-    }),
-  setDrawingState: (
-    isDrawing: boolean,
-    clickCount?: number,
-    drawingTool?: DrawingTool
-  ) =>
-    makeAction(FmeActionType.SET_DRAWING_STATE, {
-      isDrawing,
-      clickCount,
-      drawingTool,
-    }),
-  setDrawingTool: (drawingTool: DrawingTool) =>
-    makeAction(FmeActionType.SET_DRAWING_TOOL, { drawingTool }),
-  setClickCount: (clickCount: number) =>
-    makeAction(FmeActionType.SET_CLICK_COUNT, { clickCount }),
-}
-
-// Export actions
-const exp = {
-  setFormValues: (formValues: FormValues) =>
-    makeAction(FmeActionType.SET_FORM_VALUES, { formValues }),
-  setOrderResult: (orderResult: ExportResult | null) =>
-    makeAction(FmeActionType.SET_ORDER_RESULT, { orderResult }),
-}
-
-// Workspace actions
-const ws = {
-  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) =>
-    makeAction(FmeActionType.SET_WORKSPACE_ITEMS, {
-      workspaceItems,
-    }),
-  setWorkspaceParameters: (
-    workspaceParameters: readonly WorkspaceParameter[],
-    workspaceName: string
-  ) =>
-    makeAction(FmeActionType.SET_WORKSPACE_PARAMETERS, {
-      workspaceParameters,
-      workspaceName,
-    }),
-  setSelectedWorkspace: (workspaceName: string | null) =>
-    makeAction(FmeActionType.SET_SELECTED_WORKSPACE, {
-      workspaceName,
-    }),
-  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) =>
-    makeAction(FmeActionType.SET_WORKSPACE_ITEM, {
-      workspaceItem,
-    }),
-}
-
-// Loading actions
-const load = {
-  setLoadingFlags: (flags: LoadingFlags) =>
-    makeAction(
-      FmeActionType.SET_LOADING_FLAGS,
-      flags as { [key: string]: unknown }
-    ),
-}
-
+// Error serialization for storing in Redux state
 const toSerializable = (
   error: ErrorState | SerializableErrorState | null
 ): SerializableErrorState | null => {
   if (!error) return null
-  // If timestampMs already present and no function fields, assume serializable
   const base: any = error as any
+  // Preserve timestampMs if provided; else derive from timestamp Date; else default to 0
   const ts =
     typeof base.timestampMs === "number"
       ? base.timestampMs
       : base.timestamp instanceof Date
         ? base.timestamp.getTime()
-        : Date.now()
+        : 0
   const { retry, timestamp, ...rest } = base
   return { ...rest, timestampMs: ts } as SerializableErrorState
 }
 
-const err = {
-  setError: (error: ErrorState | SerializableErrorState | null) =>
-    makeAction(FmeActionType.SET_ERROR, { error: toSerializable(error) }),
-  setImportError: (error: ErrorState | SerializableErrorState | null) =>
-    makeAction(FmeActionType.SET_IMPORT_ERROR, {
-      error: toSerializable(error),
-    }),
-  setExportError: (error: ErrorState | SerializableErrorState | null) =>
-    makeAction(FmeActionType.SET_EXPORT_ERROR, {
-      error: toSerializable(error),
-    }),
-}
-
-// All actions
+// Action creators
 export const fmeActions = {
-  // Flat list
-  ...view,
-  ...draw,
-  ...exp,
-  ...ws,
-  ...load,
-  ...err,
+  setViewMode: (viewMode: ViewMode) => ({
+    type: FmeActionType.SET_VIEW_MODE,
+    viewMode,
+  }),
+  resetState: () => ({ type: FmeActionType.RESET_STATE }),
+  setStartupValidationState: (
+    isValidating: boolean,
+    validationStep?: string,
+    validationError?: ErrorState | SerializableErrorState | null
+  ) => ({
+    type: FmeActionType.SET_STARTUP_VALIDATION_STATE,
+    isValidating,
+    validationStep,
+    validationError,
+  }),
+  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) => ({
+    type: FmeActionType.SET_GEOMETRY,
+    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+    drawnArea,
+  }),
+  setDrawingState: (
+    isDrawing: boolean,
+    clickCount?: number,
+    drawingTool?: DrawingTool
+  ) => ({
+    type: FmeActionType.SET_DRAWING_STATE,
+    isDrawing,
+    clickCount,
+    drawingTool,
+  }),
+  setDrawingTool: (drawingTool: DrawingTool) => ({
+    type: FmeActionType.SET_DRAWING_TOOL,
+    drawingTool,
+  }),
+  setClickCount: (clickCount: number) => ({
+    type: FmeActionType.SET_CLICK_COUNT,
+    clickCount,
+  }),
+  setFormValues: (formValues: FormValues) => ({
+    type: FmeActionType.SET_FORM_VALUES,
+    formValues,
+  }),
+  setOrderResult: (orderResult: ExportResult | null) => ({
+    type: FmeActionType.SET_ORDER_RESULT,
+    orderResult,
+  }),
+  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
+    type: FmeActionType.SET_WORKSPACE_ITEMS,
+    workspaceItems,
+  }),
+  setWorkspaceParameters: (
+    workspaceParameters: readonly WorkspaceParameter[],
+    workspaceName: string
+  ) => ({
+    type: FmeActionType.SET_WORKSPACE_PARAMETERS,
+    workspaceParameters,
+    workspaceName,
+  }),
+  setSelectedWorkspace: (workspaceName: string | null) => ({
+    type: FmeActionType.SET_SELECTED_WORKSPACE,
+    workspaceName,
+  }),
+  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) => ({
+    type: FmeActionType.SET_WORKSPACE_ITEM,
+    workspaceItem,
+  }),
+  setLoadingFlags: (flags: { [key: string]: boolean }) => ({
+    type: FmeActionType.SET_LOADING_FLAGS,
+    ...flags,
+  }),
+  setError: (error: ErrorState | SerializableErrorState | null) => ({
+    type: FmeActionType.SET_ERROR,
+    error: toSerializable(error),
+  }),
+  setImportError: (error: ErrorState | SerializableErrorState | null) => ({
+    type: FmeActionType.SET_IMPORT_ERROR,
+    error: toSerializable(error),
+  }),
+  setExportError: (error: ErrorState | SerializableErrorState | null) => ({
+    type: FmeActionType.SET_EXPORT_ERROR,
+    error: toSerializable(error),
+  }),
 }
 
 export const initialFmeState: FmeWidgetState = {
@@ -175,57 +145,25 @@ export const initialFmeState: FmeWidgetState = {
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
 
-  // Loading
+  // Loading and errors
   isModulesLoading: false,
   isSubmittingOrder: false,
-
-  // Errors
   error: null,
   importError: null,
   exportError: null,
 }
 
-// Reducer helpers
-const helpers = {
-  setView: (
-    state: ImmutableObject<FmeWidgetState>,
-    newViewMode: ViewMode
-  ): ImmutableObject<FmeWidgetState> => {
-    if (state.viewMode === newViewMode) {
-      return state
-    }
-    return state
-      .set("previousViewMode", state.viewMode)
-      .set("viewMode", newViewMode)
-  },
-
-  setLoading: (
-    state: ImmutableObject<FmeWidgetState>,
-    action: { isModulesLoading?: boolean; isSubmittingOrder?: boolean }
-  ): ImmutableObject<FmeWidgetState> => {
-    let newState = state
-
-    if (action.isModulesLoading !== undefined) {
-      newState = newState.set("isModulesLoading", action.isModulesLoading)
-    }
-
-    if (action.isSubmittingOrder !== undefined) {
-      newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
-    }
-
-    return newState
-  },
-}
-
-// Reducer with improved organization and early returns
+// Reducer
 const fmeReducer = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeActions
 ): ImmutableObject<FmeWidgetState> => {
   switch (action.type) {
-    // View and navigation cases
     case FmeActionType.SET_VIEW_MODE:
-      return helpers.setView(state, action.viewMode)
+      if (state.viewMode === action.viewMode) return state
+      return state
+        .set("previousViewMode", state.viewMode)
+        .set("viewMode", action.viewMode)
 
     case FmeActionType.RESET_STATE:
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
@@ -239,7 +177,6 @@ const fmeReducer = (
           action.validationError ? toSerializable(action.validationError) : null
         )
 
-    // Drawing and geometry cases
     case FmeActionType.SET_GEOMETRY:
       return state
         .set("geometryJson", action.geometryJson)
@@ -257,7 +194,6 @@ const fmeReducer = (
     case FmeActionType.SET_CLICK_COUNT:
       return state.set("clickCount", action.clickCount)
 
-    // Export cases
     case FmeActionType.SET_FORM_VALUES:
       return state.set("formValues", action.formValues)
 
@@ -266,7 +202,6 @@ const fmeReducer = (
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    // Workspace cases
     case FmeActionType.SET_WORKSPACE_ITEMS:
       return state.set("workspaceItems", action.workspaceItems)
 
@@ -281,11 +216,16 @@ const fmeReducer = (
     case FmeActionType.SET_WORKSPACE_ITEM:
       return state.set("workspaceItem", action.workspaceItem)
 
-    // Loading cases
     case FmeActionType.SET_LOADING_FLAGS:
-      return helpers.setLoading(state, action)
+      let newState = state
+      if (action.isModulesLoading !== undefined) {
+        newState = newState.set("isModulesLoading", action.isModulesLoading)
+      }
+      if (action.isSubmittingOrder !== undefined) {
+        newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
+      }
+      return newState
 
-    // Error cases
     case FmeActionType.SET_ERROR:
       return state.set("error", action.error)
 
