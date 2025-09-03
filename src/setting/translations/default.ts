@@ -12,6 +12,8 @@ export default {
   mapConfiguration: "Kartinställningar",
   serverUrlPlaceholder: "https://fme.server.com",
   tokenPlaceholder: "Din FME API-nyckel",
+  repoPlaceholder: "---",
+  testConnectionFirst: "Testa anslutning först",
   errorGeneric: "Ett oväntat fel inträffade.",
   errorUnauthorized: "Åtkomst nekad: ({status})",
   errorUnauthorizedHelper: "Kontrollera att API-nyckeln är korrekt.",

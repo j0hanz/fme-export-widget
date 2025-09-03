@@ -227,6 +227,7 @@ export interface BaseProps {
 export interface InputProps extends BaseProps {
   readonly value?: unknown
   readonly onChange?: (value: unknown) => void
+  readonly onBlur?: (value: unknown) => void
   readonly placeholder?: string
   readonly readOnly?: boolean
   readonly required?: boolean

@@ -36,7 +36,7 @@ import {
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../shared/types"
-import { ErrorHandlingService } from "../shared/services"
+import { ErrorHandlingService, validateWidgetStartup } from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
 import {
   resolveMessageOrKey,
@@ -879,50 +879,6 @@ export default function Widget(
     cleanupResources,
   } = localMapState
 
-  // Configuration validation helper with improved error handling
-  const validateConfiguration = hooks.useEventCallback(
-    (
-      config: FmeExportConfig | undefined
-    ): { isValid: boolean; error?: ErrorState } => {
-      if (!config) {
-        return {
-          isValid: false,
-          error: createStartupError("invalidConfiguration", "ConfigMissing"),
-        }
-      }
-
-      // Check required fields with more specific error messages
-      const requiredFields = [
-        {
-          field: config.fmeServerUrl?.trim(),
-          key: "serverUrlMissing",
-          code: "ServerUrlEmpty",
-        },
-        {
-          field: config.fmeServerToken?.trim(),
-          key: "tokenMissing",
-          code: "TokenEmpty",
-        },
-        {
-          field: config.repository?.trim(),
-          key: "repositoryMissing",
-          code: "RepositoryEmpty",
-        },
-      ]
-
-      for (const { field, key, code } of requiredFields) {
-        if (!field) {
-          return {
-            isValid: false,
-            error: createStartupError(key, code),
-          }
-        }
-      }
-
-      return { isValid: true }
-    }
-  )
-
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
     dispatch(fmeActions.setStartupValidationState(true, step))
@@ -975,25 +931,31 @@ export default function Widget(
         return
       }
 
-      // Step 2: validate widget configuration
-      const configValidation = validateConfiguration(config)
-      if (!configValidation.isValid && configValidation.error) {
-        setValidationError(configValidation.error)
+      // Step 2: validate widget configuration and FME connection using shared service
+      setValidationStep(translate("validatingConnection"))
+      const validationResult = await validateWidgetStartup({
+        config,
+        translate,
+        signal: undefined, // Could add abort controller here if needed
+      })
+
+      if (!validationResult.isValid) {
+        if (validationResult.error) {
+          setValidationError(validationResult.error)
+        } else {
+          // Fallback error
+          setValidationError(
+            createStartupError(
+              "invalidConfiguration",
+              "VALIDATION_FAILED",
+              runStartupValidation
+            )
+          )
+        }
         return
       }
 
-      // Step 3: validate connection and repository
-      const client = createFmeFlowClient(config)
-      setValidationStep(translate("validatingConnection"))
-
-      await makeCancelable(
-        Promise.all([
-          client.testConnection(),
-          client.validateRepository(config.repository),
-        ])
-      )
-
-      // Step 4: validate user email
+      // Step 3: validate user email
       setValidationStep(translate("validatingUserEmail"))
       try {
         const email = await getEmail()

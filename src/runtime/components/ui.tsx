@@ -482,6 +482,7 @@ export const Input: React.FC<InputProps> = ({
   errorText,
   type = "text",
   onChange,
+  onBlur,
   onFileChange,
   ...props
 }) => {
@@ -501,12 +502,21 @@ export const Input: React.FC<InputProps> = ({
     }
   )
 
+  const handleBlur = hooks.useEventCallback(
+    (evt: React.FocusEvent<HTMLInputElement>) => {
+      if (onBlur) {
+        onBlur(evt.target.value)
+      }
+    }
+  )
+
   return (
     <TextInput
       {...props}
       type={type as any}
       value={value as string | number}
       onChange={handleChange}
+      onBlur={handleBlur}
       required={required}
       maxLength={maxLength}
       title={errorText}

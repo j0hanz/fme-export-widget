@@ -42,6 +42,10 @@ const CONSTANTS = {
     MIN_TOKEN_LENGTH: 10,
     DEFAULT_TTL_VALUE: "0",
     DEFAULT_TTC_VALUE: "0",
+    IPV4_MIN_OCTET: 0,
+    IPV4_MAX_OCTET: 255,
+    MIN_CONTROL_CHAR: 32,
+    DEL_CHAR_CODE: 127,
   },
   HTTP_STATUS: {
     UNAUTHORIZED: 401,
@@ -54,6 +58,8 @@ const CONSTANTS = {
     BAD_GATEWAY: 502,
     SERVICE_UNAVAILABLE: 503,
     NETWORK_ERROR: 0,
+    SERVER_ERROR_MIN: 500,
+    SERVER_ERROR_MAX: 599,
   },
   PATHS: {
     FME_REST: "/fmerest",
@@ -202,6 +208,7 @@ interface RepositorySelectorProps {
   translate: (key: string, params?: any) => string
   styles: ReturnType<typeof useSettingStyles>
   ID: { repository: string }
+  testState: TestState
 }
 
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
@@ -216,6 +223,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   translate,
   styles,
   ID,
+  testState,
 }) => {
   return (
     <SettingRow
@@ -226,20 +234,22 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     >
       <Select
         options={(() => {
-          // If server URL or token are invalid, show no options so placeholder '---' appears
+          // Only show repositories after successful connection test
+          if (testState.status !== "success") {
+            return []
+          }
+
+          // If server URL or token are invalid, show no options
           const hasValidServer = !validateServerUrl(localServerUrl)
           const hasValidToken = !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
             return []
           }
 
-          // Use availableRepos if populated; otherwise, if not yet loaded, use current value if any
+          // Use availableRepos if populated; otherwise empty list
           const src =
-            availableRepos && availableRepos.length > 0
-              ? availableRepos
-              : localRepository
-                ? [localRepository]
-                : []
+            availableRepos && availableRepos.length > 0 ? availableRepos : []
+
           // Deduplicate options while preserving order
           const seen = new Set<string>()
           const opts: Array<{ label: string; value: string }> = []
@@ -252,9 +262,13 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           return opts
         })()}
         value={(() => {
+          // Only show current selection if test was successful
+          if (testState.status !== "success") return undefined
+
           const hasValidServer = !validateServerUrl(localServerUrl)
           const hasValidToken = !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) return undefined
+
           return localRepository || undefined
         })()}
         onChange={(val) => {
@@ -264,13 +278,23 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               : ""
           onRepositoryChange(next)
         }}
-        // Keep the repository selection independent from the Test Connection button/state
-        disabled={false}
+        // Disable when connection hasn't been tested successfully
+        disabled={
+          testState.status !== "success" ||
+          !localServerUrl ||
+          !localToken ||
+          !!validateServerUrl(localServerUrl) ||
+          !!validateToken(localToken)
+        }
         aria-describedby={
           fieldErrors.repository ? `${ID.repository}-error` : undefined
         }
         aria-invalid={fieldErrors.repository ? true : undefined}
-        placeholder={"---"}
+        placeholder={
+          testState.status === "success"
+            ? translate("repoPlaceholder")
+            : translate("testConnectionFirst")
+        }
       />
       {fieldErrors.repository && (
         <SettingRow flow="wrap" level={3}>
@@ -424,7 +448,9 @@ function getHttpStatus(err: unknown): number | undefined {
 // HTTP status helpers
 const isNotFoundError = (status: number): boolean =>
   status === CONSTANTS.HTTP_STATUS.NOT_FOUND
-const isServerError = (status: number): boolean => status >= 500 && status < 600
+const isServerError = (status: number): boolean =>
+  status >= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MIN &&
+  status <= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MAX
 
 // URL validation helpers
 const isValidIPv4 = (host: string): boolean => {
@@ -433,7 +459,11 @@ const isValidIPv4 = (host: string): boolean => {
 
   return host.split(".").every((octet) => {
     const num = Number(octet)
-    return Number.isFinite(num) && num >= 0 && num <= 255
+    return (
+      Number.isFinite(num) &&
+      num >= CONSTANTS.VALIDATION.IPV4_MIN_OCTET &&
+      num <= CONSTANTS.VALIDATION.IPV4_MAX_OCTET
+    )
   })
 }
 
@@ -452,15 +482,10 @@ const hasForbiddenPaths = (pathname: string): boolean => {
   return lowerPath.includes(CONSTANTS.PATHS.FME_REST)
 }
 
-/**
- * Validates the server URL format and checks for common issues
- * @param url - The server URL to validate
- * @returns Error key if invalid, null if valid
- */
+// Server URL validation
 function validateServerUrl(url: string): string | null {
   const trimmedUrl = url?.trim()
 
-  // Check for empty or missing URL
   if (!trimmedUrl) return "errorMissingServerUrl"
 
   let parsedUrl: URL
@@ -472,6 +497,11 @@ function validateServerUrl(url: string): string | null {
 
   // Validate protocol (only HTTP/HTTPS allowed)
   if (!/^https?:$/i.test(parsedUrl.protocol)) {
+    return "errorInvalidServerUrl"
+  }
+
+  // Disallow URLs with embedded credentials
+  if (parsedUrl.username || parsedUrl.password) {
     return "errorInvalidServerUrl"
   }
 
@@ -488,28 +518,48 @@ function validateServerUrl(url: string): string | null {
   return null
 }
 
-/**
- * Validates the authentication token
- * @param token - The token to validate
- * @returns Error key if invalid, null if valid
- */
+// Token validation helpers
+const hasControlCharacters = (token: string): boolean => {
+  for (let i = 0; i < token.length; i++) {
+    const code = token.charCodeAt(i)
+    if (
+      code < CONSTANTS.VALIDATION.MIN_CONTROL_CHAR ||
+      code === CONSTANTS.VALIDATION.DEL_CHAR_CODE
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+const hasProblematicCharacters = (token: string): boolean =>
+  /[<>"'`]/.test(token)
+
+const hasWhitespace = (token: string): boolean => /\s/.test(token)
+
+const isTooShort = (token: string): boolean =>
+  token.length < CONSTANTS.VALIDATION.MIN_TOKEN_LENGTH
+
+// Token validation
 function validateToken(token: string): string | null {
   if (!token) return "errorMissingToken"
-  if (
-    /\s/.test(token) ||
-    token.length < CONSTANTS.VALIDATION.MIN_TOKEN_LENGTH
-  ) {
+
+  if (hasWhitespace(token) || isTooShort(token)) {
     return "errorTokenIsInvalid"
   }
+
+  if (hasControlCharacters(token)) {
+    return "errorTokenIsInvalid"
+  }
+
+  if (hasProblematicCharacters(token)) {
+    return "errorTokenIsInvalid"
+  }
+
   return null
 }
 
-/**
- * Validates the selected repository against available repositories
- * @param repository - The repository name to validate
- * @param availableRepos - List of available repositories from server
- * @returns Error key if invalid, null if valid
- */
+// Repository validation
 function validateRepository(
   repository: string,
   availableRepos: string[] | null
@@ -526,11 +576,7 @@ function validateRepository(
   return null
 }
 
-/**
- * Centralized email validation
- * @param email - The email to validate (optional field)
- * @returns Error key if invalid, null if valid or empty
- */
+// Email validation
 function validateEmail(email: string): string | null {
   if (!email) return null // Optional field
   return isValidEmail(email) ? null : "errorInvalidEmail"
@@ -549,6 +595,48 @@ const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
   [CONSTANTS.HTTP_STATUS.NETWORK_ERROR]: "errorNetworkShort",
 }
 
+// Error message generation helpers
+const getErrorMessageWithHelper = (
+  translate: (key: string, params?: { [key: string]: unknown }) => string,
+  errorKey: string,
+  status: number,
+  helperKey?: string
+): string => {
+  const baseMessage = translate(errorKey, { status })
+  if (helperKey) {
+    const helperMessage = translate(helperKey)
+    return `${baseMessage} ${helperMessage}`
+  }
+  return baseMessage
+}
+
+const getSpecialStatusErrorMessage = (
+  status: number,
+  translate: (key: string, params?: { [key: string]: unknown }) => string,
+  errorKey: string
+): string => {
+  if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
+    return translate(errorKey)
+  }
+  if (isAuthError(status)) {
+    return getErrorMessageWithHelper(
+      translate,
+      errorKey,
+      status,
+      "errorUnauthorizedHelper"
+    )
+  }
+  if (isNotFoundError(status)) {
+    return getErrorMessageWithHelper(
+      translate,
+      errorKey,
+      status,
+      "errorNotFoundHelper"
+    )
+  }
+  return translate(errorKey, { status })
+}
+
 function getStatusErrorMessage(
   status: number,
   translate: (key: string, params?: { [key: string]: unknown }) => string
@@ -556,16 +644,7 @@ function getStatusErrorMessage(
   const errorKey = STATUS_ERROR_MAP[status]
 
   if (errorKey) {
-    if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
-      return translate(errorKey)
-    }
-    if (isAuthError(status)) {
-      return `${translate(errorKey, { status })} ${translate("errorUnauthorizedHelper")}`
-    }
-    if (isNotFoundError(status)) {
-      return `${translate(errorKey, { status })} ${translate("errorNotFoundHelper")}`
-    }
-    return translate(errorKey, { status })
+    return getSpecialStatusErrorMessage(status, translate, errorKey)
   }
 
   if (isServerError(status)) {
@@ -575,24 +654,19 @@ function getStatusErrorMessage(
   return translate("errorHttpStatus", { status })
 }
 
-function mapStatusToFieldErrors(
-  status: number | undefined,
-  translate: (key: string, params?: { [key: string]: unknown }) => string
-): Partial<{ serverUrl: string; token: string }> {
-  if (!status) return {}
+// Field error mapping types
+type FieldErrorResult = Partial<{ serverUrl: string; token: string }>
 
-  if (isAuthError(status)) {
-    return { token: translate("errorTokenIsInvalid") }
+// Error categorization helpers
+const getUrlErrorForStatus = (
+  status: number,
+  translate: (key: string, params?: { [key: string]: unknown }) => string
+): FieldErrorResult => {
+  if (status === CONSTANTS.HTTP_STATUS.NOT_FOUND) {
+    return { serverUrl: translate("errorNotFound") }
   }
-  if (
-    status === CONSTANTS.HTTP_STATUS.NOT_FOUND ||
-    status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR
-  ) {
-    const key =
-      status === CONSTANTS.HTTP_STATUS.NOT_FOUND
-        ? "errorNotFound"
-        : "errorNetworkShort"
-    return { serverUrl: translate(key) }
+  if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
+    return { serverUrl: translate("errorNetworkShort") }
   }
   if (
     status === CONSTANTS.HTTP_STATUS.TIMEOUT ||
@@ -603,8 +677,20 @@ function mapStatusToFieldErrors(
   if (isServerError(status)) {
     return { serverUrl: translate("errorServer", { status }) }
   }
-
   return { serverUrl: translate("errorHttpStatus", { status }) }
+}
+
+function mapStatusToFieldErrors(
+  status: number | undefined,
+  translate: (key: string, params?: { [key: string]: unknown }) => string
+): FieldErrorResult {
+  if (!status) return {}
+
+  if (isAuthError(status)) {
+    return { token: translate("errorTokenIsInvalid") }
+  }
+
+  return getUrlErrorForStatus(status, translate)
 }
 
 // String-only config getter to avoid repetitive type assertions
@@ -779,9 +865,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const abortRef = React.useRef<AbortController | null>(null)
   // Track in-flight repository listing request for cancellation
   const reposAbortRef = React.useRef<AbortController | null>(null)
-  // Debounce timers for saving field values
-  const serverUrlSaveTimer = React.useRef<NodeJS.Timeout | null>(null)
-  const tokenSaveTimer = React.useRef<NodeJS.Timeout | null>(null)
 
   // Helper: abort in-flight repository request safely
   const abortReposRequest = hooks.useEventCallback(() => {
@@ -817,14 +900,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       abortRef.current = null
     }
     abortReposRequest()
-    if (serverUrlSaveTimer.current) {
-      clearTimeout(serverUrlSaveTimer.current)
-      serverUrlSaveTimer.current = null
-    }
-    if (tokenSaveTimer.current) {
-      clearTimeout(tokenSaveTimer.current)
-      tokenSaveTimer.current = null
-    }
   })
 
   // Comprehensive error processor - returns alert message for bottom display
@@ -964,18 +1039,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Centralized Test Connection action (reused by button and auto-run)
   const testConnection = hooks.useEventCallback(async (silent = false) => {
-    // Save current field values before testing - force save immediately
-    if (serverUrlSaveTimer.current) {
-      clearTimeout(serverUrlSaveTimer.current)
-      serverUrlSaveTimer.current = null
-    }
-    if (tokenSaveTimer.current) {
-      clearTimeout(tokenSaveTimer.current)
-      tokenSaveTimer.current = null
-    }
-    handleServerUrlSave(localServerUrl)
-    handleTokenSave(localToken)
-
     // Cancel any in-flight test first
     if (abortRef.current) {
       abortRef.current.abort()
@@ -1193,65 +1256,59 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Keep configuration in sync with local state - only sync on widget initialization and external changes
+  // Save handlers for immediate config updates
   React.useEffect(() => {
-    // Check if config values have actually changed from external sources
-    // Don't override if user is currently editing (has pending timers)
-    const hasUserChanges = serverUrlSaveTimer.current || tokenSaveTimer.current
+    const configUpdates = [
+      {
+        condition: getStringConfig("repository") !== localRepository,
+        update: () => {
+          setLocalRepository(getStringConfig("repository") || "")
+        },
+      },
+      {
+        condition: getStringConfig("supportEmail") !== localSupportEmail,
+        update: () => {
+          setLocalSupportEmail(getStringConfig("supportEmail") || "")
+        },
+      },
+      {
+        condition: Boolean((config as any)?.syncMode) !== localSyncMode,
+        update: () => {
+          setLocalSyncMode(Boolean((config as any)?.syncMode))
+        },
+      },
+      {
+        condition: getStringConfig("fmeServerUrl") !== localServerUrl,
+        update: () => {
+          setLocalServerUrl(getStringConfig("fmeServerUrl") || "")
+        },
+      },
+      {
+        condition: getStringConfig("fmeServerToken") !== localToken,
+        update: () => {
+          setLocalToken(getStringConfig("fmeServerToken") || "")
+        },
+      },
+    ]
 
-    if (!hasUserChanges) {
-      const configUpdates = [
-        {
-          condition: getStringConfig("repository") !== localRepository,
-          update: () => {
-            setLocalRepository(getStringConfig("repository") || "")
-          },
-        },
-        {
-          condition: getStringConfig("supportEmail") !== localSupportEmail,
-          update: () => {
-            setLocalSupportEmail(getStringConfig("supportEmail") || "")
-          },
-        },
-        {
-          condition: Boolean((config as any)?.syncMode) !== localSyncMode,
-          update: () => {
-            setLocalSyncMode(Boolean((config as any)?.syncMode))
-          },
-        },
-        {
-          condition: getStringConfig("fmeServerUrl") !== localServerUrl,
-          update: () => {
-            setLocalServerUrl(getStringConfig("fmeServerUrl") || "")
-          },
-        },
-        {
-          condition: getStringConfig("fmeServerToken") !== localToken,
-          update: () => {
-            setLocalToken(getStringConfig("fmeServerToken") || "")
-          },
-        },
-      ]
+    configUpdates.forEach(({ condition, update }) => {
+      if (condition) update()
+    })
 
-      configUpdates.forEach(({ condition, update }) => {
-        if (condition) update()
-      })
+    // Handle job directives separately due to type conversion
+    const ttcValue =
+      typeof config?.tm_ttc === "number"
+        ? String(config.tm_ttc)
+        : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
+    const ttlValue =
+      typeof config?.tm_ttl === "number"
+        ? String(config.tm_ttl)
+        : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
+    const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
 
-      // Handle job directives separately due to type conversion
-      const ttcValue =
-        typeof config?.tm_ttc === "number"
-          ? String(config.tm_ttc)
-          : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
-      const ttlValue =
-        typeof config?.tm_ttl === "number"
-          ? String(config.tm_ttl)
-          : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
-      const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
-
-      if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
-      if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
-      if (tagValue !== localTmTag) setLocalTmTag(tagValue)
-    }
+    if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
+    if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
+    if (tagValue !== localTmTag) setLocalTmTag(tagValue)
   }, [
     config,
     getStringConfig,
@@ -1280,64 +1337,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest,
   ])
 
-  // Note: Repository fetching now only happens during explicit test connection
-  // This prevents unwanted server calls while user is editing fields
-
-  // Silently load repositories when we have a valid server URL and token so the select is populated
-  // and the first repository can be auto-selected without requiring an explicit Test Connection.
-  React.useEffect(() => {
-    // Basic presence check
-    if (!localServerUrl || !localToken) return
-
-    // Validate format; if invalid, do not try to load
-    if (validateServerUrl(localServerUrl) || validateToken(localToken)) return
-
-    // Abort any in-flight repo request
-    abortReposRequest()
-
-    const controller = new AbortController()
-    reposAbortRef.current = controller
-    const signal = controller.signal
-
-    // Create a light-weight client and fetch repositories
-    try {
-      const client = new FmeFlowApiClient({
-        serverUrl: localServerUrl,
-        token: localToken,
-        repository: localRepository || "_",
-      })
-
-      Promise.resolve(client.getRepositories(signal))
-        .then((resp: any) => {
-          if (controller.signal.aborted) return
-          const names = parseRepositoryNames(resp?.data)
-          setAvailableRepos(names)
-        })
-        .catch(() => {
-          if (controller.signal.aborted) return
-          // On error, keep list empty but do not surface blocking UI here
-          setAvailableRepos([])
-        })
-        .finally(() => {
-          if (reposAbortRef.current === controller) {
-            reposAbortRef.current = null
-          }
-        })
-    } catch {
-      // No-op: leave availableRepos as-is
-    }
-
-    return () => {
-      if (reposAbortRef.current === controller) {
-        try {
-          controller.abort()
-        } catch {}
-        reposAbortRef.current = null
-      }
-    }
-  }, [localServerUrl, localToken, localRepository, abortReposRequest])
-
-  // Debounced save for server URL (save after user stops typing for 1 second)
+  // Handle server URL changes with immediate validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
 
@@ -1347,17 +1347,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       ...prev,
       serverUrl: errKey ? translate(errKey) : undefined,
     }))
-
-    // Clear previous timer and set new one for saving
-    if (serverUrlSaveTimer.current) {
-      clearTimeout(serverUrlSaveTimer.current)
-    }
-    serverUrlSaveTimer.current = setTimeout(() => {
-      handleServerUrlSave(val)
-    }, 1000)
   })
 
-  // Debounced save for token (save after user stops typing for 1 second)
+  // Handle token changes with immediate validation
   const handleTokenChange = hooks.useEventCallback((val: string) => {
     setLocalToken(val)
 
@@ -1367,18 +1359,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       ...prev,
       token: errKey ? translate(errKey) : undefined,
     }))
-
-    // Clear previous timer and set new one for saving
-    if (tokenSaveTimer.current) {
-      clearTimeout(tokenSaveTimer.current)
-    }
-    tokenSaveTimer.current = setTimeout(() => {
-      handleTokenSave(val)
-    }, 1000)
   })
 
-  // Handle server URL validation and saving (called on blur or test connection)
-  const handleServerUrlSave = hooks.useEventCallback((url: string) => {
+  // Handle server URL blur - save to config and clear repository state
+  const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Sanitize and save to config
     const { cleaned, changed } = sanitizeUrl(url)
     updateConfig("fmeServerUrl", changed ? cleaned : url)
@@ -1398,8 +1382,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     clearRepositoryEphemeralState()
   })
 
-  // Handle token validation and saving (called on blur or test connection)
-  const handleTokenSave = hooks.useEventCallback((token: string) => {
+  // Handle token blur - save to config and clear repository state
+  const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Save to config
     updateConfig("fmeServerToken", token)
 
@@ -1438,20 +1422,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  // Auto-select the first repository when a valid list is loaded and current selection is empty or invalid
-  React.useEffect(() => {
-    if (!Array.isArray(availableRepos) || availableRepos.length === 0) return
-
-    const current = localRepository
-    const inList = current ? availableRepos.includes(current) : false
-
-    // Auto-select first repository if no current selection or selection is invalid
-    if (!current || !inList) {
-      const first = availableRepos[0]
-      handleRepositoryChange(first)
-    }
-  }, [availableRepos, localRepository, handleRepositoryChange])
-
   // Helper for rendering input fields with error alerts
   const renderInputField = hooks.useEventCallback(
     ({
@@ -1459,6 +1429,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       label,
       value,
       onChange,
+      onBlur,
       placeholder,
       type = "text",
       required = false,
@@ -1468,6 +1439,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       label: React.ReactNode
       value: string
       onChange: (val: string) => void
+      onBlur?: (val: string) => void
       placeholder?: string
       type?: "text" | "email" | "password"
       required?: boolean
@@ -1509,6 +1481,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             required={required}
             value={value}
             onChange={onChange}
+            onBlur={onBlur}
             placeholder={placeholder}
             errorText={error}
             aria-invalid={error ? true : undefined}
@@ -1546,6 +1519,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           label: renderRequiredLabel(translate("fmeServerUrl")),
           value: localServerUrl,
           onChange: handleServerUrlChange,
+          onBlur: handleServerUrlBlur,
           placeholder: translate("serverUrlPlaceholder"),
           required: true,
         })}
@@ -1555,6 +1529,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           label: renderRequiredLabel(translate("fmeServerToken")),
           value: localToken,
           onChange: handleTokenChange,
+          onBlur: handleTokenBlur,
           placeholder: translate("tokenPlaceholder"),
           type: "password",
           required: true,
@@ -1582,6 +1557,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           translate={translate}
           styles={sstyles}
           ID={ID}
+          testState={testState}
         />
         {/* Service mode (sync) toggle */}
         <SettingRow
