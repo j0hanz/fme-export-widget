@@ -321,7 +321,14 @@ const useWorkspaceLoader = (
           (i: any) => i.type === WORKSPACE_ITEM_TYPE
         ) as readonly WorkspaceItem[]
 
-        const sorted = items.slice().sort((a, b) =>
+        // Scope to repository if specified in config
+        const repoName = String(config.repository)
+        const scoped = items.filter((i: any) => {
+          const r = i?.repository
+          return r === undefined || r === repoName
+        })
+
+        const sorted = scoped.slice().sort((a, b) =>
           (a.title || a.name).localeCompare(b.title || b.name, undefined, {
             sensitivity: "base",
           })

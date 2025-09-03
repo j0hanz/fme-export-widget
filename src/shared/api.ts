@@ -269,6 +269,18 @@ const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   return `${base}/${path}`
 }
 
+// Create a stable scope ID from server URL and token for caching purposes
+function makeScopeId(serverUrl: string, token: string): string {
+  const s = `${serverUrl}::${token || ""}`
+  // DJB2 hash function
+  let h = 5381
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h) ^ s.charCodeAt(i)
+  }
+  const n = Math.abs(h >>> 0)
+  return n.toString(36)
+}
+
 // Check if a webhook URL with parameters would exceed max length
 export function isWebhookUrlTooLong(
   serverUrl: string,
@@ -575,7 +587,7 @@ export class FmeFlowApiClient {
         )
         const raw = await this.request<any>(listEndpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-token header-insensitive caches
           query: { limit: -1, offset: -1 },
         })
 
@@ -624,7 +636,7 @@ export class FmeFlowApiClient {
     )
     return this.request<WorkspaceParameter>(endpoint, {
       signal,
-      cacheHint: true,
+      cacheHint: false, // Disable header-insensitive caching
     })
   }
 
@@ -653,7 +665,7 @@ export class FmeFlowApiClient {
       () =>
         this.request(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
           query,
         }),
       "Failed to get repository items",
@@ -672,7 +684,7 @@ export class FmeFlowApiClient {
       () =>
         this.request<any>(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
         }),
       "Failed to get workspace item details",
       "WORKSPACE_ITEM_ERROR"
@@ -884,6 +896,8 @@ export class FmeFlowApiClient {
         headers: {
           Accept: "application/json",
           Authorization: `fmetoken token=${this.config.token}`,
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
         },
         signal,
       })
@@ -1043,12 +1057,25 @@ export class FmeFlowApiClient {
 
     try {
       const headers = buildRequestHeaders(options.headers, this.config.token)
+      // Prevent intermediary caches from reusing responses across Authorization headers
+      const isGet = !options.method || options.method === HttpMethod.GET
+      if (isGet) {
+        headers["Cache-Control"] = headers["Cache-Control"] || "no-cache"
+        headers.Pragma = headers.Pragma || "no-cache"
+      }
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
         query: options.query as any,
         responseType: "json",
         headers,
         signal: options.signal,
+      }
+      // Add a stable scope query param for GET requests to vary cache keys per token/server
+      if (isGet) {
+        const scope = makeScopeId(this.config.serverUrl, this.config.token)
+        const q: any = requestOptions.query || {}
+        if (q.__scope === undefined) q.__scope = scope
+        requestOptions.query = q
       }
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
