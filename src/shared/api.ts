@@ -287,7 +287,8 @@ export function isWebhookUrlTooLong(
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  maxLen: number = API.MAX_URL_LENGTH
+  maxLen: number = API.MAX_URL_LENGTH,
+  token?: string
 ): boolean {
   const webhookUrl = buildUrl(
     serverUrl,
@@ -300,6 +301,10 @@ export function isWebhookUrlTooLong(
     [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
     true
   )
+  // Add tm_* values if present
+  if (token) {
+    params.set("fmetoken", token)
+  }
   const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
@@ -402,14 +407,8 @@ const buildRequestHeaders = (
   existingHeaders: { [key: string]: string } = {},
   token?: string
 ): { [key: string]: string } => {
-  const headers = { ...existingHeaders }
-  if (token && !headers.Authorization) {
-    headers.Authorization = `fmetoken token=${token}`
-  }
-  if (!headers.Accept) {
-    headers.Accept = "application/json"
-  }
-  return headers
+  // Prefer token in query param to avoid CORS preflight issues
+  return { ...existingHeaders }
 }
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
@@ -842,6 +841,12 @@ export class FmeFlowApiClient {
         [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
         true
       )
+
+      // Add FME token as query parameter to avoid CORS issues
+      if (this.config.token) {
+        params.set("fmetoken", this.config.token)
+      }
+
       // Ensure tm_* values are present if provided
       const maybeAppend = (k: string) => {
         const v = (parameters as any)[k]
@@ -893,12 +898,6 @@ export class FmeFlowApiClient {
 
       const response = await fetch(fullUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `fmetoken token=${this.config.token}`,
-          "Cache-Control": "no-cache",
-          Pragma: "no-cache",
-        },
         signal,
       })
 
@@ -1056,26 +1055,27 @@ export class FmeFlowApiClient {
     console.log("FME API - Making request to:", url)
 
     try {
-      const headers = buildRequestHeaders(options.headers, this.config.token)
-      // Prevent intermediary caches from reusing responses across Authorization headers
+      const headers = buildRequestHeaders(options.headers)
+
+      // Build query parameters including token to avoid CORS issues
+      const query: any = { ...(options.query || {}) }
+      if (this.config.token) {
+        query.fmetoken = this.config.token
+      }
+
+      // Add a stable scope query param for GET requests to vary cache keys per token/server
       const isGet = !options.method || options.method === HttpMethod.GET
       if (isGet) {
-        headers["Cache-Control"] = headers["Cache-Control"] || "no-cache"
-        headers.Pragma = headers.Pragma || "no-cache"
+        const scope = makeScopeId(this.config.serverUrl, this.config.token)
+        if (query.__scope === undefined) query.__scope = scope
       }
+
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
-        query: options.query as any,
+        query,
         responseType: "json",
         headers,
         signal: options.signal,
-      }
-      // Add a stable scope query param for GET requests to vary cache keys per token/server
-      if (isGet) {
-        const scope = makeScopeId(this.config.serverUrl, this.config.token)
-        const q: any = requestOptions.query || {}
-        if (q.__scope === undefined) q.__scope = scope
-        requestOptions.query = q
       }
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =

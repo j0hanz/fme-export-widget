@@ -275,6 +275,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(capturedUrl).toContain("tm_ttc=600")
     expect(capturedUrl).toContain("tm_ttl=120")
     expect(capturedUrl).toContain("tm_tag=high")
+    expect(capturedUrl).toContain("fmetoken=tok-xyz")
   })
 
   test("submitJob maps tm_* params into TMDirectives and excludes them from publishedParameters", async () => {
@@ -330,10 +331,9 @@ describe("FmeFlowApiClient (api.ts)", () => {
     await client.runDataDownload("ws", { a: 1 }, "repo")
     await waitForMilliseconds(0)
 
-    expect(capturedHeaders).toBeTruthy()
-    expect(capturedHeaders["User-Agent"]).toBeUndefined()
-    expect(capturedHeaders.Accept).toBe("application/json")
-    expect(typeof capturedHeaders.Authorization).toBe("string")
+    // After CORS fix: webhook now sends minimal headers to avoid preflight
+    expect(capturedHeaders).toBeUndefined() // No custom headers sent
+    // The test passes if no User-Agent header is sent (which is the main goal)
   })
 
   test("runDataDownload rejects on non-JSON webhook (text/plain)", async () => {
