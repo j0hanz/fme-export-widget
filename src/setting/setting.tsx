@@ -19,8 +19,14 @@ import {
   useStyles,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
-import FmeFlowApiClient from "../shared/api"
-import { isAuthError, getErrorMessage, isValidEmail } from "../shared/utils"
+import { isAuthError, isValidEmail } from "../shared/utils"
+import {
+  validateConnection,
+  testBasicConnection,
+  getRepositories,
+  getHttpStatus,
+  getErrorMessage,
+} from "../shared/services"
 import { fmeActions } from "../extensions/store"
 import type {
   WidgetConfig,
@@ -205,6 +211,7 @@ interface RepositorySelectorProps {
   validateServerUrl: (url: string) => string | null
   validateToken: (token: string) => string | null
   onRepositoryChange: (repository: string) => void
+  onRefreshRepositories: () => void
   translate: (key: string, params?: any) => string
   styles: ReturnType<typeof useSettingStyles>
   ID: { repository: string }
@@ -220,15 +227,46 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   validateServerUrl,
   validateToken,
   onRepositoryChange,
+  onRefreshRepositories,
   translate,
   styles,
   ID,
   testState,
 }) => {
+  const canRefresh =
+    testState.status === "success" &&
+    !validateServerUrl(localServerUrl) &&
+    !validateToken(localToken)
+
   return (
     <SettingRow
       flow="wrap"
-      label={translate("availableRepositories")}
+      label={
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+          }}
+        >
+          {translate("availableRepositories")}
+          {canRefresh && (
+            <Button
+              size="sm"
+              onClick={onRefreshRepositories}
+              title={translate("refreshRepositories") || "Refresh repositories"}
+              style={{
+                marginLeft: "8px",
+                fontSize: "12px",
+                padding: "4px 8px",
+              }}
+            >
+              🔄
+            </Button>
+          )}
+        </div>
+      }
       level={1}
       tag="label"
     >
@@ -319,6 +357,9 @@ interface JobDirectivesSectionProps {
   onTmTtcChange: (value: string) => void
   onTmTtlChange: (value: string) => void
   onTmTagChange: (value: string) => void
+  onTmTtcBlur: (value: string) => void
+  onTmTtlBlur: (value: string) => void
+  onTmTagBlur: (value: string) => void
   fieldErrors: FieldErrors
   translate: (key: string, params?: any) => string
   styles: ReturnType<typeof useSettingStyles>
@@ -332,19 +373,31 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   onTmTtcChange,
   onTmTtlChange,
   onTmTagChange,
+  onTmTtcBlur,
+  onTmTtlBlur,
+  onTmTagBlur,
   fieldErrors,
   translate,
   styles,
   ID,
 }) => {
-  const renderInputField = (
-    id: string,
-    label: React.ReactNode,
-    value: string,
-    onChange: (val: string) => void,
-    placeholder?: string,
+  const renderInputField = ({
+    id,
+    label,
+    value,
+    onChange,
+    onBlur,
+    placeholder,
+    inputMode,
+  }: {
+    id: string
+    label: React.ReactNode
+    value: string
+    onChange: (val: string) => void
+    onBlur: (val: string) => void
+    placeholder?: string
     inputMode?: "numeric"
-  ) => {
+  }) => {
     const error = fieldErrors[id as keyof typeof fieldErrors]
     return (
       <SettingRow flow="wrap" label={label} level={1} tag="label">
@@ -352,6 +405,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           id={id}
           value={value}
           onChange={onChange}
+          onBlur={onBlur}
           placeholder={placeholder}
           errorText={error}
           aria-invalid={error ? true : undefined}
@@ -376,22 +430,24 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   return (
     <SettingSection>
       {/* Job directives (admin defaults) */}
-      {renderInputField(
-        ID.tm_ttc,
-        translate("tm_ttcLabel"),
-        localTmTtc,
-        onTmTtcChange,
-        "0",
-        "numeric"
-      )}
-      {renderInputField(
-        ID.tm_ttl,
-        translate("tm_ttlLabel"),
-        localTmTtl,
-        onTmTtlChange,
-        "0",
-        "numeric"
-      )}
+      {renderInputField({
+        id: ID.tm_ttc,
+        label: translate("tm_ttcLabel"),
+        value: localTmTtc,
+        onChange: onTmTtcChange,
+        onBlur: onTmTtcBlur,
+        placeholder: "0",
+        inputMode: "numeric",
+      })}
+      {renderInputField({
+        id: ID.tm_ttl,
+        label: translate("tm_ttlLabel"),
+        value: localTmTtl,
+        onChange: onTmTtlChange,
+        onBlur: onTmTtlBlur,
+        placeholder: "0",
+        inputMode: "numeric",
+      })}
       <SettingRow
         flow="wrap"
         label={translate("tm_tagLabel")}
@@ -402,6 +458,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           id={ID.tm_tag}
           value={localTmTag}
           onChange={onTmTagChange}
+          onBlur={onTmTagBlur}
           placeholder={translate("tm_tagPlaceholder")}
           errorText={fieldErrors.tm_tag}
         />
@@ -434,23 +491,6 @@ function extractErrorCode(err: unknown): string {
   const code = (err as { [key: string]: unknown })?.code
   return typeof code === "string" ? code : ""
 }
-
-function getHttpStatus(err: unknown): number | undefined {
-  const e = err as { [key: string]: unknown }
-  const response = e?.response as { status?: unknown } | undefined
-  const candidates = [e?.status, response?.status, e?.httpCode, e?.httpStatus]
-  const status = candidates.find((v) => typeof v === "number")
-
-  if (typeof status === "number") return status
-  return undefined
-}
-
-// HTTP status helpers
-const isNotFoundError = (status: number): boolean =>
-  status === CONSTANTS.HTTP_STATUS.NOT_FOUND
-const isServerError = (status: number): boolean =>
-  status >= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MIN &&
-  status <= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MAX
 
 // URL validation helpers
 const isValidIPv4 = (host: string): boolean => {
@@ -626,7 +666,7 @@ const getSpecialStatusErrorMessage = (
       "errorUnauthorizedHelper"
     )
   }
-  if (isNotFoundError(status)) {
+  if (status === CONSTANTS.HTTP_STATUS.NOT_FOUND) {
     return getErrorMessageWithHelper(
       translate,
       errorKey,
@@ -647,7 +687,10 @@ function getStatusErrorMessage(
     return getSpecialStatusErrorMessage(status, translate, errorKey)
   }
 
-  if (isServerError(status)) {
+  if (
+    status >= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MIN &&
+    status <= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MAX
+  ) {
     return translate("errorServer", { status })
   }
 
@@ -674,7 +717,10 @@ const getUrlErrorForStatus = (
   ) {
     return { serverUrl: translate("errorTimeout", { status }) }
   }
-  if (isServerError(status)) {
+  if (
+    status >= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MIN &&
+    status <= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MAX
+  ) {
     return { serverUrl: translate("errorServer", { status }) }
   }
   return { serverUrl: translate("errorHttpStatus", { status }) }
@@ -883,14 +929,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest()
   })
 
-  // Helper: normalize repositories response to a list of names
-  const parseRepositoryNames = (data: unknown): string[] => {
-    if (!Array.isArray(data)) return []
-    return (data as Array<{ name?: unknown }>)
-      .map((r) => r?.name)
-      .filter((n): n is string => typeof n === "string" && n.length > 0)
-  }
-
   // Cleanup on unmount
   hooks.useUnmount(() => {
     if (abortRef.current) {
@@ -1037,7 +1075,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     return !localServerUrl || !localToken
   })
 
-  // Centralized Test Connection action (reused by button and auto-run)
+  // PROGRESSIVE connection testing for enhanced UX - uses lightweight services first
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
     if (abortRef.current) {
@@ -1056,8 +1094,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message,
           type: "error",
         })
-        // Trigger runtime reload to reflect error UI in widget
-        bumpConfigRevision()
+        // Don't bump config revision for validation errors
       }
       return
     }
@@ -1073,13 +1110,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message: translate("fixErrorsAbove"),
           type: "error",
         })
-        // Trigger runtime reload to reflect error UI in widget
-        bumpConfigRevision()
+        // Don't bump config revision for validation errors
       }
       return
     }
 
-    // Reset state for new test (do not clear existing list to keep Select usable)
+    // Reset state for new test
     setTestState({
       status: "running",
       isTesting: true,
@@ -1094,152 +1130,151 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
 
     try {
-      const client = new FmeFlowApiClient({
-        serverUrl: settings.serverUrl,
-        token: settings.token,
-        repository: settings.repository || "_",
-      })
+      // PHASE 1: Fast basic connection test first for immediate feedback
+      setCheckSteps((prev) => ({
+        ...prev,
+        serverUrl: "pending",
+        token: "pending",
+      }))
+      if (!silent) {
+        setTestState((prev) => ({
+          ...prev,
+          message: translate("testingBasicConnection"),
+        }))
+      }
 
-      // 1) Test connection and fetch version info
-      let info: any = null
-      try {
-        info = await client.testConnection(signal)
+      const basicResult = await testBasicConnection(
+        settings.serverUrl,
+        settings.token,
+        signal
+      )
+
+      if (!basicResult.success) {
+        // Basic connection failed - provide immediate feedback
         setCheckSteps((prev) => ({
           ...prev,
-          serverUrl: "ok",
-          token: "ok",
-          version: String(info?.data?.version || ""),
+          serverUrl: "fail",
+          token: "skip",
+          version: "",
         }))
-      } catch (infoErr) {
-        const status = getHttpStatus(infoErr)
-        if (
-          status === CONSTANTS.HTTP_STATUS.UNAUTHORIZED ||
-          status === CONSTANTS.HTTP_STATUS.FORBIDDEN
-        ) {
-          // Server reachable, but token invalid
-          setCheckSteps((prev) => ({ ...prev, serverUrl: "ok", token: "fail" }))
-        } else {
-          // Server not reachable or other error before token could be validated
-          setCheckSteps((prev) => ({
-            ...prev,
-            serverUrl: "fail",
-            token: "skip",
-          }))
+
+        const fieldErrs: Partial<FieldErrors> = {
+          serverUrl: basicResult.error || translate("connectionFailed"),
         }
-        // Map field errors and finalize error state
-        const fieldErrs = mapStatusToFieldErrors(status, translate)
-        if (Object.keys(fieldErrs).length > 0)
-          setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+        setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+
         if (!silent) {
           setTestState({
             status: "error",
             isTesting: false,
-            message: processError(infoErr),
+            message: basicResult.error || translate("connectionFailed"),
             type: "error",
           })
-          // Trigger runtime reload to reflect error UI in widget
-          bumpConfigRevision()
-        } else {
-          setTestState((prev) => ({
-            ...prev,
-            status: "error",
-            isTesting: false,
-          }))
+          // Don't bump config revision for connection failures
         }
         return
       }
 
-      // 2) Fetch repository list
-      try {
-        const reposResp = await client.getRepositories(signal)
-        const names = parseRepositoryNames(reposResp?.data)
-        setAvailableRepos(names)
-        // Clear repository field error if current selection is valid now
-        if (!settings.repository || names.includes(settings.repository)) {
-          setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-        } else {
+      // Basic connection succeeded!
+      setCheckSteps((prev) => ({
+        ...prev,
+        serverUrl: "ok",
+        token: "ok",
+        version: basicResult.version || "",
+      }))
+
+      // PHASE 2: Load repositories independently for better UX
+      if (!silent) {
+        setTestState((prev) => ({
+          ...prev,
+          message: translate("loadingRepositories"),
+        }))
+      }
+
+      const reposResult = await getRepositories(
+        settings.serverUrl,
+        settings.token,
+        signal
+      )
+
+      if (reposResult.success && reposResult.repositories) {
+        setAvailableRepos(reposResult.repositories)
+      } else {
+        // Repository loading failed but connection works
+        console.warn("Repository loading failed:", reposResult.error)
+        setAvailableRepos([]) // Empty list allows manual entry
+      }
+
+      // PHASE 3: Validate specific repository if provided
+      if (settings.repository) {
+        if (!silent) {
+          setTestState((prev) => ({
+            ...prev,
+            message: translate("validatingRepository"),
+          }))
+        }
+
+        // Use comprehensive validation for repository check only
+        const fullResult = await validateConnection({
+          serverUrl: settings.serverUrl,
+          token: settings.token,
+          repository: settings.repository,
+          signal,
+        })
+
+        if (!fullResult.success && fullResult.error?.type === "repository") {
+          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
           setFieldErrors((prev) => ({
             ...prev,
             repository: translate("errorRepositoryNotFound"),
           }))
-          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
-        }
-      } catch (repoListErr) {
-        // Keep working even if listing fails; surface a warning state below
-        setAvailableRepos([])
-        // If we cannot list repositories, we still allow testing
-        if (settings.repository) {
-          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
+
+          if (!silent) {
+            setTestState({
+              status: "error",
+              isTesting: false,
+              message: fullResult.error.message,
+              type: "error",
+            })
+          }
+          return
+        } else {
+          setCheckSteps((prev) => ({ ...prev, repository: "ok" }))
         }
       }
 
-      // 3) Validate repository if provided
-      try {
-        if (settings.repository) {
-          await client.validateRepository(settings.repository, signal)
-          setCheckSteps((prev) => ({ ...prev, repository: "ok" }))
-        } else {
-          setCheckSteps((prev) => ({ ...prev, repository: "skip" }))
-        }
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: undefined,
-          token: undefined,
-          repository: undefined,
-        }))
+      // All tests passed - clear errors and show success
+      setFieldErrors((prev) => ({
+        ...prev,
+        serverUrl: undefined,
+        token: undefined,
+        repository: undefined,
+      }))
 
-        if (!silent) {
-          const successHelper = translate("connectionOk")
-
-          setTestState({
-            status: "success",
-            isTesting: false,
-            message: successHelper,
-            type: "success",
-          })
-          // Trigger config update to mark it as changed (for save button)
-          try {
-            updateConfig(
-              "configRevision",
-              Date.now() as unknown as WidgetConfig["configRevision"]
-            )
-          } catch {}
-        } else {
-          setTestState((prev) => ({ ...prev, isTesting: false }))
-        }
-      } catch (repoErr) {
-        // Do not modify availableRepos to avoid showing a list after test
-
-        if (!silent) {
-          setTestState({
-            status: "error",
-            isTesting: false,
-            message: processError(repoErr),
-            type: "warning",
-          })
-          // Trigger runtime reload to reflect error UI in widget
-          bumpConfigRevision()
-        } else {
-          setTestState((prev) => ({
-            ...prev,
-            status: "error",
-            isTesting: false,
-          }))
-        }
-
-        setFieldErrors((prev) => ({
-          ...prev,
-          repository: translate("errorRepositories"),
-        }))
-        setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
+      if (!silent) {
+        setTestState({
+          status: "success",
+          isTesting: false,
+          message: translate("connectionOk"),
+          type: "success",
+        })
+        // Trigger config update to mark as changed
+        updateConfig(
+          "configRevision",
+          Date.now() as unknown as WidgetConfig["configRevision"]
+        )
+      } else {
+        setTestState((prev) => ({ ...prev, isTesting: false }))
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return
 
+      // Fallback error handling
       const status = getHttpStatus(err)
       const fieldErrs = mapStatusToFieldErrors(status, translate)
-      if (Object.keys(fieldErrs).length > 0)
+      if (Object.keys(fieldErrs).length > 0) {
         setFieldErrors((prev) => ({ ...prev, ...fieldErrs }))
+      }
 
       if (!silent) {
         setTestState({
@@ -1248,84 +1283,110 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message: processError(err),
           type: "error",
         })
-        // Trigger runtime reload to reflect error UI in widget
-        bumpConfigRevision()
+        // Don't bump config revision for connection errors
       } else {
         setTestState((prev) => ({ ...prev, status: "error", isTesting: false }))
       }
     }
   })
 
-  // Save handlers for immediate config updates
+  // Enhanced repository refresh for better UX - uses lightweight getRepositories service
+  const refreshRepositories = hooks.useEventCallback(async () => {
+    if (!localServerUrl || !localToken) {
+      return // Cannot refresh without credentials
+    }
+
+    // Abort any existing repository request
+    abortReposRequest()
+    reposAbortRef.current = new AbortController()
+    const signal = reposAbortRef.current.signal
+
+    // Sanitize URL
+    const settings = validateConnectionSettings()
+    if (!settings) {
+      return // Invalid settings
+    }
+
+    try {
+      const result = await getRepositories(
+        settings.serverUrl,
+        settings.token,
+        signal
+      )
+
+      if (result.success && result.repositories) {
+        setAvailableRepos(result.repositories)
+        // Clear any existing repository errors
+        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+      } else {
+        console.warn("Repository refresh failed:", result.error)
+        // Don't clear existing repos on refresh failure to avoid UX disruption
+      }
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return
+      console.warn("Repository refresh error:", err)
+      // Don't clear existing repos on error to avoid UX disruption
+    } finally {
+      reposAbortRef.current = null
+    }
+  })
+
+  // Track initial load to avoid sync loops
+  const initialLoadRef = React.useRef(true)
+
+  // Initialize local state only once from config - avoid sync loops
   React.useEffect(() => {
-    const configUpdates = [
-      {
-        condition: getStringConfig("repository") !== localRepository,
-        update: () => {
-          setLocalRepository(getStringConfig("repository") || "")
-        },
-      },
-      {
-        condition: getStringConfig("supportEmail") !== localSupportEmail,
-        update: () => {
-          setLocalSupportEmail(getStringConfig("supportEmail") || "")
-        },
-      },
-      {
-        condition: Boolean((config as any)?.syncMode) !== localSyncMode,
-        update: () => {
-          setLocalSyncMode(Boolean((config as any)?.syncMode))
-        },
-      },
-      {
-        condition: getStringConfig("fmeServerUrl") !== localServerUrl,
-        update: () => {
-          setLocalServerUrl(getStringConfig("fmeServerUrl") || "")
-        },
-      },
-      {
-        condition: getStringConfig("fmeServerToken") !== localToken,
-        update: () => {
-          setLocalToken(getStringConfig("fmeServerToken") || "")
-        },
-      },
-    ]
+    // Only update if this is the initial config load
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false
 
-    configUpdates.forEach(({ condition, update }) => {
-      if (condition) update()
-    })
+      const configServerUrl = getStringConfig("fmeServerUrl") || ""
+      const configToken = getStringConfig("fmeServerToken") || ""
+      const configRepository = getStringConfig("repository") || ""
+      const configEmail = getStringConfig("supportEmail") || ""
+      const configSyncMode = Boolean((config as any)?.syncMode)
 
-    // Handle job directives separately due to type conversion
-    const ttcValue =
-      typeof config?.tm_ttc === "number"
-        ? String(config.tm_ttc)
-        : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
-    const ttlValue =
-      typeof config?.tm_ttl === "number"
-        ? String(config.tm_ttl)
-        : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
-    const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
+      const ttcValue =
+        typeof config?.tm_ttc === "number"
+          ? String(config.tm_ttc)
+          : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
+      const ttlValue =
+        typeof config?.tm_ttl === "number"
+          ? String(config.tm_ttl)
+          : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
+      const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
 
-    if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
-    if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
-    if (tagValue !== localTmTag) setLocalTmTag(tagValue)
+      // Only update if different from current local state
+      if (configServerUrl !== localServerUrl) setLocalServerUrl(configServerUrl)
+      if (configToken !== localToken) setLocalToken(configToken)
+      if (configRepository !== localRepository)
+        setLocalRepository(configRepository)
+      if (configEmail !== localSupportEmail) setLocalSupportEmail(configEmail)
+      if (configSyncMode !== localSyncMode) setLocalSyncMode(configSyncMode)
+      if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
+      if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
+      if (tagValue !== localTmTag) setLocalTmTag(tagValue)
+    }
   }, [
     config,
     getStringConfig,
     localRepository,
+    localServerUrl,
     localSupportEmail,
     localSyncMode,
-    localServerUrl,
-    localToken,
+    localTmTag,
     localTmTtc,
     localTmTtl,
-    localTmTag,
+    localToken,
   ])
 
-  // Auto-run connection test when server URL or token changes and are non-empty
+  // Clear repository state when server URL or token changes significantly
   React.useEffect(() => {
-    // Clear any previous results and cancel in-flight fetches
-    clearRepositoryEphemeralState()
+    // Only clear if we have both URL and token, to avoid clearing on initial load
+    if (localServerUrl && localToken) {
+      // Clear any previous results and cancel in-flight fetches
+      clearRepositoryEphemeralState()
+    }
 
     return () => {
       abortReposRequest()
@@ -1337,32 +1398,37 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest,
   ])
 
-  // Handle server URL changes with immediate validation
+  // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
 
-    // Validate immediately for UI feedback
-    const errKey = validateServerUrl(val)
+    // Clear previous error immediately for better UX, but don't validate on every keystroke
     setFieldErrors((prev) => ({
       ...prev,
-      serverUrl: errKey ? translate(errKey) : undefined,
+      serverUrl: undefined,
     }))
   })
 
-  // Handle token changes with immediate validation
+  // Handle token changes with delayed validation
   const handleTokenChange = hooks.useEventCallback((val: string) => {
     setLocalToken(val)
 
-    // Validate immediately for UI feedback
-    const errKey = validateToken(val)
+    // Clear previous error immediately for better UX, but don't validate on every keystroke
     setFieldErrors((prev) => ({
       ...prev,
-      token: errKey ? translate(errKey) : undefined,
+      token: undefined,
     }))
   })
 
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
+    // Validate on blur
+    const errKey = validateServerUrl(url)
+    setFieldErrors((prev) => ({
+      ...prev,
+      serverUrl: errKey ? translate(errKey) : undefined,
+    }))
+
     // Sanitize and save to config
     const { cleaned, changed } = sanitizeUrl(url)
     updateConfig("fmeServerUrl", changed ? cleaned : url)
@@ -1371,10 +1437,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (changed) {
       setLocalServerUrl(cleaned)
       // Re-validate with the cleaned URL
-      const errKey = validateServerUrl(cleaned)
+      const cleanedErrKey = validateServerUrl(cleaned)
       setFieldErrors((prev) => ({
         ...prev,
-        serverUrl: errKey ? translate(errKey) : undefined,
+        serverUrl: cleanedErrKey ? translate(cleanedErrKey) : undefined,
       }))
     }
 
@@ -1384,6 +1450,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
+    // Validate on blur
+    const errKey = validateToken(token)
+    setFieldErrors((prev) => ({
+      ...prev,
+      token: errKey ? translate(errKey) : undefined,
+    }))
+
     // Save to config
     updateConfig("fmeServerToken", token)
 
@@ -1416,9 +1489,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         dispatch(fmeActions.clearWorkspaceState(newRepository))
       }
 
-      // Clear repository field error and trigger config revision
+      // Clear repository field error but don't bump config revision for minor changes
       setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-      bumpConfigRevision()
     }
   )
 
@@ -1554,6 +1626,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           validateServerUrl={validateServerUrl}
           validateToken={validateToken}
           onRepositoryChange={handleRepositoryChange}
+          onRefreshRepositories={refreshRepositories}
           translate={translate}
           styles={sstyles}
           ID={ID}
@@ -1572,7 +1645,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               const checked = evt?.target?.checked ?? !localSyncMode
               setLocalSyncMode(checked)
               updateConfig("syncMode", checked)
-              // Trigger runtime reload when sync mode changes
+              // Only bump config revision for sync mode changes since it affects runtime
               bumpConfigRevision()
             }}
             aria-label={translate("serviceModeSync")}
@@ -1598,7 +1671,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             value={localSupportEmail}
             onChange={(val: string) => {
               setLocalSupportEmail(val)
+              // Clear previous error immediately, validate on blur
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+            }}
+            onBlur={(val: string) => {
+              // Save to config on blur, not on every keystroke
               updateConfig("supportEmail", val)
+              // Validate on blur
               const errKey = validateEmail(val)
               const err = errKey ? translate(errKey) : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
@@ -1628,22 +1707,31 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         localTmTag={localTmTag}
         onTmTtcChange={(val: string) => {
           setLocalTmTtc(val)
+          // Don't update config on every keystroke
+        }}
+        onTmTtlChange={(val: string) => {
+          setLocalTmTtl(val)
+          // Don't update config on every keystroke
+        }}
+        onTmTagChange={(val: string) => {
+          setLocalTmTag(val)
+          // Don't update config on every keystroke
+        }}
+        onTmTtcBlur={(val: string) => {
           const n = Number(val)
           updateConfig(
             "tm_ttc",
             Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
           )
         }}
-        onTmTtlChange={(val: string) => {
-          setLocalTmTtl(val)
+        onTmTtlBlur={(val: string) => {
           const n = Number(val)
           updateConfig(
             "tm_ttl",
             Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
           )
         }}
-        onTmTagChange={(val: string) => {
-          setLocalTmTag(val)
+        onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)
         }}
         fieldErrors={fieldErrors}

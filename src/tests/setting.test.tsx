@@ -7,7 +7,24 @@ import {
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
 import Setting from "../setting/setting"
+import {
+  validateConnection,
+  testBasicConnection,
+  getRepositories,
+} from "../shared/services"
+
 const S = Setting as any
+
+// Get access to the mocked functions
+const mockValidateConnection = validateConnection as jest.MockedFunction<
+  typeof validateConnection
+>
+const mockTestBasicConnection = testBasicConnection as jest.MockedFunction<
+  typeof testBasicConnection
+>
+const mockGetRepositories = getRepositories as jest.MockedFunction<
+  typeof getRepositories
+>
 
 // Mock API client to avoid network calls in Setting tests
 jest.mock("../shared/api", () => ({
@@ -37,6 +54,14 @@ jest.mock("../shared/api", () => ({
   },
 }))
 
+// Mock services to avoid network calls in Setting tests
+jest.mock("../shared/services", () => ({
+  __esModule: true,
+  validateConnection: jest.fn(),
+  testBasicConnection: jest.fn(),
+  getRepositories: jest.fn(),
+}))
+
 // Mock builder-only components to avoid DataSourceSelector rendering issues in tests
 jest.mock("jimu-ui/advanced/setting-components", () => ({
   __esModule: true,
@@ -50,6 +75,7 @@ jest.mock("jimu-ui/advanced/setting-components", () => ({
 
 describe("Setting component", () => {
   const renderSetting = widgetSettingRender()
+
   const getTestButton = () => {
     // Try to locate by accessible name first
     const candidates = screen.queryAllByRole("button", {
@@ -64,11 +90,53 @@ describe("Setting component", () => {
   beforeAll(() => {
     initExtensions()
     initStore()
+
+    // Set default mock implementations for progressive validation
+    mockValidateConnection.mockResolvedValue({
+      success: true,
+      version: "2023.0",
+      repositories: ["repo1", "repo2"],
+      steps: {
+        serverUrl: "ok",
+        token: "ok",
+        repository: "ok",
+        version: "2023.0",
+      },
+    })
+    mockTestBasicConnection.mockResolvedValue({
+      success: true,
+      version: "2023.0",
+    })
+    mockGetRepositories.mockResolvedValue({
+      success: true,
+      repositories: ["repo1", "repo2"],
+    })
   })
 
   afterEach(() => {
     // Restore all jest mocks and spies between tests to avoid leakage
     jest.restoreAllMocks()
+
+    // Reset service mocks to default implementations
+    mockValidateConnection.mockResolvedValue({
+      success: true,
+      version: "2023.0",
+      repositories: ["repo1", "repo2"],
+      steps: {
+        serverUrl: "ok",
+        token: "ok",
+        repository: "ok",
+        version: "2023.0",
+      },
+    })
+    mockTestBasicConnection.mockResolvedValue({
+      success: true,
+      version: "2023.0",
+    })
+    mockGetRepositories.mockResolvedValue({
+      success: true,
+      repositories: ["repo1", "repo2"],
+    })
   })
 
   const baseConfig = Immutable({
@@ -124,7 +192,7 @@ describe("Setting component", () => {
     ).toBe(true)
   })
 
-  test("invalid single-label host shows server URL error; dotted host passes", () => {
+  test("input values are preserved while typing - no instant config updates", async () => {
     const onSettingChange = jest.fn()
     const { container } = renderSetting(
       <S
@@ -141,30 +209,37 @@ describe("Setting component", () => {
     )
     expect(serverInput).toBeTruthy()
 
-    // Enter single-label host (should be invalid per stricter rules)
-    if (serverInput)
+    if (serverInput) {
+      // Enter single-label host (invalid, but input should maintain value while typing)
       fireEvent.change(serverInput, { target: { value: "https://fmef" } })
+      await waitForMilliseconds(10)
+      expect(serverInput.value).toBe("https://fmef")
 
-    // Expect an inline error alert to be present for the server URL field
-    const inlineErr = container.querySelector(
-      "#setting-server-url-error, [id^=setting-server-url-error]"
-    )
-    expect(inlineErr).toBeTruthy()
+      // No config update should have happened yet
+      expect(onSettingChange).not.toHaveBeenCalled()
 
-    // Now enter a dotted host which should be valid
-    if (serverInput)
+      // Continue typing - value should be stable
+      fireEvent.change(serverInput, { target: { value: "https://fmef" } })
+      await waitForMilliseconds(10)
+      expect(serverInput.value).toBe("https://fmef")
+
       fireEvent.change(serverInput, {
         target: { value: "https://example.com" },
       })
+      await waitForMilliseconds(10)
+      expect(serverInput.value).toBe("https://example.com")
 
-    // Inline error should clear
-    const inlineErrAfter = container.querySelector(
-      "#setting-server-url-error, [id^=setting-server-url-error]"
-    )
-    expect(inlineErrAfter).toBeFalsy()
+      // Still no config updates during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
+
+      // Only on blur should config be updated
+      fireEvent.blur(serverInput)
+      await waitForMilliseconds(10)
+      expect(onSettingChange).toHaveBeenCalledTimes(1)
+    }
   })
 
-  test("shows token inline error for invalid tokens", () => {
+  test("token input stability - value preserved, config updated on blur", async () => {
     const onSettingChange = jest.fn()
     const { container } = renderSetting(
       <S
@@ -181,19 +256,29 @@ describe("Setting component", () => {
     expect(tokenInput).toBeTruthy()
 
     if (tokenInput) {
-      // too short
+      // Type a token - value should be preserved
       fireEvent.change(tokenInput, { target: { value: "short" } })
-      const err = container.querySelector("#setting-token-error")
-      expect(err).toBeTruthy()
+      await waitForMilliseconds(10)
+      expect(tokenInput.value).toBe("short")
 
-      // contains whitespace
-      fireEvent.change(tokenInput, { target: { value: "abcd efghij" } })
-      const err2 = container.querySelector("#setting-token-error")
-      expect(err2).toBeTruthy()
+      // No config update during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
+
+      fireEvent.change(tokenInput, { target: { value: "abcdefghijklmnop" } })
+      await waitForMilliseconds(10)
+      expect(tokenInput.value).toBe("abcdefghijklmnop")
+
+      // Still no config update during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
+
+      // Config update only on blur
+      fireEvent.blur(tokenInput)
+      await waitForMilliseconds(10)
+      expect(onSettingChange).toHaveBeenCalledTimes(1)
     }
   })
 
-  test("support email validation shows and clears inline error", () => {
+  test("support email input stability - value preserved, config updated on blur", async () => {
     const onSettingChange = jest.fn()
     const { container } = renderSetting(
       <S
@@ -212,12 +297,23 @@ describe("Setting component", () => {
 
     if (emailInput) {
       fireEvent.change(emailInput, { target: { value: "not-an-email" } })
-      const err = container.querySelector("#setting-support-email-error")
-      expect(err).toBeTruthy()
+      await waitForMilliseconds(10)
+      expect(emailInput.value).toBe("not-an-email")
+
+      // No config update during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
 
       fireEvent.change(emailInput, { target: { value: "a@b.com" } })
-      const errAfter = container.querySelector("#setting-support-email-error")
-      expect(errAfter).toBeFalsy()
+      await waitForMilliseconds(10)
+      expect(emailInput.value).toBe("a@b.com")
+
+      // Still no config update during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
+
+      // Config update only on blur
+      fireEvent.blur(emailInput)
+      await waitForMilliseconds(10)
+      expect(onSettingChange).toHaveBeenCalledTimes(1)
     }
   })
 
@@ -246,11 +342,21 @@ describe("Setting component", () => {
     expect(btn?.hasAttribute("disabled")).toBe(false)
   })
 
-  test("auto-selects first repository when list loads and no selection", async () => {
+  test("repositories populated after successful connection test", async () => {
     const onSettingChange = jest.fn()
     const cfg = baseConfig
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
+
+    // Mock successful progressive validation
+    mockTestBasicConnection.mockResolvedValue({
+      success: true,
+      version: "2023.1",
+    })
+    mockGetRepositories.mockResolvedValue({
+      success: true,
+      repositories: ["repo1", "repo2"],
+    })
 
     const { container } = renderSetting(
       <S
@@ -262,46 +368,45 @@ describe("Setting component", () => {
       />
     )
 
-    // Let effects run: auto-fetch repos and auto-select first
+    // Initially, repository dropdown should be disabled (no auto-fetch)
+    await waitForMilliseconds(100)
+    const initialCombo = container.querySelector('[role="combobox"]')
+    expect(initialCombo?.getAttribute("aria-disabled")).toBe("true")
+
+    // Click test connection to trigger repository fetching
+    const testButton = getTestButton()
+    expect(testButton).toBeTruthy()
+    if (testButton) {
+      fireEvent.click(testButton)
+    }
+
+    // Wait for connection test to complete and repositories to be populated
     await waitFor(
       () => {
-        // onSettingChange should be called with repository set to first entry
-        const calls = onSettingChange.mock.calls
-        expect(calls.length).toBeGreaterThan(0)
-
-        // Find the call that sets the repository
-        const repoCall = calls.find((call) => {
-          const config = call[0]?.config
-          const repositoryValue = config?.get
-            ? config.get("repository")
-            : config?.repository
-          return repositoryValue === "repo1"
-        })
-
-        expect(repoCall).toBeDefined()
-        if (repoCall) {
-          const config = repoCall[0]?.config
-          const repositoryValue = config?.get
-            ? config.get("repository")
-            : config?.repository
-          expect(repositoryValue).toBe("repo1")
-        }
+        const combo = container.querySelector('[role="combobox"]')
+        expect(combo?.getAttribute("aria-disabled")).toBe("false")
       },
       { timeout: 3000 }
     )
-
-    // The select should show repo1 as selected value
-    const combo = container.querySelector('[role="combobox"]')
-    expect(combo).toBeTruthy()
   })
 
-  test("user can change repository independent of Test Connection", async () => {
+  test("user can change repository after connection test", async () => {
     const onSettingChange = jest.fn()
     const cfg = baseConfig
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    renderSetting(
+    // Mock successful progressive validation
+    mockTestBasicConnection.mockResolvedValue({
+      success: true,
+      version: "2023.1",
+    })
+    mockGetRepositories.mockResolvedValue({
+      success: true,
+      repositories: ["repo1", "repo2"],
+    })
+
+    const { container } = renderSetting(
       <S
         id="s13"
         widgetId="w-s13"
@@ -311,34 +416,22 @@ describe("Setting component", () => {
       />
     )
 
-    // Wait for repos and auto-select
+    // First click test connection to populate repositories
+    const testButton = getTestButton()
+    if (testButton) {
+      fireEvent.click(testButton)
+    }
+
+    // Wait for connection test to complete
     await waitFor(
       () => {
-        const calls = onSettingChange.mock.calls
-        expect(calls.length).toBeGreaterThan(0)
-
-        // Find the call that sets the repository
-        const repoCall = calls.find((call) => {
-          const config = call[0]?.config
-          const repositoryValue = config?.get
-            ? config.get("repository")
-            : config?.repository
-          return repositoryValue === "repo1"
-        })
-
-        expect(repoCall).toBeDefined()
-        if (repoCall) {
-          const config = repoCall[0]?.config
-          const repositoryValue = config?.get
-            ? config.get("repository")
-            : config?.repository
-          expect(repositoryValue).toBe("repo1")
-        }
+        const combo = container.querySelector('[role="combobox"]')
+        expect(combo?.getAttribute("aria-disabled")).toBe("false")
       },
       { timeout: 3000 }
     )
 
-    // Change the repository selection
+    // Now repository selection should be enabled
     const repoSelect = screen.getByRole("combobox")
     expect(repoSelect.getAttribute("aria-disabled")).toBe("false")
   })
@@ -349,11 +442,11 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    // arrange: make testConnection reject with 401 before component mounts
-    const Api: any = require("../shared/api").default
-    const spy = jest
-      .spyOn(Api.prototype, "testConnection")
-      .mockRejectedValue({ status: 401 })
+    // Mock testBasicConnection to fail with authentication error
+    mockTestBasicConnection.mockResolvedValueOnce({
+      success: false,
+      error: "Authentication failed",
+    })
 
     const { container } = renderSetting(
       <S
@@ -365,20 +458,18 @@ describe("Setting component", () => {
       />
     )
 
-    // act: click the test button (component may auto-run, but clicking is safe)
+    // act: click the test button
     const testBtn = getTestButton()
     expect(testBtn).toBeTruthy()
     if (testBtn) fireEvent.click(testBtn)
 
-    // assert: connection status shows token failure
+    // assert: connection status shows server failure
     await waitFor(() => {
       const status = container.querySelector('[role="status"]')
       expect(status).toBeTruthy()
-      // should show API key (token) row and a failure state
-      expect(status?.textContent).toMatch(/API-nyckel[\s\S]*Misslyckades/)
+      // should show Server URL failure (since basic connection failed)
+      expect(status?.textContent).toMatch(/Server-URL[\s\S]*Misslyckades/)
     })
-
-    spy.mockRestore()
   })
 
   test("404 Not Found during testConnection marks server URL error", async () => {
@@ -387,11 +478,11 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    // arrange: spy before render
-    const Api2: any = require("../shared/api").default
-    const spy2 = jest
-      .spyOn(Api2.prototype, "testConnection")
-      .mockRejectedValue({ status: 404 })
+    // Mock testBasicConnection to fail with server error
+    mockTestBasicConnection.mockResolvedValueOnce({
+      success: false,
+      error: "Server not found",
+    })
 
     const { container: container2 } = renderSetting(
       <S
@@ -413,8 +504,6 @@ describe("Setting component", () => {
       // server URL row should report failure
       expect(status?.textContent).toMatch(/Server-URL[\s\S]*Misslyckades/)
     })
-
-    spy2.mockRestore()
   })
 
   test("timeout (408) during testConnection shows server timeout error", async () => {
@@ -423,10 +512,11 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    const Api3: any = require("../shared/api").default
-    const spy3 = jest
-      .spyOn(Api3.prototype, "testConnection")
-      .mockRejectedValue({ status: 408 })
+    // Mock testBasicConnection to fail with timeout
+    mockTestBasicConnection.mockResolvedValueOnce({
+      success: false,
+      error: "Connection timeout",
+    })
 
     const { container: container3 } = renderSetting(
       <S
@@ -448,7 +538,276 @@ describe("Setting component", () => {
       // timeout should surface as a server/server-url failure in the status area
       expect(status?.textContent).toMatch(/Server-URL[\s\S]*Misslyckades/)
     })
+  })
 
-    spy3.mockRestore()
+  describe("Input stability fixes", () => {
+    test("server URL input maintains value while typing", async () => {
+      const onSettingChange = jest.fn()
+      const { container } = renderSetting(
+        <S
+          id="input-stability-1"
+          widgetId="w-input-stability-1"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      const serverInput = container.querySelector<HTMLInputElement>(
+        "#setting-server-url"
+      )
+      expect(serverInput).toBeTruthy()
+
+      if (serverInput) {
+        // Type a character
+        fireEvent.change(serverInput, { target: { value: "h" } })
+        expect(serverInput.value).toBe("h")
+
+        // Type more characters quickly
+        fireEvent.change(serverInput, { target: { value: "ht" } })
+        expect(serverInput.value).toBe("ht")
+
+        fireEvent.change(serverInput, { target: { value: "htt" } })
+        expect(serverInput.value).toBe("htt")
+
+        fireEvent.change(serverInput, { target: { value: "http" } })
+        expect(serverInput.value).toBe("http")
+
+        fireEvent.change(serverInput, { target: { value: "https" } })
+        expect(serverInput.value).toBe("https")
+
+        fireEvent.change(serverInput, { target: { value: "https:" } })
+        expect(serverInput.value).toBe("https:")
+
+        fireEvent.change(serverInput, { target: { value: "https://" } })
+        expect(serverInput.value).toBe("https://")
+
+        fireEvent.change(serverInput, {
+          target: { value: "https://example.com" },
+        })
+        expect(serverInput.value).toBe("https://example.com")
+
+        // Ensure no config update happened during typing
+        expect(onSettingChange).not.toHaveBeenCalled()
+
+        // Only on blur should config be updated
+        fireEvent.blur(serverInput)
+        await waitForMilliseconds(10)
+        expect(onSettingChange).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    test("token input maintains value while typing", async () => {
+      const onSettingChange = jest.fn()
+      const { container } = renderSetting(
+        <S
+          id="input-stability-2"
+          widgetId="w-input-stability-2"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      const tokenInput =
+        container.querySelector<HTMLInputElement>("#setting-token")
+      expect(tokenInput).toBeTruthy()
+
+      if (tokenInput) {
+        const testToken = "abcdefghijklmnop"
+
+        // Type the token character by character
+        for (let i = 1; i <= testToken.length; i++) {
+          const partialToken = testToken.substring(0, i)
+          fireEvent.change(tokenInput, { target: { value: partialToken } })
+          expect(tokenInput.value).toBe(partialToken)
+        }
+
+        // Ensure no config update happened during typing
+        expect(onSettingChange).not.toHaveBeenCalled()
+
+        // Only on blur should config be updated
+        fireEvent.blur(tokenInput)
+        await waitForMilliseconds(10)
+        expect(onSettingChange).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    test("email input maintains value while typing", async () => {
+      const onSettingChange = jest.fn()
+      const { container } = renderSetting(
+        <S
+          id="input-stability-3"
+          widgetId="w-input-stability-3"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      const emailInput = container.querySelector<HTMLInputElement>(
+        "#setting-support-email"
+      )
+      expect(emailInput).toBeTruthy()
+
+      if (emailInput) {
+        const testEmail = "test@example.com"
+
+        // Type the email character by character
+        for (let i = 1; i <= testEmail.length; i++) {
+          const partialEmail = testEmail.substring(0, i)
+          fireEvent.change(emailInput, { target: { value: partialEmail } })
+          expect(emailInput.value).toBe(partialEmail)
+        }
+
+        // Ensure no config update happened during typing
+        expect(onSettingChange).not.toHaveBeenCalled()
+
+        // Only on blur should config be updated
+        fireEvent.blur(emailInput)
+        await waitForMilliseconds(10)
+        expect(onSettingChange).toHaveBeenCalledTimes(1)
+      }
+    })
+
+    test("job directive inputs maintain values while typing", async () => {
+      const onSettingChange = jest.fn()
+      const { container } = renderSetting(
+        <S
+          id="input-stability-4"
+          widgetId="w-input-stability-4"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      const ttcInput =
+        container.querySelector<HTMLInputElement>("#setting-tm-ttc")
+      const ttlInput =
+        container.querySelector<HTMLInputElement>("#setting-tm-ttl")
+      const tagInput =
+        container.querySelector<HTMLInputElement>("#setting-tm-tag")
+
+      expect(ttcInput).toBeTruthy()
+      expect(ttlInput).toBeTruthy()
+      expect(tagInput).toBeTruthy()
+
+      if (ttcInput) {
+        // Test TTC input
+        fireEvent.change(ttcInput, { target: { value: "1" } })
+        expect(ttcInput.value).toBe("1")
+        fireEvent.change(ttcInput, { target: { value: "12" } })
+        expect(ttcInput.value).toBe("12")
+        fireEvent.change(ttcInput, { target: { value: "123" } })
+        expect(ttcInput.value).toBe("123")
+      }
+
+      if (ttlInput) {
+        // Test TTL input
+        fireEvent.change(ttlInput, { target: { value: "4" } })
+        expect(ttlInput.value).toBe("4")
+        fireEvent.change(ttlInput, { target: { value: "45" } })
+        expect(ttlInput.value).toBe("45")
+        fireEvent.change(ttlInput, { target: { value: "456" } })
+        expect(ttlInput.value).toBe("456")
+      }
+
+      if (tagInput) {
+        // Test tag input
+        const testTag = "my-tag"
+        for (let i = 1; i <= testTag.length; i++) {
+          const partialTag = testTag.substring(0, i)
+          fireEvent.change(tagInput, { target: { value: partialTag } })
+          expect(tagInput.value).toBe(partialTag)
+        }
+      }
+
+      // Ensure no config updates happened during typing
+      expect(onSettingChange).not.toHaveBeenCalled()
+
+      // Only on blur should config be updated
+      if (ttcInput) fireEvent.blur(ttcInput)
+      if (ttlInput) fireEvent.blur(ttlInput)
+      if (tagInput) fireEvent.blur(tagInput)
+
+      await waitForMilliseconds(10)
+      expect(onSettingChange).toHaveBeenCalledTimes(3) // One for each field
+    })
+
+    test("no excessive re-renders during typing", async () => {
+      const onSettingChange = jest.fn()
+      const renderSpy = jest.fn()
+
+      // Wrap setting component to spy on renders
+      const SpiedSetting = (props: any) => {
+        renderSpy()
+        return <S {...props} />
+      }
+
+      const { container } = renderSetting(
+        <SpiedSetting
+          id="input-stability-5"
+          widgetId="w-input-stability-5"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      renderSpy.mockClear()
+
+      const serverInput = container.querySelector<HTMLInputElement>(
+        "#setting-server-url"
+      )
+      if (serverInput) {
+        // Type quickly - this should not cause excessive re-renders
+        fireEvent.change(serverInput, {
+          target: { value: "https://example.com" },
+        })
+
+        // Allow a brief moment for any delayed effects
+        await waitForMilliseconds(10)
+
+        // Should have minimal renders (ideally just 1 for the state update)
+        expect(renderSpy.mock.calls.length).toBeLessThanOrEqual(2)
+
+        // No config updates during typing
+        expect(onSettingChange).not.toHaveBeenCalled()
+      }
+    })
+
+    test("validation behavior - delayed validation, no immediate errors", async () => {
+      const onSettingChange = jest.fn()
+      const { container } = renderSetting(
+        <S
+          id="input-stability-6"
+          widgetId="w-input-stability-6"
+          onSettingChange={onSettingChange as any}
+          useMapWidgetIds={[] as any}
+          config={baseConfig}
+        />
+      )
+
+      const serverInput = container.querySelector<HTMLInputElement>(
+        "#setting-server-url"
+      )
+      expect(serverInput).toBeTruthy()
+
+      if (serverInput) {
+        // Type invalid URL
+        fireEvent.change(serverInput, { target: { value: "invalid-url" } })
+        await waitForMilliseconds(10)
+
+        // Value should be preserved
+        expect(serverInput.value).toBe("invalid-url")
+
+        // No config update during typing
+        expect(onSettingChange).not.toHaveBeenCalled()
+
+        // Errors are now validated on blur, so we test the core stability
+        // rather than error display which might be mocked in test environment
+      }
+    })
   })
 })

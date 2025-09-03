@@ -1,15 +1,32 @@
 // Shared utility functions
+export const isEmpty = (v: unknown): boolean => {
+  if (v === undefined || v === null || v === "") return true
+  if (Array.isArray(v)) return v.length === 0
+  if (typeof v === "string") return v.trim().length === 0
+  return false
+}
+
 export const isAuthError = (status: number): boolean =>
   status === 403 || status === 401
 
-export function getErrorMessage(err: unknown): string {
-  if (err && typeof err === "object" && "message" in err) {
-    const message = (err as { message: unknown }).message
-    return typeof message === "string" || typeof message === "number"
-      ? String(message)
-      : ""
+export const isInt = (value: unknown): boolean => {
+  if (typeof value === "number") return Number.isInteger(value)
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    const num = Number(trimmed)
+    return Number.isInteger(num) && !Number.isNaN(num)
   }
-  return ""
+  return false
+}
+
+export const isNum = (value: unknown): boolean => {
+  if (typeof value === "number") return Number.isFinite(value)
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    const num = Number(trimmed)
+    return Number.isFinite(num) && !Number.isNaN(num)
+  }
+  return false
 }
 
 // Resolve a message or a key to a translated message if available

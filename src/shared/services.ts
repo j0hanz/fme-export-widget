@@ -7,35 +7,8 @@ import type {
   FmeExportConfig,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
+import { isEmpty, isInt, isNum } from "./utils"
 import FmeFlowApiClient from "./api"
-
-// Exported utility functions for reusability across the codebase
-export const isEmpty = (v: unknown): boolean => {
-  if (v === undefined || v === null || v === "") return true
-  if (Array.isArray(v)) return v.length === 0
-  if (typeof v === "string") return v.trim().length === 0
-  return false
-}
-
-export const isInt = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isInteger(value)
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    const num = Number(trimmed)
-    return Number.isInteger(num) && !Number.isNaN(num)
-  }
-  return false
-}
-
-export const isNum = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isFinite(value)
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    const num = Number(trimmed)
-    return Number.isFinite(num) && !Number.isNaN(num)
-  }
-  return false
-}
 
 // Error service
 export class ErrorHandlingService {
@@ -952,7 +925,7 @@ export function validateConfigFields(config: FmeExportConfig | undefined): {
 }
 
 // Helper functions with improved type safety
-function getHttpStatus(err: unknown): number | undefined {
+export function getHttpStatus(err: unknown): number | undefined {
   if (!err || typeof err !== "object") return undefined
 
   const error = err as {
@@ -978,7 +951,7 @@ function getHttpStatus(err: unknown): number | undefined {
   return undefined
 }
 
-function getErrorMessage(err: unknown, status?: number): string {
+export function getErrorMessage(err: unknown, status?: number): string {
   // Handle known status codes first
   if (status === 0) return "Network connection failed"
   if (status === 401 || status === 403) return "Authentication failed"

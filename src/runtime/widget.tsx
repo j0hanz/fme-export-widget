@@ -36,11 +36,14 @@ import {
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../shared/types"
-import { ErrorHandlingService, validateWidgetStartup } from "../shared/services"
+import {
+  ErrorHandlingService,
+  validateWidgetStartup,
+  getErrorMessage,
+} from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
 import {
   resolveMessageOrKey,
-  getErrorMessage,
   isValidEmail,
   buildSupportHintText,
   getSupportEmail,
