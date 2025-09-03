@@ -334,7 +334,14 @@ const useWorkspaceLoader = (
           })
         )
 
-        if (isMountedRef.current) setWorkspaces(sorted)
+        if (isMountedRef.current) {
+          setWorkspaces(sorted)
+          // Dispatch workspace items with repository context to store
+          const dispatch = getAppStore().dispatch as (
+            action: ReturnType<typeof fmeActions.setWorkspaceItems>
+          ) => void
+          dispatch(fmeActions.setWorkspaceItems(sorted, repoName))
+        }
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
@@ -373,6 +380,17 @@ const useWorkspaceLoader = (
           workspaceName,
           response.data.parameters,
           response.data
+        )
+        // Dispatch workspace item and parameters with repository context
+        const dispatch = getAppStore().dispatch
+        const repoName = String(config.repository)
+        dispatch(fmeActions.setWorkspaceItem(response.data, repoName))
+        dispatch(
+          fmeActions.setWorkspaceParameters(
+            response.data.parameters,
+            workspaceName,
+            repoName
+          )
         )
       } else {
         throw new Error(translate("failedToLoadWorkspaceDetails"))
@@ -992,6 +1010,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
     workspaceError,
     scheduleWsLoad,
   ])
+
+  // Clear workspace state when repository changes
+  hooks.useUpdateEffect(() => {
+    if (config?.repository) {
+      const dispatch = getAppStore().dispatch
+      dispatch(fmeActions.clearWorkspaceState(config.repository))
+      // Force reload of workspaces for new repository
+      if (
+        state === ViewMode.WORKSPACE_SELECTION ||
+        state === ViewMode.EXPORT_OPTIONS
+      ) {
+        scheduleWsLoad()
+      }
+    }
+  }, [config?.repository])
 
   // Header
   const renderHeader = () => {

@@ -99,6 +99,7 @@ export enum FmeActionType {
   SET_ERROR = "fme/SET_ERROR",
   SET_IMPORT_ERROR = "fme/SET_IMPORT_ERROR",
   SET_EXPORT_ERROR = "fme/SET_EXPORT_ERROR",
+  CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
 }
 
 export const LAYER_CONFIG = {
@@ -501,6 +502,7 @@ export interface RequestConfig {
   readonly signal?: AbortSignal
   readonly timeout?: number
   readonly cacheHint?: boolean
+  readonly repositoryContext?: string // Added to scope caches properly by repository
 }
 
 export interface ApiResponse<T = unknown> {
@@ -684,6 +686,7 @@ export interface FmeWidgetState {
   readonly workspaceItem: WorkspaceItemDetail | null
   readonly isLoadingWorkspaces: boolean
   readonly isLoadingParameters: boolean
+  readonly currentRepository: string | null // Track current repository for workspace isolation
 
   // Loading and error state
   readonly isModulesLoading: boolean

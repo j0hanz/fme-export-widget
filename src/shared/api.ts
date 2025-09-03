@@ -76,6 +76,35 @@ async function ensureEsri(): Promise<void> {
   if (_loadPromise) return _loadPromise
 
   _loadPromise = (async () => {
+    // In test environment, check for global mocks first before trying to load modules
+    if (isTestEnv()) {
+      const globalAny = global as any
+
+      // If we have global mocks set up, use them directly
+      if (
+        globalAny.esriRequest ||
+        globalAny.esriConfig ||
+        globalAny.projection ||
+        globalAny.webMercatorUtils ||
+        globalAny.SpatialReference
+      ) {
+        console.warn("FME API - Using global mocks in test environment")
+        _esriRequest =
+          globalAny.esriRequest || (() => Promise.resolve({ data: null }))
+        _esriConfig = globalAny.esriConfig || {
+          request: { maxUrlLength: 4000, interceptors: [] },
+        }
+        _projection = globalAny.projection || {}
+        _webMercatorUtils = globalAny.webMercatorUtils || {}
+        _SpatialReference =
+          globalAny.SpatialReference ||
+          function () {
+            return {}
+          }
+        return
+      }
+    }
+
     try {
       const [
         requestMod,
@@ -104,13 +133,15 @@ async function ensureEsri(): Promise<void> {
         await projection.load()
       }
     } catch (error) {
-      // In test environment, provide basic stubs
+      // In test environment, provide basic stubs as fallback
       if (isTestEnv()) {
         console.warn(
-          "FME API - ArcGIS modules not available in test environment"
+          "FME API - ArcGIS modules not available in test environment, using fallback stubs"
         )
         _esriRequest = () => Promise.resolve({ data: null })
-        _esriConfig = { request: { maxUrlLength: 4000, interceptors: [] } }
+        _esriConfig = {
+          request: { maxUrlLength: 4000, interceptors: [] },
+        }
         _projection = {}
         _webMercatorUtils = {}
         _SpatialReference = function () {
@@ -269,9 +300,13 @@ const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   return `${base}/${path}`
 }
 
-// Create a stable scope ID from server URL and token for caching purposes
-function makeScopeId(serverUrl: string, token: string): string {
-  const s = `${serverUrl}::${token || ""}`
+// Create a stable scope ID from server URL, token, and repository for caching purposes
+function makeScopeId(
+  serverUrl: string,
+  token: string,
+  repository?: string
+): string {
+  const s = `${serverUrl}::${token || ""}::${repository || ""}`
   // DJB2 hash function
   let h = 5381
   for (let i = 0; i < s.length; i++) {
@@ -636,6 +671,7 @@ export class FmeFlowApiClient {
     return this.request<WorkspaceParameter>(endpoint, {
       signal,
       cacheHint: false, // Disable header-insensitive caching
+      repositoryContext: repo, // Add repository context for proper cache scoping
     })
   }
 
@@ -665,6 +701,7 @@ export class FmeFlowApiClient {
         this.request(endpoint, {
           signal,
           cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
       "Failed to get repository items",
@@ -684,6 +721,7 @@ export class FmeFlowApiClient {
         this.request<any>(endpoint, {
           signal,
           cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
         }),
       "Failed to get workspace item details",
       "WORKSPACE_ITEM_ERROR"
@@ -1063,10 +1101,14 @@ export class FmeFlowApiClient {
         query.fmetoken = this.config.token
       }
 
-      // Add a stable scope query param for GET requests to vary cache keys per token/server
+      // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
       const isGet = !options.method || options.method === HttpMethod.GET
       if (isGet) {
-        const scope = makeScopeId(this.config.serverUrl, this.config.token)
+        const scope = makeScopeId(
+          this.config.serverUrl,
+          this.config.token,
+          options.repositoryContext
+        )
         if (query.__scope === undefined) query.__scope = scope
       }
 

@@ -80,25 +80,39 @@ export const fmeActions = {
     type: FmeActionType.SET_ORDER_RESULT,
     orderResult,
   }),
-  setWorkspaceItems: (workspaceItems: readonly WorkspaceItem[]) => ({
+  setWorkspaceItems: (
+    workspaceItems: readonly WorkspaceItem[],
+    repository?: string
+  ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEMS,
     workspaceItems,
+    repository, // Add repository context to ensure workspace items are scoped correctly
   }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
-    workspaceName: string
+    workspaceName: string,
+    repository?: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_PARAMETERS,
     workspaceParameters,
     workspaceName,
+    repository, // Add repository context to track which repo these parameters belong to
   }),
-  setSelectedWorkspace: (workspaceName: string | null) => ({
+  setSelectedWorkspace: (
+    workspaceName: string | null,
+    repository?: string
+  ) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE,
     workspaceName,
+    repository, // Track which repository the selected workspace belongs to
   }),
-  setWorkspaceItem: (workspaceItem: WorkspaceItemDetail | null) => ({
+  setWorkspaceItem: (
+    workspaceItem: WorkspaceItemDetail | null,
+    repository?: string
+  ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM,
     workspaceItem,
+    repository, // Track repository context for workspace item
   }),
   setLoadingFlags: (flags: { [key: string]: boolean }) => ({
     type: FmeActionType.SET_LOADING_FLAGS,
@@ -115,6 +129,11 @@ export const fmeActions = {
   setExportError: (error: ErrorState | SerializableErrorState | null) => ({
     type: FmeActionType.SET_EXPORT_ERROR,
     error: toSerializable(error),
+  }),
+  // New action to clear workspace-related state when switching repositories
+  clearWorkspaceState: (newRepository?: string) => ({
+    type: FmeActionType.CLEAR_WORKSPACE_STATE,
+    newRepository,
   }),
 }
 
@@ -144,6 +163,7 @@ export const initialFmeState: FmeWidgetState = {
   workspaceItem: null,
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
+  currentRepository: null, // Track current repository for proper workspace isolation
 
   // Loading and errors
   isModulesLoading: false,
@@ -202,21 +222,32 @@ const fmeReducer = (
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    case FmeActionType.SET_WORKSPACE_ITEMS:
-      return state.set("workspaceItems", action.workspaceItems)
+    case FmeActionType.SET_WORKSPACE_ITEMS: {
+      let newState = state.set("workspaceItems", action.workspaceItems)
+      // Update current repository context if provided
+      if (action.repository !== undefined) {
+        newState = newState.set("currentRepository", action.repository)
+      }
+      return newState
+    }
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS:
       return state
         .set("workspaceParameters", action.workspaceParameters)
         .set("selectedWorkspace", action.workspaceName)
+        .set("currentRepository", action.repository || state.currentRepository)
 
     case FmeActionType.SET_SELECTED_WORKSPACE:
-      return state.set("selectedWorkspace", action.workspaceName)
+      return state
+        .set("selectedWorkspace", action.workspaceName)
+        .set("currentRepository", action.repository || state.currentRepository)
 
     case FmeActionType.SET_WORKSPACE_ITEM:
-      return state.set("workspaceItem", action.workspaceItem)
+      return state
+        .set("workspaceItem", action.workspaceItem)
+        .set("currentRepository", action.repository || state.currentRepository)
 
-    case FmeActionType.SET_LOADING_FLAGS:
+    case FmeActionType.SET_LOADING_FLAGS: {
       let newState = state
       if (action.isModulesLoading !== undefined) {
         newState = newState.set("isModulesLoading", action.isModulesLoading)
@@ -225,6 +256,18 @@ const fmeReducer = (
         newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
       }
       return newState
+    }
+
+    case FmeActionType.CLEAR_WORKSPACE_STATE:
+      return state
+        .set("workspaceItems", [])
+        .set("selectedWorkspace", null)
+        .set("workspaceParameters", [])
+        .set("workspaceItem", null)
+        .set("formValues", {})
+        .set("currentRepository", action.newRepository || null)
+        .set("isLoadingWorkspaces", false)
+        .set("isLoadingParameters", false)
 
     case FmeActionType.SET_ERROR:
       return state.set("error", action.error)
