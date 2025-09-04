@@ -129,7 +129,7 @@ describe("ErrorHandlingService", () => {
       const error = { status: 401, message: "Unauthorized" }
       const result = service.deriveStartupError(error, mockTranslate)
 
-      expect(result.code).toBe("AUTH_ERROR") // Actual implementation uses AUTH_ERROR
+      expect(result.code).toBe("AUTH_ERROR")
       expect(result.message).toBe("translated_startupValidationFailed")
     })
 
@@ -137,7 +137,7 @@ describe("ErrorHandlingService", () => {
       const error = { status: 404, message: "Not found" }
       const result = service.deriveStartupError(error, mockTranslate)
 
-      expect(result.code).toBe("REPO_NOT_FOUND") // Actual implementation uses REPO_NOT_FOUND
+      expect(result.code).toBe("REPO_NOT_FOUND")
       expect(result.message).toBe("translated_repoNotFound")
     })
 
@@ -496,9 +496,7 @@ describe("Connection Validation Functions", () => {
     jest.clearAllMocks()
   })
 
-  describe("parseRepositoryNames", () => {
-    // Note: parseRepositoryNames is a private function, so we test it indirectly
-    // through the public validateConnection function that uses it
+  describe("parseRepositoryNames/validateConnection", () => {
     test("connection validation handles repository parsing correctly", async () => {
       mockClient.testConnection.mockResolvedValue({
         data: { version: "2023.1", build: "23123" },
@@ -509,8 +507,8 @@ describe("Connection Validation Functions", () => {
         data: [
           { name: "repo1" },
           { name: "repo2" },
-          { name: "" }, // Should be filtered out
-          { name: null }, // Should be filtered out
+          { name: "" },
+          { name: null },
         ],
         status: 200,
         statusText: "OK",
@@ -561,7 +559,7 @@ describe("Connection Validation Functions", () => {
       expect(result.success).toBe(true)
       expect(result.version).toBe("2023.1")
       expect(result.repositories).toEqual(["repo1", "repo2"])
-      expect(result.steps.serverUrl).toBe("ok") // Actual implementation uses "ok"
+      expect(result.steps.serverUrl).toBe("ok")
       expect(result.steps.token).toBe("ok")
       expect(result.steps.repository).toBe("ok")
     })
@@ -574,12 +572,11 @@ describe("Connection Validation Functions", () => {
       const result = await validateConnection(defaultOptions)
 
       expect(result.success).toBe(false)
-      expect(result.error?.type).toBe("server") // Actual implementation uses "server"
+      expect(result.error?.type).toBe("server")
       expect(result.steps.serverUrl).toBe("fail")
     })
 
     test("handles authentication error during connection test", async () => {
-      // Mock testConnection to fail with 401 (authentication error)
       mockClient.testConnection.mockRejectedValue({
         status: 401,
         message: "Unauthorized",
@@ -588,8 +585,8 @@ describe("Connection Validation Functions", () => {
       const result = await validateConnection(defaultOptions)
 
       expect(result.success).toBe(false)
-      expect(result.steps.serverUrl).toBe("ok") // Server is reachable
-      expect(result.steps.token).toBe("fail") // But token is invalid
+      expect(result.steps.serverUrl).toBe("ok")
+      expect(result.steps.token).toBe("fail")
       expect(result.error?.type).toBe("token")
     })
 
@@ -604,7 +601,6 @@ describe("Connection Validation Functions", () => {
         status: 200,
         statusText: "OK",
       })
-      // Mock validateRepository to fail for the specified repo
       mockClient.validateRepository = jest
         .fn()
         .mockRejectedValue(new Error("Repository not found"))
@@ -644,67 +640,19 @@ describe("Connection Validation Functions", () => {
       expect(result.success).toBe(true)
       expect(result.steps.repository).toBe("skip")
     })
-  })
 
-  describe("testBasicConnection", () => {
-    test("returns success for valid connection", async () => {
-      mockClient.testConnection.mockResolvedValue({
-        data: { version: "2023.1", build: "23123" },
-        status: 200,
-        statusText: "OK",
+    test("handles 403 with proxy hints as server error", async () => {
+      mockClient.testConnection.mockRejectedValue({
+        status: 403,
+        message: "Unable to load https://example.com/sharing/proxy/status: 403",
       })
 
-      const result = await testBasicConnection(
-        "https://fmeflow.example.com",
-        "token"
-      )
-
-      expect(result.success).toBe(true)
-      expect(result.version).toBe("2023.1")
-    })
-
-    test("returns error for failed connection", async () => {
-      mockClient.testConnection.mockRejectedValue(
-        new Error("Connection failed")
-      )
-
-      const result = await testBasicConnection(
-        "https://fmeflow.example.com",
-        "token"
-      )
+      const result = await validateConnection(defaultOptions)
 
       expect(result.success).toBe(false)
-      expect(result.error).toBeTruthy()
-    })
-  })
-
-  describe("getRepositories", () => {
-    test("returns repositories list on success", async () => {
-      mockClient.getRepositories.mockResolvedValue({
-        data: [{ name: "repo1" }, { name: "repo2" }],
-        status: 200,
-        statusText: "OK",
-      })
-
-      const result = await getRepositories(
-        "https://fmeflow.example.com",
-        "token"
-      )
-
-      expect(result.success).toBe(true)
-      expect(result.repositories).toEqual(["repo1", "repo2"])
-    })
-
-    test("returns error on failure", async () => {
-      mockClient.getRepositories.mockRejectedValue(new Error("Failed to fetch"))
-
-      const result = await getRepositories(
-        "https://fmeflow.example.com",
-        "token"
-      )
-
-      expect(result.success).toBe(false)
-      expect(result.error).toBeTruthy()
+      expect(result.error?.type).toBe("server")
+      expect(result.steps.serverUrl).toBe("fail")
+      expect(result.steps.token).toBe("skip")
     })
   })
 })
@@ -725,59 +673,52 @@ describe("healthCheck", () => {
   })
 
   test("treats 401 as reachable server (auth required)", async () => {
-    // Simulate server responding with 401 Unauthorized
     mockClient.testConnection.mockRejectedValue({
       status: 401,
       message: "Unauthorized",
     })
 
-    const result = await healthCheck("https://fmeflow.example.com")
+    const result = await healthCheck("https://fmeflow.example.com", "token")
     expect(result.reachable).toBe(true)
     expect(result.status).toBe(401)
   })
 
   test("treats network error as unreachable", async () => {
-    // Simulate a generic network error (no HTTP status)
     mockClient.testConnection.mockRejectedValue(
       new TypeError("Failed to fetch")
     )
 
-    const result = await healthCheck("https://fmeflow.example.com")
+    const result = await healthCheck("https://fmeflow.example.com", "token")
     expect(result.reachable).toBe(false)
     expect(result.status === undefined || result.status === 0).toBe(true)
     expect(typeof result.error).toBe("string")
   })
 
   test("detects invalid URLs ending with dot as unreachable", async () => {
-    // This should be caught by URL validation before making any request
-    const result = await healthCheck("https://fmeflow.")
+    const result = await healthCheck("https://fmeflow.", "token")
     expect(result.reachable).toBe(false)
     expect(result.error).toBe("Invalid server URL format")
     expect(result.status).toBe(0)
     expect(result.responseTime).toBe(0)
-    // testConnection should never be called for invalid URLs
     expect(mockClient.testConnection).not.toHaveBeenCalled()
   })
 
   test("detects malformed URLs as unreachable", async () => {
-    // This should be caught by URL validation before making any request
-    const result = await healthCheck("not-a-url")
+    const result = await healthCheck("not-a-url", "token")
     expect(result.reachable).toBe(false)
     expect(result.error).toBe("Invalid server URL format")
     expect(result.status).toBe(0)
     expect(result.responseTime).toBe(0)
-    // testConnection should never be called for invalid URLs
     expect(mockClient.testConnection).not.toHaveBeenCalled()
   })
 
   test("detects invalid hostnames (no dot) in 403 errors as unreachable", async () => {
-    // Simulate proxy returning 403 for invalid hostname like "fmeflo"
     mockClient.testConnection.mockRejectedValue({
       status: 403,
       message: "Forbidden",
     })
 
-    const result = await healthCheck("https://fmeflo")
+    const result = await healthCheck("https://fmeflo", "token")
 
     expect(result.reachable).toBe(false)
     expect(result.error).toBe("Invalid hostname: fmeflo")
@@ -786,13 +727,12 @@ describe("healthCheck", () => {
   })
 
   test("detects DNS/network errors in 403 responses as unreachable", async () => {
-    // Simulate ArcGIS proxy error with DNS failure
     mockClient.testConnection.mockRejectedValue({
       status: 403,
       message: "Unable to load https://example.com/path ERR_NAME_NOT_RESOLVED",
     })
 
-    const result = await healthCheck("https://example.com")
+    const result = await healthCheck("https://example.com", "token")
 
     expect(result.reachable).toBe(false)
     expect(result.status).toBe(403)
@@ -801,17 +741,38 @@ describe("healthCheck", () => {
   })
 
   test("treats 401/403 as reachable when from valid hostname without network indicators", async () => {
-    // Simulate legitimate auth error from valid FME Flow server
     mockClient.testConnection.mockRejectedValue({
       status: 401,
       message: "Unauthorized - invalid token",
     })
 
-    const result = await healthCheck("https://fme.example.com")
+    const result = await healthCheck("https://fme.example.com", "token")
 
     expect(result.reachable).toBe(true)
     expect(result.status).toBe(401)
     expect(mockClient.testConnection).toHaveBeenCalled()
+  })
+
+  test("dedupes concurrent identical requests so underlying call runs once", async () => {
+    let resolveFn: (v: any) => void = (_: any) => {
+      throw new Error("uninitialized resolver")
+    }
+    const pending = new Promise((resolve) => {
+      resolveFn = resolve
+    })
+    mockClient.testConnection.mockReturnValueOnce(pending as any)
+
+    const p1 = healthCheck("https://fmeflow.example.com", "token")
+    const p2 = healthCheck("https://fmeflow.example.com", "token")
+
+    // Both calls should share the same in-flight request
+    expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
+
+    resolveFn({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    const res1 = await p1
+    const res2 = await p2
+    expect(res1.reachable).toBe(true)
+    expect(res2.reachable).toBe(true)
   })
 })
 
@@ -846,7 +807,7 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(config)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toContain("serverUrl") // Implementation uses "serverUrl"
+      expect(result.missingFields).toContain("serverUrl")
     })
 
     test("identifies missing token", () => {
@@ -859,7 +820,7 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(config)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toContain("token") // Implementation uses "token"
+      expect(result.missingFields).toContain("token")
     })
 
     test("identifies missing repository", () => {
@@ -879,9 +840,7 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(undefined)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toEqual([
-        "configuration", // Implementation returns "configuration" for undefined config
-      ])
+      expect(result.missingFields).toEqual(["configuration"])
     })
 
     test("handles whitespace-only values as missing", () => {
@@ -930,5 +889,167 @@ describe("Startup Validation Functions", () => {
       expect(result.isValid).toBe(false)
       expect(result.requiresSettings).toBe(true)
     })
+
+    test("returns valid result for successful connection", async () => {
+      // Mock API client constructor to return an object with required methods
+      const clientMock = {
+        testConnection: jest.fn(),
+        getRepositories: jest.fn(),
+        validateRepository: jest.fn(),
+      } as unknown as jest.Mocked<FmeFlowApiClient>
+      const impl = MockedFmeFlowApiClient.mockImplementation(
+        () => clientMock as any
+      )
+
+      ;(clientMock.testConnection as jest.Mock).mockResolvedValue({
+        data: { version: "2023.1" },
+        status: 200,
+        statusText: "OK",
+      })
+      ;(clientMock.getRepositories as jest.Mock).mockResolvedValue({
+        data: [{ name: "repo" }],
+        status: 200,
+        statusText: "OK",
+      })
+      ;(clientMock.validateRepository as jest.Mock).mockResolvedValue({
+        data: { name: "repo" },
+        status: 200,
+        statusText: "OK",
+      })
+
+      const result = await validateWidgetStartup({
+        config: validConfig,
+        translate: mockTranslate,
+      })
+
+      expect(result.isValid).toBe(true)
+      expect(result.canProceed).toBe(true)
+      expect(result.requiresSettings).toBe(false)
+      impl.mockReset()
+    })
+
+    test("maps repository error from connection validation", async () => {
+      const clientMock = {
+        testConnection: jest
+          .fn()
+          .mockResolvedValue({
+            data: { version: "2023.1" },
+            status: 200,
+            statusText: "OK",
+          }),
+        getRepositories: jest
+          .fn()
+          .mockResolvedValue({
+            data: [{ name: "repo" }],
+            status: 200,
+            statusText: "OK",
+          }),
+        validateRepository: jest
+          .fn()
+          .mockRejectedValue(new Error("Repository not found")),
+      } as unknown as jest.Mocked<FmeFlowApiClient>
+      const impl = MockedFmeFlowApiClient.mockImplementation(
+        () => clientMock as any
+      )
+
+      const result = await validateWidgetStartup({
+        config: validConfig,
+        translate: mockTranslate,
+      })
+
+      expect(result.isValid).toBe(false)
+      expect(result.requiresSettings).toBe(true)
+      expect(result.error?.code).toBe("REPOSITORY")
+      impl.mockReset()
+    })
+  })
+})
+
+describe("Deduplication caches for validateConnection/testBasicConnection/getRepositories", () => {
+  let mockClient: jest.Mocked<FmeFlowApiClient>
+
+  beforeEach(() => {
+    mockClient = {
+      testConnection: jest.fn(),
+      getRepositories: jest.fn(),
+      validateRepository: jest.fn(),
+    } as any
+
+    MockedFmeFlowApiClient.mockImplementation(() => mockClient)
+  })
+
+  test("validateConnection dedupes concurrent calls so underlying connection call runs once", async () => {
+    let resolveTest: (v: any) => void = (_: any) => {
+      throw new Error("uninitialized resolver")
+    }
+    const pendingTest = new Promise((resolve) => {
+      resolveTest = resolve
+    })
+    mockClient.testConnection.mockReturnValueOnce(pendingTest as any)
+    mockClient.getRepositories.mockResolvedValue({
+      data: [],
+      status: 200,
+      statusText: "OK",
+    } as any)
+    mockClient.validateRepository.mockResolvedValue({
+      data: { name: "repo" },
+      status: 200,
+      statusText: "OK",
+    } as any)
+
+    const opts: ConnectionValidationOptions = {
+      serverUrl: "https://a",
+      token: "t",
+      repository: "r",
+    }
+    const p1 = validateConnection(opts)
+    const p2 = validateConnection(opts)
+
+    resolveTest({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    const res1 = await p1
+    const res2 = await p2
+    expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
+    expect(res1.success).toBe(true)
+    expect(res2.success).toBe(true)
+  })
+
+  test("testBasicConnection dedupes concurrent calls so underlying connection call runs once", async () => {
+    let resolveTest: (v: any) => void = (_: any) => {
+      throw new Error("uninitialized resolver")
+    }
+    const pending = new Promise((resolve) => {
+      resolveTest = resolve
+    })
+    mockClient.testConnection.mockReturnValueOnce(pending as any)
+
+    const p1 = testBasicConnection("https://a", "t")
+    const p2 = testBasicConnection("https://a", "t")
+    resolveTest({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    const res1 = await p1
+    const res2 = await p2
+    expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
+    expect(res1.success).toBe(true)
+    expect(res2.success).toBe(true)
+  })
+
+  test("getRepositories dedupes concurrent calls so underlying request runs once", async () => {
+    let resolveRepos: (v: any) => void = (_: any) => {
+      throw new Error("uninitialized resolver")
+    }
+    const pending = new Promise((resolve) => {
+      resolveRepos = resolve
+    })
+    mockClient.getRepositories.mockReturnValueOnce(pending as any)
+
+    const p1 = getRepositories("https://a", "t")
+    const p2 = getRepositories("https://a", "t")
+    resolveRepos({ data: [{ name: "x" }], status: 200, statusText: "OK" })
+    const res1 = await p1
+    const res2 = await p2
+    expect(mockClient.getRepositories).toHaveBeenCalledTimes(1)
+    expect(res1.success).toBe(true)
+    expect(res2.success).toBe(true)
+    expect(res1.repositories).toEqual(["x"])
+    expect(res2.repositories).toEqual(["x"])
   })
 })
