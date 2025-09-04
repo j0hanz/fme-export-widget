@@ -1097,7 +1097,7 @@ export class FmeFlowApiClient {
 
       // Build query parameters including token to avoid CORS issues
       const query: any = { ...(options.query || {}) }
-      if (this.config.token) {
+      if (this.config.token && this.config.token.trim()) {
         query.fmetoken = this.config.token
       }
 

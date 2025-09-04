@@ -26,15 +26,10 @@ import {
   validateTokenKey,
   validateRepositoryKey,
   getEmailValidationError,
+  extractHttpStatus,
 } from "../shared/utils"
-import {
-  validateConnection,
-  testBasicConnection,
-  getRepositories,
-  healthCheck,
-  getHttpStatus,
-  getErrorMessage,
-} from "../shared/services"
+import { getErrorMessage, validateConnection } from "../shared/services"
+import { createFmeFlowClient } from "../shared/api"
 import { fmeActions } from "../extensions/store"
 import type {
   WidgetConfig,
@@ -783,7 +778,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
     const code = extractErrorCode(err)
-    const status = isFmeFlowApiError(err) ? err.status : getHttpStatus(err)
+    const status = isFmeFlowApiError(err) ? err.status : extractHttpStatus(err)
     const raw = getErrorMessage(err)
 
     if (code === "INVALID_RESPONSE_FORMAT") {
@@ -827,9 +822,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Sanitize URL input
-  const sanitizeUrl = hooks.useEventCallback((rawUrl: string): SanitizationResult => {
-    return sanitizeFmeBaseUrl(rawUrl)
-  })
+  const sanitizeUrl = hooks.useEventCallback(
+    (rawUrl: string): SanitizationResult => {
+      return sanitizeFmeBaseUrl(rawUrl)
+    }
+  )
 
   // Unified input validation
   const validateAllInputs = hooks.useEventCallback(
@@ -895,7 +892,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     return !localServerUrl || !localToken
   })
 
-  // PROGRESSIVE connection testing for enhanced UX - uses lightweight services first
+  // OPTIMIZED connection testing - single efficient flow with minimal API calls
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
     if (abortRef.current) {
@@ -914,7 +911,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message,
           type: "error",
         })
-        // Do not write to config during validation errors; UI state is enough
       }
       return
     }
@@ -930,7 +926,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           message: translate("fixErrorsAbove"),
           type: "error",
         })
-        // Do not write to config during validation errors; UI state is enough
       }
       return
     }
@@ -950,27 +945,138 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
 
     try {
-      // PHASE 1: Test server URL connectivity FIRST (without authentication)
-      setCheckSteps((prev) => ({
-        ...prev,
-        serverUrl: "pending",
-        token: "idle", // Don't test token until server is confirmed
-      }))
+      // Use the existing validateConnection service to avoid code duplication
+      // This ensures consistency with widget startup validation
       if (!silent) {
         setTestState((prev) => ({
           ...prev,
-          message: translate("testingServerUrl"),
+          message: translate("testingConnection"),
         }))
       }
 
-      // Test basic server connectivity without authentication via healthCheck
-      const health = await healthCheck(settings.serverUrl, signal)
-      if (!health.reachable) {
-        setCheckSteps((prev) => ({ ...prev, serverUrl: "fail", token: "idle" }))
+      const validationResult = await validateConnection({
+        serverUrl: settings.serverUrl,
+        token: settings.token,
+        repository: settings.repository,
+        signal,
+      })
+
+      if (validationResult.success) {
+        // Update UI state based on validation results
+        setCheckSteps({
+          serverUrl: validationResult.steps.serverUrl,
+          token: validationResult.steps.token,
+          repository: validationResult.steps.repository,
+          version: validationResult.version || "",
+        })
+
+        // Set available repositories from validation result
+        if (validationResult.repositories) {
+          setAvailableRepos(validationResult.repositories)
+        }
+
+        // Clear any existing field errors
+        setFieldErrors((prev) => ({
+          ...prev,
+          serverUrl: undefined,
+          token: undefined,
+          repository: undefined,
+        }))
+
+        if (!silent) {
+          setTestState({
+            status: "success",
+            isTesting: false,
+            message: translate("connectionOk"),
+            type: "success",
+          })
+        } else {
+          setTestState((prev) => ({ ...prev, isTesting: false }))
+        }
+      } else {
+        // Handle validation failure
+        const error = validationResult.error
+
+        // Update step states based on error type
+        if (error?.type === "server" || error?.type === "network") {
+          setCheckSteps((prev) => ({
+            ...prev,
+            serverUrl: "fail",
+            token: "idle",
+            repository: "idle",
+            version: "",
+          }))
+          setFieldErrors((prev) => ({
+            ...prev,
+            serverUrl: translate("errorInvalidServerUrl"),
+            token: undefined,
+            repository: undefined,
+          }))
+        } else if (error?.type === "token") {
+          setCheckSteps((prev) => ({
+            ...prev,
+            serverUrl: "ok",
+            token: "fail",
+            repository: "idle",
+            version: "",
+          }))
+          setFieldErrors((prev) => ({
+            ...prev,
+            token: translate("errorTokenIsInvalid"),
+            serverUrl: undefined,
+            repository: undefined,
+          }))
+        } else if (error?.type === "repository") {
+          setCheckSteps((prev) => ({
+            ...prev,
+            serverUrl: "ok",
+            token: "ok",
+            repository: "fail",
+            version: validationResult.version || "",
+          }))
+          setFieldErrors((prev) => ({
+            ...prev,
+            repository: translate("errorRepositoryNotFound"),
+            serverUrl: undefined,
+            token: undefined,
+          }))
+          // Still set repositories if available for dropdown
+          if (validationResult.repositories) {
+            setAvailableRepos(validationResult.repositories)
+          }
+        }
+
+        if (!silent) {
+          setTestState({
+            status: "error",
+            isTesting: false,
+            message: error?.message || translate("connectionFailed"),
+            type: "error",
+          })
+        } else {
+          setTestState((prev) => ({ ...prev, isTesting: false }))
+        }
+      }
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return
+
+      // Handle unexpected errors (network issues, etc.)
+      const errorStatus = extractHttpStatus(err)
+
+      if (!errorStatus || errorStatus === 0) {
+        // Network/connectivity issue
+        setCheckSteps((prev) => ({
+          ...prev,
+          serverUrl: "fail",
+          token: "idle",
+          repository: "idle",
+          version: "",
+        }))
         setFieldErrors((prev) => ({
           ...prev,
           serverUrl: translate("errorInvalidServerUrl"),
           token: undefined,
+          repository: undefined,
         }))
         if (!silent) {
           setTestState({
@@ -979,170 +1085,35 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             message: translate("errorInvalidServerUrl"),
             type: "error",
           })
-          // no config write here
         }
-        return
-      }
-
-      // If server responded with an HTTP status (e.g., 401/403), it's reachable; proceed to token test
-      setCheckSteps((prev) => ({ ...prev, serverUrl: "ok", token: "pending" }))
-      if (!silent) {
-        setTestState((prev) => ({
-          ...prev,
-          message: translate("testingAuthentication"),
-        }))
-      }
-
-      // PHASE 2: Now test authentication (server URL is confirmed working)
-      const basicResult = await testBasicConnection(
-        settings.serverUrl,
-        settings.token,
-        signal
-      )
-
-      if (!basicResult.success) {
-        // Authentication test failed - server URL is already confirmed working
+      } else {
+        // Other server error
         setCheckSteps((prev) => ({
           ...prev,
-          token: "fail", // Token is the issue since server URL was already tested
+          serverUrl: "fail",
+          token: "idle",
+          repository: "idle",
           version: "",
         }))
-
-        // Since server URL connectivity was already confirmed, this is a token issue
-        // keep original error in basicResult for diagnostics if needed
-
-        // token failure is expected here; avoid noisy console logs
-
         setFieldErrors((prev) => ({
           ...prev,
-          token: translate("errorTokenIsInvalid"),
-          serverUrl: undefined, // Server URL is confirmed working
+          serverUrl: translate("errorInvalidServerUrl"),
+          token: undefined,
+          repository: undefined,
         }))
-
         if (!silent) {
           setTestState({
             status: "error",
             isTesting: false,
-            message: translate("errorTokenIsInvalid"),
+            message: processError(err),
             type: "error",
           })
-          // no config write here
         }
-        return
-      }
-
-      // Basic connection succeeded!
-      setCheckSteps((prev) => ({
-        ...prev,
-        serverUrl: "ok",
-        token: "ok",
-        version: basicResult.version || "",
-      }))
-
-      // PHASE 2: Load repositories independently for better UX
-      if (!silent) {
-        setTestState((prev) => ({
-          ...prev,
-          message: translate("loadingRepositories"),
-        }))
-      }
-
-      const reposResult = await getRepositories(
-        settings.serverUrl,
-        settings.token,
-        signal
-      )
-
-      if (reposResult.success && reposResult.repositories) {
-        setAvailableRepos(reposResult.repositories)
-      } else {
-        // Repository loading failed but connection works
-        console.warn("Repository loading failed:", reposResult.error)
-        setAvailableRepos([]) // Empty list allows manual entry
-      }
-
-      // PHASE 3: Validate specific repository if provided
-      if (settings.repository) {
-        if (!silent) {
-          setTestState((prev) => ({
-            ...prev,
-            message: translate("validatingRepository"),
-          }))
-        }
-
-        // Use comprehensive validation for repository check only
-        const fullResult = await validateConnection({
-          serverUrl: settings.serverUrl,
-          token: settings.token,
-          repository: settings.repository,
-          signal,
-        })
-
-        if (!fullResult.success && fullResult.error?.type === "repository") {
-          setCheckSteps((prev) => ({ ...prev, repository: "fail" }))
-          setFieldErrors((prev) => ({
-            ...prev,
-            repository: translate("errorRepositoryNotFound"),
-          }))
-
-          if (!silent) {
-            setTestState({
-              status: "error",
-              isTesting: false,
-              message: fullResult.error.message,
-              type: "error",
-            })
-            // no config write here
-          }
-          return
-        } else {
-          setCheckSteps((prev) => ({ ...prev, repository: "ok" }))
-        }
-      }
-
-      // All tests passed - clear errors and show success
-      setFieldErrors((prev) => ({
-        ...prev,
-        serverUrl: undefined,
-        token: undefined,
-        repository: undefined,
-      }))
-
-      if (!silent) {
-        setTestState({
-          status: "success",
-          isTesting: false,
-          message: translate("connectionOk"),
-          type: "success",
-        })
-        // Trigger config update to mark as changed
-        updateConfig(
-          "configRevision",
-          Date.now() as unknown as WidgetConfig["configRevision"]
-        )
-      } else {
-        setTestState((prev) => ({ ...prev, isTesting: false }))
-      }
-    } catch (err) {
-      if ((err as Error)?.name === "AbortError") return
-
-      // Simple error state for unexpected exceptions
-      // Our robust error categorization in the main flow handles specific errors
-      if (!silent) {
-        setTestState({
-          status: "error",
-          isTesting: false,
-          message: processError(err),
-          type: "error",
-        })
-        // no config write here
-      } else {
-        setTestState((prev) => ({ ...prev, status: "error", isTesting: false }))
       }
     }
   })
 
-  // Enhanced repository refresh for better UX - uses lightweight getRepositories service
+  // Enhanced repository refresh for better UX - uses client API directly
   const refreshRepositories = hooks.useEventCallback(async () => {
     if (!localServerUrl || !localToken) {
       return // Cannot refresh without credentials
@@ -1160,18 +1131,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     try {
-      const result = await getRepositories(
-        settings.serverUrl,
-        settings.token,
-        signal
-      )
+      const client = createFmeFlowClient({
+        fmeServerUrl: settings.serverUrl,
+        fmeServerToken: settings.token,
+        repository: settings.repository || "_",
+      })
 
-      if (result.success && result.repositories) {
-        setAvailableRepos(result.repositories)
+      const result = await client.getRepositories(signal)
+      const repositories =
+        result?.data?.map((r) => r.name).filter(Boolean) || []
+
+      if (repositories.length > 0) {
+        setAvailableRepos(repositories)
         // Clear any existing repository errors
         setFieldErrors((prev) => ({ ...prev, repository: undefined }))
       } else {
-        console.warn("Repository refresh failed:", result.error)
+        console.warn("Repository refresh returned empty list")
         // Don't clear existing repos on refresh failure to avoid UX disruption
       }
     } catch (err) {

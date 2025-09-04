@@ -72,7 +72,9 @@ const isValidIPv4 = (host: string): boolean => {
 
   return host.split(".").every((octet) => {
     const num = Number(octet)
-    return Number.isFinite(num) && num >= IPV4_MIN_OCTET && num <= IPV4_MAX_OCTET
+    return (
+      Number.isFinite(num) && num >= IPV4_MIN_OCTET && num <= IPV4_MAX_OCTET
+    )
   })
 }
 

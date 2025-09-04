@@ -498,6 +498,7 @@ function parseRepositoryNames(data: unknown): string[] {
  */
 export async function healthCheck(
   serverUrl: string,
+  token: string,
   signal?: AbortSignal
 ): Promise<{
   reachable: boolean
@@ -530,10 +531,10 @@ export async function healthCheck(
   }
 
   try {
-    // Use an empty token so the client does not append fmetoken; we only want to know if the server responds at all
+    // Use the provided token for authentication
     const client = new FmeFlowApiClient({
       serverUrl,
-      token: "",
+      token,
       repository: "_",
     })
 
@@ -645,12 +646,12 @@ export async function validateConnection(
       steps.token = "ok"
       steps.version = String(serverInfo?.data?.version || "")
     } catch (error) {
-      const status = getHttpStatus(error)
+      const status = extractHttpStatus(error)
 
       if (status === 401 || status === 403) {
         // Could be auth error OR server URL error - need to verify server reachability first
         try {
-          const healthResult = await healthCheck(serverUrl, signal)
+          const healthResult = await healthCheck(serverUrl, token, signal)
 
           if (healthResult.reachable) {
             // Server is reachable but token invalid
@@ -749,7 +750,7 @@ export async function validateConnection(
       throw new Error("Request aborted") // Re-throw abort errors
     }
 
-    const status = getHttpStatus(error)
+    const status = extractHttpStatus(error)
     return {
       success: false,
       steps,
@@ -791,7 +792,7 @@ export async function testBasicConnection(
   } catch (error) {
     return {
       success: false,
-      error: getErrorMessage(error, getHttpStatus(error)),
+      error: getErrorMessage(error, extractHttpStatus(error)),
       originalError: error, // Keep original error for better categorization
     }
   }
@@ -822,7 +823,7 @@ export async function getRepositories(
   } catch (error) {
     return {
       success: false,
-      error: getErrorMessage(error, getHttpStatus(error)),
+      error: getErrorMessage(error, extractHttpStatus(error)),
     }
   }
 }
@@ -1091,32 +1092,6 @@ export function validateConfigFields(config: FmeExportConfig | undefined): {
 }
 
 // Helper functions with improved type safety
-export function getHttpStatus(err: unknown): number | undefined {
-  if (!err || typeof err !== "object") return undefined
-
-  const error = err as {
-    status?: unknown
-    response?: { status?: unknown }
-    httpCode?: unknown
-    httpStatus?: unknown
-  }
-
-  const candidates = [
-    error.status,
-    error.response?.status,
-    error.httpCode,
-    error.httpStatus,
-  ]
-
-  for (const candidate of candidates) {
-    if (typeof candidate === "number" && Number.isFinite(candidate)) {
-      return candidate
-    }
-  }
-
-  return undefined
-}
-
 export function getErrorMessage(err: unknown, status?: number): string {
   // Handle known status codes first
   if (status === 0) return "Network connection failed"
@@ -1136,131 +1111,4 @@ export function getErrorMessage(err: unknown, status?: number): string {
   }
 
   return "Unknown error"
-}
-
-/**
- * Enhanced connection validation with detailed error categorization
- * This provides more detailed error information than the basic testConnection
- */
-export interface DetailedConnectionResult {
-  success: boolean
-  details: {
-    serverReachable: boolean
-    authenticationValid: boolean
-    repositoryExists: boolean
-    version?: string
-  }
-  error?: {
-    message: string
-    type: "server" | "auth" | "repository" | "network" | "generic"
-    status?: number
-    suggestion?: string
-  }
-}
-
-/**
- * Perform detailed connection validation with step-by-step analysis
- */
-export async function validateDetailedConnection(
-  options: ConnectionValidationOptions
-): Promise<DetailedConnectionResult> {
-  const { serverUrl, token, repository, signal } = options
-
-  const result: DetailedConnectionResult = {
-    success: false,
-    details: {
-      serverReachable: false,
-      authenticationValid: false,
-      repositoryExists: false,
-    },
-  }
-
-  try {
-    // Step 1: Test basic server connection
-    const basicResult = await testBasicConnection(serverUrl, token, signal)
-
-    if (!basicResult.success) {
-      const status = extractHttpStatus(basicResult.error)
-
-      if (status === 401 || status === 403) {
-        result.error = {
-          message: basicResult.error || "Authentication failed",
-          type: "auth",
-          status,
-          suggestion: "Check your API token",
-        }
-      } else if (status === 404) {
-        result.error = {
-          message: basicResult.error || "Server endpoint not found",
-          type: "server",
-          status,
-          suggestion: "Verify the server URL is correct",
-        }
-      } else if (!status || status === 0) {
-        result.error = {
-          message: basicResult.error || "Network connection failed",
-          type: "network",
-          suggestion: "Check network connectivity and server URL",
-        }
-      } else {
-        result.error = {
-          message: basicResult.error || "Server error",
-          type: "server",
-          status,
-          suggestion: "Contact system administrator",
-        }
-      }
-
-      return result
-    }
-
-    // Step 1 passed
-    result.details.serverReachable = true
-    result.details.authenticationValid = true
-    result.details.version = basicResult.version
-
-    // Step 2: Test repository access if specified
-    if (repository) {
-      try {
-        const repoResult = await getRepositories(serverUrl, token, signal)
-
-        if (repoResult.success && repoResult.repositories) {
-          if (repoResult.repositories.includes(repository)) {
-            result.details.repositoryExists = true
-            result.success = true
-          } else {
-            result.error = {
-              message: `Repository '${repository}' not found`,
-              type: "repository",
-              suggestion: "Choose from available repositories",
-            }
-          }
-        } else {
-          result.error = {
-            message: repoResult.error || "Failed to list repositories",
-            type: "repository",
-            suggestion: "Check repository access permissions",
-          }
-        }
-      } catch (error) {
-        result.error = {
-          message: extractErrorMessage(error),
-          type: "repository",
-          suggestion: "Check repository configuration",
-        }
-      }
-    } else {
-      // No repository specified - connection test passes
-      result.success = true
-    }
-
-    return result
-  } catch (error) {
-    result.error = {
-      message: extractErrorMessage(error),
-      type: "generic",
-      suggestion: "Review connection settings",
-    }
-    return result
-  }
 }

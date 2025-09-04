@@ -117,7 +117,9 @@ describe("utils helpers", () => {
 
   describe("FME URL sanitization and validation", () => {
     test("sanitizeFmeBaseUrl strips /fmerest path and trailing slash", () => {
-      const a = sanitizeFmeBaseUrl("https://example.com/fmerest/v3/repositories")
+      const a = sanitizeFmeBaseUrl(
+        "https://example.com/fmerest/v3/repositories"
+      )
       expect(a.isValid).toBe(true)
       expect(a.cleaned).toBe("https://example.com")
 
@@ -164,12 +166,11 @@ describe("utils helpers", () => {
     test("validateRepositoryKey checks presence and membership when list provided", () => {
       expect(validateRepositoryKey("", null)).toBeNull()
       expect(validateRepositoryKey("", [])).toBeNull()
-      expect(validateRepositoryKey("", ["r1"]))
-        .toBe("errorRepoRequired")
-      expect(validateRepositoryKey("r2", ["r1"]))
-        .toBe("errorRepositoryNotFound")
-      expect(validateRepositoryKey("r1", ["r1", "r2"]))
-        .toBeNull()
+      expect(validateRepositoryKey("", ["r1"])).toBe("errorRepoRequired")
+      expect(validateRepositoryKey("r2", ["r1"])).toBe(
+        "errorRepositoryNotFound"
+      )
+      expect(validateRepositoryKey("r1", ["r1", "r2"])).toBeNull()
     })
 
     test("getEmailValidationError returns null for empty (optional) and key for invalid", () => {
