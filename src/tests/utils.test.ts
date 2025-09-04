@@ -8,6 +8,11 @@ import {
   getSupportEmail,
   buildSupportHintText,
   EMAIL_PLACEHOLDER,
+  sanitizeFmeBaseUrl,
+  validateServerUrlKey,
+  validateTokenKey,
+  validateRepositoryKey,
+  getEmailValidationError,
 } from "../shared/utils"
 
 // Simple translator factory: looks up keys in a dict; otherwise returns the key
@@ -107,6 +112,71 @@ describe("utils helpers", () => {
     test("EMAIL_PLACEHOLDER matches {email} pattern loosely", () => {
       expect(EMAIL_PLACEHOLDER.test("{email}")).toBe(true)
       expect(EMAIL_PLACEHOLDER.test("{ email }")).toBe(true)
+    })
+  })
+
+  describe("FME URL sanitization and validation", () => {
+    test("sanitizeFmeBaseUrl strips /fmerest path and trailing slash", () => {
+      const a = sanitizeFmeBaseUrl("https://example.com/fmerest/v3/repositories")
+      expect(a.isValid).toBe(true)
+      expect(a.cleaned).toBe("https://example.com")
+
+      const b = sanitizeFmeBaseUrl("https://example.com/fmerest/")
+      expect(b.cleaned).toBe("https://example.com")
+
+      const c = sanitizeFmeBaseUrl("https://example.com/FMERest/v4")
+      expect(c.cleaned).toBe("https://example.com")
+
+      const d = sanitizeFmeBaseUrl("not a url")
+      expect(d.isValid).toBe(false)
+      expect(d.cleaned).toBe("not a url")
+      expect(Array.isArray(d.errors)).toBe(true)
+    })
+
+    test("validateServerUrlKey returns appropriate error keys", () => {
+      expect(validateServerUrlKey("")).toBe("errorMissingServerUrl")
+      expect(validateServerUrlKey("not-a-url")).toBe("errorInvalidServerUrl")
+      expect(validateServerUrlKey("ftp://x.y")).toBe("errorInvalidServerUrl")
+      expect(validateServerUrlKey("https://user:pass@x.y")).toBe(
+        "errorInvalidServerUrl"
+      )
+      expect(validateServerUrlKey("https://example.com/fmerest")).toBe(
+        "errorBadBaseUrl"
+      )
+      expect(validateServerUrlKey("https://localhost")).toBeNull()
+      expect(validateServerUrlKey("https://127.0.0.1")).toBeNull()
+      expect(validateServerUrlKey("https://example.com")).toBeNull()
+      // Branded hostnames (no dot) allowed when containing 'fmeflow'
+      expect(validateServerUrlKey("https://fmeflow-host")).toBeNull()
+    })
+  })
+
+  describe("FME token and repository validation", () => {
+    test("validateTokenKey enforces length, whitespace, control chars, and invalid symbols", () => {
+      expect(validateTokenKey("")).toBe("errorMissingToken")
+      expect(validateTokenKey("short")).toBe("errorTokenIsInvalid")
+      expect(validateTokenKey("has space token")).toBe("errorTokenIsInvalid")
+      expect(validateTokenKey("abc\u0001defghij")).toBe("errorTokenIsInvalid")
+      expect(validateTokenKey("abc<defghij")).toBe("errorTokenIsInvalid")
+      expect(validateTokenKey("abcdefghij12345")).toBeNull()
+    })
+
+    test("validateRepositoryKey checks presence and membership when list provided", () => {
+      expect(validateRepositoryKey("", null)).toBeNull()
+      expect(validateRepositoryKey("", [])).toBeNull()
+      expect(validateRepositoryKey("", ["r1"]))
+        .toBe("errorRepoRequired")
+      expect(validateRepositoryKey("r2", ["r1"]))
+        .toBe("errorRepositoryNotFound")
+      expect(validateRepositoryKey("r1", ["r1", "r2"]))
+        .toBeNull()
+    })
+
+    test("getEmailValidationError returns null for empty (optional) and key for invalid", () => {
+      expect(getEmailValidationError("")).toBeNull()
+      expect(getEmailValidationError("not-an-email")).toBe("errorInvalidEmail")
+      expect(getEmailValidationError("no-reply@x.y")).toBe("errorInvalidEmail")
+      expect(getEmailValidationError("user@example.com")).toBeNull()
     })
   })
 

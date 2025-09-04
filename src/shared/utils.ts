@@ -1,4 +1,5 @@
 // Shared utility functions
+import type { SanitizationResult } from "./types"
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -56,6 +57,139 @@ export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
   if (/no-?reply/i.test(email)) return false
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+// Centralized FME validation and sanitization helpers (shared by settings and services)
+
+const IPV4_MIN_OCTET = 0
+const IPV4_MAX_OCTET = 255
+const MIN_TOKEN_LENGTH = 10
+const FME_REST_PATH = "/fmerest"
+
+const isValidIPv4 = (host: string): boolean => {
+  const ipv4Pattern = /^\d{1,3}(?:\.\d{1,3}){3}$/
+  if (!ipv4Pattern.test(host)) return false
+
+  return host.split(".").every((octet) => {
+    const num = Number(octet)
+    return Number.isFinite(num) && num >= IPV4_MIN_OCTET && num <= IPV4_MAX_OCTET
+  })
+}
+
+const isValidHostname = (host: string): boolean => {
+  // Allow localhost, IPv4 addresses, domain names with dots, or FME Flow branded hostnames
+  const isLocalhost = host.toLowerCase() === "localhost"
+  const isIPv4Address = isValidIPv4(host)
+  const hasDomainDot = host.includes(".")
+  const isFmeFlowBranded = /fmeflow/i.test(host)
+
+  return isLocalhost || isIPv4Address || hasDomainDot || isFmeFlowBranded
+}
+
+const hasForbiddenPaths = (pathname: string): boolean => {
+  const lowerPath = pathname.toLowerCase()
+  return lowerPath.includes(FME_REST_PATH)
+}
+
+// Sanitize FME base URL by removing trailing '/fmerest' and trailing slash
+export const sanitizeFmeBaseUrl = (rawUrl: string): SanitizationResult => {
+  try {
+    const trimmed = (rawUrl || "").trim()
+    const u = new URL(trimmed)
+    let path = u.pathname || "/"
+    const lower = path.toLowerCase()
+    const idxRest = lower.indexOf(FME_REST_PATH)
+    if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
+    const cleaned = new URL(u.origin + path).toString().replace(/\/$/, "")
+    const changed = cleaned !== trimmed.replace(/\/$/, "") && idxRest >= 0
+    return { isValid: true, cleaned, changed, errors: [] }
+  } catch {
+    return {
+      isValid: false,
+      cleaned: rawUrl,
+      changed: false,
+      errors: ["Invalid URL"],
+    }
+  }
+}
+
+// Validate server URL; returns i18n error key or null
+export const validateServerUrlKey = (url: string): string | null => {
+  const trimmedUrl = url?.trim()
+  if (!trimmedUrl) return "errorMissingServerUrl"
+
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(trimmedUrl)
+  } catch {
+    return "errorInvalidServerUrl"
+  }
+
+  // Validate protocol (only HTTP/HTTPS allowed)
+  if (!/^https?:$/i.test(parsedUrl.protocol)) {
+    return "errorInvalidServerUrl"
+  }
+
+  // Disallow URLs with embedded credentials
+  if (parsedUrl.username || parsedUrl.password) {
+    return "errorInvalidServerUrl"
+  }
+
+  // Check for forbidden FME-specific paths that should be stripped
+  if (hasForbiddenPaths(parsedUrl.pathname)) {
+    return "errorBadBaseUrl"
+  }
+
+  // Validate hostname/host
+  if (!isValidHostname(parsedUrl.hostname)) {
+    return "errorInvalidServerUrl"
+  }
+
+  return null
+}
+
+// Validate token; returns i18n error key or null
+export const validateTokenKey = (token: string): string | null => {
+  if (!token) return "errorMissingToken"
+
+  const hasWhitespace = /\s/.test(token)
+  const hasProblematicChars = /[<>"'`]/.test(token)
+  const tooShort = token.length < MIN_TOKEN_LENGTH
+
+  if (hasWhitespace || tooShort) return "errorTokenIsInvalid"
+
+  // Control characters check
+  for (let i = 0; i < token.length; i++) {
+    const code = token.charCodeAt(i)
+    if (code < 32 || code === 127) return "errorTokenIsInvalid"
+  }
+
+  if (hasProblematicChars) return "errorTokenIsInvalid"
+
+  return null
+}
+
+// Validate repository; returns i18n error key or null
+export const validateRepositoryKey = (
+  repository: string,
+  availableRepos: string[] | null
+): string | null => {
+  if (availableRepos === null) return null
+  if (availableRepos.length > 0 && !repository) return "errorRepoRequired"
+  if (
+    availableRepos.length > 0 &&
+    repository &&
+    !availableRepos.includes(repository)
+  ) {
+    return "errorRepositoryNotFound"
+  }
+  return null
+}
+
+// Email validation that returns error key or null (optional field)
+export const getEmailValidationError = (email: string): string | null => {
+  if (!email) return null
+  return isValidEmail(email) ? null : "errorInvalidEmail"
 }
 
 // Error extraction utilities

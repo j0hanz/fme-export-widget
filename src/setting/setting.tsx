@@ -19,7 +19,14 @@ import {
   useStyles,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
-import { isAuthError, isValidEmail } from "../shared/utils"
+import {
+  isAuthError,
+  sanitizeFmeBaseUrl,
+  validateServerUrlKey,
+  validateTokenKey,
+  validateRepositoryKey,
+  getEmailValidationError,
+} from "../shared/utils"
 import {
   validateConnection,
   testBasicConnection,
@@ -46,13 +53,8 @@ import { FmeFlowApiError } from "../shared/types"
 // Constants
 const CONSTANTS = {
   VALIDATION: {
-    MIN_TOKEN_LENGTH: 10,
     DEFAULT_TTL_VALUE: "0",
     DEFAULT_TTC_VALUE: "0",
-    IPV4_MIN_OCTET: 0,
-    IPV4_MAX_OCTET: 255,
-    MIN_CONTROL_CHAR: 32,
-    DEL_CHAR_CODE: 127,
   },
   HTTP_STATUS: {
     UNAUTHORIZED: 401,
@@ -67,9 +69,6 @@ const CONSTANTS = {
     NETWORK_ERROR: 0,
     SERVER_ERROR_MIN: 500,
     SERVER_ERROR_MAX: 599,
-  },
-  PATHS: {
-    FME_REST: "/fmerest",
   },
   COLORS: {
     BACKGROUND_DARK: "#181818",
@@ -503,136 +502,6 @@ function extractErrorCode(err: unknown): string {
   return typeof code === "string" ? code : ""
 }
 
-// URL validation helpers
-const isValidIPv4 = (host: string): boolean => {
-  const ipv4Pattern = /^\d{1,3}(?:\.\d{1,3}){3}$/
-  if (!ipv4Pattern.test(host)) return false
-
-  return host.split(".").every((octet) => {
-    const num = Number(octet)
-    return (
-      Number.isFinite(num) &&
-      num >= CONSTANTS.VALIDATION.IPV4_MIN_OCTET &&
-      num <= CONSTANTS.VALIDATION.IPV4_MAX_OCTET
-    )
-  })
-}
-
-const isValidHostname = (host: string): boolean => {
-  // Allow localhost, IPv4 addresses, domain names with dots, or FME Flow branded hostnames
-  const isLocalhost = host.toLowerCase() === "localhost"
-  const isIPv4Address = isValidIPv4(host)
-  const hasDomainDot = host.includes(".")
-  const isFmeFlowBranded = /fmeflow/i.test(host)
-
-  return isLocalhost || isIPv4Address || hasDomainDot || isFmeFlowBranded
-}
-
-const hasForbiddenPaths = (pathname: string): boolean => {
-  const lowerPath = pathname.toLowerCase()
-  return lowerPath.includes(CONSTANTS.PATHS.FME_REST)
-}
-
-// Server URL validation
-function validateServerUrl(url: string): string | null {
-  const trimmedUrl = url?.trim()
-
-  if (!trimmedUrl) return "errorMissingServerUrl"
-
-  let parsedUrl: URL
-  try {
-    parsedUrl = new URL(trimmedUrl)
-  } catch {
-    return "errorInvalidServerUrl"
-  }
-
-  // Validate protocol (only HTTP/HTTPS allowed)
-  if (!/^https?:$/i.test(parsedUrl.protocol)) {
-    return "errorInvalidServerUrl"
-  }
-
-  // Disallow URLs with embedded credentials
-  if (parsedUrl.username || parsedUrl.password) {
-    return "errorInvalidServerUrl"
-  }
-
-  // Check for forbidden FME-specific paths that should be stripped
-  if (hasForbiddenPaths(parsedUrl.pathname)) {
-    return "errorBadBaseUrl"
-  }
-
-  // Validate hostname/host
-  if (!isValidHostname(parsedUrl.hostname)) {
-    return "errorInvalidServerUrl"
-  }
-
-  return null
-}
-
-// Token validation helpers
-const hasControlCharacters = (token: string): boolean => {
-  for (let i = 0; i < token.length; i++) {
-    const code = token.charCodeAt(i)
-    if (
-      code < CONSTANTS.VALIDATION.MIN_CONTROL_CHAR ||
-      code === CONSTANTS.VALIDATION.DEL_CHAR_CODE
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-const hasProblematicCharacters = (token: string): boolean =>
-  /[<>"'`]/.test(token)
-
-const hasWhitespace = (token: string): boolean => /\s/.test(token)
-
-const isTooShort = (token: string): boolean =>
-  token.length < CONSTANTS.VALIDATION.MIN_TOKEN_LENGTH
-
-// Token validation
-function validateToken(token: string): string | null {
-  if (!token) return "errorMissingToken"
-
-  if (hasWhitespace(token) || isTooShort(token)) {
-    return "errorTokenIsInvalid"
-  }
-
-  if (hasControlCharacters(token)) {
-    return "errorTokenIsInvalid"
-  }
-
-  if (hasProblematicCharacters(token)) {
-    return "errorTokenIsInvalid"
-  }
-
-  return null
-}
-
-// Repository validation
-function validateRepository(
-  repository: string,
-  availableRepos: string[] | null
-): string | null {
-  if (availableRepos === null) return null
-  if (availableRepos.length > 0 && !repository) return "errorRepoRequired"
-  if (
-    availableRepos.length > 0 &&
-    repository &&
-    !availableRepos.includes(repository)
-  ) {
-    return "errorRepositoryNotFound"
-  }
-  return null
-}
-
-// Email validation
-function validateEmail(email: string): string | null {
-  if (!email) return null // Optional field
-  return isValidEmail(email) ? null : "errorInvalidEmail"
-}
-
 const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
   [CONSTANTS.HTTP_STATUS.UNAUTHORIZED]: "errorUnauthorized",
   [CONSTANTS.HTTP_STATUS.FORBIDDEN]: "errorUnauthorized",
@@ -957,41 +826,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     )
   )
 
-  // Utilities: URL validation and sanitization (strip /fmerest)
-  const sanitizeUrl = hooks.useEventCallback(
-    (rawUrl: string): SanitizationResult => {
-      try {
-        const trimmed = (rawUrl || "").trim()
-        const u = new URL(trimmed)
-        let path = u.pathname || "/"
-        const lower = path.toLowerCase()
-        const idxRest = lower.indexOf(CONSTANTS.PATHS.FME_REST)
-        if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
-        const cleaned = new URL(u.origin + path).toString().replace(/\/$/, "")
-        const changed = cleaned !== trimmed.replace(/\/$/, "") && idxRest >= 0
-        return { isValid: true, cleaned, changed, errors: [] }
-      } catch {
-        return {
-          isValid: false,
-          cleaned: rawUrl,
-          changed: false,
-          errors: ["Invalid URL"],
-        }
-      }
-    }
-  )
+  // Sanitize URL input
+  const sanitizeUrl = hooks.useEventCallback((rawUrl: string): SanitizationResult => {
+    return sanitizeFmeBaseUrl(rawUrl)
+  })
 
   // Unified input validation
   const validateAllInputs = hooks.useEventCallback(
     (skipRepoCheck = false): ValidationResult => {
       const messages: Partial<FieldErrors> = {}
 
-      const serverUrlError = validateServerUrl(localServerUrl)
-      const tokenError = validateToken(localToken)
+      const serverUrlError = validateServerUrlKey(localServerUrl)
+      const tokenError = validateTokenKey(localToken)
       const repositoryError = skipRepoCheck
         ? null
-        : validateRepository(localRepository, availableRepos)
-      const emailError = validateEmail(localSupportEmail)
+        : validateRepositoryKey(localRepository, availableRepos)
+      const emailError = getEmailValidationError(localSupportEmail)
 
       if (serverUrlError) messages.serverUrl = translate(serverUrlError)
       if (tokenError) messages.token = translate(tokenError)
@@ -1371,9 +1221,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       // Run initial validation on loaded config values to show errors immediately (no config writes)
       setTimeout(() => {
-        const serverUrlError = validateServerUrl(configServerUrl)
-        const tokenError = validateToken(configToken)
-        const emailError = validateEmail(configEmail)
+        const serverUrlError = validateServerUrlKey(configServerUrl)
+        const tokenError = validateTokenKey(configToken)
+        const emailError = getEmailValidationError(configEmail)
 
         if (serverUrlError || tokenError || emailError) {
           setFieldErrors((prev) => ({
@@ -1444,7 +1294,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
-    const errKey = validateServerUrl(url)
+    const errKey = validateServerUrlKey(url)
     setFieldErrors((prev) => ({
       ...prev,
       serverUrl: errKey ? translate(errKey) : undefined,
@@ -1458,7 +1308,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (changed) {
       setLocalServerUrl(cleaned)
       // Re-validate with the cleaned URL
-      const cleanedErrKey = validateServerUrl(cleaned)
+      const cleanedErrKey = validateServerUrlKey(cleaned)
       setFieldErrors((prev) => ({
         ...prev,
         serverUrl: cleanedErrKey ? translate(cleanedErrKey) : undefined,
@@ -1472,7 +1322,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
-    const errKey = validateToken(token)
+    const errKey = validateTokenKey(token)
     setFieldErrors((prev) => ({
       ...prev,
       token: errKey ? translate(errKey) : undefined,
@@ -1669,8 +1519,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           localRepository={localRepository}
           availableRepos={availableRepos}
           fieldErrors={fieldErrors}
-          validateServerUrl={validateServerUrl}
-          validateToken={validateToken}
+          validateServerUrl={validateServerUrlKey}
+          validateToken={validateTokenKey}
           onRepositoryChange={handleRepositoryChange}
           onRefreshRepositories={refreshRepositories}
           translate={translate}
@@ -1724,7 +1574,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               // Save to config on blur, not on every keystroke
               updateConfig("supportEmail", val)
               // Validate on blur
-              const errKey = validateEmail(val)
+              const errKey = getEmailValidationError(val)
               const err = errKey ? translate(errKey) : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
             }}
