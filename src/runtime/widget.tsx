@@ -1006,16 +1006,29 @@ export default function Widget(
     runStartupValidation()
   })
 
-  // React to configuration changes by re-running startup validation
-  // Standard ExB pattern: monitor props.config directly for changes
-  React.useEffect(() => {
-    // Skip on initial load (handled by useEffectOnce above)
-    if (isInitialLoadRef.current) {
-      return
-    }
-
-    // Reset widget state and re-validate when config changes
-    try {
+  // Reset widget state for re-validation
+  const resetForRevalidation = hooks.useEventCallback(
+    (alsoCleanupMapResources = false) => {
+      // Cancel any ongoing submission
+      submissionController.cancel()
+      if (sketchViewModel) {
+        try {
+          sketchViewModel.cancel()
+        } catch (_) {}
+      }
+      if (graphicsLayer) {
+        try {
+          graphicsLayer.removeAll()
+        } catch (_) {}
+      }
+      // Reset local state
+      setCurrentGeometry(null)
+      if (alsoCleanupMapResources) {
+        try {
+          cleanupResources()
+        } catch (_) {}
+      }
+      // Reset redux state
       dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION))
       dispatch(fmeActions.setGeometry(null, 0))
       dispatch(fmeActions.setDrawingState(false, 0))
@@ -1025,13 +1038,42 @@ export default function Widget(
       dispatch(fmeActions.setWorkspaceItem(null))
       dispatch(fmeActions.setFormValues({}))
       dispatch(fmeActions.setOrderResult(null))
+    }
+  )
+
+  // React to config changes by re-running startup validation
+  React.useEffect(() => {
+    if (isInitialLoadRef.current) {
+      return
+    }
+    try {
+      resetForRevalidation(false)
     } catch (error) {
       console.warn("Error resetting widget state on config change:", error)
     }
 
     // Re-run validation with new config
     runStartupValidation()
-  }, [props.config, dispatch, runStartupValidation])
+  }, [props.config, resetForRevalidation, runStartupValidation])
+
+  // React to map selection changes by re-running startup validation
+  React.useEffect(() => {
+    if (isInitialLoadRef.current) return
+    try {
+      // If no map is configured, also cleanup map resources
+      const hasMapConfigured =
+        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
+      resetForRevalidation(!hasMapConfigured)
+    } catch (error) {
+      console.warn(
+        "Error resetting widget state on map selection change:",
+        error
+      )
+    }
+
+    // Re-run validation with new map selection
+    runStartupValidation()
+  }, [useMapWidgetIds, resetForRevalidation, runStartupValidation])
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
