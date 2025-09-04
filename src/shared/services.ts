@@ -5,8 +5,13 @@ import type {
   FormPrimitive,
   CheckSteps,
   FmeExportConfig,
-} from "./types"
-import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
+} from "../config"
+import {
+  ErrorType,
+  ErrorSeverity,
+  ParameterType,
+  FormFieldType,
+} from "../config"
 import {
   isEmpty,
   isInt,

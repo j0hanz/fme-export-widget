@@ -36,7 +36,7 @@ import type {
   BtnContentProps,
   IconProps,
   StateViewProps,
-} from "../../shared/types"
+} from "../../config"
 import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 
 type TranslateFn = (key: string, params?: any) => string

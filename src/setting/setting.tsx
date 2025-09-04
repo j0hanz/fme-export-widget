@@ -43,8 +43,8 @@ import type {
   ValidationResult,
   SanitizationResult,
   IMStateWithFmeExport,
-} from "../shared/types"
-import { FmeFlowApiError } from "../shared/types"
+} from "../config"
+import { FmeFlowApiError } from "../config"
 import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
 
 // Constants

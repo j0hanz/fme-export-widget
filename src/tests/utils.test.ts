@@ -1,295 +1,208 @@
 import {
   isEmpty,
+  isAuthError,
   isInt,
   isNum,
   resolveMessageOrKey,
-  isAuthError,
   isValidEmail,
-  getSupportEmail,
-  buildSupportHintText,
-  EMAIL_PLACEHOLDER,
   sanitizeFmeBaseUrl,
   validateServerUrlKey,
   validateTokenKey,
   validateRepositoryKey,
   getEmailValidationError,
+  extractErrorMessage,
+  extractHttpStatus,
+  buildSupportHintText,
+  getSupportEmail,
 } from "../shared/utils"
 
-// Simple translator factory: looks up keys in a dict; otherwise returns the key
-const makeTranslator = (dict: { [key: string]: string }) => (key: string) =>
-  Object.prototype.hasOwnProperty.call(dict, key) ? dict[key] : key
-
-describe("utils helpers", () => {
-  describe("isAuthError", () => {
-    test("returns true for 401 and 403 status codes", () => {
-      expect(isAuthError(401)).toBe(true)
-      expect(isAuthError(403)).toBe(true)
-      expect(isAuthError(500)).toBe(false)
-      expect(isAuthError(200)).toBe(false)
-    })
+describe("shared/utils", () => {
+  test("isEmpty handles primitives and arrays", () => {
+    expect(isEmpty(undefined)).toBe(true)
+    expect(isEmpty(null)).toBe(true)
+    expect(isEmpty(0)).toBe(false)
+    expect(isEmpty("")).toBe(true)
+    expect(isEmpty("   ")).toBe(true)
+    expect(isEmpty("a")).toBe(false)
+    expect(isEmpty([])).toBe(true)
+    expect(isEmpty([1])).toBe(false)
+    expect(isEmpty({})).toBe(false)
   })
 
-  describe("resolveMessageOrKey", () => {
-    test("returns raw when empty string provided", () => {
-      const t = makeTranslator({})
-      expect(resolveMessageOrKey("", t)).toBe("")
-    })
-
-    test("returns exact translation when available for raw key", () => {
-      const t = makeTranslator({ HELLO_WORLD: "Hi there" })
-      expect(resolveMessageOrKey("HELLO_WORLD", t)).toBe("Hi there")
-    })
-
-    test("uses camelCase fallback when exact translation is not available", () => {
-      const t = makeTranslator({ helloWorld: "Hello Camel" })
-      expect(resolveMessageOrKey("HELLO_WORLD", t)).toBe("Hello Camel")
-    })
-
-    test("returns raw when neither exact nor camelCase translation is available", () => {
-      const t = makeTranslator({})
-      expect(resolveMessageOrKey("SOME_UNTRANSLATED_KEY", t)).toBe(
-        "SOME_UNTRANSLATED_KEY"
-      )
-    })
-
-    test("prefers exact translation over camelCase when both exist", () => {
-      const t = makeTranslator({
-        HELLO_WORLD: "Exact Wins",
-        helloWorld: "Camel Fallback",
-      })
-      expect(resolveMessageOrKey("HELLO_WORLD", t)).toBe("Exact Wins")
-    })
+  test("isAuthError matches 401/403", () => {
+    expect(isAuthError(401)).toBe(true)
+    expect(isAuthError(403)).toBe(true)
+    expect(isAuthError(404)).toBe(false)
   })
 
-  describe("auth and error utilities", () => {
-    test("isAuthError recognizes 401 and 403", () => {
-      expect(isAuthError(401)).toBe(true)
-      expect(isAuthError(403)).toBe(true)
-      expect(isAuthError(500)).toBe(false)
-      expect(isAuthError(200)).toBe(false)
-    })
+  test("isInt validates integers including numeric strings", () => {
+    expect(isInt(5)).toBe(true)
+    expect(isInt(5.1)).toBe(false)
+    expect(isInt("42")).toBe(true)
+    expect(isInt(" 42 ")).toBe(true)
+    expect(isInt("-10")).toBe(true)
+    expect(isInt("3.14")).toBe(false)
+    expect(isInt("abc")).toBe(false)
+    expect(isInt({} as any)).toBe(false)
   })
 
-  describe("email helpers", () => {
-    test("isValidEmail accepts ordinary addresses and rejects invalid ones", () => {
-      expect(isValidEmail("user@example.com")).toBe(true)
-      expect(isValidEmail("user.name+tag@sub.domain.co")).toBe(true)
-      expect(isValidEmail("")).toBe(false)
-      expect(isValidEmail(null)).toBe(false)
-      expect(isValidEmail("no-reply@example.com")).toBe(false)
-      expect(isValidEmail("noreply@domain.com")).toBe(false)
-      expect(isValidEmail("not-an-email")).toBe(false)
-    })
-
-    test("getSupportEmail returns trimmed valid email or undefined", () => {
-      expect(getSupportEmail("  user@x.y  ")).toBe("user@x.y")
-      expect(getSupportEmail("invalid@@x.y")).toBeUndefined()
-      expect(getSupportEmail("no-reply@x.y")).toBeUndefined()
-      expect(getSupportEmail(undefined)).toBeUndefined()
-    })
-
-    test("buildSupportHintText prefers explicit supportEmail then userFriendly then default", () => {
-      const translate = (k: string) => {
-        if (k === "contactSupportWithEmail") return "Contact {email} for help"
-        if (k === "contactSupport") return "Contact support"
-        return k
-      }
-
-      const t1 = buildSupportHintText(translate as any, "help@domain.com", "")
-      expect(t1).toBe("Contact help@domain.com for help")
-
-      const t2 = buildSupportHintText(
-        translate as any,
-        undefined,
-        "Friendly message"
-      )
-      expect(t2).toBe("Friendly message")
-
-      const t3 = buildSupportHintText(translate as any)
-      expect(t3).toBe("Contact support")
-    })
-
-    test("EMAIL_PLACEHOLDER matches {email} pattern loosely", () => {
-      expect(EMAIL_PLACEHOLDER.test("{email}")).toBe(true)
-      expect(EMAIL_PLACEHOLDER.test("{ email }")).toBe(true)
-    })
+  test("isNum validates finite numbers including numeric strings", () => {
+    expect(isNum(3.14)).toBe(true)
+    expect(isNum(-2)).toBe(true)
+    expect(isNum(Infinity)).toBe(false)
+    expect(isNum("3.14")).toBe(true)
+    expect(isNum("-2")).toBe(true)
+    expect(isNum("Infinity")).toBe(false)
+    expect(isNum("NaN")).toBe(false)
+    expect(isNum("abc")).toBe(false)
   })
 
-  describe("FME URL sanitization and validation", () => {
-    test("sanitizeFmeBaseUrl strips /fmerest path and trailing slash", () => {
-      const a = sanitizeFmeBaseUrl(
-        "https://example.com/fmerest/v3/repositories"
-      )
-      expect(a.isValid).toBe(true)
-      expect(a.cleaned).toBe("https://example.com")
+  test("resolveMessageOrKey returns translated exact key or camelized fallback", () => {
+    const map: { [key: string]: string } = {
+      exact_key: "Exact Translation",
+      tooltipSubmitOrder: "Skicka beställningen",
+    }
+    const translate = (key: string) => map[key] || key
 
-      const b = sanitizeFmeBaseUrl("https://example.com/fmerest/")
-      expect(b.cleaned).toBe("https://example.com")
-
-      const c = sanitizeFmeBaseUrl("https://example.com/FMERest/v4")
-      expect(c.cleaned).toBe("https://example.com")
-
-      const d = sanitizeFmeBaseUrl("not a url")
-      expect(d.isValid).toBe(false)
-      expect(d.cleaned).toBe("not a url")
-      expect(Array.isArray(d.errors)).toBe(true)
-    })
-
-    test("validateServerUrlKey returns appropriate error keys", () => {
-      expect(validateServerUrlKey("")).toBe("errorMissingServerUrl")
-      expect(validateServerUrlKey("not-a-url")).toBe("errorInvalidServerUrl")
-      expect(validateServerUrlKey("ftp://x.y")).toBe("errorInvalidServerUrl")
-      expect(validateServerUrlKey("https://user:pass@x.y")).toBe(
-        "errorInvalidServerUrl"
-      )
-      expect(validateServerUrlKey("https://example.com/fmerest")).toBe(
-        "errorBadBaseUrl"
-      )
-      expect(validateServerUrlKey("https://localhost")).toBeNull()
-      expect(validateServerUrlKey("https://127.0.0.1")).toBeNull()
-      expect(validateServerUrlKey("https://example.com")).toBeNull()
-      // Branded hostnames (no dot) allowed when containing 'fmeflow'
-      expect(validateServerUrlKey("https://fmeflow-host")).toBeNull()
-    })
+    // exact key exists -> use it
+    expect(resolveMessageOrKey("exact_key", translate)).toBe(
+      "Exact Translation"
+    )
+    // no exact but camelized exists -> use camelized
+    expect(resolveMessageOrKey("tooltip_submit_order", translate)).toBe(
+      "Skicka beställningen"
+    )
+    // no mapping -> return raw
+    expect(resolveMessageOrKey("missing_key", translate)).toBe("missing_key")
   })
 
-  describe("FME token and repository validation", () => {
-    test("validateTokenKey enforces length, whitespace, control chars, and invalid symbols", () => {
-      expect(validateTokenKey("")).toBe("errorMissingToken")
-      expect(validateTokenKey("short")).toBe("errorTokenIsInvalid")
-      expect(validateTokenKey("has space token")).toBe("errorTokenIsInvalid")
-      expect(validateTokenKey("abc\u0001defghij")).toBe("errorTokenIsInvalid")
-      expect(validateTokenKey("abc<defghij")).toBe("errorTokenIsInvalid")
-      expect(validateTokenKey("abcdefghij12345")).toBeNull()
-    })
-
-    test("validateRepositoryKey checks presence and membership when list provided", () => {
-      expect(validateRepositoryKey("", null)).toBeNull()
-      expect(validateRepositoryKey("", [])).toBeNull()
-      expect(validateRepositoryKey("", ["r1"])).toBe("errorRepoRequired")
-      expect(validateRepositoryKey("r2", ["r1"])).toBe(
-        "errorRepositoryNotFound"
-      )
-      expect(validateRepositoryKey("r1", ["r1", "r2"])).toBeNull()
-    })
-
-    test("getEmailValidationError returns null for empty (optional) and key for invalid", () => {
-      expect(getEmailValidationError("")).toBeNull()
-      expect(getEmailValidationError("not-an-email")).toBe("errorInvalidEmail")
-      expect(getEmailValidationError("no-reply@x.y")).toBe("errorInvalidEmail")
-      expect(getEmailValidationError("user@example.com")).toBeNull()
-    })
+  test("isValidEmail rejects no-reply and invalid patterns", () => {
+    expect(isValidEmail("user@example.com")).toBe(true)
+    expect(isValidEmail("No-Reply@domain.com")).toBe(false)
+    expect(isValidEmail("noreply@domain.com")).toBe(false)
+    expect(isValidEmail("bad@domain")).toBe(false)
+    expect(isValidEmail(123 as any)).toBe(false)
   })
 
-  describe("isEmpty", () => {
-    test("returns true for undefined, null, and empty string", () => {
-      expect(isEmpty(undefined)).toBe(true)
-      expect(isEmpty(null)).toBe(true)
-      expect(isEmpty("")).toBe(true)
-    })
+  test("sanitizeFmeBaseUrl strips /fmerest and trailing slash; invalid URL flagged", () => {
+    const a = sanitizeFmeBaseUrl("https://example.com/fmerest/v3/")
+    expect(a.isValid).toBe(true)
+    expect(a.cleaned).toBe("https://example.com")
+    expect(a.changed).toBe(true)
+    expect(a.errors).toEqual([])
 
-    test("returns true for empty arrays", () => {
-      expect(isEmpty([])).toBe(true)
-    })
+    const b = sanitizeFmeBaseUrl("https://example.com/base")
+    expect(b.isValid).toBe(true)
+    expect(b.cleaned).toBe("https://example.com/base")
+    expect(b.changed).toBe(false)
 
-    test("returns true for whitespace-only strings", () => {
-      expect(isEmpty("   ")).toBe(true)
-      expect(isEmpty("\t\n")).toBe(true)
-      expect(isEmpty(" \t \n ")).toBe(true)
-    })
-
-    test("returns false for non-empty values", () => {
-      expect(isEmpty("text")).toBe(false)
-      expect(isEmpty("0")).toBe(false)
-      expect(isEmpty([1, 2, 3])).toBe(false)
-      expect(isEmpty([""])).toBe(false)
-      expect(isEmpty(0)).toBe(false)
-      expect(isEmpty(false)).toBe(false)
-      expect(isEmpty({})).toBe(false)
-    })
-
-    test("handles edge cases correctly", () => {
-      expect(isEmpty(" a ")).toBe(false)
-      expect(isEmpty(NaN)).toBe(false)
-      expect(isEmpty(Infinity)).toBe(false)
-    })
+    const c = sanitizeFmeBaseUrl("not a url")
+    expect(c.isValid).toBe(false)
+    expect(c.cleaned).toBe("not a url")
+    expect(c.errors).toEqual(["Invalid URL"])
   })
 
-  describe("isInt", () => {
-    test("returns true for integer numbers", () => {
-      expect(isInt(42)).toBe(true)
-      expect(isInt(0)).toBe(true)
-      expect(isInt(-123)).toBe(true)
-      expect(isInt(1e3)).toBe(true)
-    })
-
-    test("returns false for non-integer numbers", () => {
-      expect(isInt(3.14)).toBe(false)
-      expect(isInt(0.1)).toBe(false)
-      expect(isInt(NaN)).toBe(false)
-      expect(isInt(Infinity)).toBe(false)
-      expect(isInt(-Infinity)).toBe(false)
-    })
-
-    test("returns true for integer strings", () => {
-      expect(isInt("42")).toBe(true)
-      expect(isInt("0")).toBe(true)
-      expect(isInt("-123")).toBe(true)
-      expect(isInt("  456  ")).toBe(true)
-    })
-
-    test("returns false for non-integer strings", () => {
-      expect(isInt("3.14")).toBe(false)
-      expect(isInt("abc")).toBe(false)
-      expect(isInt("")).toBe(true) // Number("") === 0, which is an integer
-      expect(isInt("  ")).toBe(true) // Number("  ") === 0, which is an integer
-      expect(isInt("12.0")).toBe(true) // Number("12.0") === 12, which is an integer
-    })
-
-    test("returns false for non-string, non-number types", () => {
-      expect(isInt(null)).toBe(false)
-      expect(isInt(undefined)).toBe(false)
-      expect(isInt({})).toBe(false)
-      expect(isInt([])).toBe(false)
-      expect(isInt(true)).toBe(false)
-    })
+  test("validateServerUrlKey enforces protocol, host, credentials, and path rules", () => {
+    // Missing
+    expect(validateServerUrlKey("")).toBe("errorMissingServerUrl")
+    // Invalid parse
+    expect(validateServerUrlKey("bad")).toBe("errorInvalidServerUrl")
+    // Unsupported protocol
+    expect(validateServerUrlKey("ftp://example.com")).toBe(
+      "errorInvalidServerUrl"
+    )
+    // Embedded credentials forbidden
+    expect(validateServerUrlKey("http://user:pass@example.com")).toBe(
+      "errorInvalidServerUrl"
+    )
+    // Forbidden FME path
+    expect(validateServerUrlKey("https://example.com/fmerest/v3")).toBe(
+      "errorBadBaseUrl"
+    )
+    // Hostname validation fails for no dot and not localhost or ip or fmeflow
+    expect(validateServerUrlKey("https://bad")).toBe("errorInvalidServerUrl")
+    // Valid cases
+    expect(validateServerUrlKey("https://localhost")).toBeNull()
+    expect(validateServerUrlKey("http://192.168.0.1")).toBeNull()
+    expect(validateServerUrlKey("https://example.com")).toBeNull()
+    expect(validateServerUrlKey("https://my-fmeflow")).toBeNull()
   })
 
-  describe("isNum", () => {
-    test("returns true for finite numbers", () => {
-      expect(isNum(42)).toBe(true)
-      expect(isNum(3.14)).toBe(true)
-      expect(isNum(0)).toBe(true)
-      expect(isNum(-123.45)).toBe(true)
-    })
+  test("validateTokenKey enforces length, whitespace, control chars, and blacklist of symbols", () => {
+    expect(validateTokenKey("")).toBe("errorMissingToken")
+    expect(validateTokenKey("short")).toBe("errorTokenIsInvalid")
+    expect(validateTokenKey("has space 12345")).toBe("errorTokenIsInvalid")
+    // Control character \x01
+    expect(validateTokenKey("validtoken1" + String.fromCharCode(1))).toBe(
+      "errorTokenIsInvalid"
+    )
+    expect(validateTokenKey("bad<token>12345")).toBe("errorTokenIsInvalid")
+    expect(validateTokenKey("good_token_12345")).toBeNull()
+  })
 
-    test("returns false for non-finite numbers", () => {
-      expect(isNum(NaN)).toBe(false)
-      expect(isNum(Infinity)).toBe(false)
-      expect(isNum(-Infinity)).toBe(false)
-    })
+  test("validateRepositoryKey checks required and existence when repos provided", () => {
+    expect(validateRepositoryKey("", null)).toBeNull()
+    expect(validateRepositoryKey("", [])).toBeNull()
+    expect(validateRepositoryKey("", ["A"])).toBe("errorRepoRequired")
+    expect(validateRepositoryKey("B", ["A"])).toBe("errorRepositoryNotFound")
+    expect(validateRepositoryKey("A", ["A"])).toBeNull()
+  })
 
-    test("returns true for numeric strings", () => {
-      expect(isNum("42")).toBe(true)
-      expect(isNum("3.14")).toBe(true)
-      expect(isNum("0")).toBe(true)
-      expect(isNum("-123.45")).toBe(true)
-      expect(isNum("  456.78  ")).toBe(true)
-    })
+  test("getEmailValidationError is optional and validates format", () => {
+    expect(getEmailValidationError("")).toBeNull()
+    expect(getEmailValidationError("foo@bar")).toBe("errorInvalidEmail")
+    expect(getEmailValidationError("user@ex.com")).toBeNull()
+  })
 
-    test("returns false for non-numeric strings", () => {
-      expect(isNum("abc")).toBe(false)
-      expect(isNum("")).toBe(true) // Number("") === 0, which is finite
-      expect(isNum("  ")).toBe(true) // Number("  ") === 0, which is finite
-      expect(isNum("12abc")).toBe(false)
-    })
+  test("extractErrorMessage handles primitives, Error, common fields, and object fallback", () => {
+    expect(extractErrorMessage(undefined)).toBe("Unknown error")
+    expect(extractErrorMessage("msg")).toBe("msg")
+    expect(extractErrorMessage(404)).toBe("404")
+    expect(extractErrorMessage(new Error("boom"))).toBe("boom")
+    expect(extractErrorMessage({ message: "m" })).toBe("m")
+    expect(extractErrorMessage({ error: "e" })).toBe("e")
+    expect(extractErrorMessage({ description: "d" })).toBe("d")
+    expect(extractErrorMessage({ detail: "x" })).toBe("x")
+    expect(extractErrorMessage({ reason: "r" })).toBe("r")
+    expect(extractErrorMessage({ a: 1, b: 2 })).toBe(
+      JSON.stringify({ a: 1, b: 2 })
+    )
+  })
 
-    test("returns false for non-string, non-number types", () => {
-      expect(isNum(null)).toBe(false)
-      expect(isNum(undefined)).toBe(false)
-      expect(isNum({})).toBe(false)
-      expect(isNum([])).toBe(false)
-      expect(isNum(true)).toBe(false)
-    })
+  test("extractHttpStatus reads numeric and string status in range 100-599", () => {
+    expect(extractHttpStatus(undefined)).toBeUndefined()
+    expect(extractHttpStatus({})).toBeUndefined()
+    expect(extractHttpStatus({ status: 200 })).toBe(200)
+    expect(extractHttpStatus({ statusCode: 404 })).toBe(404)
+    expect(extractHttpStatus({ httpStatus: "500" })).toBe(500)
+    expect(extractHttpStatus({ code: "403" })).toBe(403)
+    // out of range ignored
+    expect(extractHttpStatus({ status: 99 })).toBeUndefined()
+    expect(extractHttpStatus({ status: 600 })).toBeUndefined()
+  })
+
+  test("buildSupportHintText uses email placeholder when provided; else userFriendly; else fallback", () => {
+    const translate = (key: string) =>
+      key === "contactSupportWithEmail" ? "Contact us at {email} for help" : key
+
+    // with email -> placeholder replacement
+    expect(buildSupportHintText(translate, "help@ex.com", undefined)).toBe(
+      "Contact us at help@ex.com for help"
+    )
+    // with user-friendly message
+    expect(buildSupportHintText(translate, undefined, "Custom help")).toBe(
+      "Custom help"
+    )
+    // fallback to translate("contactSupport")
+    expect(buildSupportHintText(translate, undefined, undefined)).toBe(
+      "contactSupport"
+    )
+  })
+
+  test("getSupportEmail returns valid trimmed email and rejects invalid or noreply", () => {
+    expect(getSupportEmail("  user@example.com  ")).toBe("user@example.com")
+    expect(getSupportEmail("no-reply@ex.com")).toBeUndefined()
+    expect(getSupportEmail("bad@ex")).toBeUndefined()
+    expect(getSupportEmail(123 as any)).toBeUndefined()
   })
 })

@@ -20,8 +20,10 @@ import Button, {
   StateView,
   ButtonGroup,
   ButtonTabs,
+  Field,
+  Form,
 } from "../runtime/components/ui"
-import { makeErrorView } from "../shared/types"
+import { makeErrorView } from "../config"
 
 describe("UI components", () => {
   const renderWithProviders = widgetRender(true)
@@ -303,5 +305,151 @@ describe("UI components", () => {
       return Promise.resolve()
     }, [])
     expect(getByRole("button", { name: /Click me/i })).toBeInTheDocument()
+  })
+
+  test("Field component: required marker, helper, error, and label association", () => {
+    const { container, rerender } = renderWithProviders(
+      <Field label="Name" required>
+        <Input placeholder="enter name" />
+      </Field>
+    )
+    // Required star with aria-label and role
+    const requiredMark = screen.getByLabelText(/Obligatoriskt/i)
+    expect(requiredMark).toHaveAttribute("role", "img")
+    // Label is associated with input via 'for' and generated id
+    const input = screen.getByRole("textbox")
+    const id = input.getAttribute("id")
+    expect(id).toBeTruthy()
+    const associated = container.querySelector(`label[for="${id}"]`)
+    expect(associated).toBeTruthy()
+
+    // Rerender with helper instead of required
+    rerender(
+      <Field label="Desc" helper="Helpful text">
+        <TextArea defaultValue="" />
+      </Field>
+    )
+    expect(screen.getByText(/Helpful text/i)).toBeInTheDocument()
+
+    // Rerender with error
+    rerender(
+      <Field label="Error" error="Oops">
+        <Input />
+      </Field>
+    )
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent(/Oops/i)
+  })
+
+  test("Form (layout variant): renders header, children, and action buttons with disabled/enabled logic", async () => {
+    const onBack = jest.fn()
+    const onSubmit = jest.fn()
+    const { rerender } = renderWithProviders(
+      <Form
+        variant="layout"
+        title="My Title"
+        subtitle="My Subtitle"
+        onBack={onBack}
+        onSubmit={onSubmit}
+        isValid={false}
+        loading={false}
+      >
+        <Input placeholder="data" />
+      </Form>
+    )
+
+    screen.getByText(/My Title/i)
+    screen.getByText(/My Subtitle/i)
+    fireEvent.click(screen.getByRole("button", { name: /Tillbaka/i }))
+    await flush()
+    expect(onBack).toHaveBeenCalled()
+    // Submit disabled when isValid=false (sv: Beställ)
+    expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
+
+    // Enable submit
+    rerender(
+      <Form
+        variant="layout"
+        title="My Title"
+        subtitle="My Subtitle"
+        onBack={onBack}
+        onSubmit={onSubmit}
+        isValid={true}
+        loading={false}
+      >
+        <Input placeholder="data" />
+      </Form>
+    )
+    const submitBtn = screen.getByRole("button", { name: /Beställ/i })
+    expect(submitBtn).not.toBeDisabled()
+    fireEvent.click(submitBtn)
+    await flush()
+    expect(onSubmit).toHaveBeenCalled()
+
+    // Loading forces disabled
+    rerender(
+      <Form
+        variant="layout"
+        title="My Title"
+        subtitle="My Subtitle"
+        onBack={onBack}
+        onSubmit={onSubmit}
+        isValid={true}
+        loading={true}
+      >
+        <Input placeholder="data" />
+      </Form>
+    )
+    expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
+  })
+
+  test("Input type=file triggers onFileChange and not onChange; onBlur emits value", async () => {
+    const onFileChange = jest.fn()
+    const onChange = jest.fn()
+    const onBlur = jest.fn()
+    const file = new File(["abc"], "test.txt", { type: "text/plain" })
+
+    renderWithProviders(
+      <Input type="file" onFileChange={onFileChange} onChange={onChange} />
+    )
+    // File inputs are not role="textbox"; query by input type
+    const fileEl = document.querySelector('input[type="file"]')
+    expect(fileEl).toBeTruthy()
+    if (!(fileEl instanceof HTMLInputElement))
+      throw new Error("file input not found")
+    // Simulate change with file list
+    fireEvent.change(fileEl, { target: { files: [file] } })
+    await flush()
+    expect(onFileChange).toHaveBeenCalled()
+    expect(onChange).not.toHaveBeenCalled()
+
+    // onBlur for normal text input
+    const { getByRole } = renderWithProviders(
+      <Input defaultValue="hi" onBlur={onBlur} />
+    )
+    const textInput = getByRole("textbox") as HTMLInputElement
+    textInput.value = "bye"
+    fireEvent.blur(textInput)
+    await flush()
+    expect(onBlur).toHaveBeenCalledWith("bye")
+  })
+
+  test("Select single-select onChange fires when choosing a new option", async () => {
+    const onChange = jest.fn()
+    const options = [
+      { label: "Alpha", value: "a" },
+      { label: "Beta", value: "b" },
+      { label: "Gamma", value: "c" },
+    ]
+    renderWithProviders(
+      <Select options={options} defaultValue="a" onChange={onChange} />
+    )
+    // Open the dropdown, then click on a different option
+    const combo = screen.getByRole("combobox")
+    fireEvent.click(combo)
+    const beta = await screen.findByText(/Beta/i)
+    fireEvent.click(beta)
+    await flush()
+    expect(onChange).toHaveBeenCalledWith("b")
   })
 })

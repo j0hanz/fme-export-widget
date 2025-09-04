@@ -1,5 +1,5 @@
 // Shared utility functions
-import type { SanitizationResult } from "./types"
+import type { SanitizationResult } from "../config"
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
