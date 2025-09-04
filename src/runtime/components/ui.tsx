@@ -37,11 +37,9 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../shared/types"
+import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 
 type TranslateFn = (key: string, params?: any) => string
-
-// Email placeholder pattern for support links
-const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
 
 // Configuration
 export const config = {

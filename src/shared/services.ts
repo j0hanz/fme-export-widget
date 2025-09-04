@@ -1000,11 +1000,7 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createConfigError(
-        translate,
-        "configMissing",
-        "Configuration is missing"
-      ),
+      error: createConfigError(translate, "configMissing"),
     }
   }
 
@@ -1052,7 +1048,7 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createNetworkError(translate, error),
+      error: createNetworkError(translate),
     }
   }
 }
@@ -1079,16 +1075,11 @@ function validateRequiredFields(
   }
 
   if (missing.length > 0) {
-    const missingFields = missing.join(", ")
     return {
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createConfigError(
-        translate,
-        "missingRequiredFields",
-        `Missing required fields: ${missingFields}`
-      ),
+      error: createConfigError(translate, "missingRequiredFields"),
     }
   }
 
@@ -1104,8 +1095,7 @@ function validateRequiredFields(
  */
 function createConfigError(
   translate: (key: string, params?: any) => string,
-  code: string,
-  fallbackMessage: string
+  code: string
 ): ErrorState {
   return {
     message: translate("startupConfigError") || "startupConfigError",
@@ -1170,8 +1160,7 @@ function createConnectionError(
  * Create network error from exception
  */
 function createNetworkError(
-  translate: (key: string, params?: any) => string,
-  error: unknown
+  translate: (key: string, params?: any) => string
 ): ErrorState {
   const message = translate("startupNetworkError") || "startupNetworkError"
 

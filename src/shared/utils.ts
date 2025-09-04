@@ -10,12 +10,6 @@ export const isEmpty = (v: unknown): boolean => {
 export const isAuthError = (status: number): boolean =>
   status === 403 || status === 401
 
-export const isServerError = (status: number): boolean =>
-  status >= 500 && status < 600
-
-export const isNetworkError = (status: number): boolean =>
-  status === 0 || status === 408 || status === 504
-
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
   if (typeof value === "string") {
