@@ -151,6 +151,10 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         </div>
       )
     }
+    // Determine if version string is present on checkSteps
+    const hasVersion: boolean =
+      typeof (checkSteps as any)?.version === "string" &&
+      ((checkSteps as any).version as string).length > 0
 
     return (
       <div
@@ -170,6 +174,15 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
+          {hasVersion && (
+            <div css={css(styles.STATUS.ROW as any)}>
+              <div css={css(styles.STATUS.LABEL_GROUP as any)}>
+                {translate("fmeVersion")}
+                {translate("colon")}
+              </div>
+              <div>{(checkSteps as any).version}</div>
+            </div>
+          )}
         </div>
       </div>
     )
