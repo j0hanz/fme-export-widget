@@ -12,6 +12,7 @@ import {
 import { Alert, Loading, LoadingType, Switch } from "jimu-ui"
 import {
   Button,
+  Icon,
   Input,
   Select,
   Tooltip,
@@ -44,6 +45,7 @@ import type {
   IMStateWithFmeExport,
 } from "../shared/types"
 import { FmeFlowApiError } from "../shared/types"
+import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
 
 // Constants
 const CONSTANTS = {
@@ -237,28 +239,17 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     <SettingRow
       flow="wrap"
       label={
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            width: "100%",
-          }}
-        >
-          {translate("availableRepositories")}
+        <div css={styles.LABEL_WITH_BUTTON}>
+          <span>{translate("availableRepositories")}</span>
           {canRefresh && (
             <Button
               size="sm"
+              block={false}
               onClick={onRefreshRepositories}
+              variant="outlined"
               title={translate("refreshRepositories") || "Refresh repositories"}
-              style={{
-                marginLeft: "8px",
-                fontSize: "12px",
-                padding: "4px 8px",
-              }}
-            >
-              🔄
-            </Button>
+              icon={<Icon src={resetIcon} size={14} />}
+            />
           )}
         </div>
       }
@@ -587,6 +578,13 @@ const createSettingStyles = (theme: any) => {
   return {
     ROW: css({ width: "100%" }),
     ALERT_INLINE: css({ opacity: 0.8 }),
+    LABEL_WITH_BUTTON: css({
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      width: "100%",
+      gap: theme?.sys?.spacing?.(1) || 8,
+    }),
     STATUS: {
       CONTAINER: css({
         width: "100%",
