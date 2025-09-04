@@ -88,10 +88,20 @@ export class ErrorHandlingService {
     error: unknown,
     translate: (key: string) => string
   ): { code: string; message: string } {
-    if (!error || typeof translate !== "function") {
+    if (!error) {
       return {
         code: "STARTUP_ERROR",
-        message: "startupValidationFailed",
+        message:
+          typeof translate === "function"
+            ? translate("startupValidationFailed")
+            : "Validation failed",
+      }
+    }
+
+    if (typeof translate !== "function") {
+      return {
+        code: "STARTUP_ERROR",
+        message: "Validation failed",
       }
     }
 
@@ -549,7 +559,7 @@ export async function healthCheck(
       return {
         reachable: false,
         responseTime: 0,
-        error: "invalidUrl",
+        error: "Invalid server URL format",
         status: 0,
       }
     }
@@ -557,7 +567,7 @@ export async function healthCheck(
     return {
       reachable: false,
       responseTime: 0,
-      error: "invalidUrl",
+      error: "Invalid server URL format",
       status: 0,
     }
   }
@@ -695,6 +705,17 @@ export async function validateConnection(
         steps.token = "ok"
         steps.version = String(serverInfo?.data?.version || "")
       } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          return {
+            success: false,
+            steps,
+            error: {
+              message: (error as Error).message || "aborted",
+              type: "generic",
+              status: 0,
+            },
+          }
+        }
         const status = extractHttpStatus(error)
 
         if (status === 401) {
@@ -789,16 +810,12 @@ export async function validateConnection(
           }
         }
       }
-
-      // Step 2: Get repository list only if not provided
       let repositories: string[] = []
-      if (!repository) {
-        try {
-          const reposResp = await client.getRepositories(signal)
-          repositories = parseRepositoryNames(reposResp?.data)
-        } catch (error) {
-          repositories = []
-        }
+      try {
+        const reposResp = await client.getRepositories(signal)
+        repositories = parseRepositoryNames(reposResp?.data)
+      } catch (error) {
+        repositories = []
       }
 
       // Step 3: Validate specific repository if provided
@@ -828,7 +845,15 @@ export async function validateConnection(
       }
     } catch (error) {
       if ((error as Error)?.name === "AbortError") {
-        throw new Error("Request aborted") // Re-throw abort errors
+        return {
+          success: false,
+          steps,
+          error: {
+            message: (error as Error).message || "aborted",
+            type: "generic",
+            status: 0,
+          },
+        }
       }
 
       const status = extractHttpStatus(error)

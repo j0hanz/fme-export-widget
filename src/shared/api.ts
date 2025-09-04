@@ -860,7 +860,8 @@ export class FmeFlowApiClient {
 
       // Add FME token as query parameter to avoid CORS issues
       if (this.config.token) {
-        params.set("fmetoken", this.config.token)
+        params.set("token", this.config.token)
+        if (!params.has("fmetoken")) params.set("fmetoken", this.config.token)
       }
 
       // Ensure tm_* values are present if provided
