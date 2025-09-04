@@ -78,6 +78,7 @@ describe("Workflow component", () => {
     const onReuseGeography = jest.fn()
     const successResult: ExportResult = {
       success: true,
+      message: "OK",
       jobId: 123,
       workspaceName: "ws",
       email: "x@y.z",
@@ -190,6 +191,7 @@ describe("Workflow component", () => {
     const onReset = jest.fn()
     const result: ExportResult = {
       success: true,
+      message: "Done",
       jobId: 1,
       workspaceName: "ws",
       email: "a@b.c",
@@ -317,6 +319,8 @@ describe("Workflow component", () => {
       />
     )
 
+    // Loading message is debounced; it may not render immediately
+    await waitForMilliseconds(1100)
     screen.getByText("Validating connection...")
     unmount1()
 

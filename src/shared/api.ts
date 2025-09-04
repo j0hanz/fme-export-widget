@@ -11,20 +11,28 @@ import type {
 import { FmeFlowApiError, HttpMethod } from "./types"
 import { isAuthError } from "./utils"
 
-// Inline loader helper that uses test stub when present or defers to jimu-arcgis
-async function loadEsriModules(modules: string[]): Promise<any[]> {
-  const stub = (global as any).__ESRI_TEST_STUB__
-  if (typeof stub === "function") return stub(modules)
-
-  // Defer to jimu-arcgis loader in production code
-  const mod = require("jimu-arcgis")
-  const loader = mod.loadArcGISJSAPIModules
-  if (typeof loader !== "function") {
-    throw new Error("ArcGIS module loader not available")
+// Inline loader helper for EXB with error handling
+async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
+  // Check test environment first for better performance
+  if (process.env.NODE_ENV === "test") {
+    const stub = (global as any).__ESRI_TEST_STUB__
+    if (typeof stub === "function") return stub(modules)
   }
-  const loaded = await loader(modules)
-  const unwrap = (m: any) => (m && m.default ? m.default : m)
-  return (loaded || []).map(unwrap)
+
+  // Use dynamic import for better EXB integration
+  try {
+    const mod = await import("jimu-arcgis")
+    const loader = mod.loadArcGISJSAPIModules
+    if (typeof loader !== "function") {
+      throw new Error("ArcGIS module loader not available")
+    }
+    const loaded = await loader(modules as string[])
+    const unwrap = (m: any) => m?.default ?? m
+    return (loaded || []).map(unwrap)
+  } catch (error) {
+    console.error("Failed to load ArcGIS modules:", error)
+    throw new Error("Failed to load ArcGIS modules")
+  }
 }
 
 // ArcGIS module references
@@ -51,68 +59,90 @@ const isTestEnv = (): boolean =>
   (!!(process as any).env.JEST_WORKER_ID ||
     (process as any).env.NODE_ENV === "test")
 
+// ESRI module loading with caching and error handling
 async function ensureEsri(): Promise<void> {
-  if (_loadPromise) return _loadPromise
-
+  // Quick return if already loaded
   if (
     _esriRequest &&
     _esriConfig &&
     _projection &&
     _webMercatorUtils &&
     _SpatialReference
-  )
+  ) {
     return
+  }
+
+  // Return existing promise if loading is in progress
+  if (_loadPromise) return _loadPromise
 
   _loadPromise = (async () => {
+    // In test environment, check for global mocks first before trying to load modules
+    if (isTestEnv()) {
+      const globalAny = global as any
+
+      // If we have global mocks set up, use them directly
+      if (
+        globalAny.esriRequest ||
+        globalAny.esriConfig ||
+        globalAny.projection ||
+        globalAny.webMercatorUtils ||
+        globalAny.SpatialReference
+      ) {
+        console.warn("FME API - Using global mocks in test environment")
+        _esriRequest =
+          globalAny.esriRequest || (() => Promise.resolve({ data: null }))
+        _esriConfig = globalAny.esriConfig || {
+          request: { maxUrlLength: 4000, interceptors: [] },
+        }
+        _projection = globalAny.projection || {}
+        _webMercatorUtils = globalAny.webMercatorUtils || {}
+        _SpatialReference =
+          globalAny.SpatialReference ||
+          function () {
+            return {}
+          }
+        return
+      }
+    }
+
     try {
-      const loadModules = loadEsriModules
       const [
         requestMod,
         configMod,
         projectionMod,
         webMercatorMod,
         spatialRefMod,
-      ] = await loadModules([
+      ] = await loadEsriModules([
         "esri/request",
         "esri/config",
         "esri/geometry/projection",
         "esri/geometry/support/webMercatorUtils",
         "esri/geometry/SpatialReference",
       ])
-      const unwrap = (m: any) => (m && m.default ? m.default : m)
+
+      const unwrap = (m: any) => m?.default ?? m
       _esriRequest = unwrap(requestMod)
       _esriConfig = unwrap(configMod)
       _projection = unwrap(projectionMod)
       _webMercatorUtils = unwrap(webMercatorMod)
       _SpatialReference = unwrap(spatialRefMod)
-      // Load the projection dependencies for client-side transformation
-      if (_projection && typeof (_projection as any).load === "function") {
-        await (_projection as any).load()
+
+      // Load projection dependencies for client-side transformation
+      const projection = asProjection(_projection)
+      if (projection && typeof projection.load === "function") {
+        await projection.load()
       }
     } catch (error) {
-      // In test environment, provide basic stubs
-      if (isTestEnv()) {
-        console.warn(
-          "FME API - ArcGIS modules not available in test environment"
-        )
-        _esriRequest = () => Promise.resolve({ data: null })
-        _esriConfig = { request: { maxUrlLength: 4000, interceptors: [] } }
-        _projection = {}
-        _webMercatorUtils = {}
-        _SpatialReference = function () {
-          return {}
-        }
-      } else {
-        console.error("FME API - Failed to load ArcGIS modules:", error)
-        throw new Error("Failed to load ArcGIS modules")
-      }
+      // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
+      console.error("FME API - Failed to load ArcGIS modules:", error)
+      throw new Error("Failed to load ArcGIS modules")
     }
   })()
 
   return _loadPromise
 }
 
-// ArcGIS Module Validation Utilities
+// ArcGIS module validation helpers
 const asEsriRequest = (
   v: unknown
 ): ((url: string, options: any) => Promise<any>) | null => {
@@ -164,14 +194,14 @@ const API = {
     "opt_servicemode",
   ],
 } as const
-// Helper: get max URL length from esriConfig if available, else default
+// Get max URL length from esriConfig if available; otherwise use default
 const getMaxUrlLength = (): number => {
   const cfg = asEsriConfig(_esriConfig)
   const n = cfg?.request?.maxUrlLength
   return typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
 }
 
-// Error Handling Utilities
+// Error handling utilities
 const toStr = (val: unknown): string => {
   if (typeof val === "string") return val
   if (typeof val === "number" || typeof val === "boolean") return String(val)
@@ -248,24 +278,28 @@ const isJson = (contentType: string | null): boolean =>
 const maskToken = (token: string): string =>
   token ? `***${token.slice(-4)}` : ""
 
-// URL Building Utilities
-const normalizeUrl = (serverUrl: string): string =>
-  serverUrl.replace(/\/fme(?:server|rest)$/, "")
-
-const makeEndpoint = (basePath: string, ...segments: string[]): string => {
-  const cleanSegments = segments.filter(Boolean).join("/")
-  return `${basePath}/${cleanSegments}`
+// URL building utilities
+const buildUrl = (serverUrl: string, ...segments: string[]): string => {
+  const base = serverUrl.replace(/\/fme(?:server|rest)$/, "")
+  const path = segments.filter(Boolean).join("/")
+  return `${base}/${path}`
 }
 
-const buildServiceUrl = (
+// Create a stable scope ID from server URL, token, and repository for caching purposes
+function makeScopeId(
   serverUrl: string,
-  service: string,
-  repository: string,
-  workspace: string
-): string => `${normalizeUrl(serverUrl)}/${service}/${repository}/${workspace}`
-
-// Alias for webhook URLs (same as buildServiceUrl)
-const buildWebhook = buildServiceUrl
+  token: string,
+  repository?: string
+): string {
+  const s = `${serverUrl}::${token || ""}::${repository || ""}`
+  // DJB2 hash function
+  let h = 5381
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h) ^ s.charCodeAt(i)
+  }
+  const n = Math.abs(h >>> 0)
+  return n.toString(36)
+}
 
 // Check if a webhook URL with parameters would exceed max length
 export function isWebhookUrlTooLong(
@@ -273,20 +307,24 @@ export function isWebhookUrlTooLong(
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  maxLen: number = API.MAX_URL_LENGTH
+  maxLen: number = API.MAX_URL_LENGTH,
+  token?: string
 ): boolean {
-  const webhookUrl = buildWebhook(
+  const webhookUrl = buildUrl(
     serverUrl,
     "fmedatadownload",
     repository,
     workspace
   )
-  const params = buildWebhookParams(parameters, [
-    ...API.WEBHOOK_EXCLUDE_KEYS,
-    "tm_ttc",
-    "tm_ttl",
-    "tm_tag",
-  ])
+  const params = buildParams(
+    parameters,
+    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+    true
+  )
+  // Add tm_* values if present
+  if (token) {
+    params.set("fmetoken", token)
+  }
   const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
@@ -300,77 +338,66 @@ const resolveRequestUrl = (
     return endpoint
   }
   if (endpoint.startsWith("/fme")) {
-    return `${normalizeUrl(serverUrl)}${endpoint}`
+    return buildUrl(serverUrl, endpoint.slice(1))
   }
-  return `${normalizeUrl(serverUrl)}${basePath}${endpoint}`
+  return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
 }
 
-// Parameter Building Utilities
-const buildQuery = (
+// Parameter building
+const buildParams = (
   params: PrimitiveParams = {},
-  excludeKeys: string[] = []
+  excludeKeys: string[] = [],
+  webhookDefaults = false
 ): URLSearchParams => {
   const urlParams = new URLSearchParams()
   if (!params || typeof params !== "object") return urlParams
+
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || excludeSet.has(key)) continue
     urlParams.append(key, toStr(value))
   }
+
+  // Add webhook-specific defaults if requested
+  if (webhookDefaults) {
+    urlParams.append("opt_responseformat", "json")
+    urlParams.append("opt_showresult", "true")
+    urlParams.append(
+      "opt_servicemode",
+      (params.opt_servicemode as string) || "async"
+    )
+  }
+
   return urlParams
 }
 
-const buildWebhookParams = (
-  parameters: PrimitiveParams,
-  excludeKeys: readonly string[]
-): URLSearchParams => {
-  const params = buildQuery(parameters, [...excludeKeys])
-  params.append("opt_responseformat", "json")
-  params.append("opt_showresult", "true")
-  params.append(
-    "opt_servicemode",
-    (parameters.opt_servicemode as string) || "async"
-  )
-  return params
-}
-
-// Geometry Processing Utilities using 4.29-compatible modules
+// Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
-  await ensureEsri()
-
-  if (geometry.spatialReference?.wkid === 4326) {
-    return geometry
-  }
-
-  const SpatialReference = asSpatialReference(_SpatialReference)
-  const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-  const projection = asProjection(_projection)
+  if (geometry.spatialReference?.wkid === 4326) return geometry
 
   try {
-    // Handle Web Mercator (3857) using webMercatorUtils for efficiency
+    await ensureEsri()
+
+    // Use webMercatorUtils for Web Mercator (most common case)
     if (geometry.spatialReference?.wkid === 3857) {
-      if (webMercatorUtils && webMercatorUtils.webMercatorToGeographic) {
-        const projected = webMercatorUtils.webMercatorToGeographic(geometry)
-        return projected || geometry
+      const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
+      if (webMercatorUtils?.webMercatorToGeographic) {
+        return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
       }
     }
 
-    // Handle other coordinate systems using the projection module
-    if (projection && projection.project && SpatialReference) {
+    // Use projection engine for other coordinate systems
+    const projection = asProjection(_projection)
+    const SpatialReference = asSpatialReference(_SpatialReference)
+    if (projection?.project && SpatialReference) {
       const wgs84SR = new SpatialReference({ wkid: 4326 })
       const projected = await projection.project([geometry], wgs84SR)
-      return projected && projected[0] ? projected[0] : geometry
+      return projected?.[0] || geometry
     }
 
-    console.warn(
-      "FME API - Coordinate transformation not available, using original geometry"
-    )
-    return geometry
+    return geometry // Fallback to original
   } catch (error) {
-    console.warn(
-      "FME API - Coordinate transformation failed, using original geometry:",
-      error
-    )
+    console.warn("FME API - Coordinate transformation failed:", error)
     return geometry
   }
 }
@@ -396,19 +423,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 }
 
 // Request Processing Utilities
-const buildRequestHeaders = (
-  existingHeaders: { [key: string]: string } = {},
-  token?: string
-): { [key: string]: string } => {
-  const headers = { ...existingHeaders }
-  if (token && !headers.Authorization) {
-    headers.Authorization = `fmetoken token=${token}`
-  }
-  if (!headers.Accept) {
-    headers.Accept = "application/json"
-  }
-  return headers
-}
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
@@ -467,12 +481,7 @@ export class FmeFlowApiClient {
     repository: string,
     workspace: string
   ): string {
-    return buildServiceUrl(
-      this.config.serverUrl,
-      service,
-      repository,
-      workspace
-    )
+    return buildUrl(this.config.serverUrl, service, repository, workspace)
   }
 
   // addQuery helper removed (unused)
@@ -515,7 +524,13 @@ export class FmeFlowApiClient {
 
   // Build repository endpoint
   private repoEndpoint(repository: string, ...segments: string[]): string {
-    return makeEndpoint(this.basePath, "repositories", repository, ...segments)
+    return buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
+      "repositories",
+      repository,
+      ...segments
+    )
   }
 
   // Build transformation endpoint
@@ -524,8 +539,9 @@ export class FmeFlowApiClient {
     repository: string,
     workspace: string
   ): string {
-    return makeEndpoint(
-      this.basePath,
+    return buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
       "transformations",
       action,
       repository,
@@ -576,10 +592,14 @@ export class FmeFlowApiClient {
     return this.withApiError(
       async () => {
         // Use the collection endpoint without a trailing slash
-        const listEndpoint = makeEndpoint(this.basePath, "repositories")
+        const listEndpoint = buildUrl(
+          this.config.serverUrl,
+          this.basePath.slice(1),
+          "repositories"
+        )
         const raw = await this.request<any>(listEndpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-token header-insensitive caches
           query: { limit: -1, offset: -1 },
         })
 
@@ -628,7 +648,8 @@ export class FmeFlowApiClient {
     )
     return this.request<WorkspaceParameter>(endpoint, {
       signal,
-      cacheHint: true,
+      cacheHint: false, // Disable header-insensitive caching
+      repositoryContext: repo, // Add repository context for proper cache scoping
     })
   }
 
@@ -657,7 +678,8 @@ export class FmeFlowApiClient {
       () =>
         this.request(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
       "Failed to get repository items",
@@ -676,7 +698,8 @@ export class FmeFlowApiClient {
       () =>
         this.request<any>(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
         }),
       "Failed to get workspace item details",
       "WORKSPACE_ITEM_ERROR"
@@ -743,8 +766,9 @@ export class FmeFlowApiClient {
     jobId: number,
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
-    const endpoint = makeEndpoint(
-      this.basePath,
+    const endpoint = buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
       "transformations",
       "jobs",
       jobId.toString()
@@ -756,8 +780,9 @@ export class FmeFlowApiClient {
     jobId: number,
     signal?: AbortSignal
   ): Promise<ApiResponse<{ success: boolean }>> {
-    const endpoint = makeEndpoint(
-      this.basePath,
+    const endpoint = buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
       "transformations",
       "jobs",
       jobId.toString(),
@@ -798,7 +823,7 @@ export class FmeFlowApiClient {
     )
     return this.withApiError(
       async () => {
-        const params = buildQuery(parameters)
+        const params = buildParams(parameters)
         params.append("opt_showresult", "true")
         return await this.request(endpoint, {
           method: HttpMethod.POST,
@@ -819,7 +844,7 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
-      const webhookUrl = buildWebhook(
+      const webhookUrl = buildUrl(
         this.config.serverUrl,
         "fmedatadownload",
         repository,
@@ -827,12 +852,18 @@ export class FmeFlowApiClient {
       )
       // For webhook, tm_* must be added as query params directly
       // Exclude tm_* from the initial query build so we can control empty handling
-      const params = buildWebhookParams(parameters, [
-        ...API.WEBHOOK_EXCLUDE_KEYS,
-        "tm_ttc",
-        "tm_ttl",
-        "tm_tag",
-      ])
+      const params = buildParams(
+        parameters,
+        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+        true
+      )
+
+      // Add FME token as query parameter to avoid CORS issues
+      if (this.config.token) {
+        params.set("token", this.config.token)
+        if (!params.has("fmetoken")) params.set("fmetoken", this.config.token)
+      }
+
       // Ensure tm_* values are present if provided
       const maybeAppend = (k: string) => {
         const v = (parameters as any)[k]
@@ -884,10 +915,6 @@ export class FmeFlowApiClient {
 
       const response = await fetch(fullUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `fmetoken token=${this.config.token}`,
-        },
         signal,
       })
 
@@ -921,7 +948,7 @@ export class FmeFlowApiClient {
       } else {
         body =
           contentType === "application/x-www-form-urlencoded"
-            ? buildQuery(parameters).toString()
+            ? buildParams(parameters).toString()
             : JSON.stringify(parameters)
       }
     }
@@ -1045,10 +1072,30 @@ export class FmeFlowApiClient {
     console.log("FME API - Making request to:", url)
 
     try {
-      const headers = buildRequestHeaders(options.headers, this.config.token)
+      const headers: { [key: string]: string } = {
+        ...(options.headers || {}),
+      }
+
+      // Build query parameters including token to avoid CORS issues
+      const query: any = { ...(options.query || {}) }
+      if (this.config.token && this.config.token.trim()) {
+        query.fmetoken = this.config.token
+      }
+
+      // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
+      const isGet = !options.method || options.method === HttpMethod.GET
+      if (isGet) {
+        const scope = makeScopeId(
+          this.config.serverUrl,
+          this.config.token,
+          options.repositoryContext
+        )
+        if (query.__scope === undefined) query.__scope = scope
+      }
+
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
-        query: options.query as any,
+        query,
         responseType: "json",
         headers,
         signal: options.signal,

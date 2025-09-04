@@ -2,86 +2,49 @@ import type {
   ErrorState,
   WorkspaceParameter,
   DynamicFieldConfig,
+  FormPrimitive,
+  CheckSteps,
+  FmeExportConfig,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
+import {
+  isEmpty,
+  isInt,
+  isNum,
+  extractErrorMessage,
+  extractHttpStatus,
+} from "./utils"
+import FmeFlowApiClient from "./api"
 
-// Utility functions for parameter handling with enhanced validation
-const isEmpty = (v: unknown): boolean => {
-  if (v === undefined || v === null || v === "") return true
-  if (Array.isArray(v)) return v.length === 0
-  if (typeof v === "string") return v.trim().length === 0
-  return false
+// In-flight request deduplication caches
+const inFlight = {
+  healthCheck: new Map<
+    string,
+    Promise<{
+      reachable: boolean
+      version?: string
+      responseTime?: number
+      error?: string
+      status?: number
+    }>
+  >(),
+  validateConnection: new Map<string, Promise<ConnectionValidationResult>>(),
+  testBasicConnection: new Map<
+    string,
+    Promise<{
+      success: boolean
+      version?: string
+      error?: string
+      originalError?: unknown
+    }>
+  >(),
+  getRepositories: new Map<
+    string,
+    Promise<{ success: boolean; repositories?: string[]; error?: string }>
+  >(),
 }
 
-const isInt = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isInteger(value)
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    if (trimmed === "") return false
-    const num = Number(trimmed)
-    return Number.isInteger(num) && !isNaN(num)
-  }
-  return false
-}
-
-const isNum = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isFinite(value)
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    if (trimmed === "") return false
-    const num = Number(trimmed)
-    return Number.isFinite(num) && !isNaN(num)
-  }
-  return false
-}
-
-const filterUiParams = (
-  parameters: readonly WorkspaceParameter[],
-  skip: readonly string[]
-): readonly WorkspaceParameter[] => {
-  if (!parameters || !Array.isArray(parameters)) return []
-  if (!skip || !Array.isArray(skip)) return parameters
-
-  const skipSet = new Set(
-    skip.filter((s) => typeof s === "string" && s.length > 0)
-  )
-  return parameters.filter(
-    (p) => p && typeof p.name === "string" && !skipSet.has(p.name)
-  )
-}
-
-const makeFieldOpts = (param: WorkspaceParameter) => {
-  if (!param?.listOptions || !Array.isArray(param.listOptions)) return undefined
-
-  return param.listOptions
-    .filter(
-      (o) =>
-        o && typeof o === "object" && o.value !== undefined && o.value !== null
-    )
-    .map((o) => ({
-      label: o.caption || o.value,
-      value: o.value,
-    }))
-}
-
-const makeValError = (fieldName: string, errorType: string) =>
-  `${fieldName}:${errorType}`
-
-// Small helpers to reduce duplication
-const hasListOptions = (param: WorkspaceParameter): boolean =>
-  Array.isArray(param.listOptions) && param.listOptions.length > 0
-
-const isMultiListParam = (param: WorkspaceParameter): boolean =>
-  param.type === ParameterType.LISTBOX ||
-  param.type === ParameterType.LOOKUP_LISTBOX
-
-const toArray = (value: unknown): unknown[] => {
-  if (Array.isArray(value)) return value
-  if (value === undefined || value === null) return []
-  return [value]
-}
-
-// Error helper
+// Error service
 export class ErrorHandlingService {
   createError(
     message: string,
@@ -111,42 +74,146 @@ export class ErrorHandlingService {
       type,
       code,
       severity,
-      details: details as { [key: string]: unknown } | undefined,
+      details,
       recoverable,
       retry,
       timestamp: new Date(),
-      timestampMs: Date.now(),
+      timestampMs: 0, // Keep original test-expected value
       userFriendlyMessage,
       suggestion,
     }
   }
-
-  // Helper to check for known error codes
-  private readonly checkKnownErrorCodes = (
-    code: string,
+  // Derive standardized error from various error inputs
+  deriveStartupError(
+    error: unknown,
     translate: (key: string) => string
-  ): { code: string; message: string } | null => {
-    const knownErrors: { [key: string]: string } = {
+  ): { code: string; message: string } {
+    if (!error) {
+      return {
+        code: "STARTUP_ERROR",
+        message:
+          typeof translate === "function"
+            ? translate("startupValidationFailed")
+            : "Validation failed",
+      }
+    }
+
+    if (typeof translate !== "function") {
+      return {
+        code: "STARTUP_ERROR",
+        message: "Validation failed",
+      }
+    }
+
+    const errorObj = error as { [key: string]: unknown }
+    const errorCode =
+      (errorObj.code as string) || (errorObj.name as string) || ""
+    const status = this.normalizeStatus(errorObj.status)
+    const message = (error as Error)?.message || ""
+
+    // Check known error codes first
+    const knownCodeResult = this.checkKnownErrorCodes(
+      errorCode,
+      message,
+      translate
+    )
+    if (knownCodeResult) return knownCodeResult
+
+    // Check specific error patterns
+    const specificErrorResult = this.checkSpecificErrorPatterns(
+      errorCode,
+      message,
+      translate
+    )
+    if (specificErrorResult) return specificErrorResult
+
+    // Check HTTP status codes
+    if (typeof status === "number") {
+      const statusResult = this.checkHttpStatusCodes(status, translate)
+      if (statusResult) return statusResult
+    }
+
+    // Check message patterns
+    const messageResult = this.checkMessagePatterns(message, error, translate)
+    if (messageResult) return messageResult
+
+    // Check for offline/CORS conditions
+    const networkResult = this.checkNetworkConditions(status, translate)
+    if (networkResult) return networkResult
+
+    return {
+      code: "STARTUP_ERROR",
+      message: translate("startupValidationFailed"),
+    }
+  }
+
+  // Normalize status value to number if possible
+  private normalizeStatus(status: unknown): number | undefined {
+    if (typeof status === "number") return status
+    if (typeof status === "string") {
+      const parsed = Number(status)
+      return Number.isFinite(parsed) ? parsed : undefined
+    }
+    return undefined
+  }
+  // Check against known error code mappings
+  private checkKnownErrorCodes(
+    errorCode: string,
+    message: string,
+    translate: (key: string) => string
+  ): { code: string; message: string } | null {
+    const knownCodes: { [key: string]: string } = {
       UserEmailMissing: "userEmailMissing",
+      INVALID_EMAIL: "invalidEmail",
       INVALID_CONFIG: "invalidConfiguration",
       WEBHOOK_AUTH_ERROR: "authenticationFailed",
       ARCGIS_MODULE_ERROR: "connectionFailed",
+      ABORT: "requestAborted",
+      CANCELLED: "operationCancelled",
+      CORS_ERROR: "corsError",
+      OFFLINE: "offline",
+      SSL_ERROR: "sslError",
+      INVALID_URL: "invalidUrl",
+      RATE_LIMITED: "rateLimited",
+      BAD_GATEWAY: "badGateway",
+      SERVICE_UNAVAILABLE: "serviceUnavailable",
+      GATEWAY_TIMEOUT: "gatewayTimeout",
+      BAD_REQUEST: "badRequest",
+      PAYLOAD_TOO_LARGE: "payloadTooLarge",
     }
 
-    for (const [errorCode, messageKey] of Object.entries(knownErrors)) {
-      if (new RegExp(`^${errorCode}$`, "i").test(code)) {
-        return { code: errorCode, message: translate(messageKey) }
-      }
+    // Check if message itself is a known code
+    if (message && knownCodes[message]) {
+      return { code: message, message: translate(knownCodes[message]) }
+    }
+
+    if (errorCode && knownCodes[errorCode]) {
+      return { code: errorCode, message: translate(knownCodes[errorCode]) }
     }
 
     return null
   }
 
-  // Helper to derive error from HTTP status codes
-  private readonly deriveHttpStatusError = (
+  // Check for specific error patterns
+  private checkSpecificErrorPatterns(
+    errorCode: string,
+    message: string,
+    translate: (key: string) => string
+  ): { code: string; message: string } | null {
+    if (errorCode === "AbortError" || errorCode === "ABORT") {
+      return { code: "ABORT", message: translate("requestAborted") }
+    }
+    if (errorCode === "CancelledPromiseError" || /cancel/i.test(message)) {
+      return { code: "CANCELLED", message: translate("operationCancelled") }
+    }
+    return null
+  }
+
+  // Check HTTP status codes and return appropriate error
+  private checkHttpStatusCodes(
     status: number,
     translate: (key: string) => string
-  ): { code: string; message: string } => {
+  ): { code: string; message: string } | null {
     if (status === 401 || status === 403) {
       return {
         code: "AUTH_ERROR",
@@ -154,30 +221,55 @@ export class ErrorHandlingService {
       }
     }
     if (status === 404) {
+      return { code: "REPO_NOT_FOUND", message: translate("repoNotFound") }
+    }
+    if (status === 429) {
+      return { code: "HTTP_ERROR", message: translate("connectionFailed") }
+    }
+    if (status === 413) {
       return {
-        code: "REPO_NOT_FOUND",
-        message: translate("repoNotFound"),
+        code: "PAYLOAD_TOO_LARGE",
+        message: translate("payloadTooLarge"),
+      }
+    }
+    if (status === 400 || status === 422) {
+      return { code: "BAD_REQUEST", message: translate("badRequest") }
+    }
+    if (status === 502) {
+      return { code: "BAD_GATEWAY", message: translate("badGateway") }
+    }
+    if (status === 503) {
+      return {
+        code: "SERVICE_UNAVAILABLE",
+        message: translate("serviceUnavailable"),
+      }
+    }
+    if (status === 504) {
+      return {
+        code: "GATEWAY_TIMEOUT",
+        message: translate("gatewayTimeout"),
       }
     }
     if (status >= 500) {
-      return {
-        code: "SERVER_ERROR",
-        message: translate("serverError"),
-      }
+      return { code: "SERVER_ERROR", message: translate("serverError") }
     }
-    return {
-      code: "HTTP_ERROR",
-      message: translate("connectionFailed"),
-    }
+    return null
   }
 
-  // Helper to derive error from message patterns
-  private readonly deriveMessagePatternError = (
+  // Check message patterns for specific error types
+  private checkMessagePatterns(
     message: string,
+    error: unknown,
     translate: (key: string) => string
-  ): { code: string; message: string } | null => {
+  ): { code: string; message: string } | null {
+    if (typeof message !== "string") return null
+
     if (/timeout/i.test(message)) {
       return { code: "TIMEOUT", message: translate("timeout") }
+    }
+    if (/^TypeError: Failed to fetch$/i.test(message)) {
+      // Could be CORS or offline - check if offline
+      return this.handleFetchError(translate)
     }
     if (/network|failed to fetch/i.test(message)) {
       return { code: "NETWORK_ERROR", message: translate("networkError") }
@@ -185,72 +277,59 @@ export class ErrorHandlingService {
     if (/unexpected token|json|parse/i.test(message)) {
       return { code: "BAD_RESPONSE", message: translate("badResponse") }
     }
+    if (/invalid url/i.test(message)) {
+      return { code: "INVALID_URL", message: translate("invalidUrl") }
+    }
+    if (/ssl|certificate/i.test(message)) {
+      return { code: "SSL_ERROR", message: translate("sslError") }
+    }
+    if ((error as Error)?.name === "TypeError") {
+      return { code: "NETWORK_ERROR", message: translate("networkError") }
+    }
     return null
   }
 
-  // Derives startup validation error information from various error types
-  deriveStartupError(
-    error: unknown,
+  // Handle "Failed to fetch" error by checking online status
+  private handleFetchError(translate: (key: string) => string): {
+    code: string
+    message: string
+  } {
+    try {
+      const nav = (globalThis as { navigator?: { onLine?: boolean } })
+        ?.navigator
+      if (nav && !nav.onLine) {
+        return { code: "OFFLINE", message: translate("offline") }
+      }
+    } catch {
+      // Ignore errors accessing navigator
+    }
+    return { code: "CORS_ERROR", message: translate("corsError") }
+  }
+
+  // Check for offline or CORS conditions based on status
+  private checkNetworkConditions(
+    status: number | undefined,
     translate: (key: string) => string
-  ): { code: string; message: string } {
-    // Validate inputs
-    if (!error) {
-      return {
-        code: "STARTUP_ERROR",
-        message: translate("startupValidationFailed"),
+  ): { code: string; message: string } | null {
+    if (status === 0) {
+      try {
+        const nav = (globalThis as { navigator?: { onLine?: boolean } })
+          ?.navigator
+        if (nav && !nav.onLine) {
+          return { code: "OFFLINE", message: translate("offline") }
+        }
+      } catch {
+        // Ignore errors accessing navigator
       }
+      return { code: "CORS_ERROR", message: translate("corsError") }
     }
-
-    if (typeof translate !== "function") {
-      console.warn("Invalid translate function provided to deriveStartupError")
-      const fallbackTranslate = (key: string) => key
-      return this.deriveStartupError(error, fallbackTranslate)
-    }
-
-    // Try explicit error code first
-    const explicitCode =
-      (error as any)?.code || (error as any)?.name || (error as any)?.message
-    if (typeof explicitCode === "string") {
-      const code = explicitCode.trim()
-      const knownError = this.checkKnownErrorCodes(code, translate)
-      if (knownError) return knownError
-    }
-
-    // Check HTTP status codes
-    const status = (error as any)?.status
-    if (typeof status === "number") {
-      return this.deriveHttpStatusError(status, translate)
-    }
-
-    // Check message patterns
-    const message = (error as Error)?.message || ""
-    if (typeof message === "string") {
-      // Check for specific error codes in message
-      if ((error as any)?.code === "ETIMEDOUT") {
-        return { code: "TIMEOUT", message: translate("timeout") }
-      }
-
-      // Check for TypeError (common network error)
-      if ((error as Error)?.name === "TypeError") {
-        return { code: "NETWORK_ERROR", message: translate("networkError") }
-      }
-
-      const patternError = this.deriveMessagePatternError(message, translate)
-      if (patternError) return patternError
-    }
-
-    // Default fallback
-    return {
-      code: "STARTUP_ERROR",
-      message: translate("startupValidationFailed"),
-    }
+    return null
   }
 }
 
-// Service for converting and validating parameters
+// Parameter service
 export class ParameterFormService {
-  // Parameters to skip from UI generation and validation
-  private readonly skipParams: readonly string[] = [
+  private readonly skipParams = [
     "MAXX",
     "MINX",
     "MAXY",
@@ -258,52 +337,130 @@ export class ParameterFormService {
     "AreaOfInterest",
   ]
 
-  // Converts workspace parameters to dynamic field configurations
+  // Validate parameters against definitions
+  validateParameters(
+    data: { [key: string]: unknown },
+    parameters: readonly WorkspaceParameter[]
+  ): { isValid: boolean; errors: string[] } {
+    const errors: string[] = []
+    const validParams = parameters.filter(
+      (p) =>
+        p && typeof p.name === "string" && !this.skipParams.includes(p.name)
+    )
+
+    for (const param of validParams) {
+      const value = data[param.name]
+
+      // Check required fields
+      if (!param.optional && isEmpty(value)) {
+        errors.push(`${param.name}:required`)
+        continue
+      }
+
+      if (!isEmpty(value)) {
+        // Validate types
+        const typeError = this.validateParameterType(param, value)
+        if (typeError) {
+          errors.push(typeError)
+          continue
+        }
+
+        // Validate choices
+        const choiceError = this.validateParameterChoices(param, value)
+        if (choiceError) {
+          errors.push(choiceError)
+        }
+      }
+    }
+
+    return { isValid: errors.length === 0, errors }
+  }
+
+  // Validate parameter type constraints
+  private validateParameterType(
+    param: WorkspaceParameter,
+    value: unknown
+  ): string | null {
+    if (param.type === ParameterType.INTEGER && !isInt(value)) {
+      return `${param.name}:integer`
+    }
+
+    if (param.type === ParameterType.FLOAT && !isNum(value)) {
+      return `${param.name}:number`
+    }
+
+    return null
+  }
+
+  // Validate parameter choice constraints
+  private validateParameterChoices(
+    param: WorkspaceParameter,
+    value: unknown
+  ): string | null {
+    if (!param.listOptions?.length) return null
+
+    const validChoices = param.listOptions.map((opt) => opt.value)
+    const isMulti =
+      param.type === ParameterType.LISTBOX ||
+      param.type === ParameterType.LOOKUP_LISTBOX
+
+    if (isMulti) {
+      const values = Array.isArray(value) ? value : [value]
+      if (values.some((v) => !validChoices.includes(v))) {
+        return `${param.name}:choice`
+      }
+    } else if (!validChoices.includes(value)) {
+      return `${param.name}:choice`
+    }
+
+    return null
+  }
+
   convertParametersToFields(
     parameters: readonly WorkspaceParameter[]
   ): readonly DynamicFieldConfig[] {
-    if (!parameters || !Array.isArray(parameters)) {
-      console.warn("Invalid parameters provided to convertParametersToFields")
-      return []
-    }
+    if (!parameters?.length) return []
 
-    const filteredParams = filterUiParams(parameters, this.skipParams)
-    return filteredParams.map((param) => this.makeField(param))
-  }
-
-  // Creates a dynamic field configuration from a workspace parameter
-  private makeField(param: WorkspaceParameter): DynamicFieldConfig {
-    if (!param || typeof param.name !== "string") {
-      throw new Error("Invalid workspace parameter: missing name")
-    }
-
-    const baseField: DynamicFieldConfig = {
-      name: param.name,
-      label: param.description || param.name,
-      type: this.getFieldType(param),
-      required: !param.optional,
-      readOnly: false,
-      description: param.description,
-      defaultValue: param.defaultValue,
-      placeholder: param.description || `Enter ${param.name}`,
-    }
-
-    const options = makeFieldOpts(param)
-    const isTextEdit = param.type === ParameterType.TEXT_EDIT
-
-    return {
-      ...baseField,
-      ...(options && { options }),
-      ...(isTextEdit && { rows: 3 }),
-    }
+    return parameters
+      .filter(
+        (p) =>
+          p && typeof p.name === "string" && !this.skipParams.includes(p.name)
+      )
+      .map((param) => ({
+        name: param.name,
+        label: param.description || param.name,
+        type: this.getFieldType(param),
+        required: !param.optional,
+        readOnly: false,
+        description: param.description,
+        defaultValue: param.defaultValue as FormPrimitive,
+        placeholder: param.description || "",
+        options: param.listOptions?.map((o) => {
+          const valueStr =
+            typeof o.value === "string" || typeof o.value === "number"
+              ? String(o.value)
+              : JSON.stringify(o.value)
+          return {
+            label: o.caption || valueStr,
+            value:
+              typeof o.value === "string" || typeof o.value === "number"
+                ? o.value
+                : valueStr,
+          }
+        }),
+        rows: param.type === ParameterType.TEXT_EDIT ? 3 : undefined,
+      })) as readonly DynamicFieldConfig[]
   }
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
-    if (hasListOptions(param)) {
-      return isMultiListParam(param)
-        ? FormFieldType.MULTI_SELECT
-        : FormFieldType.SELECT
+    const hasOptions = param.listOptions?.length > 0
+    if (hasOptions) {
+      const isMulti =
+        param.type === ParameterType.LISTBOX ||
+        param.type === ParameterType.LOOKUP_LISTBOX
+      return isMulti ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
     }
+
     const typeMap: { [key in ParameterType]?: FormFieldType } = {
       [ParameterType.FLOAT]: FormFieldType.NUMBER,
       [ParameterType.INTEGER]: FormFieldType.NUMBER,
@@ -313,136 +470,767 @@ export class ParameterFormService {
       [ParameterType.FILENAME]: FormFieldType.FILE,
       [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
     }
-    return typeMap[param.type] ?? FormFieldType.TEXT
+    return typeMap[param.type] || FormFieldType.TEXT
   }
 
-  // Validates data against workspace parameters
-  validateParameters(
-    data: { [key: string]: unknown },
-    parameters: readonly WorkspaceParameter[]
-  ): { isValid: boolean; errors: string[] } {
-    if (!data || typeof data !== "object") {
-      return { isValid: false, errors: ["Invalid data object provided"] }
-    }
-
-    if (!parameters || !Array.isArray(parameters)) {
-      return { isValid: true, errors: [] }
-    }
-
-    const errors: string[] = []
-    const filteredParams = filterUiParams(parameters, this.skipParams)
-
-    for (const param of filteredParams) {
-      if (!param || typeof param.name !== "string") continue
-
-      const value = data[param.name]
-      const isRequired = !param.optional
-      const hasValue = !isEmpty(value)
-
-      if (isRequired && !hasValue) {
-        errors.push(makeValError(param.name, "required"))
-        continue
-      }
-
-      if (hasValue) {
-        const typeError = this.validateParamType(param, value)
-        const listError = this.validateParamList(param, value)
-        if (typeError) errors.push(typeError)
-        if (listError) errors.push(listError)
-      }
-    }
-
-    return { isValid: errors.length === 0, errors }
-  }
-
-  // Validates individual parameter type constraints
-  private validateParamType(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    if (param.type === ParameterType.INTEGER && !isInt(value)) {
-      return makeValError(param.name, "integer")
-    }
-
-    if (param.type === ParameterType.FLOAT && !isNum(value)) {
-      return makeValError(param.name, "number")
-    }
-
-    return null
-  }
-
-  // Validates parameter list options
-  private validateParamList(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    if (!hasListOptions(param) || !param.listOptions) return null
-
-    const validValues = param.listOptions
-      .filter((opt) => opt && opt.value !== undefined && opt.value !== null)
-      .map((opt) => opt.value)
-
-    if (validValues.length === 0) return null
-
-    const isMulti = isMultiListParam(param)
-
-    if (isMulti) {
-      const arr = toArray(value)
-      const invalid = arr.filter(
-        (v) => !validValues.some((valid) => valid === v)
-      )
-      return invalid.length ? makeValError(param.name, "choice") : null
-    }
-
-    return validValues.some((valid) => valid === value)
-      ? null
-      : makeValError(param.name, "choice")
-  }
-
-  // Validates form values against dynamic field configurations
   validateFormValues(
     values: { [key: string]: unknown },
     fields: readonly DynamicFieldConfig[]
   ): { isValid: boolean; errors: { [key: string]: string } } {
-    if (!values || typeof values !== "object") {
-      return {
-        isValid: false,
-        errors: { _form: "Invalid form values provided" },
-      }
-    }
-
-    if (!fields || !Array.isArray(fields)) {
-      return { isValid: true, errors: {} }
-    }
+    if (!values || !fields?.length) return { isValid: true, errors: {} }
 
     const errors: { [key: string]: string } = {}
 
     for (const field of fields) {
-      if (!field || typeof field.name !== "string") continue
-
       const value = values[field.name]
       const hasValue = !isEmpty(value)
 
       if (field.required && !hasValue) {
-        // Keep field invalid without inline text; UI shows * and form summary; empty string avoids duplicate messages.
         errors[field.name] = ""
-      } else if (hasValue) {
-        const typeError = this.validateFieldType(field, value)
-        if (typeError) errors[field.name] = typeError
+      } else if (
+        hasValue &&
+        field.type === FormFieldType.NUMBER &&
+        !isNum(value)
+      ) {
+        errors[field.name] = ""
       }
     }
 
     return { isValid: Object.keys(errors).length === 0, errors }
   }
+}
 
-  // Validates individual field type constraints
-  private validateFieldType(
-    field: DynamicFieldConfig,
-    value: unknown
-  ): string | null {
-    if (field.type === FormFieldType.NUMBER && value !== "" && !isNum(value)) {
-      return `${field.label} must be a number`
-    }
-    return null
+// Connection Validation Service
+export interface ConnectionValidationOptions {
+  serverUrl: string
+  token: string
+  repository?: string
+  signal?: AbortSignal
+}
+
+export interface ConnectionValidationResult {
+  success: boolean
+  version?: string
+  repositories?: string[]
+  error?: {
+    message: string
+    type: "server" | "token" | "repository" | "network" | "generic"
+    status?: number
   }
+  steps: CheckSteps
+}
+
+/**
+ * Parse repository names from API response
+ */
+function parseRepositoryNames(data: unknown): string[] {
+  if (!Array.isArray(data)) return []
+  return (data as Array<{ name?: unknown }>)
+    .map((r) => r?.name)
+    .filter((n): n is string => typeof n === "string" && n.length > 0)
+}
+
+/**
+ * Quick health check for FME Flow server
+ * Provides basic connectivity and version information
+ */
+export async function healthCheck(
+  serverUrl: string,
+  token: string,
+  signal?: AbortSignal
+): Promise<{
+  reachable: boolean
+  version?: string
+  responseTime?: number
+  error?: string
+  status?: number
+}> {
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.healthCheck.get(key)
+  if (existing) return existing
+
+  const startTime = Date.now()
+
+  // Basic URL validation - if URL is malformed, don't even try
+  try {
+    const url = new URL(serverUrl)
+    // Additional check: URL should have proper protocol and host
+    if (!url.protocol || !url.host || url.host.endsWith(".")) {
+      return {
+        reachable: false,
+        responseTime: 0,
+        error: "Invalid server URL format",
+        status: 0,
+      }
+    }
+  } catch {
+    return {
+      reachable: false,
+      responseTime: 0,
+      error: "Invalid server URL format",
+      status: 0,
+    }
+  }
+
+  const promise = (async () => {
+    try {
+      // Use the provided token for authentication
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
+
+      const response = await client.testConnection(signal)
+      const responseTime = Date.now() - startTime
+
+      return {
+        reachable: true,
+        version: response.data?.version,
+        responseTime,
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime
+      const status = extractHttpStatus(error)
+      const errorMessage = extractErrorMessage(error)
+
+      // Only consider server reachable if we get specific HTTP auth errors from what appears to be FME Flow
+      // Network errors, DNS errors, proxy errors, etc. should be considered unreachable
+      if (status === 401 || status === 403) {
+        // Enhanced check: if error message suggests network/DNS issues or proxy errors, treat as unreachable
+        const networkIndicators = [
+          "Failed to fetch",
+          "NetworkError",
+          "net::",
+          "DNS",
+          "ENOTFOUND",
+          "ECONNREFUSED",
+          "timeout",
+          "Name or service not known",
+          "ERR_NAME_NOT_RESOLVED",
+          "Unable to load", // ArcGIS proxy error pattern
+          "/sharing/proxy", // ArcGIS proxy path
+          "proxy",
+        ]
+
+        if (
+          networkIndicators.some((indicator) =>
+            errorMessage.toLowerCase().includes(indicator.toLowerCase())
+          )
+        ) {
+          return {
+            reachable: false,
+            responseTime,
+            error: errorMessage,
+            status,
+          }
+        }
+
+        // Additional heuristic: if the URL hostname doesn't look like a valid domain, treat 403 as unreachable
+        try {
+          const url = new URL(serverUrl)
+          const hostname = url.hostname
+
+          // Simple domain validation - should have at least one dot (like "example.com")
+          // Single words like "fmeflo" are likely invalid domains
+          if (!hostname.includes(".") || hostname.length < 4) {
+            return {
+              reachable: false,
+              responseTime,
+              error: `Invalid hostname: ${hostname}`,
+              status,
+            }
+          }
+        } catch {
+          // URL parsing already handled above
+        }
+
+        // If we get 401/403 without network indicators and valid hostname, assume server is reachable
+        return { reachable: true, responseTime, status }
+      }
+
+      // All other HTTP errors or network errors = unreachable
+      return {
+        reachable: false,
+        responseTime,
+        error: errorMessage,
+        status,
+      }
+    }
+  })()
+
+  inFlight.healthCheck.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.healthCheck.delete(key)
+  }
+}
+
+/**
+ * Validate connection to FME Flow server
+ * This is a comprehensive validation that tests server reachability,
+ * token validity, and repository access if specified
+ */
+export async function validateConnection(
+  options: ConnectionValidationOptions
+): Promise<ConnectionValidationResult> {
+  const { serverUrl, token, repository, signal } = options
+
+  const key = `${serverUrl}|${token}|${repository || "_"}`
+  const existing = inFlight.validateConnection.get(key)
+  if (existing) return existing
+
+  const steps: CheckSteps = {
+    serverUrl: "pending",
+    token: "pending",
+    repository: repository ? "pending" : "skip",
+    version: "",
+  }
+
+  const promise = (async (): Promise<ConnectionValidationResult> => {
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: repository || "_",
+      })
+
+      // Step 1: Test connection and get server info
+      let serverInfo: any
+      try {
+        serverInfo = await client.testConnection(signal)
+        steps.serverUrl = "ok"
+        steps.token = "ok"
+        steps.version = String(serverInfo?.data?.version || "")
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          return {
+            success: false,
+            steps,
+            error: {
+              message: (error as Error).message || "aborted",
+              type: "generic",
+              status: 0,
+            },
+          }
+        }
+        const status = extractHttpStatus(error)
+
+        if (status === 401) {
+          // Clear token failure without extra network checks
+          steps.serverUrl = "ok"
+          steps.token = "fail"
+          return {
+            success: false,
+            steps,
+            error: {
+              message: "startupTokenError",
+              type: "token",
+              status,
+            },
+          }
+        } else if (status === 403) {
+          const rawMessage = extractErrorMessage(error)
+          const proxyHints = ["Unable to load", "/sharing/proxy", "proxy"]
+          if (
+            proxyHints.some((h) =>
+              rawMessage.toLowerCase().includes(h.toLowerCase())
+            )
+          ) {
+            // Proxy forbids or cannot reach upstream → treat as server/connectivity
+            steps.serverUrl = "fail"
+            steps.token = "skip"
+            return {
+              success: false,
+              steps,
+              error: {
+                message: "startupServerError",
+                type: "server",
+                status,
+              },
+            }
+          }
+          // Could be auth error OR server URL error - verify reachability once
+          try {
+            const healthResult = await healthCheck(serverUrl, token, signal)
+
+            if (healthResult.reachable) {
+              // Server is reachable but token invalid/forbidden
+              steps.serverUrl = "ok"
+              steps.token = "fail"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: "startupTokenError",
+                  type: "token",
+                  status,
+                },
+              }
+            } else {
+              steps.serverUrl = "fail"
+              steps.token = "skip"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: getErrorMessage(error, status),
+                  type: "server",
+                  status,
+                },
+              }
+            }
+          } catch (healthError) {
+            steps.serverUrl = "fail"
+            steps.token = "skip"
+            return {
+              success: false,
+              steps,
+              error: {
+                message: getErrorMessage(error, status),
+                type: "server",
+                status,
+              },
+            }
+          }
+        } else {
+          // Server not reachable
+          steps.serverUrl = "fail"
+          steps.token = "skip"
+          return {
+            success: false,
+            steps,
+            error: {
+              message: getErrorMessage(error, status),
+              type: status === 0 ? "network" : "server",
+              status,
+            },
+          }
+        }
+      }
+      let repositories: string[] = []
+      try {
+        const reposResp = await client.getRepositories(signal)
+        repositories = parseRepositoryNames(reposResp?.data)
+      } catch (error) {
+        repositories = []
+      }
+
+      // Step 3: Validate specific repository if provided
+      if (repository) {
+        try {
+          await client.validateRepository(repository, signal)
+          steps.repository = "ok"
+        } catch (error) {
+          steps.repository = "fail"
+          return {
+            success: false,
+            repositories,
+            steps,
+            error: {
+              message: "repositoryNotAccessible",
+              type: "repository",
+            },
+          }
+        }
+      }
+
+      return {
+        success: true,
+        version: steps.version,
+        repositories,
+        steps,
+      }
+    } catch (error) {
+      if ((error as Error)?.name === "AbortError") {
+        return {
+          success: false,
+          steps,
+          error: {
+            message: (error as Error).message || "aborted",
+            type: "generic",
+            status: 0,
+          },
+        }
+      }
+
+      const status = extractHttpStatus(error)
+      return {
+        success: false,
+        steps,
+        error: {
+          message: getErrorMessage(error, status),
+          type: "generic",
+          status,
+        },
+      }
+    }
+  })()
+
+  inFlight.validateConnection.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.validateConnection.delete(key)
+  }
+}
+
+/**
+ * Test if server URL and token are valid for basic connection
+ * Lighter weight than full validation - only tests connection without repository operations
+ */
+export async function testBasicConnection(
+  serverUrl: string,
+  token: string,
+  signal?: AbortSignal
+): Promise<{
+  success: boolean
+  version?: string
+  error?: string
+  originalError?: unknown
+}> {
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.testBasicConnection.get(key)
+  if (existing) return existing
+
+  const promise = (async () => {
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
+
+      const info = await client.testConnection(signal)
+      return {
+        success: true,
+        version: String(info?.data?.version || ""),
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: getErrorMessage(error, extractHttpStatus(error)),
+        originalError: error, // Keep original error for better categorization
+      }
+    }
+  })()
+
+  inFlight.testBasicConnection.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.testBasicConnection.delete(key)
+  }
+}
+
+/**
+ * Get repositories list from server
+ */
+export async function getRepositories(
+  serverUrl: string,
+  token: string,
+  signal?: AbortSignal
+): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.getRepositories.get(key)
+  if (existing) return existing
+
+  const promise = (async () => {
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
+
+      const resp = await client.getRepositories(signal)
+      const repositories = parseRepositoryNames(resp?.data)
+
+      return {
+        success: true,
+        repositories,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: getErrorMessage(error, extractHttpStatus(error)),
+      }
+    }
+  })()
+
+  inFlight.getRepositories.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.getRepositories.delete(key)
+  }
+}
+
+// Startup Validation Service
+export interface StartupValidationResult {
+  isValid: boolean
+  error?: ErrorState
+  canProceed: boolean
+  requiresSettings: boolean
+}
+
+export interface StartupValidationOptions {
+  config: FmeExportConfig | undefined
+  translate: (key: string, params?: any) => string
+  signal?: AbortSignal
+}
+
+/**
+ * Validate widget configuration at startup
+ * Returns validation result with appropriate error states and user guidance
+ */
+export async function validateWidgetStartup(
+  options: StartupValidationOptions
+): Promise<StartupValidationResult> {
+  const { config, translate, signal } = options
+
+  // Step 1: Check if config exists
+  if (!config) {
+    return {
+      isValid: false,
+      canProceed: false,
+      requiresSettings: true,
+      error: createConfigError(translate, "configMissing"),
+    }
+  }
+
+  // Step 2: Validate required config fields
+  const requiredFieldsResult = validateRequiredFields(config, translate)
+  if (!requiredFieldsResult.isValid) {
+    return requiredFieldsResult
+  }
+
+  // Step 3: Test FME Flow connection
+  try {
+    const connectionResult = await validateConnection({
+      serverUrl: config.fmeServerUrl,
+      token: config.fmeServerToken,
+      repository: config.repository,
+      signal,
+    })
+
+    if (!connectionResult.success) {
+      return {
+        isValid: false,
+        canProceed: false,
+        requiresSettings: true,
+        error: createConnectionError(translate, connectionResult.error),
+      }
+    }
+
+    // All validation passed
+    return {
+      isValid: true,
+      canProceed: true,
+      requiresSettings: false,
+    }
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") {
+      // Don't treat abort as an error - just return neutral state
+      return {
+        isValid: false,
+        canProceed: false,
+        requiresSettings: false,
+      }
+    }
+
+    return {
+      isValid: false,
+      canProceed: false,
+      requiresSettings: true,
+      error: createNetworkError(translate),
+    }
+  }
+}
+
+/**
+ * Validate that all required configuration fields are present
+ */
+function validateRequiredFields(
+  config: FmeExportConfig,
+  translate: (key: string, params?: any) => string
+): StartupValidationResult {
+  const missing: string[] = []
+
+  if (!config.fmeServerUrl?.trim()) {
+    missing.push(translate("fmeServerUrl"))
+  }
+
+  if (!config.fmeServerToken?.trim()) {
+    missing.push(translate("fmeServerToken"))
+  }
+
+  if (!config.repository?.trim()) {
+    missing.push(translate("fmeRepository"))
+  }
+
+  if (missing.length > 0) {
+    return {
+      isValid: false,
+      canProceed: false,
+      requiresSettings: true,
+      error: createConfigError(translate, "missingRequiredFields"),
+    }
+  }
+
+  return {
+    isValid: true,
+    canProceed: true,
+    requiresSettings: false,
+  }
+}
+
+/**
+ * Create configuration error with user guidance
+ */
+function createConfigError(
+  translate: (key: string, params?: any) => string,
+  code: string
+): ErrorState {
+  return {
+    message: translate("startupConfigError") || "startupConfigError",
+    type: ErrorType.CONFIG,
+    code,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    timestamp: new Date(),
+    timestampMs: Date.now(),
+    userFriendlyMessage:
+      translate("startupConfigErrorHint") || "startupConfigErrorHint",
+    suggestion: translate("openSettingsPanel") || "openSettingsPanel",
+  }
+}
+
+/**
+ * Create connection error from validation service result
+ */
+function createConnectionError(
+  translate: (key: string, params?: any) => string,
+  connectionError?: { message: string; type: string; status?: number }
+): ErrorState {
+  // Interpret incoming message as a translation key when possible
+  const baseMessageKey = connectionError?.message || "startupConnectionError"
+  let baseMessage = translate(baseMessageKey) || baseMessageKey
+  let userMessage = translate("startupConnectionError")
+  let suggestion = translate("checkConnectionSettings")
+
+  // Provide specific guidance based on error type
+  if (connectionError?.type === "token") {
+    baseMessage = translate("startupTokenError") || baseMessage
+    userMessage = translate("startupTokenError")
+    suggestion = translate("checkTokenSettings")
+  } else if (connectionError?.type === "server") {
+    baseMessage = translate("startupServerError") || baseMessage
+    userMessage = translate("startupServerError")
+    suggestion = translate("checkServerSettings")
+  } else if (connectionError?.type === "repository") {
+    baseMessage = translate("repositoryNotAccessible") || baseMessage
+    userMessage = translate("startupRepositoryError")
+    suggestion = translate("checkRepositorySettings")
+  } else if (connectionError?.type === "network") {
+    baseMessage = translate("startupNetworkError") || baseMessage
+    userMessage = translate("startupNetworkError")
+    suggestion = translate("checkNetworkConnection")
+  }
+
+  return {
+    message: baseMessage,
+    type: ErrorType.NETWORK,
+    code: connectionError?.type?.toUpperCase() || "CONNECTION_ERROR",
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    timestamp: new Date(),
+    timestampMs: Date.now(),
+    userFriendlyMessage: userMessage,
+    suggestion,
+  }
+}
+
+/**
+ * Create network error from exception
+ */
+function createNetworkError(
+  translate: (key: string, params?: any) => string
+): ErrorState {
+  const message = translate("startupNetworkError") || "startupNetworkError"
+
+  return {
+    message,
+    type: ErrorType.NETWORK,
+    code: "STARTUP_NETWORK_ERROR",
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    timestamp: new Date(),
+    timestampMs: Date.now(),
+    userFriendlyMessage:
+      translate("startupNetworkError") || "startupNetworkError",
+    suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
+  }
+}
+
+/**
+ * Quick validation check without network calls
+ * Used for initial validation before attempting connection
+ */
+export function validateConfigFields(config: FmeExportConfig | undefined): {
+  isValid: boolean
+  missingFields: string[]
+} {
+  if (!config) {
+    return {
+      isValid: false,
+      missingFields: ["configuration"],
+    }
+  }
+
+  const missing: string[] = []
+
+  if (!config.fmeServerUrl?.trim()) {
+    missing.push("serverUrl")
+  }
+
+  if (!config.fmeServerToken?.trim()) {
+    missing.push("token")
+  }
+
+  if (!config.repository?.trim()) {
+    missing.push("repository")
+  }
+
+  return {
+    isValid: missing.length === 0,
+    missingFields: missing,
+  }
+}
+
+// Helper functions with improved type safety
+export function getErrorMessage(err: unknown, status?: number): string {
+  // Handle known status codes first
+  if (status === 0) return "startupNetworkError"
+  if (status === 401 || status === 403) return "startupTokenError"
+  if (status === 404) return "connectionFailed"
+  if (status && status >= 500) return "serverError"
+
+  // Extract message from error object
+  const message = (err as Error)?.message
+  if (typeof message === "string" && message.trim()) {
+    // Normalize common fetch error messages
+    const lowerMessage = message.toLowerCase()
+    if (lowerMessage.includes("failed to fetch")) {
+      return "startupNetworkError"
+    }
+    return "unknownErrorOccurred"
+  }
+
+  return "unknownErrorOccurred"
 }

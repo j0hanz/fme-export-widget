@@ -37,11 +37,9 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../shared/types"
+import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 
 type TranslateFn = (key: string, params?: any) => string
-
-// Email placeholder pattern for support links
-const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
 
 // Configuration
 export const config = {
@@ -66,14 +64,19 @@ export const config = {
     textPadding: "18px",
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200 },
+  loading: { width: 200, height: 200, delay: 1000 },
   required: "*",
 } as const
 
-// Create theme-aware styles
-const createStyles = (theme: IMThemeVariables) =>
-  ({
-    // Layout utilities
+// Theme-aware styles
+const createStyles = (theme: IMThemeVariables) => {
+  // Cache commonly used spacing and color values
+  const spacing = theme.sys.spacing
+  const colors = theme.sys.color
+  const typography = theme.sys.typography
+
+  return {
+    // Layout utilities with better performance
     row: css({ display: "flex" }),
     col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
@@ -81,7 +84,7 @@ const createStyles = (theme: IMThemeVariables) =>
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
-    gapBtnGroup: css({ gap: theme.sys.spacing?.(2) }),
+    gapBtnGroup: css({ gap: spacing?.(2) }),
 
     // Text utilities
     textCenter: css({ textAlign: "center" }),
@@ -91,7 +94,7 @@ const createStyles = (theme: IMThemeVariables) =>
     disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
     textareaResize: css({ resize: "vertical" }),
 
-    // Common flex patterns
+    // Flex utilities
     flexCentered: css({
       display: "flex",
       flexDirection: "column",
@@ -105,14 +108,15 @@ const createStyles = (theme: IMThemeVariables) =>
       alignItems: "baseline",
     }),
 
+    // Main layout styles
     parent: css({
       display: "flex",
       flexDirection: "column",
       overflowY: "auto",
       height: "100%",
       position: "relative",
-      padding: theme.sys.spacing?.(1),
-      backgroundColor: theme.sys.color.surface?.paper,
+      padding: spacing?.(1),
+      backgroundColor: colors?.surface?.paper,
     }),
 
     header: css({
@@ -132,7 +136,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       justifyContent: "space-between",
       alignItems: "baseline",
-      gap: theme.sys.spacing?.(1),
+      gap: spacing?.(1),
     }),
 
     // State patterns
@@ -140,7 +144,7 @@ const createStyles = (theme: IMThemeVariables) =>
       display: "flex",
       flexDirection: "column",
       justifyContent: "center",
-      gap: theme.sys.spacing?.(1),
+      gap: spacing?.(1),
       height: "100%",
     }),
 
@@ -153,64 +157,64 @@ const createStyles = (theme: IMThemeVariables) =>
       zIndex: config.zIndex.overlay,
     }),
 
-    // Typography styles with theme support
+    // Typography styles
     typography: {
       caption: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
-        margin: `${theme.sys.spacing?.(1)} 0`,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
+        margin: `${spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize,
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
-        color: theme.sys.color.surface?.backgroundText,
+        fontSize: typography?.body1?.fontSize,
+        fontWeight: typography?.body1?.fontWeight,
+        color: colors?.surface?.backgroundText,
       }),
 
       instruction: css({
-        fontSize: theme?.sys?.typography?.label2?.fontSize,
-        color: theme.sys.color.surface?.backgroundText,
-        margin: `${theme.sys.spacing?.(3)} 0`,
+        fontSize: typography?.label2?.fontSize,
+        color: colors?.surface?.backgroundText,
+        margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        fontSize: theme?.sys?.typography?.body1?.fontSize,
-        fontWeight: theme?.sys?.typography?.body1?.fontWeight,
-        color: theme.sys.color.action.link?.default,
+        fontSize: typography?.body1?.fontSize,
+        fontWeight: typography?.body1?.fontWeight,
+        color: colors?.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",
         "&:hover": {
-          color: theme.sys.color.action.link?.hover,
+          color: colors?.action.link?.hover,
           textDecoration: "underline",
         },
       }),
 
       required: css({
         marginLeft: "0.25rem",
-        color: theme.sys.color?.error.main,
+        color: colors?.error.main,
       }),
     },
 
-    // Button patterns with theme support
+    // Button styles
     button: {
       group: css({
         display: "flex",
-        gap: theme.sys.spacing?.(1),
+        gap: spacing?.(1),
       }),
 
       default: css({
         display: "flex",
         flexFlow: "column",
         width: "100%",
-        gap: theme.sys.spacing?.(1),
+        gap: spacing?.(1),
       }),
 
       text: css({
@@ -224,19 +228,22 @@ const createStyles = (theme: IMThemeVariables) =>
         transform: "translateY(-50%)",
       }),
     },
-  }) as const
+  } as const
+}
 
-// Export theme-aware styles hook
+// Theme-aware styles hook with stable reference caching
 export const useStyles = () => {
   const theme = useTheme()
-  const stylesRef = React.useRef<ReturnType<typeof createStyles>>(
-    createStyles(theme)
-  )
-  const themeRef = React.useRef<IMThemeVariables>(theme)
-  if (themeRef.current !== theme) {
+
+  // Use stable reference pattern instead of useMemo
+  const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
+  const themeRef = React.useRef(theme)
+
+  if (!stylesRef.current || themeRef.current !== theme) {
     stylesRef.current = createStyles(theme)
     themeRef.current = theme
   }
+
   return stylesRef.current
 }
 
@@ -425,8 +432,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const tooltipId = otherProps.id || autoId
 
   const isDisabled =
-    (children.props as any)?.disabled ||
-    (children.props as any)?.["aria-disabled"]
+    children.props?.disabled || children.props?.["aria-disabled"]
   const baseChildProps = (children.props || {}) as { [key: string]: any }
   // Omit title to avoid conflicts with tooltip
   const { title: _omitTitle, ...safeChildProps } = baseChildProps
@@ -474,6 +480,7 @@ export const Input: React.FC<InputProps> = ({
   errorText,
   type = "text",
   onChange,
+  onBlur,
   onFileChange,
   ...props
 }) => {
@@ -493,12 +500,21 @@ export const Input: React.FC<InputProps> = ({
     }
   )
 
+  const handleBlur = hooks.useEventCallback(
+    (evt: React.FocusEvent<HTMLInputElement>) => {
+      if (onBlur) {
+        onBlur(evt.target.value)
+      }
+    }
+  )
+
   return (
     <TextInput
       {...props}
       type={type as any}
-      value={value}
+      value={value as string | number}
       onChange={handleChange}
+      onBlur={handleBlur}
       required={required}
       maxLength={maxLength}
       title={errorText}
@@ -549,148 +565,91 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
-// Multi-select rendering component
-const MultiSelectComponent: React.FC<{
-  options: readonly OptionItem[]
-  normalizedValue: Array<string | number>
-  setValue: (val: Array<string | number>) => void
-  onChange?: (val: Array<string | number>) => void
-  placeholder: string
-  disabled: boolean
-  style?: React.CSSProperties
-}> = ({
-  options,
-  normalizedValue,
-  setValue,
+// Select component
+export const Select: React.FC<SelectProps> = ({
+  options = [],
+  value,
+  defaultValue,
   onChange,
   placeholder,
-  disabled,
+  disabled = false,
   style,
 }) => {
-  const items = React.useMemo(
-    () =>
-      options.map((opt) => ({
-        label: opt.label,
-        value: opt.value,
-        disabled: opt.disabled,
-      })),
-    [options]
+  const translate = hooks.useTranslation(defaultMessages)
+  const [internalValue, setInternalValue] = useValue(value, defaultValue)
+
+  const isMultiSelect = Array.isArray(internalValue)
+  const resolvedPlaceholder = placeholder || translate("selectOption")
+
+  const handleSingleSelectChange = hooks.useEventCallback(
+    (evt: unknown, selectedValue?: string | number) => {
+      const newValue =
+        selectedValue !== undefined
+          ? selectedValue
+          : (evt as any)?.target?.value
+      setInternalValue(newValue)
+      onChange?.(newValue)
+    }
   )
 
   const handleMultiSelectChange = hooks.useEventCallback(
     (vals: Array<string | number>) => {
-      setValue(vals)
+      setInternalValue(vals)
       onChange?.(vals)
     }
   )
 
-  return (
-    <div style={style}>
-      <MultiSelect
-        items={items as any}
-        values={normalizedValue}
-        onChange={handleMultiSelectChange}
-        placeholder={placeholder}
-        disabled={disabled}
-      />
-    </div>
-  )
-}
+  if (isMultiSelect) {
+    const multiSelectItems = options.map((opt) => ({
+      label: opt.label,
+      value: opt.value,
+      disabled: opt.disabled,
+    }))
 
-// Select component
-export const Select: React.FC<SelectProps> = (props) => {
-  const {
-    options = [],
-    value: controlled,
-    defaultValue,
-    onChange,
-    placeholder,
-    disabled = false,
-    style,
-  } = props
-
-  const isMulti = Array.isArray(controlled)
-  const [value, setValue] = useValue(controlled, defaultValue)
-  const translate = hooks.useTranslation(defaultMessages)
-
-  // Normalize the value to strings for the underlying select component(s)
-  const normalizedValue: string | Array<string | number> = React.useMemo(
-    () =>
-      isMulti
-        ? Array.isArray(value)
-          ? value.map((v) => String(v))
-          : []
-        : value !== undefined
-          ? String(value)
-          : undefined,
-    [isMulti, value]
-  )
-
-  const resolvedPlaceholder = React.useMemo(
-    () => placeholder ?? translate("placeholderSelectGeneric"),
-    [placeholder, translate]
-  )
-
-  // Handle single select change
-  const handleSingleChange = hooks.useEventCallback(
-    (evt: unknown, selectedValue?: string | number) => {
-      const raw =
-        selectedValue !== undefined
-          ? selectedValue
-          : (evt as any)?.target?.value
-      setValue(raw)
-      onChange?.(raw)
-    }
-  )
-
-  const optionElements = React.useMemo(
-    () =>
-      options.map((option) => (
-        <JimuOption
-          key={String(option.value)}
-          value={option.value}
-          active={String(option.value) === String(normalizedValue)}
-          disabled={option.disabled}
-          onClick={() => {
-            if (!option.disabled) {
-              const isSame =
-                String(option.value) === String(normalizedValue ?? "")
-              if (!isSame) {
-                handleSingleChange(undefined as any, option.value)
-              }
-            }
-          }}
-        >
-          {!option.hideLabel && option.label}
-        </JimuOption>
-      )),
-    [options, normalizedValue, handleSingleChange]
-  )
-
-  if (isMulti) {
     return (
-      <MultiSelectComponent
-        options={options}
-        normalizedValue={normalizedValue as Array<string | number>}
-        setValue={setValue}
-        onChange={onChange}
-        placeholder={resolvedPlaceholder}
-        disabled={disabled}
-        style={style}
-      />
+      <div style={style}>
+        <MultiSelect
+          items={multiSelectItems as any}
+          values={Array.isArray(internalValue) ? internalValue : []}
+          onChange={handleMultiSelectChange}
+          placeholder={resolvedPlaceholder}
+          disabled={disabled}
+        />
+      </div>
     )
   }
 
+  // Single select
+  const stringValue =
+    internalValue != null &&
+    (typeof internalValue === "string" || typeof internalValue === "number")
+      ? String(internalValue)
+      : undefined
+
   return (
     <JimuSelect
-      value={normalizedValue as string}
-      onChange={handleSingleChange}
+      value={stringValue}
+      onChange={handleSingleSelectChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
       style={style}
     >
-      {optionElements}
+      {options.map((option) => (
+        <JimuOption
+          key={String(option.value)}
+          value={option.value}
+          active={String(option.value) === stringValue}
+          disabled={option.disabled}
+          onClick={() => {
+            if (!option.disabled && String(option.value) !== stringValue) {
+              handleSingleSelectChange(undefined, option.value)
+            }
+          }}
+        >
+          {!option.hideLabel && option.label}
+        </JimuOption>
+      ))}
     </JimuSelect>
   )
 }
@@ -722,29 +681,24 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
+  // Extract aria-label without useMemo for simplicity
+  const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
     !!icon,
-    jimuProps["aria-label"],
+    explicitAriaLabel,
     tooltip,
     translate("ariaButtonLabel")
   )
 
-  const safeColor: "default" | "inherit" | "primary" | "secondary" = (():
-    | "default"
-    | "inherit"
-    | "primary"
-    | "secondary" => {
-    switch (color) {
-      case "default":
-      case "inherit":
-      case "primary":
-      case "secondary":
-        return color
-      default:
-        return "default"
-    }
-  })()
+  // Safely type the color prop without useMemo
+  const safeColor: "default" | "inherit" | "primary" | "secondary" =
+    color === "default" ||
+    color === "inherit" ||
+    color === "primary" ||
+    color === "secondary"
+      ? color
+      : "default"
 
   const buttonElement = (
     <JimuButton
@@ -761,7 +715,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
       css={styles.relative}
-      style={{ position: "relative", ...(jimuProps.style as any) }}
+      style={{ position: "relative", ...jimuProps.style }}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -803,10 +757,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    const previous = value
     handleValueChange(final as any)
     onChange?.(final as any)
-    onTabChange?.(final as any, previous)
+    onTabChange?.(final as any)
   })
 
   return (
@@ -815,11 +768,15 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       aria-label={ariaLabel}
       css={[styles.row, styles.gapBtnGroup]}
     >
-      {items.map((item) => {
+      {items.map((item, i) => {
         const active = value === item.value
         return (
           <Button
-            key={String(item.value)}
+            key={
+              typeof item.value === "string" || typeof item.value === "number"
+                ? String(item.value)
+                : `tab-${i}-${item.label}`
+            }
             icon={item.icon}
             text={!item.hideLabel ? item.label : undefined}
             active={active}
@@ -850,6 +807,40 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
+
+  // Manage loading indicator with minimum display time
+  const [showLoading, setShowLoading] = React.useState(false)
+  const loadingStartedAtRef = React.useRef<number | null>(null)
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    if (state.kind === "loading") {
+      setShowLoading(true)
+      if (loadingStartedAtRef.current == null) {
+        loadingStartedAtRef.current = Date.now()
+      }
+    } else if (loadingStartedAtRef.current != null) {
+      const elapsed = Date.now() - loadingStartedAtRef.current
+      const remaining = Math.max(0, config.loading.delay - elapsed)
+
+      if (remaining > 0) {
+        timer = setTimeout(() => {
+          setShowLoading(false)
+          loadingStartedAtRef.current = null
+        }, remaining)
+      } else {
+        setShowLoading(false)
+        loadingStartedAtRef.current = null
+      }
+    } else {
+      setShowLoading(false)
+      loadingStartedAtRef.current = null
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [state.kind])
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -891,11 +882,13 @@ const StateView: React.FC<StateViewProps> = ({
       case "loading":
         return (
           <div css={styles.centered} role="status" aria-live="polite">
-            <Loading
-              type={LoadingType.Donut}
-              width={config.loading.width}
-              height={config.loading.height}
-            />
+            {showLoading && (
+              <Loading
+                type={LoadingType.Donut}
+                width={config.loading.width}
+                height={config.loading.height}
+              />
+            )}
             {(state.message || state.detail) && (
               <div
                 css={styles.overlay}
@@ -991,7 +984,8 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     const btnConfig = {
       ...buttonConfig,
       variant:
-        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
+        (buttonConfig.variant as "text" | "contained" | "outlined") ||
+        (side === "left" ? "outlined" : "contained"),
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }
