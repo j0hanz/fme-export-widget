@@ -13,7 +13,7 @@ import {
   type WorkspaceParameter,
   type ExportResult,
   type FormValues,
-} from "../shared/types"
+} from "../config"
 
 // Error serialization for storing in Redux state
 const toSerializable = (

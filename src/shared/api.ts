@@ -1,3 +1,4 @@
+// types moved to central config
 import type {
   FmeFlowConfig,
   FmeExportConfig,
@@ -7,8 +8,8 @@ import type {
   JobResponse,
   JobResult,
   PrimitiveParams,
-} from "./types"
-import { FmeFlowApiError, HttpMethod } from "./types"
+} from "../config"
+import { FmeFlowApiError, HttpMethod } from "../config"
 import { isAuthError } from "./utils"
 
 // Inline loader helper for EXB with error handling

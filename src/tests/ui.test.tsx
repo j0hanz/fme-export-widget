@@ -23,7 +23,7 @@ import Button, {
   Field,
   Form,
 } from "../runtime/components/ui"
-import { makeErrorView } from "../shared/types"
+import { makeErrorView } from "../config"
 
 describe("UI components", () => {
   const renderWithProviders = widgetRender(true)

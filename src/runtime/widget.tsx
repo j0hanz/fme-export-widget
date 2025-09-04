@@ -26,7 +26,7 @@ import type {
   FmeResponse,
   FmeServiceInfo,
   ErrorState,
-} from "../shared/types"
+} from "../config"
 import {
   makeErrorView,
   DrawingTool,
@@ -35,7 +35,7 @@ import {
   ErrorSeverity,
   LAYER_CONFIG,
   VIEW_ROUTES,
-} from "../shared/types"
+} from "../config"
 import {
   ErrorHandlingService,
   validateWidgetStartup,

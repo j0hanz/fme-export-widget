@@ -18,7 +18,7 @@ import {
   type WorkspaceParameter,
   type DynamicFieldConfig,
   type FmeExportConfig,
-} from "../shared/types"
+} from "../config"
 import FmeFlowApiClient from "../shared/api"
 
 // Mock the API client

@@ -9,7 +9,7 @@ import {
   type WorkspaceItem,
   ErrorSeverity,
   type ErrorState,
-} from "../shared/types"
+} from "../config"
 import { Workflow } from "../runtime/components/workflow"
 
 // Security: Mock the FME client to avoid real network calls

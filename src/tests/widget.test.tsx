@@ -13,27 +13,20 @@ import Widget, {
   validatePolygon,
   formatArea,
 } from "../runtime/widget"
-import {
-  DrawingTool,
-  ErrorType,
-  type EsriModules,
-  ViewMode,
-} from "../shared/types"
+import { DrawingTool, ErrorType, type EsriModules, ViewMode } from "../config"
 
 // Mock createFmeFlowClient to avoid network and JSAPI (Security)
 jest.mock("../shared/api", () => ({
   createFmeFlowClient: jest.fn().mockReturnValue({
-    runDataDownload: jest
-      .fn()
-      .mockResolvedValue({
-        data: {
-          serviceResponse: {
-            status: "success",
-            jobID: 101,
-            url: "https://download.example/test",
-          },
+    runDataDownload: jest.fn().mockResolvedValue({
+      data: {
+        serviceResponse: {
+          status: "success",
+          jobID: 101,
+          url: "https://download.example/test",
         },
-      }),
+      },
+    }),
   }),
 }))
 

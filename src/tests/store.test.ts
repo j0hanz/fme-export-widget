@@ -9,7 +9,7 @@ import {
   FmeActionType,
   type FmeWidgetState,
   type SerializableErrorState,
-} from "../shared/types"
+} from "../config"
 
 describe("FME Redux store extension", () => {
   const makeState = (patch?: Partial<FmeWidgetState>) =>

@@ -4,7 +4,7 @@ import FmeFlowApiClient, {
   resetEsriCache,
   isWebhookUrlTooLong,
 } from "../shared/api"
-import { HttpMethod, FmeFlowApiError } from "../shared/types"
+import { HttpMethod, FmeFlowApiError } from "../config"
 
 // Secure JSAPI mocks: never import @arcgis/core; provide globals used by ensureEsri()
 const setupEsriGlobals = () => {
