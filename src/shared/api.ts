@@ -133,24 +133,9 @@ async function ensureEsri(): Promise<void> {
         await projection.load()
       }
     } catch (error) {
-      // In test environment, provide basic stubs as fallback
-      if (isTestEnv()) {
-        console.warn(
-          "FME API - ArcGIS modules not available in test environment, using fallback stubs"
-        )
-        _esriRequest = () => Promise.resolve({ data: null })
-        _esriConfig = {
-          request: { maxUrlLength: 4000, interceptors: [] },
-        }
-        _projection = {}
-        _webMercatorUtils = {}
-        _SpatialReference = function () {
-          return {}
-        }
-      } else {
-        console.error("FME API - Failed to load ArcGIS modules:", error)
-        throw new Error("Failed to load ArcGIS modules")
-      }
+      // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
+      console.error("FME API - Failed to load ArcGIS modules:", error)
+      throw new Error("Failed to load ArcGIS modules")
     }
   })()
 
@@ -438,13 +423,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 }
 
 // Request Processing Utilities
-const buildRequestHeaders = (
-  existingHeaders: { [key: string]: string } = {},
-  token?: string
-): { [key: string]: string } => {
-  // Prefer token in query param to avoid CORS preflight issues
-  return { ...existingHeaders }
-}
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
@@ -1093,7 +1071,9 @@ export class FmeFlowApiClient {
     console.log("FME API - Making request to:", url)
 
     try {
-      const headers = buildRequestHeaders(options.headers)
+      const headers: { [key: string]: string } = {
+        ...(options.headers || {}),
+      }
 
       // Build query parameters including token to avoid CORS issues
       const query: any = { ...(options.query || {}) }
