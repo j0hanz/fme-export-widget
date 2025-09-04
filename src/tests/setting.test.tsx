@@ -11,6 +11,7 @@ import {
   validateConnection,
   testBasicConnection,
   getRepositories,
+  healthCheck,
 } from "../shared/services"
 
 const S = Setting as any
@@ -25,6 +26,7 @@ const mockTestBasicConnection = testBasicConnection as jest.MockedFunction<
 const mockGetRepositories = getRepositories as jest.MockedFunction<
   typeof getRepositories
 >
+const mockHealthCheck = healthCheck as jest.MockedFunction<typeof healthCheck>
 
 // Mock API client to avoid network calls in Setting tests
 jest.mock("../shared/api", () => ({
@@ -60,6 +62,7 @@ jest.mock("../shared/services", () => ({
   validateConnection: jest.fn(),
   testBasicConnection: jest.fn(),
   getRepositories: jest.fn(),
+  healthCheck: jest.fn(),
 }))
 
 // Mock builder-only components to avoid DataSourceSelector rendering issues in tests
@@ -111,6 +114,7 @@ describe("Setting component", () => {
       success: true,
       repositories: ["repo1", "repo2"],
     })
+    mockHealthCheck.mockResolvedValue({ reachable: true, version: "2023.0" })
   })
 
   afterEach(() => {
@@ -137,6 +141,7 @@ describe("Setting component", () => {
       success: true,
       repositories: ["repo1", "repo2"],
     })
+    mockHealthCheck.mockResolvedValue({ reachable: true, version: "2023.0" })
   })
 
   const baseConfig = Immutable({
@@ -442,6 +447,8 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
+    // Server is reachable, but authentication fails
+    mockHealthCheck.mockResolvedValueOnce({ reachable: true })
     // Mock testBasicConnection to fail with authentication error
     mockTestBasicConnection.mockResolvedValueOnce({
       success: false,
@@ -463,12 +470,11 @@ describe("Setting component", () => {
     expect(testBtn).toBeTruthy()
     if (testBtn) fireEvent.click(testBtn)
 
-    // assert: connection status shows server failure
+    // assert: token row shows failure (server was reachable)
     await waitFor(() => {
       const status = container.querySelector('[role="status"]')
       expect(status).toBeTruthy()
-      // should show Server URL failure (since basic connection failed)
-      expect(status?.textContent).toMatch(/Server-URL[\s\S]*Misslyckades/)
+      expect(status?.textContent).toMatch(/API-nyckel[\s\S]*Misslyckades/)
     })
   })
 
@@ -478,9 +484,9 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    // Mock testBasicConnection to fail with server error
-    mockTestBasicConnection.mockResolvedValueOnce({
-      success: false,
+    // Server is not reachable -> mark server URL failure in the status area
+    mockHealthCheck.mockResolvedValueOnce({
+      reachable: false,
       error: "Server not found",
     })
 
@@ -512,9 +518,9 @@ describe("Setting component", () => {
       .set("fmeServerUrl", "https://example.com")
       .set("fmeServerToken", "abcdefghij")
 
-    // Mock testBasicConnection to fail with timeout
-    mockTestBasicConnection.mockResolvedValueOnce({
-      success: false,
+    // Server not reachable due to timeout -> attribute to server URL
+    mockHealthCheck.mockResolvedValueOnce({
+      reachable: false,
       error: "Connection timeout",
     })
 

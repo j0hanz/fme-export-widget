@@ -6,6 +6,8 @@ export default {
   testConnection: "Uppdatera och testa",
   testing: "Testar anslutningen...",
   testingConnection: "Uppdaterar och testar anslutningen...",
+  testingServerUrl: "Kontrollerar server-URL...",
+  testingAuthentication: "Kontrollerar autentisering...",
   testingBasicConnection: "Testar grundläggande anslutning...",
   loadingRepositories: "Laddar repositories...",
   validatingRepository: "Validerar repository...",
@@ -63,7 +65,7 @@ export default {
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Ej körbart",
-  checking: "Ej körbart",
+  checking: "Kontrollerar...",
   error: "Fel",
   colon: ":",
 }

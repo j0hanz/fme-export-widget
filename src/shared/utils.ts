@@ -9,6 +9,12 @@ export const isEmpty = (v: unknown): boolean => {
 export const isAuthError = (status: number): boolean =>
   status === 403 || status === 401
 
+export const isServerError = (status: number): boolean =>
+  status >= 500 && status < 600
+
+export const isNetworkError = (status: number): boolean =>
+  status === 0 || status === 408 || status === 504
+
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
   if (typeof value === "string") {
@@ -50,6 +56,70 @@ export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
   if (/no-?reply/i.test(email)) return false
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+}
+
+// Error extraction utilities
+export const extractErrorMessage = (error: unknown): string => {
+  if (!error) return "Unknown error"
+
+  if (typeof error === "string") return error
+  if (typeof error === "number") return String(error)
+
+  if (error instanceof Error) return error.message || error.name || "Error"
+
+  if (typeof error === "object" && error !== null) {
+    const obj = error as { [key: string]: unknown }
+
+    // Check common error message properties
+    for (const prop of [
+      "message",
+      "error",
+      "description",
+      "detail",
+      "reason",
+    ]) {
+      const value = obj[prop]
+      if (typeof value === "string" && value.trim()) {
+        return value
+      }
+    }
+
+    // Fallback to JSON representation
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return "Object error"
+    }
+  }
+
+  // Final fallback for unknown types
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return "Unknown error type"
+  }
+}
+
+export const extractHttpStatus = (error: unknown): number | undefined => {
+  if (!error || typeof error !== "object") return undefined
+
+  const obj = error as { [key: string]: unknown }
+
+  // Check common status properties
+  for (const prop of ["status", "statusCode", "httpStatus", "code"]) {
+    const value = obj[prop]
+    if (typeof value === "number" && value >= 100 && value < 600) {
+      return value
+    }
+    if (typeof value === "string") {
+      const parsed = parseInt(value, 10)
+      if (!isNaN(parsed) && parsed >= 100 && parsed < 600) {
+        return parsed
+      }
+    }
+  }
+
+  return undefined
 }
 
 // Support hint utilities

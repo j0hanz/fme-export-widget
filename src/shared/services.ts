@@ -7,7 +7,13 @@ import type {
   FmeExportConfig,
 } from "./types"
 import { ErrorType, ErrorSeverity, ParameterType, FormFieldType } from "./types"
-import { isEmpty, isInt, isNum } from "./utils"
+import {
+  isEmpty,
+  isInt,
+  isNum,
+  extractErrorMessage,
+  extractHttpStatus,
+} from "./utils"
 import FmeFlowApiClient from "./api"
 
 // Error service
@@ -487,6 +493,127 @@ function parseRepositoryNames(data: unknown): string[] {
 }
 
 /**
+ * Quick health check for FME Flow server
+ * Provides basic connectivity and version information
+ */
+export async function healthCheck(
+  serverUrl: string,
+  signal?: AbortSignal
+): Promise<{
+  reachable: boolean
+  version?: string
+  responseTime?: number
+  error?: string
+  status?: number
+}> {
+  const startTime = Date.now()
+
+  // Basic URL validation - if URL is malformed, don't even try
+  try {
+    const url = new URL(serverUrl)
+    // Additional check: URL should have proper protocol and host
+    if (!url.protocol || !url.host || url.host.endsWith(".")) {
+      return {
+        reachable: false,
+        responseTime: 0,
+        error: "Invalid server URL format",
+        status: 0,
+      }
+    }
+  } catch {
+    return {
+      reachable: false,
+      responseTime: 0,
+      error: "Invalid server URL format",
+      status: 0,
+    }
+  }
+
+  try {
+    // Use an empty token so the client does not append fmetoken; we only want to know if the server responds at all
+    const client = new FmeFlowApiClient({
+      serverUrl,
+      token: "",
+      repository: "_",
+    })
+
+    const response = await client.testConnection(signal)
+    const responseTime = Date.now() - startTime
+
+    return {
+      reachable: true,
+      version: response.data?.version,
+      responseTime,
+    }
+  } catch (error) {
+    const responseTime = Date.now() - startTime
+    const status = extractHttpStatus(error)
+    const errorMessage = extractErrorMessage(error)
+
+    // Only consider server reachable if we get specific HTTP auth errors from what appears to be FME Flow
+    // Network errors, DNS errors, proxy errors, etc. should be considered unreachable
+    if (status === 401 || status === 403) {
+      // Enhanced check: if error message suggests network/DNS issues or proxy errors, treat as unreachable
+      const networkIndicators = [
+        "Failed to fetch",
+        "NetworkError",
+        "net::",
+        "DNS",
+        "ENOTFOUND",
+        "ECONNREFUSED",
+        "timeout",
+        "Name or service not known",
+        "ERR_NAME_NOT_RESOLVED", // Chrome DNS resolution failure
+        "Unable to load", // ArcGIS proxy error pattern
+      ]
+
+      if (
+        networkIndicators.some((indicator) =>
+          errorMessage.toLowerCase().includes(indicator.toLowerCase())
+        )
+      ) {
+        return {
+          reachable: false,
+          responseTime,
+          error: errorMessage,
+          status,
+        }
+      }
+
+      // Additional heuristic: if the URL hostname doesn't look like a valid domain, treat 403 as unreachable
+      try {
+        const url = new URL(serverUrl)
+        const hostname = url.hostname
+
+        // Simple domain validation - should have at least one dot (like "example.com")
+        // Single words like "fmeflo" are likely invalid domains
+        if (!hostname.includes(".") || hostname.length < 4) {
+          return {
+            reachable: false,
+            responseTime,
+            error: `Invalid hostname: ${hostname}`,
+            status,
+          }
+        }
+      } catch {
+        // URL parsing already handled above
+      }
+
+      // If we get 401/403 without network indicators and valid hostname, assume server is reachable
+      return { reachable: true, responseTime, status }
+    }
+
+    // All other HTTP errors or network errors = unreachable
+    return {
+      reachable: false,
+      responseTime,
+      error: errorMessage,
+      status,
+    }
+  }
+}
+
+/**
  * Validate connection to FME Flow server
  * This is a comprehensive validation that tests server reachability,
  * token validity, and repository access if specified
@@ -521,17 +648,50 @@ export async function validateConnection(
       const status = getHttpStatus(error)
 
       if (status === 401 || status === 403) {
-        // Server reachable but token invalid
-        steps.serverUrl = "ok"
-        steps.token = "fail"
-        return {
-          success: false,
-          steps,
-          error: {
-            message: "Invalid authentication token",
-            type: "token",
-            status,
-          },
+        // Could be auth error OR server URL error - need to verify server reachability first
+        try {
+          const healthResult = await healthCheck(serverUrl, signal)
+
+          if (healthResult.reachable) {
+            // Server is reachable but token invalid
+            steps.serverUrl = "ok"
+            steps.token = "fail"
+            return {
+              success: false,
+              steps,
+              error: {
+                message: "Invalid authentication token",
+                type: "token",
+                status,
+              },
+            }
+          } else {
+            // Server not reachable - the 403 is from a proxy/load balancer, not FME Flow
+            steps.serverUrl = "fail"
+            steps.token = "skip"
+            return {
+              success: false,
+              steps,
+              error: {
+                message: getErrorMessage(error, status),
+                type: "server",
+                status,
+              },
+            }
+          }
+        } catch (healthError) {
+          // Health check failed - server not reachable
+          steps.serverUrl = "fail"
+          steps.token = "skip"
+          return {
+            success: false,
+            steps,
+            error: {
+              message: getErrorMessage(error, status),
+              type: "server",
+              status,
+            },
+          }
         }
       } else {
         // Server not reachable
@@ -610,7 +770,12 @@ export async function testBasicConnection(
   serverUrl: string,
   token: string,
   signal?: AbortSignal
-): Promise<{ success: boolean; version?: string; error?: string }> {
+): Promise<{
+  success: boolean
+  version?: string
+  error?: string
+  originalError?: unknown
+}> {
   try {
     const client = new FmeFlowApiClient({
       serverUrl,
@@ -627,6 +792,7 @@ export async function testBasicConnection(
     return {
       success: false,
       error: getErrorMessage(error, getHttpStatus(error)),
+      originalError: error, // Keep original error for better categorization
     }
   }
 }
@@ -970,4 +1136,131 @@ export function getErrorMessage(err: unknown, status?: number): string {
   }
 
   return "Unknown error"
+}
+
+/**
+ * Enhanced connection validation with detailed error categorization
+ * This provides more detailed error information than the basic testConnection
+ */
+export interface DetailedConnectionResult {
+  success: boolean
+  details: {
+    serverReachable: boolean
+    authenticationValid: boolean
+    repositoryExists: boolean
+    version?: string
+  }
+  error?: {
+    message: string
+    type: "server" | "auth" | "repository" | "network" | "generic"
+    status?: number
+    suggestion?: string
+  }
+}
+
+/**
+ * Perform detailed connection validation with step-by-step analysis
+ */
+export async function validateDetailedConnection(
+  options: ConnectionValidationOptions
+): Promise<DetailedConnectionResult> {
+  const { serverUrl, token, repository, signal } = options
+
+  const result: DetailedConnectionResult = {
+    success: false,
+    details: {
+      serverReachable: false,
+      authenticationValid: false,
+      repositoryExists: false,
+    },
+  }
+
+  try {
+    // Step 1: Test basic server connection
+    const basicResult = await testBasicConnection(serverUrl, token, signal)
+
+    if (!basicResult.success) {
+      const status = extractHttpStatus(basicResult.error)
+
+      if (status === 401 || status === 403) {
+        result.error = {
+          message: basicResult.error || "Authentication failed",
+          type: "auth",
+          status,
+          suggestion: "Check your API token",
+        }
+      } else if (status === 404) {
+        result.error = {
+          message: basicResult.error || "Server endpoint not found",
+          type: "server",
+          status,
+          suggestion: "Verify the server URL is correct",
+        }
+      } else if (!status || status === 0) {
+        result.error = {
+          message: basicResult.error || "Network connection failed",
+          type: "network",
+          suggestion: "Check network connectivity and server URL",
+        }
+      } else {
+        result.error = {
+          message: basicResult.error || "Server error",
+          type: "server",
+          status,
+          suggestion: "Contact system administrator",
+        }
+      }
+
+      return result
+    }
+
+    // Step 1 passed
+    result.details.serverReachable = true
+    result.details.authenticationValid = true
+    result.details.version = basicResult.version
+
+    // Step 2: Test repository access if specified
+    if (repository) {
+      try {
+        const repoResult = await getRepositories(serverUrl, token, signal)
+
+        if (repoResult.success && repoResult.repositories) {
+          if (repoResult.repositories.includes(repository)) {
+            result.details.repositoryExists = true
+            result.success = true
+          } else {
+            result.error = {
+              message: `Repository '${repository}' not found`,
+              type: "repository",
+              suggestion: "Choose from available repositories",
+            }
+          }
+        } else {
+          result.error = {
+            message: repoResult.error || "Failed to list repositories",
+            type: "repository",
+            suggestion: "Check repository access permissions",
+          }
+        }
+      } catch (error) {
+        result.error = {
+          message: extractErrorMessage(error),
+          type: "repository",
+          suggestion: "Check repository configuration",
+        }
+      }
+    } else {
+      // No repository specified - connection test passes
+      result.success = true
+    }
+
+    return result
+  } catch (error) {
+    result.error = {
+      message: extractErrorMessage(error),
+      type: "generic",
+      suggestion: "Review connection settings",
+    }
+    return result
+  }
 }

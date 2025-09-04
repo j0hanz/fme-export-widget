@@ -4,6 +4,7 @@ import {
   validateConnection,
   testBasicConnection,
   getRepositories,
+  healthCheck,
   validateWidgetStartup,
   validateConfigFields,
   type ConnectionValidationOptions,
@@ -705,6 +706,112 @@ describe("Connection Validation Functions", () => {
       expect(result.success).toBe(false)
       expect(result.error).toBeTruthy()
     })
+  })
+})
+
+describe("healthCheck", () => {
+  let mockClient: jest.Mocked<FmeFlowApiClient>
+
+  beforeEach(() => {
+    mockClient = {
+      testConnection: jest.fn(),
+    } as any
+
+    MockedFmeFlowApiClient.mockImplementation(() => mockClient)
+  })
+
+  afterEach(() => {
+    jest.clearAllMocks()
+  })
+
+  test("treats 401 as reachable server (auth required)", async () => {
+    // Simulate server responding with 401 Unauthorized
+    mockClient.testConnection.mockRejectedValue({
+      status: 401,
+      message: "Unauthorized",
+    })
+
+    const result = await healthCheck("https://fmeflow.example.com")
+    expect(result.reachable).toBe(true)
+    expect(result.status).toBe(401)
+  })
+
+  test("treats network error as unreachable", async () => {
+    // Simulate a generic network error (no HTTP status)
+    mockClient.testConnection.mockRejectedValue(
+      new TypeError("Failed to fetch")
+    )
+
+    const result = await healthCheck("https://fmeflow.example.com")
+    expect(result.reachable).toBe(false)
+    expect(result.status === undefined || result.status === 0).toBe(true)
+    expect(typeof result.error).toBe("string")
+  })
+
+  test("detects invalid URLs ending with dot as unreachable", async () => {
+    // This should be caught by URL validation before making any request
+    const result = await healthCheck("https://fmeflow.")
+    expect(result.reachable).toBe(false)
+    expect(result.error).toBe("Invalid server URL format")
+    expect(result.status).toBe(0)
+    expect(result.responseTime).toBe(0)
+    // testConnection should never be called for invalid URLs
+    expect(mockClient.testConnection).not.toHaveBeenCalled()
+  })
+
+  test("detects malformed URLs as unreachable", async () => {
+    // This should be caught by URL validation before making any request
+    const result = await healthCheck("not-a-url")
+    expect(result.reachable).toBe(false)
+    expect(result.error).toBe("Invalid server URL format")
+    expect(result.status).toBe(0)
+    expect(result.responseTime).toBe(0)
+    // testConnection should never be called for invalid URLs
+    expect(mockClient.testConnection).not.toHaveBeenCalled()
+  })
+
+  test("detects invalid hostnames (no dot) in 403 errors as unreachable", async () => {
+    // Simulate proxy returning 403 for invalid hostname like "fmeflo"
+    mockClient.testConnection.mockRejectedValue({
+      status: 403,
+      message: "Forbidden",
+    })
+
+    const result = await healthCheck("https://fmeflo")
+
+    expect(result.reachable).toBe(false)
+    expect(result.error).toBe("Invalid hostname: fmeflo")
+    expect(result.status).toBe(403)
+    expect(mockClient.testConnection).toHaveBeenCalled()
+  })
+
+  test("detects DNS/network errors in 403 responses as unreachable", async () => {
+    // Simulate ArcGIS proxy error with DNS failure
+    mockClient.testConnection.mockRejectedValue({
+      status: 403,
+      message: "Unable to load https://example.com/path ERR_NAME_NOT_RESOLVED",
+    })
+
+    const result = await healthCheck("https://example.com")
+
+    expect(result.reachable).toBe(false)
+    expect(result.status).toBe(403)
+    expect(result.error).toContain("ERR_NAME_NOT_RESOLVED")
+    expect(mockClient.testConnection).toHaveBeenCalled()
+  })
+
+  test("treats 401/403 as reachable when from valid hostname without network indicators", async () => {
+    // Simulate legitimate auth error from valid FME Flow server
+    mockClient.testConnection.mockRejectedValue({
+      status: 401,
+      message: "Unauthorized - invalid token",
+    })
+
+    const result = await healthCheck("https://fme.example.com")
+
+    expect(result.reachable).toBe(true)
+    expect(result.status).toBe(401)
+    expect(mockClient.testConnection).toHaveBeenCalled()
   })
 })
 
