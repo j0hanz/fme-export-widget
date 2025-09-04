@@ -16,6 +16,34 @@ import {
 } from "./utils"
 import FmeFlowApiClient from "./api"
 
+// In-flight request deduplication caches
+const inFlight = {
+  healthCheck: new Map<
+    string,
+    Promise<{
+      reachable: boolean
+      version?: string
+      responseTime?: number
+      error?: string
+      status?: number
+    }>
+  >(),
+  validateConnection: new Map<string, Promise<ConnectionValidationResult>>(),
+  testBasicConnection: new Map<
+    string,
+    Promise<{
+      success: boolean
+      version?: string
+      error?: string
+      originalError?: unknown
+    }>
+  >(),
+  getRepositories: new Map<
+    string,
+    Promise<{ success: boolean; repositories?: string[]; error?: string }>
+  >(),
+}
+
 // Error service
 export class ErrorHandlingService {
   createError(
@@ -63,7 +91,7 @@ export class ErrorHandlingService {
     if (!error || typeof translate !== "function") {
       return {
         code: "STARTUP_ERROR",
-        message: translate?.("startupValidationFailed") || "Validation failed",
+        message: "startupValidationFailed",
       }
     }
 
@@ -396,7 +424,7 @@ export class ParameterFormService {
         readOnly: false,
         description: param.description,
         defaultValue: param.defaultValue as FormPrimitive,
-        placeholder: param.description || `Enter ${param.name}`,
+        placeholder: param.description || "",
         options: param.listOptions?.map((o) => {
           const valueStr =
             typeof o.value === "string" || typeof o.value === "number"
@@ -454,7 +482,7 @@ export class ParameterFormService {
         field.type === FormFieldType.NUMBER &&
         !isNum(value)
       ) {
-        errors[field.name] = `${field.label} must be a number`
+        errors[field.name] = ""
       }
     }
 
@@ -507,6 +535,10 @@ export async function healthCheck(
   error?: string
   status?: number
 }> {
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.healthCheck.get(key)
+  if (existing) return existing
+
   const startTime = Date.now()
 
   // Basic URL validation - if URL is malformed, don't even try
@@ -517,7 +549,7 @@ export async function healthCheck(
       return {
         reachable: false,
         responseTime: 0,
-        error: "Invalid server URL format",
+        error: "invalidUrl",
         status: 0,
       }
     }
@@ -525,92 +557,104 @@ export async function healthCheck(
     return {
       reachable: false,
       responseTime: 0,
-      error: "Invalid server URL format",
+      error: "invalidUrl",
       status: 0,
     }
   }
 
-  try {
-    // Use the provided token for authentication
-    const client = new FmeFlowApiClient({
-      serverUrl,
-      token,
-      repository: "_",
-    })
+  const promise = (async () => {
+    try {
+      // Use the provided token for authentication
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
 
-    const response = await client.testConnection(signal)
-    const responseTime = Date.now() - startTime
+      const response = await client.testConnection(signal)
+      const responseTime = Date.now() - startTime
 
-    return {
-      reachable: true,
-      version: response.data?.version,
-      responseTime,
-    }
-  } catch (error) {
-    const responseTime = Date.now() - startTime
-    const status = extractHttpStatus(error)
-    const errorMessage = extractErrorMessage(error)
-
-    // Only consider server reachable if we get specific HTTP auth errors from what appears to be FME Flow
-    // Network errors, DNS errors, proxy errors, etc. should be considered unreachable
-    if (status === 401 || status === 403) {
-      // Enhanced check: if error message suggests network/DNS issues or proxy errors, treat as unreachable
-      const networkIndicators = [
-        "Failed to fetch",
-        "NetworkError",
-        "net::",
-        "DNS",
-        "ENOTFOUND",
-        "ECONNREFUSED",
-        "timeout",
-        "Name or service not known",
-        "ERR_NAME_NOT_RESOLVED", // Chrome DNS resolution failure
-        "Unable to load", // ArcGIS proxy error pattern
-      ]
-
-      if (
-        networkIndicators.some((indicator) =>
-          errorMessage.toLowerCase().includes(indicator.toLowerCase())
-        )
-      ) {
-        return {
-          reachable: false,
-          responseTime,
-          error: errorMessage,
-          status,
-        }
+      return {
+        reachable: true,
+        version: response.data?.version,
+        responseTime,
       }
+    } catch (error) {
+      const responseTime = Date.now() - startTime
+      const status = extractHttpStatus(error)
+      const errorMessage = extractErrorMessage(error)
 
-      // Additional heuristic: if the URL hostname doesn't look like a valid domain, treat 403 as unreachable
-      try {
-        const url = new URL(serverUrl)
-        const hostname = url.hostname
+      // Only consider server reachable if we get specific HTTP auth errors from what appears to be FME Flow
+      // Network errors, DNS errors, proxy errors, etc. should be considered unreachable
+      if (status === 401 || status === 403) {
+        // Enhanced check: if error message suggests network/DNS issues or proxy errors, treat as unreachable
+        const networkIndicators = [
+          "Failed to fetch",
+          "NetworkError",
+          "net::",
+          "DNS",
+          "ENOTFOUND",
+          "ECONNREFUSED",
+          "timeout",
+          "Name or service not known",
+          "ERR_NAME_NOT_RESOLVED",
+          "Unable to load", // ArcGIS proxy error pattern
+          "/sharing/proxy", // ArcGIS proxy path
+          "proxy",
+        ]
 
-        // Simple domain validation - should have at least one dot (like "example.com")
-        // Single words like "fmeflo" are likely invalid domains
-        if (!hostname.includes(".") || hostname.length < 4) {
+        if (
+          networkIndicators.some((indicator) =>
+            errorMessage.toLowerCase().includes(indicator.toLowerCase())
+          )
+        ) {
           return {
             reachable: false,
             responseTime,
-            error: `Invalid hostname: ${hostname}`,
+            error: errorMessage,
             status,
           }
         }
-      } catch {
-        // URL parsing already handled above
+
+        // Additional heuristic: if the URL hostname doesn't look like a valid domain, treat 403 as unreachable
+        try {
+          const url = new URL(serverUrl)
+          const hostname = url.hostname
+
+          // Simple domain validation - should have at least one dot (like "example.com")
+          // Single words like "fmeflo" are likely invalid domains
+          if (!hostname.includes(".") || hostname.length < 4) {
+            return {
+              reachable: false,
+              responseTime,
+              error: `Invalid hostname: ${hostname}`,
+              status,
+            }
+          }
+        } catch {
+          // URL parsing already handled above
+        }
+
+        // If we get 401/403 without network indicators and valid hostname, assume server is reachable
+        return { reachable: true, responseTime, status }
       }
 
-      // If we get 401/403 without network indicators and valid hostname, assume server is reachable
-      return { reachable: true, responseTime, status }
+      // All other HTTP errors or network errors = unreachable
+      return {
+        reachable: false,
+        responseTime,
+        error: errorMessage,
+        status,
+      }
     }
+  })()
 
-    // All other HTTP errors or network errors = unreachable
-    return {
-      reachable: false,
-      responseTime,
-      error: errorMessage,
-      status,
-    }
+  inFlight.healthCheck.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.healthCheck.delete(key)
   }
 }
 
@@ -624,6 +668,10 @@ export async function validateConnection(
 ): Promise<ConnectionValidationResult> {
   const { serverUrl, token, repository, signal } = options
 
+  const key = `${serverUrl}|${token}|${repository || "_"}`
+  const existing = inFlight.validateConnection.get(key)
+  if (existing) return existing
+
   const steps: CheckSteps = {
     serverUrl: "pending",
     token: "pending",
@@ -631,43 +679,89 @@ export async function validateConnection(
     version: "",
   }
 
-  try {
-    const client = new FmeFlowApiClient({
-      serverUrl,
-      token,
-      repository: repository || "_",
-    })
-
-    // Step 1: Test connection and get server info
-    let serverInfo: any
+  const promise = (async (): Promise<ConnectionValidationResult> => {
     try {
-      serverInfo = await client.testConnection(signal)
-      steps.serverUrl = "ok"
-      steps.token = "ok"
-      steps.version = String(serverInfo?.data?.version || "")
-    } catch (error) {
-      const status = extractHttpStatus(error)
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: repository || "_",
+      })
 
-      if (status === 401 || status === 403) {
-        // Could be auth error OR server URL error - need to verify server reachability first
-        try {
-          const healthResult = await healthCheck(serverUrl, token, signal)
+      // Step 1: Test connection and get server info
+      let serverInfo: any
+      try {
+        serverInfo = await client.testConnection(signal)
+        steps.serverUrl = "ok"
+        steps.token = "ok"
+        steps.version = String(serverInfo?.data?.version || "")
+      } catch (error) {
+        const status = extractHttpStatus(error)
 
-          if (healthResult.reachable) {
-            // Server is reachable but token invalid
-            steps.serverUrl = "ok"
-            steps.token = "fail"
+        if (status === 401) {
+          // Clear token failure without extra network checks
+          steps.serverUrl = "ok"
+          steps.token = "fail"
+          return {
+            success: false,
+            steps,
+            error: {
+              message: "startupTokenError",
+              type: "token",
+              status,
+            },
+          }
+        } else if (status === 403) {
+          const rawMessage = extractErrorMessage(error)
+          const proxyHints = ["Unable to load", "/sharing/proxy", "proxy"]
+          if (
+            proxyHints.some((h) =>
+              rawMessage.toLowerCase().includes(h.toLowerCase())
+            )
+          ) {
+            // Proxy forbids or cannot reach upstream → treat as server/connectivity
+            steps.serverUrl = "fail"
+            steps.token = "skip"
             return {
               success: false,
               steps,
               error: {
-                message: "Invalid authentication token",
-                type: "token",
+                message: "startupServerError",
+                type: "server",
                 status,
               },
             }
-          } else {
-            // Server not reachable - the 403 is from a proxy/load balancer, not FME Flow
+          }
+          // Could be auth error OR server URL error - verify reachability once
+          try {
+            const healthResult = await healthCheck(serverUrl, token, signal)
+
+            if (healthResult.reachable) {
+              // Server is reachable but token invalid/forbidden
+              steps.serverUrl = "ok"
+              steps.token = "fail"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: "startupTokenError",
+                  type: "token",
+                  status,
+                },
+              }
+            } else {
+              steps.serverUrl = "fail"
+              steps.token = "skip"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: getErrorMessage(error, status),
+                  type: "server",
+                  status,
+                },
+              }
+            }
+          } catch (healthError) {
             steps.serverUrl = "fail"
             steps.token = "skip"
             return {
@@ -680,8 +774,8 @@ export async function validateConnection(
               },
             }
           }
-        } catch (healthError) {
-          // Health check failed - server not reachable
+        } else {
+          // Server not reachable
           steps.serverUrl = "fail"
           steps.token = "skip"
           return {
@@ -689,77 +783,73 @@ export async function validateConnection(
             steps,
             error: {
               message: getErrorMessage(error, status),
-              type: "server",
+              type: status === 0 ? "network" : "server",
               status,
             },
           }
         }
-      } else {
-        // Server not reachable
-        steps.serverUrl = "fail"
-        steps.token = "skip"
-        return {
-          success: false,
-          steps,
-          error: {
-            message: getErrorMessage(error, status),
-            type: status === 0 ? "network" : "server",
-            status,
-          },
+      }
+
+      // Step 2: Get repository list only if not provided
+      let repositories: string[] = []
+      if (!repository) {
+        try {
+          const reposResp = await client.getRepositories(signal)
+          repositories = parseRepositoryNames(reposResp?.data)
+        } catch (error) {
+          repositories = []
         }
       }
-    }
 
-    // Step 2: Get repository list
-    let repositories: string[] = []
-    try {
-      const reposResp = await client.getRepositories(signal)
-      repositories = parseRepositoryNames(reposResp?.data)
+      // Step 3: Validate specific repository if provided
+      if (repository) {
+        try {
+          await client.validateRepository(repository, signal)
+          steps.repository = "ok"
+        } catch (error) {
+          steps.repository = "fail"
+          return {
+            success: false,
+            repositories,
+            steps,
+            error: {
+              message: "repositoryNotAccessible",
+              type: "repository",
+            },
+          }
+        }
+      }
+
+      return {
+        success: true,
+        version: steps.version,
+        repositories,
+        steps,
+      }
     } catch (error) {
-      // Continue even if repository listing fails
-      repositories = []
-    }
+      if ((error as Error)?.name === "AbortError") {
+        throw new Error("Request aborted") // Re-throw abort errors
+      }
 
-    // Step 3: Validate specific repository if provided
-    if (repository) {
-      try {
-        await client.validateRepository(repository, signal)
-        steps.repository = "ok"
-      } catch (error) {
-        steps.repository = "fail"
-        return {
-          success: false,
-          repositories,
-          steps,
-          error: {
-            message: `Repository '${repository}' is not accessible`,
-            type: "repository",
-          },
-        }
+      const status = extractHttpStatus(error)
+      return {
+        success: false,
+        steps,
+        error: {
+          message: getErrorMessage(error, status),
+          type: "generic",
+          status,
+        },
       }
     }
+  })()
 
-    return {
-      success: true,
-      version: steps.version,
-      repositories,
-      steps,
-    }
-  } catch (error) {
-    if ((error as Error)?.name === "AbortError") {
-      throw new Error("Request aborted") // Re-throw abort errors
-    }
-
-    const status = extractHttpStatus(error)
-    return {
-      success: false,
-      steps,
-      error: {
-        message: getErrorMessage(error, status),
-        type: "generic",
-        status,
-      },
-    }
+  inFlight.validateConnection.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.validateConnection.delete(key)
   }
 }
 
@@ -777,24 +867,38 @@ export async function testBasicConnection(
   error?: string
   originalError?: unknown
 }> {
-  try {
-    const client = new FmeFlowApiClient({
-      serverUrl,
-      token,
-      repository: "_",
-    })
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.testBasicConnection.get(key)
+  if (existing) return existing
 
-    const info = await client.testConnection(signal)
-    return {
-      success: true,
-      version: String(info?.data?.version || ""),
+  const promise = (async () => {
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
+
+      const info = await client.testConnection(signal)
+      return {
+        success: true,
+        version: String(info?.data?.version || ""),
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: getErrorMessage(error, extractHttpStatus(error)),
+        originalError: error, // Keep original error for better categorization
+      }
     }
-  } catch (error) {
-    return {
-      success: false,
-      error: getErrorMessage(error, extractHttpStatus(error)),
-      originalError: error, // Keep original error for better categorization
-    }
+  })()
+
+  inFlight.testBasicConnection.set(key, promise)
+  try {
+    const res = await promise
+    return res
+  } finally {
+    inFlight.testBasicConnection.delete(key)
   }
 }
 
@@ -806,25 +910,39 @@ export async function getRepositories(
   token: string,
   signal?: AbortSignal
 ): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
+  const key = `${serverUrl}|${token}`
+  const existing = inFlight.getRepositories.get(key)
+  if (existing) return existing
+
+  const promise = (async () => {
+    try {
+      const client = new FmeFlowApiClient({
+        serverUrl,
+        token,
+        repository: "_",
+      })
+
+      const resp = await client.getRepositories(signal)
+      const repositories = parseRepositoryNames(resp?.data)
+
+      return {
+        success: true,
+        repositories,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: getErrorMessage(error, extractHttpStatus(error)),
+      }
+    }
+  })()
+
+  inFlight.getRepositories.set(key, promise)
   try {
-    const client = new FmeFlowApiClient({
-      serverUrl,
-      token,
-      repository: "_",
-    })
-
-    const resp = await client.getRepositories(signal)
-    const repositories = parseRepositoryNames(resp?.data)
-
-    return {
-      success: true,
-      repositories,
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: getErrorMessage(error, extractHttpStatus(error)),
-    }
+    const res = await promise
+    return res
+  } finally {
+    inFlight.getRepositories.delete(key)
   }
 }
 
@@ -965,8 +1083,7 @@ function createConfigError(
   fallbackMessage: string
 ): ErrorState {
   return {
-    message:
-      translate("startupConfigError") || "Widget configuration is incomplete",
+    message: translate("startupConfigError") || "startupConfigError",
     type: ErrorType.CONFIG,
     code,
     severity: ErrorSeverity.ERROR,
@@ -974,11 +1091,8 @@ function createConfigError(
     timestamp: new Date(),
     timestampMs: Date.now(),
     userFriendlyMessage:
-      translate("startupConfigErrorHint") ||
-      "Please configure the widget in the settings panel",
-    suggestion:
-      translate("openSettingsPanel") ||
-      "Open the settings panel to configure the connection",
+      translate("startupConfigErrorHint") || "startupConfigErrorHint",
+    suggestion: translate("openSettingsPanel") || "openSettingsPanel",
   }
 }
 
@@ -989,33 +1103,29 @@ function createConnectionError(
   translate: (key: string, params?: any) => string,
   connectionError?: { message: string; type: string; status?: number }
 ): ErrorState {
-  const baseMessage = connectionError?.message || "Connection failed"
-  let userMessage =
-    translate("startupConnectionError") || "Cannot connect to FME Flow server"
-  let suggestion =
-    translate("checkConnectionSettings") || "Check your connection settings"
+  // Interpret incoming message as a translation key when possible
+  const baseMessageKey = connectionError?.message || "startupConnectionError"
+  let baseMessage = translate(baseMessageKey) || baseMessageKey
+  let userMessage = translate("startupConnectionError")
+  let suggestion = translate("checkConnectionSettings")
 
   // Provide specific guidance based on error type
   if (connectionError?.type === "token") {
-    userMessage = translate("startupTokenError") || "Authentication failed"
-    suggestion =
-      translate("checkTokenSettings") || "Check your API token in settings"
+    baseMessage = translate("startupTokenError") || baseMessage
+    userMessage = translate("startupTokenError")
+    suggestion = translate("checkTokenSettings")
   } else if (connectionError?.type === "server") {
-    userMessage = translate("startupServerError") || "Server is not accessible"
-    suggestion =
-      translate("checkServerSettings") || "Check your server URL in settings"
+    baseMessage = translate("startupServerError") || baseMessage
+    userMessage = translate("startupServerError")
+    suggestion = translate("checkServerSettings")
   } else if (connectionError?.type === "repository") {
-    userMessage =
-      translate("startupRepositoryError") || "Repository is not accessible"
-    suggestion =
-      translate("checkRepositorySettings") ||
-      "Check your repository selection in settings"
+    baseMessage = translate("repositoryNotAccessible") || baseMessage
+    userMessage = translate("startupRepositoryError")
+    suggestion = translate("checkRepositorySettings")
   } else if (connectionError?.type === "network") {
-    userMessage =
-      translate("startupNetworkError") || "Network connection failed"
-    suggestion =
-      translate("checkNetworkConnection") ||
-      "Check your network connection and server URL"
+    baseMessage = translate("startupNetworkError") || baseMessage
+    userMessage = translate("startupNetworkError")
+    suggestion = translate("checkNetworkConnection")
   }
 
   return {
@@ -1038,7 +1148,7 @@ function createNetworkError(
   translate: (key: string, params?: any) => string,
   error: unknown
 ): ErrorState {
-  const message = (error as Error)?.message || "Unknown network error"
+  const message = translate("startupNetworkError") || "startupNetworkError"
 
   return {
     message,
@@ -1049,10 +1159,8 @@ function createNetworkError(
     timestamp: new Date(),
     timestampMs: Date.now(),
     userFriendlyMessage:
-      translate("startupNetworkError") || "Network connection failed",
-    suggestion:
-      translate("checkNetworkConnection") ||
-      "Check your network connection and try again",
+      translate("startupNetworkError") || "startupNetworkError",
+    suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
   }
 }
 
@@ -1094,10 +1202,10 @@ export function validateConfigFields(config: FmeExportConfig | undefined): {
 // Helper functions with improved type safety
 export function getErrorMessage(err: unknown, status?: number): string {
   // Handle known status codes first
-  if (status === 0) return "Network connection failed"
-  if (status === 401 || status === 403) return "Authentication failed"
-  if (status === 404) return "Server not found"
-  if (status && status >= 500) return `Server error (${status})`
+  if (status === 0) return "startupNetworkError"
+  if (status === 401 || status === 403) return "startupTokenError"
+  if (status === 404) return "connectionFailed"
+  if (status && status >= 500) return "serverError"
 
   // Extract message from error object
   const message = (err as Error)?.message
@@ -1105,10 +1213,10 @@ export function getErrorMessage(err: unknown, status?: number): string {
     // Normalize common fetch error messages
     const lowerMessage = message.toLowerCase()
     if (lowerMessage.includes("failed to fetch")) {
-      return "Network connection failed"
+      return "startupNetworkError"
     }
-    return message
+    return "unknownErrorOccurred"
   }
 
-  return "Unknown error"
+  return "unknownErrorOccurred"
 }

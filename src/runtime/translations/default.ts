@@ -107,4 +107,12 @@ export default {
   failedToLoadWorkspaces: "Det gick inte att ladda tillgängliga arbetsytor",
   failedToLoadWorkspaceDetails:
     "Det gick inte att ladda detaljer för vald arbetsyta",
+
+  // Settings labels used during validation
+  fmeServerUrl: "FME Server-URL",
+  fmeServerToken: "FME API-nyckel",
+  fmeRepository: "Repository",
+
+  // Additional error message keys
+  repositoryNotAccessible: "Repository är inte tillgängligt",
 }
