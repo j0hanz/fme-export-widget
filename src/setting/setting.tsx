@@ -664,19 +664,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const getStringConfig = useStringConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
-  // Stable ref to avoid unnecessary bumps
-  const lastBumpedRef = React.useRef<number>(0)
-  const bumpConfigRevision = hooks.useEventCallback(() => {
-    const now = Date.now()
-    const next = now <= lastBumpedRef.current ? lastBumpedRef.current + 1 : now
-    lastBumpedRef.current = next
-    try {
-      updateConfig(
-        "configRevision",
-        next as unknown as WidgetConfig["configRevision"]
-      )
-    } catch {}
-  })
+
   // Stable ID references for form fields
   const ID = {
     supportEmail: "setting-support-email",
@@ -1223,7 +1211,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localTmTtc,
     localTmTtl,
     localToken,
-    bumpConfigRevision,
   ])
 
   // Clear repository state when server URL or token changes significantly
@@ -1338,13 +1325,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         repository: undefined, // Allow manual entry when list is empty
       }))
     }
-  }, [
-    availableRepos,
-    localRepository,
-    testState.status,
-    translate,
-    bumpConfigRevision,
-  ])
+  }, [availableRepos, localRepository, testState.status, translate])
 
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
@@ -1516,8 +1497,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               const checked = evt?.target?.checked ?? !localSyncMode
               setLocalSyncMode(checked)
               updateConfig("syncMode", checked)
-              // Only bump config revision for sync mode changes since it affects runtime
-              bumpConfigRevision()
+              // Config change will be detected automatically by the widget
             }}
             aria-label={translate("serviceModeSync")}
           />

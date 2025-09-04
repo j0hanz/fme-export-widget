@@ -492,7 +492,6 @@ export interface FmeExportConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
-  readonly configRevision?: number
 }
 
 export interface RequestConfig {
@@ -768,7 +767,6 @@ export interface WidgetConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
-  readonly configRevision?: number
 }
 
 export type IMWidgetConfig = ImmutableObject<WidgetConfig>

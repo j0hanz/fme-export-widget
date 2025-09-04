@@ -997,25 +997,39 @@ export default function Widget(
     }
   })
 
+  // Track if this is the initial load
+  const isInitialLoadRef = React.useRef(true)
+
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
+    isInitialLoadRef.current = false
     runStartupValidation()
   })
 
   // React to configuration changes by re-running startup validation
-  const prevConfigRevRef = React.useRef<number | undefined>(undefined)
+  // Standard ExB pattern: monitor props.config directly for changes
   React.useEffect(() => {
-    const rev = (props.config as any)?.configRevision
-    // Skip if revision is missing or unchanged
-    if (typeof rev !== "number" || prevConfigRevRef.current === rev) return
-    prevConfigRevRef.current = rev
+    // Skip on initial load (handled by useEffectOnce above)
+    if (isInitialLoadRef.current) {
+      return
+    }
 
+    // Reset widget state and re-validate when config changes
     try {
       dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION))
       dispatch(fmeActions.setGeometry(null, 0))
       dispatch(fmeActions.setDrawingState(false, 0))
-    } catch {}
+      dispatch(fmeActions.setError(null))
+      dispatch(fmeActions.setSelectedWorkspace(null))
+      dispatch(fmeActions.setWorkspaceParameters([], ""))
+      dispatch(fmeActions.setWorkspaceItem(null))
+      dispatch(fmeActions.setFormValues({}))
+      dispatch(fmeActions.setOrderResult(null))
+    } catch (error) {
+      console.warn("Error resetting widget state on config change:", error)
+    }
 
+    // Re-run validation with new config
     runStartupValidation()
   }, [props.config, dispatch, runStartupValidation])
 
@@ -1416,15 +1430,18 @@ export default function Widget(
     return <StateView state={{ kind: "loading", message: loadingMessage }} />
   }
 
-  // Error state - let Workflow handle all startup validation errors
+  // Error state - prioritize startup validation errors, then general errors
+  if (reduxState.startupValidationError) {
+    // Always handle startup validation errors first
+    return renderWidgetError(
+      reduxState.startupValidationError,
+      runStartupValidation
+    )
+  }
+
   if (reduxState.error && reduxState.error.severity === "error") {
-    // Only handle non-startup errors here; startup errors are handled by Workflow
-    if (reduxState.startupValidationError) {
-      // Let Workflow handle startup validation errors
-    } else {
-      // Other errors
-      return renderWidgetError(reduxState.error)
-    }
+    // Handle other errors (non-startup validation)
+    return renderWidgetError(reduxState.error)
   }
 
   // derive simple view booleans for readability

@@ -279,16 +279,14 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message (translation key in test env)
+    // Error message (Swedish translation)
     await waitFor(() => {
-      const emailErrors = screen.getAllByText(/userEmailMissing/i)
+      const emailErrors = screen.getAllByText(/användarens e-postadress krävs/i)
       expect(emailErrors[0]).toBeInTheDocument()
     })
 
-    // Support mailto link rendered by Workflow
-    const emailLink = await screen.findByRole("link", {
-      name: /help@domain\.se/i,
-    })
+    // Support mailto link rendered by Workflow - check by text content instead of aria-label
+    const emailLink = await screen.findByText("help@domain.se")
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
   })
 
@@ -324,10 +322,8 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Accessible mailto link for support email
-    const emailLink = await screen.findByRole("link", {
-      name: /help@domain\.se/i,
-    })
+    // Accessible mailto link for support email - check by text content instead of aria-label
+    const emailLink = await screen.findByText("help@domain.se")
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
 
     // Support text present (translation may vary)
@@ -369,9 +365,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing server URL
+    // Error message for missing server URL (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      const errorElements = screen.getAllByText(/fme server-url saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -408,9 +404,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing token
+    // Error message for missing token (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/tokenMissing/i)
+      const errorElements = screen.getAllByText(/fme api-nyckel saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -447,9 +443,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing repository
+    // Error message for missing repository (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/repositoryMissing/i)
+      const errorElements = screen.getAllByText(/repository saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -486,9 +482,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for empty server URL (whitespace treated as empty)
+    // Error message for empty server URL (whitespace treated as empty) - Swedish translation
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      const errorElements = screen.getAllByText(/fme server-url saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
