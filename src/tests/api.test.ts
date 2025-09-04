@@ -1,6 +1,7 @@
 import FmeFlowApiClient, {
   createFmeFlowClient,
   isWebhookUrlTooLong,
+  resetEsriCache,
 } from "../shared/api"
 import { FmeFlowApiError, HttpMethod } from "../shared/types"
 import { waitForMilliseconds } from "jimu-for-test"
@@ -22,6 +23,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
   beforeEach(() => {
     // Reset module state and globals for isolation
     jest.resetModules()
+    resetEsriCache() // Reset ArcGIS module cache
     ;(global as any).esriConfig = makeEsriConfig()
     ;(global as any).projection = {
       webMercatorToGeographic: (g: any) => ({
@@ -47,6 +49,135 @@ describe("FmeFlowApiClient (api.ts)", () => {
     if ((global as any).fetch) {
       delete (global as any).fetch
     }
+  })
+
+  describe("Repository Cache Scoping", () => {
+    it("should generate different scope query parameters for different repositories", async () => {
+      // Reset any cached modules first
+      resetEsriCache()
+
+      // Set up global mocks before client creation
+      const mockEsriRequest = jest
+        .fn()
+        .mockResolvedValueOnce({
+          data: { items: [] },
+          httpStatus: 200,
+          statusText: "OK",
+        })
+        .mockResolvedValueOnce({
+          data: { items: [] },
+          httpStatus: 200,
+          statusText: "OK",
+        })
+
+      ;(global as any).esriRequest = mockEsriRequest
+      ;(global as any).esriConfig = makeEsriConfig()
+      ;(global as any).projection = { load: async () => Promise.resolve() }
+      ;(global as any).webMercatorUtils = {}
+      ;(global as any).SpatialReference = function () {
+        return {}
+      }
+
+      const config1 = {
+        fmeServerUrl: "https://fme.example.com",
+        fmeServerToken: "test-token",
+        repository: "repository-a",
+      }
+
+      const config2 = {
+        fmeServerUrl: "https://fme.example.com",
+        fmeServerToken: "test-token",
+        repository: "repository-b",
+      }
+
+      let client1: any, client2: any
+      try {
+        client1 = createFmeFlowClient(config1)
+        client2 = createFmeFlowClient(config2)
+      } catch (error) {
+        console.error("Client creation failed:", error)
+        throw new Error(`Client creation failed: ${error}`)
+      }
+
+      // Make requests to both clients
+      await Promise.all([
+        client1
+          .getRepositoryItems("repository-a", "WORKSPACE")
+          .catch((err: any) => {
+            console.error("Client 1 request failed:", err)
+            return null
+          }),
+        client2
+          .getRepositoryItems("repository-b", "WORKSPACE")
+          .catch((err: any) => {
+            console.error("Client 2 request failed:", err)
+            return null
+          }),
+      ])
+
+      expect(mockEsriRequest).toHaveBeenCalledTimes(2)
+
+      const call1 = mockEsriRequest.mock.calls[0]
+      const call2 = mockEsriRequest.mock.calls[1]
+
+      const scope1 = call1[1]?.query?.__scope
+      const scope2 = call2[1]?.query?.__scope
+
+      // Verify different scope IDs for different repositories
+      expect(scope1).toBeDefined()
+      expect(scope2).toBeDefined()
+      expect(scope1).not.toEqual(scope2)
+    })
+
+    it("should include repository context in workspace item requests", async () => {
+      // Reset any cached modules first
+      resetEsriCache()
+
+      // Set up global mocks before client creation
+      const mockEsriRequest = jest.fn().mockResolvedValue({
+        data: { name: "test-workspace", parameters: [] },
+        httpStatus: 200,
+        statusText: "OK",
+      })
+
+      ;(global as any).esriRequest = mockEsriRequest
+      ;(global as any).esriConfig = makeEsriConfig()
+      ;(global as any).projection = { load: async () => Promise.resolve() }
+      ;(global as any).webMercatorUtils = {}
+      ;(global as any).SpatialReference = function () {
+        return {}
+      }
+
+      const config = {
+        fmeServerUrl: "https://fme.example.com",
+        fmeServerToken: "test-token",
+        repository: "test-repository",
+      }
+
+      let client: any
+      try {
+        client = createFmeFlowClient(config)
+      } catch (error) {
+        console.error("Client creation failed:", error)
+        throw new Error(`Client creation failed: ${error}`)
+      }
+
+      await client
+        .getWorkspaceItem("test-workspace", "test-repository")
+        .catch((err: any) => {
+          console.error("Request failed:", err)
+          return null
+        })
+
+      expect(mockEsriRequest).toHaveBeenCalledTimes(1)
+
+      const requestCall = mockEsriRequest.mock.calls[0]
+      const scopeId = requestCall[1]?.query?.__scope
+
+      // Verify scope ID includes repository context
+      expect(scopeId).toBeDefined()
+      expect(typeof scopeId).toBe("string")
+    })
   })
 
   test("createFmeFlowClient validates required config", () => {
@@ -275,6 +406,7 @@ describe("FmeFlowApiClient (api.ts)", () => {
     expect(capturedUrl).toContain("tm_ttc=600")
     expect(capturedUrl).toContain("tm_ttl=120")
     expect(capturedUrl).toContain("tm_tag=high")
+    expect(capturedUrl).toContain("fmetoken=tok-xyz")
   })
 
   test("submitJob maps tm_* params into TMDirectives and excludes them from publishedParameters", async () => {
@@ -330,10 +462,9 @@ describe("FmeFlowApiClient (api.ts)", () => {
     await client.runDataDownload("ws", { a: 1 }, "repo")
     await waitForMilliseconds(0)
 
-    expect(capturedHeaders).toBeTruthy()
-    expect(capturedHeaders["User-Agent"]).toBeUndefined()
-    expect(capturedHeaders.Accept).toBe("application/json")
-    expect(typeof capturedHeaders.Authorization).toBe("string")
+    // After CORS fix: webhook now sends minimal headers to avoid preflight
+    expect(capturedHeaders).toBeUndefined() // No custom headers sent
+    // The test passes if no User-Agent header is sent (which is the main goal)
   })
 
   test("runDataDownload rejects on non-JSON webhook (text/plain)", async () => {

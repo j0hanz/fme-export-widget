@@ -61,6 +61,8 @@ describe("FME store - Redux store extension and reducer", () => {
       message: "boom",
       severity: ErrorSeverity.ERROR,
       type: ErrorType.NETWORK,
+      code: "NETWORK_ERROR",
+      recoverable: false,
       timestampMs: 0,
     }
     expect(fmeActions.setError(err)).toEqual({
@@ -127,6 +129,8 @@ describe("FME store - Redux store extension and reducer", () => {
         message: "Config error",
         severity: ErrorSeverity.ERROR,
         type: ErrorType.CONFIG,
+        code: "CONFIG_ERROR",
+        recoverable: false,
         timestampMs: 0,
       }
 
@@ -243,7 +247,7 @@ describe("FME store - Redux store extension and reducer", () => {
           description: "desc",
           type: ParameterType.TEXT,
           defaultValue: "x",
-          model: "MODEL",
+          optional: false,
         },
       ]
       const detail: WorkspaceItemDetail = {
@@ -292,11 +296,78 @@ describe("FME store - Redux store extension and reducer", () => {
       expect((state as any).isSubmittingOrder).toBe(true)
     })
 
+    test("repository-aware workspace management", () => {
+      const items: readonly WorkspaceItem[] = [
+        { name: "ws1", title: "WS 1", description: "d1", type: "WORKSPACE" },
+      ]
+      const params: readonly WorkspaceParameter[] = [
+        {
+          name: "Param1",
+          description: "desc",
+          type: ParameterType.TEXT,
+          defaultValue: "x",
+          optional: false,
+        },
+      ]
+      const detail: WorkspaceItemDetail = {
+        name: "ws1",
+        title: "WS 1",
+        description: "d1",
+        type: "WORKSPACE",
+        parameters: params,
+      }
+
+      let state = makeState()
+
+      // Workspace actions with repository context
+      state = reducer(
+        state as any,
+        fmeActions.setWorkspaceItems(items, "test-repo")
+      )
+      expect((state as any).workspaceItems).toEqual(items)
+      expect((state as any).currentRepository).toBe("test-repo")
+
+      state = reducer(
+        state as any,
+        fmeActions.setWorkspaceParameters(params, "ws1", "test-repo")
+      )
+      expect((state as any).workspaceParameters).toEqual(params)
+      expect((state as any).selectedWorkspace).toBe("ws1")
+      expect((state as any).currentRepository).toBe("test-repo")
+
+      state = reducer(
+        state as any,
+        fmeActions.setSelectedWorkspace("ws2", "test-repo")
+      )
+      expect((state as any).selectedWorkspace).toBe("ws2")
+      expect((state as any).currentRepository).toBe("test-repo")
+
+      state = reducer(
+        state as any,
+        fmeActions.setWorkspaceItem(detail, "test-repo")
+      )
+      expect((state as any).workspaceItem).toEqual(detail)
+      expect((state as any).currentRepository).toBe("test-repo")
+
+      // Test CLEAR_WORKSPACE_STATE action
+      state = reducer(state as any, fmeActions.clearWorkspaceState("new-repo"))
+      expect((state as any).workspaceItems).toEqual([])
+      expect((state as any).selectedWorkspace).toBeNull()
+      expect((state as any).workspaceParameters).toEqual([])
+      expect((state as any).workspaceItem).toBeNull()
+      expect((state as any).formValues).toEqual({})
+      expect((state as any).currentRepository).toBe("new-repo")
+      expect((state as any).isLoadingWorkspaces).toBe(false)
+      expect((state as any).isLoadingParameters).toBe(false)
+    })
+
     test("error state management", () => {
       const baseError = {
         message: "Oops",
         severity: ErrorSeverity.ERROR,
         type: ErrorType.NETWORK,
+        code: "NETWORK_ERROR",
+        recoverable: false,
         timestampMs: 0,
       }
 

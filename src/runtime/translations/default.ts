@@ -29,6 +29,22 @@ export default {
   contactSupport: "Kontakta supporten för hjälp med konfigurationen",
   contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
   retryValidation: "Försök igen",
+
+  // Startup validation error messages
+  startupConfigError: "Widgetens konfiguration är ofullständig",
+  startupConfigErrorHint: "Konfigurera widgeten i inställningspanelen",
+  openSettingsPanel:
+    "Öppna inställningspanelen för att konfigurera anslutningen",
+  startupConnectionError: "Kan inte ansluta till FME Flow-servern",
+  checkConnectionSettings: "Kontrollera dina anslutningsinställningar",
+  startupTokenError: "Autentisering misslyckades",
+  checkTokenSettings: "Kontrollera din API-nyckel i inställningarna",
+  startupServerError: "Servern är inte tillgänglig",
+  checkServerSettings: "Kontrollera din server-URL i inställningarna",
+  startupRepositoryError: "Repository är inte tillgängligt",
+  checkRepositorySettings: "Kontrollera ditt repository-val i inställningarna",
+  startupNetworkError: "Nätverksanslutning misslyckades",
+  checkNetworkConnection: "Kontrollera din nätverksanslutning och försök igen",
   requestAborted: "Åtgärden avbröts",
   operationCancelled: "Åtgärden har avbrutits",
   corsError: "Blockerad av CORS-policy",
@@ -91,4 +107,12 @@ export default {
   failedToLoadWorkspaces: "Det gick inte att ladda tillgängliga arbetsytor",
   failedToLoadWorkspaceDetails:
     "Det gick inte att ladda detaljer för vald arbetsyta",
+
+  // Settings labels used during validation
+  fmeServerUrl: "FME Server-URL",
+  fmeServerToken: "FME API-nyckel",
+  fmeRepository: "Repository",
+
+  // Additional error message keys
+  repositoryNotAccessible: "Repository är inte tillgängligt",
 }

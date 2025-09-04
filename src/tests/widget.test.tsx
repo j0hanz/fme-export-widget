@@ -29,34 +29,51 @@ jest.mock("jimu-arcgis", () => ({
 // Mock FME client so startup connection/auth checks pass without network
 jest.mock("../shared/api", () => {
   const ok = { status: 200, statusText: "OK", data: {} }
+
+  class MockFmeFlowApiClient {
+    // capture provided config for potential inspection
+    _config: any
+    constructor(config: any) {
+      this._config = config
+    }
+    testConnection() {
+      return Promise.resolve(ok)
+    }
+    validateRepository() {
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        data: { name: "repo" },
+      })
+    }
+    getRepositories() {
+      return Promise.resolve({ status: 200, statusText: "OK", data: [] })
+    }
+    // Default runDataDownload mock resolves with success and echoes a jobID
+    runDataDownload(workspace: string, params: any) {
+      ;(global as any).__LAST_FME_CALL__ = { workspace, params }
+      return Promise.resolve({
+        status: 200,
+        statusText: "OK",
+        data: {
+          serviceResponse: {
+            status: "success",
+            jobID: 101,
+            url: "http://example.com/file.zip",
+          },
+        },
+      })
+    }
+  }
+
+  const createFmeFlowClient = jest.fn(
+    (config: any) => new MockFmeFlowApiClient(config)
+  )
+
   return {
     __esModule: true,
-    createFmeFlowClient: jest.fn(() => ({
-      testConnection: jest.fn(() => Promise.resolve(ok)),
-      validateRepository: jest.fn(() =>
-        Promise.resolve({
-          status: 200,
-          statusText: "OK",
-          data: { name: "repo" },
-        })
-      ),
-
-      // Default runDataDownload mock resolves with success and echoes a jobID
-      runDataDownload: jest.fn((workspace: string, params: any) => {
-        ;(global as any).__LAST_FME_CALL__ = { workspace, params }
-        return Promise.resolve({
-          status: 200,
-          statusText: "OK",
-          data: {
-            serviceResponse: {
-              status: "success",
-              jobID: 101,
-              url: "http://example.com/file.zip",
-            },
-          },
-        })
-      }),
-    })),
+    default: MockFmeFlowApiClient,
+    createFmeFlowClient,
   }
 })
 
@@ -262,16 +279,14 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message (translation key in test env)
+    // Error message (Swedish translation)
     await waitFor(() => {
-      const emailErrors = screen.getAllByText(/userEmailMissing/i)
+      const emailErrors = screen.getAllByText(/användarens e-postadress krävs/i)
       expect(emailErrors[0]).toBeInTheDocument()
     })
 
-    // Support mailto link rendered by Workflow
-    const emailLink = await screen.findByRole("link", {
-      name: /help@domain\.se/i,
-    })
+    // Support mailto link rendered by Workflow - check by text content instead of aria-label
+    const emailLink = await screen.findByText("help@domain.se")
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
   })
 
@@ -307,10 +322,8 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Accessible mailto link for support email
-    const emailLink = await screen.findByRole("link", {
-      name: /help@domain\.se/i,
-    })
+    // Accessible mailto link for support email - check by text content instead of aria-label
+    const emailLink = await screen.findByText("help@domain.se")
     expect(emailLink.getAttribute("href")).toBe("mailto:help@domain.se")
 
     // Support text present (translation may vary)
@@ -352,9 +365,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing server URL
+    // Error message for missing server URL (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      const errorElements = screen.getAllByText(/fme server-url saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -391,9 +404,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing token
+    // Error message for missing token (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/tokenMissing/i)
+      const errorElements = screen.getAllByText(/fme api-nyckel saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -430,9 +443,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for missing repository
+    // Error message for missing repository (Swedish translation)
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/repositoryMissing/i)
+      const errorElements = screen.getAllByText(/repository saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })
@@ -469,9 +482,9 @@ describe("FME Export Widget", () => {
       />
     )
 
-    // Error message for empty server URL (whitespace treated as empty)
+    // Error message for empty server URL (whitespace treated as empty) - Swedish translation
     await waitFor(() => {
-      const errorElements = screen.getAllByText(/serverUrlMissing/i)
+      const errorElements = screen.getAllByText(/fme server-url saknas/i)
       expect(errorElements[0]).toBeInTheDocument()
     })
   })

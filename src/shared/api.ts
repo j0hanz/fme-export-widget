@@ -76,6 +76,35 @@ async function ensureEsri(): Promise<void> {
   if (_loadPromise) return _loadPromise
 
   _loadPromise = (async () => {
+    // In test environment, check for global mocks first before trying to load modules
+    if (isTestEnv()) {
+      const globalAny = global as any
+
+      // If we have global mocks set up, use them directly
+      if (
+        globalAny.esriRequest ||
+        globalAny.esriConfig ||
+        globalAny.projection ||
+        globalAny.webMercatorUtils ||
+        globalAny.SpatialReference
+      ) {
+        console.warn("FME API - Using global mocks in test environment")
+        _esriRequest =
+          globalAny.esriRequest || (() => Promise.resolve({ data: null }))
+        _esriConfig = globalAny.esriConfig || {
+          request: { maxUrlLength: 4000, interceptors: [] },
+        }
+        _projection = globalAny.projection || {}
+        _webMercatorUtils = globalAny.webMercatorUtils || {}
+        _SpatialReference =
+          globalAny.SpatialReference ||
+          function () {
+            return {}
+          }
+        return
+      }
+    }
+
     try {
       const [
         requestMod,
@@ -104,22 +133,9 @@ async function ensureEsri(): Promise<void> {
         await projection.load()
       }
     } catch (error) {
-      // In test environment, provide basic stubs
-      if (isTestEnv()) {
-        console.warn(
-          "FME API - ArcGIS modules not available in test environment"
-        )
-        _esriRequest = () => Promise.resolve({ data: null })
-        _esriConfig = { request: { maxUrlLength: 4000, interceptors: [] } }
-        _projection = {}
-        _webMercatorUtils = {}
-        _SpatialReference = function () {
-          return {}
-        }
-      } else {
-        console.error("FME API - Failed to load ArcGIS modules:", error)
-        throw new Error("Failed to load ArcGIS modules")
-      }
+      // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
+      console.error("FME API - Failed to load ArcGIS modules:", error)
+      throw new Error("Failed to load ArcGIS modules")
     }
   })()
 
@@ -269,13 +285,30 @@ const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   return `${base}/${path}`
 }
 
+// Create a stable scope ID from server URL, token, and repository for caching purposes
+function makeScopeId(
+  serverUrl: string,
+  token: string,
+  repository?: string
+): string {
+  const s = `${serverUrl}::${token || ""}::${repository || ""}`
+  // DJB2 hash function
+  let h = 5381
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) + h) ^ s.charCodeAt(i)
+  }
+  const n = Math.abs(h >>> 0)
+  return n.toString(36)
+}
+
 // Check if a webhook URL with parameters would exceed max length
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  maxLen: number = API.MAX_URL_LENGTH
+  maxLen: number = API.MAX_URL_LENGTH,
+  token?: string
 ): boolean {
   const webhookUrl = buildUrl(
     serverUrl,
@@ -288,6 +321,10 @@ export function isWebhookUrlTooLong(
     [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
     true
   )
+  // Add tm_* values if present
+  if (token) {
+    params.set("fmetoken", token)
+  }
   const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
@@ -386,19 +423,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 }
 
 // Request Processing Utilities
-const buildRequestHeaders = (
-  existingHeaders: { [key: string]: string } = {},
-  token?: string
-): { [key: string]: string } => {
-  const headers = { ...existingHeaders }
-  if (token && !headers.Authorization) {
-    headers.Authorization = `fmetoken token=${token}`
-  }
-  if (!headers.Accept) {
-    headers.Accept = "application/json"
-  }
-  return headers
-}
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
@@ -575,7 +599,7 @@ export class FmeFlowApiClient {
         )
         const raw = await this.request<any>(listEndpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-token header-insensitive caches
           query: { limit: -1, offset: -1 },
         })
 
@@ -624,7 +648,8 @@ export class FmeFlowApiClient {
     )
     return this.request<WorkspaceParameter>(endpoint, {
       signal,
-      cacheHint: true,
+      cacheHint: false, // Disable header-insensitive caching
+      repositoryContext: repo, // Add repository context for proper cache scoping
     })
   }
 
@@ -653,7 +678,8 @@ export class FmeFlowApiClient {
       () =>
         this.request(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
       "Failed to get repository items",
@@ -672,7 +698,8 @@ export class FmeFlowApiClient {
       () =>
         this.request<any>(endpoint, {
           signal,
-          cacheHint: true,
+          cacheHint: false, // Avoid cross-repo/token contamination
+          repositoryContext: repo, // Add repository context for proper cache scoping
         }),
       "Failed to get workspace item details",
       "WORKSPACE_ITEM_ERROR"
@@ -830,6 +857,13 @@ export class FmeFlowApiClient {
         [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
         true
       )
+
+      // Add FME token as query parameter to avoid CORS issues
+      if (this.config.token) {
+        params.set("token", this.config.token)
+        if (!params.has("fmetoken")) params.set("fmetoken", this.config.token)
+      }
+
       // Ensure tm_* values are present if provided
       const maybeAppend = (k: string) => {
         const v = (parameters as any)[k]
@@ -881,10 +915,6 @@ export class FmeFlowApiClient {
 
       const response = await fetch(fullUrl, {
         method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `fmetoken token=${this.config.token}`,
-        },
         signal,
       })
 
@@ -1042,10 +1072,30 @@ export class FmeFlowApiClient {
     console.log("FME API - Making request to:", url)
 
     try {
-      const headers = buildRequestHeaders(options.headers, this.config.token)
+      const headers: { [key: string]: string } = {
+        ...(options.headers || {}),
+      }
+
+      // Build query parameters including token to avoid CORS issues
+      const query: any = { ...(options.query || {}) }
+      if (this.config.token && this.config.token.trim()) {
+        query.fmetoken = this.config.token
+      }
+
+      // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
+      const isGet = !options.method || options.method === HttpMethod.GET
+      if (isGet) {
+        const scope = makeScopeId(
+          this.config.serverUrl,
+          this.config.token,
+          options.repositoryContext
+        )
+        if (query.__scope === undefined) query.__scope = scope
+      }
+
       const requestOptions: any = {
         method: (options.method?.toLowerCase() as any) || "get",
-        query: options.query as any,
+        query,
         responseType: "json",
         headers,
         signal: options.signal,

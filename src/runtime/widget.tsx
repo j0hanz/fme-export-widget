@@ -36,11 +36,14 @@ import {
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../shared/types"
-import { ErrorHandlingService } from "../shared/services"
+import {
+  ErrorHandlingService,
+  validateWidgetStartup,
+  getErrorMessage,
+} from "../shared/services"
 import { fmeActions, initialFmeState } from "../extensions/store"
 import {
   resolveMessageOrKey,
-  getErrorMessage,
   isValidEmail,
   buildSupportHintText,
   getSupportEmail,
@@ -879,50 +882,6 @@ export default function Widget(
     cleanupResources,
   } = localMapState
 
-  // Configuration validation helper with improved error handling
-  const validateConfiguration = hooks.useEventCallback(
-    (
-      config: FmeExportConfig | undefined
-    ): { isValid: boolean; error?: ErrorState } => {
-      if (!config) {
-        return {
-          isValid: false,
-          error: createStartupError("invalidConfiguration", "ConfigMissing"),
-        }
-      }
-
-      // Check required fields with more specific error messages
-      const requiredFields = [
-        {
-          field: config.fmeServerUrl?.trim(),
-          key: "serverUrlMissing",
-          code: "ServerUrlEmpty",
-        },
-        {
-          field: config.fmeServerToken?.trim(),
-          key: "tokenMissing",
-          code: "TokenEmpty",
-        },
-        {
-          field: config.repository?.trim(),
-          key: "repositoryMissing",
-          code: "RepositoryEmpty",
-        },
-      ]
-
-      for (const { field, key, code } of requiredFields) {
-        if (!field) {
-          return {
-            isValid: false,
-            error: createStartupError(key, code),
-          }
-        }
-      }
-
-      return { isValid: true }
-    }
-  )
-
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
     dispatch(fmeActions.setStartupValidationState(true, step))
@@ -975,25 +934,31 @@ export default function Widget(
         return
       }
 
-      // Step 2: validate widget configuration
-      const configValidation = validateConfiguration(config)
-      if (!configValidation.isValid && configValidation.error) {
-        setValidationError(configValidation.error)
+      // Step 2: validate widget configuration and FME connection using shared service
+      setValidationStep(translate("validatingConnection"))
+      const validationResult = await validateWidgetStartup({
+        config,
+        translate,
+        signal: undefined, // Could add abort controller here if needed
+      })
+
+      if (!validationResult.isValid) {
+        if (validationResult.error) {
+          setValidationError(validationResult.error)
+        } else {
+          // Fallback error
+          setValidationError(
+            createStartupError(
+              "invalidConfiguration",
+              "VALIDATION_FAILED",
+              runStartupValidation
+            )
+          )
+        }
         return
       }
 
-      // Step 3: validate connection and repository
-      const client = createFmeFlowClient(config)
-      setValidationStep(translate("validatingConnection"))
-
-      await makeCancelable(
-        Promise.all([
-          client.testConnection(),
-          client.validateRepository(config.repository),
-        ])
-      )
-
-      // Step 4: validate user email
+      // Step 3: validate user email
       setValidationStep(translate("validatingUserEmail"))
       try {
         const email = await getEmail()
@@ -1032,27 +997,83 @@ export default function Widget(
     }
   })
 
+  // Track if this is the initial load
+  const isInitialLoadRef = React.useRef(true)
+
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
+    isInitialLoadRef.current = false
     runStartupValidation()
   })
 
-  // React to configuration changes by re-running startup validation
-  const prevConfigRevRef = React.useRef<number | undefined>(undefined)
-  React.useEffect(() => {
-    const rev = (props.config as any)?.configRevision
-    // Skip if revision is missing or unchanged
-    if (typeof rev !== "number" || prevConfigRevRef.current === rev) return
-    prevConfigRevRef.current = rev
-
-    try {
+  // Reset widget state for re-validation
+  const resetForRevalidation = hooks.useEventCallback(
+    (alsoCleanupMapResources = false) => {
+      // Cancel any ongoing submission
+      submissionController.cancel()
+      if (sketchViewModel) {
+        try {
+          sketchViewModel.cancel()
+        } catch (_) {}
+      }
+      if (graphicsLayer) {
+        try {
+          graphicsLayer.removeAll()
+        } catch (_) {}
+      }
+      // Reset local state
+      setCurrentGeometry(null)
+      if (alsoCleanupMapResources) {
+        try {
+          cleanupResources()
+        } catch (_) {}
+      }
+      // Reset redux state
       dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION))
       dispatch(fmeActions.setGeometry(null, 0))
       dispatch(fmeActions.setDrawingState(false, 0))
-    } catch {}
+      dispatch(fmeActions.setError(null))
+      dispatch(fmeActions.setSelectedWorkspace(null))
+      dispatch(fmeActions.setWorkspaceParameters([], ""))
+      dispatch(fmeActions.setWorkspaceItem(null))
+      dispatch(fmeActions.setFormValues({}))
+      dispatch(fmeActions.setOrderResult(null))
+    }
+  )
 
+  // React to config changes by re-running startup validation
+  React.useEffect(() => {
+    if (isInitialLoadRef.current) {
+      return
+    }
+    try {
+      resetForRevalidation(false)
+    } catch (error) {
+      console.warn("Error resetting widget state on config change:", error)
+    }
+
+    // Re-run validation with new config
     runStartupValidation()
-  }, [props.config, dispatch, runStartupValidation])
+  }, [props.config, resetForRevalidation, runStartupValidation])
+
+  // React to map selection changes by re-running startup validation
+  React.useEffect(() => {
+    if (isInitialLoadRef.current) return
+    try {
+      // If no map is configured, also cleanup map resources
+      const hasMapConfigured =
+        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
+      resetForRevalidation(!hasMapConfigured)
+    } catch (error) {
+      console.warn(
+        "Error resetting widget state on map selection change:",
+        error
+      )
+    }
+
+    // Re-run validation with new map selection
+    runStartupValidation()
+  }, [useMapWidgetIds, resetForRevalidation, runStartupValidation])
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
@@ -1451,15 +1472,18 @@ export default function Widget(
     return <StateView state={{ kind: "loading", message: loadingMessage }} />
   }
 
-  // Error state - let Workflow handle all startup validation errors
+  // Error state - prioritize startup validation errors, then general errors
+  if (reduxState.startupValidationError) {
+    // Always handle startup validation errors first
+    return renderWidgetError(
+      reduxState.startupValidationError,
+      runStartupValidation
+    )
+  }
+
   if (reduxState.error && reduxState.error.severity === "error") {
-    // Only handle non-startup errors here; startup errors are handled by Workflow
-    if (reduxState.startupValidationError) {
-      // Let Workflow handle startup validation errors
-    } else {
-      // Other errors
-      return renderWidgetError(reduxState.error)
-    }
+    // Handle other errors (non-startup validation)
+    return renderWidgetError(reduxState.error)
   }
 
   // derive simple view booleans for readability

@@ -37,11 +37,9 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../shared/types"
+import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 
 type TranslateFn = (key: string, params?: any) => string
-
-// Email placeholder pattern for support links
-const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
 
 // Configuration
 export const config = {
@@ -482,6 +480,7 @@ export const Input: React.FC<InputProps> = ({
   errorText,
   type = "text",
   onChange,
+  onBlur,
   onFileChange,
   ...props
 }) => {
@@ -501,12 +500,21 @@ export const Input: React.FC<InputProps> = ({
     }
   )
 
+  const handleBlur = hooks.useEventCallback(
+    (evt: React.FocusEvent<HTMLInputElement>) => {
+      if (onBlur) {
+        onBlur(evt.target.value)
+      }
+    }
+  )
+
   return (
     <TextInput
       {...props}
       type={type as any}
       value={value as string | number}
       onChange={handleChange}
+      onBlur={handleBlur}
       required={required}
       maxLength={maxLength}
       title={errorText}
@@ -557,135 +565,91 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
-// Multi-select rendering component
-const MultiSelectComponent: React.FC<{
-  options: readonly OptionItem[]
-  normalizedValue: Array<string | number>
-  setValue: (val: Array<string | number>) => void
-  onChange?: (val: Array<string | number>) => void
-  placeholder: string
-  disabled: boolean
-  style?: React.CSSProperties
-}> = ({
-  options,
-  normalizedValue,
-  setValue,
+// Select component
+export const Select: React.FC<SelectProps> = ({
+  options = [],
+  value,
+  defaultValue,
   onChange,
   placeholder,
-  disabled,
+  disabled = false,
   style,
 }) => {
-  // Use stable computation without useMemo for better performance
-  const items = options.map((opt) => ({
-    label: opt.label,
-    value: opt.value,
-    disabled: opt.disabled,
-  }))
+  const translate = hooks.useTranslation(defaultMessages)
+  const [internalValue, setInternalValue] = useValue(value, defaultValue)
+
+  const isMultiSelect = Array.isArray(internalValue)
+  const resolvedPlaceholder = placeholder || translate("selectOption")
+
+  const handleSingleSelectChange = hooks.useEventCallback(
+    (evt: unknown, selectedValue?: string | number) => {
+      const newValue =
+        selectedValue !== undefined
+          ? selectedValue
+          : (evt as any)?.target?.value
+      setInternalValue(newValue)
+      onChange?.(newValue)
+    }
+  )
 
   const handleMultiSelectChange = hooks.useEventCallback(
     (vals: Array<string | number>) => {
-      setValue(vals)
+      setInternalValue(vals)
       onChange?.(vals)
     }
   )
 
-  return (
-    <div style={style}>
-      <MultiSelect
-        items={items as any}
-        values={normalizedValue}
-        onChange={handleMultiSelectChange}
-        placeholder={placeholder}
-        disabled={disabled}
-      />
-    </div>
-  )
-}
+  if (isMultiSelect) {
+    const multiSelectItems = options.map((opt) => ({
+      label: opt.label,
+      value: opt.value,
+      disabled: opt.disabled,
+    }))
 
-// Select component
-export const Select: React.FC<SelectProps> = (props) => {
-  const {
-    options = [],
-    value: controlled,
-    defaultValue,
-    onChange,
-    placeholder,
-    disabled = false,
-    style,
-  } = props
-
-  const isMulti = Array.isArray(controlled)
-  const [value, setValue] = useValue(controlled, defaultValue)
-  const translate = hooks.useTranslation(defaultMessages)
-
-  // Normalize the value to strings for the underlying select component(s)
-  const normalizedValue: string | Array<string | number> = isMulti
-    ? Array.isArray(value)
-      ? value.map((v) => String(v))
-      : []
-    : value !== undefined &&
-        (typeof value === "string" || typeof value === "number")
-      ? String(value)
-      : undefined
-
-  const resolvedPlaceholder = placeholder || translate("selectOption")
-
-  // Handle single select change
-  const handleSingleChange = hooks.useEventCallback(
-    (evt: unknown, selectedValue?: string | number) => {
-      const raw =
-        selectedValue !== undefined
-          ? selectedValue
-          : (evt as any)?.target?.value
-      setValue(raw)
-      onChange?.(raw)
-    }
-  )
-
-  // Generate option elements without useMemo for simplicity
-  const optionElements = options.map((option) => (
-    <JimuOption
-      key={String(option.value)}
-      value={option.value}
-      active={String(option.value) === String(normalizedValue)}
-      disabled={option.disabled}
-      onClick={() => {
-        if (!option.disabled) {
-          const isSame = String(option.value) === String(normalizedValue ?? "")
-          if (!isSame) {
-            handleSingleChange(undefined as any, option.value)
-          }
-        }
-      }}
-    >
-      {!option.hideLabel && option.label}
-    </JimuOption>
-  ))
-
-  if (isMulti) {
     return (
-      <MultiSelectComponent
-        options={options}
-        normalizedValue={normalizedValue as Array<string | number>}
-        setValue={setValue}
-        onChange={onChange}
-        placeholder={resolvedPlaceholder}
-        disabled={disabled}
-        style={style}
-      />
+      <div style={style}>
+        <MultiSelect
+          items={multiSelectItems as any}
+          values={Array.isArray(internalValue) ? internalValue : []}
+          onChange={handleMultiSelectChange}
+          placeholder={resolvedPlaceholder}
+          disabled={disabled}
+        />
+      </div>
     )
   }
 
+  // Single select
+  const stringValue =
+    internalValue != null &&
+    (typeof internalValue === "string" || typeof internalValue === "number")
+      ? String(internalValue)
+      : undefined
+
   return (
     <JimuSelect
-      value={normalizedValue as string}
-      onChange={handleSingleChange}
+      value={stringValue}
+      onChange={handleSingleSelectChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
       style={style}
     >
-      {optionElements}
+      {options.map((option) => (
+        <JimuOption
+          key={String(option.value)}
+          value={option.value}
+          active={String(option.value) === stringValue}
+          disabled={option.disabled}
+          onClick={() => {
+            if (!option.disabled && String(option.value) !== stringValue) {
+              handleSingleSelectChange(undefined, option.value)
+            }
+          }}
+        >
+          {!option.hideLabel && option.label}
+        </JimuOption>
+      ))}
     </JimuSelect>
   )
 }
