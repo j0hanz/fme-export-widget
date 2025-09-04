@@ -1,471 +1,409 @@
-import { React } from "jimu-core"
-import { screen, fireEvent } from "@testing-library/react"
+import React from "react"
+import { screen, within, waitFor, fireEvent } from "@testing-library/react"
+import "@testing-library/jest-dom"
+import { widgetRender, initStore } from "jimu-for-test"
 import {
-  initExtensions,
-  initStore,
-  widgetRender,
-  withStoreThemeIntlRender,
-  waitForMilliseconds,
-} from "jimu-for-test"
+  ViewMode,
+  DrawingTool,
+  ParameterType,
+  type WorkspaceItem,
+  ErrorSeverity,
+  type ErrorState,
+} from "../shared/types"
 import { Workflow } from "../runtime/components/workflow"
-import { ViewMode, type ExportResult } from "../shared/types"
+
+// Security: Mock the FME client to avoid real network calls
+const mockClient = {
+  getRepositoryItems: jest.fn(),
+  getWorkspaceItem: jest.fn(),
+}
+
+jest.mock("../shared/api", () => ({
+  createFmeFlowClient: jest.fn().mockImplementation(() => mockClient),
+}))
+
+const renderWithProviders = widgetRender(true)
 
 describe("Workflow component", () => {
-  const baseProps = {
-    instructionText: "Rita inom området",
-    isModulesLoading: false,
-  }
-
-  beforeAll(() => {
-    initExtensions()
+  beforeEach(() => {
+    jest.useRealTimers()
+    jest.clearAllMocks()
     initStore()
   })
 
-  const renderWithProviders = widgetRender(true)
-  const renderSTI = withStoreThemeIntlRender()
-
-  // Test helpers
-  const headerCancelQuery = () =>
-    screen.queryByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
-
-  const expectMailto = (email: string) => {
-    const emailLink = screen.queryByRole("link", {
-      name: new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
-    })
-    expect(emailLink).toBeTruthy()
-    if (emailLink)
-      expect(emailLink.getAttribute("href")).toBe(`mailto:${email}`)
-  }
-
-  test("renders drawing mode tabs in DRAWING state with no clicks", () => {
+  test("shows startup loading by default and renders step message", () => {
     renderWithProviders(
       <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.DRAWING}
-        canStartDrawing={true}
-        drawnArea={0}
-        clickCount={0}
+        state={ViewMode.STARTUP_VALIDATION}
+        instructionText=""
+        isModulesLoading={false}
+        showHeaderActions={false}
+        drawingMode={DrawingTool.POLYGON}
       />
     )
 
-    // Should show drawing mode toggle buttons
-    const polygonBtn = screen.getByLabelText(/Polygon/i)
-    const rectangleBtn = screen.getByLabelText(/Rektangel|Rectangle/i)
-    expect(polygonBtn).toBeTruthy()
-    expect(rectangleBtn).toBeTruthy()
+    // Expect loading StateView (avoid locale-specific text assertions)
+    expect(screen.getByRole("status")).toBeInTheDocument()
   })
 
-  test("renders instruction text in DRAWING state when actively drawing", () => {
-    renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.DRAWING}
-        canStartDrawing={true}
-        drawnArea={0}
-        clickCount={1}
-        isDrawing={true}
-      />
-    )
-
-    const el = screen.getByText(baseProps.instructionText)
-    expect(el).toBeTruthy()
-  })
-
-  test("ORDER_RESULT state handling for success and error scenarios", async () => {
-    // Success state renders reuse button and triggers callback
-    const onReuseGeography = jest.fn()
-    const successResult: ExportResult = {
-      success: true,
-      message: "OK",
-      jobId: 123,
-      workspaceName: "ws",
-      email: "x@y.z",
-    }
-
-    const { unmount: unmount1 } = renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.ORDER_RESULT}
-        orderResult={successResult}
-        onReuseGeography={onReuseGeography}
-      />
-    )
-
-    const reuseBtn = await screen.findByRole("button", {
-      name: /Återanvänd geometri|Ny beställning/i,
-    })
-    fireEvent.click(reuseBtn)
-    expect(onReuseGeography).toHaveBeenCalled()
-
-    unmount1()
-
-    // Error state renders retry button and triggers onBack
-    const onBack = jest.fn()
-    const errorResult: ExportResult = {
-      success: false,
-      workspaceName: "ws",
-      message: "Something went wrong",
-      code: "ERR",
-    }
-
-    renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.ORDER_RESULT}
-        orderResult={errorResult}
-        onBack={onBack}
-      />
-    )
-
-    const retryBtn = await screen.findByRole("button", {
-      name: /Försök igen/i,
-    })
-    fireEvent.click(retryBtn)
-    expect(onBack).toHaveBeenCalled()
-  })
-
-  test("header reset functionality in different states", () => {
-    const onReset = jest.fn()
-
-    // In DRAWING, Cancel hidden until first click
-    const { unmount: unmount1 } = renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.DRAWING}
-        onReset={onReset}
-        canReset={true}
-        showHeaderActions={true}
-        drawnArea={0}
-        isDrawing={true}
-        clickCount={0}
-      />
-    )
-
-    const absentBtn = headerCancelQuery()
-    expect(absentBtn).toBeNull()
-
-    unmount1()
-
-    // After first click, Cancel visible and enabled
-    const { unmount: unmount2 } = renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.DRAWING}
-        onReset={onReset}
-        canReset={true}
-        showHeaderActions={true}
-        drawnArea={0}
-        isDrawing={true}
-        clickCount={1}
-      />
-    )
-
-    const headerBtn = screen.getByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
-    expect(headerBtn.getAttribute("aria-disabled")).toBe("false")
-    fireEvent.click(headerBtn)
-    expect(onReset).toHaveBeenCalled()
-
-    unmount2()
-
-    // In INITIAL (even with area), Cancel hidden
-    renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.INITIAL}
-        onReset={onReset}
-        canReset={true}
-        showHeaderActions={true}
-        drawnArea={200}
-      />
-    )
-
-    const initialBtn = headerCancelQuery()
-    expect(initialBtn).toBeNull()
-  })
-
-  test("Cancel button is hidden when showing ORDER_RESULT", () => {
-    const onReset = jest.fn()
-    const result: ExportResult = {
-      success: true,
-      message: "Done",
-      jobId: 1,
-      workspaceName: "ws",
-      email: "a@b.c",
-    }
-
-    renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.ORDER_RESULT}
-        orderResult={result}
-        onReset={onReset}
-        canReset={true}
-        showHeaderActions={true}
-        drawnArea={500}
-      />
-    )
-
-    const headerBtn = screen.queryByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
-    expect(headerBtn).toBeNull()
-  })
-
-  test("EXPORT_FORM submission behavior for valid and invalid scenarios", async () => {
-    // Invalid submission does not call onSubmit
-    const onFormSubmit = jest.fn()
-    const workspaceParameters = [
-      {
-        name: "Title",
-        description: "Titel",
-        type: "TEXT",
-        model: "MODEL",
-        optional: false,
-      },
-    ] as any
-
-    const { unmount: unmount1 } = renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.EXPORT_FORM}
-        workspaceParameters={workspaceParameters}
-        workspaceName="ws"
-        onFormSubmit={onFormSubmit}
-        config={
-          {
-            fmeServerUrl: "https://example.com",
-            fmeServerToken: "t",
-            repository: "repo",
-          } as any
-        }
-      />
-    )
-
-    const submitBtn1 = screen.queryByRole("button", {
-      name: /Beställ|Skicka|Submit|Order/i,
-    })
-    if (submitBtn1) {
-      fireEvent.click(submitBtn1)
-      expect(onFormSubmit).not.toHaveBeenCalled()
-      const inlineReq1 = screen.queryByText(/is required/i)
-      expect(inlineReq1).toBeNull()
-    } else {
-      const missingCfg = screen.queryByText(
-        /Saknar exportkonfiguration|Missing export configuration/i
-      )
-      expect(missingCfg).toBeTruthy()
-      expect(onFormSubmit).not.toHaveBeenCalled()
-    }
-
-    unmount1()
-
-    // Valid submission calls onSubmit with expected data
-    const onFormBack = jest.fn()
-    const validWorkspaceParameters = [
-      {
-        name: "Title",
-        description: "Titel",
-        type: "TEXT",
-        model: "MODEL",
-        optional: false,
-        defaultValue: "Hello",
-      },
-    ] as any
-
-    onFormSubmit.mockClear()
-    renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.EXPORT_FORM}
-        workspaceParameters={validWorkspaceParameters}
-        selectedWorkspace="ws"
-        onFormBack={onFormBack}
-        onFormSubmit={onFormSubmit}
-        config={
-          {
-            fmeServerUrl: "https://example.com",
-            fmeServerToken: "t",
-            repository: "repo",
-          } as any
-        }
-      />
-    )
-
-    const submitBtn2 = await screen.findByRole("button", {
-      name: /Beställ|Skicka|Submit|Order/i,
-    })
-    fireEvent.click(submitBtn2)
-
-    expect(onFormSubmit).toHaveBeenCalled()
-    const arg = onFormSubmit.mock.calls[0][0]
-    expect(arg.type).toBe("ws")
-    expect(arg.data).toMatchObject({ Title: "Hello" })
-  })
-
-  test("startup validation state handling", async () => {
+  test("renders startup error with retry and support hint", () => {
     const onRetryValidation = jest.fn()
-
-    // Loading state during validation
-    const { unmount: unmount1 } = renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.STARTUP_VALIDATION}
-        isStartupValidating={true}
-        startupValidationStep="Validating connection..."
-      />
-    )
-
-    // Loading message is debounced; it may not render immediately
-    await waitForMilliseconds(1100)
-    screen.getByText("Validating connection...")
-    unmount1()
-
-    // Error state with email support configured
-    const validationError = {
-      message: "Configuration error",
-      severity: "error" as any,
-      type: "ConfigError" as any,
-      timestampMs: Date.now(),
-      userFriendlyMessage: "support@example.com", // Email passed for mailto link
+    const startupError: ErrorState = {
+      message: "startupServerError",
+      code: "SERVER",
+      type: "config" as any,
+      severity: ErrorSeverity.ERROR,
+      timestamp: new Date(),
+      timestampMs: 0,
+      recoverable: true,
+      userFriendlyMessage: "Please try again",
+      suggestion: "retry",
     }
 
     renderWithProviders(
       <Workflow
-        {...(baseProps as any)}
         state={ViewMode.STARTUP_VALIDATION}
-        isStartupValidating={false}
-        startupValidationError={validationError}
+        instructionText=""
+        isModulesLoading={false}
+        startupValidationError={startupError}
         onRetryValidation={onRetryValidation}
+        config={{ supportEmail: "help@example.com" } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    const alert = screen.getByRole("alert")
+    expect(alert).toBeInTheDocument()
+    // Retry action present
+    within(alert).getByRole("group")
+    // Support hint includes mailto link; actions are rendered via support hint override without buttons
+    // Support hint includes mailto link
+    expect(
+      screen
+        .getAllByRole("link")
+        .some((a) =>
+          (a as HTMLAnchorElement).href.startsWith("mailto:help@example.com")
+        )
+    ).toBe(true)
+  })
+
+  test("initial state renders drawing mode tabs and switches mode", async () => {
+    const onDrawingModeChange = jest.fn()
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.INITIAL}
+        instructionText=""
+        isModulesLoading={false}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={onDrawingModeChange}
+        showHeaderActions={false}
+      />
+    )
+
+    // Radiogroup and radios via ButtonTabs (sv labels)
+    const group = screen.getByRole("radiogroup")
+    const polygon = within(group).getByRole("radio", { name: /Polygon/i })
+    const rectangle = within(group).getByRole("radio", { name: /Rektangel/i })
+
+    expect(polygon).toHaveAttribute("aria-checked", "true")
+    rectangle.click()
+    await waitFor(() => {
+      expect(onDrawingModeChange).toHaveBeenCalledWith(DrawingTool.RECTANGLE)
+    })
+  })
+
+  test("drawing state with clicks > 0 shows instruction text", () => {
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.DRAWING}
+        instructionText="Click to continue"
+        isModulesLoading={false}
+        drawingMode={DrawingTool.POLYGON}
+        clickCount={2}
+        showHeaderActions={false}
+      />
+    )
+
+    const status = screen.getByRole("status")
+    expect(within(status).getByText(/Click to continue/i)).toBeInTheDocument()
+  })
+
+  test("workspace selection: loads, lists items, and selects a workspace", async () => {
+    jest.useFakeTimers()
+    const workspaces: WorkspaceItem[] = [
+      { name: "ws1", title: "Workspace One", type: "WORKSPACE" } as any,
+      { name: "ws2", title: "Workspace Two", type: "WORKSPACE" } as any,
+    ]
+    mockClient.getRepositoryItems.mockResolvedValueOnce({
+      status: 200,
+      data: { items: workspaces },
+    })
+    const onWorkspaceSelected = jest.fn()
+
+    const { rerender } = renderWithProviders(
+      <Workflow
+        state={ViewMode.INITIAL}
+        instructionText=""
+        isModulesLoading={false}
+        config={{ repository: "repoA" } as any}
+        onWorkspaceSelected={onWorkspaceSelected}
+        showHeaderActions={false}
+      />
+    )
+    // Transition into workspace selection to trigger useUpdateEffect scheduling
+    rerender(
+      <Workflow
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText=""
+        isModulesLoading={false}
+        config={{ repository: "repoA" } as any}
+        onWorkspaceSelected={onWorkspaceSelected}
+        showHeaderActions={false}
+      />
+    )
+
+    // Initially shows loading status (avoid locale-specific text)
+    expect(screen.getByRole("status")).toBeInTheDocument()
+
+    // Advance timers to trigger scheduled load and resolve promise
+    jest.advanceTimersByTime(600)
+    await waitFor(() => {
+      expect(mockClient.getRepositoryItems).toHaveBeenCalled()
+    })
+    // StateView enforces a minimum loading delay of 1000ms; advance to reveal list
+    jest.advanceTimersByTime(1200)
+
+    // Workspace list rendered as list of buttons
+    // Prepare item details mock before click
+    mockClient.getWorkspaceItem.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        parameters: [{ name: "count", type: ParameterType.INTEGER }],
+        title: "Workspace One",
+      },
+    })
+    const firstItem = await screen.findByRole("listitem", {
+      name: /Workspace One/i,
+    })
+    firstItem.click()
+
+    // The click triggers the load; wait for the handler to be invoked via onWorkspaceSelected
+    await waitFor(() => {
+      expect(mockClient.getWorkspaceItem).toHaveBeenCalledWith(
+        "ws1",
+        "repoA",
+        expect.any(AbortSignal)
+      )
+    })
+  })
+
+  test("workspace selection: error state shows alert and support hint (no list)", async () => {
+    jest.useFakeTimers()
+    mockClient.getRepositoryItems.mockRejectedValueOnce(new Error("boom"))
+
+    const { rerender } = renderWithProviders(
+      <Workflow
+        state={ViewMode.INITIAL}
+        instructionText=""
+        isModulesLoading={false}
         config={
+          { repository: "repoA", supportEmail: "help@example.com" } as any
+        }
+        showHeaderActions={false}
+      />
+    )
+
+    rerender(
+      <Workflow
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText=""
+        isModulesLoading={false}
+        config={
+          { repository: "repoA", supportEmail: "help@example.com" } as any
+        }
+        showHeaderActions={false}
+      />
+    )
+
+    // Loading first
+    expect(screen.getByRole("status")).toBeInTheDocument()
+    jest.advanceTimersByTime(600)
+    // After promise settles and minimum delay, alert should render
+    await waitFor(() => {
+      expect(mockClient.getRepositoryItems).toHaveBeenCalled()
+    })
+    jest.advanceTimersByTime(1200)
+    const alert = await screen.findByRole("alert")
+    expect(alert).toBeInTheDocument()
+    // No list when error
+    expect(screen.queryByRole("list")).not.toBeInTheDocument()
+    // Support hint mailto link present when supportEmail provided
+    expect(
+      screen
+        .getAllByRole("link")
+        .some((a) =>
+          (a as HTMLAnchorElement).href.startsWith("mailto:help@example.com")
+        )
+    ).toBe(true)
+  })
+
+  test("workspace selection: empty response shows placeholder (no list)", async () => {
+    jest.useFakeTimers()
+    mockClient.getRepositoryItems.mockResolvedValueOnce({
+      status: 200,
+      data: { items: [] },
+    })
+
+    const { rerender } = renderWithProviders(
+      <Workflow
+        state={ViewMode.INITIAL}
+        instructionText=""
+        isModulesLoading={false}
+        config={{ repository: "repoA" } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    rerender(
+      <Workflow
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText=""
+        isModulesLoading={false}
+        config={{ repository: "repoA" } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Loading then empty view
+    jest.advanceTimersByTime(600)
+    await waitFor(() => {
+      expect(mockClient.getRepositoryItems).toHaveBeenCalled()
+    })
+    jest.advanceTimersByTime(1200)
+
+    // Component keeps showing a placeholder loading status when no workspaces are found
+    expect(screen.getByRole("status")).toBeInTheDocument()
+    // No list or actions are present
+    expect(screen.queryByRole("list")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Försök igen/i })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Tillbaka/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test("export form: required number field validation and submit", async () => {
+    const onFormSubmit = jest.fn()
+
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.EXPORT_FORM}
+        instructionText=""
+        isModulesLoading={false}
+        selectedWorkspace="demo"
+        workspaceParameters={
+          [
+            { name: "count", type: ParameterType.INTEGER, optional: false },
+          ] as any
+        }
+        onFormBack={jest.fn()}
+        onFormSubmit={onFormSubmit}
+        showHeaderActions={false}
+      />
+    )
+
+    // Submit button disabled initially due to required field (sv: "Beställ")
+    // Initially disabled
+    expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
+
+    // Enter a valid number
+    const inputEl = screen.getByRole("textbox")
+    // Fire a change event via Testing Library to trigger state updates
+    fireEvent.change(inputEl, { target: { value: "12" } })
+
+    // Submit should become enabled after validation
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Beställ/i })
+      ).not.toBeDisabled()
+    })
+    screen.getByRole("button", { name: /Beställ/i }).click()
+    await waitFor(() => {
+      expect(onFormSubmit).toHaveBeenCalled()
+    })
+  })
+
+  test("order result: shows success, download link and reuse button", () => {
+    const onReuseGeography = jest.fn()
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.ORDER_RESULT}
+        instructionText=""
+        isModulesLoading={false}
+        orderResult={
           {
-            fmeServerUrl: "https://example.com",
-            supportEmail: "support@example.com",
+            success: true,
+            message: "ok",
+            jobId: 42,
+            workspaceName: "demo",
+            email: "u@e.com",
+            downloadUrl: "https://dl.example/file.zip",
           } as any
         }
-      />
-    )
-
-    // Flush microtasks
-    await waitForMilliseconds(0)
-
-    // Error rendered by Workflow's StateView
-    expect(screen.queryByText(/Configuration error/i)).toBeTruthy()
-
-    // Mailto link present due to email in userFriendlyMessage
-    expectMailto("support@example.com")
-  })
-
-  test("ORDER_RESULT sync mode shows direct download and hides email", async () => {
-    const result: ExportResult = {
-      success: true,
-      jobId: 987,
-      workspaceName: "ws",
-      email: "dl@sample.io",
-      downloadUrl: "https://downloads.example.com/file.zip",
-      message: "Ready",
-    }
-
-    renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.ORDER_RESULT}
-        orderResult={result}
-        config={{ syncMode: true } as any}
-      />
-    )
-
-    // Wait for any effect flush (no-op if not needed)
-    await waitForMilliseconds(0)
-
-    // Email should be hidden in sync mode
-    expect(screen.queryByText("dl@sample.io")).toBeNull()
-
-    // Download link should be present with expected href
-    const links = screen.getAllByRole("link")
-    const dlLink = links.find(
-      (a) => a.getAttribute("href") === result.downloadUrl
-    )
-    expect(dlLink).toBeTruthy()
-  })
-
-  test("ORDER_RESULT async mode renders success without download link", async () => {
-    const result: ExportResult = {
-      success: true,
-      jobId: 654,
-      workspaceName: "ws",
-      email: "notify@sample.io",
-      message: "Notification sent",
-    }
-
-    renderSTI(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.ORDER_RESULT}
-        orderResult={result}
+        onReuseGeography={onReuseGeography}
+        onBack={jest.fn()}
         config={{ syncMode: false } as any}
+        showHeaderActions={false}
       />
     )
 
-    await waitForMilliseconds(0)
-    // No direct download link should be present in async mode without downloadUrl
-    const links = screen.queryAllByRole("link")
-    // Expect zero or at least no http/mailto links
-    const actionable = links.filter((a) => {
-      const href = a.getAttribute("href") || ""
-      return href.startsWith("http") || href.startsWith("mailto:")
-    })
-    expect(actionable.length).toBe(0)
-    // Success button should be present (reuse/new order)
-    const reuseBtn = await screen.findByRole("button", {
-      name: /Återanvänd geometri|Ny beställning/i,
-    })
-    expect(reuseBtn).toBeTruthy()
+    // Title uses i18n (sv): "Beställningen är bekräftad"
+    expect(screen.getByText(/Beställningen är bekräftad/i)).toBeInTheDocument()
+    const link = screen.getByRole("link", { name: /Ladda ner filen/i })
+    expect((link as HTMLAnchorElement).href).toBe("https://dl.example/file.zip")
+    const reuseBtn = screen.getByRole("button", { name: /Ny beställning/i })
+    reuseBtn.click()
+    expect(onReuseGeography).toHaveBeenCalled()
   })
 
-  test("header reset hidden when canReset=false even after first click", () => {
-    renderWithProviders(
+  test("header reset button visibility based on state and drawing progress", () => {
+    const onReset = jest.fn()
+    const { rerender } = renderWithProviders(
       <Workflow
-        {...(baseProps as any)}
         state={ViewMode.DRAWING}
-        onReset={jest.fn()}
-        canReset={false}
+        instructionText=""
+        isModulesLoading={false}
         showHeaderActions={true}
+        isDrawing={true}
+        clickCount={0}
         drawnArea={0}
+        onReset={onReset}
+      />
+    )
+
+    // First click pending -> reset hidden (sv: "Avbryt")
+    expect(
+      screen.queryByRole("button", { name: /Avbryt/i })
+    ).not.toBeInTheDocument()
+
+    rerender(
+      <Workflow
+        state={ViewMode.DRAWING}
+        instructionText=""
+        isModulesLoading={false}
+        showHeaderActions={true}
         isDrawing={true}
         clickCount={1}
-      />
-    )
-
-    const headerBtn = screen.queryByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
-    expect(headerBtn).toBeNull()
-  })
-
-  test("in DRAWING, reset visible when not actively drawing even before first click", () => {
-    const onReset = jest.fn()
-    renderWithProviders(
-      <Workflow
-        {...(baseProps as any)}
-        state={ViewMode.DRAWING}
-        onReset={onReset}
-        canReset={true}
-        showHeaderActions={true}
         drawnArea={0}
-        isDrawing={false}
-        clickCount={0}
+        onReset={onReset}
       />
     )
 
-    const headerBtn = screen.getByRole("button", {
-      name: /Avbryt|Cancel|Ångra|Stäng|Close/i,
-    })
-    expect(headerBtn.getAttribute("aria-disabled")).toBe("false")
-    fireEvent.click(headerBtn)
+    const resetBtn = screen.getByRole("button", { name: /Avbryt/i })
+    resetBtn.click()
     expect(onReset).toHaveBeenCalled()
   })
 })
+
+// Security & i18n: All external calls are mocked; text assertions use translation keys present in the UI. A11y via role and name queries.

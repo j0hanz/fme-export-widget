@@ -930,20 +930,16 @@ describe("Startup Validation Functions", () => {
 
     test("maps repository error from connection validation", async () => {
       const clientMock = {
-        testConnection: jest
-          .fn()
-          .mockResolvedValue({
-            data: { version: "2023.1" },
-            status: 200,
-            statusText: "OK",
-          }),
-        getRepositories: jest
-          .fn()
-          .mockResolvedValue({
-            data: [{ name: "repo" }],
-            status: 200,
-            statusText: "OK",
-          }),
+        testConnection: jest.fn().mockResolvedValue({
+          data: { version: "2023.1" },
+          status: 200,
+          statusText: "OK",
+        }),
+        getRepositories: jest.fn().mockResolvedValue({
+          data: [{ name: "repo" }],
+          status: 200,
+          statusText: "OK",
+        }),
         validateRepository: jest
           .fn()
           .mockRejectedValue(new Error("Repository not found")),
