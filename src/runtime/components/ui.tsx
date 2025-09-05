@@ -9,7 +9,6 @@ import {
   Select as JimuSelect,
   Option as JimuOption,
   MultiSelect,
-  MultiSelectItem,
   SVG,
   FormGroup,
   Label,
@@ -615,8 +614,8 @@ export const Select: React.FC<SelectProps> = ({
   )
 
   const handleMultiSelectChange = hooks.useEventCallback(
-    (vals: Array<string | number>) => {
-      const newVals = coerceValue(vals) as Array<string | number>
+    (_value: string | number, values: Array<string | number>) => {
+      const newVals = coerceValue(values) as Array<string | number>
       setInternalValue(newVals)
       onChange?.(newVals)
     }
@@ -703,29 +702,28 @@ export const MultiSelectControl: React.FC<{
   const resolvedPlaceholder = placeholder || translate("selectOption")
 
   const handleChange = hooks.useEventCallback(
-    (_value: string | number, next: Array<string | number>) => {
-      setCurrent(next)
-      onChange?.(next)
+    (_value: string | number, values: Array<string | number>) => {
+      setCurrent(values)
+      onChange?.(values)
     }
   )
+
+  // Normalize options into items prop expected by jimu-ui MultiSelect
+  const items = (options || []).map((opt) => ({
+    label: opt.label,
+    value: opt.value,
+    disabled: opt.disabled,
+  }))
 
   return (
     <div style={style}>
       <MultiSelect
+        items={items as any}
         values={current}
         onChange={handleChange}
         placeholder={resolvedPlaceholder}
         disabled={disabled}
-      >
-        {options.map((opt) => (
-          <MultiSelectItem
-            key={String(opt.value)}
-            value={opt.value}
-            label={opt.label}
-            disabled={opt.disabled}
-          />
-        ))}
-      </MultiSelect>
+      />
     </div>
   )
 }
