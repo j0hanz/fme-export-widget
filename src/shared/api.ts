@@ -376,7 +376,7 @@ export function isWebhookUrlTooLong(
   )
   // Add tm_* values if present
   if (token) {
-    params.set("fmetoken", token)
+    params.set("token", token)
   }
   const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
@@ -913,10 +913,9 @@ export class FmeFlowApiClient {
         true
       )
 
-      // Add FME token as query parameter to avoid CORS issues
+      // Add FME token as query parameter for webhook (use 'token' only)
       if (this.config.token) {
         params.set("token", this.config.token)
-        if (!params.has("fmetoken")) params.set("fmetoken", this.config.token)
       }
 
       // Ensure tm_* values are present if provided

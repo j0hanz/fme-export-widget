@@ -80,7 +80,12 @@ const createStyles = (theme: IMThemeVariables) => {
     row: css({ display: "flex" }),
     col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
-    fullWidth: css({ width: "100%" }),
+    fullWidth: css({
+      display: "flex",
+      width: "100%",
+      flexDirection: "column",
+      minWidth: 0,
+    }),
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
@@ -577,8 +582,8 @@ export const Select: React.FC<SelectProps> = ({
   coerce,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
-  const isMultiSelect = Array.isArray(internalValue)
   const resolvedPlaceholder =
     placeholder || translate("placeholderSelectGeneric")
 
@@ -613,34 +618,7 @@ export const Select: React.FC<SelectProps> = ({
     }
   )
 
-  const handleMultiSelectChange = hooks.useEventCallback(
-    (_value: string | number, values: Array<string | number>) => {
-      const newVals = coerceValue(values) as Array<string | number>
-      setInternalValue(newVals)
-      onChange?.(newVals)
-    }
-  )
-
-  if (isMultiSelect) {
-    const multiSelectItems = options.map((opt) => ({
-      label: opt.label,
-      value: opt.value,
-      disabled: opt.disabled,
-    }))
-
-    return (
-      <div style={style}>
-        <MultiSelect
-          items={multiSelectItems as any}
-          values={Array.isArray(internalValue) ? internalValue : []}
-          onChange={handleMultiSelectChange}
-          placeholder={resolvedPlaceholder}
-          disabled={disabled}
-        />
-      </div>
-    )
-  }
-
+  // Normalize internal value to string for comparison
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")
@@ -654,6 +632,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
+      css={styles.fullWidth}
       style={style}
     >
       {options.map((option) => (
@@ -675,7 +654,7 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
-// Dedicated MultiSelect wrapper using jimu-ui MultiSelect & MultiSelectItem
+// MultiSelectControl component
 export const MultiSelectControl: React.FC<{
   options?: readonly OptionItem[]
   values?: Array<string | number>
@@ -694,12 +673,14 @@ export const MultiSelectControl: React.FC<{
   style,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
   const [current, setCurrent] = useValue<Array<string | number>>(
     values,
     defaultValues || []
   )
 
-  const resolvedPlaceholder = placeholder || translate("selectOption")
+  // Default placeholder if none provided
+  const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
 
   const handleChange = hooks.useEventCallback(
     (_value: string | number, values: Array<string | number>) => {
@@ -721,8 +702,12 @@ export const MultiSelectControl: React.FC<{
         items={items as any}
         values={current}
         onChange={handleChange}
-        placeholder={resolvedPlaceholder}
+        onClickItem={() => {
+          void 0
+        }}
+        placeholder={finalPlaceholder}
         disabled={disabled}
+        css={styles.fullWidth}
       />
     </div>
   )

@@ -370,9 +370,8 @@ describe("shared/api FmeFlowApiClient", () => {
     )
     expect(res.status).toBe(200)
     const calledUrl = fetchMock.mock.calls[0][0] as string
-    // Ensure token(s) present on webhook
+    // Ensure token present on webhook
     expect(calledUrl).toMatch(/token=superSecretToken1234/)
-    expect(calledUrl).toMatch(/fmetoken=superSecretToken1234/)
     // Ensure tm_tag included
     expect(calledUrl).toMatch(/tm_tag=session-1/)
   })
