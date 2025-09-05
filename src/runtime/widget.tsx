@@ -1254,6 +1254,11 @@ export default function Widget(
     }
     try {
       const layer = createLayers(jmv, modules, setGraphicsLayer)
+      try {
+        // Localize drawing layer title
+        ;(layer as unknown as { [key: string]: any }).title =
+          translate("drawingLayerTitle")
+      } catch {}
       const svm = createSketchVM({
         jmv,
         modules,

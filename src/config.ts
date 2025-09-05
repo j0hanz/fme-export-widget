@@ -103,7 +103,7 @@ export enum FmeActionType {
 }
 
 export const LAYER_CONFIG = {
-  title: "Drawing Layer",
+  title: "",
   listMode: "hide",
   elevationInfo: { mode: "on-the-ground" },
 } as const

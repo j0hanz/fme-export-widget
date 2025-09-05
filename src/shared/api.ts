@@ -317,9 +317,25 @@ const maskToken = (token: string): string =>
 
 // URL building utilities
 const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  const base = serverUrl.replace(/\/fme(?:server|rest)$/, "")
-  const path = segments.filter(Boolean).join("/")
-  return `${base}/${path}`
+  // Normalize server base by removing trailing /fmeserver or /fmerest and any trailing slash
+  const base = serverUrl
+    .replace(/\/(?:fmeserver|fmerest)$/i, "")
+    .replace(/\/$/, "")
+
+  // Encode each provided segment, while preserving internal slashes inside a segment string
+  const encodePath = (s: string): string =>
+    s
+      .split("/")
+      .filter(Boolean)
+      .map((p) => encodeURIComponent(p))
+      .join("/")
+
+  const path = segments
+    .filter((seg): seg is string => typeof seg === "string" && seg.length > 0)
+    .map((seg) => encodePath(seg))
+    .join("/")
+
+  return path ? `${base}/${path}` : base
 }
 
 // Create a stable scope ID from server URL, token, and repository for caching purposes

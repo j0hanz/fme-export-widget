@@ -574,19 +574,41 @@ export const Select: React.FC<SelectProps> = ({
   placeholder,
   disabled = false,
   style,
+  coerce,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
 
   const isMultiSelect = Array.isArray(internalValue)
-  const resolvedPlaceholder = placeholder || translate("selectOption")
+  const resolvedPlaceholder =
+    placeholder || translate("placeholderSelectGeneric")
+
+  const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
+    if (coerce === "number") {
+      if (Array.isArray(val)) {
+        return (val as Array<string | number>).map((v) =>
+          typeof v === "number"
+            ? v
+            : Number.isFinite(Number(v))
+              ? Number(v)
+              : (v as any)
+        )
+      }
+      if (typeof val === "string") {
+        const n = Number(val)
+        return Number.isFinite(n) ? n : val
+      }
+    }
+    return val
+  })
 
   const handleSingleSelectChange = hooks.useEventCallback(
     (evt: unknown, selectedValue?: string | number) => {
-      const newValue =
+      const rawValue =
         selectedValue !== undefined
           ? selectedValue
           : (evt as any)?.target?.value
+      const newValue = coerceValue(rawValue)
       setInternalValue(newValue)
       onChange?.(newValue)
     }
@@ -594,8 +616,9 @@ export const Select: React.FC<SelectProps> = ({
 
   const handleMultiSelectChange = hooks.useEventCallback(
     (vals: Array<string | number>) => {
-      setInternalValue(vals)
-      onChange?.(vals)
+      const newVals = coerceValue(vals) as Array<string | number>
+      setInternalValue(newVals)
+      onChange?.(newVals)
     }
   )
 

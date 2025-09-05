@@ -260,7 +260,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               block={false}
               onClick={onRefreshRepositories}
               variant="outlined"
-              title={translate("refreshRepositories") || "Refresh repositories"}
+              title={translate("refreshRepositories")}
               icon={<Icon src={resetIcon} size={14} />}
             />
           )}
@@ -333,11 +333,11 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           }
 
           if (availableRepos === null) {
-            return translate("loadingRepositories") || "Loading repositories..."
+            return translate("loadingRepositories")
           }
 
           if (Array.isArray(availableRepos) && availableRepos.length === 0) {
-            return translate("noRepositoriesFound") || "No repositories found"
+            return translate("noRepositoriesFound")
           }
 
           return translate("repoPlaceholder")
