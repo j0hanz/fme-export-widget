@@ -80,7 +80,7 @@ const createStyles = (theme: IMThemeVariables) => {
     row: css({ display: "flex" }),
     col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
-    fullWidth: css({ width: "100%" }),
+    fullWidth: css({ width: "100%", minWidth: 0 }),
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
@@ -577,6 +577,7 @@ export const Select: React.FC<SelectProps> = ({
   coerce,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
   const resolvedPlaceholder =
     placeholder || translate("placeholderSelectGeneric")
@@ -626,6 +627,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
+      css={styles.fullWidth}
       style={style}
     >
       {options.map((option) => (
@@ -666,6 +668,7 @@ export const MultiSelectControl: React.FC<{
   style,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
+  const styles = useStyles()
   const [current, setCurrent] = useValue<Array<string | number>>(
     values,
     defaultValues || []
@@ -699,6 +702,7 @@ export const MultiSelectControl: React.FC<{
         }}
         placeholder={finalPlaceholder}
         disabled={disabled}
+        css={styles.fullWidth}
       />
     </div>
   )
