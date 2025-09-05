@@ -579,25 +579,69 @@ export const Select: React.FC<SelectProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
+  const isMultiSelect = Array.isArray(internalValue)
+  const resolvedPlaceholder =
+    placeholder || translate("placeholderSelectGeneric")
 
-  const resolvedPlaceholder = placeholder || translate("selectOption")
+  const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
+    if (coerce === "number") {
+      if (Array.isArray(val)) {
+        return (val as Array<string | number>).map((v) =>
+          typeof v === "number"
+            ? v
+            : Number.isFinite(Number(v))
+              ? Number(v)
+              : (v as any)
+        )
+      }
+      if (typeof val === "string") {
+        const n = Number(val)
+        return Number.isFinite(n) ? n : val
+      }
+    }
+    return val
+  })
 
   const handleSingleSelectChange = hooks.useEventCallback(
     (evt: unknown, selectedValue?: string | number) => {
-      let newValue: string | number | undefined =
+      const rawValue =
         selectedValue !== undefined
           ? selectedValue
           : (evt as any)?.target?.value
-      if (coerce === "number" && newValue !== undefined) {
-        const num = typeof newValue === "number" ? newValue : Number(newValue)
-        newValue = Number.isFinite(num) ? num : newValue
-      }
+      const newValue = coerceValue(rawValue)
       setInternalValue(newValue)
       onChange?.(newValue)
     }
   )
 
-  // Single select only (multi‑select moved to MultiSelectControl)
+  const handleMultiSelectChange = hooks.useEventCallback(
+    (vals: Array<string | number>) => {
+      const newVals = coerceValue(vals) as Array<string | number>
+      setInternalValue(newVals)
+      onChange?.(newVals)
+    }
+  )
+
+  if (isMultiSelect) {
+    const multiSelectItems = options.map((opt) => ({
+      label: opt.label,
+      value: opt.value,
+      disabled: opt.disabled,
+    }))
+
+    return (
+      <div style={style}>
+        <MultiSelect
+          items={multiSelectItems as any}
+          values={Array.isArray(internalValue) ? internalValue : []}
+          onChange={handleMultiSelectChange}
+          placeholder={resolvedPlaceholder}
+          disabled={disabled}
+        />
+      </div>
+    )
+  }
+
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")

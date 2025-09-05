@@ -195,6 +195,42 @@ const API = {
     "opt_servicemode",
   ],
 } as const
+
+async function addFmeInterceptor(
+  serverUrl: string,
+  token: string
+): Promise<void> {
+  if (!serverUrl || !token) return
+  await ensureEsri()
+  const esriConfig = asEsriConfig(_esriConfig)
+  if (!esriConfig) return
+  let host: string
+  try {
+    host = new URL(serverUrl).host
+  } catch {
+    return
+  }
+  const escapedHost = host.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
+  const pattern = new RegExp(`^https?://${escapedHost}`, "i")
+  const exists = esriConfig.request.interceptors?.some((it: any) => {
+    return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
+  })
+  if (exists) return
+  esriConfig.request.interceptors?.push({
+    urls: pattern,
+    before(params: any) {
+      if (!params || !params.requestOptions) {
+        params.requestOptions = {}
+      }
+      const ro: any = params.requestOptions
+      ro.query = ro.query || {}
+      if (token && !ro.query.fmetoken) {
+        ro.query.fmetoken = token
+      }
+    },
+    _fmeInterceptor: true,
+  })
+}
 // Get max URL length from esriConfig if available; otherwise use default
 const getMaxUrlLength = (): number => {
   const cfg = asEsriConfig(_esriConfig)
@@ -281,9 +317,25 @@ const maskToken = (token: string): string =>
 
 // URL building utilities
 const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  const base = serverUrl.replace(/\/fme(?:server|rest)$/, "")
-  const path = segments.filter(Boolean).join("/")
-  return `${base}/${path}`
+  // Normalize server base by removing trailing /fmeserver or /fmerest and any trailing slash
+  const base = serverUrl
+    .replace(/\/(?:fmeserver|fmerest)$/i, "")
+    .replace(/\/$/, "")
+
+  // Encode each provided segment, while preserving internal slashes inside a segment string
+  const encodePath = (s: string): string =>
+    s
+      .split("/")
+      .filter(Boolean)
+      .map((p) => encodeURIComponent(p))
+      .join("/")
+
+  const path = segments
+    .filter((seg): seg is string => typeof seg === "string" && seg.length > 0)
+    .map((seg) => encodePath(seg))
+    .join("/")
+
+  return path ? `${base}/${path}` : base
 }
 
 // Create a stable scope ID from server URL, token, and repository for caching purposes
@@ -471,6 +523,7 @@ export class FmeFlowApiClient {
   constructor(config: FmeFlowConfig) {
     this.config = config
     void setApiSettings(config)
+    void addFmeInterceptor(config.serverUrl, config.token)
   }
 
   private resolveRepository(repository?: string): string {
@@ -570,6 +623,7 @@ export class FmeFlowApiClient {
   updateConfig(config: Partial<FmeFlowConfig>): void {
     this.config = { ...this.config, ...config }
     void setApiSettings(this.config)
+    void addFmeInterceptor(this.config.serverUrl, this.config.token)
   }
 
   async testConnection(
@@ -1076,13 +1130,7 @@ export class FmeFlowApiClient {
       const headers: { [key: string]: string } = {
         ...(options.headers || {}),
       }
-
-      // Build query parameters including token to avoid CORS issues
       const query: any = { ...(options.query || {}) }
-      if (this.config.token && this.config.token.trim()) {
-        query.fmetoken = this.config.token
-      }
-
       // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
       const isGet = !options.method || options.method === HttpMethod.GET
       if (isGet) {
@@ -1092,6 +1140,23 @@ export class FmeFlowApiClient {
           options.repositoryContext
         )
         if (query.__scope === undefined) query.__scope = scope
+
+        // Security-conscious token propagation: only attach fmetoken for requests to the configured FME host
+        try {
+          const serverHost = new URL(this.config.serverUrl).host.toLowerCase()
+          const requestHost = new URL(url).host.toLowerCase()
+          if (
+            this.config.token &&
+            serverHost &&
+            requestHost &&
+            serverHost === requestHost &&
+            query.fmetoken === undefined
+          ) {
+            query.fmetoken = this.config.token
+          }
+        } catch {
+          // Ignore URL parsing errors; do not attach token if uncertain
+        }
       }
 
       const requestOptions: any = {

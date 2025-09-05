@@ -70,4 +70,7 @@ export default {
   ariaEmptyActions: "Tomt läge åtgärder",
   ariaSuccessActions: "Lyckade åtgärder",
   ariaRequired: "Obligatoriskt",
+
+  // Export form subtitle fallback
+  configureWorkspaceParameters: "Konfigurera arbetsytans parametrar",
 }

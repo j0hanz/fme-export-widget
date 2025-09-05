@@ -579,7 +579,7 @@ export async function healthCheck(
 
   const promise = (async () => {
     try {
-      // Use the provided token for authentication
+      // Instantiate API client directly so Jest class mocks are honored in tests
       const client = new FmeFlowApiClient({
         serverUrl,
         token,
@@ -599,10 +599,7 @@ export async function healthCheck(
       const status = extractHttpStatus(error)
       const errorMessage = extractErrorMessage(error)
 
-      // Only consider server reachable if we get specific HTTP auth errors from what appears to be FME Flow
-      // Network errors, DNS errors, proxy errors, etc. should be considered unreachable
       if (status === 401 || status === 403) {
-        // Enhanced check: if error message suggests network/DNS issues or proxy errors, treat as unreachable
         const networkIndicators = [
           "Failed to fetch",
           "NetworkError",
@@ -613,8 +610,8 @@ export async function healthCheck(
           "timeout",
           "Name or service not known",
           "ERR_NAME_NOT_RESOLVED",
-          "Unable to load", // ArcGIS proxy error pattern
-          "/sharing/proxy", // ArcGIS proxy path
+          "Unable to load",
+          "/sharing/proxy",
           "proxy",
         ]
 
@@ -631,13 +628,10 @@ export async function healthCheck(
           }
         }
 
-        // Additional heuristic: if the URL hostname doesn't look like a valid domain, treat 403 as unreachable
         try {
           const url = new URL(serverUrl)
           const hostname = url.hostname
 
-          // Simple domain validation - should have at least one dot (like "example.com")
-          // Single words like "fmeflo" are likely invalid domains
           if (!hostname.includes(".") || hostname.length < 4) {
             return {
               reachable: false,
@@ -649,8 +643,6 @@ export async function healthCheck(
         } catch {
           // URL parsing already handled above
         }
-
-        // If we get 401/403 without network indicators and valid hostname, assume server is reachable
         return { reachable: true, responseTime, status }
       }
 
@@ -673,11 +665,7 @@ export async function healthCheck(
   }
 }
 
-/**
- * Validate connection to FME Flow server
- * This is a comprehensive validation that tests server reachability,
- * token validity, and repository access if specified
- */
+// Helper to get user-friendly error message based on status
 export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
@@ -883,10 +871,7 @@ export async function validateConnection(
   }
 }
 
-/**
- * Test if server URL and token are valid for basic connection
- * Lighter weight than full validation - only tests connection without repository operations
- */
+// Test connection and get version info
 export async function testBasicConnection(
   serverUrl: string,
   token: string,
@@ -932,9 +917,7 @@ export async function testBasicConnection(
   }
 }
 
-/**
- * Get repositories list from server
- */
+// Get repositories list from server
 export async function getRepositories(
   serverUrl: string,
   token: string,

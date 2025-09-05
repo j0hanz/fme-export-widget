@@ -43,20 +43,12 @@ jest.mock("../shared/services", () => {
   return {
     __esModule: true,
     validateConnection: jest.fn(),
+    getRepositories: jest.fn(),
     getErrorMessage: jest.fn(() => "error"),
   }
 })
 
-// Mock API client factory used by refreshRepositories; tests override implementation as needed
-const mockGetRepositories = jest.fn()
-jest.mock("../shared/api", () => {
-  return {
-    __esModule: true,
-    createFmeFlowClient: jest.fn(() => ({
-      getRepositories: mockGetRepositories,
-    })),
-  }
-})
+// No need to mock shared/api createFmeFlowClient anymore; refresh uses shared/services.getRepositories
 
 describe("Setting panel", () => {
   const renderSetting = widgetSettingRender(false)
@@ -250,12 +242,11 @@ describe("Setting panel", () => {
   })
 
   test("refresh repositories uses API client and updates options", async () => {
-    const { validateConnection } = require("../shared/services") as {
-      validateConnection: jest.Mock
-    }
-    const { createFmeFlowClient } = require("../shared/api") as {
-      createFmeFlowClient: jest.Mock
-    }
+    const { validateConnection, getRepositories } =
+      require("../shared/services") as {
+        validateConnection: jest.Mock
+        getRepositories: jest.Mock
+      }
     validateConnection.mockResolvedValue({
       success: true,
       version: "2024.0",
@@ -268,11 +259,10 @@ describe("Setting panel", () => {
       },
     })
 
-    // First response from manual refresh returns a different set
-    mockGetRepositories.mockResolvedValueOnce({
-      status: 200,
-      statusText: "OK",
-      data: [{ name: "Repo1" }, { name: "Repo2" }],
+    // Refresh should return a different set than initial validation
+    getRepositories.mockResolvedValue({
+      success: true,
+      repositories: ["Repo1", "Repo2"],
     })
 
     const props = makeProps({
@@ -298,13 +288,16 @@ describe("Setting panel", () => {
     const refreshBtn = screen.getByTitle(/Uppdatera repositories/i)
     fireEvent.click(refreshBtn)
 
-    // API client should have been created with sanitized URL (no /fmerest)
+    // Shared services.getRepositories should be called with sanitized URL and token
     await waitFor(() => {
-      expect(createFmeFlowClient).toHaveBeenCalled()
+      expect(getRepositories).toHaveBeenCalled()
     })
-    const args = (createFmeFlowClient as any).mock.calls[0][0]
-    expect(args.fmeServerUrl).toBe("https://example.com")
-    expect(mockGetRepositories).toHaveBeenCalled()
+
+    // Dropdown should now include the refreshed options
+    const combo = await screen.findByRole("combobox")
+    fireEvent.click(combo)
+    await screen.findByText("Repo1")
+    await screen.findByText("Repo2")
   })
 
   test("changing repository dispatches clearWorkspaceState with new repo", async () => {

@@ -115,4 +115,15 @@ export default {
 
   // Additional error message keys
   repositoryNotAccessible: "Repository är inte tillgängligt",
+
+  // Map layer title
+  drawingLayerTitle: "Rityta",
+
+  // Geometry and validation error keys (mapped from internal codes)
+  GEOMETRY_MISSING: "Ingen geometri angiven",
+  GEOMETRY_TYPE_INVALID: "Endast polygoner stöds",
+  POLYGON_SELF_INTERSECTING: "Polygonen är inte enkel (självskärning)",
+  AREA_TOO_LARGE: "Området är för stort",
+  MAP_INIT_ERROR: "Misslyckades att initiera kartan",
+  DRAWING_COMPLETE_ERROR: "Misslyckades att avsluta ritning",
 }

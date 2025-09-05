@@ -915,8 +915,20 @@ export default function Widget(
       )
   )
 
+  // Keep track of ongoing startup validation to allow aborting
+  const startupAbortRef = React.useRef<AbortController | null>(null)
+
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
+    // Skip if widget is not active
+    if (startupAbortRef.current) {
+      try {
+        startupAbortRef.current.abort()
+      } catch (_) {}
+      startupAbortRef.current = null
+    }
+    const controller = new AbortController()
+    startupAbortRef.current = controller
     setValidationStep(translate("validatingConfiguration"))
 
     try {
@@ -939,7 +951,7 @@ export default function Widget(
       const validationResult = await validateWidgetStartup({
         config,
         translate,
-        signal: undefined, // Could add abort controller here if needed
+        signal: controller.signal,
       })
 
       if (!validationResult.isValid) {
@@ -995,6 +1007,10 @@ export default function Widget(
         createStartupError(message, code, runStartupValidation)
       )
     }
+    // Clear abort ref if it is still the current controller
+    if (startupAbortRef.current === controller) {
+      startupAbortRef.current = null
+    }
   })
 
   // Track if this is the initial load
@@ -1041,19 +1057,52 @@ export default function Widget(
     }
   )
 
-  // React to config changes by re-running startup validation
+  // Track previous key connection settings to detect what changed
+  const prevConnRef = React.useRef<{
+    url?: string
+    token?: string
+    repo?: string
+  }>({
+    url: props.config?.fmeServerUrl,
+    token: props.config?.fmeServerToken,
+    repo: props.config?.repository,
+  })
+
+  // React to config changes with scoped behavior
   React.useEffect(() => {
-    if (isInitialLoadRef.current) {
-      return
-    }
-    try {
-      resetForRevalidation(false)
-    } catch (error) {
-      console.warn("Error resetting widget state on config change:", error)
+    if (isInitialLoadRef.current) return
+
+    const prev = prevConnRef.current
+    const next = {
+      url: props.config?.fmeServerUrl,
+      token: props.config?.fmeServerToken,
+      repo: props.config?.repository,
     }
 
-    // Re-run validation with new config
-    runStartupValidation()
+    const serverChanged = prev.url !== next.url
+    const tokenChanged = prev.token !== next.token
+    const repoChanged = prev.repo !== next.repo
+
+    // Update prev snapshot early to avoid races
+    prevConnRef.current = next
+
+    try {
+      if (serverChanged || tokenChanged) {
+        // Full revalidation required when connection credentials change
+        resetForRevalidation(false)
+        runStartupValidation()
+      } else if (repoChanged) {
+        // Repository change only requires resetting selection and revalidation
+        if (startupAbortRef.current) {
+          try {
+            startupAbortRef.current.abort()
+          } catch (_) {}
+          startupAbortRef.current = null
+        }
+      }
+    } catch (error) {
+      console.warn("Error handling config change:", error)
+    }
   }, [props.config, resetForRevalidation, runStartupValidation])
 
   // React to map selection changes by re-running startup validation
@@ -1254,6 +1303,11 @@ export default function Widget(
     }
     try {
       const layer = createLayers(jmv, modules, setGraphicsLayer)
+      try {
+        // Localize drawing layer title
+        ;(layer as unknown as { [key: string]: any }).title =
+          translate("drawingLayerTitle")
+      } catch {}
       const svm = createSketchVM({
         jmv,
         modules,
@@ -1302,6 +1356,13 @@ export default function Widget(
     return () => {
       // Cleanup resources on unmount
       submissionController.cancel()
+      // Abort any in-flight startup validation
+      if (startupAbortRef.current) {
+        try {
+          startupAbortRef.current.abort()
+        } catch (_) {}
+        startupAbortRef.current = null
+      }
       cleanupResources()
     }
   })
