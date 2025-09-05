@@ -9,6 +9,7 @@ import {
   Select as JimuSelect,
   Option as JimuOption,
   MultiSelect,
+  MultiSelectItem,
   SVG,
   FormGroup,
   Label,
@@ -574,52 +575,29 @@ export const Select: React.FC<SelectProps> = ({
   placeholder,
   disabled = false,
   style,
+  coerce,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
 
-  const isMultiSelect = Array.isArray(internalValue)
   const resolvedPlaceholder = placeholder || translate("selectOption")
 
   const handleSingleSelectChange = hooks.useEventCallback(
     (evt: unknown, selectedValue?: string | number) => {
-      const newValue =
+      let newValue: string | number | undefined =
         selectedValue !== undefined
           ? selectedValue
           : (evt as any)?.target?.value
+      if (coerce === "number" && newValue !== undefined) {
+        const num = typeof newValue === "number" ? newValue : Number(newValue)
+        newValue = Number.isFinite(num) ? num : newValue
+      }
       setInternalValue(newValue)
       onChange?.(newValue)
     }
   )
 
-  const handleMultiSelectChange = hooks.useEventCallback(
-    (vals: Array<string | number>) => {
-      setInternalValue(vals)
-      onChange?.(vals)
-    }
-  )
-
-  if (isMultiSelect) {
-    const multiSelectItems = options.map((opt) => ({
-      label: opt.label,
-      value: opt.value,
-      disabled: opt.disabled,
-    }))
-
-    return (
-      <div style={style}>
-        <MultiSelect
-          items={multiSelectItems as any}
-          values={Array.isArray(internalValue) ? internalValue : []}
-          onChange={handleMultiSelectChange}
-          placeholder={resolvedPlaceholder}
-          disabled={disabled}
-        />
-      </div>
-    )
-  }
-
-  // Single select
+  // Single select only (multi‑select moved to MultiSelectControl)
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")
@@ -651,6 +629,60 @@ export const Select: React.FC<SelectProps> = ({
         </JimuOption>
       ))}
     </JimuSelect>
+  )
+}
+
+// Dedicated MultiSelect wrapper using jimu-ui MultiSelect & MultiSelectItem
+export const MultiSelectControl: React.FC<{
+  options?: readonly OptionItem[]
+  values?: Array<string | number>
+  defaultValues?: Array<string | number>
+  onChange?: (values: Array<string | number>) => void
+  placeholder?: string
+  disabled?: boolean
+  style?: React.CSSProperties
+}> = ({
+  options = [],
+  values,
+  defaultValues,
+  onChange,
+  placeholder,
+  disabled = false,
+  style,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages)
+  const [current, setCurrent] = useValue<Array<string | number>>(
+    values,
+    defaultValues || []
+  )
+
+  const resolvedPlaceholder = placeholder || translate("selectOption")
+
+  const handleChange = hooks.useEventCallback(
+    (_value: string | number, next: Array<string | number>) => {
+      setCurrent(next)
+      onChange?.(next)
+    }
+  )
+
+  return (
+    <div style={style}>
+      <MultiSelect
+        values={current}
+        onChange={handleChange}
+        placeholder={resolvedPlaceholder}
+        disabled={disabled}
+      >
+        {options.map((opt) => (
+          <MultiSelectItem
+            key={String(opt.value)}
+            value={opt.value}
+            label={opt.label}
+            disabled={opt.disabled}
+          />
+        ))}
+      </MultiSelect>
+    </div>
   )
 }
 

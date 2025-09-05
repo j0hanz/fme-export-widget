@@ -230,8 +230,10 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   ID,
   testState,
 }) => {
+  // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
-    testState.status === "success" &&
+    !!localServerUrl &&
+    !!localToken &&
     !validateServerUrl(localServerUrl) &&
     !validateToken(localToken)
 
@@ -258,14 +260,10 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     >
       <Select
         options={(() => {
-          // Only show repositories after successful connection test
-          if (testState.status !== "success") {
-            return []
-          }
-
           // If server URL or token are invalid, show no options
-          const hasValidServer = !validateServerUrl(localServerUrl)
-          const hasValidToken = !validateToken(localToken)
+          const hasValidServer =
+            !!localServerUrl && !validateServerUrl(localServerUrl)
+          const hasValidToken = !!localToken && !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
             return []
           }
@@ -276,9 +274,17 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               ? availableRepos
               : []
 
-          // Deduplicate options while preserving order
+          // Deduplicate options while preserving order and ensure current selection is present
           const seen = new Set<string>()
           const opts: Array<{ label: string; value: string }> = []
+          if (
+            localRepository &&
+            typeof localRepository === "string" &&
+            localRepository.trim()
+          ) {
+            seen.add(localRepository)
+            opts.push({ label: localRepository, value: localRepository })
+          }
           for (const name of src) {
             if (!seen.has(name) && typeof name === "string" && name.trim()) {
               seen.add(name)
@@ -295,26 +301,23 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               : ""
           onRepositoryChange(next)
         }}
-        // Disable when connection hasn't been tested successfully or when inputs are invalid
+        // Disable when missing/invalid inputs or while repositories are not yet loaded
         disabled={
-          testState.status !== "success" ||
           !localServerUrl ||
           !localToken ||
           !!validateServerUrl(localServerUrl) ||
-          !!validateToken(localToken)
+          !!validateToken(localToken) ||
+          availableRepos === null
         }
         aria-describedby={
           fieldErrors.repository ? `${ID.repository}-error` : undefined
         }
         aria-invalid={fieldErrors.repository ? true : undefined}
         placeholder={(() => {
-          if (testState.status !== "success") {
-            return translate("testConnectionFirst")
-          }
-
-          // If connection is successful but no repos available
-          const hasValidServer = !validateServerUrl(localServerUrl)
-          const hasValidToken = !validateToken(localToken)
+          // Require basic URL/token presence
+          const hasValidServer =
+            !!localServerUrl && !validateServerUrl(localServerUrl)
+          const hasValidToken = !!localToken && !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
             return translate("testConnectionFirst")
           }
@@ -1127,14 +1130,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const repositories =
         result?.data?.map((r) => r.name).filter(Boolean) || []
 
-      if (repositories.length > 0) {
-        setAvailableRepos(repositories)
-        // Clear any existing repository errors
-        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-      } else {
-        console.warn("Repository refresh returned empty list")
-        // Don't clear existing repos on refresh failure to avoid UX disruption
-      }
+      // Update available repositories regardless of length to indicate loaded state
+      setAvailableRepos(repositories)
+      // Clear any existing repository errors
+      setFieldErrors((prev) => ({ ...prev, repository: undefined }))
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return
       console.warn("Repository refresh error:", err)
@@ -1229,6 +1228,33 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest,
   ])
 
+  // Debounced auto-load of repositories when URL/token are present and valid
+  const reposDebounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  React.useEffect(() => {
+    if (reposDebounceRef.current) {
+      clearTimeout(reposDebounceRef.current)
+      reposDebounceRef.current = null
+    }
+    const hasValidServer =
+      !!localServerUrl && !validateServerUrlKey(localServerUrl)
+    const hasValidToken = !!localToken && !validateTokenKey(localToken)
+    if (!hasValidServer || !hasValidToken) return
+    // If we already have repos loaded (not null), don't auto-refresh unless list is empty
+    if (availableRepos !== null && availableRepos.length > 0) return
+    reposDebounceRef.current = setTimeout(() => {
+      // Trigger background refresh; errors are handled internally
+      refreshRepositories()
+    }, 500)
+    return () => {
+      if (reposDebounceRef.current) {
+        clearTimeout(reposDebounceRef.current)
+        reposDebounceRef.current = null
+      }
+    }
+  }, [localServerUrl, localToken, availableRepos, refreshRepositories])
+
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
@@ -1297,12 +1323,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
-    // Only validate repository if we have a connection success and available repos
-    if (
-      testState.status === "success" &&
-      availableRepos?.length &&
-      localRepository
-    ) {
+    if (availableRepos?.length && localRepository) {
       const hasRepo = availableRepos.includes(localRepository)
       const errorMessage = hasRepo
         ? undefined
@@ -1311,19 +1332,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         ...prev,
         repository: errorMessage,
       }))
-      // UI update is enough; avoid config writes here
     } else if (
-      testState.status === "success" &&
-      availableRepos?.length === 0 &&
+      Array.isArray(availableRepos) &&
+      availableRepos.length === 0 &&
       localRepository
     ) {
-      // If we have an empty repo list but a selected repository, it might be manually entered
+      // Allow manual entry when list is empty
       setFieldErrors((prev) => ({
         ...prev,
-        repository: undefined, // Allow manual entry when list is empty
+        repository: undefined,
       }))
     }
-  }, [availableRepos, localRepository, testState.status, translate])
+  }, [availableRepos, localRepository, translate])
 
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(

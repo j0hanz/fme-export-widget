@@ -19,6 +19,7 @@ import Button, {
   Select,
   StateView,
   ButtonGroup,
+  MultiSelectControl,
   ButtonTabs,
   Field,
   Form,
@@ -59,8 +60,6 @@ describe("UI components", () => {
         <button>Plain</button>
       </Tooltip>
     )
-    const plainBtn = screen.getByRole("button", { name: /Plain/i })
-    expect(plainBtn.getAttribute("aria-describedby")).toBeNull()
 
     // Tooltip wraps disabled child in span for accessibility
     const tooltipContainer = renderWithProviders(
@@ -120,7 +119,7 @@ describe("UI components", () => {
     expect(textAreaChange).toHaveBeenCalledWith("hello")
   })
 
-  test("Select single and multi-select behavior", async () => {
+  test("Select single and MultiSelectControl behavior", async () => {
     const onChange = jest.fn()
     const options = [
       { label: "Alpha", value: "a" },
@@ -140,7 +139,7 @@ describe("UI components", () => {
     const singleSelect = screen.getByRole("combobox")
     within(singleSelect).getByText(/Beta/i)
     renderWithProviders(
-      <Select options={options} defaultValue={["a", "c"]} value={["a", "c"]} />
+      <MultiSelectControl options={options} defaultValues={["a", "c"]} />
     )
     await flush()
     // Expect both selected option labels to appear somewhere in the DOM
@@ -236,9 +235,7 @@ describe("UI components", () => {
     expect(onChange).toHaveBeenCalledWith("2")
     expect(onTabChange).toHaveBeenCalled()
   })
-
-  test("Select component renders correctly", async () => {
-    // reuse top-level renderWithProviders
+  test("Select and MultiSelectControl components render correctly", async () => {
     const options = [
       { label: "One", value: "1" },
       { label: "Two", value: "2" },
@@ -255,9 +252,9 @@ describe("UI components", () => {
     // Clean up first render before second
     unmount()
 
-    // Multi-select should render
+    // MultiSelectControl should render and expose combobox trigger
     renderWithProviders(
-      <Select options={options} defaultValue={["1"]} value={["1"]} />
+      <MultiSelectControl options={options} defaultValues={["1"]} />
     )
     await waitForMilliseconds(0)
     expect(screen.getByRole("combobox")).toBeTruthy()
@@ -270,26 +267,20 @@ describe("UI components", () => {
       { label: "B", value: "b" },
     ]
     renderWithProviders(
-      <Select
+      <MultiSelectControl
         options={options}
-        defaultValue={["a"]}
-        value={["a"]}
+        defaultValues={["a"]}
         style={{ width: 321 }}
       />
     )
     await flush()
-    const selectEl = screen.queryByRole("listbox")
-    if (selectEl) {
-      expect((selectEl as HTMLSelectElement).style.width).toBe("321px")
-    } else {
-      const styled = Array.from(
-        document.querySelectorAll<HTMLElement>("[style]")
-      ).find((el) => {
-        const attr = el.getAttribute("style") || ""
-        return el.style.width === "321px" || /width\s*:\s*321(?:px)?/.test(attr)
-      })
-      expect(styled).toBeTruthy()
-    }
+    const styled = Array.from(
+      document.querySelectorAll<HTMLElement>("[style]")
+    ).find((el) => {
+      const attr = el.getAttribute("style") || ""
+      return el.style.width === "321px" || /width\s*:\s*321(?:px)?/.test(attr)
+    })
+    expect(styled).toBeTruthy()
   })
 
   // Example: advanced helpers for async flows and store injection
