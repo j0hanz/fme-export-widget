@@ -260,7 +260,7 @@ describe("UI components", () => {
     expect(screen.getByRole("combobox")).toBeTruthy()
   })
 
-  test("Select multi-select applies style to native select", async () => {
+  test("MultiSelectControl applies style to native select", async () => {
     // reuse top-level renderWithProviders
     const options = [
       { label: "A", value: "a" },

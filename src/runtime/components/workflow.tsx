@@ -357,55 +357,66 @@ const useWorkspaceLoader = (
     }
   })
 
-  const loadItem = hooks.useEventCallback(async (workspaceName: string) => {
-    const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) return
+  const loadItem = hooks.useEventCallback(
+    async (workspaceName: string, repositoryName?: string) => {
+      const fmeClient = getFmeClient()
+      if (!fmeClient || !(repositoryName || config?.repository)) return
 
-    cancelCurrent()
-    const controller = new AbortController()
-    loadAbortRef.current = controller
-    setIsLoading(true)
-    setError(null)
+      cancelCurrent()
+      const controller = new AbortController()
+      loadAbortRef.current = controller
+      setIsLoading(true)
+      setError(null)
 
-    try {
-      const response: ApiResponse<any> = await makeCancelable(
-        fmeClient.getWorkspaceItem(
-          workspaceName,
-          config.repository,
-          controller.signal
-        )
-      )
-
-      if (response.status === 200 && response.data?.parameters) {
-        onWorkspaceSelected?.(
-          workspaceName,
-          response.data.parameters,
-          response.data
-        )
-        // Dispatch workspace item and parameters with repository context
-        const dispatch = getAppStore().dispatch
-        const repoName = String(config.repository)
-        dispatch(fmeActions.setWorkspaceItem(response.data, repoName))
-        dispatch(
-          fmeActions.setWorkspaceParameters(
-            response.data.parameters,
+      try {
+        const repoToUse = String(repositoryName || config?.repository || "")
+        const response: ApiResponse<any> = await makeCancelable(
+          fmeClient.getWorkspaceItem(
             workspaceName,
-            repoName
+            repoToUse,
+            controller.signal
           )
         )
-      } else {
-        throw new Error(translate("failedToLoadWorkspaceDetails"))
-      }
-    } catch (err) {
-      const msg = formatError(err, "failedToLoadWorkspaceDetails")
-      if (msg && isMountedRef.current) setError(msg)
-    } finally {
-      if (isMountedRef.current) setIsLoading(false)
-      if (loadAbortRef.current === controller) {
-        loadAbortRef.current = null
+
+        if (response.status === 200 && response.data?.parameters) {
+          onWorkspaceSelected?.(
+            workspaceName,
+            response.data.parameters,
+            response.data
+          )
+          // Dispatch workspace item and parameters with repository context
+          const dispatch = getAppStore().dispatch
+          const repoName = String(repoToUse)
+          dispatch(fmeActions.setWorkspaceItem(response.data, repoName))
+          dispatch(
+            fmeActions.setWorkspaceParameters(
+              response.data.parameters,
+              workspaceName,
+              repoName
+            )
+          )
+        } else {
+          throw new Error(translate("failedToLoadWorkspaceDetails"))
+        }
+      } catch (err) {
+        const msg = formatError(err, "failedToLoadWorkspaceDetails")
+        if (msg && isMountedRef.current) setError(msg)
+      } finally {
+        if (isMountedRef.current) setIsLoading(false)
+        if (loadAbortRef.current === controller) {
+          loadAbortRef.current = null
+        }
       }
     }
-  })
+  )
+
+  // Clear local workspaces immediately when repository changes to prevent stale selections
+  hooks.useUpdateEffect(() => {
+    if (!isMountedRef.current) return
+    cancelCurrent()
+    setWorkspaces([])
+    setError(null)
+  }, [config?.repository])
 
   const scheduleLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
@@ -1001,7 +1012,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         size="lg"
         role="listitem"
         onClick={() => {
-          loadWorkspace(workspace.name)
+          const repoForItem =
+            (workspace as any)?.repository || config?.repository
+          loadWorkspace(workspace.name, repoForItem)
         }}
         logging={{
           enabled: true,
