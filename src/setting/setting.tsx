@@ -29,8 +29,11 @@ import {
   getEmailValidationError,
   extractHttpStatus,
 } from "../shared/utils"
-import { getErrorMessage, validateConnection } from "../shared/services"
-import { createFmeFlowClient } from "../shared/api"
+import {
+  getErrorMessage,
+  validateConnection,
+  getRepositories as fetchRepositoriesService,
+} from "../shared/services"
 import { fmeActions } from "../extensions/store"
 import type {
   WidgetConfig,
@@ -244,9 +247,9 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   testState,
 }) => {
   const canRefresh =
-    testState.status === "success" &&
     !validateServerUrl(localServerUrl) &&
-    !validateToken(localToken)
+    !validateToken(localToken) &&
+    availableRepos !== null
 
   return (
     <SettingRow
@@ -271,11 +274,6 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     >
       <Select
         options={(() => {
-          // Only show repositories after successful connection test
-          if (testState.status !== "success") {
-            return []
-          }
-
           // If server URL or token are invalid, show no options
           const hasValidServer = !validateServerUrl(localServerUrl)
           const hasValidToken = !validateToken(localToken)
@@ -308,24 +306,18 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               : ""
           onRepositoryChange(next)
         }}
-        // Disable when connection hasn't been tested successfully or when inputs are invalid
         disabled={
-          testState.status !== "success" ||
           !localServerUrl ||
           !localToken ||
           !!validateServerUrl(localServerUrl) ||
-          !!validateToken(localToken)
+          !!validateToken(localToken) ||
+          availableRepos === null
         }
         aria-describedby={
           fieldErrors.repository ? `${ID.repository}-error` : undefined
         }
         aria-invalid={fieldErrors.repository ? true : undefined}
         placeholder={(() => {
-          if (testState.status !== "success") {
-            return translate("testConnectionFirst")
-          }
-
-          // If connection is successful but no repos available
           const hasValidServer = !validateServerUrl(localServerUrl)
           const hasValidToken = !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
@@ -1123,22 +1115,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     reposAbortRef.current = new AbortController()
     const signal = reposAbortRef.current.signal
 
-    // Sanitize URL
-    const settings = validateConnectionSettings()
-    if (!settings) {
-      return // Invalid settings
-    }
+    const { cleaned } = sanitizeUrl(localServerUrl)
+    const serverUrl = cleaned
+    const token = localToken
 
     try {
-      const client = createFmeFlowClient({
-        fmeServerUrl: settings.serverUrl,
-        fmeServerToken: settings.token,
-        repository: settings.repository || "_",
-      })
-
-      const result = await client.getRepositories(signal)
-      const repositories =
-        result?.data?.map((r) => r.name).filter(Boolean) || []
+      setAvailableRepos(null)
+      const result = await fetchRepositoriesService(serverUrl, token, signal)
+      const repositories = result?.repositories || []
 
       if (repositories.length > 0) {
         setAvailableRepos(repositories)
@@ -1147,11 +1131,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       } else {
         console.warn("Repository refresh returned empty list")
         // Don't clear existing repos on refresh failure to avoid UX disruption
+        setAvailableRepos([])
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return
       console.warn("Repository refresh error:", err)
       // Don't clear existing repos on error to avoid UX disruption
+      setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
     } finally {
       reposAbortRef.current = null
     }
@@ -1242,6 +1228,52 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest,
   ])
 
+  // Auto-load repositories when server URL and token look valid
+  React.useEffect(() => {
+    const hasValidServer =
+      !!localServerUrl && !validateServerUrlKey(localServerUrl)
+    const hasValidToken = !!localToken && !validateTokenKey(localToken)
+    if (!hasValidServer || !hasValidToken) return
+
+    // Abort any existing repo load and start a new one
+    abortReposRequest()
+    const ctrl = new AbortController()
+    reposAbortRef.current = ctrl
+    const signal = ctrl.signal
+
+    // Indicate loading only if we don't already have a list
+    setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
+
+    const { cleaned } = sanitizeUrl(localServerUrl)
+    const serverUrl = cleaned
+    const token = localToken
+
+    ;(async () => {
+      try {
+        const result = await fetchRepositoriesService(serverUrl, token, signal)
+        if (signal.aborted) return
+        setAvailableRepos(result.repositories || [])
+        // Clear any repository error since we have a fresh list
+        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return
+        console.warn("Auto-load repositories error:", err)
+        // Keep existing list on error to avoid disruptive UX
+        setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
+      } finally {
+        if (reposAbortRef.current === ctrl) {
+          reposAbortRef.current = null
+        }
+      }
+    })()
+
+    return () => {
+      try {
+        ctrl.abort()
+      } catch {}
+    }
+  }, [localServerUrl, localToken, sanitizeUrl, abortReposRequest])
+
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
@@ -1310,10 +1342,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
-    // Only validate repository if we have a connection success and available repos
+    // Validate repository if we have an available list and a selection
     if (
-      testState.status === "success" &&
-      availableRepos?.length &&
+      Array.isArray(availableRepos) &&
+      availableRepos.length &&
       localRepository
     ) {
       const hasRepo = availableRepos.includes(localRepository)
@@ -1326,8 +1358,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }))
       // UI update is enough; avoid config writes here
     } else if (
-      testState.status === "success" &&
-      availableRepos?.length === 0 &&
+      Array.isArray(availableRepos) &&
+      availableRepos.length === 0 &&
       localRepository
     ) {
       // If we have an empty repo list but a selected repository, it might be manually entered
@@ -1336,7 +1368,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         repository: undefined, // Allow manual entry when list is empty
       }))
     }
-  }, [availableRepos, localRepository, testState.status, translate])
+  }, [availableRepos, localRepository, translate])
 
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
