@@ -246,6 +246,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   ID,
   testState,
 }) => {
+  // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
     !validateServerUrl(localServerUrl) &&
     !validateToken(localToken) &&
@@ -275,8 +276,9 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       <Select
         options={(() => {
           // If server URL or token are invalid, show no options
-          const hasValidServer = !validateServerUrl(localServerUrl)
-          const hasValidToken = !validateToken(localToken)
+          const hasValidServer =
+            !!localServerUrl && !validateServerUrl(localServerUrl)
+          const hasValidToken = !!localToken && !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
             return []
           }
@@ -287,9 +289,17 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               ? availableRepos
               : []
 
-          // Deduplicate options while preserving order
+          // Deduplicate options while preserving order and ensure current selection is present
           const seen = new Set<string>()
           const opts: Array<{ label: string; value: string }> = []
+          if (
+            localRepository &&
+            typeof localRepository === "string" &&
+            localRepository.trim()
+          ) {
+            seen.add(localRepository)
+            opts.push({ label: localRepository, value: localRepository })
+          }
           for (const name of src) {
             if (!seen.has(name) && typeof name === "string" && name.trim()) {
               seen.add(name)
@@ -1123,7 +1133,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setAvailableRepos(null)
       const result = await fetchRepositoriesService(serverUrl, token, signal)
       const repositories = result?.repositories || []
-
       if (repositories.length > 0) {
         setAvailableRepos(repositories)
         // Clear any existing repository errors
@@ -1227,7 +1236,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     clearRepositoryEphemeralState,
     abortReposRequest,
   ])
-
   // Auto-load repositories when server URL and token look valid
   React.useEffect(() => {
     const hasValidServer =
@@ -1356,16 +1364,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         ...prev,
         repository: errorMessage,
       }))
-      // UI update is enough; avoid config writes here
     } else if (
       Array.isArray(availableRepos) &&
       availableRepos.length === 0 &&
       localRepository
     ) {
-      // If we have an empty repo list but a selected repository, it might be manually entered
+      // Allow manual entry when list is empty
       setFieldErrors((prev) => ({
         ...prev,
-        repository: undefined, // Allow manual entry when list is empty
+        repository: undefined,
       }))
     }
   }, [availableRepos, localRepository, translate])

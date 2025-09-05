@@ -5,6 +5,7 @@ import {
   Button,
   StateView,
   Select,
+  MultiSelectControl,
   TextArea,
   Form,
   Field,
@@ -603,8 +604,7 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
   // Render field based on its type
   const renderByType = (): JSX.Element => {
     switch (field.type) {
-      case FormFieldType.SELECT:
-      case FormFieldType.MULTI_SELECT: {
+      case FormFieldType.SELECT: {
         const options = field.options || []
 
         return (
@@ -622,6 +622,23 @@ const DynamicField: React.FC<DynamicFieldProps> = ({
             aria-label={field.label}
             disabled={field.readOnly || isSingleOption}
             coerce={selectCoerce}
+          />
+        )
+      }
+      case FormFieldType.MULTI_SELECT: {
+        const options = field.options || []
+        const values = Array.isArray(fieldValue)
+          ? (fieldValue as ReadonlyArray<string | number>)
+          : []
+        return (
+          <MultiSelectControl
+            options={options}
+            values={[...values] as Array<string | number>}
+            placeholder={placeholders.select}
+            disabled={field.readOnly}
+            onChange={(vals) => {
+              onChange(vals as unknown as FormPrimitive)
+            }}
           />
         )
       }
