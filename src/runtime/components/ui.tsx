@@ -80,7 +80,12 @@ const createStyles = (theme: IMThemeVariables) => {
     row: css({ display: "flex" }),
     col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
-    fullWidth: css({ width: "100%", minWidth: 0 }),
+    fullWidth: css({
+      display: "flex",
+      width: "100%",
+      flexDirection: "column",
+      minWidth: 0,
+    }),
     relative: css({ position: "relative" }),
     block: css({ display: "block" }),
     marginTop: (value: number) => css({ marginTop: value }),
