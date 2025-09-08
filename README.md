@@ -3,6 +3,9 @@
 
 Export a user‑drawn Area of Interest (AOI) from an Experience Builder map to FME Flow (Server). The widget guides the user through drawing a polygon/rectangle, selecting an FME workspace, filling in parameters, and submitting an export job.
 
+[Ladda ner](https://github.com/user-attachments/files/22210941/fme-export.zip)
+
+
 ## What it does
 
 - Draw AOI on the map using Sketch (Polygon or Rectangle; polygons are submitted)
