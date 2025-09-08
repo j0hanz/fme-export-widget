@@ -1,10 +1,8 @@
-
 # FME Export widget (ArcGIS Experience Builder 1.18)
 
 Export a user‑drawn Area of Interest (AOI) from an Experience Builder map to FME Flow (Server). The widget guides the user through drawing a polygon/rectangle, selecting an FME workspace, filling in parameters, and submitting an export job.
 
 [Ladda ner](https://github.com/user-attachments/files/22210941/fme-export.zip)
-
 
 ## What it does
 
@@ -20,26 +18,22 @@ Core flow: INITIAL → DRAWING → WORKSPACE_SELECTION → EXPORT_FORM → ORDER
 ## Installation (Experience Builder Dev Edition)
 
 1. Install EXB 1.18 Developer Edition
-
    - Download: <https://developers.arcgis.com/experience-builder/guide/downloads/>
    - Install guide: <https://developers.arcgis.com/experience-builder/guide/install-guide/>
    - Create a Client ID as per the install guide.
 
 2. Start EXB services
-
    - In `server/`: `npm ci`, then `npm start`
    - In `client/`: `npm ci`, then `npm start`
    - Open <https://localhost:3001/>
 
 3. Install the widget
-
    - Copy this folder `fme-export` into `client/your-extensions/widgets/`
    - Run the extension bootstrap so EXB discovers it:
      - From `client/`: `node .\npm-bootstrap-extensions`
    - Restart the client build if needed
 
 4. Add to an app
-
    - In the Builder UI, drag “FME Export” onto your app
    - Ensure the widget is connected to exactly one Map widget
 
@@ -49,16 +43,16 @@ The widget reads these config values (keys shown for reference):
 
 ```jsonc
 {
-   // Required
-   "fmeServerUrl": "https://your-host[/fmeserver]",   // trailing /fmeserver or /fmerest ok (normalized)
-   "fmeServerToken": "<FME Flow token>",               // used as fmetoken Authorization header
-   "repository": "<FME Repository>",                  // repository to list workspaces from
+  // Required
+  "fmeServerUrl": "https://your-host[/fmeserver]", // trailing /fmeserver or /fmerest ok (normalized)
+  "fmeServerToken": "<FME Flow token>", // used as fmetoken Authorization header
+  "repository": "<FME Repository>", // repository to list workspaces from
 
-   // Optional
-   "maxArea": 25000000,          // m² limit for AOI validation (reject if exceeded)
-   "requestTimeout": 30000,      // ms request timeout for FME calls
-   "geometryServiceUrl": "...", // reserved for future use
-   "api": "..."                  // reserved for future/advanced use
+  // Optional
+  "maxArea": 25000000, // m² limit for AOI validation (reject if exceeded)
+  "requestTimeout": 30000, // ms request timeout for FME calls
+  "geometryServiceUrl": "...", // reserved for future use
+  "api": "...", // reserved for future/advanced use
 }
 ```
 
@@ -71,12 +65,12 @@ Notes:
 ## How it works (FME integration)
 
 - Primary submission path: Webhook GET to `/fmedatadownload/{repository}/{workspace}` with query:
-
   - `opt_responseformat=json`, `opt_showresult=true`, `opt_servicemode=async`, plus your published parameters
   - AOI is attached as `AreaOfInterest` containing polygon Esri JSON (stringified)
   - Requester email is included as `opt_requesteremail` (pulled from Portal user, with a no‑reply fallback)
-  
+
   Note: The widget expects the Data Download webhook to return JSON; HTML or non-JSON responses are surfaced as authentication errors to the user.
+
 - Trusted server + token: All REST calls go through Esri’s `esri/request` with an interceptor that adds the FME token and trusts the server origin.
 
 Geometry submitted
