@@ -34,106 +34,153 @@ const toSerializable = (
 
 // Action creators
 export const fmeActions = {
-  setViewMode: (viewMode: ViewMode) => ({
+  setViewMode: (viewMode: ViewMode, widgetId: string) => ({
     type: FmeActionType.SET_VIEW_MODE,
     viewMode,
+    widgetId,
   }),
-  resetState: () => ({ type: FmeActionType.RESET_STATE }),
+  resetState: (widgetId: string) => ({
+    type: FmeActionType.RESET_STATE,
+    widgetId,
+  }),
   setStartupValidationState: (
     isValidating: boolean,
-    validationStep?: string,
-    validationError?: ErrorState | SerializableErrorState | null
+    validationStep: string | undefined,
+    validationError: ErrorState | SerializableErrorState | null,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_STARTUP_VALIDATION_STATE,
     isValidating,
     validationStep,
     validationError,
+    widgetId,
   }),
-  setGeometry: (geometry: __esri.Geometry | null, drawnArea?: number) => ({
+  setGeometry: (
+    geometry: __esri.Geometry | null,
+    drawnArea: number | undefined,
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_GEOMETRY,
     geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
     drawnArea,
+    widgetId,
   }),
   setDrawingState: (
     isDrawing: boolean,
-    clickCount?: number,
-    drawingTool?: DrawingTool
+    clickCount: number | undefined,
+    drawingTool: DrawingTool | undefined,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_DRAWING_STATE,
     isDrawing,
     clickCount,
     drawingTool,
+    widgetId,
   }),
-  setDrawingTool: (drawingTool: DrawingTool) => ({
+  setDrawingTool: (drawingTool: DrawingTool, widgetId: string) => ({
     type: FmeActionType.SET_DRAWING_TOOL,
     drawingTool,
+    widgetId,
   }),
-  setClickCount: (clickCount: number) => ({
+  setClickCount: (clickCount: number, widgetId: string) => ({
     type: FmeActionType.SET_CLICK_COUNT,
     clickCount,
+    widgetId,
   }),
-  setFormValues: (formValues: FormValues) => ({
+  setFormValues: (formValues: FormValues, widgetId: string) => ({
     type: FmeActionType.SET_FORM_VALUES,
     formValues,
+    widgetId,
   }),
-  setOrderResult: (orderResult: ExportResult | null) => ({
+  setOrderResult: (orderResult: ExportResult | null, widgetId: string) => ({
     type: FmeActionType.SET_ORDER_RESULT,
     orderResult,
+    widgetId,
   }),
   setWorkspaceItems: (
     workspaceItems: readonly WorkspaceItem[],
-    repository?: string
+    repository: string | undefined,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEMS,
     workspaceItems,
     repository, // Add repository context to ensure workspace items are scoped correctly
+    widgetId,
   }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string,
-    repository?: string
+    repository: string | undefined,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_PARAMETERS,
     workspaceParameters,
     workspaceName,
     repository, // Add repository context to track which repo these parameters belong to
+    widgetId,
   }),
   setSelectedWorkspace: (
     workspaceName: string | null,
-    repository?: string
+    repository: string | undefined,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE,
     workspaceName,
     repository, // Track which repository the selected workspace belongs to
+    widgetId,
   }),
   setWorkspaceItem: (
     workspaceItem: WorkspaceItemDetail | null,
-    repository?: string
+    repository: string | undefined,
+    widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM,
     workspaceItem,
     repository, // Track repository context for workspace item
+    widgetId,
   }),
-  setLoadingFlags: (flags: { [key: string]: boolean }) => ({
+  setLoadingFlags: (flags: { [key: string]: boolean }, widgetId: string) => ({
     type: FmeActionType.SET_LOADING_FLAGS,
     ...flags,
+    widgetId,
   }),
-  setError: (error: ErrorState | SerializableErrorState | null) => ({
+  setError: (
+    error: ErrorState | SerializableErrorState | null,
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_ERROR,
     error: toSerializable(error),
+    widgetId,
   }),
-  setImportError: (error: ErrorState | SerializableErrorState | null) => ({
+  setImportError: (
+    error: ErrorState | SerializableErrorState | null,
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_IMPORT_ERROR,
     error: toSerializable(error),
+    widgetId,
   }),
-  setExportError: (error: ErrorState | SerializableErrorState | null) => ({
+  setExportError: (
+    error: ErrorState | SerializableErrorState | null,
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_EXPORT_ERROR,
     error: toSerializable(error),
+    widgetId,
   }),
   // New action to clear workspace-related state when switching repositories
-  clearWorkspaceState: (newRepository?: string) => ({
+  clearWorkspaceState: (
+    newRepository: string | undefined,
+    widgetId: string
+  ) => ({
     type: FmeActionType.CLEAR_WORKSPACE_STATE,
     newRepository,
+    widgetId,
+  }),
+  // Internal action to remove entire widget state (e.g. on unmount)
+  removeWidgetState: (widgetId: string) => ({
+    type: "fme/REMOVE_WIDGET_STATE",
+    widgetId,
   }),
 }
 
@@ -173,8 +220,8 @@ export const initialFmeState: FmeWidgetState = {
   exportError: null,
 }
 
-// Reducer
-const fmeReducer = (
+// Reducer for a single widget instance
+const reduceOne = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeActions
 ): ImmutableObject<FmeWidgetState> => {
@@ -280,6 +327,55 @@ const fmeReducer = (
   }
 }
 
+// Global reducer managing per-widget sub-states
+type GlobalState = ImmutableObject<{
+  byId: { [id: string]: ImmutableObject<FmeWidgetState> }
+}>
+
+const ensureSubState = (
+  global: GlobalState,
+  widgetId: string
+): ImmutableObject<FmeWidgetState> => {
+  const current = (global as any).byId?.[widgetId] as
+    | ImmutableObject<FmeWidgetState>
+    | undefined
+  return (
+    current ??
+    (Immutable(initialFmeState) as unknown as ImmutableObject<FmeWidgetState>)
+  )
+}
+
+const setSubState = (
+  global: GlobalState,
+  widgetId: string,
+  next: ImmutableObject<FmeWidgetState>
+): GlobalState => {
+  const byId = { ...((global as any).byId || {}) }
+  byId[widgetId] = next
+  return Immutable({ byId }) as unknown as GlobalState
+}
+
+// Root reducer that delegates to per-widget reducer
+const fmeReducer = (state: GlobalState, action: any): GlobalState => {
+  // Special: remove entire widget state
+  if (action?.type === "fme/REMOVE_WIDGET_STATE" && action?.widgetId) {
+    const byId = { ...((state as any)?.byId || {}) }
+    delete byId[action.widgetId]
+    return Immutable({ byId }) as unknown as GlobalState
+  }
+
+  const widgetId: string | undefined = action?.widgetId
+  if (!widgetId) {
+    // No widgetId provided — return state unchanged for safety
+    return state
+  }
+
+  const prevSub = ensureSubState(state, widgetId)
+  const nextSub = reduceOne(prevSub, action)
+  if (nextSub === prevSub) return state
+  return setSubState(state, widgetId, nextSub)
+}
+
 // Store extension
 export default class FmeReduxStoreExtension
   implements extensionSpec.ReduxStoreExtension
@@ -291,8 +387,8 @@ export default class FmeReduxStoreExtension
     return Object.values(FmeActionType) as unknown as string[]
   }
 
-  getInitLocalState(): FmeWidgetState {
-    return initialFmeState
+  getInitLocalState(): { byId: { [id: string]: FmeWidgetState } } {
+    return { byId: {} }
   }
 
   getReducer() {

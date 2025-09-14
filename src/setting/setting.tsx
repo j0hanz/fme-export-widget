@@ -670,9 +670,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const sstyles = useSettingStyles()
   const dispatch = useDispatch()
 
-  // Connect to Redux store for repository isolation
+  // Get current repository from global state to detect external changes
   const currentRepository = useSelector((state: IMStateWithFmeExport) => {
-    return state?.["fme-state"]?.currentRepository || null
+    const global = state?.["fme-state"] as any
+    return (global?.byId && id && global.byId[id]?.currentRepository) || null
   })
 
   const getStringConfig = useStringConfigValue(config)
@@ -1388,7 +1389,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       // Clear workspace-related state when switching repositories for isolation
       if (previousRepository !== newRepository) {
-        dispatch(fmeActions.clearWorkspaceState(newRepository))
+        dispatch(fmeActions.clearWorkspaceState(newRepository, id))
       }
 
       // Clear repository field error but don't bump config revision for minor changes

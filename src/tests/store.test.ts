@@ -8,18 +8,26 @@ import {
   DrawingTool,
   FmeActionType,
   type FmeWidgetState,
-  type SerializableErrorState,
 } from "../config"
 
 describe("FME Redux store extension", () => {
-  const makeState = (patch?: Partial<FmeWidgetState>) =>
-    Immutable({ ...initialFmeState, ...patch }) as any
+  const WID = "w1"
+  const WID2 = "w2"
+
+  const makeGlobal = (patch?: Partial<FmeWidgetState>) =>
+    Immutable({ byId: { [WID]: { ...initialFmeState, ...patch } } }) as any
+
+  const emptyGlobal = () =>
+    Immutable(new StoreExtension().getInitLocalState()) as any
+
+  const sub = (globalState: any, wid: string = WID): FmeWidgetState =>
+    globalState.byId?.[wid]
 
   test("Store extension metadata and API", () => {
     const ext = new StoreExtension()
     expect(ext.id).toBe("fme-export_store")
     expect(ext.getStoreKey()).toBe("fme-state")
-    expect(ext.getInitLocalState()).toEqual(initialFmeState)
+    expect(ext.getInitLocalState()).toEqual({ byId: {} })
 
     const actions = ext.getActions()
     const expected = Object.values(FmeActionType)
@@ -27,36 +35,36 @@ describe("FME Redux store extension", () => {
 
     const reducer = ext.getReducer()
     expect(typeof reducer).toBe("function")
-    // Smoke: reduce a simple action
-    const after = reducer(
-      Immutable(initialFmeState) as any,
-      fmeActions.setViewMode(ViewMode.DRAWING) as any
-    )
-    expect(after.viewMode).toBe(ViewMode.DRAWING)
-    expect(after.previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
+    // Smoke: reduce a simple action into empty global → creates substate
+    const g0 = emptyGlobal()
+    const g1 = reducer(g0, fmeActions.setViewMode(ViewMode.DRAWING, WID) as any)
+    expect(sub(g1).viewMode).toBe(ViewMode.DRAWING)
+    expect(sub(g1).previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
   })
 
   test("resetState restores initial state", () => {
     const reducer = new StoreExtension().getReducer()
-    const dirty = makeState({ viewMode: ViewMode.DRAWING, clickCount: 3 })
-    const reset = reducer(dirty, fmeActions.resetState() as any)
-    expect(reset).toEqual(Immutable(initialFmeState))
+    const dirty = makeGlobal({ viewMode: ViewMode.DRAWING, clickCount: 3 })
+    const resetG = reducer(dirty, fmeActions.resetState(WID) as any)
+    expect(sub(resetG)).toEqual(Immutable(initialFmeState))
   })
 
   test("setViewMode updates current and previous; idempotent when same", () => {
     const reducer = new StoreExtension().getReducer()
-    const s1 = Immutable(initialFmeState) as any
-    const s2 = reducer(s1, fmeActions.setViewMode(ViewMode.DRAWING) as any)
-    expect(s2.viewMode).toBe(ViewMode.DRAWING)
-    expect(s2.previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
-    // Setting the same mode returns the same reference (idempotent)
-    const s3 = reducer(s2, fmeActions.setViewMode(ViewMode.DRAWING) as any)
-    expect(s3).toBe(s2)
+    const g0 = emptyGlobal()
+    const g1 = reducer(g0, fmeActions.setViewMode(ViewMode.DRAWING, WID) as any)
+    const sub1 = sub(g1)
+    expect(sub1.viewMode).toBe(ViewMode.DRAWING)
+    expect(sub1.previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
+    // Setting the same mode returns the same substate reference
+    const g2 = reducer(g1, fmeActions.setViewMode(ViewMode.DRAWING, WID) as any)
+    const sub2 = sub(g2)
+    expect(sub2).toBe(sub1)
   })
 
   test("setStartupValidationState toggles flags and serializes error", () => {
     const reducer = new StoreExtension().getReducer()
-    const start = Immutable(initialFmeState) as any
+    const start = emptyGlobal()
     const eDate = new Date(1710000000000)
     // Pass an error-like object without timestampMs to test Date path
     const err: any = {
@@ -67,144 +75,165 @@ describe("FME Redux store extension", () => {
       recoverable: true,
       timestamp: eDate,
     }
-    const next = reducer(
+    const nextG = reducer(
       start,
-      fmeActions.setStartupValidationState(false, "step-a", err) as any
+      fmeActions.setStartupValidationState(false, "step-a", err, WID) as any
     )
-    expect(next.isStartupValidating).toBe(false)
-    expect(next.startupValidationStep).toBe("step-a")
-    expect(next.startupValidationError?.message).toBe("oops")
-    expect(next.startupValidationError?.timestampMs).toBe(eDate.getTime())
+    expect(sub(nextG).isStartupValidating).toBe(false)
+    expect(sub(nextG).startupValidationStep).toBe("step-a")
+    expect(sub(nextG).startupValidationError?.message).toBe("oops")
+    expect(sub(nextG).startupValidationError?.timestampMs).toBe(eDate.getTime())
 
-    const cleared = reducer(
-      next,
-      fmeActions.setStartupValidationState(true, undefined, null) as any
+    const clearedG = reducer(
+      nextG,
+      fmeActions.setStartupValidationState(true, undefined, null, WID) as any
     )
-    expect(cleared.isStartupValidating).toBe(true)
-    expect(cleared.startupValidationError).toBeNull()
+    expect(sub(clearedG).isStartupValidating).toBe(true)
+    expect(sub(clearedG).startupValidationError).toBeNull()
   })
 
   test("setGeometry stores JSON and drawnArea with defaults", () => {
     const reducer = new StoreExtension().getReducer()
-    const s0 = Immutable(initialFmeState) as any
+    const g0 = emptyGlobal()
     const geom = {
       toJSON: () => ({ rings: [[[0, 0]]], spatialReference: { wkid: 3006 } }),
     }
-    const s1 = reducer(s0, fmeActions.setGeometry(geom as any, 123.45) as any)
-    expect(s1.geometryJson).toEqual({
+    const g1 = reducer(
+      g0,
+      fmeActions.setGeometry(geom as any, 123.45, WID) as any
+    )
+    expect(sub(g1).geometryJson).toEqual({
       rings: [[[0, 0]]],
       spatialReference: { wkid: 3006 },
     })
-    expect(s1.drawnArea).toBe(123.45)
+    expect(sub(g1).drawnArea).toBe(123.45)
 
-    const s2 = reducer(s1, fmeActions.setGeometry(null as any) as any)
-    expect(s2.geometryJson).toBeNull()
-    expect(s2.drawnArea).toBe(0)
+    const g2 = reducer(
+      g1,
+      fmeActions.setGeometry(null as any, undefined, WID) as any
+    )
+    expect(sub(g2).geometryJson).toBeNull()
+    expect(sub(g2).drawnArea).toBe(0)
   })
 
   test("drawing state: setDrawingState, setDrawingTool, setClickCount", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = Immutable(initialFmeState) as any
-    const s1 = r(
-      s0,
-      fmeActions.setDrawingState(true, 2, DrawingTool.RECTANGLE) as any
+    const g0 = emptyGlobal()
+    const g1 = r(
+      g0,
+      fmeActions.setDrawingState(true, 2, DrawingTool.RECTANGLE, WID) as any
     )
-    expect(s1.isDrawing).toBe(true)
-    expect(s1.clickCount).toBe(2)
-    expect(s1.drawingTool).toBe(DrawingTool.RECTANGLE)
+    expect(sub(g1).isDrawing).toBe(true)
+    expect(sub(g1).clickCount).toBe(2)
+    expect(sub(g1).drawingTool).toBe(DrawingTool.RECTANGLE)
 
-    const s2 = r(s1, fmeActions.setDrawingState(false) as any)
-    expect(s2.isDrawing).toBe(false)
+    const g2 = r(
+      g1,
+      fmeActions.setDrawingState(false, undefined, undefined, WID) as any
+    )
+    expect(sub(g2).isDrawing).toBe(false)
     // Fallback preserves prior clickCount and tool
-    expect(s2.clickCount).toBe(2)
-    expect(s2.drawingTool).toBe(DrawingTool.RECTANGLE)
+    expect(sub(g2).clickCount).toBe(2)
+    expect(sub(g2).drawingTool).toBe(DrawingTool.RECTANGLE)
 
-    const s3 = r(s2, fmeActions.setDrawingTool(DrawingTool.POLYGON) as any)
-    expect(s3.drawingTool).toBe(DrawingTool.POLYGON)
+    const g3 = r(g2, fmeActions.setDrawingTool(DrawingTool.POLYGON, WID) as any)
+    expect(sub(g3).drawingTool).toBe(DrawingTool.POLYGON)
 
-    const s4 = r(s3, fmeActions.setClickCount(9) as any)
-    expect(s4.clickCount).toBe(9)
+    const g4 = r(g3, fmeActions.setClickCount(9, WID) as any)
+    expect(sub(g4).clickCount).toBe(9)
   })
 
   test("form and order: setFormValues, setOrderResult toggles isSubmittingOrder=false", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = makeState({ isSubmittingOrder: true })
-    const s1 = r(s0, fmeActions.setFormValues({ a: 1, b: "x" }) as any)
-    expect(s1.formValues).toEqual({ a: 1, b: "x" })
-    const s2 = r(
-      s1,
-      fmeActions.setOrderResult({
-        success: true,
-        message: "ok",
-        jobId: 7,
-      } as any) as any
+    const g0 = makeGlobal({ isSubmittingOrder: true })
+    const g1 = r(g0, fmeActions.setFormValues({ a: 1, b: "x" }, WID) as any)
+    expect(sub(g1).formValues).toEqual({ a: 1, b: "x" })
+    const g2 = r(
+      g1,
+      fmeActions.setOrderResult(
+        {
+          success: true,
+          message: "ok",
+          jobId: 7,
+        } as any,
+        WID
+      ) as any
     )
-    expect(s2.orderResult).toEqual({ success: true, message: "ok", jobId: 7 })
-    expect(s2.isSubmittingOrder).toBe(false)
+    expect(sub(g2).orderResult).toEqual({
+      success: true,
+      message: "ok",
+      jobId: 7,
+    })
+    expect(sub(g2).isSubmittingOrder).toBe(false)
   })
 
   test("workspace: items, parameters, selection, item, with repository scoping", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = makeState()
-    const s1 = r(
-      s0,
+    const g0 = makeGlobal()
+    const g1 = r(
+      g0,
       fmeActions.setWorkspaceItems(
         [{ name: "ws1" }, { name: "ws2" }],
-        "RepoA"
+        "RepoA",
+        WID
       ) as any
     )
-    expect(s1.workspaceItems).toEqual([{ name: "ws1" }, { name: "ws2" }])
-    expect(s1.currentRepository).toBe("RepoA")
+    expect(sub(g1).workspaceItems).toEqual([{ name: "ws1" }, { name: "ws2" }])
+    expect(sub(g1).currentRepository).toBe("RepoA")
 
-    const s2 = r(
-      s1,
+    const g2 = r(
+      g1,
       fmeActions.setWorkspaceParameters(
         [{ name: "P1", optional: true, type: "TEXT" } as any],
         "ws1",
-        "RepoB"
+        "RepoB",
+        WID
       ) as any
     )
-    expect(s2.workspaceParameters[0].name).toBe("P1")
-    expect(s2.selectedWorkspace).toBe("ws1")
-    expect(s2.currentRepository).toBe("RepoB")
+    expect(sub(g2).workspaceParameters[0].name).toBe("P1")
+    expect(sub(g2).selectedWorkspace).toBe("ws1")
+    expect(sub(g2).currentRepository).toBe("RepoB")
 
-    const s3 = r(s2, fmeActions.setSelectedWorkspace("ws2", "RepoC") as any)
-    expect(s3.selectedWorkspace).toBe("ws2")
-    expect(s3.currentRepository).toBe("RepoC")
+    const g3 = r(
+      g2,
+      fmeActions.setSelectedWorkspace("ws2", "RepoC", WID) as any
+    )
+    expect(sub(g3).selectedWorkspace).toBe("ws2")
+    expect(sub(g3).currentRepository).toBe("RepoC")
 
     const itemDetail = {
       name: "ws2",
       parameters: [{ name: "X", optional: true, type: "TEXT" } as any],
     }
-    const s4 = r(
-      s3,
-      fmeActions.setWorkspaceItem(itemDetail as any, "RepoC") as any
+    const g4 = r(
+      g3,
+      fmeActions.setWorkspaceItem(itemDetail as any, "RepoC", WID) as any
     )
-    expect(s4.workspaceItem).toEqual(itemDetail)
-    expect(s4.currentRepository).toBe("RepoC")
+    expect(sub(g4).workspaceItem).toEqual(itemDetail)
+    expect(sub(g4).currentRepository).toBe("RepoC")
   })
 
   test("loading flags: isModulesLoading and isSubmittingOrder only", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = makeState({ isSubmittingOrder: false, isModulesLoading: false })
-    const s1 = r(
-      s0,
-      fmeActions.setLoadingFlags({ isModulesLoading: true }) as any
+    const g0 = makeGlobal({ isSubmittingOrder: false, isModulesLoading: false })
+    const g1 = r(
+      g0,
+      fmeActions.setLoadingFlags({ isModulesLoading: true }, WID) as any
     )
-    expect(s1.isModulesLoading).toBe(true)
-    expect(s1.isSubmittingOrder).toBe(false)
+    expect(sub(g1).isModulesLoading).toBe(true)
+    expect(sub(g1).isSubmittingOrder).toBe(false)
 
-    const s2 = r(
-      s1,
-      fmeActions.setLoadingFlags({ isSubmittingOrder: true }) as any
+    const g2 = r(
+      g1,
+      fmeActions.setLoadingFlags({ isSubmittingOrder: true }, WID) as any
     )
-    expect(s2.isModulesLoading).toBe(true)
-    expect(s2.isSubmittingOrder).toBe(true)
+    expect(sub(g2).isModulesLoading).toBe(true)
+    expect(sub(g2).isSubmittingOrder).toBe(true)
   })
 
   test("clearWorkspaceState resets related fields and repository", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = makeState({
+    const g0 = makeGlobal({
       workspaceItems: [{ name: "a" } as any],
       workspaceParameters: [{ name: "P", optional: true, type: "TEXT" } as any],
       selectedWorkspace: "a",
@@ -214,20 +243,20 @@ describe("FME Redux store extension", () => {
       isLoadingWorkspaces: true,
       isLoadingParameters: true,
     })
-    const s1 = r(s0, fmeActions.clearWorkspaceState("RepoY") as any)
-    expect(s1.workspaceItems).toEqual([])
-    expect(s1.workspaceParameters).toEqual([])
-    expect(s1.selectedWorkspace).toBeNull()
-    expect(s1.workspaceItem).toBeNull()
-    expect(s1.formValues).toEqual({})
-    expect(s1.currentRepository).toBe("RepoY")
-    expect(s1.isLoadingWorkspaces).toBe(false)
-    expect(s1.isLoadingParameters).toBe(false)
+    const g1 = r(g0, fmeActions.clearWorkspaceState("RepoY", WID) as any)
+    expect(sub(g1).workspaceItems).toEqual([])
+    expect(sub(g1).workspaceParameters).toEqual([])
+    expect(sub(g1).selectedWorkspace).toBeNull()
+    expect(sub(g1).workspaceItem).toBeNull()
+    expect(sub(g1).formValues).toEqual({})
+    expect(sub(g1).currentRepository).toBe("RepoY")
+    expect(sub(g1).isLoadingWorkspaces).toBe(false)
+    expect(sub(g1).isLoadingParameters).toBe(false)
   })
 
   test("errors: setError, setImportError, setExportError serialize and store", () => {
     const r = new StoreExtension().getReducer()
-    const s0 = makeState()
+    const g0 = makeGlobal()
     const errWithMs: any = {
       message: "m1",
       type: "network",
@@ -236,14 +265,43 @@ describe("FME Redux store extension", () => {
       recoverable: false,
       timestampMs: 123,
     }
-    const s1 = r(s0, fmeActions.setError(errWithMs) as any)
-    expect((s1.error as SerializableErrorState)?.timestampMs).toBe(123)
-    expect((s1.error as SerializableErrorState)?.message).toBe("m1")
+    const g1 = r(g0, fmeActions.setError(errWithMs, WID) as any)
+    expect(sub(g1).error?.timestampMs).toBe(123)
+    expect(sub(g1).error?.message).toBe("m1")
 
-    const s2 = r(s1, fmeActions.setImportError(errWithMs) as any)
-    expect((s2.importError as SerializableErrorState)?.code).toBe("C1")
+    const g2 = r(g1, fmeActions.setImportError(errWithMs, WID) as any)
+    expect(sub(g2).importError?.code).toBe("C1")
 
-    const s3 = r(s2, fmeActions.setExportError(errWithMs) as any)
-    expect((s3.exportError as SerializableErrorState)?.code).toBe("C1")
+    const g3 = r(g2, fmeActions.setExportError(errWithMs, WID) as any)
+    expect(sub(g3).exportError?.code).toBe("C1")
+  })
+
+  test("multi-instance isolation: actions on W1 do not affect W2", () => {
+    const r = new StoreExtension().getReducer()
+    const g0 = emptyGlobal()
+    const g1 = r(g0, fmeActions.setViewMode(ViewMode.DRAWING, WID) as any)
+    // W1 changed
+    expect(sub(g1, WID).viewMode).toBe(ViewMode.DRAWING)
+    // W2 remains undefined (no substate yet)
+    expect(sub(g1, WID2)).toBeUndefined()
+
+    const g2 = r(g1, fmeActions.setClickCount(5, WID) as any)
+    expect(sub(g2, WID).clickCount).toBe(5)
+    expect(sub(g2, WID2)).toBeUndefined()
+  })
+
+  test("removeWidgetState removes only the specified widget substate", () => {
+    const r = new StoreExtension().getReducer()
+    // Seed both W1 and W2
+    const g0a = r(
+      emptyGlobal(),
+      fmeActions.setViewMode(ViewMode.DRAWING, WID) as any
+    )
+    const g0 = r(g0a, fmeActions.setViewMode(ViewMode.EXPORT_FORM, WID2) as any)
+    expect(sub(g0, WID)).toBeTruthy()
+    expect(sub(g0, WID2)).toBeTruthy()
+    const g1 = r(g0, fmeActions.removeWidgetState(WID) as any)
+    expect(sub(g1, WID)).toBeUndefined()
+    expect(sub(g1, WID2)).toBeTruthy()
   })
 })

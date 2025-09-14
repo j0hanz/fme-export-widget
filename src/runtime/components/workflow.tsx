@@ -185,27 +185,29 @@ const useFormStateManager = (
   }
 }
 
-// Form helper functions
-const syncFormToStore = (values: FormValues): void => {
-  const dispatch = getAppStore().dispatch as (
-    action: ReturnType<typeof fmeActions.setFormValues>
-  ) => void
-  dispatch(fmeActions.setFormValues(values))
-}
-
 // Workspace loader hook
-const useWorkspaceLoader = (
-  config: any,
-  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null,
-  translate: (k: string) => string,
-  translateRuntime: (k: string) => string,
-  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>,
+const useWorkspaceLoader = (opts: {
+  config: any
+  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
+  translate: (k: string) => string
+  translateRuntime: (k: string) => string
+  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
+  widgetId: string
   onWorkspaceSelected?: (
     workspaceName: string,
     params: readonly any[],
     item: any
   ) => void
-) => {
+}) => {
+  const {
+    config,
+    getFmeClient,
+    translate,
+    translateRuntime,
+    makeCancelable,
+    widgetId,
+    onWorkspaceSelected,
+  } = opts
   const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
     []
   )
@@ -310,10 +312,8 @@ const useWorkspaceLoader = (
         if (isMountedRef.current) {
           setWorkspaces(sorted)
           // Dispatch workspace items with repository context to store
-          const dispatch = getAppStore().dispatch as (
-            action: ReturnType<typeof fmeActions.setWorkspaceItems>
-          ) => void
-          dispatch(fmeActions.setWorkspaceItems(sorted, repoName))
+          const dispatch = getAppStore().dispatch as any
+          dispatch(fmeActions.setWorkspaceItems(sorted, repoName, widgetId))
         }
       } else {
         throw new Error(translate("failedToLoadWorkspaces"))
@@ -357,14 +357,17 @@ const useWorkspaceLoader = (
             response.data
           )
           // Dispatch workspace item and parameters with repository context
-          const dispatch = getAppStore().dispatch
+          const dispatch = getAppStore().dispatch as any
           const repoName = String(repoToUse)
-          dispatch(fmeActions.setWorkspaceItem(response.data, repoName))
+          dispatch(
+            fmeActions.setWorkspaceItem(response.data, repoName, widgetId)
+          )
           dispatch(
             fmeActions.setWorkspaceParameters(
               response.data.parameters,
               workspaceName,
-              repoName
+              repoName,
+              widgetId
             )
           )
         } else {
@@ -501,7 +504,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 }
 
 // ExportForm component: dynamic form generation and submission
-const ExportForm: React.FC<ExportFormProps> = ({
+const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -509,6 +512,7 @@ const ExportForm: React.FC<ExportFormProps> = ({
   onSubmit,
   isSubmitting,
   translate,
+  widgetId,
 }) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
@@ -527,6 +531,10 @@ const ExportForm: React.FC<ExportFormProps> = ({
   const validator = createFormValidator(parameterService, workspaceParameters)
 
   // Use form state manager hook
+  const syncFormToStore = hooks.useEventCallback((values: FormValues) => {
+    const dispatch = getAppStore().dispatch as any
+    dispatch(fmeActions.setFormValues(values, widgetId))
+  })
   const formState = useFormStateManager(validator, syncFormToStore)
 
   // Initialize form values in Redux store only once
@@ -580,10 +588,8 @@ const ExportForm: React.FC<ExportFormProps> = ({
         { code: "FORM_INVALID" }
       )
       // Dispatch error to the store
-      const dispatch = getAppStore().dispatch as (
-        action: ReturnType<typeof fmeActions.setError>
-      ) => void
-      dispatch(fmeActions.setError(error))
+      const dispatch = getAppStore().dispatch as any
+      dispatch(fmeActions.setError(error, widgetId))
       return
     }
     // Merge file inputs with other values
@@ -636,6 +642,7 @@ const ExportForm: React.FC<ExportFormProps> = ({
 
 // Main Workflow component
 export const Workflow: React.FC<WorkflowProps> = ({
+  widgetId,
   state,
   instructionText,
   isModulesLoading,
@@ -761,14 +768,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     loadAll: loadWsList,
     loadItem: loadWorkspace,
     scheduleLoad: scheduleWsLoad,
-  } = useWorkspaceLoader(
+  } = useWorkspaceLoader({
     config,
     getFmeClient,
     translate,
     translateRuntime,
     makeCancelable,
-    onWorkspaceSelected
-  )
+    widgetId: widgetId || "",
+    onWorkspaceSelected,
+  })
 
   // Render workspace buttons
   const renderWsButtons = () =>
@@ -812,8 +820,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Clear workspace state when repository changes
   hooks.useUpdateEffect(() => {
     if (config?.repository) {
-      const dispatch = getAppStore().dispatch
-      dispatch(fmeActions.clearWorkspaceState(config.repository))
+      const dispatch = getAppStore().dispatch as any
+      dispatch(
+        fmeActions.clearWorkspaceState(config.repository, widgetId || "")
+      )
       // Force reload of workspaces for new repository
       if (
         state === ViewMode.WORKSPACE_SELECTION ||
@@ -932,6 +942,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     return (
       <ExportForm
+        widgetId={widgetId || ""}
         workspaceParameters={workspaceParameters}
         workspaceName={selectedWorkspace}
         workspaceItem={workspaceItem}

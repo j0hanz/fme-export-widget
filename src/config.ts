@@ -723,8 +723,15 @@ export interface FmeWidgetState {
   readonly exportError: SerializableErrorState | null
 }
 
+// Global state for multiple widget instances
+export interface FmeGlobalState {
+  readonly byId: { readonly [widgetId: string]: FmeWidgetState }
+}
+
+export type IMFmeGlobalState = ImmutableObject<FmeGlobalState>
+
 export interface IMStateWithFmeExport extends IMState {
-  readonly "fme-state": ImmutableObject<FmeWidgetState>
+  readonly "fme-state": IMFmeGlobalState
 }
 
 // Component props interfaces
