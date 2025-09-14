@@ -311,9 +311,9 @@ const getErrorInfo = (
 const isJson = (contentType: string | null): boolean =>
   contentType?.includes("application/json") ?? false
 
-// Mask token for logs (show at most last 4 chars)
+// Parse webhook response with error handling
 const maskToken = (token: string): string =>
-  token ? `***${token.slice(-4)}` : ""
+  token ? `****${token.slice(-4)}` : ""
 
 // URL building utilities
 const buildUrl = (serverUrl: string, ...segments: string[]): string => {
