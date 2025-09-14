@@ -12,7 +12,8 @@ import {
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
 import Setting from "../setting/setting"
-import { initialFmeState, fmeActions } from "../extensions/store"
+import { FmeActionType } from "../config"
+import { initialFmeState } from "../extensions/store"
 
 void React
 
@@ -356,7 +357,7 @@ describe("Setting panel", () => {
       expect(
         storeDispatch.mock.calls.some(
           ([action]: any[]) =>
-            action?.type === fmeActions.clearWorkspaceState("B").type &&
+            action?.type === FmeActionType.CLEAR_WORKSPACE_STATE &&
             action?.newRepository === "B"
         )
       ).toBe(true)
@@ -368,15 +369,23 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    // Both numeric inputs share placeholder "0"; first is ttc, second is ttl
-    const [ttcInput, ttlInput] = screen.getAllByPlaceholderText("0")
+    // Select inputs by their labels to avoid coupling to placeholder ordering
+    const ttcLabel = screen.getByText(/Max körtid \(s\)/i)
+    const ttcRow = ttcLabel.closest("div")?.parentElement
+    const ttcInput = ttcRow?.querySelector("input")
+    expect(ttcInput).toBeInTheDocument()
+
+    const ttlLabel = screen.getByText(/Max kötid \(s\)/i)
+    const ttlRow = ttlLabel.closest("div")?.parentElement
+    const ttlInput = ttlRow?.querySelector("input")
+    expect(ttlInput).toBeInTheDocument()
 
     // Set values and blur -> saved as integers (invalid -> 0)
-    fireEvent.change(ttcInput, { target: { value: "12.8" } })
-    fireEvent.blur(ttcInput)
+    fireEvent.change(ttcInput as Element, { target: { value: "12.8" } })
+    fireEvent.blur(ttcInput as Element)
 
-    fireEvent.change(ttlInput, { target: { value: "abc" } })
-    fireEvent.blur(ttlInput)
+    fireEvent.change(ttlInput as Element, { target: { value: "abc" } })
+    fireEvent.blur(ttlInput as Element)
 
     // tm_tag is separate, has its own placeholder
     const tagInput = screen.getByPlaceholderText(/t\.ex\. hög/i)
@@ -428,6 +437,121 @@ describe("Setting panel", () => {
           ? cfg.get("supportEmail")
           : cfg?.supportEmail
       expect(supportEmail).toBe("good@example.com")
+    })
+  })
+
+  test("request timeout is saved as non-negative integer ms on blur", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find by label text
+    const label = screen.getByText(/Tidsgräns för begäran \(ms\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // Enter float -> coerced to int on blur
+    fireEvent.change(input as Element, { target: { value: "12345.67" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "requestTimeout")
+      expect(val).toBe(12345)
+    })
+
+    // Enter invalid -> cleared
+    fireEvent.change(input as Element, { target: { value: "abc" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "requestTimeout")
+      expect(val).toBeUndefined()
+    })
+  })
+
+  test("max AOI area saves km² as m² in config", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find by label text
+    const label = screen.getByText(/Maximal AOI-yta \(km²\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // 2.5 km² -> 2_500_000 m²
+    fireEvent.change(input as Element, { target: { value: "2.5" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maxArea")
+      expect(val).toBe(2500000)
+    })
+
+    // invalid -> cleared
+    fireEvent.change(input as Element, { target: { value: "-1" } })
+    fireEvent.blur(input as Element)
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maxArea")
+      expect(val).toBeUndefined()
+    })
+  })
+
+  test("max AOI area enforces upper cap and shows error when exceeded", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    const label = screen.getByText(/Maximal AOI-yta \(km²\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // Enter value above the cap (helper states 10000 km²)
+    fireEvent.change(input as Element, { target: { value: "20000" } })
+    fireEvent.blur(input as Element)
+
+    // Should show inline error and not call onSettingChange with maxArea
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Värdet är för stort\. Ange högst 10000 km²\./i)
+      ).toBeInTheDocument()
+    })
+
+    const calls = onSettingChange.mock.calls.map((c) => c[0])
+    const touchedMaxArea = calls.some((arg) => {
+      const cfg = arg?.config
+      const val =
+        typeof cfg?.get === "function" ? cfg.get("maxArea") : cfg?.maxArea
+      return typeof val === "number"
+    })
+    expect(touchedMaxArea).toBe(false)
+
+    // Now set to exactly the cap -> should save
+    fireEvent.change(input as Element, { target: { value: "10000" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val =
+        typeof cfg?.get === "function" ? cfg.get("maxArea") : cfg?.maxArea
+      expect(val).toBe(10000 * 1_000_000)
     })
   })
 })

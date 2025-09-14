@@ -64,6 +64,13 @@ export default {
   serviceModeSync: "Direkt nedladdning (synkront)",
   serviceModeSyncHelper:
     "När detta är på visas en direkt nedladdningslänk när jobbet är klart. Av = länk via e‑post.",
+  requestTimeoutLabel: "Tidsgräns för begäran (ms)",
+  requestTimeoutHelper:
+    "Standard 30000 ms. Använd 0 eller lämna tomt för att använda plattformens standard.",
+  maxAreaLabel: "Maximal AOI-yta (km²)",
+  maxAreaHelper:
+    "0 eller tomt = obegränsat. Max tillåten yta är {maxKm2} km². Värdet tillämpas före inlämning för att förhindra för stora utdrag.",
+  errorMaxAreaTooLarge: "Värdet är för stort. Ange högst {maxKm2} km².",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Ej körbart",

@@ -56,6 +56,9 @@ const CONSTANTS = {
     DEFAULT_TTL_VALUE: "0",
     DEFAULT_TTC_VALUE: "0",
   },
+  LIMITS: {
+    MAX_KM2_CAP: 10000,
+  },
   HTTP_STATUS: {
     UNAUTHORIZED: 401,
     FORBIDDEN: 403,
@@ -686,6 +689,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     token: "setting-token",
     repository: "setting-repository",
     syncMode: "setting-sync-mode",
+    requestTimeout: "setting-request-timeout",
+    maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
@@ -721,6 +726,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
     Boolean((config as any)?.syncMode)
   )
+  // Request timeout (ms)
+  const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
+    () => {
+      const v = (config as any)?.requestTimeout
+      return typeof v === "number" && Number.isFinite(v) ? String(v) : ""
+    }
+  )
+  // Max AOI area (km²) – stored in config as m², presented as km²
+  const [localMaxAreaKm2, setLocalMaxAreaKm2] = React.useState<string>(() => {
+    const v = (config as any)?.maxArea
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+      const km2 = v / 1_000_000
+      return String(km2)
+    }
+    return ""
+  })
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = (config as any)?.tm_ttc
@@ -1167,6 +1188,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const configRepository = getStringConfig("repository") || ""
       const configEmail = getStringConfig("supportEmail") || ""
       const configSyncMode = Boolean((config as any)?.syncMode)
+      const configTimeout = (config as any)?.requestTimeout
+      const configMaxArea = (config as any)?.maxArea
 
       const ttcValue =
         typeof config?.tm_ttc === "number"
@@ -1185,6 +1208,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setLocalRepository(configRepository)
       if (configEmail !== localSupportEmail) setLocalSupportEmail(configEmail)
       if (configSyncMode !== localSyncMode) setLocalSyncMode(configSyncMode)
+      if (typeof configTimeout === "number" && Number.isFinite(configTimeout)) {
+        if (String(configTimeout) !== localRequestTimeout) {
+          setLocalRequestTimeout(String(configTimeout))
+        }
+      } else if (localRequestTimeout !== "") {
+        setLocalRequestTimeout("")
+      }
+      if (typeof configMaxArea === "number" && Number.isFinite(configMaxArea)) {
+        const km2 = configMaxArea / 1_000_000
+        if (String(km2) !== localMaxAreaKm2) setLocalMaxAreaKm2(String(km2))
+      } else if (localMaxAreaKm2 !== "") {
+        setLocalMaxAreaKm2("")
+      }
       if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
       if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
       if (tagValue !== localTmTag) setLocalTmTag(tagValue)
@@ -1218,6 +1254,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localTmTtc,
     localTmTtl,
     localToken,
+    localRequestTimeout,
+    localMaxAreaKm2,
   ])
 
   // Clear repository state when server URL or token changes significantly
@@ -1599,6 +1637,104 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               />
             </SettingRow>
           )}
+        </SettingRow>
+
+        {/* Request timeout (ms) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("requestTimeoutLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.requestTimeout}
+            value={localRequestTimeout}
+            onChange={(val: string) => {
+              setLocalRequestTimeout(val)
+            }}
+            onBlur={(val: string) => {
+              const n = Number(val)
+              const sanitized =
+                Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+              if (sanitized === undefined) {
+                // Clear config when input invalid/empty
+                updateConfig("requestTimeout", undefined as any)
+                setLocalRequestTimeout("")
+              } else {
+                updateConfig("requestTimeout", sanitized as any)
+                setLocalRequestTimeout(String(sanitized))
+              }
+            }}
+            placeholder={"30000"}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("requestTimeoutHelper")}
+        </SettingRow>
+
+        {/* Max AOI area (km²) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("maxAreaLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.maxArea}
+            value={localMaxAreaKm2}
+            onChange={(val: string) => {
+              setLocalMaxAreaKm2(val)
+              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+            }}
+            onBlur={(val: string) => {
+              const n = Number(val)
+              const valid = Number.isFinite(n) && n >= 0
+              if (!valid) {
+                updateConfig("maxArea", undefined as any)
+                setLocalMaxAreaKm2("")
+                return
+              }
+              // Enforce upper cap in km²
+              if (n > CONSTANTS.LIMITS.MAX_KM2_CAP) {
+                // Do not save; show inline error
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  maxArea: translate("errorMaxAreaTooLarge", {
+                    maxKm2: CONSTANTS.LIMITS.MAX_KM2_CAP,
+                  }),
+                }))
+                return
+              }
+              const m2 = Math.floor(n * 1_000_000)
+              updateConfig("maxArea", m2 as any)
+              setLocalMaxAreaKm2(String(n))
+            }}
+            placeholder={"0"}
+            errorText={fieldErrors.maxArea}
+          />
+          {fieldErrors.maxArea && (
+            <SettingRow flow="wrap" level={3}>
+              <Alert
+                id={`${ID.maxArea}-error`}
+                fullWidth
+                css={css(sstyles.ALERT_INLINE as any)}
+                text={fieldErrors.maxArea}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("maxAreaHelper", { maxKm2: CONSTANTS.LIMITS.MAX_KM2_CAP })}
         </SettingRow>
       </SettingSection>
 
