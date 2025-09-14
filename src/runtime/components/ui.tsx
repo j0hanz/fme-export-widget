@@ -1,6 +1,13 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
+import {
+  React,
+  hooks,
+  css,
+  jsx,
+  type IMThemeVariables,
+  getAppStore,
+} from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -22,7 +29,7 @@ import {
   Slider as JimuSlider,
   NumericInput as JimuNumericInput,
 } from "jimu-ui"
-import { useTheme } from "jimu-theme"
+import { useTheme, useThemeLoaded } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import type {
   ViewAction,
@@ -245,13 +252,29 @@ const createStyles = (theme: IMThemeVariables) => {
 export const useStyles = () => {
   const theme = useTheme()
 
-  // Use stable reference pattern instead of useMemo
+  // Get current theme URI from app config
+  const themeUri = ((): string => {
+    try {
+      return getAppStore().getState()?.appConfig?.theme || ""
+    } catch {
+      return ""
+    }
+  })()
+  const isThemeReady = useThemeLoaded(themeUri)
+
+  // Cache styles to avoid unnecessary recalculations
   const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
   const themeRef = React.useRef(theme)
+  const readyRef = React.useRef(isThemeReady)
 
-  if (!stylesRef.current || themeRef.current !== theme) {
+  if (
+    !stylesRef.current ||
+    themeRef.current !== theme ||
+    readyRef.current !== isThemeReady
+  ) {
     stylesRef.current = createStyles(theme)
     themeRef.current = theme
+    readyRef.current = isThemeReady
   }
 
   return stylesRef.current
