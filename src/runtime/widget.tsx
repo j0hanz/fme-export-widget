@@ -12,7 +12,12 @@ import {
 } from "jimu-core"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import { StateView, useStyles, renderSupportHint } from "./components/ui"
+import {
+  StateView,
+  useStyles,
+  renderSupportHint,
+  Button,
+} from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -837,26 +842,30 @@ export default function Widget(
             code: error.code,
             actions,
           })}
-          renderActions={(act, ariaLabel) => {
-            // Render support hint, linking email if present
-            return (
-              <div
-                role="group"
-                aria-label={ariaLabel}
-                data-actions-count={act?.length ?? 0}
-              >
-                {/* Render support hint on its own row */}
-                <div>
-                  {renderSupportHint(
-                    supportEmail,
-                    translate,
-                    styles,
-                    supportHint
-                  )}
-                </div>
+          renderActions={(act, ariaLabel) => (
+            <div
+              role="group"
+              aria-label={ariaLabel}
+              data-actions-count={act?.length ?? 0}
+            >
+              {/* Render support hint on its own row */}
+              <div>
+                {renderSupportHint(
+                  supportEmail,
+                  translate,
+                  styles,
+                  supportHint
+                )}
               </div>
-            )
-          }}
+              {Array.isArray(act) && act.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {act.map((a, i) => (
+                    <Button key={i} text={a.label} onClick={a.onClick} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           center={false}
         />
       )
@@ -1166,9 +1175,10 @@ export default function Widget(
           evt.graphic.symbol = HIGHLIGHT_SYMBOL as any
         }
 
-        // Store graphic JSON in Redux for persistence
-        const graphicJson = evt.graphic?.toJSON()
-        dispatch(fmeActions.setGeometry(graphicJson, Math.abs(calculatedArea)))
+        // Update Redux state
+        dispatch(
+          fmeActions.setGeometry(geomForUse as any, Math.abs(calculatedArea))
+        )
         dispatch(fmeActions.setDrawingState(false, 0, undefined))
 
         // Store current geometry in local state (not Redux - following golden rule)
@@ -1525,12 +1535,23 @@ export default function Widget(
     navigateTo(target)
   })
 
-  // Loading state
-  if (modulesLoading || !modules) {
-    const loadingMessage = modules
-      ? translate("preparingMapTools")
-      : translate("loadingMapServices")
-    return <StateView state={{ kind: "loading", message: loadingMessage }} />
+  // Render loading state if modules are still loading
+  if (modulesLoading) {
+    return (
+      <StateView
+        state={{ kind: "loading", message: translate("preparingMapTools") }}
+      />
+    )
+  }
+  if (!modules) {
+    return renderWidgetError(
+      new ErrorHandlingService().createError(
+        "mapInitFailed",
+        ErrorType.MODULE,
+        { code: "MAP_MODULES_LOAD_FAILED" }
+      ),
+      runStartupValidation
+    )
   }
 
   // Error state - prioritize startup validation errors, then general errors

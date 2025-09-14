@@ -61,6 +61,10 @@ export default {
   // Dynamic form placeholders
   placeholderSelect: "{field}...",
   placeholderEnter: "{field}...",
+  placeholderTags: "Ange taggar separerade med kommatecken",
+  placeholderEmail: "Ange e‑postadress",
+  placeholderPhone: "Ange telefonnummer",
+  placeholderSearch: "Sök...",
 
   // Generic placeholders and a11y labels used in ui.tsx
   placeholderSelectGeneric: "Välj ett alternativ",

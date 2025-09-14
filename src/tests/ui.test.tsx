@@ -174,6 +174,19 @@ describe("UI components", () => {
     expect(onAction).toHaveBeenCalled()
   })
 
+  test("StateView holds loader for minimum delay when transitioning away from loading", async () => {
+    const { rerender } = renderWithProviders(
+      <StateView state={{ kind: "loading", message: "Loading" } as any} />
+    )
+
+    await waitForMilliseconds(200)
+    rerender(<StateView state={makeErrorView("Oops")} />)
+    expect(screen.getByRole("status")).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
+    await waitForMilliseconds(850)
+    expect(screen.getByRole("alert")).toBeTruthy()
+  })
+
   test("Button interactions and accessibility patterns", async () => {
     // Disabled button prevents onClick and sets aria-disabled
     const onClick = jest.fn()

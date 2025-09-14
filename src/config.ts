@@ -24,6 +24,19 @@ export const enum FormFieldType {
   CHECKBOX = "checkbox",
   PASSWORD = "password",
   FILE = "file",
+  DATE_TIME = "date-time",
+  URL = "url",
+  SWITCH = "switch",
+  RADIO = "radio",
+  SLIDER = "slider",
+  NUMERIC_INPUT = "numeric-input",
+  TAG_INPUT = "tag-input",
+  COLOR = "color",
+  DATE = "date",
+  TIME = "time",
+  EMAIL = "email",
+  PHONE = "phone",
+  SEARCH = "search",
 }
 
 export const enum ErrorSeverity {
@@ -69,6 +82,9 @@ export const enum ParameterType {
   LOOKUP_URL = "LOOKUP_URL",
   LOOKUP_FILE = "LOOKUP_FILE",
   DATE_TIME = "DATE_TIME",
+  DATE = "DATE",
+  TIME = "TIME",
+  COLOR = "COLOR",
 }
 
 export const enum JobStatus {
@@ -231,7 +247,15 @@ export interface InputProps extends BaseProps {
   readonly placeholder?: string
   readonly readOnly?: boolean
   readonly required?: boolean
-  readonly type?: "text" | "password" | "number" | "file" | "email"
+  readonly type?:
+    | "text"
+    | "password"
+    | "number"
+    | "file"
+    | "email"
+    | "date"
+    | "datetime-local"
+    | "time"
   readonly maxLength?: number
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly "aria-label"?: string
@@ -460,6 +484,9 @@ export interface DynamicFieldConfig {
   readonly options?: readonly OptionItem[]
   readonly rows?: number
   readonly maxLength?: number
+  readonly min?: number
+  readonly max?: number
+  readonly step?: number
 }
 
 export interface DynamicFieldProps {

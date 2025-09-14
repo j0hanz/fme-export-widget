@@ -16,6 +16,11 @@ import {
   Loading,
   LoadingType,
   Checkbox as JimuCheckbox,
+  UrlInput as JimuUrlInput,
+  Switch as JimuSwitch,
+  Radio as JimuRadio,
+  Slider as JimuSlider,
+  NumericInput as JimuNumericInput,
 } from "jimu-ui"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
@@ -570,6 +575,271 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
+// UrlInput component
+export const UrlInput: React.FC<{
+  value?: string
+  defaultValue?: string
+  placeholder?: string
+  style?: React.CSSProperties
+  onChange?: (value: string) => void
+}> = ({ value, defaultValue, placeholder, style, onChange }) => {
+  const styles = useStyles()
+  return (
+    <JimuUrlInput
+      value={value}
+      defaultValue={defaultValue}
+      placeholder={placeholder}
+      schemes={["https"] as any}
+      onChange={(res) => {
+        onChange?.(res?.value || "")
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// Switch component
+export const Switch: React.FC<{
+  value?: boolean
+  defaultValue?: boolean
+  onChange?: (checked: boolean) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+  "aria-label"?: string
+}> = ({
+  value,
+  defaultValue,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+}) => {
+  const styles = useStyles()
+  return (
+    <JimuSwitch
+      checked={value}
+      defaultChecked={defaultValue}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onChange={(e) => {
+        onChange?.(e.target.checked)
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// Radio component (wrapper around jimu-ui Radio)
+export const Radio: React.FC<{
+  options: Array<{ label: string; value: string }>
+  value?: string
+  defaultValue?: string
+  onChange?: (value: string) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+  "aria-label"?: string
+}> = ({
+  options,
+  value,
+  defaultValue,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+}) => {
+  const styles = useStyles()
+  return (
+    <div
+      css={styles.fullWidth}
+      style={style}
+      role="radiogroup"
+      aria-label={ariaLabel}
+    >
+      {options.map((option) => (
+        <JimuRadio
+          key={option.value}
+          value={option.value}
+          checked={value === option.value}
+          defaultChecked={defaultValue === option.value}
+          disabled={disabled}
+          onChange={(e) => {
+            onChange?.(e.target.value)
+          }}
+        >
+          {option.label}
+        </JimuRadio>
+      ))}
+    </div>
+  )
+}
+
+// Slider component
+export const Slider: React.FC<{
+  value?: number
+  defaultValue?: number
+  min?: number
+  max?: number
+  step?: number
+  onChange?: (value: number) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+  "aria-label"?: string
+}> = ({
+  value,
+  defaultValue,
+  min,
+  max,
+  step,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+}) => {
+  const styles = useStyles()
+  return (
+    <JimuSlider
+      value={value}
+      defaultValue={defaultValue}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onChange={(e) => {
+        const numValue = parseFloat(e.target.value)
+        onChange?.(numValue)
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// NumericInput component
+export const NumericInput: React.FC<{
+  value?: number
+  defaultValue?: number
+  min?: number
+  max?: number
+  step?: number
+  precision?: number
+  placeholder?: string
+  onChange?: (value: number) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+  "aria-label"?: string
+}> = ({
+  value,
+  defaultValue,
+  min,
+  max,
+  step,
+  precision,
+  placeholder,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+}) => {
+  const styles = useStyles()
+  return (
+    <JimuNumericInput
+      value={value}
+      defaultValue={defaultValue}
+      min={min}
+      max={max}
+      step={step}
+      precision={precision}
+      placeholder={placeholder}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onChange={(value) => {
+        if (typeof value === "number") {
+          onChange?.(value)
+        }
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// TagInput component
+export const TagInput: React.FC<{
+  value?: string[]
+  suggestions?: string[]
+  placeholder?: string
+  onChange?: (values: string[]) => void
+  style?: React.CSSProperties
+}> = ({ value, placeholder, onChange, style }) => {
+  const styles = useStyles()
+
+  // Simple implementation: comma-separated string input
+  const stringValue = value?.join(", ") || ""
+
+  return (
+    <TextInput
+      value={stringValue}
+      placeholder={placeholder || "Enter values separated by commas"}
+      onChange={(e) => {
+        const str = e.target.value
+        const values = str
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0)
+        onChange?.(values)
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// ColorPicker component
+export const ColorPickerWrapper: React.FC<{
+  value?: string
+  defaultValue?: string
+  onChange?: (color: string) => void
+  style?: React.CSSProperties
+}> = ({ value, defaultValue, onChange, style }) => {
+  const styles = useStyles()
+  return (
+    <input
+      type="color"
+      value={value || defaultValue || "#000000"}
+      onChange={(e) => {
+        onChange?.(e.target.value)
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
+// DatePicker component
+export const DatePickerWrapper: React.FC<{
+  value?: string
+  defaultValue?: string
+  onChange?: (date: string) => void
+  style?: React.CSSProperties
+}> = ({ value, defaultValue, onChange, style }) => {
+  const styles = useStyles()
+
+  return (
+    <input
+      type="date"
+      value={value || defaultValue || ""}
+      onChange={(e) => {
+        onChange?.(e.target.value)
+      }}
+      style={style}
+      css={styles.fullWidth}
+    />
+  )
+}
+
 // Select component
 export const Select: React.FC<SelectProps> = ({
   options = [],
@@ -866,10 +1136,17 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
-
-  // Manage loading indicator with minimum display time
-  const [showLoading, setShowLoading] = React.useState(false)
+  const [showLoading, setShowLoading] = React.useState(state.kind === "loading")
   const loadingStartedAtRef = React.useRef<number | null>(null)
+  // Persist last loading messages to show while holding the loader after a state change
+  const lastLoadingRef = React.useRef<{
+    message?: React.ReactNode
+    detail?: React.ReactNode
+  } | null>(
+    state.kind === "loading"
+      ? { message: (state as any).message, detail: (state as any).detail }
+      : null
+  )
   React.useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -877,6 +1154,10 @@ const StateView: React.FC<StateViewProps> = ({
       setShowLoading(true)
       if (loadingStartedAtRef.current == null) {
         loadingStartedAtRef.current = Date.now()
+      }
+      lastLoadingRef.current = {
+        message: (state as any).message,
+        detail: (state as any).detail,
       }
     } else if (loadingStartedAtRef.current != null) {
       const elapsed = Date.now() - loadingStartedAtRef.current
@@ -899,7 +1180,7 @@ const StateView: React.FC<StateViewProps> = ({
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [state.kind])
+  }, [state])
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -936,28 +1217,41 @@ const StateView: React.FC<StateViewProps> = ({
       }) => renderActions(actions, ariaLabel)
     : DefaultActions
 
+  const isLoadingView = state.kind === "loading" || showLoading
+
   const content = (() => {
+    if (isLoadingView) {
+      const message =
+        state.kind === "loading"
+          ? (state as any).message
+          : lastLoadingRef.current?.message
+      const detail =
+        state.kind === "loading"
+          ? (state as any).detail
+          : lastLoadingRef.current?.detail
+
+      return (
+        <div css={styles.centered} role="status" aria-live="polite">
+          {showLoading && (
+            <Loading
+              type={LoadingType.Donut}
+              width={config.loading.width}
+              height={config.loading.height}
+            />
+          )}
+          {(message || detail) && (
+            <div
+              css={styles.overlay}
+              aria-label={translate("ariaLoadingDetails")}
+            >
+              {message && <div>{message}</div>}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     switch (state.kind) {
-      case "loading":
-        return (
-          <div css={styles.centered} role="status" aria-live="polite">
-            {showLoading && (
-              <Loading
-                type={LoadingType.Donut}
-                width={config.loading.width}
-                height={config.loading.height}
-              />
-            )}
-            {(state.message || state.detail) && (
-              <div
-                css={styles.overlay}
-                aria-label={translate("ariaLoadingDetails")}
-              >
-                {state.message && <div>{state.message}</div>}
-              </div>
-            )}
-          </div>
-        )
       case "error":
         return (
           <div role="alert" aria-live="assertive">
@@ -1003,8 +1297,7 @@ const StateView: React.FC<StateViewProps> = ({
     }
   })()
 
-  const shouldCenter =
-    typeof center === "boolean" ? center : state.kind === "loading"
+  const shouldCenter = typeof center === "boolean" ? center : isLoadingView
 
   return (
     <div

@@ -4,29 +4,22 @@ import { React, hooks, getAppStore, jsx } from "jimu-core"
 import {
   Button,
   StateView,
-  Select,
-  MultiSelectControl,
-  TextArea,
   Form,
   Field,
-  Input,
-  Checkbox,
   ButtonTabs,
   useStyles,
   renderSupportHint,
 } from "./ui"
+import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
 import runtimeMessages from "../translations/default"
 import {
-  FormFieldType,
   type WorkflowProps,
   type WorkspaceItem,
   type FormPrimitive,
   type FormValues,
-  type SelectValue,
   type OrderResultProps,
   type ExportFormProps,
-  type DynamicFieldProps,
   type DynamicFieldConfig,
   type ApiResponse,
   ViewMode,
@@ -108,19 +101,6 @@ const shouldShowWorkspaceLoading = (
   const needsLoading =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
   return isLoading || (!workspaces.length && needsLoading)
-}
-
-const normalizeFormValue = (
-  value: FormPrimitive | undefined,
-  isMultiSelect: boolean
-): FormPrimitive | SelectValue => {
-  if (value === undefined || value === null) {
-    return isMultiSelect ? [] : ""
-  }
-  if (isMultiSelect) {
-    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
-  }
-  return typeof value === "string" || typeof value === "number" ? value : ""
 }
 
 const initFormValues = (
@@ -212,14 +192,6 @@ const syncFormToStore = (values: FormValues): void => {
   ) => void
   dispatch(fmeActions.setFormValues(values))
 }
-
-const makePlaceholders = (
-  translate: (k: string, p?: any) => string,
-  fieldLabel: string
-) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
-})
 
 // Workspace loader hook
 const useWorkspaceLoader = (
@@ -431,43 +403,6 @@ const useWorkspaceLoader = (
   return { workspaces, isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
-// Input rendering helper
-const renderInputField = (
-  type: "text" | "password" | "number",
-  fieldValue: FormPrimitive,
-  placeholder: string,
-  onChange: (value: FormPrimitive) => void,
-  readOnly?: boolean
-): JSX.Element => {
-  const handleChange = (val: string) => {
-    if (type === "number") {
-      if (val === "") {
-        onChange("")
-        return
-      }
-      const num = Number(val)
-      onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
-    } else {
-      onChange(val)
-    }
-  }
-
-  const displayValue =
-    typeof fieldValue === "string" || typeof fieldValue === "number"
-      ? String(fieldValue)
-      : ""
-
-  return (
-    <Input
-      type={type === "number" ? "text" : type}
-      value={displayValue}
-      placeholder={placeholder}
-      onChange={handleChange}
-      disabled={readOnly}
-    />
-  )
-}
-
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -563,173 +498,6 @@ const OrderResult: React.FC<OrderResultProps> = ({
       />
     </>
   )
-}
-
-// Dynamic field component renders various form fields based on configuration
-const DynamicField: React.FC<DynamicFieldProps> = ({
-  field,
-  value,
-  onChange,
-  translate,
-}) => {
-  const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue = normalizeFormValue(value, isMulti)
-  const placeholders = makePlaceholders(translate, field.label)
-
-  // Determine if the field is a select type
-  const isSelectType =
-    field.type === FormFieldType.SELECT ||
-    field.type === FormFieldType.MULTI_SELECT
-  const selectOptions = (field.options || []) as ReadonlyArray<{
-    readonly value?: unknown
-  }>
-  const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
-  const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
-
-  // Compute if select values can be coerced to numbers
-  const computeSelectCoerce = (): "number" | "string" | undefined => {
-    if (!isSelectType || !selectOptions.length) return undefined
-    const vals = selectOptions.map((o) => o.value)
-    const allNumeric = vals.every((v) => {
-      if (typeof v === "number") return Number.isFinite(v)
-      if (typeof v === "string") {
-        if (v.trim() === "") return false
-        const n = Number(v)
-        return Number.isFinite(n) && String(n) === v
-      }
-      return false
-    })
-    return allNumeric ? "number" : undefined
-  }
-  const selectCoerce = computeSelectCoerce()
-
-  hooks.useEffectOnce(() => {
-    if (!isSingleOption) return
-    const current = fieldValue as SelectValue
-    const isUnset =
-      current === undefined || (typeof current === "string" && current === "")
-    if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
-      onChange(onlyVal as FormPrimitive)
-    }
-  })
-  // Render field based on its type
-  const renderByType = (): JSX.Element => {
-    switch (field.type) {
-      case FormFieldType.SELECT: {
-        const options = field.options || []
-
-        return (
-          <Select
-            value={
-              isSingleOption
-                ? (options[0]?.value as SelectValue)
-                : (fieldValue as SelectValue)
-            }
-            options={options}
-            placeholder={placeholders.select}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            aria-label={field.label}
-            disabled={field.readOnly || isSingleOption}
-            coerce={selectCoerce}
-          />
-        )
-      }
-      case FormFieldType.MULTI_SELECT: {
-        const options = field.options || []
-        const values = Array.isArray(fieldValue)
-          ? (fieldValue as ReadonlyArray<string | number>)
-          : []
-        return (
-          <MultiSelectControl
-            options={options}
-            values={[...values] as Array<string | number>}
-            placeholder={placeholders.select}
-            disabled={field.readOnly}
-            onChange={(vals) => {
-              onChange(vals as unknown as FormPrimitive)
-            }}
-          />
-        )
-      }
-      case FormFieldType.TEXTAREA:
-        return (
-          <TextArea
-            value={fieldValue as string}
-            placeholder={placeholders.enter}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            rows={field.rows}
-          />
-        )
-      case FormFieldType.NUMBER:
-        return renderInputField(
-          "number",
-          fieldValue as FormPrimitive,
-          placeholders.enter,
-          onChange,
-          field.readOnly
-        )
-      case FormFieldType.CHECKBOX:
-        return (
-          <Checkbox
-            checked={Boolean(fieldValue)}
-            onChange={(evt) => {
-              onChange(evt.target.checked)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
-        )
-      case FormFieldType.PASSWORD:
-        return (
-          <Input
-            type="password"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            maxLength={field.maxLength}
-          />
-        )
-      case FormFieldType.FILE:
-        return (
-          <Input
-            type="file"
-            onFileChange={(evt) => {
-              const files = evt.target.files
-              onChange(
-                files
-                  ? (files[0] as unknown as FormPrimitive)
-                  : (null as FormPrimitive)
-              )
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
-        )
-      case FormFieldType.TEXT:
-        return (
-          <Input
-            type="text"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            maxLength={field.maxLength}
-          />
-        )
-    }
-  }
-
-  return renderByType()
 }
 
 // ExportForm component: dynamic form generation and submission
