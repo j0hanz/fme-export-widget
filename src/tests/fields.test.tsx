@@ -346,6 +346,17 @@ describe("Fields module", () => {
       expect(onChange).toHaveBeenCalledWith("")
     })
 
+    test("handles comma decimal number input", () => {
+      const onChange = jest.fn()
+      const { container } = renderWithProviders(
+        renderInputField("number", "", "Enter number", onChange)
+      )
+
+      const input = container.querySelector('input[type="text"]')
+      fireEvent.change(input, { target: { value: "12,5" } })
+      expect(onChange).toHaveBeenCalledWith(12.5)
+    })
+
     test("respects readOnly property", () => {
       const onChange = jest.fn()
       const { container } = renderWithProviders(
@@ -726,7 +737,7 @@ describe("Fields module", () => {
       renderWithProviders(
         <DynamicField
           field={field}
-          value="2023-12-25T10:30"
+          value="20231225103000"
           onChange={onChange}
           translate={mockTranslate}
         />
@@ -735,6 +746,24 @@ describe("Fields module", () => {
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("2023-12-25T10:30")
       expect(input).toHaveAttribute("type", "datetime-local")
+    })
+
+    test("DATE_TIME onChange converts to FME format", () => {
+      const field = createField({ type: FormFieldType.DATE_TIME })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value=""
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const input = screen.getByTestId("input")
+      fireEvent.change(input, { target: { value: "2023-12-31T09:05" } })
+      expect(onChange).toHaveBeenCalledWith("20231231090500")
     })
 
     test("renders TAG_INPUT field", () => {
@@ -781,7 +810,7 @@ describe("Fields module", () => {
       renderWithProviders(
         <DynamicField
           field={field}
-          value="2023-12-25"
+          value="20231225"
           onChange={onChange}
           translate={mockTranslate}
         />
@@ -792,6 +821,24 @@ describe("Fields module", () => {
       expect(datePicker).toHaveAttribute("type", "date")
     })
 
+    test("DATE onChange converts to FME format", () => {
+      const field = createField({ type: FormFieldType.DATE })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value=""
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const datePicker = screen.getByTestId("date-picker")
+      fireEvent.change(datePicker, { target: { value: "2024-01-07" } })
+      expect(onChange).toHaveBeenCalledWith("20240107")
+    })
+
     test("renders TIME field", () => {
       const field = createField({ type: FormFieldType.TIME })
       const onChange = jest.fn()
@@ -799,7 +846,7 @@ describe("Fields module", () => {
       renderWithProviders(
         <DynamicField
           field={field}
-          value="14:30"
+          value="1430"
           onChange={onChange}
           translate={mockTranslate}
         />
@@ -808,6 +855,24 @@ describe("Fields module", () => {
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("14:30")
       expect(input).toHaveAttribute("type", "time")
+    })
+
+    test("TIME onChange converts to FME format (HHmmss)", () => {
+      const field = createField({ type: FormFieldType.TIME })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value=""
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const input = screen.getByTestId("input")
+      fireEvent.change(input, { target: { value: "09:07" } })
+      expect(onChange).toHaveBeenCalledWith("090700")
     })
 
     test("renders EMAIL field", () => {
@@ -826,6 +891,24 @@ describe("Fields module", () => {
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("test@example.com")
       expect(input).toHaveAttribute("type", "email")
+    })
+
+    test("COLOR onChange emits normalized rgb floats", () => {
+      const field = createField({ type: FormFieldType.COLOR })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value="#000000"
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const colorPicker = screen.getByTestId("color-picker")
+      fireEvent.change(colorPicker, { target: { value: "#ff0000" } })
+      expect(onChange).toHaveBeenCalledWith("1,0,0")
     })
 
     test("renders PHONE field", () => {

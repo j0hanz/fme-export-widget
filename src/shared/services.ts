@@ -479,6 +479,9 @@ export class ParameterFormService {
       [ParameterType.URL]: FormFieldType.URL,
       [ParameterType.LOOKUP_URL]: FormFieldType.URL,
       [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
+      [ParameterType.DATE]: FormFieldType.DATE,
+      [ParameterType.TIME]: FormFieldType.TIME,
+      [ParameterType.COLOR]: FormFieldType.COLOR,
     }
     return typeMap[param.type] || FormFieldType.TEXT
   }

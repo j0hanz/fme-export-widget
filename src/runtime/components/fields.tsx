@@ -23,6 +23,86 @@ import {
   type SelectValue,
 } from "../../config"
 
+const pad2 = (n: number) => String(n).padStart(2, "0")
+
+const fmeDateTimeToInput = (v: string): string => {
+  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm
+  const s = (v || "").replace(/\D/g, "")
+  if (s.length < 12) return ""
+  const y = s.slice(0, 4)
+  const m = s.slice(4, 6)
+  const d = s.slice(6, 8)
+  const hh = s.slice(8, 10)
+  const mm = s.slice(10, 12)
+  return `${y}-${m}-${d}T${hh}:${mm}`
+}
+
+const inputToFmeDateTime = (v: string): string => {
+  // YYYY-MM-DDTHH:mm -> YYYYMMDDHHmmss
+  if (!v) return ""
+  const [date, time] = v.split("T")
+  if (!date || !time) return ""
+  const [y, m, d] = date.split("-").map((x) => x || "")
+  const [hh, mm] = time.split(":").map((x) => x || "")
+  return `${y}${m}${d}${hh}${mm}00`
+}
+
+const fmeDateToInput = (v: string): string => {
+  // YYYYMMDD -> YYYY-MM-DD
+  const s = (v || "").replace(/\D/g, "")
+  if (s.length !== 8) return ""
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+}
+
+const inputToFmeDate = (v: string): string => (v ? v.replace(/-/g, "") : "")
+// HHmmss or HHmm -> HH:mm[:ss]
+const fmeTimeToInput = (v: string): string => {
+  const s = (v || "").replace(/\D/g, "")
+  if (s.length === 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`
+  if (s.length >= 6) return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
+  return ""
+}
+
+const inputToFmeTime = (v: string): string => {
+  // HH:mm or HH:mm:ss -> HHmmss
+  if (!v) return ""
+  const parts = v.split(":").map((x) => x || "")
+  const hh = parts[0] || "00"
+  const mm = parts[1] || "00"
+  const ss = parts[2] || "00"
+  return `${pad2(Number(hh))}${pad2(Number(mm))}${pad2(Number(ss))}`
+}
+
+const normalizedRgbToHex = (v: string): string | null => {
+  // "r,g,b[,a]" floats (0..1) -> "#RRGGBB"
+  const parts = (v || "").split(",").map((s) => s.trim())
+  if (parts.length < 3) return null
+  const to255 = (f: string) => {
+    const n = Number(f)
+    if (!Number.isFinite(n)) return null
+    const clamped = Math.max(0, Math.min(1, n))
+    return Math.round(clamped * 255)
+  }
+  const r = to255(parts[0])
+  const g = to255(parts[1])
+  const b = to255(parts[2])
+  if (r == null || g == null || b == null) return null
+  const toHex = (n: number) => n.toString(16).padStart(2, "0")
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+const hexToNormalizedRgb = (hex: string): string | null => {
+  // "#RRGGBB" -> "r,g,b" floats (0..1)
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 0xff
+  const g = (n >> 8) & 0xff
+  const b = n & 0xff
+  const f = (x: number) => Number((x / 255).toFixed(6)).toString()
+  return `${f(r)},${f(g)},${f(b)}`
+}
+
 // Utility functions for field handling
 export const normalizeFormValue = (
   value: FormPrimitive | undefined,
@@ -59,7 +139,8 @@ export const renderInputField = (
         onChange("")
         return
       }
-      const num = Number(val)
+      // Accept locales with comma decimals by normalizing to dot
+      const num = Number(val.replace(/,/g, "."))
       onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
     } else {
       onChange(val)
@@ -155,16 +236,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.DATE_TIME: {
-        // Use native input type datetime-local to avoid adding new dependencies
-        // Value should be an ISO-like string acceptable by input[type=datetime-local]
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        // Render as local datetime without seconds; store as FME datetime string
+        const val =
+          typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
         return (
           <Input
             type="datetime-local"
             value={val}
             placeholder={field.placeholder || placeholders.enter}
             onChange={(v) => {
-              onChange((v as string) || "")
+              const out = inputToFmeDateTime(v as string)
+              onChange(out as FormPrimitive)
             }}
             readOnly={field.readOnly}
           />
@@ -336,35 +418,48 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.COLOR: {
-        const val = typeof fieldValue === "string" ? fieldValue : "#000000"
+        // Accept normalized floats string or hex; render as hex, store normalized string
+        const initial =
+          typeof fieldValue === "string"
+            ? normalizedRgbToHex(fieldValue) || fieldValue
+            : undefined
+        const val =
+          typeof initial === "string" && initial.startsWith("#")
+            ? initial
+            : "#000000"
         return (
           <ColorPickerWrapper
             value={val}
             onChange={(color) => {
-              onChange(color as FormPrimitive)
+              const normalized = hexToNormalizedRgb(color) || color
+              onChange(normalized as FormPrimitive)
             }}
           />
         )
       }
       case FormFieldType.DATE: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val =
+          typeof fieldValue === "string" ? fmeDateToInput(fieldValue) : ""
         return (
           <DatePickerWrapper
             value={val}
             onChange={(date) => {
-              onChange(date as FormPrimitive)
+              const out = inputToFmeDate(date)
+              onChange(out as FormPrimitive)
             }}
           />
         )
       }
       case FormFieldType.TIME: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val =
+          typeof fieldValue === "string" ? fmeTimeToInput(fieldValue) : ""
         return (
           <Input
             type="time"
             value={val}
             onChange={(value) => {
-              onChange(value as FormPrimitive)
+              const out = inputToFmeTime(value as string)
+              onChange(out as FormPrimitive)
             }}
             disabled={field.readOnly}
           />

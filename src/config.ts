@@ -82,6 +82,9 @@ export const enum ParameterType {
   LOOKUP_URL = "LOOKUP_URL",
   LOOKUP_FILE = "LOOKUP_FILE",
   DATE_TIME = "DATE_TIME",
+  DATE = "DATE",
+  TIME = "TIME",
+  COLOR = "COLOR",
 }
 
 export const enum JobStatus {
