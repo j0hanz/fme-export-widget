@@ -221,6 +221,10 @@ describe("Fields module", () => {
     const translations = {
       placeholderEnter: `Enter ${params?.field}`,
       placeholderSelect: `Select ${params?.field}`,
+      placeholderSearch: "Search...",
+      placeholderEmail: "Enter email address",
+      placeholderPhone: "Enter phone number",
+      placeholderTags: "Enter tags separated by commas",
       testField: "Test Field",
     }
     return translations[key] || key
@@ -395,7 +399,7 @@ describe("Fields module", () => {
 
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("test value")
-      expect(input).toHaveAttribute("placeholder", "Enter Test Field")
+      expect(input).toHaveAttribute("placeholder", "Test Field...")
     })
 
     test("renders SELECT field with options", () => {
@@ -944,7 +948,7 @@ describe("Fields module", () => {
 
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("search query")
-      expect(input).toHaveAttribute("placeholder", "Search...")
+      expect(input).toHaveAttribute("placeholder", "Sök...")
     })
 
     test("respects readOnly property across field types", () => {

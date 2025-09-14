@@ -22,6 +22,7 @@ import {
   type FormPrimitive,
   type SelectValue,
 } from "../../config"
+import defaultMessages from "./translations/default"
 
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
@@ -168,8 +169,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
   onChange,
-  translate,
 }) => {
+  const translate = hooks.useTranslation(defaultMessages)
   const isMulti = field.type === FormFieldType.MULTI_SELECT
   const fieldValue = normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
@@ -309,7 +310,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(evt.target.checked)
             }}
             disabled={field.readOnly}
-            aria-label={field.label}
+            aria-label={translate(field.label)}
           />
         )
       case FormFieldType.PASSWORD:
@@ -338,7 +339,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               )
             }}
             disabled={field.readOnly}
-            aria-label={field.label}
+            aria-label={translate(field.label)}
           />
         )
       case FormFieldType.SWITCH:
@@ -349,7 +350,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(checked)
             }}
             disabled={field.readOnly}
-            aria-label={field.label}
+            aria-label={translate(field.label)}
             style={{ margin: "4px 0" }}
           />
         )
@@ -367,7 +368,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value)
             }}
             disabled={field.readOnly}
-            aria-label={field.label}
+            aria-label={translate(field.label)}
           />
         )
       }
@@ -383,7 +384,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value)
             }}
             disabled={field.readOnly}
-            aria-label={field.label}
+            aria-label={translate(field.label)}
           />
         )
       }
@@ -410,7 +411,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <TagInput
             value={values}
-            placeholder={field.placeholder || "Enter tags separated by commas"}
+            placeholder={field.placeholder || translate("placeholderTags")}
             onChange={(values) => {
               onChange(values as FormPrimitive)
             }}
@@ -471,7 +472,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <Input
             type="email"
             value={val}
-            placeholder={field.placeholder || "Enter email address"}
+            placeholder={field.placeholder || translate("placeholderEmail")}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -485,7 +486,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <Input
             type="text"
             value={val}
-            placeholder={field.placeholder || "Enter phone number"}
+            placeholder={field.placeholder || translate("placeholderPhone")}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -499,7 +500,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <Input
             type="text"
             value={val}
-            placeholder={field.placeholder || "Search..."}
+            placeholder={field.placeholder || translate("placeholderSearch")}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
