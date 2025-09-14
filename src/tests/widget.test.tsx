@@ -157,14 +157,18 @@ describe("Widget runtime - module loading and auto-start", () => {
     const { createSpy } = setupEsriTestStub()
 
     const Wrapped = wrap({})
-    // Prime Redux with drawing state
+    // Prime Redux with drawing state for widget w1 (byId shape)
     updateStore({
       "fme-state": {
-        viewMode: ViewMode.DRAWING,
-        clickCount: 0,
-        isSubmittingOrder: false,
-        drawingTool: DrawingTool.POLYGON,
-        drawnArea: 0,
+        byId: {
+          w1: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
       },
     })
     const cfgAny = {} as any
@@ -187,11 +191,15 @@ describe("Widget runtime - module loading and auto-start", () => {
     // Nudge Redux to ensure update effect runs with DRAWING state
     updateStore({
       "fme-state": {
-        viewMode: ViewMode.DRAWING,
-        clickCount: 0,
-        isSubmittingOrder: false,
-        drawingTool: DrawingTool.POLYGON,
-        drawnArea: 0,
+        byId: {
+          w1: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
       },
     })
     // Wait for auto-start create call

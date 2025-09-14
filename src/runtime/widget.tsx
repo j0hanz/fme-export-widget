@@ -262,14 +262,17 @@ const useMapState = () => {
 }
 
 // Error handling
-const useErrorDispatcher = (dispatch: (action: unknown) => void) =>
+const useErrorDispatcher = (
+  dispatch: (action: unknown) => void,
+  widgetId: string
+) =>
   hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
     const error = new ErrorHandlingService().createError(
       message,
       type,
       code ? { code } : undefined
     )
-    dispatch(fmeActions.setError(error))
+    dispatch(fmeActions.setError(error, widgetId))
   })
 
 // Abort controller
@@ -535,12 +538,14 @@ const createSketchVM = ({
   layer,
   onDrawComplete,
   dispatch,
+  widgetId,
 }: {
   jmv: JimuMapView
   modules: EsriModules
   layer: __esri.GraphicsLayer
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void
   dispatch: (action: unknown) => void
+  widgetId: string
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -597,7 +602,13 @@ const createSketchVM = ({
     },
   })
 
-  setupSketchEventHandlers(sketchViewModel, onDrawComplete, dispatch, modules)
+  setupSketchEventHandlers(
+    sketchViewModel,
+    onDrawComplete,
+    dispatch,
+    modules,
+    widgetId
+  )
   return sketchViewModel
 }
 
@@ -606,7 +617,8 @@ const setupSketchEventHandlers = (
   sketchViewModel: __esri.SketchViewModel,
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void,
-  modules: EsriModules
+  modules: EsriModules,
+  widgetId: string
 ) => {
   let clickCount = 0
 
@@ -620,7 +632,8 @@ const setupSketchEventHandlers = (
             0,
             evt.tool === "rectangle"
               ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON
+              : DrawingTool.POLYGON,
+            widgetId
           )
         )
         break
@@ -632,26 +645,26 @@ const setupSketchEventHandlers = (
           const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
           if (actualClicks > clickCount) {
             clickCount = actualClicks
-            dispatch(fmeActions.setClickCount(actualClicks))
+            dispatch(fmeActions.setClickCount(actualClicks, widgetId))
             if (actualClicks === 1) {
-              dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+              dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             }
           }
         } else if (evt.tool === "rectangle" && clickCount !== 1) {
           clickCount = 1
-          dispatch(fmeActions.setClickCount(1))
+          dispatch(fmeActions.setClickCount(1, widgetId))
         }
         break
 
       case "complete":
         clickCount = 0
-        dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
         onDrawComplete(evt)
         break
 
       case "cancel":
         clickCount = 0
-        dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
         break
     }
   })
@@ -762,7 +775,7 @@ export default function Widget(
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
   // Error handling
-  const dispatchError = useErrorDispatcher(dispatch)
+  const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionController = useAbortController()
 
   // Render error view with translation and support hints
@@ -816,7 +829,7 @@ export default function Widget(
       const retryHandler =
         onRetry ??
         (() => {
-          dispatch(fmeActions.setError(null))
+          dispatch(fmeActions.setError(null, widgetId))
         })
       actions.push({ label: translate("retry"), onClick: retryHandler })
 
@@ -893,17 +906,21 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    dispatch(fmeActions.setStartupValidationState(true, step))
+    dispatch(fmeActions.setStartupValidationState(true, step, null, widgetId))
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setStartupValidationState(false))
+    dispatch(
+      fmeActions.setStartupValidationState(false, undefined, null, widgetId)
+    )
     // Reset any existing error state
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    dispatch(fmeActions.setStartupValidationState(false, undefined, error))
+    dispatch(
+      fmeActions.setStartupValidationState(false, undefined, error, widgetId)
+    )
   })
 
   // Small helper to build consistent startup validation errors
@@ -1054,15 +1071,30 @@ export default function Widget(
         } catch (_) {}
       }
       // Reset redux state
-      dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION))
-      dispatch(fmeActions.setGeometry(null, 0))
-      dispatch(fmeActions.setDrawingState(false, 0))
-      dispatch(fmeActions.setError(null))
-      dispatch(fmeActions.setSelectedWorkspace(null))
-      dispatch(fmeActions.setWorkspaceParameters([], ""))
-      dispatch(fmeActions.setWorkspaceItem(null))
-      dispatch(fmeActions.setFormValues({}))
-      dispatch(fmeActions.setOrderResult(null))
+      dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION, widgetId))
+      dispatch(fmeActions.setGeometry(null, 0, widgetId))
+      dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+      dispatch(fmeActions.setError(null, widgetId))
+      dispatch(
+        fmeActions.setSelectedWorkspace(
+          null,
+          props.config?.repository,
+          widgetId
+        )
+      )
+      dispatch(
+        fmeActions.setWorkspaceParameters(
+          [],
+          "",
+          props.config?.repository,
+          widgetId
+        )
+      )
+      dispatch(
+        fmeActions.setWorkspaceItem(null, props.config?.repository, widgetId)
+      )
+      dispatch(fmeActions.setFormValues({}, widgetId))
+      dispatch(fmeActions.setOrderResult(null, widgetId))
     }
   )
 
@@ -1151,7 +1183,7 @@ export default function Widget(
         const validation = validatePolygon(geometry, modules)
         if (!validation.valid) {
           if (validation.error) {
-            dispatch(fmeActions.setError(validation.error))
+            dispatch(fmeActions.setError(validation.error, widgetId))
           }
           return
         }
@@ -1177,14 +1209,18 @@ export default function Widget(
 
         // Update Redux state
         dispatch(
-          fmeActions.setGeometry(geomForUse as any, Math.abs(calculatedArea))
+          fmeActions.setGeometry(
+            geomForUse as any,
+            Math.abs(calculatedArea),
+            widgetId
+          )
         )
-        dispatch(fmeActions.setDrawingState(false, 0, undefined))
+        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
 
         // Store current geometry in local state (not Redux - following golden rule)
         setCurrentGeometry(geomForUse)
 
-        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION))
+        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {
         dispatchError(
           translate("drawingCompleteFailed"),
@@ -1214,8 +1250,8 @@ export default function Widget(
 
   // Handle successful submission
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
-    dispatch(fmeActions.setOrderResult(result))
-    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT))
+    dispatch(fmeActions.setOrderResult(result, widgetId))
+    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT, widgetId))
   })
 
   // Handle successful submission
@@ -1257,7 +1293,7 @@ export default function Widget(
       return
     }
 
-    dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }))
+    dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
 
     try {
       const [userEmail, fmeClient] = await Promise.all([
@@ -1299,7 +1335,9 @@ export default function Widget(
     } catch (error) {
       handleSubmissionError(error)
     } finally {
-      dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: false }))
+      dispatch(
+        fmeActions.setLoadingFlags({ isSubmittingOrder: false }, widgetId)
+      )
       submissionController.cancel()
     }
   })
@@ -1324,6 +1362,7 @@ export default function Widget(
         layer,
         onDrawComplete,
         dispatch,
+        widgetId,
       })
       setSketchViewModel(svm)
     } catch (error) {
@@ -1403,8 +1442,8 @@ export default function Widget(
     if (!sketchViewModel) return
 
     // Set tool
-    dispatch(fmeActions.setDrawingState(true, 0, tool))
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+    dispatch(fmeActions.setDrawingState(true, 0, tool, widgetId))
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
 
     // Clear and hide
     resetGraphicsAndMeasurements()
@@ -1472,25 +1511,32 @@ export default function Widget(
     }
 
     // Reset Redux state
-    dispatch(fmeActions.setGeometry(null, 0))
-    dispatch(fmeActions.setDrawingState(false, 0, reduxState.drawingTool))
-    dispatch(fmeActions.setClickCount(0))
-    dispatch(fmeActions.setError(null))
-    dispatch(fmeActions.setImportError(null))
-    dispatch(fmeActions.setExportError(null))
-    dispatch(fmeActions.setOrderResult(null))
-    dispatch(fmeActions.setSelectedWorkspace(null))
+    dispatch(fmeActions.setGeometry(null, 0, widgetId))
+    dispatch(
+      fmeActions.setDrawingState(false, 0, reduxState.drawingTool, widgetId)
+    )
+    dispatch(fmeActions.setClickCount(0, widgetId))
+    dispatch(fmeActions.setError(null, widgetId))
+    dispatch(fmeActions.setImportError(null, widgetId))
+    dispatch(fmeActions.setExportError(null, widgetId))
+    dispatch(fmeActions.setOrderResult(null, widgetId))
+    dispatch(
+      fmeActions.setSelectedWorkspace(null, props.config?.repository, widgetId)
+    )
     // Reset workspace parameters and item
-    dispatch(fmeActions.setFormValues({}))
+    dispatch(fmeActions.setFormValues({}, widgetId))
     // Reset workspace parameters
     dispatch(
-      fmeActions.setLoadingFlags({
-        isModulesLoading: false,
-        isSubmittingOrder: false,
-      } as any)
+      fmeActions.setLoadingFlags(
+        {
+          isModulesLoading: false,
+          isSubmittingOrder: false,
+        } as any,
+        widgetId
+      )
     )
     // Reset view mode to initial
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING))
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
   })
   hooks.useUpdateEffect(() => {
     // Reset when widget is closed
@@ -1509,20 +1555,39 @@ export default function Widget(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      dispatch(fmeActions.setSelectedWorkspace(workspaceName))
-      dispatch(fmeActions.setWorkspaceParameters(parameters, workspaceName))
-      dispatch(fmeActions.setWorkspaceItem(workspaceItem))
-      dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM))
+      dispatch(
+        fmeActions.setSelectedWorkspace(
+          workspaceName,
+          props.config?.repository,
+          widgetId
+        )
+      )
+      dispatch(
+        fmeActions.setWorkspaceParameters(
+          parameters,
+          workspaceName,
+          props.config?.repository,
+          widgetId
+        )
+      )
+      dispatch(
+        fmeActions.setWorkspaceItem(
+          workspaceItem,
+          props.config?.repository,
+          widgetId
+        )
+      )
+      dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM, widgetId))
     }
   )
 
   const handleWorkspaceBack = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setViewMode(ViewMode.INITIAL))
+    dispatch(fmeActions.setViewMode(ViewMode.INITIAL, widgetId))
   })
 
   // Navigation helpers
   const navigateTo = hooks.useEventCallback((viewMode: ViewMode) => {
-    dispatch(fmeActions.setViewMode(viewMode))
+    dispatch(fmeActions.setViewMode(viewMode, widgetId))
   })
 
   const navigateBack = hooks.useEventCallback(() => {
@@ -1621,7 +1686,7 @@ export default function Widget(
         formatArea={(area: number) => formatArea(area, modules)}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
-          dispatch(fmeActions.setDrawingTool(tool))
+          dispatch(fmeActions.setDrawingTool(tool, widgetId))
 
           // If already in drawing mode, restart drawing with new tool
           if (
@@ -1666,8 +1731,13 @@ export default function Widget(
 Reflect.set(
   Widget as any,
   "mapExtraStateProps",
-  (state: IMStateWithFmeExport) => {
-    const widgetState = state["fme-state"]
-    return { state: (widgetState as any) || initialFmeState }
+  (state: IMStateWithFmeExport, ownProps: AllWidgetProps<any>) => {
+    const globalState = state["fme-state"] as any
+    const wid =
+      (ownProps?.id as unknown as string) || (ownProps as any)?.widgetId
+    const sub = (globalState?.byId && wid && globalState.byId[wid]) as
+      | FmeWidgetState
+      | undefined
+    return { state: sub || initialFmeState }
   }
 )
