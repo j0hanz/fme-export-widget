@@ -366,7 +366,7 @@ describe("ParameterFormService", () => {
         },
         {
           paramType: ParameterType.FLOAT,
-          expectedFieldType: FormFieldType.NUMBER,
+          expectedFieldType: FormFieldType.NUMERIC_INPUT,
         },
         {
           paramType: ParameterType.TEXT_EDIT,
@@ -378,7 +378,11 @@ describe("ParameterFormService", () => {
         },
         {
           paramType: ParameterType.BOOLEAN,
-          expectedFieldType: FormFieldType.CHECKBOX,
+          expectedFieldType: FormFieldType.SWITCH,
+        },
+        {
+          paramType: ParameterType.CHOICE,
+          expectedFieldType: FormFieldType.RADIO,
         },
         {
           paramType: ParameterType.FILENAME,

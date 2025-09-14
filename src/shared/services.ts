@@ -467,13 +467,18 @@ export class ParameterFormService {
     }
 
     const typeMap: { [key in ParameterType]?: FormFieldType } = {
-      [ParameterType.FLOAT]: FormFieldType.NUMBER,
+      [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
       [ParameterType.INTEGER]: FormFieldType.NUMBER,
       [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
       [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
-      [ParameterType.BOOLEAN]: FormFieldType.CHECKBOX,
+      [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
+      [ParameterType.CHOICE]: FormFieldType.RADIO,
       [ParameterType.FILENAME]: FormFieldType.FILE,
       [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
+      [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
+      [ParameterType.URL]: FormFieldType.URL,
+      [ParameterType.LOOKUP_URL]: FormFieldType.URL,
+      [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
     }
     return typeMap[param.type] || FormFieldType.TEXT
   }
