@@ -866,7 +866,7 @@ export default function Widget(
               )}
             </div>
           )}
-          center={false}
+          center={true}
         />
       )
     }
@@ -1538,34 +1538,44 @@ export default function Widget(
   // Render loading state if modules are still loading
   if (modulesLoading) {
     return (
-      <StateView
-        state={{ kind: "loading", message: translate("preparingMapTools") }}
-      />
+      <div css={styles.parent}>
+        <StateView
+          state={{ kind: "loading", message: translate("preparingMapTools") }}
+        />
+      </div>
     )
   }
   if (!modules) {
-    return renderWidgetError(
-      new ErrorHandlingService().createError(
-        "mapInitFailed",
-        ErrorType.MODULE,
-        { code: "MAP_MODULES_LOAD_FAILED" }
-      ),
-      runStartupValidation
+    return (
+      <div css={styles.parent}>
+        {renderWidgetError(
+          new ErrorHandlingService().createError(
+            "mapInitFailed",
+            ErrorType.MODULE,
+            { code: "MAP_MODULES_LOAD_FAILED" }
+          ),
+          runStartupValidation
+        )}
+      </div>
     )
   }
 
   // Error state - prioritize startup validation errors, then general errors
   if (reduxState.startupValidationError) {
     // Always handle startup validation errors first
-    return renderWidgetError(
-      reduxState.startupValidationError,
-      runStartupValidation
+    return (
+      <div css={styles.parent}>
+        {renderWidgetError(
+          reduxState.startupValidationError,
+          runStartupValidation
+        )}
+      </div>
     )
   }
 
   if (reduxState.error && reduxState.error.severity === "error") {
     // Handle other errors (non-startup validation)
-    return renderWidgetError(reduxState.error)
+    return <div css={styles.parent}>{renderWidgetError(reduxState.error)}</div>
   }
 
   // derive simple view booleans for readability
