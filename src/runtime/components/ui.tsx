@@ -709,7 +709,9 @@ export const Slider: React.FC<{
       aria-label={ariaLabel}
       onChange={(e) => {
         const numValue = parseFloat(e.target.value)
-        onChange?.(numValue)
+        if (!Number.isNaN(numValue) && Number.isFinite(numValue)) {
+          onChange?.(numValue)
+        }
       }}
       style={style}
       css={styles.fullWidth}
