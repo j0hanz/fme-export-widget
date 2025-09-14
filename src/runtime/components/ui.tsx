@@ -1136,10 +1136,17 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
-
-  // Manage loading indicator with minimum display time
-  const [showLoading, setShowLoading] = React.useState(false)
+  const [showLoading, setShowLoading] = React.useState(state.kind === "loading")
   const loadingStartedAtRef = React.useRef<number | null>(null)
+  // Persist last loading messages to show while holding the loader after a state change
+  const lastLoadingRef = React.useRef<{
+    message?: React.ReactNode
+    detail?: React.ReactNode
+  } | null>(
+    state.kind === "loading"
+      ? { message: (state as any).message, detail: (state as any).detail }
+      : null
+  )
   React.useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
 
@@ -1147,6 +1154,10 @@ const StateView: React.FC<StateViewProps> = ({
       setShowLoading(true)
       if (loadingStartedAtRef.current == null) {
         loadingStartedAtRef.current = Date.now()
+      }
+      lastLoadingRef.current = {
+        message: (state as any).message,
+        detail: (state as any).detail,
       }
     } else if (loadingStartedAtRef.current != null) {
       const elapsed = Date.now() - loadingStartedAtRef.current
@@ -1169,7 +1180,7 @@ const StateView: React.FC<StateViewProps> = ({
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [state.kind])
+  }, [state])
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -1206,28 +1217,41 @@ const StateView: React.FC<StateViewProps> = ({
       }) => renderActions(actions, ariaLabel)
     : DefaultActions
 
+  const isLoadingView = state.kind === "loading" || showLoading
+
   const content = (() => {
+    if (isLoadingView) {
+      const message =
+        state.kind === "loading"
+          ? (state as any).message
+          : lastLoadingRef.current?.message
+      const detail =
+        state.kind === "loading"
+          ? (state as any).detail
+          : lastLoadingRef.current?.detail
+
+      return (
+        <div css={styles.centered} role="status" aria-live="polite">
+          {showLoading && (
+            <Loading
+              type={LoadingType.Donut}
+              width={config.loading.width}
+              height={config.loading.height}
+            />
+          )}
+          {(message || detail) && (
+            <div
+              css={styles.overlay}
+              aria-label={translate("ariaLoadingDetails")}
+            >
+              {message && <div>{message}</div>}
+            </div>
+          )}
+        </div>
+      )
+    }
+
     switch (state.kind) {
-      case "loading":
-        return (
-          <div css={styles.centered} role="status" aria-live="polite">
-            {showLoading && (
-              <Loading
-                type={LoadingType.Donut}
-                width={config.loading.width}
-                height={config.loading.height}
-              />
-            )}
-            {(state.message || state.detail) && (
-              <div
-                css={styles.overlay}
-                aria-label={translate("ariaLoadingDetails")}
-              >
-                {state.message && <div>{state.message}</div>}
-              </div>
-            )}
-          </div>
-        )
       case "error":
         return (
           <div role="alert" aria-live="assertive">
@@ -1273,8 +1297,7 @@ const StateView: React.FC<StateViewProps> = ({
     }
   })()
 
-  const shouldCenter =
-    typeof center === "boolean" ? center : state.kind === "loading"
+  const shouldCenter = typeof center === "boolean" ? center : isLoadingView
 
   return (
     <div
