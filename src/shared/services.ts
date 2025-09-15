@@ -348,12 +348,26 @@ export class ParameterFormService {
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
-    return !!(
-      p &&
-      typeof p.name === "string" &&
-      !this.skipParams.includes(p.name) &&
-      p.type !== ParameterType.NOVALUE
-    )
+    if (!p || typeof p.name !== "string") return false
+    if (this.skipParams.includes(p.name)) return false
+    if (
+      p.type === ParameterType.NOVALUE ||
+      p.type === ParameterType.GEOMETRY ||
+      p.type === ParameterType.MESSAGE ||
+      p.type === ParameterType.SCRIPTED
+    ) {
+      return false
+    }
+    if (
+      p.type === ParameterType.DB_CONNECTION ||
+      p.type === ParameterType.WEB_CONNECTION ||
+      p.type === ParameterType.ATTRIBUTE_NAME ||
+      p.type === ParameterType.ATTRIBUTE_LIST
+    ) {
+      return Array.isArray(p.listOptions) && p.listOptions.length > 0
+    }
+
+    return true
   }
 
   private mapListOptions(
@@ -501,7 +515,8 @@ export class ParameterFormService {
     if (hasOptions) {
       const isMulti =
         param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX
+        param.type === ParameterType.LOOKUP_LISTBOX ||
+        param.type === ParameterType.ATTRIBUTE_LIST
       return isMulti ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
     }
 
@@ -528,6 +543,10 @@ export class ParameterFormService {
       [ParameterType.COLOR]: FormFieldType.COLOR,
       [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
       [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
+      [ParameterType.REPROJECTION_FILE]: FormFieldType.FILE,
+      [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
+      [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
+      [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
     }
     return typeMap[param.type] || FormFieldType.TEXT
   }

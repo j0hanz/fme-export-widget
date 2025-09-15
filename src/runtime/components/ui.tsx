@@ -28,9 +28,12 @@ import {
   Radio as JimuRadio,
   Slider as JimuSlider,
   NumericInput as JimuNumericInput,
+  TagInput as JimuTagInput,
 } from "jimu-ui"
+import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { useTheme, useThemeLoaded } from "jimu-theme"
 import defaultMessages from "./translations/default"
+import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 import type {
   ViewAction,
   ButtonProps,
@@ -49,7 +52,6 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../config"
-import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 
 type TranslateFn = (key: string, params?: any) => string
 
@@ -798,26 +800,18 @@ export const TagInput: React.FC<{
   placeholder?: string
   onChange?: (values: string[]) => void
   style?: React.CSSProperties
-}> = ({ value, placeholder, onChange, style }) => {
+}> = ({ value, suggestions, placeholder, onChange, style }) => {
   const styles = useStyles()
-
-  // Simple implementation: comma-separated string input
-  const stringValue = value?.join(", ") || ""
-
   return (
-    <TextInput
-      value={stringValue}
-      placeholder={placeholder || "Enter values separated by commas"}
-      onChange={(e) => {
-        const str = e.target.value
-        const values = str
-          .split(",")
-          .map((v) => v.trim())
-          .filter((v) => v.length > 0)
-        onChange?.(values)
+    <JimuTagInput
+      values={value}
+      suggestions={suggestions}
+      placeholder={placeholder}
+      onChange={(vals) => {
+        onChange?.(vals)
       }}
-      style={style}
       css={styles.fullWidth}
+      style={style}
     />
   )
 }
@@ -828,17 +822,18 @@ export const ColorPickerWrapper: React.FC<{
   defaultValue?: string
   onChange?: (color: string) => void
   style?: React.CSSProperties
-}> = ({ value, defaultValue, onChange, style }) => {
+  "aria-label"?: string
+}> = ({ value, defaultValue, onChange, style, "aria-label": ariaLabel }) => {
   const styles = useStyles()
   return (
-    <input
-      type="color"
-      value={value || defaultValue || "#000000"}
-      onChange={(e) => {
-        onChange?.(e.target.value)
+    <JimuColorPicker
+      color={value || defaultValue || "#000000"}
+      onChange={(color) => {
+        onChange?.(color)
       }}
-      style={style}
+      aria-label={ariaLabel}
       css={styles.fullWidth}
+      style={style}
     />
   )
 }
