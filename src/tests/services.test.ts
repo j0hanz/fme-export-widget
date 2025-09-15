@@ -414,6 +414,18 @@ describe("ParameterFormService", () => {
           optional: false,
         },
         {
+          name: "tm_ttl",
+          type: ParameterType.INTEGER,
+          description: "TTL",
+          optional: false,
+        },
+        {
+          name: "PARAMETER_10",
+          type: ParameterType.NOVALUE,
+          description: "No value placeholder",
+          optional: false,
+        },
+        {
           name: "validParam",
           type: ParameterType.TEXT,
           description: "Valid",
@@ -430,6 +442,27 @@ describe("ParameterFormService", () => {
     test("handles empty or invalid parameter arrays", () => {
       expect(service.convertParametersToFields([])).toEqual([])
       expect(service.convertParametersToFields(null as any)).toEqual([])
+    })
+
+    test("converts RANGE_SLIDER to SLIDER with min/max/step", () => {
+      const parameters = [
+        {
+          name: "rangeParam",
+          type: ParameterType.RANGE_SLIDER,
+          description: "Range",
+          optional: false,
+          minimum: 10,
+          maximum: 20,
+          decimalPrecision: 0,
+          defaultValue: 14,
+        } as WorkspaceParameter,
+      ]
+
+      const fields = service.convertParametersToFields(parameters)
+      expect(fields[0].type).toBe(FormFieldType.SLIDER)
+      expect(fields[0].min).toBe(10)
+      expect(fields[0].max).toBe(20)
+      expect(fields[0].step).toBe(1)
     })
   })
 

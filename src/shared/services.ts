@@ -340,7 +340,55 @@ export class ParameterFormService {
     "MAXY",
     "MINY",
     "AreaOfInterest",
+    "tm_ttc",
+    "tm_ttl",
+    "tm_tag",
   ]
+
+  private isRenderableParam(
+    p: WorkspaceParameter | null | undefined
+  ): p is WorkspaceParameter {
+    return !!(
+      p &&
+      typeof p.name === "string" &&
+      !this.skipParams.includes(p.name) &&
+      p.type !== ParameterType.NOVALUE
+    )
+  }
+
+  private mapListOptions(
+    list: WorkspaceParameter["listOptions"]
+  ): ReadonlyArray<{ label: string; value: string | number }> | undefined {
+    if (!list || !list.length) return undefined
+    return list.map((o) => {
+      const valueStr =
+        typeof o.value === "string" || typeof o.value === "number"
+          ? String(o.value)
+          : JSON.stringify(o.value)
+      return {
+        label: o.caption || valueStr,
+        value:
+          typeof o.value === "string" || typeof o.value === "number"
+            ? o.value
+            : valueStr,
+      }
+    })
+  }
+
+  private getSliderMeta(param: WorkspaceParameter): {
+    min?: number
+    max?: number
+    step?: number
+  } {
+    const isRange = param.type === ParameterType.RANGE_SLIDER
+    if (!isRange) return {}
+    const precision =
+      typeof param.decimalPrecision === "number" ? param.decimalPrecision : 0
+    const min = typeof param.minimum === "number" ? param.minimum : 0
+    const max = typeof param.maximum === "number" ? param.maximum : 100
+    const step = precision > 0 ? Number(`0.${"0".repeat(precision - 1)}1`) : 1
+    return { min, max, step }
+  }
 
   // Validate parameters against definitions
   validateParameters(
@@ -348,10 +396,7 @@ export class ParameterFormService {
     parameters: readonly WorkspaceParameter[]
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
-    const validParams = parameters.filter(
-      (p) =>
-        p && typeof p.name === "string" && !this.skipParams.includes(p.name)
-    )
+    const validParams = parameters.filter((p) => this.isRenderableParam(p))
 
     for (const param of validParams) {
       const value = data[param.name]
@@ -427,34 +472,28 @@ export class ParameterFormService {
     if (!parameters?.length) return []
 
     return parameters
-      .filter(
-        (p) =>
-          p && typeof p.name === "string" && !this.skipParams.includes(p.name)
-      )
-      .map((param) => ({
-        name: param.name,
-        label: param.description || param.name,
-        type: this.getFieldType(param),
-        required: !param.optional,
-        readOnly: false,
-        description: param.description,
-        defaultValue: param.defaultValue as FormPrimitive,
-        placeholder: param.description || "",
-        options: param.listOptions?.map((o) => {
-          const valueStr =
-            typeof o.value === "string" || typeof o.value === "number"
-              ? String(o.value)
-              : JSON.stringify(o.value)
-          return {
-            label: o.caption || valueStr,
-            value:
-              typeof o.value === "string" || typeof o.value === "number"
-                ? o.value
-                : valueStr,
-          }
-        }),
-        rows: param.type === ParameterType.TEXT_EDIT ? 3 : undefined,
-      })) as readonly DynamicFieldConfig[]
+      .filter((p) => this.isRenderableParam(p))
+      .map((param) => {
+        const type = this.getFieldType(param)
+        const options = this.mapListOptions(param.listOptions)
+        const { min, max, step } = this.getSliderMeta(param)
+        const field: DynamicFieldConfig = {
+          name: param.name,
+          label: param.description || param.name,
+          type,
+          required: !param.optional,
+          readOnly: false,
+          description: param.description,
+          defaultValue: param.defaultValue as FormPrimitive,
+          placeholder: param.description || "",
+          ...(options?.length ? { options } : {}),
+          ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
+          ...(min !== undefined || max !== undefined || step !== undefined
+            ? { min, max, step }
+            : {}),
+        }
+        return field
+      }) as readonly DynamicFieldConfig[]
   }
 
   private getFieldType(param: WorkspaceParameter): FormFieldType {
@@ -472,16 +511,23 @@ export class ParameterFormService {
       [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
       [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
       [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
+      [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
       [ParameterType.CHOICE]: FormFieldType.RADIO,
       [ParameterType.FILENAME]: FormFieldType.FILE,
       [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
+      [ParameterType.DIRNAME]: FormFieldType.FILE,
+      [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
+      [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
       [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
+      [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
       [ParameterType.URL]: FormFieldType.URL,
       [ParameterType.LOOKUP_URL]: FormFieldType.URL,
       [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
       [ParameterType.DATE]: FormFieldType.DATE,
       [ParameterType.TIME]: FormFieldType.TIME,
       [ParameterType.COLOR]: FormFieldType.COLOR,
+      [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
+      [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
     }
     return typeMap[param.type] || FormFieldType.TEXT
   }

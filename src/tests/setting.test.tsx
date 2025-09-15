@@ -569,7 +569,7 @@ describe("Setting panel", () => {
 
     // Find the switch by role and label text
     const toggle = await screen.findByRole("switch", {
-      name: /Dölj e‑post i framgångsvy/i,
+      name: /Dölj fullständig e‑postadress/i,
     })
     expect(toggle).toBeInTheDocument()
     // Toggle on

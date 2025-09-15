@@ -65,6 +65,7 @@ export const enum ParameterType {
   INTEGER = "INTEGER",
   FLOAT = "FLOAT",
   BOOLEAN = "BOOLEAN",
+  CHECKBOX = "CHECKBOX",
   CHOICE = "CHOICE",
   LISTBOX = "LISTBOX",
   LOOKUP_LISTBOX = "LOOKUP_LISTBOX",
@@ -76,15 +77,20 @@ export const enum ParameterType {
   FILENAME_MUSTEXIST = "FILENAME_MUSTEXIST",
   DIRNAME = "DIRNAME",
   DIRNAME_MUSTEXIST = "DIRNAME_MUSTEXIST",
+  DIRNAME_SRC = "DIRNAME_SRC",
   COORDSYS = "COORDSYS",
   STRING = "STRING",
   URL = "URL",
   LOOKUP_URL = "LOOKUP_URL",
   LOOKUP_FILE = "LOOKUP_FILE",
   DATE_TIME = "DATE_TIME",
+  DATETIME = "DATETIME",
   DATE = "DATE",
   TIME = "TIME",
   COLOR = "COLOR",
+  COLOR_PICK = "COLOR_PICK",
+  RANGE_SLIDER = "RANGE_SLIDER",
+  NOVALUE = "NOVALUE",
 }
 
 export const enum JobStatus {
@@ -616,6 +622,12 @@ export interface WorkspaceParameter {
   readonly defaultValue?: unknown
   readonly optional: boolean
   readonly listOptions?: readonly ParameterChoice[]
+  // Optional numeric constraints (present for RANGE_SLIDER and numeric params)
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly minimumExclusive?: boolean
+  readonly maximumExclusive?: boolean
+  readonly decimalPrecision?: number
 }
 
 export interface JobDirectives {
