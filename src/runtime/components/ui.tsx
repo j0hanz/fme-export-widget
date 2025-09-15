@@ -523,7 +523,7 @@ export const Input: React.FC<InputProps> = ({
       title={errorText}
       aria-required={required}
       aria-invalid={!!errorText}
-      aria-describedby={errorText ? ariaDesc(props.id || "input") : undefined}
+      aria-describedby={errorText && props.id ? ariaDesc(props.id) : undefined}
       css={[
         styles.fullWidth,
         (props as any).style && css((props as any).style),
@@ -561,8 +561,8 @@ export const TextArea: React.FC<TextAreaProps> = ({
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
-        validationMessage
-          ? ariaDesc(props.id || "textarea", "error")
+        validationMessage && props.id
+          ? ariaDesc(props.id, "error")
           : undefined
       }
     />
@@ -1227,6 +1227,7 @@ const StateView: React.FC<StateViewProps> = ({
               aria-label={translate("ariaLoadingDetails")}
             >
               {message && <div>{message}</div>}
+              {detail && <div css={styles.typography.caption}>{detail}</div>}
             </div>
           )}
         </div>
