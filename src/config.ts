@@ -515,6 +515,7 @@ export interface FmeExportConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
+  readonly maskEmailOnSuccess?: boolean
   readonly supportEmail?: string
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
@@ -797,6 +798,7 @@ export interface WidgetConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
+  readonly maskEmailOnSuccess?: boolean
   readonly supportEmail?: string
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string

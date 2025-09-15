@@ -717,6 +717,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     token: "setting-token",
     repository: "setting-repository",
     syncMode: "setting-sync-mode",
+    maskEmailOnSuccess: "setting-mask-email-on-success",
     requestTimeout: "setting-request-timeout",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
@@ -754,6 +755,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
     Boolean((config as any)?.syncMode)
   )
+  const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
+    React.useState<boolean>(() => Boolean((config as any)?.maskEmailOnSuccess))
   // Request timeout (ms)
   const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
     () => {
@@ -1200,6 +1203,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const configRepository = getStringConfig("repository") || ""
       const configEmail = getStringConfig("supportEmail") || ""
       const configSyncMode = Boolean((config as any)?.syncMode)
+      const configMaskEmail = Boolean((config as any)?.maskEmailOnSuccess)
       const configTimeout = (config as any)?.requestTimeout
       const configMaxArea = (config as any)?.maxArea
 
@@ -1216,6 +1220,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setLocalRepository(configRepository)
       if (configEmail !== localSupportEmail) setLocalSupportEmail(configEmail)
       if (configSyncMode !== localSyncMode) setLocalSyncMode(configSyncMode)
+      if (configMaskEmail !== localMaskEmailOnSuccess)
+        setLocalMaskEmailOnSuccess(configMaskEmail)
       if (typeof configTimeout === "number" && Number.isFinite(configTimeout)) {
         if (String(configTimeout) !== localRequestTimeout) {
           setLocalRequestTimeout(String(configTimeout))
@@ -1263,6 +1269,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localServerUrl,
     localSupportEmail,
     localSyncMode,
+    localMaskEmailOnSuccess,
     localTmTag,
     localTmTtc,
     localTmTtl,
@@ -1594,6 +1601,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           level={3}
         >
           {translate("serviceModeSyncHelper")}
+        </SettingRow>
+        {/* Mask email on success toggle */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("maskEmailOnSuccess")}
+          level={1}
+        >
+          <Switch
+            id={ID.maskEmailOnSuccess}
+            checked={localMaskEmailOnSuccess}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+              setLocalMaskEmailOnSuccess(checked)
+              updateConfig("maskEmailOnSuccess", checked)
+            }}
+            aria-label={translate("maskEmailOnSuccess")}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("maskEmailOnSuccessHelper")}
         </SettingRow>
         {/* Support email (optional) */}
         <SettingRow

@@ -561,4 +561,27 @@ describe("Setting panel", () => {
       expect(val).toBe(10000 * 1_000_000)
     })
   })
+
+  test("mask email on success toggle updates config", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find the switch by role and label text
+    const toggle = await screen.findByRole("switch", {
+      name: /Dölj e‑post i framgångsvy/i,
+    })
+    expect(toggle).toBeInTheDocument()
+    // Toggle on
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(onSettingChange).toHaveBeenCalled()
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1][0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maskEmailOnSuccess")
+      expect(val).toBe(true)
+    })
+  })
 })
