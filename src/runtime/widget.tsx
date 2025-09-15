@@ -373,9 +373,6 @@ const validatePolygon = (
   return { valid: true }
 }
 
-// Export utility functions
-export { calcArea, validatePolygon }
-
 // Area constraints
 const checkMaxArea = (
   area: number,
@@ -396,7 +393,7 @@ const checkMaxArea = (
 const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: "sync" | "async" = "async"
+  serviceMode: "sync" | "async" | "schedule" = "async"
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   return {
@@ -436,42 +433,36 @@ const isPolygonJson = (value: unknown): value is { rings: unknown } => {
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined
+  currentGeometry: __esri.Geometry | undefined,
+  config?: FmeExportConfig
 ): { [key: string]: unknown } => {
+  const paramName = config?.aoiParamName || "AreaOfInterest"
+
   // Prefer graphic JSON with geometry property
   if (isGraphicJsonWithPolygon(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
+    return { ...base, [paramName]: JSON.stringify(geometryJson.geometry) }
   }
 
   // Use direct geometry JSON
   if (isPolygonJson(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
+    return { ...base, [paramName]: JSON.stringify(geometryJson) }
   }
 
   // Use current geometry as last resort
   const geometryToUse = currentGeometry?.toJSON()
   if (isPolygonJson(geometryToUse)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+    return { ...base, [paramName]: JSON.stringify(geometryToUse) }
   }
 
   return base
 }
 
-// Get and validate user email
-const getEmail = async (): Promise<string> => {
-  // Get user info from session
+// Get and validate user email (no fallback). Throws code-specific Errors for centralized handling.
+const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   const user = await SessionManager.getInstance().getUserInfo()
   const email = user?.email
-
-  if (!email) {
-    throw new Error("UserEmailMissing")
-  }
-
-  // Validate email format
-  if (!isValidEmail(email)) {
-    throw new Error("INVALID_EMAIL")
-  }
-
+  if (!email) throw new Error("MISSING_REQUESTER_EMAIL")
+  if (!isValidEmail(email)) throw new Error("INVALID_EMAIL")
   return email
 }
 
@@ -483,9 +474,20 @@ const prepFmeParams = (
   currentGeometry: __esri.Geometry | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
-  const base = buildFmeParams(formData, userEmail, mode)
-  return attachAoi(base, geometryJson, currentGeometry)
+  const data = (formData as any)?.data || {}
+  const chosen =
+    (data._serviceMode as "sync" | "async" | "schedule") ||
+    (config?.syncMode ? "sync" : "async")
+
+  // Ensure schedule directives when chosen
+  if (chosen === "schedule") {
+    if (!data.trigger) data.trigger = "runonce"
+    // Expect 'start' in 'YYYY-MM-DD HH:mm:ss' from the form
+  }
+
+  const base = buildFmeParams({ data }, userEmail, chosen)
+  const withAoi = attachAoi(base, geometryJson, currentGeometry, config)
+  return applyDirectiveDefaults(withAoi, config)
 }
 
 // Apply admin defaults for FME Task Manager directives
@@ -1000,7 +1002,7 @@ export default function Widget(
       // Step 3: validate user email
       setValidationStep(translate("validatingUserEmail"))
       try {
-        const email = await getEmail()
+        const email = await getEmail(props.config)
         if (!isValidEmail(email)) {
           setValidationError(
             createStartupError(
@@ -1304,7 +1306,7 @@ export default function Widget(
 
     try {
       const [userEmail, fmeClient] = await Promise.all([
-        getEmail(),
+        getEmail(props.config),
         Promise.resolve(createFmeFlowClient(props.config)),
       ])
 
@@ -1329,11 +1331,13 @@ export default function Widget(
       }
 
       // Submit to FME Flow
+      const serviceType = props.config?.service || "download"
       const fmeResponse = await makeCancelable(
-        fmeClient.runDataDownload(
+        fmeClient.runWorkspace(
           workspace,
           finalParams,
           undefined,
+          serviceType,
           controller.signal
         )
       )
@@ -1748,3 +1752,6 @@ Reflect.set(
     return { state: sub || initialFmeState }
   }
 )
+
+// Consolidated exports (internal helpers exposed strictly for unit tests)
+export { calcArea, validatePolygon, getEmail, attachAoi, prepFmeParams }

@@ -198,9 +198,16 @@ describe("Setting panel", () => {
     // Wait until refresh button becomes available (indicates success and valid inputs)
     await screen.findByTitle(/Uppdatera repositories/i)
 
-    // Combobox should be enabled
-    const comboBtn = screen.getByRole("combobox")
-    expect(comboBtn).toHaveAttribute("aria-disabled", "false")
+    // Combobox should be enabled (repository selector)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombobox = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    expect(repositoryCombobox).toHaveAttribute("aria-disabled", "false")
 
     // Refresh button visible after success
     const refreshBtn = screen.getByTitle(/Uppdatera repositories/i)
@@ -295,8 +302,15 @@ describe("Setting panel", () => {
     })
 
     // Dropdown should now include the refreshed options
-    const combo = await screen.findByRole("combobox")
-    fireEvent.click(combo)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombo = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    fireEvent.click(repositoryCombo)
     await screen.findByText("Repo1")
     await screen.findByText("Repo2")
   })
@@ -347,8 +361,15 @@ describe("Setting panel", () => {
     await screen.findByTitle(/Uppdatera repositories/i)
 
     // Change selection to "B" via the dropdown: open and click the option
-    const combo = await screen.findByRole("combobox")
-    fireEvent.click(combo)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombo = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    fireEvent.click(repositoryCombo)
     const optB = await screen.findByText("B")
     fireEvent.click(optB)
 

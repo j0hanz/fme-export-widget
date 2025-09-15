@@ -928,6 +928,30 @@ export class FmeFlowApiClient {
     )
   }
 
+  async runWorkspace(
+    workspace: string,
+    parameters: PrimitiveParams = {},
+    repository?: string,
+    service: "download" | "stream" = "download",
+    signal?: AbortSignal
+  ): Promise<ApiResponse> {
+    if (service === "stream") {
+      return await this.runDataStreaming(
+        workspace,
+        parameters,
+        repository,
+        signal
+      )
+    } else {
+      return await this.runDataDownload(
+        workspace,
+        parameters,
+        repository,
+        signal
+      )
+    }
+  }
+
   private async runDownloadWebhook(
     workspace: string,
     parameters: PrimitiveParams = {},
@@ -941,15 +965,13 @@ export class FmeFlowApiClient {
         repository,
         workspace
       )
-      // For webhook, tm_* must be added as query params directly
-      // Exclude tm_* from the initial query build so we can control empty handling
       const params = buildParams(
         parameters,
         [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
         true
       )
 
-      // Add FME token as query parameter for webhook (use 'token' only)
+      // Append token if available
       if (this.config.token) {
         params.set("token", this.config.token)
       }
@@ -967,8 +989,6 @@ export class FmeFlowApiClient {
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
-
-      // Guard: if URL exceeds configured max length, abort with a clear error
       try {
         const maxLen = getMaxUrlLength()
         if (

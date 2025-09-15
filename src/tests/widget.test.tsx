@@ -12,6 +12,9 @@ import Widget, {
   calcArea,
   validatePolygon,
   formatArea,
+  attachAoi,
+  prepFmeParams,
+  getEmail,
 } from "../runtime/widget"
 import { DrawingTool, ErrorType, type EsriModules, ViewMode } from "../config"
 
@@ -295,6 +298,72 @@ describe("Geometry helpers", () => {
   })
 })
 
-// Security: ensure no static @arcgis/core imports and no network calls are made in tests.
-// i18n: Widget uses translation keys; we exercised formatArea with Intl and fallback.
-// Accessibility: The services-level a11y is covered via translation error mapping; runtime UI a11y relies on StateView/Workflow which are assumed compliant in EXB.
+describe("Internal helper exports (attachAoi, prepFmeParams, getEmail)", () => {
+  test("attachAoi uses custom aoiParamName with direct polygon json", () => {
+    const base: any = { a: 1 }
+    const polygon = {
+      rings: [
+        [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+          [0, 1],
+          [0, 0],
+        ],
+      ],
+    }
+    const cfg: any = { aoiParamName: "CustomAOI" }
+    const out = attachAoi(base, polygon, undefined as any, cfg)
+    expect(out.CustomAOI).toBeDefined()
+    expect(() => JSON.parse(out.CustomAOI as string)).not.toThrow()
+    expect(out.a).toBe(1)
+  })
+
+  test("prepFmeParams sets schedule defaults and preserves start field", () => {
+    const formData = {
+      data: { _serviceMode: "schedule", start: "2025-09-20 09:30:00" },
+    }
+    const out = prepFmeParams(
+      formData,
+      "user@example.com",
+      {
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+            [0, 0],
+          ],
+        ],
+      },
+      undefined as any,
+      { aoiParamName: "AreaOfInterest" } as any
+    ) as any
+    expect(out.opt_servicemode).toBe("schedule")
+    expect(out.start).toBe("2025-09-20 09:30:00")
+    expect(out.trigger).toBe("runonce")
+    expect(out.opt_requesteremail).toBe("user@example.com")
+  })
+
+  test("getEmail returns valid email and throws coded errors for missing/invalid", async () => {
+    const { SessionManager } = require("jimu-core")
+    // Valid email scenario
+    SessionManager.getInstance = () => ({
+      getUserInfo: () => Promise.resolve({ email: "user@example.com" }),
+    })
+    await expect(getEmail({} as any)).resolves.toBe("user@example.com")
+
+    // Missing email scenario -> expect rejection
+    SessionManager.getInstance = () => ({
+      getUserInfo: () => Promise.resolve({ email: "" }),
+    })
+    await expect(getEmail({} as any)).rejects.toThrow("MISSING_REQUESTER_EMAIL")
+
+    // Invalid email scenario -> expect rejection
+    SessionManager.getInstance = () => ({
+      getUserInfo: () => Promise.resolve({ email: "invalid" }),
+    })
+    await expect(getEmail({} as any)).rejects.toThrow("INVALID_EMAIL")
+  })
+})

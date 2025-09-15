@@ -37,6 +37,8 @@ export const enum FormFieldType {
   EMAIL = "email",
   PHONE = "phone",
   SEARCH = "search",
+  MESSAGE = "message",
+  TABLE = "table",
 }
 
 export const enum ErrorSeverity {
@@ -271,6 +273,8 @@ export interface InputProps extends BaseProps {
     | "date"
     | "datetime-local"
     | "time"
+    | "search"
+    | "tel"
   readonly maxLength?: number
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly "aria-label"?: string
@@ -450,6 +454,7 @@ export interface ExportFormProps {
   readonly onBack?: () => void
   readonly isSubmitting?: boolean
   readonly translate?: (key: string, values?: any) => string
+  readonly config?: FmeExportConfig
 }
 
 export interface FormProps extends BaseProps {
@@ -535,6 +540,10 @@ export interface FmeExportConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
+  readonly aoiParamName?: string
+  readonly allowScheduleMode?: boolean
+  readonly allowRemoteDataset?: boolean
+  readonly service?: "download" | "stream"
 }
 
 export interface RequestConfig {
@@ -824,6 +833,10 @@ export interface WidgetConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
+  readonly aoiParamName?: string
+  readonly allowScheduleMode?: boolean
+  readonly allowRemoteDataset?: boolean
+  readonly service?: "download" | "stream"
 }
 
 export type IMWidgetConfig = ImmutableObject<WidgetConfig>

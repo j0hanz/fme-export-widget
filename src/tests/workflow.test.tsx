@@ -334,6 +334,63 @@ describe("Workflow component", () => {
     })
   })
 
+  test("export form: schedule mode fields render and validate start", async () => {
+    const onFormSubmit = jest.fn()
+
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.EXPORT_FORM}
+        instructionText=""
+        isModulesLoading={false}
+        selectedWorkspace="sched"
+        workspaceParameters={[] as any}
+        onFormBack={jest.fn()}
+        onFormSubmit={onFormSubmit}
+        config={{ allowScheduleMode: true } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Switch to schedule mode (sv: Schemalägg (kör en gång))
+    const tabs = screen.getByRole("radiogroup")
+    const schedule = within(tabs).getByRole("radio", { name: /Schemalägg/i })
+    schedule.click()
+
+    // Start time textbox placeholder (sv) should appear
+    const startInput =
+      await screen.findByPlaceholderText(/2025-09-20 09:30:00/i)
+    // Enter a start time
+    fireEvent.change(startInput, { target: { value: "2025-12-01 10:15:00" } })
+
+    // Submit button text (sv: Beställ)
+    const submitBtn = screen.getByRole("button", { name: /Beställ/i })
+    // Should be enabled once required start time is present
+    await waitFor(() => {
+      expect(submitBtn).not.toBeDisabled()
+    })
+  })
+
+  test("export form: remote dataset field renders when allowed", () => {
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.EXPORT_FORM}
+        instructionText=""
+        isModulesLoading={false}
+        selectedWorkspace="remote"
+        workspaceParameters={[] as any}
+        onFormBack={jest.fn()}
+        onFormSubmit={jest.fn()}
+        config={{ allowRemoteDataset: true } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Remote dataset field placeholder (sv): https://exempel.se/data.zip
+    expect(
+      screen.getByPlaceholderText("https://exempel.se/data.zip")
+    ).toBeInTheDocument()
+  })
+
   test("order result: shows success, download link and reuse button", () => {
     const onReuseGeography = jest.fn()
     renderWithProviders(

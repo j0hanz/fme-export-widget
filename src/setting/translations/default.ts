@@ -71,4 +71,19 @@ export default {
   checking: "Kontrollerar...",
   error: "Fel",
   colon: ":",
+  aoiParamNameLabel: "AOI-parameternamn",
+  aoiParamNamePlaceholder: "AreaOfInterest",
+  aoiParamNameHelper:
+    "Namn på den publicerade parametern för områdesinformation (AOI). Standard: AreaOfInterest.",
+  allowScheduleModeLabel: "Tillåt schemaläggning",
+  allowScheduleModeHelper:
+    "Aktivera för att låta användare schemalägga engångskörningar istället för direkt synkron/asynkron körning.",
+  allowRemoteDatasetLabel: "Tillåt fjärrdataset (opt_geturl)",
+  allowRemoteDatasetHelper:
+    "Aktivera för att låta användare ange en URL till en fjärrdatafil eller tjänst som indata.",
+  serviceTypeLabel: "Tjänstetyp",
+  serviceTypeDownload: "Data Download",
+  serviceTypeStream: "Data Streaming",
+  serviceTypeHelper:
+    "Välj vilken FME Flow-tjänst som ska användas. Data Download för nedladdning, Data Streaming för förhandsgranskning.",
 }

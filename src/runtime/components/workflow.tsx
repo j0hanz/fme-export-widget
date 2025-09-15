@@ -134,8 +134,38 @@ const createFormValidator = (
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
-  const validateValues = (values: FormValues) =>
-    parameterService.validateFormValues(values, getFormConfig())
+
+  const validateValues = (values: FormValues) => {
+    // First validate the workspace parameters
+    const baseValidation = parameterService.validateFormValues(
+      values,
+      getFormConfig()
+    )
+
+    // Add custom validation for schedule fields
+    const errors = { ...baseValidation.errors }
+
+    // Validate start field when schedule mode is selected
+    if (values._serviceMode === "schedule") {
+      const start = values.start as string
+      if (!start || typeof start !== "string" || start.trim() === "") {
+        errors.start = "Required field"
+      } else {
+        // Basic format validation for YYYY-MM-DD HH:mm:ss
+        const startTrimmed = start.trim()
+        const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+        if (!dateTimeRegex.test(startTrimmed)) {
+          errors.start = "Invalid format. Use YYYY-MM-DD HH:mm:ss"
+        }
+      }
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors,
+    }
+  }
+
   const initializeValues = () => initFormValues(getFormConfig())
   return { getFormConfig, validateValues, initializeValues }
 }
@@ -513,6 +543,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   isSubmitting,
   translate,
   widgetId,
+  config,
 }) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
@@ -621,6 +652,116 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       isValid={formState.isValid}
       loading={isSubmitting}
     >
+      {/* Run mode select - only show if schedule mode is allowed */}
+      {config?.allowScheduleMode && (
+        <Field label={translate("runModeLabel")}>
+          <ButtonTabs
+            items={[
+              { value: "async", label: translate("runModeAsync") },
+              { value: "sync", label: translate("runModeSync") },
+              { value: "schedule", label: translate("runModeSchedule") },
+            ]}
+            value={formState.values._serviceMode || "async"}
+            onChange={(value) => setField("_serviceMode", value as string)}
+          />
+        </Field>
+      )}
+
+      {/* Schedule fields - only show when schedule mode is selected */}
+      {config?.allowScheduleMode &&
+        formState.values._serviceMode === "schedule" && (
+          <>
+            <Field
+              label={translate("scheduleStartLabel")}
+              required={true}
+              error={stripErrorLabel(formState.errors.start)}
+            >
+              <DynamicField
+                field={{
+                  name: "start",
+                  label: translate("scheduleStartLabel"),
+                  type: "text" as any,
+                  required: true,
+                  readOnly: false,
+                  placeholder: translate("scheduleStartPlaceholder"),
+                }}
+                value={formState.values.start}
+                onChange={(val) => setField("start", val)}
+                translate={translate}
+              />
+            </Field>
+            <Field label={translate("scheduleCategoryLabel")}>
+              <DynamicField
+                field={{
+                  name: "category",
+                  label: translate("scheduleCategoryLabel"),
+                  type: "text" as any,
+                  required: false,
+                  readOnly: false,
+                  placeholder: translate("scheduleCategoryPlaceholder"),
+                }}
+                value={formState.values.category}
+                onChange={(val) => setField("category", val)}
+                translate={translate}
+              />
+            </Field>
+            <Field label={translate("scheduleNameLabel")}>
+              <DynamicField
+                field={{
+                  name: "name",
+                  label: translate("scheduleNameLabel"),
+                  type: "text" as any,
+                  required: false,
+                  readOnly: false,
+                  placeholder: translate("scheduleNamePlaceholder"),
+                }}
+                value={formState.values.name}
+                onChange={(val) => setField("name", val)}
+                translate={translate}
+              />
+            </Field>
+            <Field label={translate("scheduleDescriptionLabel")}>
+              <DynamicField
+                field={{
+                  name: "description",
+                  label: translate("scheduleDescriptionLabel"),
+                  type: "textarea" as any,
+                  required: false,
+                  readOnly: false,
+                  placeholder: translate("scheduleDescriptionPlaceholder"),
+                  rows: 3,
+                }}
+                value={formState.values.description}
+                onChange={(val) => setField("description", val)}
+                translate={translate}
+              />
+            </Field>
+          </>
+        )}
+
+      {/* Remote dataset URL field - only show if allowed */}
+      {config?.allowRemoteDataset && (
+        <Field
+          label={translate("remoteDatasetLabel")}
+          helper={translate("remoteDatasetHelper")}
+        >
+          <DynamicField
+            field={{
+              name: "opt_geturl",
+              label: translate("remoteDatasetLabel"),
+              type: "url" as any,
+              required: false,
+              readOnly: false,
+              placeholder: translate("remoteDatasetPlaceholder"),
+            }}
+            value={formState.values.opt_geturl}
+            onChange={(val) => setField("opt_geturl", val)}
+            translate={translate}
+          />
+        </Field>
+      )}
+
+      {/* Workspace parameters */}
       {validator.getFormConfig().map((field: DynamicFieldConfig) => (
         <Field
           key={field.name}
@@ -944,6 +1085,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         onSubmit={onFormSubmit}
         isSubmitting={isSubmittingOrder}
         translate={translate}
+        config={config}
       />
     )
   }

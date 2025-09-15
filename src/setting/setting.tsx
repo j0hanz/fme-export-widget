@@ -723,6 +723,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
+    aoiParamName: "setting-aoi-param-name",
+    allowScheduleMode: "setting-allow-schedule-mode",
+    allowRemoteDataset: "setting-allow-remote-dataset",
+    service: "setting-service",
   } as const
 
   // Consolidated test state
@@ -788,6 +792,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localTmTag, setLocalTmTag] = React.useState<string>(() => {
     const v = (config as any)?.tm_tag
     return typeof v === "string" ? v : ""
+  })
+  const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
+    () => {
+      const v = (config as any)?.aoiParamName
+      return typeof v === "string" ? v : "AreaOfInterest"
+    }
+  )
+  const [localAllowScheduleMode, setLocalAllowScheduleMode] =
+    React.useState<boolean>(() => Boolean((config as any)?.allowScheduleMode))
+  const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
+    React.useState<boolean>(() => Boolean((config as any)?.allowRemoteDataset))
+  const [localService, setLocalService] = React.useState<string>(() => {
+    const v = (config as any)?.service
+    return v === "stream" ? "stream" : "download"
   })
   // Server-provided repository list (null = not loaded yet)
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
@@ -1212,6 +1230,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const ttlValue =
         typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : ""
       const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
+      const configAoiParamName =
+        getStringConfig("aoiParamName") || "AreaOfInterest"
+      const configAllowScheduleMode = Boolean(
+        (config as any)?.allowScheduleMode
+      )
+      const configAllowRemoteDataset = Boolean(
+        (config as any)?.allowRemoteDataset
+      )
+      const configService = getStringConfig("service") || "download"
 
       // Only update if different from current local state
       if (configServerUrl !== localServerUrl) setLocalServerUrl(configServerUrl)
@@ -1243,6 +1270,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
       if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
       if (tagValue !== localTmTag) setLocalTmTag(tagValue)
+      if (configAoiParamName !== localAoiParamName)
+        setLocalAoiParamName(configAoiParamName)
+      if (configAllowScheduleMode !== localAllowScheduleMode)
+        setLocalAllowScheduleMode(configAllowScheduleMode)
+      if (configAllowRemoteDataset !== localAllowRemoteDataset)
+        setLocalAllowRemoteDataset(configAllowRemoteDataset)
+      if (configService !== localService) setLocalService(configService)
 
       // Run initial validation on loaded config values to show errors immediately (no config writes)
       setTimeout(() => {
@@ -1276,6 +1310,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localToken,
     localRequestTimeout,
     localMaxAreaM2,
+    localAoiParamName,
+    localAllowScheduleMode,
+    localAllowRemoteDataset,
+    localService,
   ])
 
   // Clear repository state when server URL or token changes significantly
@@ -1773,6 +1811,117 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
             })}
           </div>
+        </SettingRow>
+      </SettingSection>
+      <SettingSection>
+        {/* AOI Parameter Name */}
+        <SettingRow
+          flow="wrap"
+          label={translate("aoiParamNameLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.aoiParamName}
+            value={localAoiParamName}
+            onChange={(val: string) => {
+              setLocalAoiParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = val.trim()
+              const finalValue = trimmed || "AreaOfInterest"
+              updateConfig("aoiParamName", finalValue)
+              setLocalAoiParamName(finalValue)
+            }}
+            placeholder={translate("aoiParamNamePlaceholder")}
+            aria-describedby="aoi-param-name-help"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          <div id="aoi-param-name-help">{translate("aoiParamNameHelper")}</div>
+        </SettingRow>
+
+        {/* Allow Schedule Mode */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("allowScheduleModeLabel")}
+          level={1}
+        >
+          <Switch
+            id={ID.allowScheduleMode}
+            checked={localAllowScheduleMode}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localAllowScheduleMode
+              setLocalAllowScheduleMode(checked)
+              updateConfig("allowScheduleMode", checked)
+            }}
+            aria-label={translate("allowScheduleModeLabel")}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("allowScheduleModeHelper")}
+        </SettingRow>
+
+        {/* Allow Remote Dataset */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("allowRemoteDatasetLabel")}
+          level={1}
+        >
+          <Switch
+            id={ID.allowRemoteDataset}
+            checked={localAllowRemoteDataset}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
+              setLocalAllowRemoteDataset(checked)
+              updateConfig("allowRemoteDataset", checked)
+            }}
+            aria-label={translate("allowRemoteDatasetLabel")}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("allowRemoteDatasetHelper")}
+        </SettingRow>
+
+        {/* Service Type */}
+        <SettingRow
+          flow="wrap"
+          label={translate("serviceTypeLabel")}
+          level={1}
+          tag="label"
+        >
+          <Select
+            options={[
+              { label: translate("serviceTypeDownload"), value: "download" },
+              { label: translate("serviceTypeStream"), value: "stream" },
+            ]}
+            value={localService}
+            onChange={(val) => {
+              const serviceType = val === "stream" ? "stream" : "download"
+              setLocalService(serviceType)
+              updateConfig("service", serviceType as any)
+            }}
+            aria-describedby="service-type-help"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          <div id="service-type-help">{translate("serviceTypeHelper")}</div>
         </SettingRow>
       </SettingSection>
 

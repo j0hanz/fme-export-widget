@@ -15,6 +15,8 @@ import {
   TagInput,
   ColorPickerWrapper,
   DatePickerWrapper,
+  Button,
+  RichText,
 } from "./ui"
 import {
   FormFieldType,
@@ -216,6 +218,86 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   // Render field based on its type
   const renderByType = (): JSX.Element => {
     switch (field.type) {
+      case FormFieldType.MESSAGE: {
+        const html = field.description || field.label || ""
+        return <RichText html={html} />
+      }
+      case FormFieldType.TABLE: {
+        // Minimal table: array of strings; allow add/remove rows
+        const parseRows = (): string[] => {
+          const v = value as any
+          if (Array.isArray(v))
+            return v.map((x) => (typeof x === "string" ? x : String(x)))
+          if (typeof v === "string") {
+            try {
+              const arr = JSON.parse(v)
+              return Array.isArray(arr) ? arr.map((x) => String(x)) : []
+            } catch {
+              return v ? [v] : []
+            }
+          }
+          return []
+        }
+
+        const rows = parseRows()
+
+        const updateRow = (idx: number, val: string) => {
+          const next = [...rows]
+          next[idx] = val
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        const addRow = () => {
+          onChange([...(rows || []), ""] as unknown as FormPrimitive)
+        }
+
+        const removeRow = (idx: number) => {
+          const next = rows.filter((_, i) => i !== idx)
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        return (
+          <div data-testid="table-field">
+            {rows.length === 0 && <>{translate("tableEmpty")}</>}
+            <div role="table" aria-label={field.label}>
+              {rows.map((r, i) => (
+                <div key={i} role="row">
+                  <div role="cell">
+                    <Input
+                      type="text"
+                      value={r}
+                      placeholder={field.placeholder || placeholders.enter}
+                      onChange={(val) => {
+                        const s = typeof val === "string" ? val : ""
+                        updateRow(i, s)
+                      }}
+                      disabled={field.readOnly}
+                    />
+                  </div>
+                  <div role="cell">
+                    <Button
+                      text={translate("deleteRow")}
+                      variant="text"
+                      onClick={() => {
+                        removeRow(i)
+                      }}
+                      aria-label={translate("deleteRow")}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <>
+              <Button
+                text={translate("addRow")}
+                variant="outlined"
+                onClick={addRow}
+                aria-label={translate("addRow")}
+              />
+            </>
+          </div>
+        )
+      }
       case FormFieldType.SELECT: {
         const options = field.options || []
 
@@ -487,7 +569,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val = typeof fieldValue === "string" ? fieldValue : ""
         return (
           <Input
-            type="text"
+            type="tel"
             value={val}
             placeholder={field.placeholder || translate("placeholderPhone")}
             onChange={(value) => {
@@ -501,7 +583,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val = typeof fieldValue === "string" ? fieldValue : ""
         return (
           <Input
-            type="text"
+            type="search"
             value={val}
             placeholder={field.placeholder || translate("placeholderSearch")}
             onChange={(value) => {
