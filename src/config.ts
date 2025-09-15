@@ -65,6 +65,7 @@ export const enum ParameterType {
   INTEGER = "INTEGER",
   FLOAT = "FLOAT",
   BOOLEAN = "BOOLEAN",
+  CHECKBOX = "CHECKBOX",
   CHOICE = "CHOICE",
   LISTBOX = "LISTBOX",
   LOOKUP_LISTBOX = "LOOKUP_LISTBOX",
@@ -76,15 +77,28 @@ export const enum ParameterType {
   FILENAME_MUSTEXIST = "FILENAME_MUSTEXIST",
   DIRNAME = "DIRNAME",
   DIRNAME_MUSTEXIST = "DIRNAME_MUSTEXIST",
+  DIRNAME_SRC = "DIRNAME_SRC",
   COORDSYS = "COORDSYS",
   STRING = "STRING",
   URL = "URL",
   LOOKUP_URL = "LOOKUP_URL",
   LOOKUP_FILE = "LOOKUP_FILE",
   DATE_TIME = "DATE_TIME",
+  DATETIME = "DATETIME",
   DATE = "DATE",
   TIME = "TIME",
   COLOR = "COLOR",
+  COLOR_PICK = "COLOR_PICK",
+  RANGE_SLIDER = "RANGE_SLIDER",
+  GEOMETRY = "GEOMETRY",
+  MESSAGE = "MESSAGE",
+  ATTRIBUTE_NAME = "ATTRIBUTE_NAME",
+  ATTRIBUTE_LIST = "ATTRIBUTE_LIST",
+  DB_CONNECTION = "DB_CONNECTION",
+  WEB_CONNECTION = "WEB_CONNECTION",
+  REPROJECTION_FILE = "REPROJECTION_FILE",
+  SCRIPTED = "SCRIPTED",
+  NOVALUE = "NOVALUE",
 }
 
 export const enum JobStatus {
@@ -515,6 +529,7 @@ export interface FmeExportConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
+  readonly maskEmailOnSuccess?: boolean
   readonly supportEmail?: string
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
@@ -615,6 +630,12 @@ export interface WorkspaceParameter {
   readonly defaultValue?: unknown
   readonly optional: boolean
   readonly listOptions?: readonly ParameterChoice[]
+  // Optional numeric constraints (present for RANGE_SLIDER and numeric params)
+  readonly minimum?: number
+  readonly maximum?: number
+  readonly minimumExclusive?: boolean
+  readonly maximumExclusive?: boolean
+  readonly decimalPrecision?: number
 }
 
 export interface JobDirectives {
@@ -797,6 +818,7 @@ export interface WidgetConfig {
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
+  readonly maskEmailOnSuccess?: boolean
   readonly supportEmail?: string
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string

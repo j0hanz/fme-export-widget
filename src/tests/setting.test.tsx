@@ -12,7 +12,8 @@ import {
 } from "jimu-for-test"
 import { screen, fireEvent, waitFor } from "@testing-library/react"
 import Setting from "../setting/setting"
-import { initialFmeState, fmeActions } from "../extensions/store"
+import { FmeActionType } from "../config"
+import { initialFmeState } from "../extensions/store"
 
 void React
 
@@ -356,27 +357,35 @@ describe("Setting panel", () => {
       expect(
         storeDispatch.mock.calls.some(
           ([action]: any[]) =>
-            action?.type === fmeActions.clearWorkspaceState("B").type &&
+            action?.type === FmeActionType.CLEAR_WORKSPACE_STATE &&
             action?.newRepository === "B"
         )
       ).toBe(true)
     })
   })
 
-  test("job directives ttc/ttl are coerced to non-negative integers on blur; tag saved as-is", async () => {
+  test("job directives: numeric coerced, blank/invalid clears to default; tag saved as-is", async () => {
     const onSettingChange = jest.fn()
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    // Both numeric inputs share placeholder "0"; first is ttc, second is ttl
-    const [ttcInput, ttlInput] = screen.getAllByPlaceholderText("0")
+    // Select inputs by their labels to avoid coupling to placeholder ordering
+    const ttcLabel = screen.getByText(/Max körtid \(s\)/i)
+    const ttcRow = ttcLabel.closest("div")?.parentElement
+    const ttcInput = ttcRow?.querySelector("input")
+    expect(ttcInput).toBeInTheDocument()
 
-    // Set values and blur -> saved as integers (invalid -> 0)
-    fireEvent.change(ttcInput, { target: { value: "12.8" } })
-    fireEvent.blur(ttcInput)
+    const ttlLabel = screen.getByText(/Max kötid \(s\)/i)
+    const ttlRow = ttlLabel.closest("div")?.parentElement
+    const ttlInput = ttlRow?.querySelector("input")
+    expect(ttlInput).toBeInTheDocument()
 
-    fireEvent.change(ttlInput, { target: { value: "abc" } })
-    fireEvent.blur(ttlInput)
+    // Set values and blur -> saved as integers; invalid/blank -> undefined (use default)
+    fireEvent.change(ttcInput as Element, { target: { value: "12.8" } })
+    fireEvent.blur(ttcInput as Element)
+
+    fireEvent.change(ttlInput as Element, { target: { value: "abc" } })
+    fireEvent.blur(ttlInput as Element)
 
     // tm_tag is separate, has its own placeholder
     const tagInput = screen.getByPlaceholderText(/t\.ex\. hög/i)
@@ -391,9 +400,12 @@ describe("Setting panel", () => {
       expect(calls.some((arg) => getVal(arg?.config, "tm_ttc") === 12)).toBe(
         true
       )
-      expect(calls.some((arg) => getVal(arg?.config, "tm_ttl") === 0)).toBe(
-        true
-      )
+      // tm_ttl invalid -> should be undefined (cleared)
+      expect(
+        calls.some(
+          (arg) => typeof getVal(arg?.config, "tm_ttl") === "undefined"
+        )
+      ).toBe(true)
       const latestCfg = calls[calls.length - 1]?.config
       expect(getVal(latestCfg, "tm_tag")).toBe("prio")
     })
@@ -428,6 +440,148 @@ describe("Setting panel", () => {
           ? cfg.get("supportEmail")
           : cfg?.supportEmail
       expect(supportEmail).toBe("good@example.com")
+    })
+  })
+
+  test("request timeout is saved as non-negative integer ms on blur", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find by label text
+    const label = screen.getByText(/Tidsgräns för begäran \(ms\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // Placeholder and helper should communicate default 30000
+    expect(input).toHaveAttribute("placeholder", "30000")
+    expect(screen.getByText(/Standard 30000 ms\./i)).toBeInTheDocument()
+
+    // Enter float -> coerced to int on blur
+    fireEvent.change(input as Element, { target: { value: "12345.67" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "requestTimeout")
+      expect(val).toBe(12345)
+    })
+
+    // Enter invalid -> cleared
+    fireEvent.change(input as Element, { target: { value: "abc" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "requestTimeout")
+      expect(val).toBeUndefined()
+    })
+  })
+
+  test("max AOI area saves km² as m² in config", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find by label text
+    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // 2,500,000 m² -> saved as 2,500,000 m²
+    fireEvent.change(input as Element, { target: { value: "2500000" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maxArea")
+      expect(val).toBe(2500000)
+    })
+
+    // invalid -> cleared
+    fireEvent.change(input as Element, { target: { value: "-1" } })
+    fireEvent.blur(input as Element)
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maxArea")
+      expect(val).toBeUndefined()
+    })
+  })
+
+  test("max AOI area enforces upper cap and shows error when exceeded", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    // Enter value above the cap (helper states 10000000000 m²)
+    fireEvent.change(input as Element, { target: { value: "20000000000" } })
+    fireEvent.blur(input as Element)
+
+    // Should show inline error and not call onSettingChange with maxArea
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Värdet är för stort\. Ange högst 10000000000 m²\./i)
+      ).toBeInTheDocument()
+    })
+
+    const calls = onSettingChange.mock.calls.map((c) => c[0])
+    const touchedMaxArea = calls.some((arg) => {
+      const cfg = arg?.config
+      const val =
+        typeof cfg?.get === "function" ? cfg.get("maxArea") : cfg?.maxArea
+      return typeof val === "number"
+    })
+    expect(touchedMaxArea).toBe(false)
+
+    // Now set to exactly the cap -> should save
+    fireEvent.change(input as Element, { target: { value: "10000000000" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val =
+        typeof cfg?.get === "function" ? cfg.get("maxArea") : cfg?.maxArea
+      expect(val).toBe(10000 * 1_000_000)
+    })
+  })
+
+  test("mask email on success toggle updates config", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // Find the switch by role and label text
+    const toggle = await screen.findByRole("switch", {
+      name: /Dölj fullständig e‑postadress/i,
+    })
+    expect(toggle).toBeInTheDocument()
+    // Toggle on
+    fireEvent.click(toggle)
+
+    await waitFor(() => {
+      expect(onSettingChange).toHaveBeenCalled()
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1][0]
+      const cfg = last?.config
+      const val = getVal(cfg, "maskEmailOnSuccess")
+      expect(val).toBe(true)
     })
   })
 })

@@ -367,6 +367,35 @@ describe("Workflow component", () => {
     expect(onReuseGeography).toHaveBeenCalled()
   })
 
+  test("order result: masks email when enabled and success (async mode)", () => {
+    const onReuseGeography = jest.fn()
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.ORDER_RESULT}
+        instructionText=""
+        isModulesLoading={false}
+        orderResult={
+          {
+            success: true,
+            message: "ok",
+            jobId: 7,
+            workspaceName: "demo",
+            email: "username@example.com",
+          } as any
+        }
+        onReuseGeography={onReuseGeography}
+        onBack={jest.fn()}
+        config={{ syncMode: false, maskEmailOnSuccess: true } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Notification email row should display masked local part
+    expect(
+      screen.getByText(/E‑post: us\*\*\*\*@example\.com/i)
+    ).toBeInTheDocument()
+  })
+
   test("header reset button visibility based on state and drawing progress", () => {
     const onReset = jest.fn()
     const { rerender } = renderWithProviders(

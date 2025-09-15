@@ -53,6 +53,20 @@ export const isValidEmail = (email: unknown): boolean => {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
+// Mask email for display, e.g. "
+export const maskEmailForDisplay = (email: unknown): string => {
+  if (typeof email !== "string") return ""
+  const trimmed = email.trim()
+  if (!isValidEmail(trimmed)) return trimmed
+  const atIdx = trimmed.indexOf("@")
+  if (atIdx <= 1) return `**${trimmed.slice(atIdx)}`
+
+  const local = trimmed.slice(0, atIdx)
+  const domain = trimmed.slice(atIdx)
+  const visible = local.slice(0, 2)
+  return `${visible}****${domain}`
+}
+
 // Centralized FME validation and sanitization helpers (shared by settings and services)
 
 const IPV4_MIN_OCTET = 0

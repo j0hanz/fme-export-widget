@@ -310,7 +310,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(evt.target.checked)
             }}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
           />
         )
       case FormFieldType.PASSWORD:
@@ -339,7 +339,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               )
             }}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
           />
         )
       case FormFieldType.SWITCH:
@@ -350,7 +350,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(checked)
             }}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
             style={{ margin: "4px 0" }}
           />
         )
@@ -368,7 +368,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value)
             }}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
           />
         )
       }
@@ -384,7 +384,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value)
             }}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
           />
         )
       }

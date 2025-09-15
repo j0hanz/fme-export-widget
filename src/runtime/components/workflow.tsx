@@ -43,6 +43,7 @@ import {
   resolveMessageOrKey,
   buildSupportHintText,
   getSupportEmail,
+  maskEmailForDisplay,
 } from "../../shared/utils"
 
 // Constants
@@ -435,7 +436,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
   addRow(translate("workspace"), orderResult.workspaceName)
   // Only show notification email when sync mode is OFF (async mode)
   if (!isSyncMode) {
-    addRow(translate("notificationEmail"), orderResult.email)
+    const emailVal = orderResult.email
+    const masked =
+      config?.maskEmailOnSuccess && isSuccess
+        ? maskEmailForDisplay(emailVal)
+        : emailVal
+    addRow(translate("notificationEmail"), masked)
   }
   if (orderResult.code && !isSuccess)
     addRow(translate("errorCode"), orderResult.code)

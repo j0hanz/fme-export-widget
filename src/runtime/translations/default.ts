@@ -1,53 +1,44 @@
 export default {
   retry: "Försök igen",
+  reload: "Ladda om",
   back: "Tillbaka",
   cancel: "Avbryt",
   unknownErrorOccurred: "Ett okänt fel inträffade",
-  reload: "Ladda om",
-
-  // Startup validation messages
-  validatingStartup: "Validerar konfiguration...",
+  validatingConfiguration: "Validerar konfiguration...",
   validatingMapConfiguration: "Kontrollerar kartkonfiguration...",
-  validatingConnection: "Testar anslutningen till FME Server...",
-  validatingAuthentication: "Validerar autentisering...",
-  validatingUserEmail: "Kontrollerar användarens e‑postadress...",
-  validatingConfiguration: "Kontrollerar konfigurationen...",
-  startupValidationFailed: "Konfigurationsfel uppstod",
+  validatingConnection: "Validerar anslutning...",
+  validatingUserEmail: "Kontrollerar användarens e‑post...",
+  startupValidationFailed: "Startvalideringen misslyckades",
   invalidConfiguration: "Widgetens konfiguration saknas eller är ogiltig",
-  serverUrlMissing: "FME Server-URL saknas",
-  tokenMissing: "FME API-nyckel saknas",
-  repositoryMissing: "Repository saknas",
   connectionFailed: "Det gick inte att ansluta till FME Server",
   authenticationFailed:
     "Ogiltig API-nyckel. Kontrollera att du har angett rätt FME API-nyckel.",
-  // Short error messages for specific startup errors
   repoNotFound: "Repository hittades inte",
   serverError: "Serverfel",
   networkError: "Nätverksfel",
   timeout: "Tidsgräns överskreds",
   badResponse: "Ogiltigt serversvar",
-  contactSupport: "Kontakta supporten för hjälp med konfigurationen",
-  contactSupportWithEmail: "Kontakta {email} för hjälp med konfigurationen",
+  contactSupport: "Kontakta supporten",
+  contactSupportWithEmail:
+    "Kontakta supporten på {email} om problemet kvarstår.",
   retryValidation: "Försök igen",
-
-  // Startup validation error messages
   startupConfigError: "Widgetens konfiguration är ofullständig",
   startupConfigErrorHint: "Konfigurera widgeten i inställningspanelen",
   openSettingsPanel:
     "Öppna inställningspanelen för att konfigurera anslutningen",
-  startupConnectionError: "Kan inte ansluta till FME Flow-servern",
+  startupConnectionError: "Kan inte ansluta till FME Flow‑servern",
   checkConnectionSettings: "Kontrollera dina anslutningsinställningar",
   startupTokenError: "Autentisering misslyckades",
-  checkTokenSettings: "Kontrollera din API-nyckel i inställningarna",
+  checkTokenSettings: "Kontrollera din API‑nyckel i inställningarna",
   startupServerError: "Servern är inte tillgänglig",
-  checkServerSettings: "Kontrollera din server-URL i inställningarna",
+  checkServerSettings: "Kontrollera din server‑URL i inställningarna",
   startupRepositoryError: "Repository är inte tillgängligt",
-  checkRepositorySettings: "Kontrollera ditt repository-val i inställningarna",
+  checkRepositorySettings: "Kontrollera ditt repository‑val i inställningarna",
   startupNetworkError: "Nätverksanslutning misslyckades",
   checkNetworkConnection: "Kontrollera din nätverksanslutning och försök igen",
   requestAborted: "Åtgärden avbröts",
   operationCancelled: "Åtgärden har avbrutits",
-  corsError: "Blockerad av CORS-policy",
+  corsError: "Blockerad av CORS‑policy",
   offline: "Ingen internetanslutning",
   sslError: "SSL/TLS‑fel",
   invalidUrl: "Ogiltig URL",
@@ -58,68 +49,26 @@ export default {
   badRequest: "Ogiltig begäran",
   payloadTooLarge: "För stor begäran",
   invalidEmail: "Ogiltig e‑post",
-
-  // Loading messages used specifically in widget.tsx
-  submittingOrder: "Skickar beställningen...",
   preparingMapTools: "Förbereder kartverktygen...",
-  loadingMapServices: "Laddar karttjänster...",
-
-  // Drawing instructions used in widget.tsx
-  rectangleDrawingInstructions:
-    "Markera området på kartan och klicka för att slutföra",
-  polygonDrawingStart: "Klicka för att börja rita ett område",
-  polygonDrawingContinue: "Klicka för att fortsätta rita området",
-  polygonDrawingComplete:
-    "Klicka för att lägga till fler punkter eller dubbelklicka för att slutföra",
-  drawInstruction: "Rita ett område på kartan",
-
-  // Order status used in widget.tsx
+  rectangleDrawingInstructions: "Klicka och dra för att rita en rektangel.",
+  polygonDrawingStart: "Klicka på kartan för att börja rita en polygon.",
+  polygonDrawingContinue: "Fortsätt klicka för att lägga till hörn.",
+  polygonDrawingComplete: "Dubbelklicka för att avsluta polygonen.",
+  drawInstruction: "Välj ett ritläge för att börja.",
   orderFailed: "Beställningen misslyckades",
-
-  // FME response messages
   unexpectedFmeResponse: "Oväntat svar från FME Server",
   exportOrderSubmitted: "Exportbeställningen har skickats",
   fmeJobSubmissionFailed: "Det gick inte att skicka FME‑jobbet",
-
-  // Generic unexpected / processing
-  mapInitFailed: "Misslyckades att initiera kartan",
-  drawingCompleteFailed: "Misslyckades att avsluta ritning",
-
-  // Graphic popup template labels
-  drawnAreaTitle: "Ritat område",
-  exportJobTitle: "Exportjobb",
-  areaLabel: "Område",
-  vertexCountLabel: "Antal punkter",
-  geometryTypeLabel: "Geometrityp",
-  exportStatusLabel: "Exportstatus",
-  workspaceLabel: "Arbetsyta",
-  jobIdLabel: "Jobb-ID",
-  submissionTimeLabel: "Skickat",
-
-  // Map configuration validation
-  mapNotConfigured: "Ingen karta är konfigurerad",
-
-  // User email validation
-  userEmailMissing:
-    "Användarens e-postadress krävs för att använda denna funktion",
-
-  // Workspace loading errors
-  failedToLoadWorkspaces: "Det gick inte att ladda tillgängliga arbetsytor",
-  failedToLoadWorkspaceDetails:
-    "Det gick inte att ladda detaljer för vald arbetsyta",
-
-  // Settings labels used during validation
-  fmeServerUrl: "FME Server-URL",
-  fmeServerToken: "FME API-nyckel",
-  fmeRepository: "Repository",
-
-  // Additional error message keys
-  repositoryNotAccessible: "Repository är inte tillgängligt",
-
-  // Map layer title
+  mapInitFailed: "Det gick inte att initiera kartan",
+  drawingCompleteFailed: "Ritningen kunde inte slutföras",
   drawingLayerTitle: "Rityta",
-
-  // Geometry and validation error keys (mapped from internal codes)
+  mapNotConfigured: "Ingen karta är konfigurerad",
+  userEmailMissing:
+    "Användarens e‑postadress krävs för att använda denna funktion",
+  fmeServerUrl: "FME Server‑URL",
+  fmeServerToken: "FME API‑nyckel",
+  fmeRepository: "Repository",
+  repositoryNotAccessible: "Repository är inte tillgängligt",
   GEOMETRY_MISSING: "Ingen geometri angiven",
   GEOMETRY_TYPE_INVALID: "Endast polygoner stöds",
   POLYGON_SELF_INTERSECTING: "Polygonen är inte enkel (självskärning)",

@@ -53,8 +53,14 @@ import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
 // Constants
 const CONSTANTS = {
   VALIDATION: {
-    DEFAULT_TTL_VALUE: "0",
-    DEFAULT_TTC_VALUE: "0",
+    DEFAULT_TTL_VALUE: "",
+    DEFAULT_TTC_VALUE: "",
+  },
+  LIMITS: {
+    MAX_M2_CAP: 10_000_000_000,
+  },
+  DEFAULTS: {
+    MAX_M2: 100_000_000,
   },
   HTTP_STATUS: {
     UNAUTHORIZED: 401,
@@ -75,14 +81,14 @@ const CONSTANTS = {
   },
 } as const
 
-// Components for better organization and reusability
+type TranslateFn = (key: string, params?: any) => string
 
 interface ConnectionTestSectionProps {
   testState: TestState
   checkSteps: CheckSteps
   cannotTest: () => boolean
   onTestConnection: () => void
-  translate: (key: string, params?: any) => string
+  translate: TranslateFn
   styles: ReturnType<typeof useSettingStyles>
 }
 
@@ -101,26 +107,26 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       { label: translate("fmeRepository"), status: checkSteps.repository },
     ]
 
-    // Map step -> icon and color style
-    const getStatusIcon = (s: StepStatus | string): { color: unknown } => {
+    // Helper to get style for each status
+    const getStatusStyle = (s: StepStatus | string): unknown => {
       switch (s) {
         case "ok":
-          return { color: styles.STATUS.COLOR.OK }
+          return styles.STATUS.COLOR.OK
         case "fail":
-          return { color: styles.STATUS.COLOR.FAIL }
+          return styles.STATUS.COLOR.FAIL
         case "skip":
-          return { color: styles.STATUS.COLOR.SKIP }
+          return styles.STATUS.COLOR.SKIP
         case "pending":
         case "idle":
-          return { color: styles.STATUS.COLOR.PENDING }
+          return styles.STATUS.COLOR.PENDING
         default:
           // Handle StepStatus objects
           if (typeof s === "object" && s !== null) {
             return s.completed
-              ? { color: styles.STATUS.COLOR.OK }
-              : { color: styles.STATUS.COLOR.FAIL }
+              ? styles.STATUS.COLOR.OK
+              : styles.STATUS.COLOR.FAIL
           }
-          return { color: styles.STATUS.COLOR.PENDING }
+          return styles.STATUS.COLOR.PENDING
       }
     }
 
@@ -131,7 +137,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       label: string
       status: StepStatus | string
     }) => {
-      const { color } = getStatusIcon(status)
+      const color = getStatusStyle(status)
       return (
         <div css={css(styles.STATUS.ROW as any)}>
           <div css={css(styles.STATUS.LABEL_GROUP as any)}>
@@ -225,10 +231,9 @@ interface RepositorySelectorProps {
   validateToken: (token: string) => string | null
   onRepositoryChange: (repository: string) => void
   onRefreshRepositories: () => void
-  translate: (key: string, params?: any) => string
+  translate: TranslateFn
   styles: ReturnType<typeof useSettingStyles>
   ID: { repository: string }
-  testState: TestState
 }
 
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
@@ -244,7 +249,6 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   translate,
   styles,
   ID,
-  testState,
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
@@ -372,7 +376,7 @@ interface JobDirectivesSectionProps {
   onTmTtlBlur: (value: string) => void
   onTmTagBlur: (value: string) => void
   fieldErrors: FieldErrors
-  translate: (key: string, params?: any) => string
+  translate: TranslateFn
   styles: ReturnType<typeof useSettingStyles>
   ID: { tm_ttc: string; tm_ttl: string; tm_tag: string }
 }
@@ -399,7 +403,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     onChange,
     onBlur,
     placeholder,
-    inputMode,
   }: {
     id: string
     label: React.ReactNode
@@ -407,9 +410,12 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     onChange: (val: string) => void
     onBlur: (val: string) => void
     placeholder?: string
-    inputMode?: "numeric"
   }) => {
     const error = fieldErrors[id as keyof typeof fieldErrors]
+    const describedBy: string[] = []
+    if (error) describedBy.push(`${id}-error`)
+    if (id === ID.tm_ttc || id === ID.tm_ttl)
+      describedBy.push("job-directives-help")
     return (
       <SettingRow flow="wrap" label={label} level={1} tag="label">
         <Input
@@ -420,7 +426,9 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           placeholder={placeholder}
           errorText={error}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
+          aria-describedby={
+            describedBy.length ? describedBy.join(" ") : undefined
+          }
         />
         {error && (
           <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
@@ -447,8 +455,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         value: localTmTtc,
         onChange: onTmTtcChange,
         onBlur: onTmTtcBlur,
-        placeholder: "0",
-        inputMode: "numeric",
+        placeholder: translate("tm_ttcPlaceholder"),
       })}
       {renderInputField({
         id: ID.tm_ttl,
@@ -456,8 +463,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         value: localTmTtl,
         onChange: onTmTtlChange,
         onBlur: onTmTtlBlur,
-        placeholder: "0",
-        inputMode: "numeric",
+        placeholder: translate("tm_ttlPlaceholder"),
       })}
       <SettingRow
         flow="wrap"
@@ -487,7 +493,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         )}
       </SettingRow>
       <SettingRow flow="wrap" css={css(styles.ALERT_INLINE as any)} level={3}>
-        {translate("jobDirectivesHelper")}
+        <div id="job-directives-help">{translate("jobDirectivesHelper2")}</div>
       </SettingRow>
     </SettingSection>
   )
@@ -516,9 +522,37 @@ const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
   [CONSTANTS.HTTP_STATUS.NETWORK_ERROR]: "errorNetworkShort",
 }
 
+// Small utilities
+const setError = (
+  set: React.Dispatch<React.SetStateAction<FieldErrors>>,
+  key: keyof FieldErrors,
+  value?: string
+) => {
+  set((prev) => ({ ...prev, [key]: value }))
+}
+
+const clearErrors = (
+  set: React.Dispatch<React.SetStateAction<FieldErrors>>,
+  keys: Array<keyof FieldErrors>
+) => {
+  set((prev) => {
+    const next = { ...prev }
+    for (const k of keys) (next as any)[k] = undefined
+    return next
+  })
+}
+
+const safeAbort = (ctrl: AbortController | null) => {
+  if (ctrl) {
+    try {
+      ctrl.abort()
+    } catch {}
+  }
+}
+
 // Error message generation helpers
 const getErrorMessageWithHelper = (
-  translate: (key: string, params?: { [key: string]: unknown }) => string,
+  translate: TranslateFn,
   errorKey: string,
   status: number,
   helperKey?: string
@@ -533,7 +567,7 @@ const getErrorMessageWithHelper = (
 
 const getSpecialStatusErrorMessage = (
   status: number,
-  translate: (key: string, params?: { [key: string]: unknown }) => string,
+  translate: TranslateFn,
   errorKey: string
 ): string => {
   if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
@@ -558,10 +592,7 @@ const getSpecialStatusErrorMessage = (
   return translate(errorKey, { status })
 }
 
-function getStatusErrorMessage(
-  status: number,
-  translate: (key: string, params?: { [key: string]: unknown }) => string
-): string {
+function getStatusErrorMessage(status: number, translate: TranslateFn): string {
   const errorKey = STATUS_ERROR_MAP[status]
 
   if (errorKey) {
@@ -686,6 +717,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     token: "setting-token",
     repository: "setting-repository",
     syncMode: "setting-sync-mode",
+    maskEmailOnSuccess: "setting-mask-email-on-success",
+    requestTimeout: "setting-request-timeout",
+    maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
@@ -721,6 +755,23 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
     Boolean((config as any)?.syncMode)
   )
+  const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
+    React.useState<boolean>(() => Boolean((config as any)?.maskEmailOnSuccess))
+  // Request timeout (ms)
+  const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
+    () => {
+      const v = (config as any)?.requestTimeout
+      return typeof v === "number" && Number.isFinite(v) ? String(v) : ""
+    }
+  )
+  // Max AOI area (m²) – stored and displayed in m²
+  const [localMaxAreaM2, setLocalMaxAreaM2] = React.useState<string>(() => {
+    const v = (config as any)?.maxArea
+    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+      return String(v)
+    }
+    return ""
+  })
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = (config as any)?.tm_ttc
@@ -750,9 +801,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Helper: abort in-flight repository request safely
   const abortReposRequest = hooks.useEventCallback(() => {
     if (reposAbortRef.current) {
-      try {
-        reposAbortRef.current.abort()
-      } catch {}
+      safeAbort(reposAbortRef.current)
       reposAbortRef.current = null
     }
   })
@@ -769,9 +818,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Cleanup on unmount
   hooks.useUnmount(() => {
     if (abortRef.current) {
-      try {
-        abortRef.current.abort()
-      } catch {}
+      safeAbort(abortRef.current)
       abortRef.current = null
     }
     abortReposRequest()
@@ -905,15 +952,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Run lightweight check: require URL and token presence only
     if (!localServerUrl || !localToken) {
-      if (!silent) {
-        const message = translate("fixErrorsAbove")
+      if (!silent)
         setTestState({
           status: "error",
           isTesting: false,
-          message,
+          message: translate("fixErrorsAbove"),
           type: "error",
         })
-      }
       return
     }
 
@@ -978,12 +1023,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }
 
         // Clear any existing field errors
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: undefined,
-          token: undefined,
-          repository: undefined,
-        }))
+        clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
 
         if (!silent) {
           setTestState({
@@ -1008,12 +1048,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             repository: "idle",
             version: "",
           }))
-          setFieldErrors((prev) => ({
-            ...prev,
-            serverUrl: translate("errorInvalidServerUrl"),
-            token: undefined,
-            repository: undefined,
-          }))
+          setError(
+            setFieldErrors,
+            "serverUrl",
+            translate("errorInvalidServerUrl")
+          )
+          clearErrors(setFieldErrors, ["token", "repository"])
         } else if (error?.type === "token") {
           setCheckSteps((prev) => ({
             ...prev,
@@ -1022,12 +1062,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             repository: "idle",
             version: "",
           }))
-          setFieldErrors((prev) => ({
-            ...prev,
-            token: translate("errorTokenIsInvalid"),
-            serverUrl: undefined,
-            repository: undefined,
-          }))
+          setError(setFieldErrors, "token", translate("errorTokenIsInvalid"))
+          clearErrors(setFieldErrors, ["serverUrl", "repository"])
         } else if (error?.type === "repository") {
           setCheckSteps((prev) => ({
             ...prev,
@@ -1036,12 +1072,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             repository: "fail",
             version: validationResult.version || "",
           }))
-          setFieldErrors((prev) => ({
-            ...prev,
-            repository: translate("errorRepositoryNotFound"),
-            serverUrl: undefined,
-            token: undefined,
-          }))
+          setError(
+            setFieldErrors,
+            "repository",
+            translate("errorRepositoryNotFound")
+          )
+          clearErrors(setFieldErrors, ["serverUrl", "token"])
           // Still set repositories if available for dropdown
           if (validationResult.repositories) {
             setAvailableRepos(validationResult.repositories)
@@ -1074,12 +1110,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           repository: "idle",
           version: "",
         }))
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorInvalidServerUrl"),
-          token: undefined,
-          repository: undefined,
-        }))
+        setError(
+          setFieldErrors,
+          "serverUrl",
+          translate("errorInvalidServerUrl")
+        )
+        clearErrors(setFieldErrors, ["token", "repository"])
         if (!silent) {
           setTestState({
             status: "error",
@@ -1097,12 +1133,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           repository: "idle",
           version: "",
         }))
-        setFieldErrors((prev) => ({
-          ...prev,
-          serverUrl: translate("errorInvalidServerUrl"),
-          token: undefined,
-          repository: undefined,
-        }))
+        setError(
+          setFieldErrors,
+          "serverUrl",
+          translate("errorInvalidServerUrl")
+        )
+        clearErrors(setFieldErrors, ["token", "repository"])
         if (!silent) {
           setTestState({
             status: "error",
@@ -1137,7 +1173,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (repositories.length > 0) {
         setAvailableRepos(repositories)
         // Clear any existing repository errors
-        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+        clearErrors(setFieldErrors, ["repository"])
       } else {
         console.warn("Repository refresh returned empty list")
         // Don't clear existing repos on refresh failure to avoid UX disruption
@@ -1167,15 +1203,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const configRepository = getStringConfig("repository") || ""
       const configEmail = getStringConfig("supportEmail") || ""
       const configSyncMode = Boolean((config as any)?.syncMode)
+      const configMaskEmail = Boolean((config as any)?.maskEmailOnSuccess)
+      const configTimeout = (config as any)?.requestTimeout
+      const configMaxArea = (config as any)?.maxArea
 
       const ttcValue =
-        typeof config?.tm_ttc === "number"
-          ? String(config.tm_ttc)
-          : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
+        typeof config?.tm_ttc === "number" ? String(config.tm_ttc) : ""
       const ttlValue =
-        typeof config?.tm_ttl === "number"
-          ? String(config.tm_ttl)
-          : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
+        typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : ""
       const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
 
       // Only update if different from current local state
@@ -1185,6 +1220,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setLocalRepository(configRepository)
       if (configEmail !== localSupportEmail) setLocalSupportEmail(configEmail)
       if (configSyncMode !== localSyncMode) setLocalSyncMode(configSyncMode)
+      if (configMaskEmail !== localMaskEmailOnSuccess)
+        setLocalMaskEmailOnSuccess(configMaskEmail)
+      if (typeof configTimeout === "number" && Number.isFinite(configTimeout)) {
+        if (String(configTimeout) !== localRequestTimeout) {
+          setLocalRequestTimeout(String(configTimeout))
+        }
+      } else if (localRequestTimeout !== "") {
+        setLocalRequestTimeout("")
+      }
+      if (
+        typeof configMaxArea === "number" &&
+        Number.isFinite(configMaxArea) &&
+        configMaxArea > 0
+      ) {
+        if (String(configMaxArea) !== localMaxAreaM2) {
+          setLocalMaxAreaM2(String(configMaxArea))
+        }
+      } else if (localMaxAreaM2 !== "") {
+        setLocalMaxAreaM2("")
+      }
       if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
       if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
       if (tagValue !== localTmTag) setLocalTmTag(tagValue)
@@ -1214,10 +1269,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localServerUrl,
     localSupportEmail,
     localSyncMode,
+    localMaskEmailOnSuccess,
     localTmTag,
     localTmTtc,
     localTmTtl,
     localToken,
+    localRequestTimeout,
+    localMaxAreaM2,
   ])
 
   // Clear repository state when server URL or token changes significantly
@@ -1263,7 +1321,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         if (signal.aborted) return
         setAvailableRepos(result.repositories || [])
         // Clear any repository error since we have a fresh list
-        setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+        clearErrors(setFieldErrors, ["repository"])
       } catch (err) {
         if ((err as Error)?.name === "AbortError") return
         console.warn("Auto-load repositories error:", err)
@@ -1277,9 +1335,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })()
 
     return () => {
-      try {
-        ctrl.abort()
-      } catch {}
+      safeAbort(ctrl)
     }
   }, [localServerUrl, localToken, sanitizeUrl, abortReposRequest])
 
@@ -1288,10 +1344,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setLocalServerUrl(val)
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
-    setFieldErrors((prev) => ({
-      ...prev,
-      serverUrl: undefined,
-    }))
+    clearErrors(setFieldErrors, ["serverUrl"])
   })
 
   // Handle token changes with delayed validation
@@ -1299,20 +1352,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setLocalToken(val)
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
-    setFieldErrors((prev) => ({
-      ...prev,
-      token: undefined,
-    }))
+    clearErrors(setFieldErrors, ["token"])
   })
 
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
     const errKey = validateServerUrlKey(url)
-    setFieldErrors((prev) => ({
-      ...prev,
-      serverUrl: errKey ? translate(errKey) : undefined,
-    }))
+    setError(
+      setFieldErrors,
+      "serverUrl",
+      errKey ? translate(errKey) : undefined
+    )
 
     // Sanitize and save to config
     const { cleaned, changed } = sanitizeUrl(url)
@@ -1323,10 +1374,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setLocalServerUrl(cleaned)
       // Re-validate with the cleaned URL
       const cleanedErrKey = validateServerUrlKey(cleaned)
-      setFieldErrors((prev) => ({
-        ...prev,
-        serverUrl: cleanedErrKey ? translate(cleanedErrKey) : undefined,
-      }))
+      setError(
+        setFieldErrors,
+        "serverUrl",
+        cleanedErrKey ? translate(cleanedErrKey) : undefined
+      )
     }
 
     // Clear repository data when server changes
@@ -1337,10 +1389,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
     const errKey = validateTokenKey(token)
-    setFieldErrors((prev) => ({
-      ...prev,
-      token: errKey ? translate(errKey) : undefined,
-    }))
+    setError(setFieldErrors, "token", errKey ? translate(errKey) : undefined)
 
     // Save to config
     updateConfig("fmeServerToken", token)
@@ -1361,20 +1410,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const errorMessage = hasRepo
         ? undefined
         : translate("errorRepositoryNotFound")
-      setFieldErrors((prev) => ({
-        ...prev,
-        repository: errorMessage,
-      }))
+      setError(setFieldErrors, "repository", errorMessage)
     } else if (
       Array.isArray(availableRepos) &&
       availableRepos.length === 0 &&
       localRepository
     ) {
       // Allow manual entry when list is empty
-      setFieldErrors((prev) => ({
-        ...prev,
-        repository: undefined,
-      }))
+      clearErrors(setFieldErrors, ["repository"])
     }
   }, [availableRepos, localRepository, translate])
 
@@ -1393,7 +1436,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       // Clear repository field error but don't bump config revision for minor changes
-      setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+      clearErrors(setFieldErrors, ["repository"])
     }
   )
 
@@ -1533,7 +1576,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           translate={translate}
           styles={sstyles}
           ID={ID}
-          testState={testState}
         />
         {/* Service mode (sync) toggle */}
         <SettingRow
@@ -1559,6 +1601,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           level={3}
         >
           {translate("serviceModeSyncHelper")}
+        </SettingRow>
+        {/* Mask email on success toggle */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("maskEmailOnSuccess")}
+          level={1}
+        >
+          <Switch
+            id={ID.maskEmailOnSuccess}
+            checked={localMaskEmailOnSuccess}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+              setLocalMaskEmailOnSuccess(checked)
+              updateConfig("maskEmailOnSuccess", checked)
+            }}
+            aria-label={translate("maskEmailOnSuccess")}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          {translate("maskEmailOnSuccessHelper")}
         </SettingRow>
         {/* Support email (optional) */}
         <SettingRow
@@ -1600,6 +1666,114 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
+
+        {/* Request timeout (ms) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("requestTimeoutLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.requestTimeout}
+            value={localRequestTimeout}
+            onChange={(val: string) => {
+              setLocalRequestTimeout(val)
+            }}
+            onBlur={(val: string) => {
+              const n = Number(val)
+              const sanitized =
+                Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+              if (sanitized === undefined) {
+                // Clear config when input invalid/empty
+                updateConfig("requestTimeout", undefined as any)
+                setLocalRequestTimeout("")
+              } else {
+                updateConfig("requestTimeout", sanitized as any)
+                setLocalRequestTimeout(String(sanitized))
+              }
+            }}
+            placeholder={translate("requestTimeoutPlaceholder")}
+            aria-describedby="request-timeout-help"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          <div id="request-timeout-help">
+            {translate("requestTimeoutHelper")}
+          </div>
+        </SettingRow>
+
+        {/* Max AOI area (m²) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("maxAreaLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.maxArea}
+            value={localMaxAreaM2}
+            onChange={(val: string) => {
+              setLocalMaxAreaM2(val)
+              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+            }}
+            onBlur={(val: string) => {
+              const n = Number(val)
+              const valid = Number.isFinite(n) && n > 0
+              if (!valid) {
+                // Blank, zero, or invalid -> use default (unset in config)
+                updateConfig("maxArea", undefined as any)
+                setLocalMaxAreaM2("")
+                return
+              }
+              // Enforce upper cap in m²
+              if (n > CONSTANTS.LIMITS.MAX_M2_CAP) {
+                // Do not save; show inline error
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  maxArea: translate("errorMaxAreaTooLarge", {
+                    maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                  }),
+                }))
+                return
+              }
+              const m2 = Math.floor(n)
+              updateConfig("maxArea", m2 as any)
+              setLocalMaxAreaM2(String(m2))
+            }}
+            placeholder={translate("maxAreaPlaceholder")}
+            errorText={fieldErrors.maxArea}
+            aria-describedby="max-area-help"
+          />
+          {fieldErrors.maxArea && (
+            <SettingRow flow="wrap" level={3}>
+              <Alert
+                id={`${ID.maxArea}-error`}
+                fullWidth
+                css={css(sstyles.ALERT_INLINE as any)}
+                text={fieldErrors.maxArea}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css(sstyles.ALERT_INLINE as any)}
+          level={3}
+        >
+          <div id="max-area-help">
+            {translate("maxAreaHelper", {
+              defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
+              maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+            })}
+          </div>
+        </SettingRow>
       </SettingSection>
 
       {/* Job directives section */}
@@ -1620,18 +1794,40 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           // Don't update config on every keystroke
         }}
         onTmTtcBlur={(val: string) => {
-          const n = Number(val)
-          updateConfig(
-            "tm_ttc",
-            Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-          )
+          const trimmed = (val ?? "").trim()
+          if (trimmed === "") {
+            // Blank -> unset to use default
+            updateConfig("tm_ttc", undefined as any)
+            setLocalTmTtc("")
+            return
+          }
+          const n = Number(trimmed)
+          if (Number.isFinite(n) && n >= 0) {
+            const coerced = Math.floor(n)
+            updateConfig("tm_ttc", coerced as any)
+            setLocalTmTtc(String(coerced))
+          } else {
+            // Invalid -> unset
+            updateConfig("tm_ttc", undefined as any)
+            setLocalTmTtc("")
+          }
         }}
         onTmTtlBlur={(val: string) => {
-          const n = Number(val)
-          updateConfig(
-            "tm_ttl",
-            Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-          )
+          const trimmed = (val ?? "").trim()
+          if (trimmed === "") {
+            updateConfig("tm_ttl", undefined as any)
+            setLocalTmTtl("")
+            return
+          }
+          const n = Number(trimmed)
+          if (Number.isFinite(n) && n >= 0) {
+            const coerced = Math.floor(n)
+            updateConfig("tm_ttl", coerced as any)
+            setLocalTmTtl(String(coerced))
+          } else {
+            updateConfig("tm_ttl", undefined as any)
+            setLocalTmTtl("")
+          }
         }}
         onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)

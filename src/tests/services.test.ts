@@ -309,6 +309,17 @@ describe("ParameterFormService", () => {
   })
 
   describe("convertParametersToFields", () => {
+    // Helper for building parameters succinctly in mapping tests
+    const makeParam = (
+      over: Partial<WorkspaceParameter>
+    ): WorkspaceParameter => ({
+      name: "p",
+      type: ParameterType.TEXT,
+      optional: false,
+      description: "",
+      ...over,
+    })
+
     test("converts basic parameter to field config", () => {
       const parameters = [
         {
@@ -414,6 +425,18 @@ describe("ParameterFormService", () => {
           optional: false,
         },
         {
+          name: "tm_ttl",
+          type: ParameterType.INTEGER,
+          description: "TTL",
+          optional: false,
+        },
+        {
+          name: "PARAMETER_10",
+          type: ParameterType.NOVALUE,
+          description: "No value placeholder",
+          optional: false,
+        },
+        {
           name: "validParam",
           type: ParameterType.TEXT,
           description: "Valid",
@@ -430,6 +453,97 @@ describe("ParameterFormService", () => {
     test("handles empty or invalid parameter arrays", () => {
       expect(service.convertParametersToFields([])).toEqual([])
       expect(service.convertParametersToFields(null as any)).toEqual([])
+    })
+
+    test("converts RANGE_SLIDER to SLIDER with min/max/step", () => {
+      const parameters = [
+        {
+          name: "rangeParam",
+          type: ParameterType.RANGE_SLIDER,
+          description: "Range",
+          optional: false,
+          minimum: 10,
+          maximum: 20,
+          decimalPrecision: 0,
+          defaultValue: 14,
+        } as WorkspaceParameter,
+      ]
+
+      const fields = service.convertParametersToFields(parameters)
+      expect(fields[0].type).toBe(FormFieldType.SLIDER)
+      expect(fields[0].min).toBe(10)
+      expect(fields[0].max).toBe(20)
+      expect(fields[0].step).toBe(1)
+    })
+
+    test("skips non-input types: GEOMETRY, MESSAGE, SCRIPTED, NOVALUE", () => {
+      const params: WorkspaceParameter[] = [
+        makeParam({ name: "g", type: ParameterType.GEOMETRY }),
+        makeParam({ name: "m", type: ParameterType.MESSAGE }),
+        makeParam({ name: "s", type: ParameterType.SCRIPTED }),
+        makeParam({ name: "n", type: ParameterType.NOVALUE }),
+      ]
+      const fields = service.convertParametersToFields(params)
+      expect(fields).toHaveLength(0)
+    })
+
+    test("conditional: DB/WEB connection render only with options", () => {
+      const withOpts: WorkspaceParameter[] = [
+        makeParam({
+          name: "db",
+          type: ParameterType.DB_CONNECTION,
+          listOptions: [
+            { value: "conn1", caption: "Connection 1" },
+            { value: "conn2", caption: "Connection 2" },
+          ],
+        }),
+        makeParam({
+          name: "web",
+          type: ParameterType.WEB_CONNECTION,
+          listOptions: [{ value: "w", caption: "Web" }],
+        }),
+      ]
+      const withoutOpts: WorkspaceParameter[] = [
+        makeParam({ name: "db2", type: ParameterType.DB_CONNECTION }),
+        makeParam({ name: "web2", type: ParameterType.WEB_CONNECTION }),
+      ]
+
+      const fieldsWith = service.convertParametersToFields(withOpts)
+      const fieldsWithout = service.convertParametersToFields(withoutOpts)
+      expect(fieldsWith.map((f) => f.type)).toEqual([
+        FormFieldType.SELECT,
+        FormFieldType.SELECT,
+      ])
+      expect(fieldsWithout).toHaveLength(0)
+    })
+
+    test("attribute selectors: list → multi-select, name → select; require options", () => {
+      const params: WorkspaceParameter[] = [
+        makeParam({
+          name: "attrs",
+          type: ParameterType.ATTRIBUTE_LIST,
+          listOptions: [{ value: "A" }, { value: "B" }],
+        }),
+        makeParam({
+          name: "attr",
+          type: ParameterType.ATTRIBUTE_NAME,
+          listOptions: [{ value: "A" }],
+        }),
+        makeParam({ name: "missing", type: ParameterType.ATTRIBUTE_NAME }),
+      ]
+      const fields = service.convertParametersToFields(params)
+      expect(fields).toHaveLength(2)
+      const [listField, nameField] = fields
+      expect(listField.type).toBe(FormFieldType.MULTI_SELECT)
+      expect(nameField.type).toBe(FormFieldType.SELECT)
+    })
+
+    test("reprojection file maps to FILE", () => {
+      const fields = service.convertParametersToFields([
+        makeParam({ name: "rf", type: ParameterType.REPROJECTION_FILE }),
+      ])
+      expect(fields).toHaveLength(1)
+      expect(fields[0].type).toBe(FormFieldType.FILE)
     })
   })
 
