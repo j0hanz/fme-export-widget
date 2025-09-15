@@ -99,7 +99,7 @@ describe("shared/utils", () => {
     const c = sanitizeFmeBaseUrl("not a url")
     expect(c.isValid).toBe(false)
     expect(c.cleaned).toBe("not a url")
-    expect(c.errors).toEqual(["Invalid URL"])
+    expect(c.errors).toEqual(["invalidUrl"])
   })
 
   test("validateServerUrlKey enforces protocol, host, credentials, and path rules", () => {
@@ -155,7 +155,7 @@ describe("shared/utils", () => {
   })
 
   test("extractErrorMessage handles primitives, Error, common fields, and object fallback", () => {
-    expect(extractErrorMessage(undefined)).toBe("Unknown error")
+    expect(extractErrorMessage(undefined)).toBe("unknownErrorOccurred")
     expect(extractErrorMessage("msg")).toBe("msg")
     expect(extractErrorMessage(404)).toBe("404")
     expect(extractErrorMessage(new Error("boom"))).toBe("boom")

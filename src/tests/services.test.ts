@@ -815,7 +815,7 @@ describe("healthCheck", () => {
   test("detects invalid URLs ending with dot as unreachable", async () => {
     const result = await healthCheck("https://fmeflow.", "token")
     expect(result.reachable).toBe(false)
-    expect(result.error).toBe("Invalid server URL format")
+    expect(result.error).toBe("invalidUrl")
     expect(result.status).toBe(0)
     expect(result.responseTime).toBe(0)
     expect(mockClient.testConnection).not.toHaveBeenCalled()
@@ -824,7 +824,7 @@ describe("healthCheck", () => {
   test("detects malformed URLs as unreachable", async () => {
     const result = await healthCheck("not-a-url", "token")
     expect(result.reachable).toBe(false)
-    expect(result.error).toBe("Invalid server URL format")
+    expect(result.error).toBe("invalidUrl")
     expect(result.status).toBe(0)
     expect(result.responseTime).toBe(0)
     expect(mockClient.testConnection).not.toHaveBeenCalled()
@@ -839,7 +839,7 @@ describe("healthCheck", () => {
     const result = await healthCheck("https://fmeflo", "token")
 
     expect(result.reachable).toBe(false)
-    expect(result.error).toBe("Invalid hostname: fmeflo")
+    expect(result.error).toBe("invalidUrl")
     expect(result.status).toBe(403)
     expect(mockClient.testConnection).toHaveBeenCalled()
   })

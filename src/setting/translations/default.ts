@@ -37,18 +37,12 @@ export default {
   errorGateway: "Gateway-fel (status {status}).",
   errorServiceUnavailable: "Tjänsten är inte tillgänglig (status {status}).",
   errorServer: "Serverfel (status {status}).",
-  errorMissingServerUrl: "Ange FME server-URL.",
-  errorBadBaseUrl:
-    "Ange en giltig FME server-URL, t.ex. https://fme.server.com.",
-  errorMissingToken: "Ange API-nyckeln.",
   errorRepositoryNotFound: "Valt repository finns inte i listan.",
-  errorRepoRequired: "Välj ett repository.",
   fixErrorsAbove: "Åtgärda felen ovan.",
   requiredField: "Detta fält är obligatoriskt",
   ariaRequired: "Obligatoriskt fält",
   supportEmail: "Support-e‑post (valfritt)",
   supportEmailPlaceholder: "support@exempel.se",
-  errorInvalidEmail: "Ogiltig e‑postadress.",
   jobDirectivesHelper2: "Lämna tomt för att använda standardvärdet.",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
@@ -59,7 +53,7 @@ export default {
   serviceModeSync: "Direkt nedladdning (synkront)",
   serviceModeSyncHelper:
     "När detta är på visas en direkt nedladdningslänk när jobbet är klart. Av = länk via e‑post.",
-  maskEmailOnSuccess: "Dölj fullständig e‑postadress",
+  maskEmailOnSuccess: "Dölj e‑postadress",
   maskEmailOnSuccessHelper:
     "När detta är på döljs e‑postadressen i kvittensen (visar endast de två första tecknen).",
   requestTimeoutLabel: "Tidsgräns för begäran (ms)",

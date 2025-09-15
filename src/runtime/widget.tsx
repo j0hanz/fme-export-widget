@@ -1271,14 +1271,20 @@ export default function Widget(
 
   // Handle submission error
   const handleSubmissionError = (error: unknown) => {
-    const errorMessage =
-      getErrorMessage(error) || translate("unknownErrorOccurred")
+    // Prefer localized message key resolution
+    const rawKey = getErrorMessage(error) || "unknownErrorOccurred"
+    let localizedErr = ""
+    try {
+      localizedErr = resolveMessageOrKey(rawKey, translate)
+    } catch {
+      localizedErr = translate("unknownErrorOccurred")
+    }
     // Build localized failure message and append contact support hint
     const configured = getSupportEmail(props.config?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("orderFailed")
     const resultMessage =
-      `${baseFailMessage}. ${errorMessage}. ${contactHint}`.trim()
+      `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
     const result: ExportResult = {
       success: false,
       message: resultMessage,

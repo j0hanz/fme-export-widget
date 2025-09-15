@@ -173,6 +173,7 @@ export class ErrorHandlingService {
       INVALID_CONFIG: "invalidConfiguration",
       WEBHOOK_AUTH_ERROR: "authenticationFailed",
       ARCGIS_MODULE_ERROR: "connectionFailed",
+      DATA_DOWNLOAD_ERROR: "payloadTooLarge",
       ABORT: "requestAborted",
       CANCELLED: "operationCancelled",
       CORS_ERROR: "corsError",
@@ -185,6 +186,21 @@ export class ErrorHandlingService {
       GATEWAY_TIMEOUT: "gatewayTimeout",
       BAD_REQUEST: "badRequest",
       PAYLOAD_TOO_LARGE: "payloadTooLarge",
+      // Common platform/browser/node error codes/names
+      ETIMEDOUT: "timeout",
+      ECONNRESET: "networkError",
+      ENOTFOUND: "invalidUrl",
+      EAI_AGAIN: "networkError",
+      ERR_NAME_NOT_RESOLVED: "invalidUrl",
+      ERR_CONNECTION_REFUSED: "connectionFailed",
+      ERR_NETWORK: "networkError",
+      AUTH_REQUIRED: "startupTokenError",
+      INVALID_TOKEN: "startupTokenError",
+      TOKEN_EXPIRED: "startupTokenError",
+      REPOSITORY_NOT_FOUND: "repoNotFound",
+      INVALID_REPOSITORY: "repoNotFound",
+      URL_TOO_LONG: "urlTooLong",
+      MAX_URL_LENGTH_EXCEEDED: "urlTooLong",
     }
 
     // Check if message itself is a known code
@@ -219,6 +235,9 @@ export class ErrorHandlingService {
     status: number,
     translate: (key: string) => string
   ): { code: string; message: string } | null {
+    if (status === 408) {
+      return { code: "TIMEOUT", message: translate("timeout") }
+    }
     if (status === 401 || status === 403) {
       return {
         code: "AUTH_ERROR",
@@ -229,12 +248,18 @@ export class ErrorHandlingService {
       return { code: "REPO_NOT_FOUND", message: translate("repoNotFound") }
     }
     if (status === 429) {
-      return { code: "HTTP_ERROR", message: translate("connectionFailed") }
+      return { code: "RATE_LIMITED", message: translate("rateLimited") }
     }
     if (status === 413) {
       return {
         code: "PAYLOAD_TOO_LARGE",
         message: translate("payloadTooLarge"),
+      }
+    }
+    if (status === 431) {
+      return {
+        code: "HEADERS_TOO_LARGE",
+        message: translate("headersTooLarge"),
       }
     }
     if (status === 400 || status === 422) {
@@ -276,7 +301,7 @@ export class ErrorHandlingService {
       // Could be CORS or offline - check if offline
       return this.handleFetchError(translate)
     }
-    if (/network|failed to fetch/i.test(message)) {
+    if (/network|failed to fetch|net::|ECONNRESET|ERR_NETWORK/i.test(message)) {
       return { code: "NETWORK_ERROR", message: translate("networkError") }
     }
     if (/unexpected token|json|parse/i.test(message)) {
@@ -285,8 +310,17 @@ export class ErrorHandlingService {
     if (/invalid url/i.test(message)) {
       return { code: "INVALID_URL", message: translate("invalidUrl") }
     }
-    if (/ssl|certificate/i.test(message)) {
+    if (/ssl|certificate|self[- ]signed/i.test(message)) {
       return { code: "SSL_ERROR", message: translate("sslError") }
+    }
+    if (/CORS|blocked by CORS policy/i.test(message)) {
+      return { code: "CORS_ERROR", message: translate("corsError") }
+    }
+    if (/URL( |%20)?too( |%20)?long|Request-URI Too Large/i.test(message)) {
+      return { code: "URL_TOO_LONG", message: translate("urlTooLong") }
+    }
+    if (/Name or service not known|DNS|ERR_NAME_NOT_RESOLVED/i.test(message)) {
+      return { code: "DNS_ERROR", message: translate("connectionFailed") }
     }
     if ((error as Error)?.name === "TypeError") {
       return { code: "NETWORK_ERROR", message: translate("networkError") }
@@ -637,7 +671,7 @@ export async function healthCheck(
       return {
         reachable: false,
         responseTime: 0,
-        error: "Invalid server URL format",
+        error: "invalidUrl",
         status: 0,
       }
     }
@@ -645,7 +679,7 @@ export async function healthCheck(
     return {
       reachable: false,
       responseTime: 0,
-      error: "Invalid server URL format",
+      error: "invalidUrl",
       status: 0,
     }
   }
@@ -709,7 +743,7 @@ export async function healthCheck(
             return {
               reachable: false,
               responseTime,
-              error: `Invalid hostname: ${hostname}`,
+              error: "invalidUrl",
               status,
             }
           }
@@ -1276,10 +1310,26 @@ export function validateConfigFields(config: FmeExportConfig | undefined): {
 
 // Helper functions with improved type safety
 export function getErrorMessage(err: unknown, status?: number): string {
+  // Prefer explicit error code mappings when present
+  const code = (err as any)?.code
+  if (typeof code === "string") {
+    if (code === "DATA_DOWNLOAD_ERROR") return "payloadTooLarge"
+    if (code === "PAYLOAD_TOO_LARGE") return "payloadTooLarge"
+    if (code === "RATE_LIMITED") return "rateLimited"
+    if (code === "URL_TOO_LONG" || code === "MAX_URL_LENGTH_EXCEEDED")
+      return "urlTooLong"
+    if (code === "ETIMEDOUT") return "timeout"
+    if (code === "ECONNRESET" || code === "ERR_NETWORK") return "networkError"
+    if (code === "ENOTFOUND" || code === "ERR_NAME_NOT_RESOLVED")
+      return "invalidUrl"
+  }
   // Handle known status codes first
   if (status === 0) return "startupNetworkError"
+  if (status === 408) return "timeout"
   if (status === 401 || status === 403) return "startupTokenError"
   if (status === 404) return "connectionFailed"
+  if (status === 429) return "rateLimited"
+  if (status === 431) return "headersTooLarge"
   if (status && status >= 500) return "serverError"
 
   // Extract message from error object
@@ -1289,6 +1339,15 @@ export function getErrorMessage(err: unknown, status?: number): string {
     const lowerMessage = message.toLowerCase()
     if (lowerMessage.includes("failed to fetch")) {
       return "startupNetworkError"
+    }
+    if (lowerMessage.includes("timeout")) {
+      return "timeout"
+    }
+    if (/(cors|blocked by cors policy)/i.test(message)) {
+      return "corsError"
+    }
+    if (/url\s*too\s*long|request-uri too large/i.test(message)) {
+      return "urlTooLong"
     }
     return "unknownErrorOccurred"
   }

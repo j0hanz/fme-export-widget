@@ -12,6 +12,27 @@ import type {
 import { FmeFlowApiError, HttpMethod } from "../config"
 import { isAuthError } from "./utils"
 
+// Centralized error keys (translation keys only)
+const ERR = {
+  ARCGIS_MODULE_ERROR: "ARCGIS_MODULE_ERROR",
+  REQUEST_FAILED: "REQUEST_FAILED",
+  NETWORK_ERROR: "NETWORK_ERROR",
+  INVALID_RESPONSE_FORMAT: "INVALID_RESPONSE_FORMAT",
+  REPOSITORIES_ERROR: "REPOSITORIES_ERROR",
+  REPOSITORY_ITEMS_ERROR: "REPOSITORY_ITEMS_ERROR",
+  WORKSPACE_ITEM_ERROR: "WORKSPACE_ITEM_ERROR",
+  JOB_SUBMISSION_ERROR: "JOB_SUBMISSION_ERROR",
+  DATA_STREAMING_ERROR: "DATA_STREAMING_ERROR",
+  DATA_DOWNLOAD_ERROR: "DATA_DOWNLOAD_ERROR",
+  WEBHOOK_AUTH_ERROR: "WEBHOOK_AUTH_ERROR",
+  INVALID_CONFIG: "INVALID_CONFIG",
+  GEOMETRY_MISSING: "GEOMETRY_MISSING",
+  GEOMETRY_TYPE_INVALID: "GEOMETRY_TYPE_INVALID",
+} as const
+
+const makeError = (code: string, status?: number) =>
+  new FmeFlowApiError(code, code, status)
+
 // Inline loader helper for EXB with error handling
 async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
   // Check test environment first for better performance
@@ -25,14 +46,16 @@ async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
     const mod = await import("jimu-arcgis")
     const loader = mod.loadArcGISJSAPIModules
     if (typeof loader !== "function") {
-      throw new Error("ArcGIS module loader not available")
+      // Use key only (no fallback English)
+      throw new Error(ERR.ARCGIS_MODULE_ERROR)
     }
     const loaded = await loader(modules as string[])
     const unwrap = (m: any) => m?.default ?? m
     return (loaded || []).map(unwrap)
   } catch (error) {
     console.error("Failed to load ArcGIS modules:", error)
-    throw new Error("Failed to load ArcGIS modules")
+    // Throw a code that downstream can localize
+    throw new Error("ARCGIS_MODULE_ERROR")
   }
 }
 
@@ -135,8 +158,8 @@ async function ensureEsri(): Promise<void> {
       }
     } catch (error) {
       // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
-      console.error("FME API - Failed to load ArcGIS modules:", error)
-      throw new Error("Failed to load ArcGIS modules")
+      console.error("ARCGIS_MODULE_ERROR", { error })
+      throw new Error(ERR.ARCGIS_MODULE_ERROR)
     }
   })()
 
@@ -408,6 +431,21 @@ const buildParams = (
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || excludeSet.has(key)) continue
+    // Special handling for File objects: use file name instead of full object
+    try {
+      const hasFileCtor = typeof (globalThis as any).File !== "undefined"
+      const isFile = hasFileCtor && value instanceof (globalThis as any).File
+      if (isFile) {
+        const fileName = (value as any)?.name
+        if (typeof fileName === "string" && fileName.trim()) {
+          urlParams.append(key, fileName.trim())
+        }
+        continue
+      }
+    } catch {
+      // If environment lacks File or instanceof throws, fall through to default handling
+    }
+
     urlParams.append(key, toStr(value))
   }
 
@@ -480,7 +518,7 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
   status: 0,
-  statusText: "Canceled",
+  statusText: "requestAborted",
 })
 
 const processRequestError = (
@@ -497,13 +535,15 @@ const processRequestError = (
     message,
   })
 
-  let errorMessage = `Request failed: ${message}`
-  let errorCode = "NETWORK_ERROR"
+  let errorMessage: string = ERR.REQUEST_FAILED
+  let errorCode: string = ERR.NETWORK_ERROR
 
   if (message.includes("Unexpected token")) {
-    console.error("FME API - Received HTML response instead of JSON. URL:", url)
-    errorMessage = `Server returned HTML instead of JSON. This usually indicates an authentication or endpoint issue. URL: ${url}`
-    errorCode = "INVALID_RESPONSE_FORMAT"
+    console.error(
+      "FME API - Received non-JSON/HTML response where JSON expected"
+    )
+    errorMessage = ERR.INVALID_RESPONSE_FORMAT
+    errorCode = ERR.INVALID_RESPONSE_FORMAT
   }
 
   const det = details as any
@@ -611,12 +651,8 @@ export class FmeFlowApiClient {
     try {
       return await operation()
     } catch (err) {
-      const { message, status } = getErrorInfo(err)
-      throw new FmeFlowApiError(
-        `${errorMessage}: ${message}`,
-        errorCode,
-        status || 0
-      )
+      const { status } = getErrorInfo(err)
+      throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
     }
   }
 
@@ -682,8 +718,8 @@ export class FmeFlowApiClient {
           statusText: raw.statusText,
         }
       },
-      "Failed to get repositories",
-      "REPOSITORIES_ERROR"
+      ERR.REPOSITORIES_ERROR,
+      ERR.REPOSITORIES_ERROR
     )
   }
 
@@ -737,8 +773,8 @@ export class FmeFlowApiClient {
           repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
-      "Failed to get repository items",
-      "REPOSITORY_ITEMS_ERROR"
+      ERR.REPOSITORY_ITEMS_ERROR,
+      ERR.REPOSITORY_ITEMS_ERROR
     )
   }
 
@@ -756,8 +792,8 @@ export class FmeFlowApiClient {
           cacheHint: false, // Avoid cross-repo/token contamination
           repositoryContext: repo, // Add repository context for proper cache scoping
         }),
-      "Failed to get workspace item details",
-      "WORKSPACE_ITEM_ERROR"
+      ERR.WORKSPACE_ITEM_ERROR,
+      ERR.WORKSPACE_ITEM_ERROR
     )
   }
 
@@ -779,8 +815,8 @@ export class FmeFlowApiClient {
           signal,
           cacheHint: false,
         }),
-      "Failed to submit job",
-      "JOB_SUBMISSION_ERROR"
+      ERR.JOB_SUBMISSION_ERROR,
+      ERR.JOB_SUBMISSION_ERROR
     )
   }
 
@@ -887,8 +923,8 @@ export class FmeFlowApiClient {
           signal,
         })
       },
-      "Failed to run data streaming",
-      "DATA_STREAMING_ERROR"
+      ERR.DATA_STREAMING_ERROR,
+      ERR.DATA_STREAMING_ERROR
     )
   }
 
@@ -940,11 +976,7 @@ export class FmeFlowApiClient {
           maxLen > 0 &&
           fullUrl.length > maxLen
         ) {
-          throw new FmeFlowApiError(
-            "Webhook URL too long",
-            "DATA_DOWNLOAD_ERROR",
-            0
-          )
+          throw makeError(ERR.DATA_DOWNLOAD_ERROR, 0)
         }
       } catch (lenErr) {
         if (lenErr instanceof FmeFlowApiError) throw lenErr
@@ -958,7 +990,7 @@ export class FmeFlowApiClient {
           if (v !== null) safeParams.set(k, v)
         }
         console.log(
-          "FME Export - Webhook call",
+          "WEBHOOK_CALL",
           webhookUrl,
           `params=${safeParams.toString()}`
         )
@@ -975,12 +1007,9 @@ export class FmeFlowApiClient {
       return this.parseWebhookResponse(response)
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
-      const { message, status } = getErrorInfo(err)
-      throw new FmeFlowApiError(
-        `Failed to run data download webhook: ${message}`,
-        "DATA_DOWNLOAD_ERROR",
-        status || 0
-      )
+      const { status } = getErrorInfo(err)
+      // Surface a code-only message; services will localize
+      throw makeError(ERR.DATA_DOWNLOAD_ERROR, status || 0)
     }
   }
 
@@ -1039,11 +1068,7 @@ export class FmeFlowApiClient {
     const contentType = response.headers.get("content-type")
 
     if (!isJson(contentType)) {
-      throw new FmeFlowApiError(
-        "Webhook returned a non-JSON response",
-        "WEBHOOK_AUTH_ERROR",
-        response.status
-      )
+      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
     }
 
     let responseData: any
@@ -1051,19 +1076,11 @@ export class FmeFlowApiClient {
       responseData = await response.json()
     } catch {
       console.warn("FME API - Failed to parse webhook JSON response")
-      throw new FmeFlowApiError(
-        "Webhook returned malformed JSON",
-        "WEBHOOK_AUTH_ERROR",
-        response.status
-      )
+      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
     }
 
     if (isAuthError(response.status)) {
-      throw new FmeFlowApiError(
-        "Webhook authentication failed",
-        "WEBHOOK_AUTH_ERROR",
-        response.status
-      )
+      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
     }
 
     return {
@@ -1077,20 +1094,18 @@ export class FmeFlowApiClient {
     geometry: __esri.Geometry
   ): Promise<PrimitiveParams> {
     if (!geometry) {
-      throw new Error("Geometry is required but was null or undefined")
+      throw new Error("GEOMETRY_MISSING")
     }
 
     if (geometry.type !== "polygon") {
-      throw new Error(
-        `Only polygon geometries are supported, received: ${geometry.type}`
-      )
+      throw new Error("GEOMETRY_TYPE_INVALID")
     }
 
     const polygon = geometry as __esri.Polygon
     const extent = polygon.extent
 
     if (!extent) {
-      throw new Error("Polygon geometry must have a valid extent")
+      throw new Error("GEOMETRY_MISSING")
     }
 
     // Reproject to WGS84
@@ -1180,10 +1195,7 @@ export class FmeFlowApiClient {
       if (options.body !== undefined) requestOptions.body = options.body
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw new FmeFlowApiError(
-          "ArcGIS request module unavailable",
-          "ARCGIS_MODULE_ERROR"
-        )
+        throw makeError(ERR.ARCGIS_MODULE_ERROR)
       }
 
       const response = await esriRequestFn(url, requestOptions)
@@ -1191,7 +1203,7 @@ export class FmeFlowApiClient {
       return {
         data: response.data,
         status: response.httpStatus || response.status || 200,
-        statusText: response.statusText || "OK",
+        statusText: response.statusText,
       }
     } catch (err) {
       // Handle specific error cases
@@ -1199,6 +1211,10 @@ export class FmeFlowApiClient {
         (err as { name?: string } | null | undefined)?.name === "AbortError"
       ) {
         return handleAbortError<T>()
+      }
+      // Preserve specific API errors thrown intentionally (e.g., ARCGIS_MODULE_ERROR)
+      if (err instanceof FmeFlowApiError) {
+        throw err
       }
       const { errorMessage, errorCode, httpStatus } = processRequestError(
         err,
@@ -1224,10 +1240,7 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
 
 const validateRequiredConfig = (config: FmeFlowConfig): void => {
   if (!config.serverUrl || !config.token || !config.repository) {
-    throw new FmeFlowApiError(
-      "Missing required FME Flow configuration. Required: serverUrl (fmeServerUrl or fme_server_url), token (fmeServerToken or fme_server_token), and repository",
-      "INVALID_CONFIG"
-    )
+    throw makeError(ERR.INVALID_CONFIG)
   }
 }
 
