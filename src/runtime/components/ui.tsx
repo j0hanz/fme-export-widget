@@ -1055,15 +1055,15 @@ export const Button: React.FC<ButtonProps> = ({
       // Map our variant/color props to jimu-ui Button 'type'
       // 'type' controls visual style in jimu-ui 1.14
       type={(() => {
-        const wantOutlined = variant === 'outlined'
-        const wantText = variant === 'text'
+        const wantOutlined = variant === "outlined"
+        const wantText = variant === "text"
         const c = safeColor
-        if (c === 'primary') return 'primary' as const
-        if (c === 'secondary') return 'secondary' as const
+        if (c === "primary") return "primary" as const
+        if (c === "secondary") return "secondary" as const
         // For outlined/text, fallback to 'tertiary' to appear lighter
-        if (wantText) return 'link' as const
-        if (wantOutlined) return 'tertiary' as const
-        return 'default' as const
+        if (wantText) return "link" as const
+        if (wantOutlined) return "tertiary" as const
+        return "default" as const
       })()}
       size={size}
       htmlType={htmlType}

@@ -356,7 +356,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
             text={fieldErrors.repository}
             type="error"
             closable={false}
-            style={{ width: '100%' }}
+            style={{ width: "100%" }}
           />
         </SettingRow>
       )}
@@ -437,7 +437,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
               text={error}
               type="error"
               closable={false}
-              style={{ width: '100%' }}
+              style={{ width: "100%" }}
             />
           </SettingRow>
         )}
@@ -464,11 +464,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         onBlur: onTmTtlBlur,
         placeholder: translate("tm_ttlPlaceholder"),
       })}
-      <SettingRow
-        flow="wrap"
-        label={translate("tm_tagLabel")}
-        level={1}
-      >
+      <SettingRow flow="wrap" label={translate("tm_tagLabel")} level={1}>
         <Input
           id={ID.tm_tag}
           value={localTmTag}
@@ -485,7 +481,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
               text={fieldErrors.tm_tag}
               type="error"
               closable={false}
-              style={{ width: '100%' }}
+              style={{ width: "100%" }}
             />
           </SettingRow>
         )}
@@ -1511,7 +1507,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 text={error}
                 type="error"
                 closable={false}
-                style={{ width: '100%' }}
+                style={{ width: "100%" }}
               />
             </SettingRow>
           )}
@@ -1625,11 +1621,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {translate("maskEmailOnSuccessHelper")}
         </SettingRow>
         {/* Support email (optional) */}
-        <SettingRow
-          flow="wrap"
-          label={translate("supportEmail")}
-          level={1}
-        >
+        <SettingRow flow="wrap" label={translate("supportEmail")} level={1}>
           <Input
             id={ID.supportEmail}
             type="email"
@@ -1658,7 +1650,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 text={fieldErrors.supportEmail}
                 type="error"
                 closable={false}
-                style={{ width: '100%' }}
+                style={{ width: "100%" }}
               />
             </SettingRow>
           )}
@@ -1704,11 +1696,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
 
         {/* Max AOI area (m²) */}
-        <SettingRow
-          flow="wrap"
-          label={translate("maxAreaLabel")}
-          level={1}
-        >
+        <SettingRow flow="wrap" label={translate("maxAreaLabel")} level={1}>
           <Input
             id={ID.maxArea}
             value={localMaxAreaM2}
@@ -1752,7 +1740,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 text={fieldErrors.maxArea}
                 type="error"
                 closable={false}
-                style={{ width: '100%' }}
+                style={{ width: "100%" }}
               />
             </SettingRow>
           )}
