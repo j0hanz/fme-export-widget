@@ -1615,6 +1615,38 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           styles={sstyles}
           ID={ID}
         />
+        {/* Service Type */}
+        <SettingRow
+          flow="wrap"
+          label={translate("serviceTypeLabel")}
+          level={1}
+          tag="label"
+        >
+          <Select
+            options={[
+              { label: translate("serviceTypeDownload"), value: "download" },
+              { label: translate("serviceTypeStream"), value: "stream" },
+            ]}
+            value={localService}
+            onChange={(val) => {
+              const serviceType = val === "stream" ? "stream" : "download"
+              setLocalService(serviceType)
+              updateConfig("service", serviceType as any)
+            }}
+            aria-describedby="service-type-help"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
+          level={3}
+        >
+          <div id="service-type-help">{translate("serviceTypeHelper")}</div>
+        </SettingRow>
+
         {/* Service mode (sync) toggle */}
         <SettingRow
           flow="no-wrap"
@@ -1635,74 +1667,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
         <SettingRow
           flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
           level={3}
         >
           {translate("serviceModeSyncHelper")}
         </SettingRow>
-        {/* Mask email on success toggle */}
+
+        {/* Allow Schedule Mode */}
         <SettingRow
           flow="no-wrap"
-          label={translate("maskEmailOnSuccess")}
+          label={translate("allowScheduleModeLabel")}
           level={1}
         >
           <Switch
-            id={ID.maskEmailOnSuccess}
-            checked={localMaskEmailOnSuccess}
+            id={ID.allowScheduleMode}
+            checked={localAllowScheduleMode}
             onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
-              setLocalMaskEmailOnSuccess(checked)
-              updateConfig("maskEmailOnSuccess", checked)
+              const checked = evt?.target?.checked ?? !localAllowScheduleMode
+              setLocalAllowScheduleMode(checked)
+              updateConfig("allowScheduleMode", checked)
             }}
-            aria-label={translate("maskEmailOnSuccess")}
+            aria-label={translate("allowScheduleModeLabel")}
           />
         </SettingRow>
         <SettingRow
           flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
           level={3}
         >
-          {translate("maskEmailOnSuccessHelper")}
-        </SettingRow>
-        {/* Support email (optional) */}
-        <SettingRow
-          flow="wrap"
-          label={translate("supportEmail")}
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.supportEmail}
-            type="email"
-            value={localSupportEmail}
-            onChange={(val: string) => {
-              setLocalSupportEmail(val)
-              // Clear previous error immediately, validate on blur
-              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-            }}
-            onBlur={(val: string) => {
-              // Save to config on blur, not on every keystroke
-              updateConfig("supportEmail", val)
-              // Validate on blur
-              const errKey = getEmailValidationError(val)
-              const err = errKey ? translate(errKey) : undefined
-              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-            }}
-            placeholder={translate("supportEmailPlaceholder")}
-            errorText={fieldErrors.supportEmail}
-          />
-          {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap" level={3}>
-              <Alert
-                id={`${ID.supportEmail}-error`}
-                fullWidth
-                css={css(sstyles.ALERT_INLINE as any)}
-                text={fieldErrors.supportEmail}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
+          {translate("allowScheduleModeHelper")}
         </SettingRow>
 
         {/* Request timeout (ms) */}
@@ -1737,12 +1736,78 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
         <SettingRow
           flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
           level={3}
         >
           <div id="request-timeout-help">
             {translate("requestTimeoutHelper")}
           </div>
+        </SettingRow>
+      </SettingSection>
+      <SettingSection>
+        {/* Allow Remote Dataset */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("allowRemoteDatasetLabel")}
+          level={1}
+        >
+          <Switch
+            id={ID.allowRemoteDataset}
+            checked={localAllowRemoteDataset}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
+              setLocalAllowRemoteDataset(checked)
+              updateConfig("allowRemoteDataset", checked)
+            }}
+            aria-label={translate("allowRemoteDatasetLabel")}
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
+          level={3}
+        >
+          {translate("allowRemoteDatasetHelper")}
+        </SettingRow>
+
+        {/* AOI Parameter Name */}
+        <SettingRow
+          flow="wrap"
+          label={translate("aoiParamNameLabel")}
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.aoiParamName}
+            value={localAoiParamName}
+            onChange={(val: string) => {
+              setLocalAoiParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = val.trim()
+              const finalValue = trimmed || "AreaOfInterest"
+              updateConfig("aoiParamName", finalValue)
+              setLocalAoiParamName(finalValue)
+            }}
+            placeholder={translate("aoiParamNamePlaceholder")}
+            aria-describedby="aoi-param-name-help"
+          />
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
+          level={3}
+        >
+          <div id="aoi-param-name-help">{translate("aoiParamNameHelper")}</div>
         </SettingRow>
 
         {/* Max AOI area (m²) */}
@@ -1802,7 +1867,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
         <SettingRow
           flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
           level={3}
         >
           <div id="max-area-help">
@@ -1812,116 +1880,74 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             })}
           </div>
         </SettingRow>
-      </SettingSection>
-      <SettingSection>
-        {/* AOI Parameter Name */}
+
+        {/* Mask email on success toggle */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("maskEmailOnSuccess")}
+          level={1}
+        >
+          <Switch
+            id={ID.maskEmailOnSuccess}
+            checked={localMaskEmailOnSuccess}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+              setLocalMaskEmailOnSuccess(checked)
+              updateConfig("maskEmailOnSuccess", checked)
+            }}
+            aria-label={translate("maskEmailOnSuccess")}
+          />
+        </SettingRow>
         <SettingRow
           flow="wrap"
-          label={translate("aoiParamNameLabel")}
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
+          level={3}
+        >
+          {translate("maskEmailOnSuccessHelper")}
+        </SettingRow>
+
+        {/* Support email (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={translate("supportEmail")}
           level={1}
           tag="label"
         >
           <Input
-            id={ID.aoiParamName}
-            value={localAoiParamName}
+            id={ID.supportEmail}
+            type="email"
+            value={localSupportEmail}
             onChange={(val: string) => {
-              setLocalAoiParamName(val)
+              setLocalSupportEmail(val)
+              // Clear previous error immediately, validate on blur
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
             }}
             onBlur={(val: string) => {
-              const trimmed = val.trim()
-              const finalValue = trimmed || "AreaOfInterest"
-              updateConfig("aoiParamName", finalValue)
-              setLocalAoiParamName(finalValue)
+              // Save to config on blur, not on every keystroke
+              updateConfig("supportEmail", val)
+              // Validate on blur
+              const errKey = getEmailValidationError(val)
+              const err = errKey ? translate(errKey) : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
             }}
-            placeholder={translate("aoiParamNamePlaceholder")}
-            aria-describedby="aoi-param-name-help"
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
           />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
-          level={3}
-        >
-          <div id="aoi-param-name-help">{translate("aoiParamNameHelper")}</div>
-        </SettingRow>
-
-        {/* Allow Schedule Mode */}
-        <SettingRow
-          flow="no-wrap"
-          label={translate("allowScheduleModeLabel")}
-          level={1}
-        >
-          <Switch
-            id={ID.allowScheduleMode}
-            checked={localAllowScheduleMode}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localAllowScheduleMode
-              setLocalAllowScheduleMode(checked)
-              updateConfig("allowScheduleMode", checked)
-            }}
-            aria-label={translate("allowScheduleModeLabel")}
-          />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
-          level={3}
-        >
-          {translate("allowScheduleModeHelper")}
-        </SettingRow>
-
-        {/* Allow Remote Dataset */}
-        <SettingRow
-          flow="no-wrap"
-          label={translate("allowRemoteDatasetLabel")}
-          level={1}
-        >
-          <Switch
-            id={ID.allowRemoteDataset}
-            checked={localAllowRemoteDataset}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
-              setLocalAllowRemoteDataset(checked)
-              updateConfig("allowRemoteDataset", checked)
-            }}
-            aria-label={translate("allowRemoteDatasetLabel")}
-          />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
-          level={3}
-        >
-          {translate("allowRemoteDatasetHelper")}
-        </SettingRow>
-
-        {/* Service Type */}
-        <SettingRow
-          flow="wrap"
-          label={translate("serviceTypeLabel")}
-          level={1}
-          tag="label"
-        >
-          <Select
-            options={[
-              { label: translate("serviceTypeDownload"), value: "download" },
-              { label: translate("serviceTypeStream"), value: "stream" },
-            ]}
-            value={localService}
-            onChange={(val) => {
-              const serviceType = val === "stream" ? "stream" : "download"
-              setLocalService(serviceType)
-              updateConfig("service", serviceType as any)
-            }}
-            aria-describedby="service-type-help"
-          />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css(sstyles.ALERT_INLINE as any)}
-          level={3}
-        >
-          <div id="service-type-help">{translate("serviceTypeHelper")}</div>
+          {fieldErrors.supportEmail && (
+            <SettingRow flow="wrap" level={3}>
+              <Alert
+                id={`${ID.supportEmail}-error`}
+                fullWidth
+                css={css(sstyles.ALERT_INLINE as any)}
+                text={fieldErrors.supportEmail}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
         </SettingRow>
       </SettingSection>
 

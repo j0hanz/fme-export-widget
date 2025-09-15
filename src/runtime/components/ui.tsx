@@ -85,7 +85,6 @@ const createStyles = (theme: IMThemeVariables) => {
   return {
     // Layout utilities with better performance
     row: css({ display: "flex" }),
-    col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
     fullWidth: css({
       display: "flex",
@@ -98,27 +97,9 @@ const createStyles = (theme: IMThemeVariables) => {
     marginTop: (value: number) => css({ marginTop: value }),
     gapBtnGroup: css({ gap: spacing?.(2) }),
 
-    // Text utilities
-    textCenter: css({ textAlign: "center" }),
-    textEnd: css({ textAlign: "end" }),
-
     // Interactive utilities
     disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
     textareaResize: css({ resize: "vertical" }),
-
-    // Flex utilities
-    flexCentered: css({
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-    }),
-
-    flexBetween: css({
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-    }),
 
     // Main layout styles
     parent: css({
@@ -144,13 +125,6 @@ const createStyles = (theme: IMThemeVariables) => {
       flex: "1 1 auto",
     }),
 
-    headerRow: css({
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      gap: spacing?.(1),
-    }),
-
     // State patterns
     centered: css({
       display: "flex",
@@ -172,34 +146,67 @@ const createStyles = (theme: IMThemeVariables) => {
     // Typography styles
     typography: {
       caption: css({
-        fontSize: typography?.label2?.fontSize,
+        ...(typeof (typography as any)?.body2?.asMutable === "function"
+          ? (typography as any).body2.asMutable()
+          : {
+              fontFamily: (typography as any)?.body2?.fontFamily,
+              fontSize: (typography as any)?.body2?.fontSize,
+              fontWeight: (typography as any)?.body2?.fontWeight,
+              lineHeight: (typography as any)?.body2?.lineHeight,
+            }),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        fontSize: typography?.label2?.fontSize,
+        ...(typeof (typography as any)?.label2?.asMutable === "function"
+          ? (typography as any).label2.asMutable()
+          : {
+              fontFamily: (typography as any)?.label2?.fontFamily,
+              fontSize: (typography as any)?.label2?.fontSize,
+              fontWeight: (typography as any)?.label2?.fontWeight,
+              lineHeight: (typography as any)?.label2?.lineHeight,
+            }),
         color: colors?.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        fontSize: typography?.body1?.fontSize,
-        fontWeight: typography?.body1?.fontWeight,
+        ...(typeof (typography as any)?.title2?.asMutable === "function"
+          ? (typography as any).title2.asMutable()
+          : {
+              fontFamily: (typography as any)?.title2?.fontFamily,
+              fontSize: (typography as any)?.title2?.fontSize,
+              fontWeight: (typography as any)?.title2?.fontWeight,
+              lineHeight: (typography as any)?.title2?.lineHeight,
+            }),
         color: colors?.surface?.backgroundText,
       }),
 
       instruction: css({
-        fontSize: typography?.label2?.fontSize,
+        ...(typeof (typography as any)?.body2?.asMutable === "function"
+          ? (typography as any).body2.asMutable()
+          : {
+              fontFamily: (typography as any)?.body2?.fontFamily,
+              fontSize: (typography as any)?.body2?.fontSize,
+              fontWeight: (typography as any)?.body2?.fontWeight,
+              lineHeight: (typography as any)?.body2?.lineHeight,
+            }),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        fontSize: typography?.body1?.fontSize,
-        fontWeight: typography?.body1?.fontWeight,
+        ...(typeof (typography as any)?.body1?.asMutable === "function"
+          ? (typography as any).body1.asMutable()
+          : {
+              fontFamily: (typography as any)?.body1?.fontFamily,
+              fontSize: (typography as any)?.body1?.fontSize,
+              fontWeight: (typography as any)?.body1?.fontWeight,
+              lineHeight: (typography as any)?.body1?.lineHeight,
+            }),
         color: colors?.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",
