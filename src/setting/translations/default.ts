@@ -59,7 +59,7 @@ export default {
   serviceModeSync: "Direkt nedladdning (synkront)",
   serviceModeSyncHelper:
     "När detta är på visas en direkt nedladdningslänk när jobbet är klart. Av = länk via e‑post.",
-  maskEmailOnSuccess: "Dölj fullständig e‑postadress",
+  maskEmailOnSuccess: "Dölj e‑postadress",
   maskEmailOnSuccessHelper:
     "När detta är på döljs e‑postadressen i kvittensen (visar endast de två första tecknen).",
   requestTimeoutLabel: "Tidsgräns för begäran (ms)",
