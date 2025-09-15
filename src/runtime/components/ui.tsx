@@ -804,14 +804,14 @@ export const TagInput: React.FC<{
   const styles = useStyles()
   return (
     <JimuTagInput
-      values={value}
-      suggestions={suggestions}
-      placeholder={placeholder}
-      onChange={(vals) => {
+      data={value || []}
+      selectListData={suggestions}
+      name={placeholder || "tag"}
+      isShowSelectList={!!suggestions && suggestions.length > 0}
+      onChange={(vals: string[]) => {
         onChange?.(vals)
       }}
       css={styles.fullWidth}
-      style={style}
     />
   )
 }
@@ -921,7 +921,7 @@ export const Select: React.FC<SelectProps> = ({
       onChange={handleSingleSelectChange}
       disabled={disabled}
       placeholder={resolvedPlaceholder}
-      zIndex={config.zIndex.selectMenu}
+      menuProps={{ zIndex: String(config.zIndex.selectMenu) } as any}
       css={styles.fullWidth}
       style={style}
     >
@@ -1052,8 +1052,19 @@ export const Button: React.FC<ButtonProps> = ({
   const buttonElement = (
     <JimuButton
       {...jimuProps}
-      color={safeColor}
-      variant={variant}
+      // Map our variant/color props to jimu-ui Button 'type'
+      // 'type' controls visual style in jimu-ui 1.14
+      type={(() => {
+        const wantOutlined = variant === 'outlined'
+        const wantText = variant === 'text'
+        const c = safeColor
+        if (c === 'primary') return 'primary' as const
+        if (c === 'secondary') return 'secondary' as const
+        // For outlined/text, fallback to 'tertiary' to appear lighter
+        if (wantText) return 'link' as const
+        if (wantOutlined) return 'tertiary' as const
+        return 'default' as const
+      })()}
       size={size}
       htmlType={htmlType}
       icon={!text && !!icon}

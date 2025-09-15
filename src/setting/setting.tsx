@@ -275,7 +275,6 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         </div>
       }
       level={1}
-      tag="label"
     >
       <Select
         options={(() => {
@@ -353,11 +352,11 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         <SettingRow flow="wrap" level={3}>
           <Alert
             id={`${ID.repository}-error`}
-            fullWidth
             css={css(styles.ALERT_INLINE as any)}
             text={fieldErrors.repository}
             type="error"
             closable={false}
+            style={{ width: '100%' }}
           />
         </SettingRow>
       )}
@@ -405,7 +404,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     placeholder,
   }: {
     id: string
-    label: React.ReactNode
+    label: string | JSX.Element
     value: string
     onChange: (val: string) => void
     onBlur: (val: string) => void
@@ -417,7 +416,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     if (id === ID.tm_ttc || id === ID.tm_ttl)
       describedBy.push("job-directives-help")
     return (
-      <SettingRow flow="wrap" label={label} level={1} tag="label">
+      <SettingRow flow="wrap" label={label} level={1}>
         <Input
           id={id}
           value={value}
@@ -434,11 +433,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
             <Alert
               id={`${id}-error`}
-              fullWidth
               css={css(styles.ALERT_INLINE as any)}
               text={error}
               type="error"
               closable={false}
+              style={{ width: '100%' }}
             />
           </SettingRow>
         )}
@@ -469,7 +468,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="wrap"
         label={translate("tm_tagLabel")}
         level={1}
-        tag="label"
       >
         <Input
           id={ID.tm_tag}
@@ -483,11 +481,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           <SettingRow flow="wrap" level={3}>
             <Alert
               id={`${ID.tm_tag}-error`}
-              fullWidth
               css={css(styles.ALERT_INLINE as any)}
               text={fieldErrors.tm_tag}
               type="error"
               closable={false}
+              style={{ width: '100%' }}
             />
           </SettingRow>
         )}
@@ -853,7 +851,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Render required label with tooltip
   const renderRequiredLabel = hooks.useEventCallback(
-    (labelText: string): React.ReactNode => (
+    (labelText: string): JSX.Element => (
       <>
         {labelText}
         <Tooltip content={translate("requiredField")} placement="top">
@@ -1454,7 +1452,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       inputMode,
     }: {
       id: string
-      label: React.ReactNode
+      label: string | JSX.Element
       value: string
       onChange: (val: string) => void
       onBlur?: (val: string) => void
@@ -1492,7 +1490,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
       const error = key ? fieldErrors[key] : undefined
       return (
-        <SettingRow flow="wrap" label={label} level={1} tag="label">
+        <SettingRow flow="wrap" label={label} level={1}>
           <Input
             id={id}
             type={type}
@@ -1509,11 +1507,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
               <Alert
                 id={`${id}-error`}
-                fullWidth
                 css={css(sstyles.ALERT_INLINE as any)}
                 text={error}
                 type="error"
                 closable={false}
+                style={{ width: '100%' }}
               />
             </SettingRow>
           )}
@@ -1631,7 +1629,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           flow="wrap"
           label={translate("supportEmail")}
           level={1}
-          tag="label"
         >
           <Input
             id={ID.supportEmail}
@@ -1657,11 +1654,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.supportEmail}-error`}
-                fullWidth
                 css={css(sstyles.ALERT_INLINE as any)}
                 text={fieldErrors.supportEmail}
                 type="error"
                 closable={false}
+                style={{ width: '100%' }}
               />
             </SettingRow>
           )}
@@ -1672,7 +1669,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           flow="wrap"
           label={translate("requestTimeoutLabel")}
           level={1}
-          tag="label"
         >
           <Input
             id={ID.requestTimeout}
@@ -1712,7 +1708,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           flow="wrap"
           label={translate("maxAreaLabel")}
           level={1}
-          tag="label"
         >
           <Input
             id={ID.maxArea}
@@ -1753,11 +1748,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow flow="wrap" level={3}>
               <Alert
                 id={`${ID.maxArea}-error`}
-                fullWidth
                 css={css(sstyles.ALERT_INLINE as any)}
                 text={fieldErrors.maxArea}
                 type="error"
                 closable={false}
+                style={{ width: '100%' }}
               />
             </SettingRow>
           )}
