@@ -440,7 +440,7 @@ export const Icon: React.FC<IconProps> = ({
       role="img"
       aria-hidden={!ariaLabel}
       aria-label={ariaLabel}
-      style={style}
+      css={style ? css(style as any) : undefined}
     />
   )
 }
@@ -556,8 +556,10 @@ export const Input: React.FC<InputProps> = ({
       aria-required={required}
       aria-invalid={!!errorText}
       aria-describedby={errorText ? ariaDesc(props.id || "input") : undefined}
-      css={styles.fullWidth}
-      style={(props as any).style}
+      css={[
+        styles.fullWidth,
+        (props as any).style && css((props as any).style),
+      ]}
     />
   )
 }
@@ -587,8 +589,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      css={styles.textareaResize}
-      style={props.style}
+      css={[styles.textareaResize, props.style && css(props.style as any)]}
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
@@ -618,8 +619,7 @@ export const UrlInput: React.FC<{
       onChange={(res) => {
         onChange?.(res?.value || "")
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -650,8 +650,7 @@ export const Switch: React.FC<{
       onChange={(e) => {
         onChange?.(e.target.checked)
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -677,8 +676,7 @@ export const Radio: React.FC<{
   const styles = useStyles()
   return (
     <div
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -738,8 +736,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -787,8 +784,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -810,8 +806,7 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -832,8 +827,7 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -854,8 +848,7 @@ export const DatePickerWrapper: React.FC<{
       onChange={(e) => {
         onChange?.(e.target.value)
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -922,8 +915,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     >
       {options.map((option) => (
         <JimuOption
@@ -987,7 +979,7 @@ export const MultiSelectControl: React.FC<{
   }))
 
   return (
-    <div style={style}>
+    <div css={style ? css(style as any) : undefined}>
       <MultiSelect
         items={items as any}
         values={current}
@@ -1049,9 +1041,12 @@ export const Button: React.FC<ButtonProps> = ({
       ? color
       : "default"
 
+  // Absorb potential style/css from incoming props so no inline style attribute is forwarded
+  const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
+
   const buttonElement = (
     <JimuButton
-      {...jimuProps}
+      {...restJimuProps}
       color={safeColor}
       variant={variant}
       size={size}
@@ -1063,8 +1058,12 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={styles.relative}
-      style={{ position: "relative", ...jimuProps.style }}
+      css={[
+        styles.relative,
+        css({ position: "relative" }),
+        jimuCss,
+        jimuStyle && css(jimuStyle),
+      ]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1322,9 +1321,11 @@ const StateView: React.FC<StateViewProps> = ({
   return (
     <div
       className={className}
-      style={style}
       data-testid={testId}
-      css={shouldCenter ? styles.centered : undefined}
+      css={[
+        shouldCenter ? styles.centered : undefined,
+        style && css(style as any),
+      ]}
     >
       {content}
     </div>
@@ -1347,8 +1348,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const groupStyle: React.CSSProperties = style ? { ...style } : undefined
-
   const createButton = (
     buttonConfig: GroupButtonConfig,
     side: "left" | "right"
@@ -1365,7 +1364,10 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   }
 
   return (
-    <div css={styles.button.group} className={className} style={groupStyle}>
+    <div
+      css={[styles.button.group, style && css(style as any)]}
+      className={className}
+    >
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -1422,7 +1424,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <Field
         className={className}
-        style={style}
+        css={style ? css(style as any) : undefined}
         label={label}
         helper={helper}
         required={required}
@@ -1457,7 +1459,10 @@ export const Field: React.FC<FieldProps> = ({
     autoId
   )
   return (
-    <FormGroup className={className} style={style}>
+    <FormGroup
+      className={className}
+      css={style ? css(style as any) : undefined}
+    >
       <Label
         css={[styles.block, styles.typography.label]}
         check={false}

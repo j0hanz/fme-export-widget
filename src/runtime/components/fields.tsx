@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx } from "jimu-core"
+import { React, hooks, jsx, css } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -344,15 +344,16 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       case FormFieldType.SWITCH:
         return (
-          <Switch
-            value={Boolean(fieldValue)}
-            onChange={(checked) => {
-              onChange(checked)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-            style={{ margin: "4px 0" }}
-          />
+          <div css={css({ margin: "4px 0" })}>
+            <Switch
+              value={Boolean(fieldValue)}
+              onChange={(checked) => {
+                onChange(checked)
+              }}
+              disabled={field.readOnly}
+              aria-label={field.label}
+            />
+          </div>
         )
       case FormFieldType.RADIO: {
         const options = field.options || []

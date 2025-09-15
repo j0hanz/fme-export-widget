@@ -5,6 +5,7 @@ import {
   type AllWidgetProps,
   hooks,
   jsx,
+  css,
   ReactRedux,
   type IMState,
   WidgetState,
@@ -871,7 +872,7 @@ export default function Widget(
                 )}
               </div>
               {Array.isArray(act) && act.length > 0 && (
-                <div style={{ marginTop: 8 }}>
+                <div css={css({ marginTop: 8 })}>
                   {act.map((a, i) => (
                     <Button key={i} text={a.label} onClick={a.onClick} />
                   ))}
