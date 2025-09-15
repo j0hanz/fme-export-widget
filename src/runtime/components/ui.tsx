@@ -9,7 +9,6 @@ import {
   Select as JimuSelect,
   Option as JimuOption,
   MultiSelect,
-  MultiSelectItem,
   SVG,
   FormGroup,
   Label,
@@ -887,21 +886,28 @@ export const Select: React.FC<SelectProps> = ({
       zIndex={config.zIndex.selectMenu}
       css={[styles.fullWidth, style && css(style as any)]}
     >
-      {options.map((option) => (
-        <JimuOption
-          key={String(option.value)}
-          value={option.value}
-          active={String(option.value) === stringValue}
-          disabled={option.disabled}
-          onClick={() => {
-            if (!option.disabled && String(option.value) !== stringValue) {
-              handleSingleSelectChange(undefined, option.value)
-            }
-          }}
-        >
-          {!option.hideLabel && option.label}
-        </JimuOption>
-      ))}
+      {(options || [])
+        .map((option) => {
+          if (!option || option.value == null) {
+            return null
+          }
+          return (
+            <JimuOption
+              key={String(option.value)}
+              value={option.value}
+              active={String(option.value) === stringValue}
+              disabled={Boolean(option.disabled)}
+              onClick={() => {
+                if (!option.disabled && String(option.value) !== stringValue) {
+                  handleSingleSelectChange(undefined, option.value)
+                }
+              }}
+            >
+              {!option.hideLabel && (option.label || String(option.value))}
+            </JimuOption>
+          )
+        })
+        .filter(Boolean)}
     </JimuSelect>
   )
 }
@@ -918,7 +924,7 @@ export const MultiSelectControl: React.FC<{
 }> = ({
   options = [],
   values,
-  defaultValues,
+  defaultValues = [],
   onChange,
   placeholder,
   disabled = false,
@@ -926,40 +932,42 @@ export const MultiSelectControl: React.FC<{
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
+
   const [current, setCurrent] = useValue<Array<string | number>>(
     values,
-    defaultValues || []
+    defaultValues
   )
 
   // Default placeholder if none provided
   const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
 
   const handleChange = hooks.useEventCallback(
-    (_value: string | number, values: Array<string | number>) => {
-      setCurrent(values)
-      onChange?.(values)
+    (_value: string | number, newValues: Array<string | number>) => {
+      setCurrent(newValues || [])
+      onChange?.(newValues || [])
     }
   )
+
+  // Filter out invalid options and map to expected format
+  const items = options
+    .filter((opt) => opt && opt.value != null && opt.label != null)
+    .map((opt) => ({
+      value: opt.value,
+      label: String(opt.label),
+      disabled: Boolean(opt.disabled),
+    }))
 
   return (
     <div css={style ? css(style as any) : undefined}>
       <MultiSelect
-        values={current}
+        values={current || []}
+        defaultValues={defaultValues}
         onChange={handleChange}
         placeholder={finalPlaceholder}
         disabled={disabled}
+        items={items}
         css={styles.fullWidth}
-      >
-        {(options || []).map((opt) => (
-          <MultiSelectItem
-            key={String(opt.value)}
-            value={opt.value}
-            label={opt.label}
-            disabled={opt.disabled}
-            selected={current.includes(opt.value)}
-          />
-        ))}
-      </MultiSelect>
+      />
     </div>
   )
 }

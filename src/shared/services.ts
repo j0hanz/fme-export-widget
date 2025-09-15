@@ -533,7 +533,8 @@ export class ParameterFormService {
           description: param.description,
           defaultValue: param.defaultValue as FormPrimitive,
           placeholder: param.description || "",
-          ...(options?.length ? { options } : {}),
+          // Only include options if non-empty
+          ...(options?.length ? { options: [...options] } : {}),
           ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
           ...(min !== undefined || max !== undefined || step !== undefined
             ? { min, max, step }

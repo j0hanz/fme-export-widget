@@ -23,6 +23,7 @@ import {
   type ApiResponse,
   ViewMode,
   DrawingTool,
+  FormFieldType,
   makeLoadingView,
   makeEmptyView,
   ErrorType,
@@ -110,6 +111,8 @@ const initFormValues = (
   for (const field of formConfig) {
     if (field.defaultValue !== undefined) {
       result[field.name] = field.defaultValue
+    } else if (field.type === FormFieldType.MULTI_SELECT) {
+      result[field.name] = []
     }
   }
   return result
@@ -762,21 +765,30 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       )}
 
       {/* Workspace parameters */}
-      {validator.getFormConfig().map((field: DynamicFieldConfig) => (
-        <Field
-          key={field.name}
-          label={field.label}
-          required={field.required}
-          error={stripErrorLabel(formState.errors[field.name])}
-        >
-          <DynamicField
-            field={field}
-            value={formState.values[field.name]}
-            onChange={(val) => setField(field.name, val)}
-            translate={translate}
-          />
-        </Field>
-      ))}
+      {validator
+        .getFormConfig()
+        .map((field: DynamicFieldConfig) => {
+          // Add defensive check to ensure field is valid
+          if (!field || !field.name || !field.type) {
+            return null
+          }
+          return (
+            <Field
+              key={field.name}
+              label={field.label}
+              required={field.required}
+              error={stripErrorLabel(formState.errors[field.name])}
+            >
+              <DynamicField
+                field={field}
+                value={formState.values[field.name]}
+                onChange={(val) => setField(field.name, val)}
+                translate={translate}
+              />
+            </Field>
+          )
+        })
+        .filter(Boolean)}
     </Form>
   )
 }

@@ -116,7 +116,7 @@ export const normalizeFormValue = (
     return isMultiSelect ? [] : ""
   }
   if (isMultiSelect) {
-    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
+    return Array.isArray(value) ? value : []
   }
   return typeof value === "string" || typeof value === "number" ? value : ""
 }
