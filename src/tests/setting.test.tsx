@@ -364,7 +364,7 @@ describe("Setting panel", () => {
     })
   })
 
-  test("job directives ttc/ttl are coerced to non-negative integers on blur; tag saved as-is", async () => {
+  test("job directives: numeric coerced, blank/invalid clears to default; tag saved as-is", async () => {
     const onSettingChange = jest.fn()
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
@@ -380,7 +380,7 @@ describe("Setting panel", () => {
     const ttlInput = ttlRow?.querySelector("input")
     expect(ttlInput).toBeInTheDocument()
 
-    // Set values and blur -> saved as integers (invalid -> 0)
+    // Set values and blur -> saved as integers; invalid/blank -> undefined (use default)
     fireEvent.change(ttcInput as Element, { target: { value: "12.8" } })
     fireEvent.blur(ttcInput as Element)
 
@@ -400,9 +400,12 @@ describe("Setting panel", () => {
       expect(calls.some((arg) => getVal(arg?.config, "tm_ttc") === 12)).toBe(
         true
       )
-      expect(calls.some((arg) => getVal(arg?.config, "tm_ttl") === 0)).toBe(
-        true
-      )
+      // tm_ttl invalid -> should be undefined (cleared)
+      expect(
+        calls.some(
+          (arg) => typeof getVal(arg?.config, "tm_ttl") === "undefined"
+        )
+      ).toBe(true)
       const latestCfg = calls[calls.length - 1]?.config
       expect(getVal(latestCfg, "tm_tag")).toBe("prio")
     })
@@ -451,6 +454,10 @@ describe("Setting panel", () => {
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
 
+    // Placeholder and helper should communicate default 30000
+    expect(input).toHaveAttribute("placeholder", "30000")
+    expect(screen.getByText(/Standard 30000 ms\./i)).toBeInTheDocument()
+
     // Enter float -> coerced to int on blur
     fireEvent.change(input as Element, { target: { value: "12345.67" } })
     fireEvent.blur(input as Element)
@@ -482,13 +489,13 @@ describe("Setting panel", () => {
     renderSetting(<WrappedSetting {...props} />)
 
     // Find by label text
-    const label = screen.getByText(/Maximal AOI-yta \(km²\)/i)
+    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
     const row = label.closest("div")?.parentElement
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
 
-    // 2.5 km² -> 2_500_000 m²
-    fireEvent.change(input as Element, { target: { value: "2.5" } })
+    // 2,500,000 m² -> saved as 2,500,000 m²
+    fireEvent.change(input as Element, { target: { value: "2500000" } })
     fireEvent.blur(input as Element)
 
     await waitFor(() => {
@@ -516,19 +523,19 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    const label = screen.getByText(/Maximal AOI-yta \(km²\)/i)
+    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
     const row = label.closest("div")?.parentElement
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
 
-    // Enter value above the cap (helper states 10000 km²)
-    fireEvent.change(input as Element, { target: { value: "20000" } })
+    // Enter value above the cap (helper states 10000000000 m²)
+    fireEvent.change(input as Element, { target: { value: "20000000000" } })
     fireEvent.blur(input as Element)
 
     // Should show inline error and not call onSettingChange with maxArea
     await waitFor(() => {
       expect(
-        screen.getByText(/Värdet är för stort\. Ange högst 10000 km²\./i)
+        screen.getByText(/Värdet är för stort\. Ange högst 10000000000 m²\./i)
       ).toBeInTheDocument()
     })
 
@@ -542,7 +549,7 @@ describe("Setting panel", () => {
     expect(touchedMaxArea).toBe(false)
 
     // Now set to exactly the cap -> should save
-    fireEvent.change(input as Element, { target: { value: "10000" } })
+    fireEvent.change(input as Element, { target: { value: "10000000000" } })
     fireEvent.blur(input as Element)
 
     await waitFor(() => {

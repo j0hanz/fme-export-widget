@@ -53,11 +53,14 @@ import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
 // Constants
 const CONSTANTS = {
   VALIDATION: {
-    DEFAULT_TTL_VALUE: "0",
-    DEFAULT_TTC_VALUE: "0",
+    DEFAULT_TTL_VALUE: "",
+    DEFAULT_TTC_VALUE: "",
   },
   LIMITS: {
-    MAX_KM2_CAP: 10000,
+    MAX_M2_CAP: 10_000_000_000,
+  },
+  DEFAULTS: {
+    MAX_M2: 100_000_000,
   },
   HTTP_STATUS: {
     UNAUTHORIZED: 401,
@@ -402,7 +405,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     onChange,
     onBlur,
     placeholder,
-    inputMode,
   }: {
     id: string
     label: React.ReactNode
@@ -410,9 +412,12 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     onChange: (val: string) => void
     onBlur: (val: string) => void
     placeholder?: string
-    inputMode?: "numeric"
   }) => {
     const error = fieldErrors[id as keyof typeof fieldErrors]
+    const describedBy: string[] = []
+    if (error) describedBy.push(`${id}-error`)
+    if (id === ID.tm_ttc || id === ID.tm_ttl)
+      describedBy.push("job-directives-help")
     return (
       <SettingRow flow="wrap" label={label} level={1} tag="label">
         <Input
@@ -423,7 +428,9 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           placeholder={placeholder}
           errorText={error}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
+          aria-describedby={
+            describedBy.length ? describedBy.join(" ") : undefined
+          }
         />
         {error && (
           <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
@@ -450,8 +457,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         value: localTmTtc,
         onChange: onTmTtcChange,
         onBlur: onTmTtcBlur,
-        placeholder: "0",
-        inputMode: "numeric",
+        placeholder: translate("tm_ttcPlaceholder"),
       })}
       {renderInputField({
         id: ID.tm_ttl,
@@ -459,8 +465,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         value: localTmTtl,
         onChange: onTmTtlChange,
         onBlur: onTmTtlBlur,
-        placeholder: "0",
-        inputMode: "numeric",
+        placeholder: translate("tm_ttlPlaceholder"),
       })}
       <SettingRow
         flow="wrap"
@@ -490,7 +495,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         )}
       </SettingRow>
       <SettingRow flow="wrap" css={css(styles.ALERT_INLINE as any)} level={3}>
-        {translate("jobDirectivesHelper")}
+        <div id="job-directives-help">{translate("jobDirectivesHelper2")}</div>
       </SettingRow>
     </SettingSection>
   )
@@ -733,12 +738,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return typeof v === "number" && Number.isFinite(v) ? String(v) : ""
     }
   )
-  // Max AOI area (km²) – stored in config as m², presented as km²
+  // Max AOI area (m²) – stored in config and presented as m²
   const [localMaxAreaKm2, setLocalMaxAreaKm2] = React.useState<string>(() => {
     const v = (config as any)?.maxArea
     if (typeof v === "number" && Number.isFinite(v) && v > 0) {
-      const km2 = v / 1_000_000
-      return String(km2)
+      return String(v)
     }
     return ""
   })
@@ -1192,13 +1196,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const configMaxArea = (config as any)?.maxArea
 
       const ttcValue =
-        typeof config?.tm_ttc === "number"
-          ? String(config.tm_ttc)
-          : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
+        typeof config?.tm_ttc === "number" ? String(config.tm_ttc) : ""
       const ttlValue =
-        typeof config?.tm_ttl === "number"
-          ? String(config.tm_ttl)
-          : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
+        typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : ""
       const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
 
       // Only update if different from current local state
@@ -1215,9 +1215,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       } else if (localRequestTimeout !== "") {
         setLocalRequestTimeout("")
       }
-      if (typeof configMaxArea === "number" && Number.isFinite(configMaxArea)) {
-        const km2 = configMaxArea / 1_000_000
-        if (String(km2) !== localMaxAreaKm2) setLocalMaxAreaKm2(String(km2))
+      if (
+        typeof configMaxArea === "number" &&
+        Number.isFinite(configMaxArea) &&
+        configMaxArea > 0
+      ) {
+        if (String(configMaxArea) !== localMaxAreaKm2) {
+          setLocalMaxAreaKm2(String(configMaxArea))
+        }
       } else if (localMaxAreaKm2 !== "") {
         setLocalMaxAreaKm2("")
       }
@@ -1665,7 +1670,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalRequestTimeout(String(sanitized))
               }
             }}
-            placeholder={"30000"}
+            placeholder={translate("requestTimeoutPlaceholder")}
+            aria-describedby="request-timeout-help"
           />
         </SettingRow>
         <SettingRow
@@ -1673,10 +1679,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           css={css(sstyles.ALERT_INLINE as any)}
           level={3}
         >
-          {translate("requestTimeoutHelper")}
+          <div id="request-timeout-help">
+            {translate("requestTimeoutHelper")}
+          </div>
         </SettingRow>
 
-        {/* Max AOI area (km²) */}
+        {/* Max AOI area (m²) */}
         <SettingRow
           flow="wrap"
           label={translate("maxAreaLabel")}
@@ -1692,29 +1700,31 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             onBlur={(val: string) => {
               const n = Number(val)
-              const valid = Number.isFinite(n) && n >= 0
+              const valid = Number.isFinite(n) && n > 0
               if (!valid) {
+                // Blank, zero, or invalid -> use default (unset in config)
                 updateConfig("maxArea", undefined as any)
                 setLocalMaxAreaKm2("")
                 return
               }
-              // Enforce upper cap in km²
-              if (n > CONSTANTS.LIMITS.MAX_KM2_CAP) {
+              // Enforce upper cap in m²
+              if (n > CONSTANTS.LIMITS.MAX_M2_CAP) {
                 // Do not save; show inline error
                 setFieldErrors((prev) => ({
                   ...prev,
                   maxArea: translate("errorMaxAreaTooLarge", {
-                    maxKm2: CONSTANTS.LIMITS.MAX_KM2_CAP,
+                    maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
                   }),
                 }))
                 return
               }
-              const m2 = Math.floor(n * 1_000_000)
+              const m2 = Math.floor(n)
               updateConfig("maxArea", m2 as any)
-              setLocalMaxAreaKm2(String(n))
+              setLocalMaxAreaKm2(String(m2))
             }}
-            placeholder={"0"}
+            placeholder={translate("maxAreaPlaceholder")}
             errorText={fieldErrors.maxArea}
+            aria-describedby="max-area-help"
           />
           {fieldErrors.maxArea && (
             <SettingRow flow="wrap" level={3}>
@@ -1734,7 +1744,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           css={css(sstyles.ALERT_INLINE as any)}
           level={3}
         >
-          {translate("maxAreaHelper", { maxKm2: CONSTANTS.LIMITS.MAX_KM2_CAP })}
+          <div id="max-area-help">
+            {translate("maxAreaHelper", {
+              defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
+              maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+            })}
+          </div>
         </SettingRow>
       </SettingSection>
 
@@ -1756,18 +1771,40 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           // Don't update config on every keystroke
         }}
         onTmTtcBlur={(val: string) => {
-          const n = Number(val)
-          updateConfig(
-            "tm_ttc",
-            Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-          )
+          const trimmed = (val ?? "").trim()
+          if (trimmed === "") {
+            // Blank -> unset to use default
+            updateConfig("tm_ttc", undefined as any)
+            setLocalTmTtc("")
+            return
+          }
+          const n = Number(trimmed)
+          if (Number.isFinite(n) && n >= 0) {
+            const coerced = Math.floor(n)
+            updateConfig("tm_ttc", coerced as any)
+            setLocalTmTtc(String(coerced))
+          } else {
+            // Invalid -> unset
+            updateConfig("tm_ttc", undefined as any)
+            setLocalTmTtc("")
+          }
         }}
         onTmTtlBlur={(val: string) => {
-          const n = Number(val)
-          updateConfig(
-            "tm_ttl",
-            Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0
-          )
+          const trimmed = (val ?? "").trim()
+          if (trimmed === "") {
+            updateConfig("tm_ttl", undefined as any)
+            setLocalTmTtl("")
+            return
+          }
+          const n = Number(trimmed)
+          if (Number.isFinite(n) && n >= 0) {
+            const coerced = Math.floor(n)
+            updateConfig("tm_ttl", coerced as any)
+            setLocalTmTtl(String(coerced))
+          } else {
+            updateConfig("tm_ttl", undefined as any)
+            setLocalTmTtl("")
+          }
         }}
         onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)
