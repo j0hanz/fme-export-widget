@@ -118,7 +118,7 @@ export const sanitizeFmeBaseUrl = (rawUrl: string): SanitizationResult => {
       isValid: false,
       cleaned: rawUrl,
       changed: false,
-      errors: ["Invalid URL"],
+      errors: ["invalidUrl"],
     }
   }
 }
@@ -204,12 +204,14 @@ export const getEmailValidationError = (email: string): string | null => {
 
 // Error extraction utilities
 export const extractErrorMessage = (error: unknown): string => {
-  if (!error) return "Unknown error"
+  // Return a generic i18n key instead of hardcoded English strings
+  if (!error) return "unknownErrorOccurred"
 
   if (typeof error === "string") return error
   if (typeof error === "number") return String(error)
 
-  if (error instanceof Error) return error.message || error.name || "Error"
+  if (error instanceof Error)
+    return error.message || error.name || "unknownErrorOccurred"
 
   if (typeof error === "object" && error !== null) {
     const obj = error as { [key: string]: unknown }
@@ -232,7 +234,7 @@ export const extractErrorMessage = (error: unknown): string => {
     try {
       return JSON.stringify(error)
     } catch {
-      return "Object error"
+      return "unknownErrorOccurred"
     }
   }
 
@@ -240,7 +242,7 @@ export const extractErrorMessage = (error: unknown): string => {
   try {
     return JSON.stringify(error)
   } catch {
-    return "Unknown error type"
+    return "unknownErrorOccurred"
   }
 }
 

@@ -12,7 +12,6 @@ import {
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
-import runtimeMessages from "../translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
@@ -191,7 +190,6 @@ const useWorkspaceLoader = (opts: {
   config: any
   getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
   translate: (k: string) => string
-  translateRuntime: (k: string) => string
   makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
   widgetId: string
   onWorkspaceSelected?: (
@@ -204,7 +202,6 @@ const useWorkspaceLoader = (opts: {
     config,
     getFmeClient,
     translate,
-    translateRuntime,
     makeCancelable,
     widgetId,
     onWorkspaceSelected,
@@ -248,17 +245,14 @@ const useWorkspaceLoader = (opts: {
         return null
       }
 
-      const raw =
-        err instanceof Error
-          ? err.message
-          : typeof err === "string"
-            ? err
-            : translateRuntime("unknownErrorOccurred")
-
-      // Sanitize HTML and limit length
-      const safe = raw.replace(/<[^>]*>/g, "")
-      const msg = safe.length > 300 ? `${safe.slice(0, 300)}…` : safe
-      return `${translate(baseKey)}: ${msg}`
+      // Do not surface raw error messages to end users; return a localized base message only
+      // Use resolveMessageOrKey if baseKey is already a message key
+      try {
+        const localized = resolveMessageOrKey(baseKey, translate)
+        return localized
+      } catch {
+        return translate(baseKey)
+      }
     }
   )
 
@@ -685,7 +679,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   onRetryValidation,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
-  const translateRuntime = hooks.useTranslation(runtimeMessages)
   const styles = useStyles()
   const makeCancelable = hooks.useCancelablePromiseMaker()
 
@@ -721,11 +714,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       }
       // Build consistent support hint and link if email configured
       const rawEmail = getSupportEmail(config?.supportEmail)
-      const hintText = buildSupportHintText(
-        translateRuntime,
-        rawEmail,
-        supportText
-      )
+      const hintText = buildSupportHintText(translate, rawEmail, supportText)
 
       let localizedMessage = message
       try {
@@ -739,7 +728,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           state={makeErrorView(localizedMessage, { code, actions })}
           renderActions={(_act, ariaLabel) => (
             <div role="group" aria-label={ariaLabel}>
-              {renderSupportHint(rawEmail, translateRuntime, styles, hintText)}
+              {renderSupportHint(rawEmail, translate, styles, hintText)}
             </div>
           )}
           center={false}
@@ -778,7 +767,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     config,
     getFmeClient,
     translate,
-    translateRuntime,
     makeCancelable,
     widgetId: widgetId || "",
     onWorkspaceSelected,
@@ -963,8 +951,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderCurrent = () => {
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
-        const supportHint =
-          config?.supportEmail || translateRuntime("contactSupport")
+        const supportHint = config?.supportEmail || translate("contactSupport")
         return renderError(
           startupValidationError.message,
           undefined,

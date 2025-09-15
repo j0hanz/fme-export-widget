@@ -2,7 +2,6 @@ export default {
   back: "Tillbaka",
   submit: "Beställ",
   cancel: "Avbryt",
-  ok: "OK",
   retry: "Försök igen",
   validatingStartup: "Validerar konfiguration...",
   orderConfirmation: "Beställningen är bekräftad",
@@ -56,4 +55,7 @@ export default {
   ariaSuccessActions: "Lyckade åtgärder",
   ariaRequired: "Obligatoriskt",
   configureWorkspaceParameters: "Konfigurera arbetsytans parametrar",
+  contactSupportWithEmail:
+    "Kontakta supporten på {email} om problemet kvarstår.",
+  contactSupport: "Kontakta supporten.",
 }

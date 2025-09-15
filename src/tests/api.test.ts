@@ -264,13 +264,13 @@ describe("shared/api FmeFlowApiClient", () => {
     const client = makeClient()
     await expect(
       client.submitGeometryJob("x.fmw", { type: "point" } as any, {})
-    ).rejects.toThrow(/Only polygon/)
+    ).rejects.toThrow(/GEOMETRY_TYPE_INVALID/)
 
     const badPoly: any = makePolygon(4326)
     badPoly.extent = null
     await expect(
       client.submitGeometryJob("x.fmw", badPoly, {})
-    ).rejects.toThrow(/must have a valid extent/)
+    ).rejects.toThrow(/GEOMETRY_MISSING/)
   })
 
   test("getJobStatus and cancelJob call correct endpoints", async () => {
@@ -328,7 +328,7 @@ describe("shared/api FmeFlowApiClient", () => {
     const client = makeClient()
     const res = await client.testConnection()
     expect(res.status).toBe(0)
-    expect(res.statusText).toBe("Canceled")
+    expect(res.statusText).toBe("requestAborted")
   })
 
   test("Unexpected token error maps to INVALID_RESPONSE_FORMAT and masks token in logs (security)", async () => {
@@ -385,7 +385,8 @@ describe("shared/api FmeFlowApiClient", () => {
     ).rejects.toMatchObject({
       name: "FmeFlowApiError",
       code: "DATA_DOWNLOAD_ERROR",
-      message: expect.stringContaining("Webhook URL too long"),
+      // message is a code-only key now (no English)
+      message: "DATA_DOWNLOAD_ERROR",
     })
   })
 
@@ -454,8 +455,7 @@ describe("shared/api FmeFlowApiClient", () => {
     ]
     const client = makeClient()
     await expect(client.testConnection()).rejects.toMatchObject({
-      code: "NETWORK_ERROR",
-      message: expect.stringContaining("ArcGIS request module unavailable"),
+      code: "ARCGIS_MODULE_ERROR",
     })
     delete (global as any).__ESRI_TEST_STUB__
   })
