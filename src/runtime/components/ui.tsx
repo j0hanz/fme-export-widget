@@ -482,6 +482,7 @@ export const Input: React.FC<InputProps> = ({
   maxLength,
   errorText,
   type = "text",
+  step,
   onChange,
   onBlur,
   onFileChange,
@@ -516,6 +517,7 @@ export const Input: React.FC<InputProps> = ({
       {...props}
       type={type as any}
       value={value as string | number}
+      step={step as any}
       onChange={handleChange}
       onBlur={handleBlur}
       required={required}
@@ -561,9 +563,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
-        validationMessage && props.id
-          ? ariaDesc(props.id, "error")
-          : undefined
+        validationMessage && props.id ? ariaDesc(props.id, "error") : undefined
       }
     />
   )
@@ -593,37 +593,11 @@ export const UrlInput: React.FC<{
 }
 
 // Switch component
-export const Switch: React.FC<{
-  value?: boolean
-  defaultValue?: boolean
-  onChange?: (checked: boolean) => void
-  style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-}> = ({
-  value,
-  defaultValue,
-  onChange,
-  style,
-  disabled,
-  "aria-label": ariaLabel,
-}) => {
-  const styles = useStyles()
-  return (
-    <JimuSwitch
-      checked={value}
-      defaultChecked={defaultValue}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      onChange={(e) => {
-        onChange?.(e.target.checked)
-      }}
-      css={[styles.fullWidth, style && css(style as any)]}
-    />
-  )
-}
+export const Switch: React.FC<React.ComponentProps<typeof JimuSwitch>> = (
+  props
+) => <JimuSwitch {...props} />
 
-// Radio component (wrapper around jimu-ui Radio)
+// Radio component
 export const Radio: React.FC<{
   options: Array<{ label: string; value: string }>
   value?: string

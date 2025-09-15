@@ -123,7 +123,7 @@ const stripErrorLabel = (errorText?: string): string | undefined => {
   if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
 
   const isIdx = t.toLowerCase().indexOf(" is ")
-  if (isIdx > -1) return t.slice(isIdx + 1).trim()
+  if (isIdx > -1) return t.slice(isIdx + 4).trim()
   return t
 }
 

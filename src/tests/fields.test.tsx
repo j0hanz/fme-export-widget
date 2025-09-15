@@ -115,11 +115,11 @@ jest.mock("../runtime/components/ui", () => ({
       data-testid="checkbox"
     />
   ),
-  Switch: ({ value, onChange, disabled, "aria-label": ariaLabel }) => (
+  Switch: ({ checked, onChange, disabled, "aria-label": ariaLabel }) => (
     <input
       type="checkbox"
-      checked={!!value}
-      onChange={(e) => onChange(e.target.checked)}
+      checked={!!checked}
+      onChange={(e) => onChange(e, e.target.checked)}
       disabled={disabled}
       aria-label={ariaLabel}
       data-testid="switch"

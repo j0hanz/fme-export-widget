@@ -106,6 +106,7 @@ describe("UI components", () => {
         required
         errorText="Err"
         defaultValue="hi"
+        id="ta-1"
         onChange={textAreaChange}
       />
     )

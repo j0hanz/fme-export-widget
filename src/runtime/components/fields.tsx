@@ -27,7 +27,7 @@ import defaultMessages from "./translations/default"
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
 const fmeDateTimeToInput = (v: string): string => {
-  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm
+  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm[:ss]
   const s = (v || "").replace(/\D/g, "")
   if (s.length < 12) return ""
   const y = s.slice(0, 4)
@@ -35,17 +35,18 @@ const fmeDateTimeToInput = (v: string): string => {
   const d = s.slice(6, 8)
   const hh = s.slice(8, 10)
   const mm = s.slice(10, 12)
-  return `${y}-${m}-${d}T${hh}:${mm}`
+  const ss = s.length >= 14 ? s.slice(12, 14) : ""
+  return `${y}-${m}-${d}T${hh}:${mm}${ss ? `:${ss}` : ""}`
 }
 
 const inputToFmeDateTime = (v: string): string => {
-  // YYYY-MM-DDTHH:mm -> YYYYMMDDHHmmss
+  // YYYY-MM-DDTHH:mm[:ss] -> YYYYMMDDHHmmss
   if (!v) return ""
   const [date, time] = v.split("T")
   if (!date || !time) return ""
   const [y, m, d] = date.split("-").map((x) => x || "")
-  const [hh, mm] = time.split(":").map((x) => x || "")
-  return `${y}${m}${d}${hh}${mm}00`
+  const [hh, mm, ss] = time.split(":").map((x) => x || "")
+  return `${y}${m}${d}${hh}${mm}${ss || "00"}`
 }
 
 const fmeDateToInput = (v: string): string => {
@@ -244,6 +245,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <Input
             type="datetime-local"
             value={val}
+            step={1}
             placeholder={field.placeholder || placeholders.enter}
             onChange={(v) => {
               const out = inputToFmeDateTime(v as string)
@@ -346,8 +348,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <div css={css({ margin: "4px 0" })}>
             <Switch
-              value={Boolean(fieldValue)}
-              onChange={(checked) => {
+              checked={Boolean(fieldValue)}
+              onChange={(_evt, checked) => {
                 onChange(checked)
               }}
               disabled={field.readOnly}

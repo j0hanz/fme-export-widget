@@ -261,6 +261,7 @@ export interface InputProps extends BaseProps {
   readonly placeholder?: string
   readonly readOnly?: boolean
   readonly required?: boolean
+  readonly step?: number | string
   readonly type?:
     | "text"
     | "password"
