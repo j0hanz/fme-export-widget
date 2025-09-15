@@ -1,13 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import {
-  React,
-  hooks,
-  css,
-  jsx,
-  type IMThemeVariables,
-  getAppStore,
-} from "jimu-core"
+import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -31,7 +24,7 @@ import {
   TagInput as JimuTagInput,
 } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
-import { useTheme, useThemeLoaded } from "jimu-theme"
+import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 import type {
@@ -253,33 +246,15 @@ const createStyles = (theme: IMThemeVariables) => {
 // Theme-aware styles hook with stable reference caching
 export const useStyles = () => {
   const theme = useTheme()
-
-  // Get current theme URI from app config
-  const themeUri = ((): string => {
-    try {
-      return getAppStore().getState()?.appConfig?.theme || ""
-    } catch {
-      return ""
-    }
-  })()
-  const isThemeReady = useThemeLoaded(themeUri)
-
-  // Cache styles to avoid unnecessary recalculations
   const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
   const themeRef = React.useRef(theme)
-  const readyRef = React.useRef(isThemeReady)
 
-  if (
-    !stylesRef.current ||
-    themeRef.current !== theme ||
-    readyRef.current !== isThemeReady
-  ) {
+  if (!stylesRef.current || themeRef.current !== theme) {
     stylesRef.current = createStyles(theme)
     themeRef.current = theme
-    readyRef.current = isThemeReady
   }
 
-  return stylesRef.current
+  return stylesRef.current || createStyles(theme)
 }
 
 // Utility functions
@@ -327,13 +302,6 @@ const withId = (
     return { id, child }
   }
   return { id: undefined, child }
-}
-
-const getTipContent = (
-  title?: React.ReactNode,
-  content?: React.ReactNode
-): React.ReactNode => {
-  return title ?? content
 }
 
 // Helper functions
@@ -461,7 +429,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
-  const tooltipContent = getTipContent(title, content)
+  const tooltipContent = title ?? content
   if (!tooltipContent || disabled) return children
 
   const tooltipId = otherProps.id || autoId
@@ -1058,12 +1026,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={[
-        styles.relative,
-        css({ position: "relative" }),
-        jimuCss,
-        jimuStyle && css(jimuStyle),
-      ]}
+      css={[styles.relative, jimuCss, jimuStyle && css(jimuStyle)]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >

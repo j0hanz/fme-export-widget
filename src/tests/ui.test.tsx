@@ -290,7 +290,7 @@ describe("UI components", () => {
     // Emotion applies styles via className, not inline. Verify the computed
     // style by walking up from the combobox to find an ancestor with width:321px
     const combo = screen.getByRole("combobox")
-  let el: HTMLElement | null = combo
+    let el: HTMLElement | null = combo
     let found = false
     for (let i = 0; i < 10 && el; i++) {
       const win = el.ownerDocument.defaultView
