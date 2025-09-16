@@ -9,6 +9,8 @@ export default {
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
   notificationEmail: "E‑post",
+  contactSupport: "Kontakta supporten.",
+  contactSupportWithEmail: "Kontakta supporten på {email}",
   emailNotificationSent:
     "När beställningen är klar skickas ett e‑postmeddelande till den här adressen.",
   downloadReady: "Nedladdning klar:",
@@ -55,9 +57,6 @@ export default {
   ariaSuccessActions: "Lyckade åtgärder",
   ariaRequired: "Obligatoriskt",
   configureWorkspaceParameters: "Konfigurera arbetsytans parametrar",
-  contactSupportWithEmail:
-    "Kontakta supporten på {email} om problemet kvarstår.",
-  contactSupport: "Kontakta supporten.",
   runModeLabel: "Körläge",
   runModeAsync: "Asynkron",
   runModeSync: "Synkron",
