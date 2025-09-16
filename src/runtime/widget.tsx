@@ -360,17 +360,24 @@ const validatePolygon = (
       return {
         valid: false,
         error: new ErrorHandlingService().createError(
-          "POLYGON_SELF_INTERSECTING",
+          "GEOMETRY_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
           { code: "GEOM_SELF_INTERSECTING" }
         ),
       }
     }
+    return { valid: true }
   } catch (error) {
     console.warn("Error validating polygon:", error)
+    return {
+      valid: false,
+      error: new ErrorHandlingService().createError(
+        "GEOMETRY_INVALID",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_INVALID" }
+      ),
+    }
   }
-
-  return { valid: true }
 }
 
 // Area constraints
@@ -461,8 +468,16 @@ const attachAoi = (
 const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   const user = await SessionManager.getInstance().getUserInfo()
   const email = user?.email
-  if (!email) throw new Error("MISSING_REQUESTER_EMAIL")
-  if (!isValidEmail(email)) throw new Error("INVALID_EMAIL")
+  if (!email) {
+    const err = new Error("MISSING_REQUESTER_EMAIL")
+    err.name = "MISSING_REQUESTER_EMAIL"
+    throw err
+  }
+  if (!isValidEmail(email)) {
+    const err = new Error("INVALID_EMAIL")
+    err.name = "INVALID_EMAIL"
+    throw err
+  }
   return email
 }
 
