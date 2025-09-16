@@ -334,7 +334,7 @@ describe("Workflow component", () => {
     })
   })
 
-  test("export form: schedule mode fields render and validate start", async () => {
+  test("export form: optional schedule start renders and validates format", async () => {
     const onFormSubmit = jest.fn()
 
     renderWithProviders(
@@ -351,22 +351,27 @@ describe("Workflow component", () => {
       />
     )
 
-    // Switch to schedule mode (sv: Schemalägg (kör en gång))
-    const tabs = screen.getByRole("radiogroup")
-    const schedule = within(tabs).getByRole("radio", { name: /Schemalägg/i })
-    schedule.click()
-
-    // Start time textbox placeholder (sv) should appear
+    // Start field is visible immediately (optional)
     const startInput =
       await screen.findByPlaceholderText(/2025-09-20 09:30:00/i)
-    // Enter a start time
-    fireEvent.change(startInput, { target: { value: "2025-12-01 10:15:00" } })
 
-    // Submit button text (sv: Beställ)
-    const submitBtn = screen.getByRole("button", { name: /Beställ/i })
-    // Should be enabled once required start time is present
+    // With no required fields and empty start, submit is enabled
+    expect(screen.getByRole("button", { name: /Beställ/i })).not.toBeDisabled()
+
+    // Enter an invalid datetime -> should invalidate
+    fireEvent.change(startInput, { target: { value: "invalid" } })
     await waitFor(() => {
-      expect(submitBtn).not.toBeDisabled()
+      expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
+    })
+
+    // Enter a valid datetime -> form becomes valid again
+    fireEvent.change(startInput, {
+      target: { value: "2025-12-01 10:15:00" },
+    })
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Beställ/i })
+      ).not.toBeDisabled()
     })
   })
 

@@ -1,6 +1,14 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, css, jsx, type IMThemeVariables } from "jimu-core"
+import {
+  React,
+  hooks,
+  css,
+  jsx,
+  type IMThemeVariables,
+  type ImmutableObject,
+} from "jimu-core"
+import type { TypographyStyle } from "jimu-theme"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -76,6 +84,22 @@ export const config = {
 } as const
 
 // Theme-aware styles
+const getTypographyStyle = (
+  typographyVariant: ImmutableObject<TypographyStyle>
+) => {
+  if (!typographyVariant) {
+    return {}
+  }
+  return {
+    fontFamily: typographyVariant.fontFamily,
+    fontWeight: typographyVariant.fontWeight?.toString(),
+    fontSize: typographyVariant.fontSize,
+    fontStyle: typographyVariant.fontStyle,
+    lineHeight: typographyVariant.lineHeight,
+    color: typographyVariant.color,
+  }
+}
+
 const createStyles = (theme: IMThemeVariables) => {
   // Cache commonly used spacing and color values
   const spacing = theme.sys.spacing
@@ -146,67 +170,32 @@ const createStyles = (theme: IMThemeVariables) => {
     // Typography styles
     typography: {
       caption: css({
-        ...(typeof (typography as any)?.body2?.asMutable === "function"
-          ? (typography as any).body2.asMutable()
-          : {
-              fontFamily: (typography as any)?.body2?.fontFamily,
-              fontSize: (typography as any)?.body2?.fontSize,
-              fontWeight: (typography as any)?.body2?.fontWeight,
-              lineHeight: (typography as any)?.body2?.lineHeight,
-            }),
+        ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        ...(typeof (typography as any)?.label2?.asMutable === "function"
-          ? (typography as any).label2.asMutable()
-          : {
-              fontFamily: (typography as any)?.label2?.fontFamily,
-              fontSize: (typography as any)?.label2?.fontSize,
-              fontWeight: (typography as any)?.label2?.fontWeight,
-              lineHeight: (typography as any)?.label2?.lineHeight,
-            }),
+        ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        ...(typeof (typography as any)?.title2?.asMutable === "function"
-          ? (typography as any).title2.asMutable()
-          : {
-              fontFamily: (typography as any)?.title2?.fontFamily,
-              fontSize: (typography as any)?.title2?.fontSize,
-              fontWeight: (typography as any)?.title2?.fontWeight,
-              lineHeight: (typography as any)?.title2?.lineHeight,
-            }),
+        ...getTypographyStyle(typography?.title2),
         color: colors?.surface?.backgroundText,
       }),
 
       instruction: css({
-        ...(typeof (typography as any)?.body2?.asMutable === "function"
-          ? (typography as any).body2.asMutable()
-          : {
-              fontFamily: (typography as any)?.body2?.fontFamily,
-              fontSize: (typography as any)?.body2?.fontSize,
-              fontWeight: (typography as any)?.body2?.fontWeight,
-              lineHeight: (typography as any)?.body2?.lineHeight,
-            }),
+        ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        ...(typeof (typography as any)?.body1?.asMutable === "function"
-          ? (typography as any).body1.asMutable()
-          : {
-              fontFamily: (typography as any)?.body1?.fontFamily,
-              fontSize: (typography as any)?.body1?.fontSize,
-              fontWeight: (typography as any)?.body1?.fontWeight,
-              lineHeight: (typography as any)?.body1?.lineHeight,
-            }),
+        ...getTypographyStyle(typography?.body1),
         color: colors?.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",

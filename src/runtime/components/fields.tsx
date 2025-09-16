@@ -71,10 +71,19 @@ const inputToFmeTime = (v: string): string => {
   // HH:mm or HH:mm:ss -> HHmmss
   if (!v) return ""
   const parts = v.split(":").map((x) => x || "")
-  const hh = parts[0] || "00"
-  const mm = parts[1] || "00"
-  const ss = parts[2] || "00"
-  return `${pad2(Number(hh))}${pad2(Number(mm))}${pad2(Number(ss))}`
+  const hh = parts[0] || ""
+  const mm = parts[1] || ""
+  const ss = parts[2] || ""
+
+  const nH = Number(hh)
+  const nM = Number(mm)
+  // FME time requires HHmm, ss is optional
+  if (!Number.isFinite(nH) || !Number.isFinite(nM)) return ""
+
+  const nS = Number(ss)
+  const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
+
+  return `${pad2(nH)}${pad2(nM)}${finalSS}`
 }
 
 const normalizedRgbToHex = (v: string): string | null => {
@@ -484,7 +493,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             step={field.step}
             precision={2}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}

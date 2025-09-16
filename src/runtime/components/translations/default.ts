@@ -77,4 +77,5 @@ export default {
   addRow: "Lägg till rad",
   deleteRow: "Ta bort",
   tableEmpty: "Inga rader tillagda",
+  invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
 }

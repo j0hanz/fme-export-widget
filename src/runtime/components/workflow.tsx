@@ -148,18 +148,14 @@ const createFormValidator = (
     // Add custom validation for schedule fields
     const errors = { ...baseValidation.errors }
 
-    // Validate start field when schedule mode is selected
-    if (values._serviceMode === "schedule") {
-      const start = values.start as string
-      if (!start || typeof start !== "string" || start.trim() === "") {
-        errors.start = "Required field"
-      } else {
-        // Basic format validation for YYYY-MM-DD HH:mm:ss
-        const startTrimmed = start.trim()
-        const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
-        if (!dateTimeRegex.test(startTrimmed)) {
-          errors.start = "Invalid format. Use YYYY-MM-DD HH:mm:ss"
-        }
+    // Optional schedule start field: validate format only when provided
+    const startRaw = values.start as unknown
+    if (typeof startRaw === "string" && startRaw.trim() !== "") {
+      const startTrimmed = startRaw.trim()
+      const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+      if (!dateTimeRegex.test(startTrimmed)) {
+        // Use a translation key so UI can localize
+        errors.start = "invalidDateTimeFormat"
       }
     }
 
@@ -641,6 +637,11 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     return html.replace(/<[^>]*>/g, "")
   })
 
+  const resolveError = hooks.useEventCallback((err?: string) => {
+    const keyOrMsg = stripErrorLabel(err)
+    return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
+  })
+
   return (
     <Form
       variant="layout"
@@ -655,92 +656,29 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {/* Run mode select - only show if schedule mode is allowed */}
+      {/* Optional schedule start field: show only when allowed in config */}
       {config?.allowScheduleMode && (
-        <Field label={translate("runModeLabel")}>
-          <ButtonTabs
-            items={[
-              { value: "async", label: translate("runModeAsync") },
-              { value: "sync", label: translate("runModeSync") },
-              { value: "schedule", label: translate("runModeSchedule") },
-            ]}
-            value={formState.values._serviceMode || "async"}
-            onChange={(value) => setField("_serviceMode", value as string)}
+        <Field
+          label={translate("scheduleStartLabel")}
+          required={false}
+          error={resolveError(formState.errors.start)}
+          helper={translate("emailNotificationSent")}
+        >
+          <DynamicField
+            field={{
+              name: "start",
+              label: translate("scheduleStartLabel"),
+              type: "text" as any,
+              required: false,
+              readOnly: false,
+              placeholder: translate("scheduleStartPlaceholder"),
+            }}
+            value={formState.values.start}
+            onChange={(val) => setField("start", val)}
+            translate={translate}
           />
         </Field>
       )}
-
-      {/* Schedule fields - only show when schedule mode is selected */}
-      {config?.allowScheduleMode &&
-        formState.values._serviceMode === "schedule" && (
-          <>
-            <Field
-              label={translate("scheduleStartLabel")}
-              required={true}
-              error={stripErrorLabel(formState.errors.start)}
-            >
-              <DynamicField
-                field={{
-                  name: "start",
-                  label: translate("scheduleStartLabel"),
-                  type: "text" as any,
-                  required: true,
-                  readOnly: false,
-                  placeholder: translate("scheduleStartPlaceholder"),
-                }}
-                value={formState.values.start}
-                onChange={(val) => setField("start", val)}
-                translate={translate}
-              />
-            </Field>
-            <Field label={translate("scheduleCategoryLabel")}>
-              <DynamicField
-                field={{
-                  name: "category",
-                  label: translate("scheduleCategoryLabel"),
-                  type: "text" as any,
-                  required: false,
-                  readOnly: false,
-                  placeholder: translate("scheduleCategoryPlaceholder"),
-                }}
-                value={formState.values.category}
-                onChange={(val) => setField("category", val)}
-                translate={translate}
-              />
-            </Field>
-            <Field label={translate("scheduleNameLabel")}>
-              <DynamicField
-                field={{
-                  name: "name",
-                  label: translate("scheduleNameLabel"),
-                  type: "text" as any,
-                  required: false,
-                  readOnly: false,
-                  placeholder: translate("scheduleNamePlaceholder"),
-                }}
-                value={formState.values.name}
-                onChange={(val) => setField("name", val)}
-                translate={translate}
-              />
-            </Field>
-            <Field label={translate("scheduleDescriptionLabel")}>
-              <DynamicField
-                field={{
-                  name: "description",
-                  label: translate("scheduleDescriptionLabel"),
-                  type: "textarea" as any,
-                  required: false,
-                  readOnly: false,
-                  placeholder: translate("scheduleDescriptionPlaceholder"),
-                  rows: 3,
-                }}
-                value={formState.values.description}
-                onChange={(val) => setField("description", val)}
-                translate={translate}
-              />
-            </Field>
-          </>
-        )}
 
       {/* Remote dataset URL field - only show if allowed */}
       {config?.allowRemoteDataset && (
@@ -777,7 +715,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
               key={field.name}
               label={field.label}
               required={field.required}
-              error={stripErrorLabel(formState.errors[field.name])}
+              error={resolveError(formState.errors[field.name])}
             >
               <DynamicField
                 field={field}
