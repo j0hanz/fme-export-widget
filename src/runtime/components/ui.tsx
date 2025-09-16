@@ -53,6 +53,26 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../config"
+import errorIcon from "jimu-icons/svg/outlined/suggested/error.svg"
+import warningIcon from "jimu-icons/svg/outlined/suggested/warning.svg"
+import infoIcon from "jimu-icons/svg/outlined/suggested/info.svg"
+import successIcon from "jimu-icons/svg/outlined/suggested/success.svg"
+import lockIcon from "jimu-icons/svg/outlined/editor/lock.svg"
+import stopIcon from "jimu-icons/svg/outlined/editor/stop-circle.svg"
+import closeCircleIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
+import pendingIcon from "jimu-icons/svg/outlined/editor/pending.svg"
+import personLockIcon from "jimu-icons/svg/outlined/application/person-lock.svg"
+import emailIcon from "jimu-icons/svg/outlined/application/email.svg"
+import settingsIcon from "jimu-icons/svg/outlined/application/setting.svg"
+import folderIcon from "jimu-icons/svg/outlined/application/folder.svg"
+import urlIcon from "jimu-icons/svg/outlined/data/url.svg"
+import codeIcon from "jimu-icons/svg/outlined/data/code.svg"
+import documentIcon from "jimu-icons/svg/outlined/data/document.svg"
+import frameworkIcon from "jimu-icons/svg/outlined/brand/widget-framework.svg"
+import offlineIcon from "jimu-icons/svg/outlined/editor/sync-off.svg"
+import unlinkChainIcon from "jimu-icons/svg/outlined/editor/unlink-chain.svg"
+import globeIcon from "jimu-icons/svg/outlined/data/globe.svg"
+import minusCircleIcon from "jimu-icons/svg/outlined/editor/minus-circle.svg"
 
 type TranslateFn = (key: string, params?: any) => string
 
@@ -251,6 +271,80 @@ export const useStyles = () => {
   }
 
   return stylesRef.current || createStyles(theme)
+}
+export const getErrorIconSrc = (code?: string): string => {
+  if (!code || typeof code !== "string") return errorIcon
+  const k = code.trim().toUpperCase()
+
+  if (
+    k === "TOKEN" ||
+    k === "AUTH_ERROR" ||
+    k === "INVALID_TOKEN" ||
+    k === "TOKEN_EXPIRED" ||
+    k === "AUTH_REQUIRED"
+  ) {
+    return lockIcon
+  }
+  if (
+    k === "SERVER" ||
+    k === "SERVER_ERROR" ||
+    k === "BAD_GATEWAY" ||
+    k === "SERVICE_UNAVAILABLE" ||
+    k === "GATEWAY_TIMEOUT"
+  ) {
+    return errorIcon
+  }
+  if (
+    k === "REPOSITORY" ||
+    k === "REPO_NOT_FOUND" ||
+    k === "REPOSITORY_NOT_FOUND" ||
+    k === "INVALID_REPOSITORY"
+  ) {
+    return folderIcon
+  }
+  if (k === "DNS_ERROR") return globeIcon
+  if (k === "NETWORK" || k === "NETWORK_ERROR") return unlinkChainIcon
+
+  // Specific technical issues
+  if (k === "OFFLINE" || k === "STARTUP_NETWORK_ERROR") return offlineIcon
+  if (k === "CORS_ERROR" || k === "SSL_ERROR") return lockIcon
+  if (
+    k === "INVALID_URL" ||
+    k === "URL_TOO_LONG" ||
+    k === "MAX_URL_LENGTH_EXCEEDED"
+  )
+    return urlIcon
+  if (k === "HEADERS_TOO_LARGE") return documentIcon
+  if (k === "BAD_RESPONSE") return codeIcon
+  if (k === "BAD_REQUEST") return warningIcon
+  if (k === "PAYLOAD_TOO_LARGE" || k === "DATA_DOWNLOAD_ERROR")
+    return documentIcon
+  if (k === "RATE_LIMITED") return minusCircleIcon
+  if (k === "TIMEOUT" || k === "ETIMEDOUT") return pendingIcon
+  if (k === "ABORT") return stopIcon
+  if (k === "CANCELLED") return closeCircleIcon
+  if (k === "WEBHOOK_AUTH_ERROR") return personLockIcon
+  if (k === "ARCGIS_MODULE_ERROR") return frameworkIcon
+
+  // Configuration & validation
+  if (
+    k === "INVALID_CONFIG" ||
+    k === "CONFIGMISSING" ||
+    k === "MISSINGREQUIREDFIELDS"
+  )
+    return settingsIcon
+  if (
+    k === "USEREMAILMISSING" ||
+    k === "MISSING_REQUESTER_EMAIL" ||
+    k === "INVALID_EMAIL"
+  )
+    return emailIcon
+
+  // Generic defaults
+  if (k === "CONNECTION_ERROR") return unlinkChainIcon
+  if (k === "SUCCESS") return successIcon
+  if (k === "INFO") return infoIcon
+  return errorIcon
 }
 
 // Utility functions
@@ -1347,7 +1441,13 @@ const StateView: React.FC<StateViewProps> = ({
       case "error":
         return (
           <div role="alert" aria-live="assertive">
-            <div css={styles.typography.title}>{state.message}</div>
+            <div css={css({ display: "flex", alignItems: "center", gap: 6 })}>
+              <Icon
+                src={getErrorIconSrc((state as any).code)}
+                size={config.icon.large}
+              />
+              <div css={styles.typography.title}>{state.message}</div>
+            </div>
             {state.code && (
               <div css={styles.typography.caption}>
                 {translate("errorCode")}: {state.code}

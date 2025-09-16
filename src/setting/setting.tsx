@@ -1590,11 +1590,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("maskEmailOnSuccess", checked)
             }}
             aria-label={translate("maskEmailOnSuccess")}
-            // helper via label tooltip
           />
         </SettingRow>
-        {/** Inline helpers removed in favour of label tooltips */}
-
         {/* Request timeout (ms) */}
         <SettingRow
           flow="wrap"
@@ -1629,7 +1626,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={translate("requestTimeoutPlaceholder")}
           />
         </SettingRow>
-        {/** Helper moved to label tooltip */}
       </SettingSection>
       <SettingSection>
         {/* AOI Parameter Name */}
@@ -1713,7 +1709,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.maxArea}
           />
           {fieldErrors.maxArea && (
-            <SettingRow flow="wrap" level={3}>
+            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
               <Alert
                 id={`${ID.maxArea}-error`}
                 fullWidth
@@ -1725,7 +1721,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        {/** AOI helpers moved to label tooltips */}
         {/* Support email (optional) */}
         <SettingRow
           flow="wrap"
@@ -1761,7 +1756,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             errorText={fieldErrors.supportEmail}
           />
           {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap" level={3}>
+            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
               <Alert
                 id={`${ID.supportEmail}-error`}
                 fullWidth
