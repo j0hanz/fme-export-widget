@@ -106,6 +106,7 @@ describe("UI components", () => {
         required
         errorText="Err"
         defaultValue="hi"
+        id="ta-1"
         onChange={textAreaChange}
       />
     )
@@ -287,13 +288,21 @@ describe("UI components", () => {
       />
     )
     await flush()
-    const styled = Array.from(
-      document.querySelectorAll<HTMLElement>("[style]")
-    ).find((el) => {
-      const attr = el.getAttribute("style") || ""
-      return el.style.width === "321px" || /width\s*:\s*321(?:px)?/.test(attr)
-    })
-    expect(styled).toBeTruthy()
+    // Emotion applies styles via className, not inline. Verify the computed
+    // style by walking up from the combobox to find an ancestor with width:321px
+    const combo = screen.getByRole("combobox")
+    let el: HTMLElement | null = combo
+    let found = false
+    for (let i = 0; i < 10 && el; i++) {
+      const win = el.ownerDocument.defaultView
+      const width = win ? win.getComputedStyle(el).width : ""
+      if (width === "321px") {
+        found = true
+        break
+      }
+      el = el.parentElement
+    }
+    expect(found).toBeTruthy()
   })
 
   // Example: advanced helpers for async flows and store injection

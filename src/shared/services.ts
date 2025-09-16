@@ -387,7 +387,6 @@ export class ParameterFormService {
     if (
       p.type === ParameterType.NOVALUE ||
       p.type === ParameterType.GEOMETRY ||
-      p.type === ParameterType.MESSAGE ||
       p.type === ParameterType.SCRIPTED
     ) {
       return false
@@ -530,11 +529,12 @@ export class ParameterFormService {
           label: param.description || param.name,
           type,
           required: !param.optional,
-          readOnly: false,
+          readOnly: type === FormFieldType.MESSAGE,
           description: param.description,
           defaultValue: param.defaultValue as FormPrimitive,
           placeholder: param.description || "",
-          ...(options?.length ? { options } : {}),
+          // Only include options if non-empty
+          ...(options?.length ? { options: [...options] } : {}),
           ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
           ...(min !== undefined || max !== undefined || step !== undefined
             ? { min, max, step }
@@ -581,6 +581,7 @@ export class ParameterFormService {
       [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
       [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
       [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
+      [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
     }
     return typeMap[param.type] || FormFieldType.TEXT
   }
@@ -1322,6 +1323,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
     if (code === "ECONNRESET" || code === "ERR_NETWORK") return "networkError"
     if (code === "ENOTFOUND" || code === "ERR_NAME_NOT_RESOLVED")
       return "invalidUrl"
+    if (code === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
+    if (code === "INVALID_EMAIL") return "invalidEmail"
   }
   // Handle known status codes first
   if (status === 0) return "startupNetworkError"
@@ -1335,6 +1338,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
   // Extract message from error object
   const message = (err as Error)?.message
   if (typeof message === "string" && message.trim()) {
+    if (message === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
+    if (message === "INVALID_EMAIL") return "invalidEmail"
     // Normalize common fetch error messages
     const lowerMessage = message.toLowerCase()
     if (lowerMessage.includes("failed to fetch")) {

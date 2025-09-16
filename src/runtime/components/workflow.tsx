@@ -9,6 +9,7 @@ import {
   ButtonTabs,
   useStyles,
   renderSupportHint,
+  DateTimePickerWrapper,
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
@@ -23,6 +24,7 @@ import {
   type ApiResponse,
   ViewMode,
   DrawingTool,
+  FormFieldType,
   makeLoadingView,
   makeEmptyView,
   ErrorType,
@@ -110,6 +112,8 @@ const initFormValues = (
   for (const field of formConfig) {
     if (field.defaultValue !== undefined) {
       result[field.name] = field.defaultValue
+    } else if (field.type === FormFieldType.MULTI_SELECT) {
+      result[field.name] = []
     }
   }
   return result
@@ -123,7 +127,7 @@ const stripErrorLabel = (errorText?: string): string | undefined => {
   if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
 
   const isIdx = t.toLowerCase().indexOf(" is ")
-  if (isIdx > -1) return t.slice(isIdx + 1).trim()
+  if (isIdx > -1) return t.slice(isIdx + 4).trim()
   return t
 }
 
@@ -134,8 +138,34 @@ const createFormValidator = (
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
-  const validateValues = (values: FormValues) =>
-    parameterService.validateFormValues(values, getFormConfig())
+
+  const validateValues = (values: FormValues) => {
+    // First validate the workspace parameters
+    const baseValidation = parameterService.validateFormValues(
+      values,
+      getFormConfig()
+    )
+
+    // Add custom validation for schedule fields
+    const errors = { ...baseValidation.errors }
+
+    // Optional schedule start field: validate format only when provided
+    const startRaw = values.start as unknown
+    if (typeof startRaw === "string" && startRaw.trim() !== "") {
+      const startTrimmed = startRaw.trim()
+      const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+      if (!dateTimeRegex.test(startTrimmed)) {
+        // Use a translation key so UI can localize
+        errors.start = "invalidDateTimeFormat"
+      }
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors,
+    }
+  }
+
   const initializeValues = () => initFormValues(getFormConfig())
   return { getFormConfig, validateValues, initializeValues }
 }
@@ -513,6 +543,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   isSubmitting,
   translate,
   widgetId,
+  config,
 }) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [errorService] = React.useState(() => new ErrorHandlingService())
@@ -607,6 +638,43 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     return html.replace(/<[^>]*>/g, "")
   })
 
+  const resolveError = hooks.useEventCallback((err?: string) => {
+    const keyOrMsg = stripErrorLabel(err)
+    return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
+  })
+
+  // Helpers to convert between UI ISO local (YYYY-MM-DDTHH:mm[:ss]) and stored schedule string (YYYY-MM-DD HH:mm:ss)
+  const toIsoLocal = hooks.useEventCallback(
+    (spaceDateTime: string | undefined): string => {
+      const s = (spaceDateTime || "").trim()
+      if (!s) return ""
+      // Ensure seconds exist; incoming format expected "YYYY-MM-DD HH:mm[:ss]"
+      const parts = s.split(" ")
+      if (parts.length !== 2) return ""
+      const [d, t] = parts
+      const tParts = t.split(":")
+      const hh = tParts[0] || "00"
+      const mm = tParts[1] || "00"
+      const ss = tParts[2] || "00"
+      return `${d}T${hh}:${mm}:${ss}`
+    }
+  )
+
+  const toSpaceDateTime = hooks.useEventCallback(
+    (isoLocal: string | undefined): string => {
+      const s = (isoLocal || "").trim()
+      if (!s) return ""
+      const parts = s.split("T")
+      if (parts.length !== 2) return ""
+      const [d, t] = parts
+      const tParts = t.split(":")
+      const hh = tParts[0] || "00"
+      const mm = tParts[1] || "00"
+      const ss = (tParts[2] || "00").padStart(2, "0")
+      return `${d} ${hh}:${mm}:${ss}`
+    }
+  )
+
   return (
     <Form
       variant="layout"
@@ -621,21 +689,71 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {validator.getFormConfig().map((field: DynamicFieldConfig) => (
+      {/* Optional schedule start field: show only when allowed in config */}
+      {config?.allowScheduleMode && (
         <Field
-          key={field.name}
-          label={field.label}
-          required={field.required}
-          error={stripErrorLabel(formState.errors[field.name])}
+          label={translate("scheduleStartLabel")}
+          required={false}
+          error={resolveError(formState.errors.start)}
+          helper={translate("emailNotificationSent")}
+        >
+          <DateTimePickerWrapper
+            value={toIsoLocal(formState.values.start as string | undefined)}
+            onChange={(iso) => {
+              const spaceVal = toSpaceDateTime(iso)
+              setField("start", spaceVal)
+            }}
+          />
+        </Field>
+      )}
+
+      {/* Remote dataset URL field - only show if allowed */}
+      {config?.allowRemoteDataset && (
+        <Field
+          label={translate("remoteDatasetLabel")}
+          helper={translate("remoteDatasetHelper")}
         >
           <DynamicField
-            field={field}
-            value={formState.values[field.name]}
-            onChange={(val) => setField(field.name, val)}
+            field={{
+              name: "opt_geturl",
+              label: translate("remoteDatasetLabel"),
+              type: "url" as any,
+              required: false,
+              readOnly: false,
+              placeholder: translate("remoteDatasetPlaceholder"),
+            }}
+            value={formState.values.opt_geturl}
+            onChange={(val) => setField("opt_geturl", val)}
             translate={translate}
           />
         </Field>
-      ))}
+      )}
+
+      {/* Workspace parameters */}
+      {validator
+        .getFormConfig()
+        .map((field: DynamicFieldConfig) => {
+          // Add defensive check to ensure field is valid
+          if (!field || !field.name || !field.type) {
+            return null
+          }
+          return (
+            <Field
+              key={field.name}
+              label={field.label}
+              required={field.required}
+              error={resolveError(formState.errors[field.name])}
+            >
+              <DynamicField
+                field={field}
+                value={formState.values[field.name]}
+                onChange={(val) => setField(field.name, val)}
+                translate={translate}
+              />
+            </Field>
+          )
+        })
+        .filter(Boolean)}
     </Form>
   )
 }
@@ -944,6 +1062,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         onSubmit={onFormSubmit}
         isSubmitting={isSubmittingOrder}
         translate={translate}
+        config={config}
       />
     )
   }

@@ -334,6 +334,77 @@ describe("Workflow component", () => {
     })
   })
 
+  test("export form: optional schedule start renders and validates format", async () => {
+    const onFormSubmit = jest.fn()
+
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.EXPORT_FORM}
+        instructionText=""
+        isModulesLoading={false}
+        selectedWorkspace="sched"
+        workspaceParameters={[] as any}
+        onFormBack={jest.fn()}
+        onFormSubmit={onFormSubmit}
+        config={{ allowScheduleMode: true } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Start field is visible immediately (optional)
+    // The UI now renders split date/time inputs under the Start label
+    const startLabel = await screen.findByText(
+      /Starttid \(YYYY-MM-DD HH:mm:ss\)/i
+    )
+    const startGroup = startLabel.closest("div") as HTMLElement
+    const dateEl = startGroup.querySelector('input[type="date"]')
+    const timeEl = startGroup.querySelector('input[type="time"]')
+    expect(dateEl).toBeTruthy()
+    expect(timeEl).toBeTruthy()
+    const dateInput = dateEl as HTMLInputElement
+    const timeInput = timeEl as HTMLInputElement
+
+    // With no required fields and empty start, submit is enabled
+    expect(screen.getByRole("button", { name: /Beställ/i })).not.toBeDisabled()
+
+    // Enter a partial date only -> field remains effectively empty; form stays valid
+    fireEvent.change(dateInput, { target: { value: "2025-12-01" } })
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Beställ/i })
+      ).not.toBeDisabled()
+    })
+
+    // Enter a valid datetime (add time) -> form becomes valid again
+    fireEvent.change(timeInput, { target: { value: "10:15:00" } })
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /Beställ/i })
+      ).not.toBeDisabled()
+    })
+  })
+
+  test("export form: remote dataset field renders when allowed", () => {
+    renderWithProviders(
+      <Workflow
+        state={ViewMode.EXPORT_FORM}
+        instructionText=""
+        isModulesLoading={false}
+        selectedWorkspace="remote"
+        workspaceParameters={[] as any}
+        onFormBack={jest.fn()}
+        onFormSubmit={jest.fn()}
+        config={{ allowRemoteDataset: true } as any}
+        showHeaderActions={false}
+      />
+    )
+
+    // Remote dataset field placeholder (sv): https://exempel.se/data.zip
+    expect(
+      screen.getByPlaceholderText("https://exempel.se/data.zip")
+    ).toBeInTheDocument()
+  })
+
   test("order result: shows success, download link and reuse button", () => {
     const onReuseGeography = jest.fn()
     renderWithProviders(

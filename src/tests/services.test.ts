@@ -476,7 +476,7 @@ describe("ParameterFormService", () => {
       expect(fields[0].step).toBe(1)
     })
 
-    test("skips non-input types: GEOMETRY, MESSAGE, SCRIPTED, NOVALUE", () => {
+    test("skips non-input types: GEOMETRY, SCRIPTED, NOVALUE (MESSAGE is rendered as read-only)", () => {
       const params: WorkspaceParameter[] = [
         makeParam({ name: "g", type: ParameterType.GEOMETRY }),
         makeParam({ name: "m", type: ParameterType.MESSAGE }),
@@ -484,7 +484,11 @@ describe("ParameterFormService", () => {
         makeParam({ name: "n", type: ParameterType.NOVALUE }),
       ]
       const fields = service.convertParametersToFields(params)
-      expect(fields).toHaveLength(0)
+      // MESSAGE should be included as an informational field
+      expect(fields).toHaveLength(1)
+      expect(fields[0].name).toBe("m")
+      expect(fields[0].type).toBe(FormFieldType.MESSAGE)
+      expect(fields[0].readOnly).toBe(true)
     })
 
     test("conditional: DB/WEB connection render only with options", () => {

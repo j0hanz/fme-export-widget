@@ -5,6 +5,7 @@ import {
   type AllWidgetProps,
   hooks,
   jsx,
+  css,
   ReactRedux,
   type IMState,
   WidgetState,
@@ -54,7 +55,7 @@ import {
   getSupportEmail,
 } from "../shared/utils"
 
-// Dynamic ESRI module loader with test stub support
+// Dynamic ESRI module loader with test environment support
 const loadEsriModules = async (
   modules: readonly string[]
 ): Promise<unknown[]> => {
@@ -62,7 +63,12 @@ const loadEsriModules = async (
   if (process.env.NODE_ENV === "test") {
     const testStub = (global as any).__ESRI_TEST_STUB__
     if (typeof testStub === "function") {
-      return testStub(modules)
+      try {
+        const stubbed = testStub(modules)
+        if (Array.isArray(stubbed)) return stubbed
+      } catch (_) {
+        // fall through to real loader
+      }
     }
   }
 
@@ -359,21 +365,25 @@ const validatePolygon = (
       return {
         valid: false,
         error: new ErrorHandlingService().createError(
-          "POLYGON_SELF_INTERSECTING",
+          "GEOMETRY_SELF_INTERSECTING",
           ErrorType.GEOMETRY,
           { code: "GEOM_SELF_INTERSECTING" }
         ),
       }
     }
+    return { valid: true }
   } catch (error) {
     console.warn("Error validating polygon:", error)
+    return {
+      valid: false,
+      error: new ErrorHandlingService().createError(
+        "GEOMETRY_INVALID",
+        ErrorType.GEOMETRY,
+        { code: "GEOM_INVALID" }
+      ),
+    }
   }
-
-  return { valid: true }
 }
-
-// Export utility functions
-export { calcArea, validatePolygon }
 
 // Area constraints
 const checkMaxArea = (
@@ -395,82 +405,98 @@ const checkMaxArea = (
 const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: "sync" | "async" = "async"
+  serviceMode: "sync" | "async" | "schedule" = "async"
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
+  // allowlist service mode
+  const allowedModes = ["sync", "async", "schedule"] as const
+  const mode = (allowedModes as readonly string[]).includes(serviceMode)
+    ? serviceMode
+    : "async"
   return {
     ...data,
     opt_requesteremail: userEmail,
-    opt_servicemode: serviceMode,
+    opt_servicemode: mode,
     opt_responseformat: "json",
     opt_showresult: "true",
   }
 }
 
-// Type guard: graphic JSON with geometry
-const isGraphicJsonWithPolygon = (
+// Type guard: checks for valid Esri Polygon geometry JSON, handling Graphic JSON wrapper.
+const isPolygonGeometry = (
   value: unknown
-): value is { geometry: { rings: unknown } } => {
+): value is { rings: unknown } | { geometry: { rings: unknown } } => {
   if (!value || typeof value !== "object") return false
-  const v = value as { [key: string]: unknown }
-  if (!("geometry" in v)) return false
-  const geometry = v.geometry
-  if (!geometry || typeof geometry !== "object") return false
-  const g = geometry as { [key: string]: unknown }
-  if (!("rings" in g)) return false
-  const rings = g.rings
-  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
-}
 
-// Type guard: polygon geometry JSON
-const isPolygonJson = (value: unknown): value is { rings: unknown } => {
-  if (!value || typeof value !== "object") return false
-  const v = value as { [key: string]: unknown }
-  if (!("rings" in v)) return false
-  const rings = v.rings
-  return Array.isArray(rings) && rings.length > 0 && Array.isArray(rings[0])
+  // Handle cases where the geometry is wrapped in a `geometry` property (e.g., Graphic JSON)
+  const geom =
+    "geometry" in value ? (value as { geometry: unknown }).geometry : value
+  if (!geom || typeof geom !== "object") return false
+
+  // Check for the defining characteristic of a polygon: the `rings` array.
+  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
+  if (!Array.isArray(rings) || rings.length === 0) return false
+  // Each ring must be an array of at least 3 tuples, each tuple being an array of 2-4 finite numbers.
+  const isValidTuple = (pt: unknown) =>
+    Array.isArray(pt) &&
+    pt.length >= 2 &&
+    pt.length <= 4 &&
+    pt.every((n) => Number.isFinite(n))
+  const isValidRing = (ring: unknown) =>
+    Array.isArray(ring) && ring.length >= 3 && ring.every(isValidTuple)
+  return (rings as unknown[]).every(isValidRing)
 }
 
 // Attach AOI to FME parameters
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined
+  currentGeometry: __esri.Geometry | undefined,
+  config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  // Prefer graphic JSON with geometry property
-  if (isGraphicJsonWithPolygon(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson.geometry) }
+  // Sanitize parameter name to safe characters
+  const rawName = (config?.aoiParamName || "AreaOfInterest").toString()
+  const safeName = rawName.replace(/[^A-Za-z0-9_\-]/g, "").trim()
+  const paramName = safeName || "AreaOfInterest"
+  let aoiJson: unknown = null
+
+  // Use the provided geometry JSON if it's a valid polygon
+  if (isPolygonGeometry(geometryJson)) {
+    aoiJson = "geometry" in geometryJson ? geometryJson.geometry : geometryJson
+  } else {
+    // As a fallback, use the current geometry from the map state
+    const geometryToUse = currentGeometry?.toJSON()
+    if (isPolygonGeometry(geometryToUse)) {
+      aoiJson = geometryToUse
+    }
   }
 
-  // Use direct geometry JSON
-  if (isPolygonJson(geometryJson)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryJson) }
-  }
-
-  // Use current geometry as last resort
-  const geometryToUse = currentGeometry?.toJSON()
-  if (isPolygonJson(geometryToUse)) {
-    return { ...base, AreaOfInterest: JSON.stringify(geometryToUse) }
+  if (aoiJson) {
+    try {
+      const serialized = JSON.stringify(aoiJson)
+      return { ...base, [paramName]: serialized }
+    } catch (_) {
+      // fall through without AOI if serialization fails
+    }
   }
 
   return base
 }
 
 // Get and validate user email
-const getEmail = async (): Promise<string> => {
-  // Get user info from session
+const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   const user = await SessionManager.getInstance().getUserInfo()
   const email = user?.email
-
   if (!email) {
-    throw new Error("UserEmailMissing")
+    const err = new Error("MISSING_REQUESTER_EMAIL")
+    err.name = "MISSING_REQUESTER_EMAIL"
+    throw err
   }
-
-  // Validate email format
   if (!isValidEmail(email)) {
-    throw new Error("INVALID_EMAIL")
+    const err = new Error("INVALID_EMAIL")
+    err.name = "INVALID_EMAIL"
+    throw err
   }
-
   return email
 }
 
@@ -482,9 +508,37 @@ const prepFmeParams = (
   currentGeometry: __esri.Geometry | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  const mode: "sync" | "async" = config?.syncMode ? "sync" : "async"
-  const base = buildFmeParams(formData, userEmail, mode)
-  return attachAoi(base, geometryJson, currentGeometry)
+  const data = (formData as any)?.data || {}
+  // Determine service mode:
+  // - If allowScheduleMode and a non-empty 'start' exists -> schedule
+  // - Else, keep backward compatibility with hidden _serviceMode (if somehow provided)
+  // - Else, fall back to widget setting (sync/async)
+  let chosen: "sync" | "async" | "schedule"
+  const startValRaw = data.start as unknown
+  const hasStart =
+    typeof startValRaw === "string" && startValRaw.trim().length > 0
+
+  if (config?.allowScheduleMode && hasStart) {
+    chosen = "schedule"
+  } else if (
+    (data._serviceMode as string) === "sync" ||
+    (data._serviceMode as string) === "async" ||
+    (data._serviceMode as string) === "schedule"
+  ) {
+    chosen = data._serviceMode as "sync" | "async" | "schedule"
+  } else {
+    chosen = config?.syncMode ? "sync" : "async"
+  }
+
+  // Ensure schedule directives when chosen
+  if (chosen === "schedule") {
+    if (!data.trigger) data.trigger = "runonce"
+    // 'start' expected in 'YYYY-MM-DD HH:mm:ss' from the form
+  }
+
+  const base = buildFmeParams({ data }, userEmail, chosen)
+  const withAoi = attachAoi(base, geometryJson, currentGeometry, config)
+  return applyDirectiveDefaults(withAoi, config)
 }
 
 // Apply admin defaults for FME Task Manager directives
@@ -511,7 +565,7 @@ const applyDirectiveDefaults = (
   }
   if (!has("tm_tag")) {
     const v = typeof config.tm_tag === "string" ? config.tm_tag.trim() : ""
-    if (v) out.tm_tag = v
+    if (v) out.tm_tag = v.substring(0, 128)
   }
 
   return out
@@ -689,7 +743,8 @@ const processFmeResponse = (
 
   const serviceInfo: FmeServiceInfo =
     (data as any).serviceResponse || (data as any)
-  const status = serviceInfo?.statusInfo?.status || serviceInfo?.status
+  const statusRaw = serviceInfo?.statusInfo?.status || serviceInfo?.status
+  const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : ""
   const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
   const parsedId =
     typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
@@ -871,7 +926,7 @@ export default function Widget(
                 )}
               </div>
               {Array.isArray(act) && act.length > 0 && (
-                <div style={{ marginTop: 8 }}>
+                <div css={css({ marginTop: 8 })}>
                   {act.map((a, i) => (
                     <Button key={i} text={a.label} onClick={a.onClick} />
                   ))}
@@ -999,7 +1054,7 @@ export default function Widget(
       // Step 3: validate user email
       setValidationStep(translate("validatingUserEmail"))
       try {
-        const email = await getEmail()
+        const email = await getEmail(props.config)
         if (!isValidEmail(email)) {
           setValidationError(
             createStartupError(
@@ -1303,7 +1358,7 @@ export default function Widget(
 
     try {
       const [userEmail, fmeClient] = await Promise.all([
-        getEmail(),
+        getEmail(props.config),
         Promise.resolve(createFmeFlowClient(props.config)),
       ])
 
@@ -1328,11 +1383,13 @@ export default function Widget(
       }
 
       // Submit to FME Flow
+      const serviceType = props.config?.service || "download"
       const fmeResponse = await makeCancelable(
-        fmeClient.runDataDownload(
+        fmeClient.runWorkspace(
           workspace,
           finalParams,
           undefined,
+          serviceType,
           controller.signal
         )
       )
@@ -1747,3 +1804,6 @@ Reflect.set(
     return { state: sub || initialFmeState }
   }
 )
+
+// Consolidated exports (internal helpers exposed strictly for unit tests)
+export { calcArea, validatePolygon, getEmail, attachAoi, prepFmeParams }

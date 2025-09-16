@@ -390,6 +390,36 @@ describe("shared/api FmeFlowApiClient", () => {
     })
   })
 
+  test("runDataStreaming posts parameters and includes opt_showresult", async () => {
+    const esriRequest = (global as any).esriRequest as jest.Mock
+    const client = makeClient()
+    await client.runDataStreaming("stream.fmw", { a: "1" }, "repoX")
+    const [url, options] = esriRequest.mock.calls[0]
+    expect(url).toBe(
+      "https://fme.example.com/fmedatastreaming/repoX/stream.fmw"
+    )
+    expect(options.method).toBe("post")
+    // Body is form-urlencoded; ensure opt_showresult present
+    const body = options.body as string
+    expect(body).toMatch(/opt_showresult=true/)
+    expect(body).toMatch(/a=1/)
+  })
+
+  test("runWorkspace delegates to streaming or download based on service arg", async () => {
+    const client = makeClient()
+    const spyStream = jest
+      .spyOn(client as any, "runDataStreaming")
+      .mockResolvedValue({ status: 200 })
+    const spyDownload = jest
+      .spyOn(client as any, "runDataDownload")
+      .mockResolvedValue({ status: 200 })
+
+    await client.runWorkspace("ws.fmw", { p: 1 }, "r1", "stream")
+    expect(spyStream).toHaveBeenCalled()
+    await client.runWorkspace("ws.fmw", { p: 2 }, "r1", "download")
+    expect(spyDownload).toHaveBeenCalled()
+  })
+
   test("runDataDownload throws for non-JSON or malformed JSON and for auth errors", async () => {
     const client = makeClient()
 

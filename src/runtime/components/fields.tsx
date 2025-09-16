@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx } from "jimu-core"
+import { React, hooks, jsx, css } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -15,6 +15,9 @@ import {
   TagInput,
   ColorPickerWrapper,
   DatePickerWrapper,
+  DateTimePickerWrapper,
+  Button,
+  RichText,
 } from "./ui"
 import {
   FormFieldType,
@@ -27,7 +30,7 @@ import defaultMessages from "./translations/default"
 const pad2 = (n: number) => String(n).padStart(2, "0")
 
 const fmeDateTimeToInput = (v: string): string => {
-  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm
+  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm[:ss]
   const s = (v || "").replace(/\D/g, "")
   if (s.length < 12) return ""
   const y = s.slice(0, 4)
@@ -35,17 +38,18 @@ const fmeDateTimeToInput = (v: string): string => {
   const d = s.slice(6, 8)
   const hh = s.slice(8, 10)
   const mm = s.slice(10, 12)
-  return `${y}-${m}-${d}T${hh}:${mm}`
+  const ss = s.length >= 14 ? s.slice(12, 14) : ""
+  return `${y}-${m}-${d}T${hh}:${mm}${ss ? `:${ss}` : ""}`
 }
 
 const inputToFmeDateTime = (v: string): string => {
-  // YYYY-MM-DDTHH:mm -> YYYYMMDDHHmmss
+  // YYYY-MM-DDTHH:mm[:ss] -> YYYYMMDDHHmmss
   if (!v) return ""
   const [date, time] = v.split("T")
   if (!date || !time) return ""
   const [y, m, d] = date.split("-").map((x) => x || "")
-  const [hh, mm] = time.split(":").map((x) => x || "")
-  return `${y}${m}${d}${hh}${mm}00`
+  const [hh, mm, ss] = time.split(":").map((x) => x || "")
+  return `${y}${m}${d}${hh}${mm}${ss || "00"}`
 }
 
 const fmeDateToInput = (v: string): string => {
@@ -68,10 +72,19 @@ const inputToFmeTime = (v: string): string => {
   // HH:mm or HH:mm:ss -> HHmmss
   if (!v) return ""
   const parts = v.split(":").map((x) => x || "")
-  const hh = parts[0] || "00"
-  const mm = parts[1] || "00"
-  const ss = parts[2] || "00"
-  return `${pad2(Number(hh))}${pad2(Number(mm))}${pad2(Number(ss))}`
+  const hh = parts[0] || ""
+  const mm = parts[1] || ""
+  const ss = parts[2] || ""
+
+  const nH = Number(hh)
+  const nM = Number(mm)
+  // FME time requires HHmm, ss is optional
+  if (!Number.isFinite(nH) || !Number.isFinite(nM)) return ""
+
+  const nS = Number(ss)
+  const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
+
+  return `${pad2(nH)}${pad2(nM)}${finalSS}`
 }
 
 const normalizedRgbToHex = (v: string): string | null => {
@@ -113,7 +126,7 @@ export const normalizeFormValue = (
     return isMultiSelect ? [] : ""
   }
   if (isMultiSelect) {
-    return Array.isArray(value) ? (value as ReadonlyArray<string | number>) : []
+    return Array.isArray(value) ? value : []
   }
   return typeof value === "string" || typeof value === "number" ? value : ""
 }
@@ -215,6 +228,86 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   // Render field based on its type
   const renderByType = (): JSX.Element => {
     switch (field.type) {
+      case FormFieldType.MESSAGE: {
+        const html = field.description || field.label || ""
+        return <RichText html={html} />
+      }
+      case FormFieldType.TABLE: {
+        // Minimal table: array of strings; allow add/remove rows
+        const parseRows = (): string[] => {
+          const v = value as any
+          if (Array.isArray(v))
+            return v.map((x) => (typeof x === "string" ? x : String(x)))
+          if (typeof v === "string") {
+            try {
+              const arr = JSON.parse(v)
+              return Array.isArray(arr) ? arr.map((x) => String(x)) : []
+            } catch {
+              return v ? [v] : []
+            }
+          }
+          return []
+        }
+
+        const rows = parseRows()
+
+        const updateRow = (idx: number, val: string) => {
+          const next = [...rows]
+          next[idx] = val
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        const addRow = () => {
+          onChange([...(rows || []), ""] as unknown as FormPrimitive)
+        }
+
+        const removeRow = (idx: number) => {
+          const next = rows.filter((_, i) => i !== idx)
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        return (
+          <div data-testid="table-field">
+            {rows.length === 0 && <>{translate("tableEmpty")}</>}
+            <div role="table" aria-label={field.label}>
+              {rows.map((r, i) => (
+                <div key={i} role="row">
+                  <div role="cell">
+                    <Input
+                      type="text"
+                      value={r}
+                      placeholder={field.placeholder || placeholders.enter}
+                      onChange={(val) => {
+                        const s = typeof val === "string" ? val : ""
+                        updateRow(i, s)
+                      }}
+                      disabled={field.readOnly}
+                    />
+                  </div>
+                  <div role="cell">
+                    <Button
+                      text={translate("deleteRow")}
+                      variant="text"
+                      onClick={() => {
+                        removeRow(i)
+                      }}
+                      aria-label={translate("deleteRow")}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <>
+              <Button
+                text={translate("addRow")}
+                variant="outlined"
+                onClick={addRow}
+                aria-label={translate("addRow")}
+              />
+            </>
+          </div>
+        )
+      }
       case FormFieldType.SELECT: {
         const options = field.options || []
 
@@ -241,15 +334,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val =
           typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
         return (
-          <Input
-            type="datetime-local"
+          <DateTimePickerWrapper
             value={val}
-            placeholder={field.placeholder || placeholders.enter}
             onChange={(v) => {
-              const out = inputToFmeDateTime(v as string)
+              const out = inputToFmeDateTime(v)
               onChange(out as FormPrimitive)
             }}
-            readOnly={field.readOnly}
+            disabled={field.readOnly}
           />
         )
       }
@@ -344,15 +435,16 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       case FormFieldType.SWITCH:
         return (
-          <Switch
-            value={Boolean(fieldValue)}
-            onChange={(checked) => {
-              onChange(checked)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-            style={{ margin: "4px 0" }}
-          />
+          <div css={css({ margin: "4px 0" })}>
+            <Switch
+              checked={Boolean(fieldValue)}
+              onChange={(_evt, checked) => {
+                onChange(checked)
+              }}
+              disabled={field.readOnly}
+              aria-label={field.label}
+            />
+          </div>
         )
       case FormFieldType.RADIO: {
         const options = field.options || []
@@ -399,7 +491,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             step={field.step}
             precision={2}
             disabled={field.readOnly}
-            aria-label={translate(field.label)}
+            aria-label={field.label}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -484,7 +576,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val = typeof fieldValue === "string" ? fieldValue : ""
         return (
           <Input
-            type="text"
+            type="tel"
             value={val}
             placeholder={field.placeholder || translate("placeholderPhone")}
             onChange={(value) => {
@@ -498,7 +590,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val = typeof fieldValue === "string" ? fieldValue : ""
         return (
           <Input
-            type="text"
+            type="search"
             value={val}
             placeholder={field.placeholder || translate("placeholderSearch")}
             onChange={(value) => {

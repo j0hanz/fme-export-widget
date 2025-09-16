@@ -93,7 +93,7 @@ describe("Setting panel", () => {
     // Server URL and Token inputs are present via placeholders
     const urlInput = screen.getByPlaceholderText("https://fme.server.com")
     expect(urlInput).toBeInTheDocument()
-    const tokenInput = screen.getByPlaceholderText("Din FME API-nyckel")
+    const tokenInput = screen.getByPlaceholderText(/Din FME.?nyckel/i)
     expect(tokenInput).toBeInTheDocument()
 
     // Test button is disabled when missing fields
@@ -143,7 +143,7 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    const tokenInput = screen.getByPlaceholderText("Din FME API-nyckel")
+    const tokenInput = screen.getByPlaceholderText(/Din FME.?nyckel/i)
     fireEvent.change(tokenInput, { target: { value: "short" } })
     fireEvent.blur(tokenInput)
 
@@ -196,14 +196,21 @@ describe("Setting panel", () => {
     fireEvent.click(testBtn)
 
     // Wait until refresh button becomes available (indicates success and valid inputs)
-    await screen.findByTitle(/Uppdatera repositories/i)
+    await screen.findByTitle(/Uppdatera lista/i)
 
-    // Combobox should be enabled
-    const comboBtn = screen.getByRole("combobox")
-    expect(comboBtn).toHaveAttribute("aria-disabled", "false")
+    // Combobox should be enabled (repository selector)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombobox = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    expect(repositoryCombobox).toHaveAttribute("aria-disabled", "false")
 
     // Refresh button visible after success
-    const refreshBtn = screen.getByTitle(/Uppdatera repositories/i)
+    const refreshBtn = screen.getByTitle(/Uppdatera lista/i)
     expect(refreshBtn).toBeInTheDocument()
   })
 
@@ -283,10 +290,10 @@ describe("Setting panel", () => {
       expect(testBtn2).not.toBeDisabled()
     })
     fireEvent.click(testBtn2)
-    await screen.findByTitle(/Uppdatera repositories/i)
+    await screen.findByTitle(/Uppdatera lista/i)
 
     // Click refresh repositories button
-    const refreshBtn = screen.getByTitle(/Uppdatera repositories/i)
+    const refreshBtn = screen.getByTitle(/Uppdatera lista/i)
     fireEvent.click(refreshBtn)
 
     // Shared services.getRepositories should be called with sanitized URL and token
@@ -295,8 +302,15 @@ describe("Setting panel", () => {
     })
 
     // Dropdown should now include the refreshed options
-    const combo = await screen.findByRole("combobox")
-    fireEvent.click(combo)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombo = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    fireEvent.click(repositoryCombo)
     await screen.findByText("Repo1")
     await screen.findByText("Repo2")
   })
@@ -344,11 +358,18 @@ describe("Setting panel", () => {
     })
     fireEvent.click(testBtn3)
     // Wait until the repository dropdown becomes enabled (refresh button visible)
-    await screen.findByTitle(/Uppdatera repositories/i)
+    await screen.findByTitle(/Uppdatera lista/i)
 
     // Change selection to "B" via the dropdown: open and click the option
-    const combo = await screen.findByRole("combobox")
-    fireEvent.click(combo)
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombo = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    fireEvent.click(repositoryCombo)
     const optB = await screen.findByText("B")
     fireEvent.click(optB)
 
@@ -388,7 +409,7 @@ describe("Setting panel", () => {
     fireEvent.blur(ttlInput as Element)
 
     // tm_tag is separate, has its own placeholder
-    const tagInput = screen.getByPlaceholderText(/t\.ex\. hög/i)
+    const tagInput = screen.getByPlaceholderText(/t\.ex\.?\s*high/i)
     fireEvent.change(tagInput, { target: { value: "prio" } })
     fireEvent.blur(tagInput)
 
@@ -449,14 +470,15 @@ describe("Setting panel", () => {
     renderSetting(<WrappedSetting {...props} />)
 
     // Find by label text
-    const label = screen.getByText(/Tidsgräns för begäran \(ms\)/i)
+    const label = screen.getByText(/Tidsgräns \(ms\)/i)
     const row = label.closest("div")?.parentElement
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
 
-    // Placeholder and helper should communicate default 30000
+    // Placeholder communicates default 30000; helper is now a tooltip on the label
     expect(input).toHaveAttribute("placeholder", "30000")
-    expect(screen.getByText(/Standard 30000 ms\./i)).toBeInTheDocument()
+    const describedBy = label.getAttribute("aria-describedby")
+    expect(describedBy).toBeTruthy()
 
     // Enter float -> coerced to int on blur
     fireEvent.change(input as Element, { target: { value: "12345.67" } })
@@ -489,7 +511,7 @@ describe("Setting panel", () => {
     renderSetting(<WrappedSetting {...props} />)
 
     // Find by label text
-    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
+    const label = screen.getByText(/Max AOI.?yta \(m²\)/i)
     const row = label.closest("div")?.parentElement
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
@@ -523,7 +545,7 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    const label = screen.getByText(/Maximal AOI-yta \(m²\)/i)
+    const label = screen.getByText(/Max AOI.?yta \(m²\)/i)
     const row = label.closest("div")?.parentElement
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
@@ -535,7 +557,7 @@ describe("Setting panel", () => {
     // Should show inline error and not call onSettingChange with maxArea
     await waitFor(() => {
       expect(
-        screen.getByText(/Värdet är för stort\. Ange högst 10000000000 m²\./i)
+        screen.getByText(/För stort värde\. Ange högst 10000000000 m²\./i)
       ).toBeInTheDocument()
     })
 
@@ -569,7 +591,7 @@ describe("Setting panel", () => {
 
     // Find the switch by role and label text
     const toggle = await screen.findByRole("switch", {
-      name: /Dölj e‑postadress/i,
+      name: /Maskera e.?postadress/i,
     })
     expect(toggle).toBeInTheDocument()
     // Toggle on

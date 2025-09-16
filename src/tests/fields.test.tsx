@@ -12,6 +12,18 @@ import { FormFieldType, type DynamicFieldConfig } from "../config"
 
 // Mock UI components to avoid rendering complexity in unit tests
 jest.mock("../runtime/components/ui", () => ({
+  RichText: ({ html }) => {
+    const strip = (input?: string) => {
+      if (!input) return ""
+      let out = input.replace(
+        /<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+        ""
+      )
+      out = out.replace(/<[^>]*>/g, "")
+      return out
+    }
+    return <div data-testid="rich-text">{strip(html)}</div>
+  },
   Select: ({
     value,
     onChange,
@@ -115,11 +127,11 @@ jest.mock("../runtime/components/ui", () => ({
       data-testid="checkbox"
     />
   ),
-  Switch: ({ value, onChange, disabled, "aria-label": ariaLabel }) => (
+  Switch: ({ checked, onChange, disabled, "aria-label": ariaLabel }) => (
     <input
       type="checkbox"
-      checked={!!value}
-      onChange={(e) => onChange(e.target.checked)}
+      checked={!!checked}
+      onChange={(e) => onChange(e, e.target.checked)}
       disabled={disabled}
       aria-label={ariaLabel}
       data-testid="switch"
@@ -210,6 +222,24 @@ jest.mock("../runtime/components/ui", () => ({
       onChange={(e) => onChange(e.target.value)}
       data-testid="date-picker"
     />
+  ),
+  DateTimePickerWrapper: ({ value, onChange }) => (
+    <input
+      type="datetime-local"
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid="input"
+    />
+  ),
+  Button: ({ text, onClick, variant, "aria-label": ariaLabel }) => (
+    <button
+      onClick={onClick}
+      aria-label={ariaLabel}
+      data-variant={variant}
+      data-testid="button"
+    >
+      {text}
+    </button>
   ),
 }))
 
@@ -930,7 +960,7 @@ describe("Fields module", () => {
 
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("+1234567890")
-      expect(input).toHaveAttribute("type", "text")
+      expect(input).toHaveAttribute("type", "tel")
     })
 
     test("renders SEARCH field", () => {
@@ -948,6 +978,7 @@ describe("Fields module", () => {
 
       const input = screen.getByTestId("input")
       expect(input).toHaveValue("search query")
+      expect(input).toHaveAttribute("type", "search")
       expect(input).toHaveAttribute("placeholder", "Sök...")
     })
 
@@ -1032,6 +1063,70 @@ describe("Fields module", () => {
 
       const input = screen.getByTestId("input")
       expect(input).toHaveAttribute("placeholder", "Custom placeholder")
+    })
+
+    test("renders MESSAGE field using sanitized rich text", () => {
+      const field = createField({
+        type: FormFieldType.MESSAGE,
+        description: "Hello <script>alert('x')</script><b>World</b>",
+      })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={undefined}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const msg = screen.getByTestId("rich-text")
+      expect(msg).toBeInTheDocument()
+      expect(msg).toHaveTextContent("Hello World")
+    })
+
+    test("renders TABLE field and supports add/remove/edit rows", () => {
+      const field = createField({
+        type: FormFieldType.TABLE,
+        placeholder: "Row value",
+      })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={[]}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      // Initially empty state
+      expect(screen.getByText("Inga rader tillagda")).toBeInTheDocument()
+
+      // Add a row
+      fireEvent.click(screen.getByRole("button", { name: "Lägg till rad" }))
+      expect(onChange).toHaveBeenLastCalledWith([""])
+
+      // Re-render with one empty row
+      onChange.mockClear()
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={[""]}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+      const input = screen.getByTestId("input")
+      fireEvent.change(input, { target: { value: "abc" } })
+      expect(onChange).toHaveBeenLastCalledWith(["abc"])
+
+      // Delete the row
+      onChange.mockClear()
+      fireEvent.click(screen.getByRole("button", { name: "Ta bort" }))
+      expect(onChange).toHaveBeenLastCalledWith([])
     })
   })
 })

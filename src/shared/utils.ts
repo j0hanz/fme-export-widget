@@ -302,3 +302,14 @@ export const getSupportEmail = (
     typeof configuredEmailRaw === "string" ? configuredEmailRaw.trim() : ""
   return isValidEmail(cfg) ? cfg : undefined
 }
+
+// Safe HTML-to-text sanitizer used in UI display (no HTML rendering)
+export const stripHtmlToText = (input?: string): string => {
+  if (!input) return ""
+  let out = input.replace(
+    /<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    ""
+  )
+  out = out.replace(/<[^>]*>/g, "")
+  return out
+}

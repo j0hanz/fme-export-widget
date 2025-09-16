@@ -6,8 +6,9 @@ import {
   css,
   jsx,
   type IMThemeVariables,
-  getAppStore,
+  type ImmutableObject,
 } from "jimu-core"
+import type { TypographyStyle } from "jimu-theme"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -31,7 +32,7 @@ import {
   TagInput as JimuTagInput,
 } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
-import { useTheme, useThemeLoaded } from "jimu-theme"
+import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import { EMAIL_PLACEHOLDER } from "../../shared/utils"
 import type {
@@ -83,6 +84,22 @@ export const config = {
 } as const
 
 // Theme-aware styles
+const getTypographyStyle = (
+  typographyVariant: ImmutableObject<TypographyStyle>
+) => {
+  if (!typographyVariant) {
+    return {}
+  }
+  return {
+    fontFamily: typographyVariant.fontFamily,
+    fontWeight: typographyVariant.fontWeight?.toString(),
+    fontSize: typographyVariant.fontSize,
+    fontStyle: typographyVariant.fontStyle,
+    lineHeight: typographyVariant.lineHeight,
+    color: typographyVariant.color,
+  }
+}
+
 const createStyles = (theme: IMThemeVariables) => {
   // Cache commonly used spacing and color values
   const spacing = theme.sys.spacing
@@ -92,7 +109,6 @@ const createStyles = (theme: IMThemeVariables) => {
   return {
     // Layout utilities with better performance
     row: css({ display: "flex" }),
-    col: css({ display: "flex", flexDirection: "column" }),
     flex1: css({ flex: 1 }),
     fullWidth: css({
       display: "flex",
@@ -105,27 +121,9 @@ const createStyles = (theme: IMThemeVariables) => {
     marginTop: (value: number) => css({ marginTop: value }),
     gapBtnGroup: css({ gap: spacing?.(2) }),
 
-    // Text utilities
-    textCenter: css({ textAlign: "center" }),
-    textEnd: css({ textAlign: "end" }),
-
     // Interactive utilities
-    disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
+    disabledCursor: css({ display: "inline-block", cursor: "not-allowed" }),
     textareaResize: css({ resize: "vertical" }),
-
-    // Flex utilities
-    flexCentered: css({
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      alignItems: "center",
-    }),
-
-    flexBetween: css({
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-    }),
 
     // Main layout styles
     parent: css({
@@ -151,13 +149,6 @@ const createStyles = (theme: IMThemeVariables) => {
       flex: "1 1 auto",
     }),
 
-    headerRow: css({
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "baseline",
-      gap: spacing?.(1),
-    }),
-
     // State patterns
     centered: css({
       display: "flex",
@@ -179,34 +170,32 @@ const createStyles = (theme: IMThemeVariables) => {
     // Typography styles
     typography: {
       caption: css({
-        fontSize: typography?.label2?.fontSize,
+        ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(1)} 0`,
       }),
 
       label: css({
         display: "block",
-        fontSize: typography?.label2?.fontSize,
+        ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
         marginBottom: 0,
       }),
 
       title: css({
-        fontSize: typography?.body1?.fontSize,
-        fontWeight: typography?.body1?.fontWeight,
+        ...getTypographyStyle(typography?.title2),
         color: colors?.surface?.backgroundText,
       }),
 
       instruction: css({
-        fontSize: typography?.label2?.fontSize,
+        ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
       link: css({
-        fontSize: typography?.body1?.fontSize,
-        fontWeight: typography?.body1?.fontWeight,
+        ...getTypographyStyle(typography?.body1),
         color: colors?.action.link?.default,
         textDecoration: "underline",
         wordBreak: "break-all",
@@ -253,33 +242,15 @@ const createStyles = (theme: IMThemeVariables) => {
 // Theme-aware styles hook with stable reference caching
 export const useStyles = () => {
   const theme = useTheme()
-
-  // Get current theme URI from app config
-  const themeUri = ((): string => {
-    try {
-      return getAppStore().getState()?.appConfig?.theme || ""
-    } catch {
-      return ""
-    }
-  })()
-  const isThemeReady = useThemeLoaded(themeUri)
-
-  // Cache styles to avoid unnecessary recalculations
   const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
   const themeRef = React.useRef(theme)
-  const readyRef = React.useRef(isThemeReady)
 
-  if (
-    !stylesRef.current ||
-    themeRef.current !== theme ||
-    readyRef.current !== isThemeReady
-  ) {
+  if (!stylesRef.current || themeRef.current !== theme) {
     stylesRef.current = createStyles(theme)
     themeRef.current = theme
-    readyRef.current = isThemeReady
   }
 
-  return stylesRef.current
+  return stylesRef.current || createStyles(theme)
 }
 
 // Utility functions
@@ -327,13 +298,6 @@ const withId = (
     return { id, child }
   }
   return { id: undefined, child }
-}
-
-const getTipContent = (
-  title?: React.ReactNode,
-  content?: React.ReactNode
-): React.ReactNode => {
-  return title ?? content
 }
 
 // Helper functions
@@ -440,7 +404,7 @@ export const Icon: React.FC<IconProps> = ({
       role="img"
       aria-hidden={!ariaLabel}
       aria-label={ariaLabel}
-      style={style}
+      css={style ? css(style as any) : undefined}
     />
   )
 }
@@ -461,7 +425,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   // Ensure children is a valid React element
   if (!React.isValidElement(children)) return <>{children}</>
 
-  const tooltipContent = getTipContent(title, content)
+  const tooltipContent = title ?? content
   if (!tooltipContent || disabled) return children
 
   const tooltipId = otherProps.id || autoId
@@ -489,10 +453,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
       title={tooltipContent}
       showArrow={showArrow}
       placement={placement}
-      enterDelay={config.tooltip.delay.enter}
-      enterNextDelay={config.tooltip.delay.next}
-      enterTouchDelay={config.tooltip.delay.touch}
-      leaveDelay={config.tooltip.delay.leave}
       disabled={disabled}
       {...otherProps}
     >
@@ -514,6 +474,7 @@ export const Input: React.FC<InputProps> = ({
   maxLength,
   errorText,
   type = "text",
+  step,
   onChange,
   onBlur,
   onFileChange,
@@ -548,6 +509,7 @@ export const Input: React.FC<InputProps> = ({
       {...props}
       type={type as any}
       value={value as string | number}
+      step={step as any}
       onChange={handleChange}
       onBlur={handleBlur}
       required={required}
@@ -555,9 +517,11 @@ export const Input: React.FC<InputProps> = ({
       title={errorText}
       aria-required={required}
       aria-invalid={!!errorText}
-      aria-describedby={errorText ? ariaDesc(props.id || "input") : undefined}
-      css={styles.fullWidth}
-      style={(props as any).style}
+      aria-describedby={errorText && props.id ? ariaDesc(props.id) : undefined}
+      css={[
+        styles.fullWidth,
+        (props as any).style && css((props as any).style),
+      ]}
     />
   )
 }
@@ -587,14 +551,11 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      css={styles.textareaResize}
-      style={props.style}
+      css={[styles.textareaResize, props.style && css(props.style as any)]}
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
-        validationMessage
-          ? ariaDesc(props.id || "textarea", "error")
-          : undefined
+        validationMessage && props.id ? ariaDesc(props.id, "error") : undefined
       }
     />
   )
@@ -616,47 +577,21 @@ export const UrlInput: React.FC<{
       placeholder={placeholder}
       schemes={["https"] as any}
       onChange={(res) => {
-        onChange?.(res?.value || "")
+        const raw = (res?.value || "").trim()
+        const sanitized = raw
+        onChange?.(sanitized)
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
 
 // Switch component
-export const Switch: React.FC<{
-  value?: boolean
-  defaultValue?: boolean
-  onChange?: (checked: boolean) => void
-  style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-}> = ({
-  value,
-  defaultValue,
-  onChange,
-  style,
-  disabled,
-  "aria-label": ariaLabel,
-}) => {
-  const styles = useStyles()
-  return (
-    <JimuSwitch
-      checked={value}
-      defaultChecked={defaultValue}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      onChange={(e) => {
-        onChange?.(e.target.checked)
-      }}
-      style={style}
-      css={styles.fullWidth}
-    />
-  )
-}
+export const Switch: React.FC<React.ComponentProps<typeof JimuSwitch>> = (
+  props
+) => <JimuSwitch {...props} />
 
-// Radio component (wrapper around jimu-ui Radio)
+// Radio component
 export const Radio: React.FC<{
   options: Array<{ label: string; value: string }>
   value?: string
@@ -677,8 +612,7 @@ export const Radio: React.FC<{
   const styles = useStyles()
   return (
     <div
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -738,8 +672,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -787,8 +720,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      style={style}
-      css={styles.fullWidth}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -810,8 +742,7 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -832,8 +763,7 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
   )
 }
@@ -846,17 +776,149 @@ export const DatePickerWrapper: React.FC<{
   style?: React.CSSProperties
 }> = ({ value, defaultValue, onChange, style }) => {
   const styles = useStyles()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const openPicker = hooks.useEventCallback(() => {
+    const el = inputRef.current as any
+    if (el && typeof el.showPicker === "function") {
+      try {
+        el.showPicker()
+      } catch {
+        // ignore if browser blocks showPicker
+      }
+    }
+  })
 
   return (
     <input
       type="date"
+      ref={inputRef}
       value={value || defaultValue || ""}
       onChange={(e) => {
         onChange?.(e.target.value)
       }}
-      style={style}
-      css={styles.fullWidth}
+      onFocus={openPicker}
+      onMouseDown={() => {
+        // also try opening on mouse/touch down for convenience
+        openPicker()
+      }}
+      css={[styles.fullWidth, style && css(style as any)]}
     />
+  )
+}
+
+// DateTimePicker component (date + time inputs)
+export const DateTimePickerWrapper: React.FC<{
+  value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  defaultValue?: string
+  onChange?: (dateTime: string) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+}> = ({ value, defaultValue, onChange, style, disabled }) => {
+  const styles = useStyles()
+  const dateRef = React.useRef<HTMLInputElement | null>(null)
+  const timeRef = React.useRef<HTMLInputElement | null>(null)
+
+  // Local split state for better typing UX
+  const [datePart, setDatePart] = React.useState<string>("")
+  const [timePart, setTimePart] = React.useState<string>("")
+
+  // Sync from controlled props
+  React.useEffect(() => {
+    const src = value ?? defaultValue ?? ""
+    if (typeof src === "string" && src) {
+      const [d, t] = src.split("T")
+      setDatePart(d || "")
+      setTimePart(t || "")
+    } else {
+      setDatePart("")
+      setTimePart("")
+    }
+  }, [value, defaultValue])
+
+  const emitChange = hooks.useEventCallback((d: string, t: string) => {
+    const hasDate = !!d
+    const hasTime = !!t
+    const normalizedTime = t // allow HH:mm or HH:mm:ss
+    const combined = hasDate && hasTime ? `${d}T${normalizedTime}` : ""
+    onChange?.(combined)
+  })
+
+  const openPicker = hooks.useEventCallback((el: HTMLInputElement | null) => {
+    const anyEl = el as any
+    if (anyEl && typeof anyEl.showPicker === "function") {
+      try {
+        anyEl.showPicker()
+      } catch {
+        // ignore if not permitted
+      }
+    }
+  })
+
+  return (
+    <div
+      css={[
+        styles.row,
+        styles.fullWidth,
+        css({ flexWrap: "wrap", gap: 4 }),
+        style && css(style as any),
+      ]}
+    >
+      <input
+        type="date"
+        ref={dateRef}
+        value={datePart}
+        onChange={(e) => {
+          const d = e.target.value
+          setDatePart(d)
+          emitChange(d, timePart)
+        }}
+        onFocus={() => openPicker(dateRef.current)}
+        onMouseDown={() => openPicker(dateRef.current)}
+        disabled={disabled}
+      />
+      <input
+        type="time"
+        step={1}
+        ref={timeRef}
+        value={timePart}
+        onChange={(e) => {
+          const t = e.target.value
+          setTimePart(t)
+          emitChange(datePart, t)
+        }}
+        onFocus={() => openPicker(timeRef.current)}
+        onMouseDown={() => openPicker(timeRef.current)}
+        disabled={disabled}
+      />
+    </div>
+  )
+}
+
+// RichText component
+const stripHtmlTags = (input?: string): string => {
+  if (!input) return ""
+  // Remove script and style blocks
+  let out = input.replace(
+    /<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
+    ""
+  )
+  // Remove all remaining tags
+  out = out.replace(/<[^>]*>/g, "")
+  return out
+}
+
+export const RichText: React.FC<{
+  html?: string
+  placeholder?: string
+  className?: string
+  style?: React.CSSProperties
+}> = ({ html, placeholder, className, style }) => {
+  const text = stripHtmlTags(html)
+  return (
+    <div className={className} css={style ? css(style as any) : undefined}>
+      {text || placeholder || ""}
+    </div>
   )
 }
 
@@ -922,24 +984,30 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={styles.fullWidth}
-      style={style}
+      css={[styles.fullWidth, style && css(style as any)]}
     >
-      {options.map((option) => (
-        <JimuOption
-          key={String(option.value)}
-          value={option.value}
-          active={String(option.value) === stringValue}
-          disabled={option.disabled}
-          onClick={() => {
-            if (!option.disabled && String(option.value) !== stringValue) {
-              handleSingleSelectChange(undefined, option.value)
-            }
-          }}
-        >
-          {!option.hideLabel && option.label}
-        </JimuOption>
-      ))}
+      {(options || [])
+        .map((option) => {
+          if (!option || option.value == null) {
+            return null
+          }
+          return (
+            <JimuOption
+              key={String(option.value)}
+              value={option.value}
+              active={String(option.value) === stringValue}
+              disabled={Boolean(option.disabled)}
+              onClick={() => {
+                if (!option.disabled && String(option.value) !== stringValue) {
+                  handleSingleSelectChange(undefined, option.value)
+                }
+              }}
+            >
+              {!option.hideLabel && (option.label || String(option.value))}
+            </JimuOption>
+          )
+        })
+        .filter(Boolean)}
     </JimuSelect>
   )
 }
@@ -956,7 +1024,7 @@ export const MultiSelectControl: React.FC<{
 }> = ({
   options = [],
   values,
-  defaultValues,
+  defaultValues = [],
   onChange,
   placeholder,
   disabled = false,
@@ -964,39 +1032,40 @@ export const MultiSelectControl: React.FC<{
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
+
   const [current, setCurrent] = useValue<Array<string | number>>(
     values,
-    defaultValues || []
+    defaultValues
   )
 
   // Default placeholder if none provided
   const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
 
   const handleChange = hooks.useEventCallback(
-    (_value: string | number, values: Array<string | number>) => {
-      setCurrent(values)
-      onChange?.(values)
+    (_value: string | number, newValues: Array<string | number>) => {
+      setCurrent(newValues || [])
+      onChange?.(newValues || [])
     }
   )
 
-  // Normalize options into items prop expected by jimu-ui MultiSelect
-  const items = (options || []).map((opt) => ({
-    label: opt.label,
-    value: opt.value,
-    disabled: opt.disabled,
-  }))
+  // Filter out invalid options and map to expected format
+  const items = options
+    .filter((opt) => opt && opt.value != null && opt.label != null)
+    .map((opt) => ({
+      value: opt.value,
+      label: String(opt.label),
+      disabled: Boolean(opt.disabled),
+    }))
 
   return (
-    <div style={style}>
+    <div css={style ? css(style as any) : undefined}>
       <MultiSelect
-        items={items as any}
-        values={current}
+        values={current || []}
+        defaultValues={defaultValues}
         onChange={handleChange}
-        onClickItem={() => {
-          void 0
-        }}
         placeholder={finalPlaceholder}
         disabled={disabled}
+        items={items}
         css={styles.fullWidth}
       />
     </div>
@@ -1049,9 +1118,12 @@ export const Button: React.FC<ButtonProps> = ({
       ? color
       : "default"
 
+  // Absorb potential style/css from incoming props so no inline style attribute is forwarded
+  const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
+
   const buttonElement = (
     <JimuButton
-      {...jimuProps}
+      {...restJimuProps}
       color={safeColor}
       variant={variant}
       size={size}
@@ -1063,8 +1135,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={styles.relative}
-      style={{ position: "relative", ...jimuProps.style }}
+      css={[styles.relative, jimuCss, jimuStyle && css(jimuStyle)]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1265,6 +1336,7 @@ const StateView: React.FC<StateViewProps> = ({
               aria-label={translate("ariaLoadingDetails")}
             >
               {message && <div>{message}</div>}
+              {detail && <div css={styles.typography.caption}>{detail}</div>}
             </div>
           )}
         </div>
@@ -1322,9 +1394,11 @@ const StateView: React.FC<StateViewProps> = ({
   return (
     <div
       className={className}
-      style={style}
       data-testid={testId}
-      css={shouldCenter ? styles.centered : undefined}
+      css={[
+        shouldCenter ? styles.centered : undefined,
+        style && css(style as any),
+      ]}
     >
       {content}
     </div>
@@ -1347,8 +1421,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const groupStyle: React.CSSProperties = style ? { ...style } : undefined
-
   const createButton = (
     buttonConfig: GroupButtonConfig,
     side: "left" | "right"
@@ -1365,7 +1437,10 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   }
 
   return (
-    <div css={styles.button.group} className={className} style={groupStyle}>
+    <div
+      css={[styles.button.group, style && css(style as any)]}
+      className={className}
+    >
       {leftButton && createButton(leftButton, "left")}
       {rightButton && createButton(rightButton, "right")}
     </div>
@@ -1422,7 +1497,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <Field
         className={className}
-        style={style}
+        css={style ? css(style as any) : undefined}
         label={label}
         helper={helper}
         required={required}
@@ -1457,7 +1532,10 @@ export const Field: React.FC<FieldProps> = ({
     autoId
   )
   return (
-    <FormGroup className={className} style={style}>
+    <FormGroup
+      className={className}
+      css={style ? css(style as any) : undefined}
+    >
       <Label
         css={[styles.block, styles.typography.label]}
         check={false}
