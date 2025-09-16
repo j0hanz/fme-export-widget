@@ -29,6 +29,11 @@ export default {
   errorRepositoriesHelper:
     "Anslutningen lyckades, men listan över repositories kunde inte hämtas.",
   errorHttpStatus: "Begäran misslyckades (status {status}).",
+  // Helpers used when composing status-specific errors
+  helperNetwork: "Kontrollera FME‑adressen och nätverket.",
+  helperAuth:
+    "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
+  helperNotFound: "Kontrollera serveradressen och sökvägen till API:t.",
   errorNetworkShort: "Kontrollera FME‑adressen och nätverket.",
   errorInvalidServerUrl: "Ange en giltig FME‑adress.",
   errorTokenIsInvalid: "Ogiltig API‑nyckel.",
