@@ -15,6 +15,7 @@ import {
   TagInput,
   ColorPickerWrapper,
   DatePickerWrapper,
+  DateTimePickerWrapper,
   Button,
   RichText,
 } from "./ui"
@@ -333,16 +334,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const val =
           typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
         return (
-          <Input
-            type="datetime-local"
+          <DateTimePickerWrapper
             value={val}
-            step={1}
-            placeholder={field.placeholder || placeholders.enter}
             onChange={(v) => {
-              const out = inputToFmeDateTime(v as string)
+              const out = inputToFmeDateTime(v)
               onChange(out as FormPrimitive)
             }}
-            readOnly={field.readOnly}
+            disabled={field.readOnly}
           />
         )
       }

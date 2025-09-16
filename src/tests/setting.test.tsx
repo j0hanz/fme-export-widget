@@ -475,9 +475,10 @@ describe("Setting panel", () => {
     const input = row?.querySelector("input")
     expect(input).toBeInTheDocument()
 
-    // Placeholder and helper should communicate default 30000
+    // Placeholder communicates default 30000; helper is now a tooltip on the label
     expect(input).toHaveAttribute("placeholder", "30000")
-    expect(screen.getByText(/Standard 30000 ms\./i)).toBeInTheDocument()
+    const describedBy = label.getAttribute("aria-describedby")
+    expect(describedBy).toBeTruthy()
 
     // Enter float -> coerced to int on blur
     fireEvent.change(input as Element, { target: { value: "12345.67" } })

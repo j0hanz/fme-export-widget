@@ -352,22 +352,30 @@ describe("Workflow component", () => {
     )
 
     // Start field is visible immediately (optional)
-    const startInput =
-      await screen.findByPlaceholderText(/2025-09-20 09:30:00/i)
+    // The UI now renders split date/time inputs under the Start label
+    const startLabel = await screen.findByText(
+      /Starttid \(YYYY-MM-DD HH:mm:ss\)/i
+    )
+    const startGroup = startLabel.closest("div") as HTMLElement
+    const inputs = within(startGroup).getAllByRole("textbox")
+    const dateInput = inputs.find(
+      (el) => (el as HTMLInputElement).type === "date"
+    ) as HTMLInputElement
+    const timeInput = inputs.find(
+      (el) => (el as HTMLInputElement).type === "time"
+    ) as HTMLInputElement
 
     // With no required fields and empty start, submit is enabled
     expect(screen.getByRole("button", { name: /Beställ/i })).not.toBeDisabled()
 
-    // Enter an invalid datetime -> should invalidate
-    fireEvent.change(startInput, { target: { value: "invalid" } })
+    // Enter a partial/invalid datetime (date only) -> should invalidate
+    fireEvent.change(dateInput, { target: { value: "2025-12-01" } })
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
     })
 
-    // Enter a valid datetime -> form becomes valid again
-    fireEvent.change(startInput, {
-      target: { value: "2025-12-01 10:15:00" },
-    })
+    // Enter a valid datetime (add time) -> form becomes valid again
+    fireEvent.change(timeInput, { target: { value: "10:15:00" } })
     await waitFor(() => {
       expect(
         screen.getByRole("button", { name: /Beställ/i })

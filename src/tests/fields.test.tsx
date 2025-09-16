@@ -223,6 +223,14 @@ jest.mock("../runtime/components/ui", () => ({
       data-testid="date-picker"
     />
   ),
+  DateTimePickerWrapper: ({ value, onChange }) => (
+    <input
+      type="datetime-local"
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid="input"
+    />
+  ),
   Button: ({ text, onClick, variant, "aria-label": ariaLabel }) => (
     <button
       onClick={onClick}

@@ -19,14 +19,15 @@ export default {
   testConnectionFirst: "Testa anslutning först",
   errorGeneric: "Ett oväntat fel inträffade.",
   errorUnauthorized: "Åtkomst nekad (status {status}).",
-  errorUnauthorizedHelper: "Kontrollera API‑nyckeln.",
+  errorUnauthorizedHelper:
+    "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
   errorNotFound: "Resursen hittades inte (status {status}).",
-  errorNotFoundHelper: "Kontrollera serveradressen och API‑vägen.",
+  errorNotFoundHelper: "Kontrollera serveradressen och sökvägen till API:t.",
   errorInvalidResponse: "Ogiltigt serversvar.",
-  errorInvalidResponseHelper: "Servern svarade inte enligt förväntan.",
+  errorInvalidResponseHelper: "Serverns svar hade ett oväntat format.",
   errorRepositories: "Kunde inte hämta repositories.",
   errorRepositoriesHelper:
-    "Anslutningen lyckades, men hämtning av repositories misslyckades.",
+    "Anslutningen lyckades, men listan över repositories kunde inte hämtas.",
   errorHttpStatus: "Begäran misslyckades (status {status}).",
   errorNetworkShort: "Kontrollera FME‑adressen och nätverket.",
   errorInvalidServerUrl: "Ange en giltig FME‑adress.",
@@ -43,7 +44,7 @@ export default {
   ariaRequired: "Obligatoriskt fält",
   supportEmail: "Support‑e‑post (valfritt)",
   supportEmailPlaceholder: "support@exempel.se",
-  jobDirectivesHelper2: "Lämna tomt för standardvärde.",
+  jobDirectivesHelper2: "Lämna fältet tomt för att använda standardvärdet.",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
   tm_tagLabel: "Kö (valfritt)",
@@ -51,16 +52,18 @@ export default {
   tm_ttcPlaceholder: "Lämna tomt (0 s)",
   tm_ttlPlaceholder: "Lämna tomt (0 s)",
   serviceModeSync: "Direktnedladdning (synkront)",
-  serviceModeSyncHelper: "På: direkt länk. Av: länk via e‑post.",
+  serviceModeSyncHelper:
+    "På: nedladdning via direktlänk. Av: länk skickas via e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
   maskEmailOnSuccessHelper:
-    "Maskerar e‑post i kvittensen (visar endast de två första tecknen).",
+    "Maskerar e‑postadress i kvittens (visar bara de två första tecknen).",
   requestTimeoutLabel: "Tidsgräns (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
-    "Standard 30000 ms. Lämna tomt för plattformens standard.",
+    "Standard är 30 000 ms. Lämna tomt för att använda systemets standard.",
   maxAreaLabel: "Max AOI‑yta (m²)",
-  maxAreaHelper: "Tomt = standard ({defaultM2} m²). Max: {maxM2} m².",
+  maxAreaHelper:
+    "Tomt innebär standard ({defaultM2} m²). Högsta tillåtna värde: {maxM2} m².",
   maxAreaPlaceholder: "100000000",
   errorMaxAreaTooLarge: "För stort värde. Ange högst {maxM2} m².",
   ok: "OK",
@@ -71,14 +74,16 @@ export default {
   colon: ":",
   aoiParamNameLabel: "AOI‑parameternamn",
   aoiParamNamePlaceholder: "AreaOfInterest",
-  aoiParamNameHelper: "Publicerat AOI‑namn. Standard: AreaOfInterest.",
+  aoiParamNameHelper:
+    "Publicerat parameternamn för AOI. Standard: AreaOfInterest.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
-  allowScheduleModeHelper: "Tillåt schemalagd engångskörning.",
+  allowScheduleModeHelper: "Tillåt engångskörning vid en schemalagd tidpunkt.",
   allowRemoteDatasetLabel: "Tillåt fjärrdataset (opt_geturl)",
-  allowRemoteDatasetHelper: "Tillåt URL till extern data.",
+  allowRemoteDatasetHelper:
+    "Tillåt att en extern dataset‑URL (opt_geturl) skickas in.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",
   serviceTypeHelper:
-    "Välj FME‑tjänst: Download för nedladdning, Streaming för förhandsgranskning.",
+    "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
 }

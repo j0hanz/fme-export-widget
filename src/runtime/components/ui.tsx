@@ -122,7 +122,7 @@ const createStyles = (theme: IMThemeVariables) => {
     gapBtnGroup: css({ gap: spacing?.(2) }),
 
     // Interactive utilities
-    disabledCursor: css({ display: "contents", cursor: "not-allowed" }),
+    disabledCursor: css({ display: "inline-block", cursor: "not-allowed" }),
     textareaResize: css({ resize: "vertical" }),
 
     // Main layout styles
@@ -453,10 +453,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
       title={tooltipContent}
       showArrow={showArrow}
       placement={placement}
-      enterDelay={config.tooltip.delay.enter}
-      enterNextDelay={config.tooltip.delay.next}
-      enterTouchDelay={config.tooltip.delay.touch}
-      leaveDelay={config.tooltip.delay.leave}
       disabled={disabled}
       {...otherProps}
     >
@@ -581,7 +577,9 @@ export const UrlInput: React.FC<{
       placeholder={placeholder}
       schemes={["https"] as any}
       onChange={(res) => {
-        onChange?.(res?.value || "")
+        const raw = (res?.value || "").trim()
+        const sanitized = raw
+        onChange?.(sanitized)
       }}
       css={[styles.fullWidth, style && css(style as any)]}
     />
@@ -778,16 +776,122 @@ export const DatePickerWrapper: React.FC<{
   style?: React.CSSProperties
 }> = ({ value, defaultValue, onChange, style }) => {
   const styles = useStyles()
+  const inputRef = React.useRef<HTMLInputElement | null>(null)
+
+  const openPicker = hooks.useEventCallback(() => {
+    const el = inputRef.current as any
+    if (el && typeof el.showPicker === "function") {
+      try {
+        el.showPicker()
+      } catch {
+        // ignore if browser blocks showPicker
+      }
+    }
+  })
 
   return (
     <input
       type="date"
+      ref={inputRef}
       value={value || defaultValue || ""}
       onChange={(e) => {
         onChange?.(e.target.value)
       }}
+      onFocus={openPicker}
+      onMouseDown={() => {
+        // also try opening on mouse/touch down for convenience
+        openPicker()
+      }}
       css={[styles.fullWidth, style && css(style as any)]}
     />
+  )
+}
+
+// DateTimePicker component (date + time inputs)
+export const DateTimePickerWrapper: React.FC<{
+  value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  defaultValue?: string
+  onChange?: (dateTime: string) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+}> = ({ value, defaultValue, onChange, style, disabled }) => {
+  const styles = useStyles()
+  const dateRef = React.useRef<HTMLInputElement | null>(null)
+  const timeRef = React.useRef<HTMLInputElement | null>(null)
+
+  // Local split state for better typing UX
+  const [datePart, setDatePart] = React.useState<string>("")
+  const [timePart, setTimePart] = React.useState<string>("")
+
+  // Sync from controlled props
+  React.useEffect(() => {
+    const src = value ?? defaultValue ?? ""
+    if (typeof src === "string" && src) {
+      const [d, t] = src.split("T")
+      setDatePart(d || "")
+      setTimePart(t || "")
+    } else {
+      setDatePart("")
+      setTimePart("")
+    }
+  }, [value, defaultValue])
+
+  const emitChange = hooks.useEventCallback((d: string, t: string) => {
+    const hasDate = !!d
+    const hasTime = !!t
+    const normalizedTime = t // allow HH:mm or HH:mm:ss
+    const combined = hasDate && hasTime ? `${d}T${normalizedTime}` : ""
+    onChange?.(combined)
+  })
+
+  const openPicker = hooks.useEventCallback((el: HTMLInputElement | null) => {
+    const anyEl = el as any
+    if (anyEl && typeof anyEl.showPicker === "function") {
+      try {
+        anyEl.showPicker()
+      } catch {
+        // ignore if not permitted
+      }
+    }
+  })
+
+  return (
+    <div
+      css={[
+        styles.row,
+        styles.fullWidth,
+        css({ flexWrap: "wrap", gap: 4 }),
+        style && css(style as any),
+      ]}
+    >
+      <input
+        type="date"
+        ref={dateRef}
+        value={datePart}
+        onChange={(e) => {
+          const d = e.target.value
+          setDatePart(d)
+          emitChange(d, timePart)
+        }}
+        onFocus={() => openPicker(dateRef.current)}
+        onMouseDown={() => openPicker(dateRef.current)}
+        disabled={disabled}
+      />
+      <input
+        type="time"
+        step={1}
+        ref={timeRef}
+        value={timePart}
+        onChange={(e) => {
+          const t = e.target.value
+          setTimePart(t)
+          emitChange(datePart, t)
+        }}
+        onFocus={() => openPicker(timeRef.current)}
+        onMouseDown={() => openPicker(timeRef.current)}
+        disabled={disabled}
+      />
+    </div>
   )
 }
 

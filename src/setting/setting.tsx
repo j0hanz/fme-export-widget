@@ -416,8 +416,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
     const error = fieldErrors[id as keyof typeof fieldErrors]
     const describedBy: string[] = []
     if (error) describedBy.push(`${id}-error`)
-    if (id === ID.tm_ttc || id === ID.tm_ttl)
-      describedBy.push("job-directives-help")
     return (
       <SettingRow flow="wrap" label={label} level={1} tag="label">
         <Input
@@ -453,7 +451,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       {/* Job directives (admin defaults) */}
       {renderInputField({
         id: ID.tm_ttc,
-        label: translate("tm_ttcLabel"),
+        label: (
+          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+            <span>{translate("tm_ttcLabel")}</span>
+          </Tooltip>
+        ),
         value: localTmTtc,
         onChange: onTmTtcChange,
         onBlur: onTmTtcBlur,
@@ -461,7 +463,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       })}
       {renderInputField({
         id: ID.tm_ttl,
-        label: translate("tm_ttlLabel"),
+        label: (
+          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+            <span>{translate("tm_ttlLabel")}</span>
+          </Tooltip>
+        ),
         value: localTmTtl,
         onChange: onTmTtlChange,
         onBlur: onTmTtlBlur,
@@ -469,7 +475,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       })}
       <SettingRow
         flow="wrap"
-        label={translate("tm_tagLabel")}
+        label={
+          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+            <span>{translate("tm_tagLabel")}</span>
+          </Tooltip>
+        }
         level={1}
         tag="label"
       >
@@ -494,9 +504,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           </SettingRow>
         )}
       </SettingRow>
-      <SettingRow flow="wrap" css={css(styles.ALERT_INLINE as any)} level={3}>
-        <div id="job-directives-help">{translate("jobDirectivesHelper2")}</div>
-      </SettingRow>
+      {/** Helper moved to label tooltips */}
     </SettingSection>
   )
 }
@@ -1462,7 +1470,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* Service Type */}
         <SettingRow
           flow="wrap"
-          label={translate("serviceTypeLabel")}
+          label={
+            <Tooltip content={translate("serviceTypeHelper")} placement="top">
+              <span>{translate("serviceTypeLabel")}</span>
+            </Tooltip>
+          }
           level={1}
           tag="label"
         >
@@ -1477,24 +1489,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalService(serviceType)
               updateConfig("service", serviceType as any)
             }}
-            aria-describedby="service-type-help"
           />
         </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          <div id="service-type-help">{translate("serviceTypeHelper")}</div>
-        </SettingRow>
-
         {/* Service mode (sync) toggle */}
         <SettingRow
           flow="no-wrap"
-          label={translate("serviceModeSync")}
+          label={
+            <Tooltip
+              content={translate("serviceModeSyncHelper")}
+              placement="top"
+            >
+              <span>{translate("serviceModeSync")}</span>
+            </Tooltip>
+          }
           level={1}
         >
           <Switch
@@ -1506,14 +1513,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("syncMode", checked)
             }}
             aria-label={translate("serviceModeSync")}
-            aria-describedby="toggles-help"
+            // helper via label tooltip
           />
         </SettingRow>
 
         {/* Allow Schedule Mode */}
         <SettingRow
           flow="no-wrap"
-          label={translate("allowScheduleModeLabel")}
+          label={
+            <Tooltip
+              content={translate("allowScheduleModeHelper")}
+              placement="top"
+            >
+              <span>{translate("allowScheduleModeLabel")}</span>
+            </Tooltip>
+          }
           level={1}
         >
           <Switch
@@ -1525,14 +1539,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("allowScheduleMode", checked)
             }}
             aria-label={translate("allowScheduleModeLabel")}
-            aria-describedby="toggles-help"
+            // helper via label tooltip
           />
         </SettingRow>
 
         {/* Allow Remote Dataset */}
         <SettingRow
           flow="no-wrap"
-          label={translate("allowRemoteDatasetLabel")}
+          label={
+            <Tooltip
+              content={translate("allowRemoteDatasetHelper")}
+              placement="top"
+            >
+              <span>{translate("allowRemoteDatasetLabel")}</span>
+            </Tooltip>
+          }
           level={1}
         >
           <Switch
@@ -1544,34 +1565,47 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("allowRemoteDataset", checked)
             }}
             aria-label={translate("allowRemoteDatasetLabel")}
-            aria-describedby="toggles-help"
+            // helper via label tooltip
           />
         </SettingRow>
+        {/* Mask email on success toggle */}
         <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
+          flow="no-wrap"
+          label={
+            <Tooltip
+              content={translate("maskEmailOnSuccessHelper")}
+              placement="top"
+            >
+              <span>{translate("maskEmailOnSuccess")}</span>
+            </Tooltip>
+          }
+          level={1}
         >
-          <div id="toggles-help">
-            <SettingRow level={3}>
-              {translate("serviceModeSyncHelper")}
-            </SettingRow>
-            <SettingRow level={3}>
-              {translate("allowScheduleModeHelper")}
-            </SettingRow>
-            <SettingRow level={3}>
-              {translate("allowRemoteDatasetHelper")}
-            </SettingRow>
-          </div>
+          <Switch
+            id={ID.maskEmailOnSuccess}
+            checked={localMaskEmailOnSuccess}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+              setLocalMaskEmailOnSuccess(checked)
+              updateConfig("maskEmailOnSuccess", checked)
+            }}
+            aria-label={translate("maskEmailOnSuccess")}
+            // helper via label tooltip
+          />
         </SettingRow>
+        {/** Inline helpers removed in favour of label tooltips */}
 
         {/* Request timeout (ms) */}
         <SettingRow
           flow="wrap"
-          label={translate("requestTimeoutLabel")}
+          label={
+            <Tooltip
+              content={translate("requestTimeoutHelper")}
+              placement="top"
+            >
+              <span>{translate("requestTimeoutLabel")}</span>
+            </Tooltip>
+          }
           level={1}
           tag="label"
         >
@@ -1593,27 +1627,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }
             }}
             placeholder={translate("requestTimeoutPlaceholder")}
-            aria-describedby="request-timeout-help"
           />
         </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          <div id="request-timeout-help">
-            {translate("requestTimeoutHelper")}
-          </div>
-        </SettingRow>
+        {/** Helper moved to label tooltip */}
       </SettingSection>
       <SettingSection>
         {/* AOI Parameter Name */}
         <SettingRow
           flow="wrap"
-          label={translate("aoiParamNameLabel")}
+          label={
+            <Tooltip content={translate("aoiParamNameHelper")} placement="top">
+              <span>{translate("aoiParamNameLabel")}</span>
+            </Tooltip>
+          }
           level={1}
           tag="label"
         >
@@ -1630,14 +1656,23 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalAoiParamName(finalValue)
             }}
             placeholder={translate("aoiParamNamePlaceholder")}
-            aria-describedby="aoi-help"
           />
         </SettingRow>
 
         {/* Max AOI area (m²) */}
         <SettingRow
           flow="wrap"
-          label={translate("maxAreaLabel")}
+          label={
+            <Tooltip
+              content={translate("maxAreaHelper", {
+                defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
+                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+              })}
+              placement="top"
+            >
+              <span>{translate("maxAreaLabel")}</span>
+            </Tooltip>
+          }
           level={1}
           tag="label"
         >
@@ -1676,9 +1711,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             placeholder={translate("maxAreaPlaceholder")}
             errorText={fieldErrors.maxArea}
-            aria-describedby={
-              fieldErrors.maxArea ? `${ID.maxArea}-error aoi-help` : "aoi-help"
-            }
           />
           {fieldErrors.maxArea && (
             <SettingRow flow="wrap" level={3}>
@@ -1693,49 +1725,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        {/* Consolidated AOI helpers */}
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          <div id="aoi-help">
-            <SettingRow level={3}>{translate("aoiParamNameHelper")}</SettingRow>
-            <SettingRow level={3}>
-              {translate("maxAreaHelper", {
-                defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
-                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-              })}
-            </SettingRow>
-          </div>
-        </SettingRow>
-
-        {/* Mask email on success toggle */}
-        <SettingRow
-          flow="no-wrap"
-          label={translate("maskEmailOnSuccess")}
-          level={1}
-        >
-          <Switch
-            id={ID.maskEmailOnSuccess}
-            checked={localMaskEmailOnSuccess}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
-              setLocalMaskEmailOnSuccess(checked)
-              updateConfig("maskEmailOnSuccess", checked)
-            }}
-            aria-label={translate("maskEmailOnSuccess")}
-            aria-describedby="email-help"
-          />
-        </SettingRow>
-
+        {/** AOI helpers moved to label tooltips */}
         {/* Support email (optional) */}
         <SettingRow
           flow="wrap"
-          label={translate("supportEmail")}
+          label={
+            <Tooltip
+              content={translate("maskEmailOnSuccessHelper")}
+              placement="top"
+            >
+              <span>{translate("supportEmail")}</span>
+            </Tooltip>
+          }
           level={1}
           tag="label"
         >
@@ -1758,11 +1759,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             placeholder={translate("supportEmailPlaceholder")}
             errorText={fieldErrors.supportEmail}
-            aria-describedby={
-              fieldErrors.supportEmail
-                ? `${ID.supportEmail}-error email-help`
-                : "email-help"
-            }
           />
           {fieldErrors.supportEmail && (
             <SettingRow flow="wrap" level={3}>
@@ -1777,16 +1773,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          <div id="email-help">{translate("maskEmailOnSuccessHelper")}</div>
-        </SettingRow>
+        {/** Helper moved to label tooltip */}
       </SettingSection>
 
       {/* Job directives section */}

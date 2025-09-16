@@ -9,6 +9,7 @@ import {
   ButtonTabs,
   useStyles,
   renderSupportHint,
+  DateTimePickerWrapper,
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
@@ -642,6 +643,38 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
   })
 
+  // Helpers to convert between UI ISO local (YYYY-MM-DDTHH:mm[:ss]) and stored schedule string (YYYY-MM-DD HH:mm:ss)
+  const toIsoLocal = hooks.useEventCallback(
+    (spaceDateTime: string | undefined): string => {
+      const s = (spaceDateTime || "").trim()
+      if (!s) return ""
+      // Ensure seconds exist; incoming format expected "YYYY-MM-DD HH:mm[:ss]"
+      const parts = s.split(" ")
+      if (parts.length !== 2) return ""
+      const [d, t] = parts
+      const tParts = t.split(":")
+      const hh = tParts[0] || "00"
+      const mm = tParts[1] || "00"
+      const ss = tParts[2] || "00"
+      return `${d}T${hh}:${mm}:${ss}`
+    }
+  )
+
+  const toSpaceDateTime = hooks.useEventCallback(
+    (isoLocal: string | undefined): string => {
+      const s = (isoLocal || "").trim()
+      if (!s) return ""
+      const parts = s.split("T")
+      if (parts.length !== 2) return ""
+      const [d, t] = parts
+      const tParts = t.split(":")
+      const hh = tParts[0] || "00"
+      const mm = tParts[1] || "00"
+      const ss = (tParts[2] || "00").padStart(2, "0")
+      return `${d} ${hh}:${mm}:${ss}`
+    }
+  )
+
   return (
     <Form
       variant="layout"
@@ -664,18 +697,12 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
           error={resolveError(formState.errors.start)}
           helper={translate("emailNotificationSent")}
         >
-          <DynamicField
-            field={{
-              name: "start",
-              label: translate("scheduleStartLabel"),
-              type: "text" as any,
-              required: false,
-              readOnly: false,
-              placeholder: translate("scheduleStartPlaceholder"),
+          <DateTimePickerWrapper
+            value={toIsoLocal(formState.values.start as string | undefined)}
+            onChange={(iso) => {
+              const spaceVal = toSpaceDateTime(iso)
+              setField("start", spaceVal)
             }}
-            value={formState.values.start}
-            onChange={(val) => setField("start", val)}
-            translate={translate}
           />
         </Field>
       )}
