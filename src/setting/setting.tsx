@@ -130,6 +130,19 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       }
     }
 
+    // Normalize status-to-text mapping for readability and consistency
+    const getStatusText = (status: StepStatus | string): string => {
+      if (typeof status === "string") {
+        if (status === "ok") return translate("ok")
+        if (status === "fail") return translate("failed")
+        if (status === "skip") return translate("skipped")
+        return translate("checking")
+      }
+      if (status?.completed) return translate("ok")
+      if (status?.error) return translate("failed")
+      return translate("checking")
+    }
+
     const StatusRow = ({
       label,
       status,
@@ -146,17 +159,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
               {translate("colon")}
             </>
           </div>
-          <div css={css(color as any)}>
-            {(typeof status === "string" && status === "ok") ||
-            (typeof status === "object" && status?.completed)
-              ? translate("ok")
-              : (typeof status === "string" && status === "fail") ||
-                  (typeof status === "object" && status?.error)
-                ? translate("failed")
-                : typeof status === "string" && status === "skip"
-                  ? translate("skipped")
-                  : translate("checking")}
-          </div>
+          <div css={css(color as any)}>{getStatusText(status)}</div>
         </div>
       )
     }
@@ -550,6 +553,70 @@ const safeAbort = (ctrl: AbortController | null) => {
   }
 }
 
+// Parse a non-negative integer from string; returns undefined when invalid
+const parseNonNegativeInt = (val: string): number | undefined => {
+  const n = Number(val)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.floor(n)
+}
+
+// Centralized handler for validation failure -> updates steps and field errors
+const handleValidationFailure = (
+  errorType: "server" | "network" | "token" | "repository",
+  opts: {
+    setCheckSteps: React.Dispatch<React.SetStateAction<CheckSteps>>
+    setFieldErrors: React.Dispatch<React.SetStateAction<FieldErrors>>
+    translate: TranslateFn
+    version?: string
+    repositories?: string[] | null
+    setAvailableRepos: React.Dispatch<React.SetStateAction<string[] | null>>
+  }
+) => {
+  const {
+    setCheckSteps,
+    setFieldErrors,
+    translate,
+    version,
+    repositories,
+    setAvailableRepos,
+  } = opts
+  if (errorType === "server" || errorType === "network") {
+    setCheckSteps((prev) => ({
+      ...prev,
+      serverUrl: "fail",
+      token: "idle",
+      repository: "idle",
+      version: "",
+    }))
+    setError(setFieldErrors, "serverUrl", translate("errorInvalidServerUrl"))
+    clearErrors(setFieldErrors, ["token", "repository"])
+    return
+  }
+  if (errorType === "token") {
+    setCheckSteps((prev) => ({
+      ...prev,
+      serverUrl: "ok",
+      token: "fail",
+      repository: "idle",
+      version: "",
+    }))
+    setError(setFieldErrors, "token", translate("errorTokenIsInvalid"))
+    clearErrors(setFieldErrors, ["serverUrl", "repository"])
+    return
+  }
+  // repository
+  setCheckSteps((prev) => ({
+    ...prev,
+    serverUrl: "ok",
+    token: "ok",
+    repository: "fail",
+    version: version || "",
+  }))
+  setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
+  clearErrors(setFieldErrors, ["serverUrl", "token"])
+  if (repositories) setAvailableRepos(repositories)
+}
+
 // Error message generation helpers
 const getErrorMessageWithHelper = (
   translate: TranslateFn,
@@ -683,15 +750,7 @@ function useUpdateConfig(
 
 const useSettingStyles = () => {
   const theme = useTheme()
-  const stylesRef = React.useRef<ReturnType<typeof createSettingStyles>>(
-    createSettingStyles(theme)
-  )
-  const themeRef = React.useRef<any>(theme)
-  if (themeRef.current !== theme) {
-    stylesRef.current = createSettingStyles(theme)
-    themeRef.current = theme
-  }
-  return stylesRef.current
+  return React.useMemo(() => createSettingStyles(theme), [theme])
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -823,6 +882,42 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       reposAbortRef.current = null
     }
   })
+
+  // Unified repository loader used by both auto-load and manual refresh
+  const loadRepositories = hooks.useEventCallback(
+    async (
+      serverUrl: string,
+      token: string,
+      { indicateLoading }: { indicateLoading: boolean }
+    ) => {
+      // Cancel previous
+      abortReposRequest()
+      const ctrl = new AbortController()
+      reposAbortRef.current = ctrl
+      const signal = ctrl.signal
+
+      if (indicateLoading) {
+        setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
+      }
+
+      try {
+        const result = await fetchRepositoriesService(serverUrl, token, signal)
+        if (signal.aborted) return
+        const next = result.repositories || []
+        setAvailableRepos(next)
+        clearErrors(setFieldErrors, ["repository"])
+      } catch (err) {
+        if ((err as Error)?.name !== "AbortError") {
+          // Log minimal diagnostic without exposing sensitive details
+          const status = extractHttpStatus(err)
+          console.warn("Repositories load error", { status })
+          setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
+        }
+      } finally {
+        if (reposAbortRef.current === ctrl) reposAbortRef.current = null
+      }
+    }
+  )
 
   // Helper: clear repo-related ephemeral state (list, error) and abort any in-flight request
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
@@ -1057,50 +1152,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         // Handle validation failure
         const error = validationResult.error
 
-        // Update step states based on error type
-        if (error?.type === "server" || error?.type === "network") {
-          setCheckSteps((prev) => ({
-            ...prev,
-            serverUrl: "fail",
-            token: "idle",
-            repository: "idle",
-            version: "",
-          }))
-          setError(
-            setFieldErrors,
-            "serverUrl",
-            translate("errorInvalidServerUrl")
-          )
-          clearErrors(setFieldErrors, ["token", "repository"])
-        } else if (error?.type === "token") {
-          setCheckSteps((prev) => ({
-            ...prev,
-            serverUrl: "ok",
-            token: "fail",
-            repository: "idle",
-            version: "",
-          }))
-          setError(setFieldErrors, "token", translate("errorTokenIsInvalid"))
-          clearErrors(setFieldErrors, ["serverUrl", "repository"])
-        } else if (error?.type === "repository") {
-          setCheckSteps((prev) => ({
-            ...prev,
-            serverUrl: "ok",
-            token: "ok",
-            repository: "fail",
-            version: validationResult.version || "",
-          }))
-          setError(
-            setFieldErrors,
-            "repository",
-            translate("errorRepositoryNotFound")
-          )
-          clearErrors(setFieldErrors, ["serverUrl", "token"])
-          // Still set repositories if available for dropdown
-          if (validationResult.repositories) {
-            setAvailableRepos(validationResult.repositories)
-          }
-        }
+        // Update step states based on error type via helper
+        const failureType = (error?.type || "server") as
+          | "server"
+          | "network"
+          | "token"
+          | "repository"
+        handleValidationFailure(failureType, {
+          setCheckSteps,
+          setFieldErrors,
+          translate,
+          version: validationResult.version,
+          repositories: validationResult.repositories,
+          setAvailableRepos,
+        })
 
         if (!silent) {
           setTestState({
@@ -1118,53 +1183,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       // Handle unexpected errors (network issues, etc.)
       const errorStatus = extractHttpStatus(err)
-
-      if (!errorStatus || errorStatus === 0) {
-        // Network/connectivity issue
-        setCheckSteps((prev) => ({
-          ...prev,
-          serverUrl: "fail",
-          token: "idle",
-          repository: "idle",
-          version: "",
-        }))
-        setError(
-          setFieldErrors,
-          "serverUrl",
-          translate("errorInvalidServerUrl")
-        )
-        clearErrors(setFieldErrors, ["token", "repository"])
-        if (!silent) {
-          setTestState({
-            status: "error",
-            isTesting: false,
-            message: translate("errorInvalidServerUrl"),
-            type: "error",
-          })
-        }
-      } else {
-        // Other server error
-        setCheckSteps((prev) => ({
-          ...prev,
-          serverUrl: "fail",
-          token: "idle",
-          repository: "idle",
-          version: "",
-        }))
-        setError(
-          setFieldErrors,
-          "serverUrl",
-          translate("errorInvalidServerUrl")
-        )
-        clearErrors(setFieldErrors, ["token", "repository"])
-        if (!silent) {
-          setTestState({
-            status: "error",
-            isTesting: false,
-            message: processError(err),
-            type: "error",
-          })
-        }
+      const failureType =
+        !errorStatus || errorStatus === 0 ? "network" : "server"
+      handleValidationFailure(failureType, {
+        setCheckSteps,
+        setFieldErrors,
+        translate,
+        setAvailableRepos,
+        version: "",
+        repositories: null,
+      })
+      if (!silent) {
+        setTestState({
+          status: "error",
+          isTesting: false,
+          message:
+            failureType === "network"
+              ? translate("errorInvalidServerUrl")
+              : processError(err),
+          type: "error",
+        })
       }
     }
   })
@@ -1174,37 +1212,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (!localServerUrl || !localToken) {
       return // Cannot refresh without credentials
     }
-
-    // Abort any existing repository request
-    abortReposRequest()
-    reposAbortRef.current = new AbortController()
-    const signal = reposAbortRef.current.signal
-
     const { cleaned } = sanitizeUrl(localServerUrl)
-    const serverUrl = cleaned
-    const token = localToken
-
-    try {
-      setAvailableRepos(null)
-      const result = await fetchRepositoriesService(serverUrl, token, signal)
-      const repositories = result?.repositories || []
-      if (repositories.length > 0) {
-        setAvailableRepos(repositories)
-        // Clear any existing repository errors
-        clearErrors(setFieldErrors, ["repository"])
-      } else {
-        console.warn("Repository refresh returned empty list")
-        // Don't clear existing repos on refresh failure to avoid UX disruption
-        setAvailableRepos([])
-      }
-    } catch (err) {
-      if ((err as Error)?.name === "AbortError") return
-      console.warn("Repository refresh error:", err)
-      // Don't clear existing repos on error to avoid UX disruption
-      setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-    } finally {
-      reposAbortRef.current = null
-    }
+    await loadRepositories(cleaned, localToken, { indicateLoading: true })
   })
 
   // Track initial load to avoid sync loops
@@ -1340,42 +1349,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const hasValidToken = !!localToken && !validateTokenKey(localToken)
     if (!hasValidServer || !hasValidToken) return
 
-    // Abort any existing repo load and start a new one
-    abortReposRequest()
-    const ctrl = new AbortController()
-    reposAbortRef.current = ctrl
-    const signal = ctrl.signal
-
-    // Indicate loading only if we don't already have a list
-    setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
-
     const { cleaned } = sanitizeUrl(localServerUrl)
-    const serverUrl = cleaned
-    const token = localToken
-
-    ;(async () => {
-      try {
-        const result = await fetchRepositoriesService(serverUrl, token, signal)
-        if (signal.aborted) return
-        setAvailableRepos(result.repositories || [])
-        // Clear any repository error since we have a fresh list
-        clearErrors(setFieldErrors, ["repository"])
-      } catch (err) {
-        if ((err as Error)?.name === "AbortError") return
-        console.warn("Auto-load repositories error:", err)
-        // Keep existing list on error to avoid disruptive UX
-        setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-      } finally {
-        if (reposAbortRef.current === ctrl) {
-          reposAbortRef.current = null
-        }
-      }
-    })()
-
-    return () => {
-      safeAbort(ctrl)
-    }
-  }, [localServerUrl, localToken, sanitizeUrl, abortReposRequest])
+    loadRepositories(cleaned, localToken, { indicateLoading: true })
+    return () => abortReposRequest()
+  }, [
+    localServerUrl,
+    localToken,
+    sanitizeUrl,
+    abortReposRequest,
+    loadRepositories,
+  ])
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
@@ -1718,9 +1701,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalRequestTimeout(val)
             }}
             onBlur={(val: string) => {
-              const n = Number(val)
-              const sanitized =
-                Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+              const sanitized = parseNonNegativeInt((val ?? "").trim())
               if (sanitized === undefined) {
                 // Clear config when input invalid/empty
                 updateConfig("requestTimeout", undefined as any)
@@ -1825,16 +1806,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
             }}
             onBlur={(val: string) => {
-              const n = Number(val)
-              const valid = Number.isFinite(n) && n > 0
-              if (!valid) {
-                // Blank, zero, or invalid -> use default (unset in config)
+              const trimmed = (val ?? "").trim()
+              const coerced = parseNonNegativeInt(trimmed)
+              // Blank, zero, or invalid -> unset
+              if (coerced === undefined || coerced === 0) {
                 updateConfig("maxArea", undefined as any)
                 setLocalMaxAreaM2("")
                 return
               }
               // Enforce upper cap in m²
-              if (n > CONSTANTS.LIMITS.MAX_M2_CAP) {
+              if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
                 // Do not save; show inline error
                 setFieldErrors((prev) => ({
                   ...prev,
@@ -1844,9 +1825,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 }))
                 return
               }
-              const m2 = Math.floor(n)
+              const m2 = coerced
               updateConfig("maxArea", m2 as any)
               setLocalMaxAreaM2(String(m2))
+              // Clear any lingering error on valid save
+              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
             }}
             placeholder={translate("maxAreaPlaceholder")}
             errorText={fieldErrors.maxArea}
@@ -1976,16 +1959,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             setLocalTmTtc("")
             return
           }
-          const n = Number(trimmed)
-          if (Number.isFinite(n) && n >= 0) {
-            const coerced = Math.floor(n)
-            updateConfig("tm_ttc", coerced as any)
-            setLocalTmTtc(String(coerced))
-          } else {
-            // Invalid -> unset
+          const coerced = parseNonNegativeInt(trimmed)
+          if (coerced === undefined) {
             updateConfig("tm_ttc", undefined as any)
             setLocalTmTtc("")
+            return
           }
+          updateConfig("tm_ttc", coerced as any)
+          setLocalTmTtc(String(coerced))
         }}
         onTmTtlBlur={(val: string) => {
           const trimmed = (val ?? "").trim()
@@ -1994,15 +1975,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             setLocalTmTtl("")
             return
           }
-          const n = Number(trimmed)
-          if (Number.isFinite(n) && n >= 0) {
-            const coerced = Math.floor(n)
-            updateConfig("tm_ttl", coerced as any)
-            setLocalTmTtl(String(coerced))
-          } else {
+          const coerced = parseNonNegativeInt(trimmed)
+          if (coerced === undefined) {
             updateConfig("tm_ttl", undefined as any)
             setLocalTmTtl("")
+            return
           }
+          updateConfig("tm_ttl", coerced as any)
+          setLocalTmTtl(String(coerced))
         }}
         onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)
