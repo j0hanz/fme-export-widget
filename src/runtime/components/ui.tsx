@@ -80,7 +80,7 @@ type TranslateFn = (key: string, params?: any) => string
 export const config = {
   icon: { small: 14, medium: 16, large: 20 },
   tooltip: {
-    delay: { enter: 1000, next: 500, leave: 100, touch: 500 },
+    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
     position: {
       top: "top" as const,
       bottom: "bottom" as const,
@@ -513,44 +513,30 @@ export const Tooltip: React.FC<TooltipProps> = ({
   title,
   ...otherProps
 }) => {
-  const styles = useStyles()
-  const autoId = useId()
-
-  // Ensure children is a valid React element
-  if (!React.isValidElement(children)) return <>{children}</>
-
   const tooltipContent = title ?? content
-  if (!tooltipContent || disabled) return children
-
-  const tooltipId = otherProps.id || autoId
-
-  const isDisabled =
-    children.props?.disabled || children.props?.["aria-disabled"]
-  const baseChildProps = (children.props || {}) as { [key: string]: any }
-  // Omit title to avoid conflicts with tooltip
-  const { title: _omitTitle, ...safeChildProps } = baseChildProps
-  const cloned = React.cloneElement(children as any, {
-    ...safeChildProps,
-    "aria-describedby": tooltipId,
-  })
-  const child = isDisabled ? (
-    <span css={styles.disabledCursor} aria-disabled="true">
-      {cloned}
-    </span>
-  ) : (
-    cloned
+  if (!React.isValidElement(children) || !tooltipContent || disabled) {
+    return <>{children}</>
+  }
+  const isChildDisabled = Boolean(
+    (children as any)?.props?.disabled ||
+      (children as any)?.props?.["aria-disabled"]
   )
+  const anchor = isChildDisabled ? (
+    <span aria-disabled="true">{children}</span>
+  ) : (
+    children
+  )
+  const placementProp = (placement as any) === "auto" ? "top" : placement
 
   return (
     <JimuTooltip
-      id={tooltipId}
-      title={tooltipContent}
+      title={tooltipContent as any}
       showArrow={showArrow}
-      placement={placement}
-      disabled={disabled}
+      placement={placementProp as any}
+      disabled={false}
       {...otherProps}
     >
-      {child}
+      {anchor}
     </JimuTooltip>
   )
 }
@@ -1215,6 +1201,8 @@ export const Button: React.FC<ButtonProps> = ({
   // Absorb potential style/css from incoming props so no inline style attribute is forwarded
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
+  const hasTooltip = !!tooltip && !tooltipDisabled
+
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
@@ -1229,7 +1217,12 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={[styles.relative, jimuCss, jimuStyle && css(jimuStyle)]}
+      css={[
+        styles.relative,
+        // When not using tooltip, carry caller styles directly on the button
+        !hasTooltip && jimuCss,
+        !hasTooltip && jimuStyle && css(jimuStyle),
+      ]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1245,13 +1238,35 @@ export const Button: React.FC<ButtonProps> = ({
     </JimuButton>
   )
 
-  return tooltip && !tooltipDisabled ? (
-    <Tooltip content={tooltip} placement={tooltipPlacement}>
-      {buttonElement}
-    </Tooltip>
-  ) : (
-    buttonElement
-  )
+  if (hasTooltip) {
+    // Outer wrapper is the flex item and carries caller CSS; inner anchor grows to fill
+    const wrapperCss = [
+      jimuCss,
+      jimuStyle && css(jimuStyle),
+      css(
+        block
+          ? { display: "block", width: "100%", minWidth: 0 }
+          : { display: "inline-flex", minWidth: 0 }
+      ),
+    ]
+
+    const anchorCss = css({
+      display: "flex",
+      width: "100%",
+      minWidth: 0,
+      "& > *": { flex: 1, minWidth: 0 },
+    })
+
+    return (
+      <span css={wrapperCss as any}>
+        <Tooltip content={tooltip} placement={tooltipPlacement}>
+          <span css={anchorCss}>{buttonElement}</span>
+        </Tooltip>
+      </span>
+    )
+  }
+
+  return buttonElement
 }
 
 // ButtonTabs component
