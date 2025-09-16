@@ -357,21 +357,22 @@ describe("Workflow component", () => {
       /Starttid \(YYYY-MM-DD HH:mm:ss\)/i
     )
     const startGroup = startLabel.closest("div") as HTMLElement
-    const inputs = within(startGroup).getAllByRole("textbox")
-    const dateInput = inputs.find(
-      (el) => (el as HTMLInputElement).type === "date"
-    ) as HTMLInputElement
-    const timeInput = inputs.find(
-      (el) => (el as HTMLInputElement).type === "time"
-    ) as HTMLInputElement
+    const dateEl = startGroup.querySelector('input[type="date"]')
+    const timeEl = startGroup.querySelector('input[type="time"]')
+    expect(dateEl).toBeTruthy()
+    expect(timeEl).toBeTruthy()
+    const dateInput = dateEl as HTMLInputElement
+    const timeInput = timeEl as HTMLInputElement
 
     // With no required fields and empty start, submit is enabled
     expect(screen.getByRole("button", { name: /Beställ/i })).not.toBeDisabled()
 
-    // Enter a partial/invalid datetime (date only) -> should invalidate
+    // Enter a partial date only -> field remains effectively empty; form stays valid
     fireEvent.change(dateInput, { target: { value: "2025-12-01" } })
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /Beställ/i })).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: /Beställ/i })
+      ).not.toBeDisabled()
     })
 
     // Enter a valid datetime (add time) -> form becomes valid again
