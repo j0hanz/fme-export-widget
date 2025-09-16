@@ -30,7 +30,6 @@ import {
   extractHttpStatus,
 } from "../shared/utils"
 import {
-  getErrorMessage,
   validateConnection,
   getRepositories as fetchRepositoriesService,
 } from "../shared/services"
@@ -502,16 +501,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   )
 }
 
-function isFmeFlowApiError(err: unknown): err is FmeFlowApiError {
-  return err instanceof FmeFlowApiError
-}
-
-function extractErrorCode(err: unknown): string {
-  if (isFmeFlowApiError(err)) return err.code || ""
-  const code = (err as { [key: string]: unknown })?.code
-  return typeof code === "string" ? code : ""
-}
-
 const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
   [CONSTANTS.HTTP_STATUS.UNAUTHORIZED]: "errorUnauthorized",
   [CONSTANTS.HTTP_STATUS.FORBIDDEN]: "errorUnauthorized",
@@ -638,22 +627,22 @@ const getSpecialStatusErrorMessage = (
   errorKey: string
 ): string => {
   if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
-    return translate(errorKey)
-  }
-  if (isAuthError(status)) {
     return getErrorMessageWithHelper(
       translate,
       errorKey,
       status,
-      "errorUnauthorizedHelper"
+      "helperNetwork"
     )
+  }
+  if (isAuthError(status)) {
+    return getErrorMessageWithHelper(translate, errorKey, status, "helperAuth")
   }
   if (status === CONSTANTS.HTTP_STATUS.NOT_FOUND) {
     return getErrorMessageWithHelper(
       translate,
       errorKey,
       status,
-      "errorNotFoundHelper"
+      "helperNotFound"
     )
   }
   return translate(errorKey, { status })
@@ -809,6 +798,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
+  // Values committed on blur (used for side-effects and loading)
+  const [committedServerUrl, setCommittedServerUrl] = React.useState<string>(
+    () => getStringConfig("fmeServerUrl") || ""
+  )
+  const [committedToken, setCommittedToken] = React.useState<string>(
+    () => getStringConfig("fmeServerToken") || ""
+  )
   const [localRepository, setLocalRepository] = React.useState<string>(
     () => getStringConfig("repository") || ""
   )
@@ -930,31 +926,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Cleanup on unmount
   hooks.useUnmount(() => {
-    if (abortRef.current) {
-      safeAbort(abortRef.current)
-      abortRef.current = null
-    }
+    safeAbort(abortRef.current)
     abortReposRequest()
   })
 
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
-    const code = extractErrorCode(err)
-    const status = isFmeFlowApiError(err) ? err.status : extractHttpStatus(err)
-    const raw = getErrorMessage(err)
-
-    if (code === "INVALID_RESPONSE_FORMAT") {
-      return `${translate("errorInvalidResponse")} ${translate("errorInvalidResponseHelper")}`
-    }
-    if (code === "REPOSITORIES_ERROR") {
-      return `${translate("errorRepositories")} ${translate("errorRepositoriesHelper")}`
-    }
-
-    if (typeof status === "number")
-      return getStatusErrorMessage(status, translate)
-    if (raw.toLowerCase().includes("failed to fetch"))
-      return translate("errorNetworkShort")
-    return translate("errorGeneric")
+    const status = err instanceof FmeFlowApiError ? err.status : 0
+    return getStatusErrorMessage(status, translate)
   })
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
@@ -1047,12 +1026,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  // Check if test connection button should be disabled
-  const cannotTest = hooks.useEventCallback((): boolean => {
-    if (testState.isTesting) return true
-    // Only require presence; format issues will be surfaced but not block testing
-    return !localServerUrl || !localToken
-  })
+  // Handle "Test Connection" button click
+  const isTestDisabled = !!testState.isTesting || !localServerUrl || !localToken
 
   // OPTIMIZED connection testing - single efficient flow with minimal API calls
   const testConnection = hooks.useEventCallback(async (silent = false) => {
@@ -1209,152 +1184,34 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Enhanced repository refresh for better UX - uses client API directly
   const refreshRepositories = hooks.useEventCallback(async () => {
-    if (!localServerUrl || !localToken) {
-      return // Cannot refresh without credentials
-    }
-    const { cleaned } = sanitizeUrl(localServerUrl)
-    await loadRepositories(cleaned, localToken, { indicateLoading: true })
+    if (!committedServerUrl || !committedToken) return
+    const { cleaned } = sanitizeUrl(committedServerUrl)
+    await loadRepositories(cleaned, committedToken, { indicateLoading: true })
   })
 
-  // Track initial load to avoid sync loops
-  const initialLoadRef = React.useRef(true)
-
-  // Initialize local state only once from config - avoid sync loops
   React.useEffect(() => {
-    // Only update if this is the initial config load
-    if (initialLoadRef.current) {
-      initialLoadRef.current = false
-
-      const configServerUrl = getStringConfig("fmeServerUrl") || ""
-      const configToken = getStringConfig("fmeServerToken") || ""
-      const configRepository = getStringConfig("repository") || ""
-      const configEmail = getStringConfig("supportEmail") || ""
-      const configSyncMode = Boolean((config as any)?.syncMode)
-      const configMaskEmail = Boolean((config as any)?.maskEmailOnSuccess)
-      const configTimeout = (config as any)?.requestTimeout
-      const configMaxArea = (config as any)?.maxArea
-
-      const ttcValue =
-        typeof config?.tm_ttc === "number" ? String(config.tm_ttc) : ""
-      const ttlValue =
-        typeof config?.tm_ttl === "number" ? String(config.tm_ttl) : ""
-      const tagValue = typeof config?.tm_tag === "string" ? config.tm_tag : ""
-      const configAoiParamName =
-        getStringConfig("aoiParamName") || "AreaOfInterest"
-      const configAllowScheduleMode = Boolean(
-        (config as any)?.allowScheduleMode
-      )
-      const configAllowRemoteDataset = Boolean(
-        (config as any)?.allowRemoteDataset
-      )
-      const configService = getStringConfig("service") || "download"
-
-      // Only update if different from current local state
-      if (configServerUrl !== localServerUrl) setLocalServerUrl(configServerUrl)
-      if (configToken !== localToken) setLocalToken(configToken)
-      if (configRepository !== localRepository)
-        setLocalRepository(configRepository)
-      if (configEmail !== localSupportEmail) setLocalSupportEmail(configEmail)
-      if (configSyncMode !== localSyncMode) setLocalSyncMode(configSyncMode)
-      if (configMaskEmail !== localMaskEmailOnSuccess)
-        setLocalMaskEmailOnSuccess(configMaskEmail)
-      if (typeof configTimeout === "number" && Number.isFinite(configTimeout)) {
-        if (String(configTimeout) !== localRequestTimeout) {
-          setLocalRequestTimeout(String(configTimeout))
-        }
-      } else if (localRequestTimeout !== "") {
-        setLocalRequestTimeout("")
-      }
-      if (
-        typeof configMaxArea === "number" &&
-        Number.isFinite(configMaxArea) &&
-        configMaxArea > 0
-      ) {
-        if (String(configMaxArea) !== localMaxAreaM2) {
-          setLocalMaxAreaM2(String(configMaxArea))
-        }
-      } else if (localMaxAreaM2 !== "") {
-        setLocalMaxAreaM2("")
-      }
-      if (ttcValue !== localTmTtc) setLocalTmTtc(ttcValue)
-      if (ttlValue !== localTmTtl) setLocalTmTtl(ttlValue)
-      if (tagValue !== localTmTag) setLocalTmTag(tagValue)
-      if (configAoiParamName !== localAoiParamName)
-        setLocalAoiParamName(configAoiParamName)
-      if (configAllowScheduleMode !== localAllowScheduleMode)
-        setLocalAllowScheduleMode(configAllowScheduleMode)
-      if (configAllowRemoteDataset !== localAllowRemoteDataset)
-        setLocalAllowRemoteDataset(configAllowRemoteDataset)
-      if (configService !== localService) setLocalService(configService)
-
-      // Run initial validation on loaded config values to show errors immediately (no config writes)
-      setTimeout(() => {
-        const serverUrlError = validateServerUrlKey(configServerUrl)
-        const tokenError = validateTokenKey(configToken)
-        const emailError = getEmailValidationError(configEmail)
-
-        if (serverUrlError || tokenError || emailError) {
-          setFieldErrors((prev) => ({
-            ...prev,
-            serverUrl: serverUrlError ? translate(serverUrlError) : undefined,
-            token: tokenError ? translate(tokenError) : undefined,
-            supportEmail: emailError ? translate(emailError) : undefined,
-          }))
-          // no config write here
-        }
-      }, 0)
-    }
+    if (!committedServerUrl && !committedToken) return
+    clearRepositoryEphemeralState()
   }, [
-    config,
-    getStringConfig,
-    translate,
-    localRepository,
-    localServerUrl,
-    localSupportEmail,
-    localSyncMode,
-    localMaskEmailOnSuccess,
-    localTmTag,
-    localTmTtc,
-    localTmTtl,
-    localToken,
-    localRequestTimeout,
-    localMaxAreaM2,
-    localAoiParamName,
-    localAllowScheduleMode,
-    localAllowRemoteDataset,
-    localService,
-  ])
-
-  // Clear repository state when server URL or token changes significantly
-  React.useEffect(() => {
-    // Only clear if we have both URL and token, to avoid clearing on initial load
-    if (localServerUrl && localToken) {
-      // Clear any previous results and cancel in-flight fetches
-      clearRepositoryEphemeralState()
-    }
-
-    return () => {
-      abortReposRequest()
-    }
-  }, [
-    localServerUrl,
-    localToken,
+    committedServerUrl,
+    committedToken,
     clearRepositoryEphemeralState,
     abortReposRequest,
   ])
-  // Auto-load repositories when server URL and token look valid
+
+  // Auto-load repositories when both committed URL and token are valid
   React.useEffect(() => {
     const hasValidServer =
-      !!localServerUrl && !validateServerUrlKey(localServerUrl)
-    const hasValidToken = !!localToken && !validateTokenKey(localToken)
+      !!committedServerUrl && !validateServerUrlKey(committedServerUrl)
+    const hasValidToken = !!committedToken && !validateTokenKey(committedToken)
     if (!hasValidServer || !hasValidToken) return
 
-    const { cleaned } = sanitizeUrl(localServerUrl)
-    loadRepositories(cleaned, localToken, { indicateLoading: true })
+    const { cleaned } = sanitizeUrl(committedServerUrl)
+    loadRepositories(cleaned, committedToken, { indicateLoading: true })
     return () => abortReposRequest()
   }, [
-    localServerUrl,
-    localToken,
+    committedServerUrl,
+    committedToken,
     sanitizeUrl,
     abortReposRequest,
     loadRepositories,
@@ -1388,18 +1245,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Sanitize and save to config
     const { cleaned, changed } = sanitizeUrl(url)
-    updateConfig("fmeServerUrl", changed ? cleaned : url)
+    const finalUrl = changed ? cleaned : url
+    updateConfig("fmeServerUrl", finalUrl)
 
-    // Update local state if sanitized
+    // Update local and committed state if sanitized/blurred
     if (changed) {
       setLocalServerUrl(cleaned)
-      // Re-validate with the cleaned URL
       const cleanedErrKey = validateServerUrlKey(cleaned)
       setError(
         setFieldErrors,
         "serverUrl",
         cleanedErrKey ? translate(cleanedErrKey) : undefined
       )
+      setCommittedServerUrl(cleaned)
+    } else {
+      setCommittedServerUrl(finalUrl)
     }
 
     // Clear repository data when server changes
@@ -1412,8 +1272,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const errKey = validateTokenKey(token)
     setError(setFieldErrors, "token", errKey ? translate(errKey) : undefined)
 
-    // Save to config
+    // Save to config and commit
     updateConfig("fmeServerToken", token)
+    setCommittedToken(token)
 
     // Clear repository data when token changes
     clearRepositoryEphemeralState()
@@ -1577,7 +1438,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <ConnectionTestSection
           testState={testState}
           checkSteps={checkSteps}
-          cannotTest={cannotTest}
+          cannotTest={() => isTestDisabled}
           onTestConnection={() => testConnection(false)}
           translate={translate}
           styles={sstyles}
@@ -1585,8 +1446,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
         {/* Repository selector */}
         <RepositorySelector
-          localServerUrl={localServerUrl}
-          localToken={localToken}
+          localServerUrl={committedServerUrl}
+          localToken={committedToken}
           localRepository={localRepository}
           availableRepos={availableRepos}
           fieldErrors={fieldErrors}
