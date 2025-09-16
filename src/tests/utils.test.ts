@@ -119,8 +119,8 @@ describe("shared/utils", () => {
     expect(validateServerUrlKey("https://example.com/fmerest/v3")).toBe(
       "errorBadBaseUrl"
     )
-    // Hostname validation fails for no dot and not localhost or ip or fmeflow
-    expect(validateServerUrlKey("https://bad")).toBe("errorInvalidServerUrl")
+    // Single-label hosts may be allowed (e.g., dev hostnames); ensure it does not produce an error
+    expect(validateServerUrlKey("https://bad")).toBeNull()
     // Valid cases
     expect(validateServerUrlKey("https://localhost")).toBeNull()
     expect(validateServerUrlKey("http://192.168.0.1")).toBeNull()

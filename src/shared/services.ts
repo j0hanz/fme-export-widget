@@ -93,20 +93,16 @@ export class ErrorHandlingService {
     error: unknown,
     translate: (key: string) => string
   ): { code: string; message: string } {
-    if (!error) {
-      return {
-        code: "STARTUP_ERROR",
-        message:
-          typeof translate === "function"
-            ? translate("startupValidationFailed")
-            : "Validation failed",
-      }
-    }
-
     if (typeof translate !== "function") {
       return {
         code: "STARTUP_ERROR",
         message: "Validation failed",
+      }
+    }
+    if (!error) {
+      return {
+        code: "STARTUP_ERROR",
+        message: translate("startupValidationFailed"),
       }
     }
 
@@ -201,6 +197,7 @@ export class ErrorHandlingService {
       INVALID_REPOSITORY: "repoNotFound",
       URL_TOO_LONG: "urlTooLong",
       MAX_URL_LENGTH_EXCEEDED: "urlTooLong",
+      DNS_ERROR: "connectionFailed",
     }
 
     // Check if message itself is a known code
@@ -241,7 +238,7 @@ export class ErrorHandlingService {
     if (status === 401 || status === 403) {
       return {
         code: "AUTH_ERROR",
-        message: translate("startupValidationFailed"),
+        message: translate("authenticationFailed"),
       }
     }
     if (status === 404) {
@@ -322,7 +319,10 @@ export class ErrorHandlingService {
     if (/Name or service not known|DNS|ERR_NAME_NOT_RESOLVED/i.test(message)) {
       return { code: "DNS_ERROR", message: translate("connectionFailed") }
     }
-    if ((error as Error)?.name === "TypeError") {
+    if (
+      (error as Error)?.name === "TypeError" &&
+      /fetch/i.test((error as Error)?.message)
+    ) {
       return { code: "NETWORK_ERROR", message: translate("networkError") }
     }
     return null

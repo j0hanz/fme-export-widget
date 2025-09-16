@@ -39,6 +39,9 @@ export const enum FormFieldType {
   SEARCH = "search",
   MESSAGE = "message",
   TABLE = "table",
+  MONTH = "month",
+  WEEK = "week",
+  HIDDEN = "hidden",
 }
 
 export const enum ErrorSeverity {
@@ -272,10 +275,13 @@ export interface InputProps extends BaseProps {
     | "email"
     | "date"
     | "datetime-local"
+    | "month"
+    | "week"
     | "time"
     | "search"
     | "tel"
   readonly maxLength?: number
+  readonly borderless?: boolean
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly "aria-label"?: string
   readonly defaultValue?: FormPrimitive
@@ -541,6 +547,7 @@ export interface FmeExportConfig {
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
   readonly aoiParamName?: string
+  readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly service?: "download" | "stream"
@@ -834,6 +841,7 @@ export interface WidgetConfig {
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
   readonly aoiParamName?: string
+  readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly service?: "download" | "stream"

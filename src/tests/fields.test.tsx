@@ -855,6 +855,59 @@ describe("Fields module", () => {
       expect(datePicker).toHaveAttribute("type", "date")
     })
 
+    test("renders MONTH field", () => {
+      const field = createField({ type: FormFieldType.MONTH })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value="2024-05"
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const input = screen.getByTestId("input")
+      expect(input).toHaveAttribute("type", "month")
+      expect(input).toHaveValue("2024-05")
+    })
+
+    test("renders WEEK field", () => {
+      const field = createField({ type: FormFieldType.WEEK })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value="2024-W22"
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const input = screen.getByTestId("input")
+      expect(input).toHaveAttribute("type", "week")
+      expect(input).toHaveValue("2024-W22")
+    })
+
+    test("renders HIDDEN field as no-op", () => {
+      const field = createField({ type: FormFieldType.HIDDEN })
+      const onChange = jest.fn()
+
+      const { container } = renderWithProviders(
+        <DynamicField
+          field={field}
+          value="secret"
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      // Should produce no visible input element
+      expect(container.querySelector("input")).toBeNull()
+    })
+
     test("DATE onChange converts to FME format", () => {
       const field = createField({ type: FormFieldType.DATE })
       const onChange = jest.fn()

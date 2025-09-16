@@ -155,7 +155,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           <div css={css(styles.STATUS.LABEL_GROUP as any)}>
             <>
               {label}
-              {translate("colon")}
+              <span aria-hidden="true">{translate("colon")}</span>
             </>
           </div>
           <div css={css(color as any)}>{getStatusText(status)}</div>
@@ -189,7 +189,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
             <div css={css(styles.STATUS.ROW as any)}>
               <div css={css(styles.STATUS.LABEL_GROUP as any)}>
                 {translate("fmeVersion")}
-                {translate("colon")}
+                <span aria-hidden="true">{translate("colon")}</span>
               </div>
               <div>{(checkSteps as any).version}</div>
             </div>
@@ -286,6 +286,10 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
             !!localServerUrl && !validateServerUrl(localServerUrl)
           const hasValidToken = !!localToken && !validateToken(localToken)
           if (!hasValidServer || !hasValidToken) {
+            return []
+          }
+
+          if (availableRepos === null) {
             return []
           }
 
@@ -621,6 +625,8 @@ const getErrorMessageWithHelper = (
   status: number,
   helperKey?: string
 ): string => {
+  // TODO(i18n): Consider moving this composition into a single translation key
+  // e.g., translate('errorWithHelper', { base: translate(errorKey, { status }), helper: translate(helperKey) })
   const baseMessage = translate(errorKey, { status })
   if (helperKey) {
     const helperMessage = translate(helperKey)
@@ -780,6 +786,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
     aoiParamName: "setting-aoi-param-name",
+    uploadTargetParamName: "setting-upload-target-param-name",
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     service: "setting-service",
@@ -862,6 +869,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return typeof v === "string" ? v : "AreaOfInterest"
     }
   )
+  const [localUploadTargetParamName, setLocalUploadTargetParamName] =
+    React.useState<string>(() => {
+      const v = (config as any)?.uploadTargetParamName
+      return typeof v === "string" ? v : ""
+    })
   const [localAllowScheduleMode, setLocalAllowScheduleMode] =
     React.useState<boolean>(() => Boolean((config as any)?.allowScheduleMode))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
@@ -1290,6 +1302,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep repository field error in sync when either the list or selection changes
   React.useEffect(() => {
+    if (!localRepository) return
     // Validate repository if we have an available list and a selection
     if (
       Array.isArray(availableRepos) &&
@@ -1652,6 +1665,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalAoiParamName(finalValue)
             }}
             placeholder={translate("aoiParamNamePlaceholder")}
+          />
+        </SettingRow>
+
+        {/* Upload Target Parameter Name (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip
+              content={translate("uploadTargetParamNameHelper")}
+              placement="top"
+            >
+              <span>{translate("uploadTargetParamNameLabel")}</span>
+            </Tooltip>
+          }
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.uploadTargetParamName}
+            value={localUploadTargetParamName}
+            onChange={(val: string) => {
+              setLocalUploadTargetParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              // Empty clears the config (auto-detect will be used)
+              if (!trimmed) {
+                updateConfig("uploadTargetParamName", undefined as any)
+                setLocalUploadTargetParamName("")
+              } else {
+                updateConfig("uploadTargetParamName", trimmed as any)
+                setLocalUploadTargetParamName(trimmed)
+              }
+            }}
+            placeholder={translate("uploadTargetParamNamePlaceholder")}
           />
         </SettingRow>
 

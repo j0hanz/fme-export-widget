@@ -15,12 +15,31 @@ import Widget, {
   attachAoi,
   prepFmeParams,
   getEmail,
+  processFmeResponse,
 } from "../runtime/widget"
 import { DrawingTool, ErrorType, type EsriModules, ViewMode } from "../config"
 
 // Mock createFmeFlowClient to avoid network and JSAPI (Security)
 jest.mock("../shared/api", () => ({
   createFmeFlowClient: jest.fn().mockReturnValue({
+    // Upload returns a TEMP path for mapping
+    uploadToTemp: jest.fn().mockResolvedValue({
+      status: 200,
+      statusText: "OK",
+      data: { path: "$(FME_SHAREDRESOURCE_TEMP)/widget_wtest/file.txt" },
+    }),
+    // runWorkspace used by widget submission path
+    runWorkspace: jest.fn().mockResolvedValue({
+      status: 200,
+      data: {
+        serviceResponse: {
+          status: "success",
+          jobID: 202,
+          url: "https://download.example/test",
+        },
+      },
+    }),
+    // Keep legacy method for any direct calls in other tests
     runDataDownload: jest.fn().mockResolvedValue({
       data: {
         serviceResponse: {
@@ -153,6 +172,10 @@ beforeAll(() => {
   jest.spyOn(SessionManager, "getInstance").mockReturnValue({
     getUserInfo: () => Promise.resolve({ email: "user@example.com" }),
   })
+  // Polyfill URL.createObjectURL for Blob in JSDOM
+  if (!(global as any).URL.createObjectURL) {
+    ;(global as any).URL.createObjectURL = jest.fn(() => "blob:mock-url")
+  }
 })
 
 describe("Widget runtime - module loading and auto-start", () => {
@@ -365,5 +388,21 @@ describe("Internal helper exports (attachAoi, prepFmeParams, getEmail)", () => {
       getUserInfo: () => Promise.resolve({ email: "invalid" }),
     })
     await expect(getEmail({} as any)).rejects.toThrow("INVALID_EMAIL")
+  })
+
+  test("processFmeResponse handles streaming Blob", () => {
+    // Construct a fake streaming API response
+    const blob = new Blob(["{}"], { type: "application/json" })
+    const fmeResponse = {
+      data: { blob, fileName: "data.json", contentType: "application/json" },
+    }
+    const res = processFmeResponse(
+      fmeResponse,
+      "my.fmw",
+      "user@example.com",
+      (k: string) => k
+    )
+    expect(res.success).toBe(true)
+    expect(typeof res.downloadUrl).toBe("string")
   })
 })

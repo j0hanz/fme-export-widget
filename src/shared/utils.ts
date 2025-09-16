@@ -41,7 +41,6 @@ export function resolveMessageOrKey(
   const camelKey = raw
     .toLowerCase()
     .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
-    .replace(/^([a-z])/, (_, c: string) => c)
   const camel = translate(camelKey)
   return camel && camel !== camelKey ? camel : raw
 }
@@ -68,32 +67,13 @@ export const maskEmailForDisplay = (email: unknown): string => {
 }
 
 // Centralized FME validation and sanitization helpers (shared by settings and services)
-
-const IPV4_MIN_OCTET = 0
-const IPV4_MAX_OCTET = 255
 const MIN_TOKEN_LENGTH = 10
 const FME_REST_PATH = "/fmerest"
 
-const isValidIPv4 = (host: string): boolean => {
-  const ipv4Pattern = /^\d{1,3}(?:\.\d{1,3}){3}$/
-  if (!ipv4Pattern.test(host)) return false
-
-  return host.split(".").every((octet) => {
-    const num = Number(octet)
-    return (
-      Number.isFinite(num) && num >= IPV4_MIN_OCTET && num <= IPV4_MAX_OCTET
-    )
-  })
-}
-
 const isValidHostname = (host: string): boolean => {
-  // Allow localhost, IPv4 addresses, domain names with dots, or FME Flow branded hostnames
-  const isLocalhost = host.toLowerCase() === "localhost"
-  const isIPv4Address = isValidIPv4(host)
-  const hasDomainDot = host.includes(".")
-  const isFmeFlowBranded = /fmeflow/i.test(host)
-
-  return isLocalhost || isIPv4Address || hasDomainDot || isFmeFlowBranded
+  const hostnamePattern =
+    /^(localhost|(\d{1,3}\.){3}\d{1,3}|([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+)$/i
+  return hostnamePattern.test(host)
 }
 
 const hasForbiddenPaths = (pathname: string): boolean => {

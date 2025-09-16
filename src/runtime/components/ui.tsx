@@ -16,8 +16,6 @@ import {
   AdvancedButtonGroup,
   Select as JimuSelect,
   Option as JimuOption,
-  MultiSelect,
-  SVG,
   FormGroup,
   Label,
   TextArea as JimuTextArea,
@@ -30,6 +28,8 @@ import {
   Slider as JimuSlider,
   NumericInput as JimuNumericInput,
   TagInput as JimuTagInput,
+  MultiSelect,
+  SVG,
 } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { useTheme } from "jimu-theme"
@@ -129,7 +129,7 @@ const createStyles = (theme: IMThemeVariables) => {
   return {
     // Layout utilities with better performance
     row: css({ display: "flex" }),
-    flex1: css({ flex: 1 }),
+    btnFlex: css({ flex: 1, marginTop: 15 }),
     fullWidth: css({
       display: "flex",
       width: "100%",
@@ -192,7 +192,7 @@ const createStyles = (theme: IMThemeVariables) => {
       caption: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(1)} 0`,
+        marginBottom: spacing?.(2),
       }),
 
       label: css({
@@ -205,6 +205,7 @@ const createStyles = (theme: IMThemeVariables) => {
       title: css({
         ...getTypographyStyle(typography?.title2),
         color: colors?.surface?.backgroundText,
+        margin: `${spacing?.(1)} 0`,
       }),
 
       instruction: css({
@@ -256,6 +257,10 @@ const createStyles = (theme: IMThemeVariables) => {
         transform: "translateY(-50%)",
       }),
     },
+
+    fieldGroup: css({
+      marginBottom: spacing?.(2),
+    }),
   } as const
 }
 
@@ -522,7 +527,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
       (children as any)?.props?.["aria-disabled"]
   )
   const anchor = isChildDisabled ? (
-    <span aria-disabled="true">{children}</span>
+    <span
+      aria-disabled="true"
+      tabIndex={0}
+      aria-label={
+        typeof tooltipContent === "string" ? tooltipContent : undefined
+      }
+    >
+      {children}
+    </span>
   ) : (
     children
   )
@@ -1548,7 +1561,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }
-    return <Button {...btnConfig} block={false} css={styles.flex1} />
+    return <Button {...btnConfig} block={true} css={styles.btnFlex} />
   }
 
   return (
@@ -1649,7 +1662,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup
       className={className}
-      css={style ? css(style as any) : undefined}
+      css={[styles.fieldGroup, style && css(style as any)]}
     >
       <Label
         css={[styles.block, styles.typography.label]}
