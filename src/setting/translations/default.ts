@@ -51,8 +51,7 @@ export default {
   tm_ttcPlaceholder: "Lämna tomt (0 s)",
   tm_ttlPlaceholder: "Lämna tomt (0 s)",
   serviceModeSync: "Direktnedladdning (synkront)",
-  serviceModeSyncHelper:
-    "På: direkt nedladdningslänk när jobbet är klart. Av: länk via e‑post.",
+  serviceModeSyncHelper: "På: direkt länk. Av: länk via e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
   maskEmailOnSuccessHelper:
     "Maskerar e‑post i kvittensen (visar endast de två första tecknen).",
@@ -61,8 +60,7 @@ export default {
   requestTimeoutHelper:
     "Standard 30000 ms. Lämna tomt för plattformens standard.",
   maxAreaLabel: "Max AOI‑yta (m²)",
-  maxAreaHelper:
-    "Lämna tomt för standard ({defaultM2} m²). Högsta värde: {maxM2} m².",
+  maxAreaHelper: "Tomt = standard ({defaultM2} m²). Max: {maxM2} m².",
   maxAreaPlaceholder: "100000000",
   errorMaxAreaTooLarge: "För stort värde. Ange högst {maxM2} m².",
   ok: "OK",
@@ -73,14 +71,11 @@ export default {
   colon: ":",
   aoiParamNameLabel: "AOI‑parameternamn",
   aoiParamNamePlaceholder: "AreaOfInterest",
-  aoiParamNameHelper:
-    "Publicerat parameternamn för AOI. Standard: AreaOfInterest.",
+  aoiParamNameHelper: "Publicerat AOI‑namn. Standard: AreaOfInterest.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
-  allowScheduleModeHelper:
-    "Gör det möjligt att schemalägga engångskörningar istället för direktkörning.",
+  allowScheduleModeHelper: "Tillåt schemalagd engångskörning.",
   allowRemoteDatasetLabel: "Tillåt fjärrdataset (opt_geturl)",
-  allowRemoteDatasetHelper:
-    "Tillåt att användaren anger en URL till en extern datafil eller tjänst.",
+  allowRemoteDatasetHelper: "Tillåt URL till extern data.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",

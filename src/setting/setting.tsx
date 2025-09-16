@@ -1504,20 +1504,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               const checked = evt?.target?.checked ?? !localSyncMode
               setLocalSyncMode(checked)
               updateConfig("syncMode", checked)
-              // Config change will be detected automatically by the widget
             }}
             aria-label={translate("serviceModeSync")}
+            aria-describedby="toggles-help"
           />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          {translate("serviceModeSyncHelper")}
         </SettingRow>
 
         {/* Allow Schedule Mode */}
@@ -1535,6 +1525,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("allowScheduleMode", checked)
             }}
             aria-label={translate("allowScheduleModeLabel")}
+            aria-describedby="toggles-help"
+          />
+        </SettingRow>
+
+        {/* Allow Remote Dataset */}
+        <SettingRow
+          flow="no-wrap"
+          label={translate("allowRemoteDatasetLabel")}
+          level={1}
+        >
+          <Switch
+            id={ID.allowRemoteDataset}
+            checked={localAllowRemoteDataset}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
+              setLocalAllowRemoteDataset(checked)
+              updateConfig("allowRemoteDataset", checked)
+            }}
+            aria-label={translate("allowRemoteDatasetLabel")}
+            aria-describedby="toggles-help"
           />
         </SettingRow>
         <SettingRow
@@ -1545,7 +1555,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           ] as any)}
           level={3}
         >
-          {translate("allowScheduleModeHelper")}
+          <div id="toggles-help">
+            <SettingRow level={3}>
+              {translate("serviceModeSyncHelper")}
+            </SettingRow>
+            <SettingRow level={3}>
+              {translate("allowScheduleModeHelper")}
+            </SettingRow>
+            <SettingRow level={3}>
+              {translate("allowRemoteDatasetHelper")}
+            </SettingRow>
+          </div>
         </SettingRow>
 
         {/* Request timeout (ms) */}
@@ -1590,34 +1610,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </SettingRow>
       </SettingSection>
       <SettingSection>
-        {/* Allow Remote Dataset */}
-        <SettingRow
-          flow="no-wrap"
-          label={translate("allowRemoteDatasetLabel")}
-          level={1}
-        >
-          <Switch
-            id={ID.allowRemoteDataset}
-            checked={localAllowRemoteDataset}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
-              setLocalAllowRemoteDataset(checked)
-              updateConfig("allowRemoteDataset", checked)
-            }}
-            aria-label={translate("allowRemoteDatasetLabel")}
-          />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          {translate("allowRemoteDatasetHelper")}
-        </SettingRow>
-
         {/* AOI Parameter Name */}
         <SettingRow
           flow="wrap"
@@ -1638,18 +1630,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalAoiParamName(finalValue)
             }}
             placeholder={translate("aoiParamNamePlaceholder")}
-            aria-describedby="aoi-param-name-help"
+            aria-describedby="aoi-help"
           />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          <div id="aoi-param-name-help">{translate("aoiParamNameHelper")}</div>
         </SettingRow>
 
         {/* Max AOI area (m²) */}
@@ -1694,7 +1676,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             placeholder={translate("maxAreaPlaceholder")}
             errorText={fieldErrors.maxArea}
-            aria-describedby="max-area-help"
+            aria-describedby={
+              fieldErrors.maxArea ? `${ID.maxArea}-error aoi-help` : "aoi-help"
+            }
           />
           {fieldErrors.maxArea && (
             <SettingRow flow="wrap" level={3}>
@@ -1709,6 +1693,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </SettingRow>
           )}
         </SettingRow>
+        {/* Consolidated AOI helpers */}
         <SettingRow
           flow="wrap"
           css={css([
@@ -1717,11 +1702,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           ] as any)}
           level={3}
         >
-          <div id="max-area-help">
-            {translate("maxAreaHelper", {
-              defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
-              maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-            })}
+          <div id="aoi-help">
+            <SettingRow level={3}>{translate("aoiParamNameHelper")}</SettingRow>
+            <SettingRow level={3}>
+              {translate("maxAreaHelper", {
+                defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
+                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+              })}
+            </SettingRow>
           </div>
         </SettingRow>
 
@@ -1740,17 +1728,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("maskEmailOnSuccess", checked)
             }}
             aria-label={translate("maskEmailOnSuccess")}
+            aria-describedby="email-help"
           />
-        </SettingRow>
-        <SettingRow
-          flow="wrap"
-          css={css([
-            sstyles.ALERT_INLINE as any,
-            styles.typography.caption,
-          ] as any)}
-          level={3}
-        >
-          {translate("maskEmailOnSuccessHelper")}
         </SettingRow>
 
         {/* Support email (optional) */}
@@ -1779,6 +1758,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             placeholder={translate("supportEmailPlaceholder")}
             errorText={fieldErrors.supportEmail}
+            aria-describedby={
+              fieldErrors.supportEmail
+                ? `${ID.supportEmail}-error email-help`
+                : "email-help"
+            }
           />
           {fieldErrors.supportEmail && (
             <SettingRow flow="wrap" level={3}>
@@ -1792,6 +1776,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               />
             </SettingRow>
           )}
+        </SettingRow>
+        <SettingRow
+          flow="wrap"
+          css={css([
+            sstyles.ALERT_INLINE as any,
+            styles.typography.caption,
+          ] as any)}
+          level={3}
+        >
+          <div id="email-help">{translate("maskEmailOnSuccessHelper")}</div>
         </SettingRow>
       </SettingSection>
 
