@@ -25,6 +25,12 @@ export default {
   checkRepositorySettings: "Kontrollera repository‑inställningen.",
   startupNetworkError: "Nätverksfel eller proxy blockerar anslutningen.",
   checkNetworkConnection: "Kontrollera nätverksanslutningen.",
+  // Missing/validation keys surfaced at runtime
+  errorMissingServerUrl: "Ange FME server-URL.",
+  errorBadBaseUrl:
+    "Ange en giltig FME server-URL, t.ex. https://fme.server.com.",
+  errorMissingToken: "Ange API-nyckeln.",
+  errorInvalidEmail: "Ogiltig e‑postadress.",
   preparingMapTools: "Förbereder kartverktygen...",
   mapNotConfigured: "Kartan är inte konfigurerad",
   rectangleDrawingInstructions: "Klicka och dra för att rita en rektangel.",

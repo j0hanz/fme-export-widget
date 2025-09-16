@@ -18,6 +18,11 @@ export default {
   noRepositoriesFound: "Inga repositories hittades",
   testConnectionFirst: "Testa anslutning först",
   errorGeneric: "Ett oväntat fel inträffade.",
+  errorMissingServerUrl: "Ange FME server-URL.",
+  errorBadBaseUrl:
+    "Ange en giltig FME server-URL, t.ex. https://fme.server.com.",
+  errorMissingToken: "Ange API-nyckeln.",
+  errorInvalidEmail: "Ogiltig e‑postadress.",
   errorUnauthorized: "Åtkomst nekad (status {status}).",
   errorUnauthorizedHelper:
     "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
@@ -29,7 +34,6 @@ export default {
   errorRepositoriesHelper:
     "Anslutningen lyckades, men listan över repositories kunde inte hämtas.",
   errorHttpStatus: "Begäran misslyckades (status {status}).",
-  // Helpers used when composing status-specific errors
   helperNetwork: "Kontrollera FME‑adressen och nätverket.",
   helperAuth:
     "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
@@ -70,7 +74,7 @@ export default {
   maxAreaHelper:
     "Tomt innebär standard ({defaultM2} m²). Högsta tillåtna värde: {maxM2} m².",
   maxAreaPlaceholder: "100000000",
-  errorMaxAreaTooLarge: "För stort värde. Ange högst {maxM2} m².",
+  errorMaxAreaTooLarge: "Värdet är för stort.",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Hoppar över",

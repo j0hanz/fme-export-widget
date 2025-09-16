@@ -53,6 +53,26 @@ import type {
   IconProps,
   StateViewProps,
 } from "../../config"
+import errorIcon from "jimu-icons/svg/outlined/suggested/error.svg"
+import warningIcon from "jimu-icons/svg/outlined/suggested/warning.svg"
+import infoIcon from "jimu-icons/svg/outlined/suggested/info.svg"
+import successIcon from "jimu-icons/svg/outlined/suggested/success.svg"
+import lockIcon from "jimu-icons/svg/outlined/editor/lock.svg"
+import stopIcon from "jimu-icons/svg/outlined/editor/stop-circle.svg"
+import closeCircleIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
+import pendingIcon from "jimu-icons/svg/outlined/editor/pending.svg"
+import personLockIcon from "jimu-icons/svg/outlined/application/person-lock.svg"
+import emailIcon from "jimu-icons/svg/outlined/application/email.svg"
+import settingsIcon from "jimu-icons/svg/outlined/application/setting.svg"
+import folderIcon from "jimu-icons/svg/outlined/application/folder.svg"
+import urlIcon from "jimu-icons/svg/outlined/data/url.svg"
+import codeIcon from "jimu-icons/svg/outlined/data/code.svg"
+import documentIcon from "jimu-icons/svg/outlined/data/document.svg"
+import frameworkIcon from "jimu-icons/svg/outlined/brand/widget-framework.svg"
+import offlineIcon from "jimu-icons/svg/outlined/editor/sync-off.svg"
+import unlinkChainIcon from "jimu-icons/svg/outlined/editor/unlink-chain.svg"
+import globeIcon from "jimu-icons/svg/outlined/data/globe.svg"
+import minusCircleIcon from "jimu-icons/svg/outlined/editor/minus-circle.svg"
 
 type TranslateFn = (key: string, params?: any) => string
 
@@ -60,7 +80,7 @@ type TranslateFn = (key: string, params?: any) => string
 export const config = {
   icon: { small: 14, medium: 16, large: 20 },
   tooltip: {
-    delay: { enter: 1000, next: 500, leave: 100, touch: 500 },
+    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
     position: {
       top: "top" as const,
       bottom: "bottom" as const,
@@ -252,6 +272,80 @@ export const useStyles = () => {
 
   return stylesRef.current || createStyles(theme)
 }
+export const getErrorIconSrc = (code?: string): string => {
+  if (!code || typeof code !== "string") return errorIcon
+  const k = code.trim().toUpperCase()
+
+  if (
+    k === "TOKEN" ||
+    k === "AUTH_ERROR" ||
+    k === "INVALID_TOKEN" ||
+    k === "TOKEN_EXPIRED" ||
+    k === "AUTH_REQUIRED"
+  ) {
+    return lockIcon
+  }
+  if (
+    k === "SERVER" ||
+    k === "SERVER_ERROR" ||
+    k === "BAD_GATEWAY" ||
+    k === "SERVICE_UNAVAILABLE" ||
+    k === "GATEWAY_TIMEOUT"
+  ) {
+    return errorIcon
+  }
+  if (
+    k === "REPOSITORY" ||
+    k === "REPO_NOT_FOUND" ||
+    k === "REPOSITORY_NOT_FOUND" ||
+    k === "INVALID_REPOSITORY"
+  ) {
+    return folderIcon
+  }
+  if (k === "DNS_ERROR") return globeIcon
+  if (k === "NETWORK" || k === "NETWORK_ERROR") return unlinkChainIcon
+
+  // Specific technical issues
+  if (k === "OFFLINE" || k === "STARTUP_NETWORK_ERROR") return offlineIcon
+  if (k === "CORS_ERROR" || k === "SSL_ERROR") return lockIcon
+  if (
+    k === "INVALID_URL" ||
+    k === "URL_TOO_LONG" ||
+    k === "MAX_URL_LENGTH_EXCEEDED"
+  )
+    return urlIcon
+  if (k === "HEADERS_TOO_LARGE") return documentIcon
+  if (k === "BAD_RESPONSE") return codeIcon
+  if (k === "BAD_REQUEST") return warningIcon
+  if (k === "PAYLOAD_TOO_LARGE" || k === "DATA_DOWNLOAD_ERROR")
+    return documentIcon
+  if (k === "RATE_LIMITED") return minusCircleIcon
+  if (k === "TIMEOUT" || k === "ETIMEDOUT") return pendingIcon
+  if (k === "ABORT") return stopIcon
+  if (k === "CANCELLED") return closeCircleIcon
+  if (k === "WEBHOOK_AUTH_ERROR") return personLockIcon
+  if (k === "ARCGIS_MODULE_ERROR") return frameworkIcon
+
+  // Configuration & validation
+  if (
+    k === "INVALID_CONFIG" ||
+    k === "CONFIGMISSING" ||
+    k === "MISSINGREQUIREDFIELDS"
+  )
+    return settingsIcon
+  if (
+    k === "USEREMAILMISSING" ||
+    k === "MISSING_REQUESTER_EMAIL" ||
+    k === "INVALID_EMAIL"
+  )
+    return emailIcon
+
+  // Generic defaults
+  if (k === "CONNECTION_ERROR") return unlinkChainIcon
+  if (k === "SUCCESS") return successIcon
+  if (k === "INFO") return infoIcon
+  return errorIcon
+}
 
 // Utility functions
 let idSeq = 0
@@ -419,44 +513,30 @@ export const Tooltip: React.FC<TooltipProps> = ({
   title,
   ...otherProps
 }) => {
-  const styles = useStyles()
-  const autoId = useId()
-
-  // Ensure children is a valid React element
-  if (!React.isValidElement(children)) return <>{children}</>
-
   const tooltipContent = title ?? content
-  if (!tooltipContent || disabled) return children
-
-  const tooltipId = otherProps.id || autoId
-
-  const isDisabled =
-    children.props?.disabled || children.props?.["aria-disabled"]
-  const baseChildProps = (children.props || {}) as { [key: string]: any }
-  // Omit title to avoid conflicts with tooltip
-  const { title: _omitTitle, ...safeChildProps } = baseChildProps
-  const cloned = React.cloneElement(children as any, {
-    ...safeChildProps,
-    "aria-describedby": tooltipId,
-  })
-  const child = isDisabled ? (
-    <span css={styles.disabledCursor} aria-disabled="true">
-      {cloned}
-    </span>
-  ) : (
-    cloned
+  if (!React.isValidElement(children) || !tooltipContent || disabled) {
+    return <>{children}</>
+  }
+  const isChildDisabled = Boolean(
+    (children as any)?.props?.disabled ||
+      (children as any)?.props?.["aria-disabled"]
   )
+  const anchor = isChildDisabled ? (
+    <span aria-disabled="true">{children}</span>
+  ) : (
+    children
+  )
+  const placementProp = (placement as any) === "auto" ? "top" : placement
 
   return (
     <JimuTooltip
-      id={tooltipId}
-      title={tooltipContent}
+      title={tooltipContent as any}
       showArrow={showArrow}
-      placement={placement}
-      disabled={disabled}
+      placement={placementProp as any}
+      disabled={false}
       {...otherProps}
     >
-      {child}
+      {anchor}
     </JimuTooltip>
   )
 }
@@ -1121,6 +1201,8 @@ export const Button: React.FC<ButtonProps> = ({
   // Absorb potential style/css from incoming props so no inline style attribute is forwarded
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
+  const hasTooltip = !!tooltip && !tooltipDisabled
+
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
@@ -1135,7 +1217,12 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={[styles.relative, jimuCss, jimuStyle && css(jimuStyle)]}
+      css={[
+        styles.relative,
+        // When not using tooltip, carry caller styles directly on the button
+        !hasTooltip && jimuCss,
+        !hasTooltip && jimuStyle && css(jimuStyle),
+      ]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1151,13 +1238,35 @@ export const Button: React.FC<ButtonProps> = ({
     </JimuButton>
   )
 
-  return tooltip && !tooltipDisabled ? (
-    <Tooltip content={tooltip} placement={tooltipPlacement}>
-      {buttonElement}
-    </Tooltip>
-  ) : (
-    buttonElement
-  )
+  if (hasTooltip) {
+    // Outer wrapper is the flex item and carries caller CSS; inner anchor grows to fill
+    const wrapperCss = [
+      jimuCss,
+      jimuStyle && css(jimuStyle),
+      css(
+        block
+          ? { display: "block", width: "100%", minWidth: 0 }
+          : { display: "inline-flex", minWidth: 0 }
+      ),
+    ]
+
+    const anchorCss = css({
+      display: "flex",
+      width: "100%",
+      minWidth: 0,
+      "& > *": { flex: 1, minWidth: 0 },
+    })
+
+    return (
+      <span css={wrapperCss as any}>
+        <Tooltip content={tooltip} placement={tooltipPlacement}>
+          <span css={anchorCss}>{buttonElement}</span>
+        </Tooltip>
+      </span>
+    )
+  }
+
+  return buttonElement
 }
 
 // ButtonTabs component
@@ -1347,7 +1456,13 @@ const StateView: React.FC<StateViewProps> = ({
       case "error":
         return (
           <div role="alert" aria-live="assertive">
-            <div css={styles.typography.title}>{state.message}</div>
+            <div css={css({ display: "flex", alignItems: "center", gap: 6 })}>
+              <Icon
+                src={getErrorIconSrc((state as any).code)}
+                size={config.icon.large}
+              />
+              <div css={styles.typography.title}>{state.message}</div>
+            </div>
             {state.code && (
               <div css={styles.typography.caption}>
                 {translate("errorCode")}: {state.code}
