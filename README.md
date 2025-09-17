@@ -1,4 +1,4 @@
-# FME Export widget (ArcGIS Experience Builder 1.18)
+# FME Export widget
 
 Export a user‑drawn Area of Interest (AOI) from an Experience Builder map to FME Flow (Server). The widget guides the user through drawing a polygon/rectangle, selecting an FME workspace, filling in parameters, and submitting an export job.
 
