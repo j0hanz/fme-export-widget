@@ -28,6 +28,7 @@ const ERR = {
   INVALID_CONFIG: "INVALID_CONFIG",
   GEOMETRY_MISSING: "GEOMETRY_MISSING",
   GEOMETRY_TYPE_INVALID: "GEOMETRY_TYPE_INVALID",
+  URL_TOO_LONG: "URL_TOO_LONG",
 } as const
 
 const makeError = (code: string, status?: number) =>
@@ -453,10 +454,11 @@ const buildParams = (
   if (webhookDefaults) {
     urlParams.append("opt_responseformat", "json")
     urlParams.append("opt_showresult", "true")
-    urlParams.append(
-      "opt_servicemode",
-      (params.opt_servicemode as string) || "async"
-    )
+    // Default to async unless explicitly set to "sync"
+    const raw = (params as any)?.opt_servicemode
+    const requested = typeof raw === "string" ? raw.trim().toLowerCase() : ""
+    const mode = requested === "sync" ? "sync" : "async"
+    urlParams.append("opt_servicemode", mode)
   }
 
   return urlParams
@@ -1136,7 +1138,8 @@ export class FmeFlowApiClient {
           maxLen > 0 &&
           fullUrl.length > maxLen
         ) {
-          throw makeError(ERR.DATA_DOWNLOAD_ERROR, 0)
+          // Emit a dedicated error code for URL length issues
+          throw makeError(ERR.URL_TOO_LONG, 0)
         }
       } catch (lenErr) {
         if (lenErr instanceof FmeFlowApiError) throw lenErr

@@ -193,10 +193,8 @@ describe("shared/utils", () => {
     expect(buildSupportHintText(translate, undefined, "Custom help")).toBe(
       "Custom help"
     )
-    // fallback to translate("contactSupport")
-    expect(buildSupportHintText(translate, undefined, undefined)).toBe(
-      "contactSupport"
-    )
+    // fallback now empty string when no email/user-friendly provided
+    expect(buildSupportHintText(translate, undefined, undefined)).toBe("")
   })
 
   test("getSupportEmail returns valid trimmed email and rejects invalid or noreply", () => {

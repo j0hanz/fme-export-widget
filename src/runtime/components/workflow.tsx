@@ -1124,7 +1124,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderCurrent = () => {
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
-        const supportHint = config?.supportEmail || translate("contactSupport")
+        const supportHint = config?.supportEmail || ""
         return renderError(
           startupValidationError.message,
           undefined,

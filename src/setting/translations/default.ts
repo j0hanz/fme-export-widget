@@ -64,8 +64,8 @@ export default {
   serviceModeSyncHelper:
     "På: nedladdning via direktlänk. Av: länk skickas via e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
-  maskEmailOnSuccessHelper:
-    "Maskerar e‑postadress i kvittens (visar bara de två första tecknen).",
+  supportEmailHelper:
+    "Om angivet kommer detta att visas i felmeddelanden vid fel.",
   requestTimeoutLabel: "Tidsgräns (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
@@ -85,6 +85,14 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för AOI. Standard: AreaOfInterest.",
+  aoiGeoJsonParamNameLabel: "AOI GeoJSON-parameternamn (valfritt)",
+  aoiGeoJsonParamNamePlaceholder: "t.ex. ExtentGeoJson",
+  aoiGeoJsonParamNameHelper:
+    "Om angivet skickas AOI även som GeoJSON i detta parameternamn.",
+  aoiWktParamNameLabel: "AOI WKT-parameternamn (valfritt)",
+  aoiWktParamNamePlaceholder: "t.ex. AreaOfInterestWKT",
+  aoiWktParamNameHelper:
+    "Om angivet skickas AOI även som WKT (POLYGON) i detta parameternamn.",
   uploadTargetParamNameLabel: "Uppladdningsparameternamn (valfritt)",
   uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
   uploadTargetParamNameHelper:

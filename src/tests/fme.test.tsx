@@ -402,7 +402,7 @@ describe("FME internal helper functions", () => {
       ],
     }
     const cfg: any = { aoiParamName: "CustomAOI" }
-    const out = attachAoi(base, polygon, undefined as any, cfg)
+    const out = attachAoi(base, polygon, undefined as any, null, cfg)
     expect(out.CustomAOI).toBeDefined()
     expect(() => JSON.parse(out.CustomAOI as string)).not.toThrow()
     expect(out.a).toBe(1)

@@ -48,7 +48,6 @@ export default {
   checkNetworkConnection: "Kontrollera nätverksanslutningen.",
   unknownErrorOccurred: "Ett okänt fel inträffade.",
   contactSupportWithEmail: "Kontakta supporten på {email}",
-  contactSupport: "Kontakta supporten.",
   invalidConfiguration: "Ogiltig konfiguration.",
   userEmailMissing: "Din e‑postadress saknas.",
   invalidEmail: "Ogiltig e‑postadress.",

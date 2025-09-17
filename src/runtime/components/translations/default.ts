@@ -9,7 +9,6 @@ export default {
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
   notificationEmail: "E‑post",
-  contactSupport: "Kontakta supporten.",
   contactSupportWithEmail: "Kontakta supporten på {email}",
   emailNotificationSent:
     "När beställningen är klar skickas ett e‑postmeddelande till den här adressen.",

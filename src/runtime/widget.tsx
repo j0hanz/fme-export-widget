@@ -448,11 +448,80 @@ const isPolygonGeometry = (
   return (rings as unknown[]).every(isValidRing)
 }
 
+// Helper: build GeoJSON Polygon from Esri polygon JSON
+const polygonJsonToGeoJson = (poly: any): any => {
+  const rings = Array.isArray(poly?.rings) ? poly.rings : []
+  const coords = rings.map((ring: any[]) =>
+    (Array.isArray(ring) ? ring : []).map((pt: any) => [pt[0], pt[1]])
+  )
+  return { type: "Polygon", coordinates: coords }
+}
+
+// Helper: build WKT POLYGON or MULTIPOLYGON from Esri polygon JSON
+const polygonJsonToWkt = (poly: any): string => {
+  const rings = Array.isArray(poly?.rings) ? poly.rings : []
+  if (!rings.length) return "POLYGON EMPTY"
+
+  // FME/WKT expects outer ring(s) CCW and holes CW, but we'll emit rings as-is
+  // using polygon with inner rings.
+  const ringToText = (ring: any[]): string => {
+    const arr = Array.isArray(ring) ? ring.slice() : []
+    // Ensure ring is closed (first == last)
+    if (arr.length > 0) {
+      const first = arr[0]
+      const last = arr[arr.length - 1]
+      const same =
+        Array.isArray(first) &&
+        Array.isArray(last) &&
+        first.length >= 2 &&
+        last.length >= 2 &&
+        first[0] === last[0] &&
+        first[1] === last[1]
+      if (!same) arr.push(first)
+    }
+    const coords = arr.map((pt: any) => `${pt[0]} ${pt[1]}`).join(", ")
+    return `(${coords})`
+  }
+
+  // Group first ring as shell and remaining as holes for a single polygon
+  const wktRings = rings.map(ringToText).join(", ")
+  return `POLYGON(${wktRings})`
+}
+
+// Convert polygon JSON to WGS84 if needed, using provided Esri modules.
+const toWgs84PolygonJson = (
+  polyJson: any,
+  modules: EsriModules | null | undefined
+): any => {
+  try {
+    const Polygon = modules?.Polygon
+    const wmUtils = modules?.webMercatorUtils
+    if (!Polygon) return polyJson
+
+    const poly = Polygon.fromJSON(polyJson)
+    const wkid = poly?.spatialReference?.wkid
+
+    // Already WGS84
+    if (wkid === 4326) return poly.toJSON()
+
+    // WebMercator -> WGS84
+    if (wkid === 3857 && wmUtils?.webMercatorToGeographic) {
+      const g = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
+      return g?.toJSON?.() ?? poly.toJSON()
+    }
+    return poly.toJSON()
+  } catch {
+    // On any failure, return original input unmodified
+    return polyJson
+  }
+}
+
 // Attach AOI to FME parameters
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
+  modules: EsriModules | null | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   // Sanitize parameter name to safe characters
@@ -475,9 +544,46 @@ const attachAoi = (
   if (aoiJson) {
     try {
       const serialized = JSON.stringify(aoiJson)
-      return { ...base, [paramName]: serialized }
+      const out: { [key: string]: unknown } = {
+        ...base,
+        [paramName]: serialized,
+      }
+
+      // Optionally add GeoJSON AOI if configured
+      const gjName = (config?.aoiGeoJsonParamName || "").toString().trim()
+      if (gjName) {
+        try {
+          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
+          const geojson = polygonJsonToGeoJson(wgs84Poly)
+          out[gjName] = JSON.stringify(geojson)
+        } catch (e) {
+          // ignore geojson conversion failure, keep Esri JSON
+        }
+      }
+
+      // Optionally add WKT AOI if configured
+      const wktName = (config?.aoiWktParamName || "").toString().trim()
+      if (wktName) {
+        try {
+          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
+          const wkt = polygonJsonToWkt(wgs84Poly)
+          out[wktName] = wkt
+        } catch (e) {
+          // ignore wkt conversion failure, keep Esri JSON
+        }
+      }
+
+      return out
     } catch (_) {
-      // fall through without AOI if serialization fails
+      // If we have geometry but cannot serialize, signal a user-facing error via a marker key.
+      // The caller path will convert this into a localized error message.
+      const err = new ErrorHandlingService().createError(
+        "GEOMETRY_SERIALIZATION_FAILED",
+        ErrorType.GEOMETRY,
+        { code: "GEOMETRY_SERIALIZATION_FAILED" }
+      )
+      // Store an error marker to be handled by submission path
+      return { ...base, __aoi_error__: err }
     }
   }
 
@@ -507,6 +613,7 @@ const prepFmeParams = (
   userEmail: string,
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
+  modules: EsriModules | null | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   const data = (formData as any)?.data || {}
@@ -538,7 +645,13 @@ const prepFmeParams = (
   }
 
   const base = buildFmeParams({ data }, userEmail, chosen)
-  const withAoi = attachAoi(base, geometryJson, currentGeometry, config)
+  const withAoi = attachAoi(
+    base,
+    geometryJson,
+    currentGeometry,
+    modules,
+    config
+  )
   return applyDirectiveDefaults(withAoi, config)
 }
 
@@ -1008,7 +1121,7 @@ export default function Widget(
           severity: ErrorSeverity.ERROR,
           userFriendlyMessage: props.config?.supportEmail
             ? String(props.config.supportEmail)
-            : translate("contactSupport"),
+            : "",
           suggestion: translate("retryValidation"),
           retry,
         }
@@ -1405,8 +1518,17 @@ export default function Widget(
         userEmail,
         reduxState.geometryJson,
         currentGeometry,
+        modules,
         props.config
       )
+
+      // Detect AOI serialization failure injected by attachAoi
+      if ((baseParams as any).__aoi_error__) {
+        const aoiErr = (baseParams as any).__aoi_error__ as ErrorState
+        // Surface user-friendly error and stop
+        dispatch(fmeActions.setError(aoiErr, widgetId))
+        return
+      }
 
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
@@ -1473,6 +1595,10 @@ export default function Widget(
 
       // Apply admin defaults and record for testing
       finalParams = applyDirectiveDefaults(finalParams, props.config)
+      // Ensure hidden error marker isn't leaked
+      try {
+        delete (finalParams as any).__aoi_error__
+      } catch {}
       try {
         ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
       } catch {

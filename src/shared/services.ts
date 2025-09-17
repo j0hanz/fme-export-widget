@@ -1279,25 +1279,20 @@ function createConnectionError(
   // Interpret incoming message as a translation key when possible
   const baseMessageKey = connectionError?.message || "startupConnectionError"
   let baseMessage = translate(baseMessageKey) || baseMessageKey
-  let userMessage = translate("startupConnectionError")
   let suggestion = translate("checkConnectionSettings")
 
   // Provide specific guidance based on error type
   if (connectionError?.type === "token") {
     baseMessage = translate("startupTokenError") || baseMessage
-    userMessage = translate("startupTokenError")
     suggestion = translate("checkTokenSettings")
   } else if (connectionError?.type === "server") {
     baseMessage = translate("startupServerError") || baseMessage
-    userMessage = translate("startupServerError")
     suggestion = translate("checkServerSettings")
   } else if (connectionError?.type === "repository") {
     baseMessage = translate("repositoryNotAccessible") || baseMessage
-    userMessage = translate("startupRepositoryError")
     suggestion = translate("checkRepositorySettings")
   } else if (connectionError?.type === "network") {
     baseMessage = translate("startupNetworkError") || baseMessage
-    userMessage = translate("startupNetworkError")
     suggestion = translate("checkNetworkConnection")
   }
 
@@ -1309,7 +1304,7 @@ function createConnectionError(
     recoverable: true,
     timestamp: new Date(),
     timestampMs: Date.now(),
-    userFriendlyMessage: userMessage,
+    userFriendlyMessage: "",
     suggestion,
   }
 }
@@ -1330,8 +1325,7 @@ function createNetworkError(
     recoverable: true,
     timestamp: new Date(),
     timestampMs: Date.now(),
-    userFriendlyMessage:
-      translate("startupNetworkError") || "startupNetworkError",
+    userFriendlyMessage: "",
     suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
   }
 }
@@ -1376,6 +1370,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
   // Prefer explicit error code mappings when present
   const code = (err as any)?.code
   if (typeof code === "string") {
+    if (code === "GEOMETRY_SERIALIZATION_FAILED")
+      return "GEOMETRY_SERIALIZATION_FAILED"
     if (code === "DATA_DOWNLOAD_ERROR") return "payloadTooLarge"
     if (code === "PAYLOAD_TOO_LARGE") return "payloadTooLarge"
     if (code === "RATE_LIMITED") return "rateLimited"
@@ -1400,6 +1396,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
   // Extract message from error object
   const message = (err as Error)?.message
   if (typeof message === "string" && message.trim()) {
+    if (message === "GEOMETRY_SERIALIZATION_FAILED")
+      return "GEOMETRY_SERIALIZATION_FAILED"
     if (message === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
     if (message === "INVALID_EMAIL") return "invalidEmail"
     // Normalize common fetch error messages

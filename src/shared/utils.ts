@@ -271,7 +271,7 @@ export const buildSupportHintText = (
   if (typeof userFriendly === "string" && userFriendly.trim()) {
     return userFriendly
   }
-  return translate("contactSupport")
+  return ""
 }
 
 // Extract and validate a configured support email using enterprise-safe rules
