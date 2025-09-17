@@ -69,7 +69,7 @@ export default {
   requestTimeoutLabel: "Tidsgräns (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
-    "Standard är 30 000 ms. Lämna tomt för att använda systemets standard.",
+    "Maximal väntetid på serversvar i millisekunder. Standard: 30000 (30 sekunder). Lämna tomt för ingen tidsgräns.",
   maxAreaLabel: "Max AOI‑yta (m²)",
   maxAreaHelper:
     "Tomt innebär standard ({defaultM2} m²). Högsta tillåtna värde: {maxM2} m².",
