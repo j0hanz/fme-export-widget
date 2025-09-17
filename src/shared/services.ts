@@ -1376,6 +1376,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
   // Prefer explicit error code mappings when present
   const code = (err as any)?.code
   if (typeof code === "string") {
+    if (code === "GEOMETRY_SERIALIZATION_FAILED")
+      return "GEOMETRY_SERIALIZATION_FAILED"
     if (code === "DATA_DOWNLOAD_ERROR") return "payloadTooLarge"
     if (code === "PAYLOAD_TOO_LARGE") return "payloadTooLarge"
     if (code === "RATE_LIMITED") return "rateLimited"
@@ -1400,6 +1402,8 @@ export function getErrorMessage(err: unknown, status?: number): string {
   // Extract message from error object
   const message = (err as Error)?.message
   if (typeof message === "string" && message.trim()) {
+    if (message === "GEOMETRY_SERIALIZATION_FAILED")
+      return "GEOMETRY_SERIALIZATION_FAILED"
     if (message === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
     if (message === "INVALID_EMAIL") return "invalidEmail"
     // Normalize common fetch error messages

@@ -448,6 +448,34 @@ const isPolygonGeometry = (
   return (rings as unknown[]).every(isValidRing)
 }
 
+// Helper: build GeoJSON Polygon from Esri polygon JSON
+const polygonJsonToGeoJson = (poly: any): any => {
+  const rings = Array.isArray(poly?.rings) ? poly.rings : []
+  const coords = rings.map((ring: any[]) =>
+    (Array.isArray(ring) ? ring : []).map((pt: any) => [pt[0], pt[1]])
+  )
+  return { type: "Polygon", coordinates: coords }
+}
+
+// Helper: build WKT POLYGON or MULTIPOLYGON from Esri polygon JSON
+const polygonJsonToWkt = (poly: any): string => {
+  const rings = Array.isArray(poly?.rings) ? poly.rings : []
+  if (!rings.length) return "POLYGON EMPTY"
+
+  // FME/WKT expects outer ring(s) CCW and holes CW, but we'll emit rings as-is
+  // using polygon with inner rings.
+  const ringToText = (ring: any[]): string => {
+    const coords = (Array.isArray(ring) ? ring : [])
+      .map((pt: any) => `${pt[0]} ${pt[1]}`)
+      .join(", ")
+    return `(${coords})`
+  }
+
+  // Group first ring as shell and remaining as holes for a single polygon
+  const wktRings = rings.map(ringToText).join(", ")
+  return `POLYGON(${wktRings})`
+}
+
 // Attach AOI to FME parameters
 const attachAoi = (
   base: { [key: string]: unknown },
@@ -475,9 +503,44 @@ const attachAoi = (
   if (aoiJson) {
     try {
       const serialized = JSON.stringify(aoiJson)
-      return { ...base, [paramName]: serialized }
+      const out: { [key: string]: unknown } = {
+        ...base,
+        [paramName]: serialized,
+      }
+
+      // Optionally add GeoJSON AOI if configured
+      const gjName = (config?.aoiGeoJsonParamName || "").toString().trim()
+      if (gjName) {
+        try {
+          const geojson = polygonJsonToGeoJson(aoiJson)
+          out[gjName] = JSON.stringify(geojson)
+        } catch (e) {
+          // ignore geojson conversion failure, keep Esri JSON
+        }
+      }
+
+      // Optionally add WKT AOI if configured
+      const wktName = (config?.aoiWktParamName || "").toString().trim()
+      if (wktName) {
+        try {
+          const wkt = polygonJsonToWkt(aoiJson)
+          out[wktName] = wkt
+        } catch (e) {
+          // ignore wkt conversion failure, keep Esri JSON
+        }
+      }
+
+      return out
     } catch (_) {
-      // fall through without AOI if serialization fails
+      // If we have geometry but cannot serialize, signal a user-facing error via a marker key.
+      // The caller path will convert this into a localized error message.
+      const err = new ErrorHandlingService().createError(
+        "GEOMETRY_SERIALIZATION_FAILED",
+        ErrorType.GEOMETRY,
+        { code: "GEOMETRY_SERIALIZATION_FAILED" }
+      )
+      // Store an error marker to be handled by submission path
+      return { ...base, __aoi_error__: err }
     }
   }
 
@@ -1408,6 +1471,14 @@ export default function Widget(
         props.config
       )
 
+      // Detect AOI serialization failure injected by attachAoi
+      if ((baseParams as any).__aoi_error__) {
+        const aoiErr = (baseParams as any).__aoi_error__ as ErrorState
+        // Surface user-friendly error and stop
+        dispatch(fmeActions.setError(aoiErr, widgetId))
+        return
+      }
+
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
       const remoteUrlRaw = rawData.__remote_dataset_url__ as string | undefined
@@ -1473,6 +1544,10 @@ export default function Widget(
 
       // Apply admin defaults and record for testing
       finalParams = applyDirectiveDefaults(finalParams, props.config)
+      // Ensure hidden error marker isn't leaked
+      try {
+        delete (finalParams as any).__aoi_error__
+      } catch {}
       try {
         ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
       } catch {

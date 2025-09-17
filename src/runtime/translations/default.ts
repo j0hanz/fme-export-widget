@@ -52,6 +52,7 @@ export default {
   POLYGON_SELF_INTERSECTING: "Polygonen är inte enkel (självskärning)",
   GEOMETRY_SELF_INTERSECTING: "Polygonen är inte enkel (självskärning)",
   GEOMETRY_INVALID: "Ogiltig geometri",
+  GEOMETRY_SERIALIZATION_FAILED: "Det gick inte att serialisera geometrin",
   AREA_TOO_LARGE: "Området är för stort",
   MAP_INIT_ERROR: "Misslyckades att initiera kartan",
   DRAWING_COMPLETE_ERROR: "Misslyckades att avsluta ritning",

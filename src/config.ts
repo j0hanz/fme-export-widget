@@ -552,6 +552,9 @@ export interface FmeExportConfig {
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly service?: "download" | "stream"
+  // Optional additional AOI output formats
+  readonly aoiGeoJsonParamName?: string
+  readonly aoiWktParamName?: string
 }
 
 export interface RequestConfig {
@@ -847,6 +850,9 @@ export interface WidgetConfig {
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly service?: "download" | "stream"
+  // Optional additional AOI output formats
+  readonly aoiGeoJsonParamName?: string
+  readonly aoiWktParamName?: string
 }
 
 export type IMWidgetConfig = ImmutableObject<WidgetConfig>
