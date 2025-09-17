@@ -891,7 +891,11 @@ describe("healthCheck", () => {
     // Both calls should share the same in-flight request
     expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
 
-    resolveFn({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    resolveFn({
+      data: { version: "2023.1", build: "23123" },
+      status: 200,
+      statusText: "OK",
+    })
     const res1 = await p1
     const res2 = await p2
     expect(res1.reachable).toBe(true)
@@ -1124,7 +1128,11 @@ describe("Deduplication caches for validateConnection/testBasicConnection/getRep
     const p1 = validateConnection(opts)
     const p2 = validateConnection(opts)
 
-    resolveTest({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    resolveTest({
+      data: { version: "2023.1", build: "23123" },
+      status: 200,
+      statusText: "OK",
+    })
     const res1 = await p1
     const res2 = await p2
     expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
@@ -1143,7 +1151,11 @@ describe("Deduplication caches for validateConnection/testBasicConnection/getRep
 
     const p1 = testBasicConnection("https://a", "t")
     const p2 = testBasicConnection("https://a", "t")
-    resolveTest({ data: { version: "2023.1" }, status: 200, statusText: "OK" })
+    resolveTest({
+      data: { version: "2023.1", build: "23123" },
+      status: 200,
+      statusText: "OK",
+    })
     const res1 = await p1
     const res2 = await p2
     expect(mockClient.testConnection).toHaveBeenCalledTimes(1)
