@@ -1882,10 +1882,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           label={
-            <Tooltip
-              content={translate("maskEmailOnSuccessHelper")}
-              placement="top"
-            >
+            <Tooltip content={translate("supportEmailHelper")} placement="top">
               <span>{translate("supportEmail")}</span>
             </Tooltip>
           }

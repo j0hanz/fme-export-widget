@@ -6,7 +6,6 @@ export default {
   validatingMapConfiguration: "Kontrollerar kartkonfiguration...",
   validatingConnection: "Validerar anslutning...",
   validatingUserEmail: "Kontrollerar användarens e‑post...",
-  contactSupport: "Kontakta supporten",
   contactSupportWithEmail: "Kontakta supporten på {email}",
   retryValidation: "Försök igen",
   invalidEmail: "Ogiltig e‑post",

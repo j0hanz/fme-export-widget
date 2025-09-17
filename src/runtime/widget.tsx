@@ -1083,7 +1083,7 @@ export default function Widget(
           severity: ErrorSeverity.ERROR,
           userFriendlyMessage: props.config?.supportEmail
             ? String(props.config.supportEmail)
-            : translate("contactSupport"),
+            : "",
           suggestion: translate("retryValidation"),
           retry,
         }

@@ -1279,25 +1279,20 @@ function createConnectionError(
   // Interpret incoming message as a translation key when possible
   const baseMessageKey = connectionError?.message || "startupConnectionError"
   let baseMessage = translate(baseMessageKey) || baseMessageKey
-  let userMessage = translate("startupConnectionError")
   let suggestion = translate("checkConnectionSettings")
 
   // Provide specific guidance based on error type
   if (connectionError?.type === "token") {
     baseMessage = translate("startupTokenError") || baseMessage
-    userMessage = translate("startupTokenError")
     suggestion = translate("checkTokenSettings")
   } else if (connectionError?.type === "server") {
     baseMessage = translate("startupServerError") || baseMessage
-    userMessage = translate("startupServerError")
     suggestion = translate("checkServerSettings")
   } else if (connectionError?.type === "repository") {
     baseMessage = translate("repositoryNotAccessible") || baseMessage
-    userMessage = translate("startupRepositoryError")
     suggestion = translate("checkRepositorySettings")
   } else if (connectionError?.type === "network") {
     baseMessage = translate("startupNetworkError") || baseMessage
-    userMessage = translate("startupNetworkError")
     suggestion = translate("checkNetworkConnection")
   }
 
@@ -1309,7 +1304,7 @@ function createConnectionError(
     recoverable: true,
     timestamp: new Date(),
     timestampMs: Date.now(),
-    userFriendlyMessage: userMessage,
+    userFriendlyMessage: "",
     suggestion,
   }
 }
@@ -1330,8 +1325,7 @@ function createNetworkError(
     recoverable: true,
     timestamp: new Date(),
     timestampMs: Date.now(),
-    userFriendlyMessage:
-      translate("startupNetworkError") || "startupNetworkError",
+    userFriendlyMessage: "",
     suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
   }
 }

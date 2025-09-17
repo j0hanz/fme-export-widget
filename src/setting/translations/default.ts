@@ -64,8 +64,8 @@ export default {
   serviceModeSyncHelper:
     "På: nedladdning via direktlänk. Av: länk skickas via e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
-  maskEmailOnSuccessHelper:
-    "Maskerar e‑postadress i kvittens (visar bara de två första tecknen).",
+  supportEmailHelper:
+    "Om angivet kommer detta att visas i felmeddelanden vid fel.",
   requestTimeoutLabel: "Tidsgräns (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
