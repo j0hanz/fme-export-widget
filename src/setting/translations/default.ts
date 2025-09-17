@@ -85,6 +85,14 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för AOI. Standard: AreaOfInterest.",
+  aoiGeoJsonParamNameLabel: "AOI GeoJSON-parameternamn (valfritt)",
+  aoiGeoJsonParamNamePlaceholder: "t.ex. ExtentGeoJson",
+  aoiGeoJsonParamNameHelper:
+    "Om angivet skickas AOI även som GeoJSON i detta parameternamn.",
+  aoiWktParamNameLabel: "AOI WKT-parameternamn (valfritt)",
+  aoiWktParamNamePlaceholder: "t.ex. AreaOfInterestWKT",
+  aoiWktParamNameHelper:
+    "Om angivet skickas AOI även som WKT (POLYGON) i detta parameternamn.",
   uploadTargetParamNameLabel: "Uppladdningsparameternamn (valfritt)",
   uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
   uploadTargetParamNameHelper:

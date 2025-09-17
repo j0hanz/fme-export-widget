@@ -465,9 +465,21 @@ const polygonJsonToWkt = (poly: any): string => {
   // FME/WKT expects outer ring(s) CCW and holes CW, but we'll emit rings as-is
   // using polygon with inner rings.
   const ringToText = (ring: any[]): string => {
-    const coords = (Array.isArray(ring) ? ring : [])
-      .map((pt: any) => `${pt[0]} ${pt[1]}`)
-      .join(", ")
+    const arr = Array.isArray(ring) ? ring.slice() : []
+    // Ensure ring is closed (first == last)
+    if (arr.length > 0) {
+      const first = arr[0]
+      const last = arr[arr.length - 1]
+      const same =
+        Array.isArray(first) &&
+        Array.isArray(last) &&
+        first.length >= 2 &&
+        last.length >= 2 &&
+        first[0] === last[0] &&
+        first[1] === last[1]
+      if (!same) arr.push(first)
+    }
+    const coords = arr.map((pt: any) => `${pt[0]} ${pt[1]}`).join(", ")
     return `(${coords})`
   }
 

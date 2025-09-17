@@ -791,6 +791,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
     service: "setting-service",
+    aoiGeoJsonParamName: "setting-aoi-geojson-param-name",
+    aoiWktParamName: "setting-aoi-wkt-param-name",
   } as const
 
   // Consolidated test state
@@ -870,6 +872,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return typeof v === "string" ? v : "AreaOfInterest"
     }
   )
+  const [localAoiGeoJsonParamName, setLocalAoiGeoJsonParamName] =
+    React.useState<string>(() => {
+      const v = (config as any)?.aoiGeoJsonParamName
+      return typeof v === "string" ? v : ""
+    })
+  const [localAoiWktParamName, setLocalAoiWktParamName] =
+    React.useState<string>(() => {
+      const v = (config as any)?.aoiWktParamName
+      return typeof v === "string" ? v : ""
+    })
   const [localUploadTargetParamName, setLocalUploadTargetParamName] =
     React.useState<string>(() => {
       const v = (config as any)?.uploadTargetParamName
@@ -1694,6 +1706,74 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setLocalAoiParamName(finalValue)
             }}
             placeholder={translate("aoiParamNamePlaceholder")}
+          />
+        </SettingRow>
+
+        {/* AOI GeoJSON parameter name (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip
+              content={translate("aoiGeoJsonParamNameHelper")}
+              placement="top"
+            >
+              <span>{translate("aoiGeoJsonParamNameLabel")}</span>
+            </Tooltip>
+          }
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.aoiGeoJsonParamName}
+            value={localAoiGeoJsonParamName}
+            onChange={(val: string) => {
+              setLocalAoiGeoJsonParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (!trimmed) {
+                updateConfig("aoiGeoJsonParamName", undefined as any)
+                setLocalAoiGeoJsonParamName("")
+              } else {
+                updateConfig("aoiGeoJsonParamName", trimmed as any)
+                setLocalAoiGeoJsonParamName(trimmed)
+              }
+            }}
+            placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
+          />
+        </SettingRow>
+
+        {/* AOI WKT parameter name (optional) */}
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip
+              content={translate("aoiWktParamNameHelper")}
+              placement="top"
+            >
+              <span>{translate("aoiWktParamNameLabel")}</span>
+            </Tooltip>
+          }
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.aoiWktParamName}
+            value={localAoiWktParamName}
+            onChange={(val: string) => {
+              setLocalAoiWktParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (!trimmed) {
+                updateConfig("aoiWktParamName", undefined as any)
+                setLocalAoiWktParamName("")
+              } else {
+                updateConfig("aoiWktParamName", trimmed as any)
+                setLocalAoiWktParamName(trimmed)
+              }
+            }}
+            placeholder={translate("aoiWktParamNamePlaceholder")}
           />
         </SettingRow>
 
