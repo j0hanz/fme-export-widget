@@ -53,6 +53,7 @@ import {
   isValidEmail,
   buildSupportHintText,
   getSupportEmail,
+  isValidExternalUrlForOptGetUrl,
 } from "../shared/utils"
 
 // Dynamic ESRI module loader with test environment support
@@ -1385,7 +1386,7 @@ export default function Widget(
       // Create abort controller for this request (used for optional upload and run)
       const controller = submissionController.create()
 
-      // Prepare parameters and handle direct upload if present
+      // Prepare parameters and handle remote URL / direct upload if present
       const rawData = (formData as any)?.data || {}
 
       // Identify a file uploaded via our explicit upload field
@@ -1398,6 +1399,7 @@ export default function Widget(
             ...rawData,
             opt_geturl: undefined,
             __upload_file__: undefined,
+            __remote_dataset_url__: undefined,
           },
         },
         userEmail,
@@ -1406,10 +1408,26 @@ export default function Widget(
         props.config
       )
 
-      // If upload is requested, push file to TEMP and map it into the first file-type workspace parameter
+      // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
+      const remoteUrlRaw = rawData.__remote_dataset_url__ as string | undefined
+      const remoteUrl =
+        typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
+      const urlFeatureOn = Boolean(props.config?.allowRemoteUrlDataset)
 
-      if (props.config?.allowRemoteDataset && uploadFile instanceof File) {
+      // First pass: set opt_geturl only if URL is valid
+      if (
+        urlFeatureOn &&
+        remoteUrl &&
+        isValidExternalUrlForOptGetUrl(remoteUrl)
+      ) {
+        finalParams.opt_geturl = remoteUrl
+      }
+
+      // Second pass: if no opt_geturl set, consider upload fallback
+      const wantsUpload =
+        props.config?.allowRemoteDataset && uploadFile instanceof File
+      if (typeof finalParams.opt_geturl === "undefined" && wantsUpload) {
         const fmeClientForUpload = createFmeFlowClient(props.config)
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
@@ -1890,6 +1908,7 @@ export {
   validatePolygon,
   getEmail,
   attachAoi,
+  isValidExternalUrlForOptGetUrl,
   prepFmeParams,
   // Expose for unit tests
   processFmeResponse,

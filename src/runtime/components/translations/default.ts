@@ -72,6 +72,9 @@ export default {
   remoteDatasetUploadLabel: "Ladda upp dataset (TEMP)",
   remoteDatasetUploadHelper:
     "Välj en fil att ladda upp till FME Flows TEMP‑resurs. Filen används som indata när jobbet körs.",
+  remoteDatasetUrlLabel: "Fjärr‑dataset URL (HTTPS)",
+  remoteDatasetUrlHelper:
+    "Ange en säker (HTTPS) URL till indatat. Ersätter filuppladdning om båda anges.",
   addRow: "Lägg till rad",
   deleteRow: "Ta bort",
   tableEmpty: "Inga rader tillagda",
