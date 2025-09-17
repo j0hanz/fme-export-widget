@@ -293,3 +293,20 @@ export const stripHtmlToText = (input?: string): string => {
   out = out.replace(/<[^>]*>/g, "")
   return out
 }
+
+// Validate external URL for use with FME's opt_geturl parameter
+export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
+  if (typeof url !== "string") return false
+  const trimmed = url.trim()
+  if (!trimmed || trimmed.length > 10000) return false
+  try {
+    const u = new URL(trimmed)
+    // Allow https only by default for security
+    if (u.protocol.toLowerCase() !== "https:") return false
+    // Disallow embedded credentials
+    if (u.username || u.password) return false
+    return true
+  } catch {
+    return false
+  }
+}

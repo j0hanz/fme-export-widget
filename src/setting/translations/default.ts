@@ -94,6 +94,9 @@ export default {
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
     "Tillåt att användaren laddar upp en fil direkt till FME Flows TEMP‑resurs som indata.",
+  allowRemoteUrlDatasetLabel: "Tillåt fjärr-URL (HTTPS)",
+  allowRemoteUrlDatasetHelper:
+    "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",

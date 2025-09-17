@@ -550,6 +550,7 @@ export interface FmeExportConfig {
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
+  readonly allowRemoteUrlDataset?: boolean
   readonly service?: "download" | "stream"
 }
 
@@ -844,6 +845,7 @@ export interface WidgetConfig {
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
+  readonly allowRemoteUrlDataset?: boolean
   readonly service?: "download" | "stream"
 }
 

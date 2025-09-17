@@ -789,6 +789,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     uploadTargetParamName: "setting-upload-target-param-name",
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
+    allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
     service: "setting-service",
   } as const
 
@@ -878,6 +879,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<boolean>(() => Boolean((config as any)?.allowScheduleMode))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
     React.useState<boolean>(() => Boolean((config as any)?.allowRemoteDataset))
+  const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
+    React.useState<boolean>(() =>
+      Boolean((config as any)?.allowRemoteUrlDataset)
+    )
   const [localService, setLocalService] = React.useState<string>(() => {
     const v = (config as any)?.service
     return v === "stream" ? "stream" : "download"
@@ -891,7 +896,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Track in-flight repository listing request for cancellation
   const reposAbortRef = React.useRef<AbortController | null>(null)
 
-  // Helper: abort in-flight repository request safely
+  // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
     if (reposAbortRef.current) {
       safeAbort(reposAbortRef.current)
@@ -924,7 +929,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         clearErrors(setFieldErrors, ["repository"])
       } catch (err) {
         if ((err as Error)?.name !== "AbortError") {
-          // Log minimal diagnostic without exposing sensitive details
           const status = extractHttpStatus(err)
           console.warn("Repositories load error", { status })
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
@@ -935,11 +939,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  // Helper: clear repo-related ephemeral state (list, error) and abort any in-flight request
+  // Clear repository-related state when URL or token change
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
     setAvailableRepos(null)
-    // Only clear repository error if we're actually changing connection parameters
-    // Don't clear errors that might be from user input validation
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
     abortReposRequest()
   })
@@ -1578,6 +1580,33 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("allowRemoteDataset", checked)
             }}
             aria-label={translate("allowRemoteDatasetLabel")}
+            // helper via label tooltip
+          />
+        </SettingRow>
+
+        {/* Allow Remote Dataset URL (opt_geturl) */}
+        <SettingRow
+          flow="no-wrap"
+          label={
+            <Tooltip
+              content={translate("allowRemoteUrlDatasetHelper")}
+              placement="top"
+            >
+              <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+            </Tooltip>
+          }
+          level={1}
+        >
+          <Switch
+            id={ID.allowRemoteUrlDataset}
+            checked={localAllowRemoteUrlDataset}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked =
+                evt?.target?.checked ?? !localAllowRemoteUrlDataset
+              setLocalAllowRemoteUrlDataset(checked)
+              updateConfig("allowRemoteUrlDataset", checked)
+            }}
+            aria-label={translate("allowRemoteUrlDatasetLabel")}
             // helper via label tooltip
           />
         </SettingRow>

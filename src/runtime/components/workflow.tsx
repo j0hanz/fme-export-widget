@@ -10,6 +10,9 @@ import {
   useStyles,
   renderSupportHint,
   DateTimePickerWrapper,
+  Input,
+  TextArea,
+  UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
@@ -690,7 +693,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {/* Optional schedule start field: show only when allowed in config */}
+      {/* Optional schedule start field */}
       {config?.allowScheduleMode && (
         <Field
           label={translate("scheduleStartLabel")}
@@ -708,7 +711,45 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
         </Field>
       )}
 
-      {/* Direct upload field - replaces remote dataset URL when allowed */}
+      {/* Optional schedule metadata fields when schedule mode is allowed */}
+      {config?.allowScheduleMode && (
+        <>
+          <Field label={translate("scheduleNameLabel")} required={false}>
+            <Input
+              value={(formState.values.name as string) || ""}
+              onChange={(val: string) =>
+                setField(
+                  "name",
+                  (typeof val === "string" ? val : "").slice(0, 200)
+                )
+              }
+              placeholder={translate("scheduleNamePlaceholder")}
+            />
+          </Field>
+          <Field label={translate("scheduleCategoryLabel")} required={false}>
+            <Input
+              value={(formState.values.category as string) || ""}
+              onChange={(val: string) =>
+                setField(
+                  "category",
+                  (typeof val === "string" ? val : "").slice(0, 200)
+                )
+              }
+              placeholder={translate("scheduleCategoryPlaceholder")}
+            />
+          </Field>
+          <Field label={translate("scheduleDescriptionLabel")} required={false}>
+            <TextArea
+              value={(formState.values.description as string) || ""}
+              onChange={(val) =>
+                setField("description", (val || "").slice(0, 1000))
+              }
+            />
+          </Field>
+        </>
+      )}
+
+      {/* Direct upload field - replaces remote dataset URL */}
       {config?.allowRemoteDataset && (
         <Field
           label={translate("remoteDatasetUploadLabel")}
@@ -725,6 +766,19 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
             value={formState.values.__upload_file__}
             onChange={(val) => setField("__upload_file__", val)}
             translate={translate}
+          />
+        </Field>
+      )}
+
+      {/* Remote dataset URL (opt_geturl) */}
+      {config?.allowRemoteUrlDataset && (
+        <Field
+          label={translate("remoteDatasetUrlLabel")}
+          helper={translate("remoteDatasetUrlHelper")}
+        >
+          <UrlInput
+            value={(formState.values.__remote_dataset_url__ as string) || ""}
+            onChange={(val) => setField("__remote_dataset_url__", val)}
           />
         </Field>
       )}

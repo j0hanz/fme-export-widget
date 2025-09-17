@@ -643,6 +643,68 @@ function parseRepositoryNames(data: unknown): string[] {
     .filter((n): n is string => typeof n === "string" && n.length > 0)
 }
 
+function deriveFmeVersionString(info: unknown): string {
+  const d: any = (info as any) ?? {}
+  const data = d?.data ?? d
+  const pickString = (v: unknown): string | undefined => {
+    if (typeof v === "string") {
+      const t = v.trim()
+      return t || undefined
+    }
+    if (typeof v === "number" && Number.isFinite(v)) {
+      return String(v)
+    }
+    return undefined
+  }
+
+  const candidates = [
+    pickString(data?.version),
+    pickString(data?.fmeVersion),
+    pickString(data?.fmeflowVersion),
+    pickString(data?.app?.version),
+    pickString(data?.about?.version),
+    pickString(data?.server?.version),
+    pickString(data?.edition),
+    pickString(data?.build),
+    pickString(data?.productName),
+    pickString(data?.product),
+    pickString(data?.name),
+  ].filter((v): v is string => !!v)
+
+  const extractNumeric = (s: string): string | undefined => {
+    const m = s.match(/(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\b)/)
+    return m ? m[1] : undefined
+  }
+
+  for (const c of candidates) {
+    const n = extractNumeric(c)
+    if (n) return n
+  }
+  try {
+    for (const val of Object.values(data || {})) {
+      if (typeof val === "string") {
+        const n = extractNumeric(val)
+        if (n) return n
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // As a last resort, try to stringify and extract from that
+  try {
+    const blob = JSON.stringify(data)
+    if (blob && typeof blob === "string") {
+      const m = blob.match(/(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\b)/)
+      if (m) return m[1]
+    }
+  } catch {
+    // ignore
+  }
+
+  return ""
+}
+
 /**
  * Quick health check for FME Flow server
  * Provides basic connectivity and version information
@@ -699,7 +761,7 @@ export async function healthCheck(
 
       return {
         reachable: true,
-        version: response.data?.version,
+        version: deriveFmeVersionString(response),
         responseTime,
       }
     } catch (error) {
@@ -804,7 +866,7 @@ export async function validateConnection(
         serverInfo = await client.testConnection(signal)
         steps.serverUrl = "ok"
         steps.token = "ok"
-        steps.version = String(serverInfo?.data?.version || "")
+        steps.version = deriveFmeVersionString(serverInfo)
       } catch (error) {
         if ((error as Error)?.name === "AbortError") {
           return {
@@ -940,7 +1002,7 @@ export async function validateConnection(
 
       return {
         success: true,
-        version: steps.version,
+        version: typeof steps.version === "string" ? steps.version : "",
         repositories,
         steps,
       }
@@ -1005,7 +1067,7 @@ export async function testBasicConnection(
       const info = await client.testConnection(signal)
       return {
         success: true,
-        version: String(info?.data?.version || ""),
+        version: deriveFmeVersionString(info),
       }
     } catch (error) {
       return {
