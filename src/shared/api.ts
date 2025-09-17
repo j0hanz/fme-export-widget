@@ -76,6 +76,7 @@ export function resetEsriCache(): void {
   _webMercatorUtils = undefined
   _SpatialReference = undefined
   _loadPromise = null
+  _cachedMaxUrlLength = null
 }
 
 const isTestEnv = (): boolean =>
@@ -220,6 +221,30 @@ const API = {
   ],
 } as const
 
+// Add interceptor to append fmetoken to requests to the specified server URL
+const extractHostFromUrl = (serverUrl: string): string | null => {
+  try {
+    return new URL(serverUrl).host
+  } catch {
+    return null
+  }
+}
+
+// Create a regex pattern to match the host in URLs
+const createHostPattern = (host: string): RegExp => {
+  const escapedHost = host.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
+  return new RegExp(`^https?://${escapedHost}`, "i")
+}
+
+// Check if an interceptor for the given host pattern already exists
+const interceptorExists = (interceptors: any[], pattern: RegExp): boolean => {
+  return (
+    interceptors?.some((it: any) => {
+      return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
+    }) ?? false
+  )
+}
+
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
@@ -228,18 +253,13 @@ async function addFmeInterceptor(
   await ensureEsri()
   const esriConfig = asEsriConfig(_esriConfig)
   if (!esriConfig) return
-  let host: string
-  try {
-    host = new URL(serverUrl).host
-  } catch {
-    return
-  }
-  const escapedHost = host.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
-  const pattern = new RegExp(`^https?://${escapedHost}`, "i")
-  const exists = esriConfig.request.interceptors?.some((it: any) => {
-    return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
-  })
-  if (exists) return
+
+  const host = extractHostFromUrl(serverUrl)
+  if (!host) return
+
+  const pattern = createHostPattern(host)
+  if (interceptorExists(esriConfig.request.interceptors, pattern)) return
+
   esriConfig.request.interceptors?.push({
     urls: pattern,
     before(params: any) {
@@ -256,10 +276,15 @@ async function addFmeInterceptor(
   })
 }
 // Get max URL length from esriConfig if available; otherwise use default
+// Cache the result to avoid repeated config lookups
+let _cachedMaxUrlLength: number | null = null
 const getMaxUrlLength = (): number => {
+  if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength
+
   const cfg = asEsriConfig(_esriConfig)
   const n = cfg?.request?.maxUrlLength
-  return typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
+  _cachedMaxUrlLength = typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
+  return _cachedMaxUrlLength
 }
 
 // Error handling utilities
@@ -285,16 +310,20 @@ const toStr = (val: unknown): string => {
 }
 
 const extractStatusFromMessage = (message: string): number | undefined => {
-  // Match patterns like "Unable to load [URL] status: 401" or "status: 401" or just "401"
-  const statusMatch =
-    message.match(/status:\s*(\d{3})/i) ||
-    message.match(
-      /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i
-    ) ||
-    message.match(/\b(\d{3})\b/)
-  if (statusMatch) {
-    return parseInt(statusMatch[1], 10)
+  // Define status extraction patterns in order of specificity
+  const statusPatterns = [
+    /status:\s*(\d{3})/i, // "status: 401"
+    /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i, // "401 (Unauthorized)"
+    /\b(\d{3})\b/, // standalone "401"
+  ]
+
+  for (const pattern of statusPatterns) {
+    const match = message.match(pattern)
+    if (match) {
+      return parseInt(match[1], 10)
+    }
   }
+
   return undefined
 }
 
@@ -420,7 +449,31 @@ const resolveRequestUrl = (
   return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
 }
 
-// Parameter building
+const isFileObject = (value: unknown): value is File => {
+  try {
+    // Check if File constructor exists in the global scope
+    const FileConstructor = (globalThis as any).File
+    if (typeof FileConstructor === "undefined") return false
+
+    // Safely check instanceof
+    return value instanceof FileConstructor
+  } catch {
+    // If instanceof check fails, fall back to duck typing
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      typeof (value as any).name === "string" &&
+      typeof (value as any).size === "number"
+    )
+  }
+}
+
+// Get a safe display name for a File object
+const getFileDisplayName = (file: File): string => {
+  const name = file.name
+  return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
+}
+
 const buildParams = (
   params: PrimitiveParams = {},
   excludeKeys: string[] = [],
@@ -432,19 +485,11 @@ const buildParams = (
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || excludeSet.has(key)) continue
+
     // Special handling for File objects: use file name instead of full object
-    try {
-      const hasFileCtor = typeof (globalThis as any).File !== "undefined"
-      const isFile = hasFileCtor && value instanceof (globalThis as any).File
-      if (isFile) {
-        const fileName = (value as any)?.name
-        if (typeof fileName === "string" && fileName.trim()) {
-          urlParams.append(key, fileName.trim())
-        }
-        continue
-      }
-    } catch {
-      // If environment lacks File or instanceof throws, fall through to default handling
+    if (isFileObject(value)) {
+      urlParams.append(key, getFileDisplayName(value))
+      continue
     }
 
     urlParams.append(key, toStr(value))
