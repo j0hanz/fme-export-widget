@@ -85,11 +85,15 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för AOI. Standard: AreaOfInterest.",
+  uploadTargetParamNameLabel: "Uppladdningsparameternamn (valfritt)",
+  uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
+  uploadTargetParamNameHelper:
+    "Om angivet kommer den uppladdade TEMP‑sökvägen att sättas på detta publicerade parameternamn. Lämna tomt för automatisk val av första fil‑/katalogparametern, eller fallback till SourceDataset.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
   allowScheduleModeHelper: "Tillåt engångskörning vid en schemalagd tidpunkt.",
-  allowRemoteDatasetLabel: "Tillåt fjärrdataset (opt_geturl)",
+  allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
-    "Tillåt att en extern dataset‑URL (opt_geturl) skickas in.",
+    "Tillåt att användaren laddar upp en fil direkt till FME Flows TEMP‑resurs som indata.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",

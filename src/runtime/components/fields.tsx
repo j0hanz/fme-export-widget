@@ -45,11 +45,33 @@ const fmeDateTimeToInput = (v: string): string => {
 const inputToFmeDateTime = (v: string): string => {
   // YYYY-MM-DDTHH:mm[:ss] -> YYYYMMDDHHmmss
   if (!v) return ""
-  const [date, time] = v.split("T")
+  const s = v.trim()
+  const [date, time] = s.split("T")
   if (!date || !time) return ""
-  const [y, m, d] = date.split("-").map((x) => x || "")
-  const [hh, mm, ss] = time.split(":").map((x) => x || "")
-  return `${y}${m}${d}${hh}${mm}${ss || "00"}`
+
+  const [y, m, d] = date.split("-")
+  const [hh, mi, ssRaw] = time.split(":")
+
+  // Year must be 4 digits
+  if (!y || y.length !== 4 || !/^[0-9]{4}$/.test(y)) return ""
+
+  const safePad2 = (part?: string): string | null => {
+    if (!part && part !== "0") return null
+    const n = Number(part)
+    if (!Number.isFinite(n)) return null
+    return pad2(n)
+  }
+
+  const m2 = safePad2(m)
+  const d2 = safePad2(d)
+  const hh2 = safePad2(hh)
+  const mi2 = safePad2(mi)
+  if (!m2 || !d2 || !hh2 || !mi2) return ""
+
+  const ss2 = ssRaw ? safePad2(ssRaw) : "00"
+  if (ss2 === null) return ""
+
+  return `${y}${m2}${d2}${hh2}${mi2}${ss2}`
 }
 
 const fmeDateToInput = (v: string): string => {
@@ -228,6 +250,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   // Render field based on its type
   const renderByType = (): JSX.Element => {
     switch (field.type) {
+      case FormFieldType.HIDDEN: {
+        // Hidden field: keep value in form but render nothing
+        return <></>
+      }
       case FormFieldType.MESSAGE: {
         const html = field.description || field.label || ""
         return <RichText html={html} />
@@ -540,6 +566,34 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               const out = inputToFmeDate(date)
               onChange(out as FormPrimitive)
             }}
+          />
+        )
+      }
+      case FormFieldType.MONTH: {
+        const val = typeof fieldValue === "string" ? fieldValue : ""
+        return (
+          <Input
+            type="month"
+            value={val}
+            onChange={(value) => {
+              onChange(value as FormPrimitive)
+            }}
+            disabled={field.readOnly}
+            placeholder={field.placeholder || placeholders.enter}
+          />
+        )
+      }
+      case FormFieldType.WEEK: {
+        const val = typeof fieldValue === "string" ? fieldValue : ""
+        return (
+          <Input
+            type="week"
+            value={val}
+            onChange={(value) => {
+              onChange(value as FormPrimitive)
+            }}
+            disabled={field.readOnly}
+            placeholder={field.placeholder || placeholders.enter}
           />
         )
       }

@@ -741,6 +741,24 @@ const processFmeResponse = (
     }
   }
 
+  // Handle direct Blob response (streaming mode)
+  if ((data as any)?.blob instanceof Blob) {
+    const blob: Blob = (data as any).blob
+    const contentType: string | undefined =
+      (data as any).contentType || blob.type
+    // Create a temporary object URL for download
+    const url = URL.createObjectURL(blob)
+    return {
+      success: true,
+      message: translateFn("exportOrderSubmitted"),
+      workspaceName: workspace,
+      email: userEmail,
+      downloadUrl: url,
+      // We don't have a jobId in streaming mode
+      code: contentType || undefined,
+    }
+  }
+
   const serviceInfo: FmeServiceInfo =
     (data as any).serviceResponse || (data as any)
   const statusRaw = serviceInfo?.statusInfo?.status || serviceInfo?.status
@@ -1363,19 +1381,80 @@ export default function Widget(
       ])
 
       const workspace = reduxState.selectedWorkspace
-      const fmeParameters = prepFmeParams(
-        formData,
+
+      // Create abort controller for this request (used for optional upload and run)
+      const controller = submissionController.create()
+
+      // Prepare parameters and handle direct upload if present
+      const rawData = (formData as any)?.data || {}
+
+      // Identify a file uploaded via our explicit upload field
+      const uploadFile: File | null = rawData.__upload_file__ || null
+
+      // Build baseline params first (without opt_geturl)
+      const baseParams = prepFmeParams(
+        {
+          data: {
+            ...rawData,
+            opt_geturl: undefined,
+            __upload_file__: undefined,
+          },
+        },
         userEmail,
         reduxState.geometryJson,
         currentGeometry,
         props.config
       )
 
-      // Create abort controller for this request
-      const controller = submissionController.create()
+      // If upload is requested, push file to TEMP and map it into the first file-type workspace parameter
+      let finalParams: { [key: string]: unknown } = { ...baseParams }
+
+      if (props.config?.allowRemoteDataset && uploadFile instanceof File) {
+        const fmeClientForUpload = createFmeFlowClient(props.config)
+        const subfolder = `widget_${(props as any)?.id || "fme"}`
+        const uploadResp = await makeCancelable(
+          fmeClientForUpload.uploadToTemp(uploadFile, {
+            subfolder,
+            signal: controller.signal,
+          })
+        )
+        const uploadedPath = (uploadResp?.data as any)?.path
+
+        // Find a suitable workspace parameter to assign the uploaded path
+        const params = reduxState.workspaceParameters || []
+        const explicitNameRaw = (props.config as any)?.uploadTargetParamName
+        const explicitName =
+          typeof explicitNameRaw === "string" && explicitNameRaw.trim()
+            ? explicitNameRaw.trim()
+            : null
+        if (uploadedPath && explicitName) {
+          finalParams[explicitName] = uploadedPath
+        } else {
+          const candidate = params.find((p: any) =>
+            [
+              "FILENAME",
+              "FILENAME_MUSTEXIST",
+              "DIRNAME",
+              "DIRNAME_MUSTEXIST",
+              "DIRNAME_SRC",
+              "LOOKUP_FILE",
+              "REPROJECTION_FILE",
+            ].includes(String(p?.type))
+          )
+
+          if (uploadedPath && candidate?.name) {
+            finalParams[candidate.name] = uploadedPath
+          } else if (uploadedPath) {
+            // Fallback to a common parameter name if present
+            if (typeof (finalParams as any).SourceDataset === "undefined") {
+              ;(finalParams as any).SourceDataset = uploadedPath
+            }
+          }
+        }
+      }
 
       // Apply admin defaults and record for testing
-      const finalParams = applyDirectiveDefaults(fmeParameters, props.config)
+      finalParams = applyDirectiveDefaults(finalParams, props.config)
       try {
         ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
       } catch {
@@ -1806,4 +1885,12 @@ Reflect.set(
 )
 
 // Consolidated exports (internal helpers exposed strictly for unit tests)
-export { calcArea, validatePolygon, getEmail, attachAoi, prepFmeParams }
+export {
+  calcArea,
+  validatePolygon,
+  getEmail,
+  attachAoi,
+  prepFmeParams,
+  // Expose for unit tests
+  processFmeResponse,
+}

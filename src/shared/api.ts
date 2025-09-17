@@ -349,7 +349,7 @@ const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   const encodePath = (s: string): string =>
     s
       .split("/")
-      .filter(Boolean)
+      .filter((part) => Boolean(part) && part !== "." && part !== "..")
       .map((p) => encodeURIComponent(p))
       .join("/")
 
@@ -564,6 +564,82 @@ export class FmeFlowApiClient {
     this.config = config
     void setApiSettings(config)
     void addFmeInterceptor(config.serverUrl, config.token)
+  }
+
+  async uploadToTemp(
+    file: File | Blob,
+    options?: { subfolder?: string; signal?: AbortSignal }
+  ): Promise<ApiResponse<{ path: string }>> {
+    await ensureEsri()
+
+    // Validate file input
+    const segments: string[] = [
+      this.basePath.slice(1),
+      "resources",
+      "connections",
+      "FME_SHAREDRESOURCE_TEMP",
+      "filesys",
+    ]
+    const sub = (options?.subfolder || "")
+      .replace(/[^A-Za-z0-9_\-/]/g, "")
+      .replace(/^\/+|\/+$/g, "")
+    if (sub) {
+      // Split safe subfolder into path segments
+      for (const s of sub.split("/")) if (s) segments.push(s)
+    }
+
+    const endpoint = buildUrl(this.config.serverUrl, ...segments)
+
+    // Determine filename from File or provide a fallback
+    const fileName = (file as any)?.name
+      ? String((file as any).name)
+      : `upload_${Date.now()}`
+
+    const headers: { [key: string]: string } = {
+      Accept: "application/json",
+      "Content-Type": "application/octet-stream",
+      // RFC 6266 style Content-Disposition
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
+    }
+
+    // Some deployments require explicit createDirectories flag
+    const query: PrimitiveParams = { createDirectories: "true" }
+
+    return this.request<{ path?: string; fullpath?: string; files?: any[] }>(
+      endpoint,
+      {
+        method: HttpMethod.POST,
+        headers,
+        body: file as unknown as any,
+        query,
+        signal: options?.signal,
+      }
+    ).then((resp) => {
+      const data: any = resp?.data || {}
+      // Try to resolve the absolute/engine-usable path from typical response shapes
+      let resolvedPath: string | undefined =
+        (typeof data.path === "string" && data.path) ||
+        (typeof data.fullpath === "string" && data.fullpath)
+
+      if (!resolvedPath && Array.isArray(data.files) && data.files.length) {
+        const first = data.files[0]
+        resolvedPath =
+          (typeof first?.path === "string" && first.path) ||
+          (typeof first?.fullpath === "string" && first.fullpath)
+      }
+
+      // If still not found, construct a best-effort path using known conventions
+      if (!resolvedPath) {
+        const joined = (sub ? `${sub.replace(/\/+$/g, "")}/` : "") + fileName
+        resolvedPath = `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
+      }
+
+      return {
+        data: { path: resolvedPath },
+        status: resp.status,
+        statusText: resp.statusText,
+      }
+    })
   }
 
   private resolveRepository(repository?: string): string {
@@ -905,23 +981,87 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse> {
+  ): Promise<
+    ApiResponse<{
+      blob: Blob
+      fileName?: string
+      contentType?: string | null
+    }>
+  > {
     const targetRepository = this.resolveRepository(repository)
-    const endpoint = this.buildServiceUrl(
+
+    // Build streaming service URL and POST body
+    const serviceUrl = this.buildServiceUrl(
       "fmedatastreaming",
       targetRepository,
       workspace
     )
+
     return this.withApiError(
       async () => {
-        const params = buildParams(parameters)
-        params.append("opt_showresult", "true")
-        return await this.request(endpoint, {
-          method: HttpMethod.POST,
+        // Prepare URLSearchParams body, excluding TM directives which are control-plane only
+        const params = buildParams(
+          parameters,
+          ["tm_ttc", "tm_ttl", "tm_tag"],
+          false
+        )
+        // Show result inline (lets FME stream the generated content)
+        params.set("opt_showresult", "true")
+
+        // Append token as query param (consistent with webhook auth model)
+        let url = serviceUrl
+        if (this.config.token) {
+          const u = new URL(url, globalThis.location?.origin || "http://d")
+          u.searchParams.set("token", this.config.token)
+          url = u.toString()
+        }
+
+        // Best-effort safe logging without sensitive params
+        try {
+          const safeParams = new URLSearchParams()
+          for (const k of API.WEBHOOK_LOG_WHITELIST) {
+            const v = params.get(k)
+            if (v !== null) safeParams.set(k, v)
+          }
+          console.log(
+            "STREAMING_CALL",
+            url.split("?")[0],
+            `params=${safeParams.toString()}`
+          )
+        } catch {
+          /* ignore logging issues */
+        }
+
+        const response = await fetch(url, {
+          method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
           signal,
         })
+
+        // Non-2xx -> surface as error for consistent handling
+        if (!response.ok) {
+          throw makeError(ERR.DATA_STREAMING_ERROR, response.status)
+        }
+
+        // Always read as Blob; callers can decode based on content-type
+        const blob = await response.blob()
+        const contentType = response.headers.get("content-type")
+
+        // Attempt to extract filename from Content-Disposition header
+        const cd = response.headers.get("content-disposition") || ""
+        let fileName: string | undefined
+        const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
+        if (m) {
+          const raw = decodeURIComponent(m[1] || m[2] || "").trim()
+          fileName = raw || undefined
+        }
+
+        return {
+          data: { blob, fileName, contentType },
+          status: response.status,
+          statusText: response.statusText,
+        }
       },
       ERR.DATA_STREAMING_ERROR,
       ERR.DATA_STREAMING_ERROR

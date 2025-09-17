@@ -390,19 +390,37 @@ describe("shared/api FmeFlowApiClient", () => {
     })
   })
 
-  test("runDataStreaming posts parameters and includes opt_showresult", async () => {
-    const esriRequest = (global as any).esriRequest as jest.Mock
+  test("runDataStreaming posts parameters with token and returns Blob", async () => {
+    // Mock streaming response as plain text with filename
+    fetchMock.mockResponseOnce("hello world", {
+      headers: {
+        "content-type": "text/plain",
+        "content-disposition": 'attachment; filename="out.txt"',
+      },
+      status: 200,
+      statusText: "OK",
+    })
+
     const client = makeClient()
-    await client.runDataStreaming("stream.fmw", { a: "1" }, "repoX")
-    const [url, options] = esriRequest.mock.calls[0]
-    expect(url).toBe(
-      "https://fme.example.com/fmedatastreaming/repoX/stream.fmw"
+    const res = await client.runDataStreaming("stream.fmw", { a: "1" }, "repoX")
+
+    // Validate fetch call
+    const [calledUrl, init] = fetchMock.mock.calls[0]
+    expect(typeof calledUrl).toBe("string")
+    expect(calledUrl).toBe(
+      "https://fme.example.com/fmedatastreaming/repoX/stream.fmw?token=superSecretToken1234"
     )
-    expect(options.method).toBe("post")
-    // Body is form-urlencoded; ensure opt_showresult present
-    const body = options.body as string
-    expect(body).toMatch(/opt_showresult=true/)
-    expect(body).toMatch(/a=1/)
+    expect((init as any)?.method).toBe("POST")
+    const body = ((init as any)?.body || "") as string
+    expect(body).toContain("opt_showresult=true")
+    expect(body).toContain("a=1")
+
+    // Validate response shape
+    expect(res.status).toBe(200)
+    expect(res.data.blob).toBeTruthy()
+    expect(typeof (res.data.blob as any).size).not.toBeUndefined()
+    expect(res.data.contentType).toBe("text/plain")
+    expect(res.data.fileName).toBe("out.txt")
   })
 
   test("runWorkspace delegates to streaming or download based on service arg", async () => {
@@ -509,5 +527,41 @@ describe("shared/api FmeFlowApiClient", () => {
       10000
     )
     expect(ample).toBe(false)
+  })
+
+  test("uploadToTemp posts binary to TEMP resources and returns path", async () => {
+    const esriRequest = (global as any).esriRequest as jest.Mock
+    const client = makeClient({ url: "https://fme.upload.com", repo: "data" })
+
+    // Mock successful upload response with a path
+    esriRequest.mockResolvedValueOnce({
+      data: { path: "$(FME_SHAREDRESOURCE_TEMP)/widget_w1/data.json" },
+      httpStatus: 200,
+      statusText: "OK",
+    })
+
+    // Use a File to ensure Content-Disposition filename is set
+    const file = new File([JSON.stringify({ a: 1 })], "data.json", {
+      type: "application/json",
+    })
+    const res = await client.uploadToTemp(file, { subfolder: "widget_w1" })
+
+    // Validate request
+    const [calledUrl, options] = esriRequest.mock.calls[0]
+    expect(typeof calledUrl).toBe("string")
+    expect(calledUrl).toContain(
+      "/fmerest/v3/resources/connections/FME_SHAREDRESOURCE_TEMP/filesys"
+    )
+    expect(calledUrl).toContain("widget_w1")
+    expect(options.method).toBe("post")
+    // Headers
+    expect(options.headers.Accept).toBe("application/json")
+    expect(options.headers["Content-Type"]).toBe("application/octet-stream")
+    expect(
+      String(options.headers["Content-Disposition"]).toLowerCase()
+    ).toContain('filename="data.json"')
+    // Response shape
+    expect(res.status).toBe(200)
+    expect(res.data.path).toBe("$(FME_SHAREDRESOURCE_TEMP)/widget_w1/data.json")
   })
 })

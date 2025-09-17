@@ -82,15 +82,16 @@ const canResetButton = (
   isDrawing?: boolean,
   clickCount?: number
 ): boolean => {
-  if (!onReset || !canResetFlag) return false
-  if (state === ViewMode.ORDER_RESULT) return false
-
-  const hasArea = drawnArea > 0
-  if (state === ViewMode.DRAWING) {
-    const firstClickPending = Boolean(isDrawing) && (clickCount ?? 0) === 0
-    return !firstClickPending
+  if (!onReset || !canResetFlag || state === ViewMode.ORDER_RESULT) {
+    return false
   }
-  return hasArea && state !== ViewMode.INITIAL
+
+  if (state === ViewMode.DRAWING) {
+    // During drawing, enable if at least one click has been made
+    return !(isDrawing && (clickCount ?? 0) === 0)
+  }
+  // In other states, enable if there is a drawn area and not in initial state
+  return drawnArea > 0 && state !== ViewMode.INITIAL
 }
 
 const shouldShowWorkspaceLoading = (
@@ -670,7 +671,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       const tParts = t.split(":")
       const hh = tParts[0] || "00"
       const mm = tParts[1] || "00"
-      const ss = (tParts[2] || "00").padStart(2, "0")
+      const ss = tParts[2] || "00"
       return `${d} ${hh}:${mm}:${ss}`
     }
   )
@@ -707,23 +708,22 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
         </Field>
       )}
 
-      {/* Remote dataset URL field - only show if allowed */}
+      {/* Direct upload field - replaces remote dataset URL when allowed */}
       {config?.allowRemoteDataset && (
         <Field
-          label={translate("remoteDatasetLabel")}
-          helper={translate("remoteDatasetHelper")}
+          label={translate("remoteDatasetUploadLabel")}
+          helper={translate("remoteDatasetUploadHelper")}
         >
           <DynamicField
             field={{
-              name: "opt_geturl",
-              label: translate("remoteDatasetLabel"),
-              type: "url" as any,
+              name: "__upload_file__",
+              label: translate("remoteDatasetUploadLabel"),
+              type: FormFieldType.FILE,
               required: false,
               readOnly: false,
-              placeholder: translate("remoteDatasetPlaceholder"),
             }}
-            value={formState.values.opt_geturl}
-            onChange={(val) => setField("opt_geturl", val)}
+            value={formState.values.__upload_file__}
+            onChange={(val) => setField("__upload_file__", val)}
             translate={translate}
           />
         </Field>
@@ -969,7 +969,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         alignText="start"
         text={translate("cancel")}
         size="sm"
-        aria-label={translate("cancel")}
+        aria-label={translate("tooltipCancel")}
         logging={{ enabled: true, prefix: "FME-Export-Header" }}
         block={false}
       />
@@ -989,7 +989,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           onChange={(val) => {
             onDrawingModeChange?.(val as DrawingTool)
           }}
-          ariaLabel={translate("drawingModeTooltip")}
+          aria-label={translate("drawingModeTooltip")}
         />
       </div>
     )
@@ -1131,7 +1131,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
                 onChange={(val) => {
                   onDrawingModeChange?.(val as DrawingTool)
                 }}
-                ariaLabel={translate("drawingModeTooltip")}
+                aria-label={translate("drawingModeTooltip")}
               />
             </div>
           )

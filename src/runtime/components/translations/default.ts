@@ -69,10 +69,9 @@ export default {
   scheduleNamePlaceholder: "Min export",
   scheduleDescriptionLabel: "Beskrivning (valfritt)",
   scheduleDescriptionPlaceholder: "Exportera data för projekt X",
-  remoteDatasetLabel: "Fjärrdataset-URL (valfritt)",
-  remoteDatasetPlaceholder: "https://exempel.se/data.zip",
-  remoteDatasetHelper:
-    "Ange en URL till en fjärrdatafil eller tjänst att använda som indata.",
+  remoteDatasetUploadLabel: "Ladda upp dataset (TEMP)",
+  remoteDatasetUploadHelper:
+    "Välj en fil att ladda upp till FME Flows TEMP‑resurs. Filen används som indata när jobbet körs.",
   addRow: "Lägg till rad",
   deleteRow: "Ta bort",
   tableEmpty: "Inga rader tillagda",

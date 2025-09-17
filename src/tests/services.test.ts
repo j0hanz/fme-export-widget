@@ -130,7 +130,8 @@ describe("ErrorHandlingService", () => {
       const result = service.deriveStartupError(error, mockTranslate)
 
       expect(result.code).toBe("AUTH_ERROR")
-      expect(result.message).toBe("translated_startupValidationFailed")
+      // Now surfaces a more specific authentication message
+      expect(result.message).toBe("translated_authenticationFailed")
     })
 
     test("handles status code 404", () => {

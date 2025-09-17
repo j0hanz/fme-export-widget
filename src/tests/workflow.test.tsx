@@ -384,7 +384,7 @@ describe("Workflow component", () => {
     })
   })
 
-  test("export form: remote dataset field renders when allowed", () => {
+  test("export form: upload field renders when allowed", () => {
     renderWithProviders(
       <Workflow
         state={ViewMode.EXPORT_FORM}
@@ -399,10 +399,8 @@ describe("Workflow component", () => {
       />
     )
 
-    // Remote dataset field placeholder (sv): https://exempel.se/data.zip
-    expect(
-      screen.getByPlaceholderText("https://exempel.se/data.zip")
-    ).toBeInTheDocument()
+    // Upload field renders with Swedish label
+    expect(screen.getByText(/Ladda upp dataset \(TEMP\)/i)).toBeInTheDocument()
   })
 
   test("order result: shows success, download link and reuse button", () => {
