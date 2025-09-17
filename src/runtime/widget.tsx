@@ -488,11 +488,40 @@ const polygonJsonToWkt = (poly: any): string => {
   return `POLYGON(${wktRings})`
 }
 
+// Convert polygon JSON to WGS84 if needed, using provided Esri modules.
+const toWgs84PolygonJson = (
+  polyJson: any,
+  modules: EsriModules | null | undefined
+): any => {
+  try {
+    const Polygon = modules?.Polygon
+    const wmUtils = modules?.webMercatorUtils
+    if (!Polygon) return polyJson
+
+    const poly = Polygon.fromJSON(polyJson)
+    const wkid = poly?.spatialReference?.wkid
+
+    // Already WGS84
+    if (wkid === 4326) return poly.toJSON()
+
+    // WebMercator -> WGS84
+    if (wkid === 3857 && wmUtils?.webMercatorToGeographic) {
+      const g = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
+      return g?.toJSON?.() ?? poly.toJSON()
+    }
+    return poly.toJSON()
+  } catch {
+    // On any failure, return original input unmodified
+    return polyJson
+  }
+}
+
 // Attach AOI to FME parameters
 const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
+  modules: EsriModules | null | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   // Sanitize parameter name to safe characters
@@ -524,7 +553,8 @@ const attachAoi = (
       const gjName = (config?.aoiGeoJsonParamName || "").toString().trim()
       if (gjName) {
         try {
-          const geojson = polygonJsonToGeoJson(aoiJson)
+          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
+          const geojson = polygonJsonToGeoJson(wgs84Poly)
           out[gjName] = JSON.stringify(geojson)
         } catch (e) {
           // ignore geojson conversion failure, keep Esri JSON
@@ -535,7 +565,8 @@ const attachAoi = (
       const wktName = (config?.aoiWktParamName || "").toString().trim()
       if (wktName) {
         try {
-          const wkt = polygonJsonToWkt(aoiJson)
+          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
+          const wkt = polygonJsonToWkt(wgs84Poly)
           out[wktName] = wkt
         } catch (e) {
           // ignore wkt conversion failure, keep Esri JSON
@@ -582,6 +613,7 @@ const prepFmeParams = (
   userEmail: string,
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
+  modules: EsriModules | null | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   const data = (formData as any)?.data || {}
@@ -613,7 +645,13 @@ const prepFmeParams = (
   }
 
   const base = buildFmeParams({ data }, userEmail, chosen)
-  const withAoi = attachAoi(base, geometryJson, currentGeometry, config)
+  const withAoi = attachAoi(
+    base,
+    geometryJson,
+    currentGeometry,
+    modules,
+    config
+  )
   return applyDirectiveDefaults(withAoi, config)
 }
 
@@ -1480,6 +1518,7 @@ export default function Widget(
         userEmail,
         reduxState.geometryJson,
         currentGeometry,
+        modules,
         props.config
       )
 

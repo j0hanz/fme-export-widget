@@ -384,10 +384,28 @@ describe("shared/api FmeFlowApiClient", () => {
       client.runDataDownload("x", { a: "b" }, "r")
     ).rejects.toMatchObject({
       name: "FmeFlowApiError",
-      code: "DATA_DOWNLOAD_ERROR",
-      // message is a code-only key now (no English)
-      message: "DATA_DOWNLOAD_ERROR",
+      code: "URL_TOO_LONG",
+      message: "URL_TOO_LONG",
     })
+  })
+
+  test("Webhook coercion: opt_servicemode 'schedule' becomes 'async'", async () => {
+    // Mock JSON response to avoid network failure
+    fetchMock.mockResponseOnce(JSON.stringify({ ok: true }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+      statusText: "OK",
+    })
+    const client = makeClient({ url: "https://fme.acme.com" })
+    await client.runDataDownload(
+      "export.fmw",
+      { p: "1", opt_servicemode: "schedule" },
+      "repo1"
+    )
+    const calledUrl = fetchMock.mock.calls[0][0] as string
+    // Ensure webhooks never send schedule; coerced to async
+    expect(calledUrl).toMatch(/opt_servicemode=async/)
+    expect(calledUrl).not.toMatch(/opt_servicemode=schedule/)
   })
 
   test("runDataStreaming posts parameters with token and returns Blob", async () => {
