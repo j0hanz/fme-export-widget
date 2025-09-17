@@ -34,7 +34,7 @@ import {
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
-import { EMAIL_PLACEHOLDER } from "../../shared/utils"
+import { EMAIL_PLACEHOLDER, stripHtmlToText } from "../../shared/utils"
 import type {
   ViewAction,
   ButtonProps,
@@ -988,26 +988,13 @@ export const DateTimePickerWrapper: React.FC<{
   )
 }
 
-// RichText component
-const stripHtmlTags = (input?: string): string => {
-  if (!input) return ""
-  // Remove script and style blocks
-  let out = input.replace(
-    /<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
-    ""
-  )
-  // Remove all remaining tags
-  out = out.replace(/<[^>]*>/g, "")
-  return out
-}
-
 export const RichText: React.FC<{
   html?: string
   placeholder?: string
   className?: string
   style?: React.CSSProperties
 }> = ({ html, placeholder, className, style }) => {
-  const text = stripHtmlTags(html)
+  const text = stripHtmlToText(html)
   return (
     <div className={className} css={style ? css(style as any) : undefined}>
       {text || placeholder || ""}

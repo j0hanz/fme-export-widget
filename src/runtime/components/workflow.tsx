@@ -48,6 +48,7 @@ import {
   buildSupportHintText,
   getSupportEmail,
   maskEmailForDisplay,
+  stripHtmlToText,
 } from "../../shared/utils"
 
 // Constants
@@ -636,11 +637,10 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     onSubmit({ type: workspaceName, data: merged })
   })
 
-  // Helper function to strip HTML tags from text safely
-  const stripHtml = hooks.useEventCallback((html: string): string => {
-    if (!html) return ""
-    return html.replace(/<[^>]*>/g, "")
-  })
+  // Helper function to strip HTML tags from text safely (reuse shared util)
+  const stripHtml = hooks.useEventCallback((html: string): string =>
+    stripHtmlToText(html)
+  )
 
   const resolveError = hooks.useEventCallback((err?: string) => {
     const keyOrMsg = stripErrorLabel(err)

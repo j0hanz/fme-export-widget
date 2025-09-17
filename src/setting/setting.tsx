@@ -57,6 +57,7 @@ const CONSTANTS = {
   },
   LIMITS: {
     MAX_M2_CAP: 10_000_000_000,
+    MAX_REQUEST_TIMEOUT_MS: 600_000,
   },
   DEFAULTS: {
     MAX_M2: 100_000_000,
@@ -100,11 +101,12 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   styles,
 }) => {
   const renderConnectionStatus = (): React.ReactNode => {
-    const rows: Array<{ label: string; status: StepStatus | string }> = [
+    const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
       { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
       { label: translate("fmeServerToken"), status: checkSteps.token },
       { label: translate("fmeRepository"), status: checkSteps.repository },
     ]
+    const rows = rowsAll.filter((r) => r.status !== "idle")
 
     // Helper to get style for each status
     const getStatusStyle = (s: StepStatus | string): unknown => {
@@ -173,6 +175,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         role="status"
         aria-live="polite"
         aria-atomic={true}
+        aria-busy={testState.isTesting ? true : undefined}
       >
         {testState.isTesting && (
           <Loading
@@ -236,6 +239,7 @@ interface RepositorySelectorProps {
   translate: TranslateFn
   styles: ReturnType<typeof useSettingStyles>
   ID: { repository: string }
+  repoHint?: string | null
 }
 
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
@@ -251,12 +255,11 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   translate,
   styles,
   ID,
+  repoHint,
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
-    !validateServerUrl(localServerUrl) &&
-    !validateToken(localToken) &&
-    availableRepos !== null
+    !validateServerUrl(localServerUrl) && !validateToken(localToken)
 
   return (
     <SettingRow
@@ -363,6 +366,17 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
             css={css(styles.ALERT_INLINE as any)}
             text={fieldErrors.repository}
             type="error"
+            closable={false}
+          />
+        </SettingRow>
+      )}
+      {repoHint && (
+        <SettingRow flow="wrap" level={3}>
+          <Alert
+            fullWidth
+            css={css(styles.ALERT_INLINE as any)}
+            text={repoHint}
+            type="warning"
             closable={false}
           />
         </SettingRow>
@@ -903,6 +917,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
     null
   )
+  // Non-blocking hint for repository list fetch issues
+  const [reposHint, setReposHint] = React.useState<string | null>(null)
   // Track in-flight test for cancellation to avoid stale state updates
   const abortRef = React.useRef<AbortController | null>(null)
   // Track in-flight repository listing request for cancellation
@@ -931,6 +947,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       if (indicateLoading) {
         setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
+        setReposHint(null)
       }
 
       try {
@@ -939,11 +956,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         const next = result.repositories || []
         setAvailableRepos(next)
         clearErrors(setFieldErrors, ["repository"])
+        setReposHint(null)
       } catch (err) {
         if ((err as Error)?.name !== "AbortError") {
           const status = extractHttpStatus(err)
           console.warn("Repositories load error", { status })
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
+          setReposHint(translate("errorRepositories"))
         }
       } finally {
         if (reposAbortRef.current === ctrl) reposAbortRef.current = null
@@ -1144,6 +1163,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setAvailableRepos(validationResult.repositories)
         }
 
+        // Commit sanitized URL/token so repository UI becomes enabled immediately
+        setCommittedServerUrl(settings.serverUrl)
+        setCommittedToken(settings.token)
+
         // Clear any existing field errors
         clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
 
@@ -1218,9 +1241,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Enhanced repository refresh for better UX - uses client API directly
   const refreshRepositories = hooks.useEventCallback(async () => {
-    if (!committedServerUrl || !committedToken) return
-    const { cleaned } = sanitizeUrl(committedServerUrl)
-    await loadRepositories(cleaned, committedToken, { indicateLoading: true })
+    const baseUrl = committedServerUrl || localServerUrl
+    const token = committedToken || localToken
+    if (!baseUrl || !token) return
+    const { cleaned } = sanitizeUrl(baseUrl)
+    await loadRepositories(cleaned, token, { indicateLoading: true })
   })
 
   React.useEffect(() => {
@@ -1368,7 +1393,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       placeholder,
       type = "text",
       required = false,
-      inputMode,
     }: {
       id: string
       label: React.ReactNode
@@ -1378,7 +1402,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       placeholder?: string
       type?: "text" | "email" | "password"
       required?: boolean
-      inputMode?: "numeric"
     }) => {
       // Map control IDs to fieldErrors keys so the correct inline Alert renders
       let key: keyof typeof fieldErrors | undefined
@@ -1493,6 +1516,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           translate={translate}
           styles={sstyles}
           ID={ID}
+          repoHint={reposHint}
         />
         {/* Service Type */}
         <SettingRow
@@ -1519,30 +1543,32 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
         </SettingRow>
         {/* Service mode (sync) toggle */}
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("serviceModeSyncHelper")}
-              placement="top"
-            >
-              <span>{translate("serviceModeSync")}</span>
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.syncMode}
-            checked={localSyncMode}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localSyncMode
-              setLocalSyncMode(checked)
-              updateConfig("syncMode", checked)
-            }}
-            aria-label={translate("serviceModeSync")}
-            // helper via label tooltip
-          />
-        </SettingRow>
+        {localService === "download" && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("serviceModeSyncHelper")}
+                placement="top"
+              >
+                <span>{translate("serviceModeSync")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.syncMode}
+              checked={localSyncMode}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localSyncMode
+                setLocalSyncMode(checked)
+                updateConfig("syncMode", checked)
+              }}
+              aria-label={translate("serviceModeSync")}
+              // helper via label tooltip
+            />
+          </SettingRow>
+        )}
 
         {/* Allow Schedule Mode */}
         <SettingRow
@@ -1673,8 +1699,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 updateConfig("requestTimeout", undefined as any)
                 setLocalRequestTimeout("")
               } else {
-                updateConfig("requestTimeout", sanitized as any)
-                setLocalRequestTimeout(String(sanitized))
+                const capped = Math.min(
+                  sanitized,
+                  CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+                )
+                updateConfig("requestTimeout", capped as any)
+                setLocalRequestTimeout(String(capped))
               }
             }}
             placeholder={translate("requestTimeoutPlaceholder")}
@@ -1899,12 +1929,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
             }}
             onBlur={(val: string) => {
-              // Save to config on blur, not on every keystroke
-              updateConfig("supportEmail", val)
-              // Validate on blur
-              const errKey = getEmailValidationError(val)
+              const trimmed = (val ?? "").trim()
+              const errKey = getEmailValidationError(trimmed)
               const err = errKey ? translate(errKey) : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+              // Only persist when valid; blank unsets config
+              if (!trimmed) {
+                updateConfig("supportEmail", undefined as any)
+                setLocalSupportEmail("")
+              } else if (!err) {
+                updateConfig("supportEmail", trimmed)
+                setLocalSupportEmail(trimmed)
+              }
             }}
             placeholder={translate("supportEmailPlaceholder")}
             errorText={fieldErrors.supportEmail}

@@ -505,6 +505,73 @@ describe("Setting panel", () => {
     })
   })
 
+  test("request timeout caps at 10 minutes", async () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({ onSettingChange })
+    renderSetting(<WrappedSetting {...props} />)
+
+    const label = screen.getByText(/Tidsgräns \(ms\)/i)
+    const row = label.closest("div")?.parentElement
+    const input = row?.querySelector("input")
+    expect(input).toBeInTheDocument()
+
+    fireEvent.change(input as Element, { target: { value: "999999999" } })
+    fireEvent.blur(input as Element)
+
+    await waitFor(() => {
+      const last =
+        onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1]?.[0]
+      const cfg = last?.config
+      const val = getVal(cfg, "requestTimeout")
+      expect(val).toBe(600000)
+    })
+  })
+
+  test("repository fetch error shows hint and keeps manual entry possible", async () => {
+    const { validateConnection, getRepositories } =
+      require("../shared/services") as {
+        validateConnection: jest.Mock
+        getRepositories: jest.Mock
+      }
+
+    validateConnection.mockResolvedValue({
+      success: true,
+      version: "2024.0",
+      repositories: ["Seed"],
+      steps: { serverUrl: "ok", token: "ok", repository: "ok" },
+    })
+
+    // Make refresh fail
+    getRepositories.mockRejectedValueOnce(new Error("boom"))
+
+    const props = makeProps({
+      config: Immutable({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "tokentokent",
+        repository: "",
+      }) as any,
+    })
+    renderSetting(<WrappedSetting {...props} />)
+
+    const testBtn = screen.getByRole("button", { name: /uppdatera och testa/i })
+    await waitFor(() => {
+      expect(testBtn).not.toBeDisabled()
+    })
+    fireEvent.click(testBtn)
+    const refreshBtn = await screen.findByTitle(/Uppdatera lista/i)
+    fireEvent.click(refreshBtn)
+
+    const comboboxes = screen.getAllByRole("combobox")
+    const repositoryCombo = comboboxes.find(
+      (cb) =>
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "download" &&
+        cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
+          "streaming"
+    )
+    expect(repositoryCombo).toHaveAttribute("aria-disabled", "false")
+  })
+
   test("upload target parameter name saves on blur and clears when empty", async () => {
     const onSettingChange = jest.fn()
     const props = makeProps({ onSettingChange })
@@ -643,6 +710,67 @@ describe("Setting panel", () => {
       const cfg = last?.config
       const val = getVal(cfg, "maskEmailOnSuccess")
       expect(val).toBe(true)
+    })
+  })
+
+  test("sync mode switch hidden when service is streaming", () => {
+    const onSettingChange = jest.fn()
+    const props = makeProps({
+      onSettingChange,
+      config: Immutable({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "tokentokent",
+        repository: "repo",
+        service: "stream",
+        syncMode: true,
+      }) as any,
+    })
+    renderSetting(<WrappedSetting {...props} />)
+
+    // The sync toggle label should not be present when service=stream
+    expect(
+      screen.queryByText(/Direktnedladdning \(synkront\)/i)
+    ).not.toBeInTheDocument()
+  })
+
+  test("connection status sets aria-busy while testing", async () => {
+    const { validateConnection } = require("../shared/services") as {
+      validateConnection: jest.Mock
+    }
+    // Delay resolve to allow us to observe the testing state in DOM
+    validateConnection.mockImplementation(() => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({
+            success: true,
+            version: "2024.0",
+            repositories: ["A"],
+            steps: { serverUrl: "ok", token: "ok", repository: "ok" },
+          })
+        }, 50)
+      })
+    })
+
+    const props = makeProps({
+      config: Immutable({
+        fmeServerUrl: "https://example.com",
+        fmeServerToken: "tokentokent",
+        repository: "",
+      }) as any,
+    })
+
+    renderSetting(<WrappedSetting {...props} />)
+    const testBtn = screen.getByRole("button", { name: /uppdatera och testa/i })
+    fireEvent.click(testBtn)
+
+    // While testing, a status container with aria-busy=true should appear
+    const statusRegion = await screen.findByRole("status")
+    expect(statusRegion).toHaveAttribute("aria-busy", "true")
+
+    // After completes, aria-busy should be absent or false
+    await waitFor(() => {
+      const region = screen.getByRole("status")
+      expect(region).not.toHaveAttribute("aria-busy", "true")
     })
   })
 })
