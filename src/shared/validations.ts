@@ -63,30 +63,23 @@ const hasForbiddenPaths = (pathname: string): boolean => {
 }
 
 export const normalizeBaseUrl = (rawUrl: string): string => {
-  const trimmed = (rawUrl || "").trim()
-  if (!trimmed) return ""
+  const u = safeParseUrl(rawUrl || "")
+  if (!u) return ""
 
-  try {
-    const u = safeParseUrl(trimmed)
-    if (!u) return ""
-    let path = u.pathname || "/"
-    const lower = path.toLowerCase()
-    const idxRest = lower.indexOf(FME_REST_PATH)
-    if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
+  // Extract base path without /fmerest or anything after it
+  let path = u.pathname || "/"
+  const idxRest = path.toLowerCase().indexOf(FME_REST_PATH)
+  if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
 
-    // Clear mutable parts
-    u.pathname = path
-    u.search = ""
-    u.hash = ""
-    u.username = ""
-    u.password = ""
+  u.search = ""
+  u.hash = ""
+  u.username = ""
+  u.password = ""
+  u.pathname = path
 
-    // Do not keep a trailing slash in settings UI; keep the base host/path only
-    const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
-    return `${u.origin}${cleanPath}`
-  } catch {
-    return ""
-  }
+  // Remove trailing slash unless it's the root "/"
+  const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
+  return `${u.origin}${cleanPath}`
 }
 
 export const validateServerUrl = (
@@ -141,22 +134,21 @@ export const validateServerUrl = (
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "errorMissingToken" }
 
-  const hasWhitespace = /\s/.test(token)
-  const hasProblematicChars = /[<>"'`]/.test(token)
-  const tooShort = token.length < MIN_TOKEN_LENGTH
+  const hasControlChar = (() => {
+    for (let i = 0; i < token.length; i++) {
+      const code = token.charCodeAt(i)
+      if (code < 32 || code === 127) return true
+    }
+    return false
+  })()
 
-  if (hasWhitespace || tooShort)
-    return { ok: false, key: "errorTokenIsInvalid" }
+  const invalid =
+    token.length < MIN_TOKEN_LENGTH ||
+    /\s/.test(token) ||
+    /[<>"'`]/.test(token) ||
+    hasControlChar
 
-  for (let i = 0; i < token.length; i++) {
-    const code = token.charCodeAt(i)
-    if (code < 32 || code === 127)
-      return { ok: false, key: "errorTokenIsInvalid" }
-  }
-
-  if (hasProblematicChars) return { ok: false, key: "errorTokenIsInvalid" }
-
-  return { ok: true }
+  return invalid ? { ok: false, key: "errorTokenIsInvalid" } : { ok: true }
 }
 
 export const validateRepository = (
@@ -180,11 +172,9 @@ export const extractErrorMessage = (error: unknown): string => {
 
   if (typeof error === "object" && error !== null) {
     const obj = error as { [key: string]: unknown }
-
-    // Try common error message properties
     for (const prop of ["message", "error", "details", "description"]) {
-      const value = obj[prop]
-      if (typeof value === "string" && value.trim()) return value.trim()
+      const v = obj[prop]
+      if (typeof v === "string" && v.trim()) return v.trim()
     }
   }
 
@@ -257,9 +247,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
         case "NETWORK_ERROR":
           return "startupNetworkError"
         case "INVALID_RESPONSE_FORMAT":
-          // Often indicates HTML (login page) or non-JSON where JSON was expected
           if (status === 401 || status === 403) return "startupTokenError"
-          // Default to auth-related guidance since FME often returns HTML on auth errors
           return "startupTokenError"
         case "WEBHOOK_AUTH_ERROR":
           return "startupTokenError"
