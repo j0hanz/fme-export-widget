@@ -7,15 +7,6 @@ import {
 
 type TFn = (key: string, params?: any) => string
 
-export interface WebhookLenArgs {
-  readonly serverUrl: string
-  readonly repository: string
-  readonly workspace: string
-  readonly parameters?: { readonly [key: string]: unknown }
-  readonly token?: string
-  readonly maxLen?: number
-}
-
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
   if (typeof value === "string") {
@@ -161,6 +152,25 @@ export const validateRepository = (
   return { ok: true }
 }
 
+export const extractErrorMessage = (error: unknown): string => {
+  if (!error) return "Unknown error"
+  if (typeof error === "string") return error
+  if (typeof error === "number") return error.toString()
+  if (error instanceof Error) return error.message || "Error object"
+
+  if (typeof error === "object" && error !== null) {
+    const obj = error as { [key: string]: unknown }
+
+    // Try common error message properties
+    for (const prop of ["message", "error", "details", "description"]) {
+      const value = obj[prop]
+      if (typeof value === "string" && value.trim()) return value.trim()
+    }
+  }
+
+  return "Unknown error occurred"
+}
+
 // Helper function for extracting HTTP status from various error structures
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
@@ -301,7 +311,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
 }
 
 export const isJson = (contentType: string | null): boolean =>
-  contentType?.includes("application/json") ?? false
+  (contentType ?? "").toLowerCase().includes("application/json")
 
 export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (typeof url !== "string") return false
@@ -345,33 +355,25 @@ export const validateRequiredConfig = (config: {
   }
 }
 
+// Check for missing required fields in the config
+const getMissingConfigFields = (
+  config: FmeExportConfig | undefined
+): string[] => {
+  if (!config) return ["fmeServerUrl", "fmeServerToken", "repository"]
+  const missing: string[] = []
+  if (!config.fmeServerUrl?.trim()) missing.push("fmeServerUrl")
+  if (!config.fmeServerToken?.trim()) missing.push("fmeServerToken")
+  if (!config.repository?.trim()) missing.push("repository")
+  return missing
+}
+
 export const validateConfigFields = (
   config: FmeExportConfig | undefined
 ): {
   isValid: boolean
   missingFields: string[]
 } => {
-  if (!config) {
-    return {
-      isValid: false,
-      missingFields: ["fmeServerUrl", "fmeServerToken", "repository"],
-    }
-  }
-
-  const missing: string[] = []
-
-  if (!config.fmeServerUrl?.trim()) {
-    missing.push("fmeServerUrl")
-  }
-
-  if (!config.fmeServerToken?.trim()) {
-    missing.push("fmeServerToken")
-  }
-
-  if (!config.repository?.trim()) {
-    missing.push("repository")
-  }
-
+  const missing = getMissingConfigFields(config)
   return {
     isValid: missing.length === 0,
     missingFields: missing,
@@ -404,25 +406,6 @@ export const isAuthError = (status: number): boolean => {
     status === HTTP_STATUS_CODES.UNAUTHORIZED ||
     status === HTTP_STATUS_CODES.FORBIDDEN
   )
-}
-
-export const extractErrorMessage = (error: unknown): string => {
-  if (!error) return "Unknown error"
-  if (typeof error === "string") return error
-  if (typeof error === "number") return error.toString()
-  if (error instanceof Error) return error.message || "Error object"
-
-  if (typeof error === "object" && error !== null) {
-    const obj = error as { [key: string]: unknown }
-
-    // Try common error message properties
-    for (const prop of ["message", "error", "details", "description"]) {
-      const value = obj[prop]
-      if (typeof value === "string" && value.trim()) return value.trim()
-    }
-  }
-
-  return "Unknown error occurred"
 }
 
 export const extractHostFromUrl = (serverUrl: string): string | null => {
@@ -481,19 +464,7 @@ export const validateRequiredFields = (
   config: FmeExportConfig,
   translate: TFn
 ): StartupValidationResult => {
-  const missing: string[] = []
-
-  if (!config.fmeServerUrl?.trim()) {
-    missing.push("fmeServerUrl")
-  }
-
-  if (!config.fmeServerToken?.trim()) {
-    missing.push("fmeServerToken")
-  }
-
-  if (!config.repository?.trim()) {
-    missing.push("repository")
-  }
+  const missing = getMissingConfigFields(config)
 
   if (missing.length > 0) {
     return {
