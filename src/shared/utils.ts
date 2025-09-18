@@ -1,4 +1,5 @@
 import { isValidEmail } from "./validations"
+import type { TranslateFn } from "../config"
 
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
@@ -38,11 +39,6 @@ export const maskEmailForDisplay = (email: unknown): string => {
 
 // Support hint utilities
 export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-
-export type TranslateFn = (
-  key: string,
-  vars?: { [key: string]: unknown }
-) => string
 
 // Build support hint text with optional email or custom message
 export const buildSupportHintText = (

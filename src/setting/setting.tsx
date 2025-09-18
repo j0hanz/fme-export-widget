@@ -46,6 +46,7 @@ import type {
   ValidationResult,
   SanitizationResult,
   IMStateWithFmeExport,
+  TranslateFn,
 } from "../config"
 import { FmeFlowApiError } from "../config"
 import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
@@ -67,8 +68,6 @@ const CONSTANTS = {
     BACKGROUND_DARK: "#181818",
   },
 } as const
-
-type TranslateFn = (key: string, params?: any) => string
 
 interface ConnectionTestSectionProps {
   testState: TestState
@@ -1085,7 +1084,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
         // Set available repositories from validation result
         if (validationResult.repositories) {
-          setAvailableRepos(validationResult.repositories)
+          // copy readonly array into mutable state
+          setAvailableRepos([...(validationResult.repositories || [])])
         }
 
         // Commit sanitized URL/token so repository UI becomes enabled immediately
@@ -1120,7 +1120,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setFieldErrors,
           translate,
           version: validationResult.version,
-          repositories: validationResult.repositories,
+          repositories: Array.isArray(validationResult.repositories)
+            ? [...validationResult.repositories]
+            : undefined,
           setAvailableRepos,
         })
 
