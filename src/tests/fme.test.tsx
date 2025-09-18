@@ -321,7 +321,7 @@ describe("FME dataset submission behavior", () => {
     ;(global as any).__WORKFLOW_FORM_DATA__ = {
       type: "demo",
       data: {
-        __remote_dataset_url__: "http://user:pw@insecure.example/file.zip", // invalid per validator
+        __remote_dataset_url__: "ftp://insecure.example/file.zip", // invalid per new validator (non-http/https)
         __upload_file__: fakeFile,
       },
     }
@@ -434,7 +434,8 @@ describe("FME internal helper functions", () => {
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
     expect(out.trigger).toBe("runonce")
-    expect(out.opt_requesteremail).toBe("user@example.com")
+    // requester email is only added for async mode now
+    expect(out.opt_requesteremail).toBeUndefined()
   })
 
   test("prepFmeParams passes schedule metadata (name/category/description)", () => {
@@ -499,7 +500,9 @@ describe("FME internal helper functions", () => {
       (k: string) => k
     )
     expect(res.success).toBe(true)
-    expect(typeof res.downloadUrl).toBe("string")
+    // New behavior returns blob and filename; no direct downloadUrl guaranteed
+    expect(res.blob).toBeInstanceOf(Blob)
+    expect(res.downloadFilename).toBe("my.fmw_export.zip")
   })
 })
 
@@ -641,10 +644,9 @@ describe("FME geometry helpers", () => {
     expect(calcArea({ type: "point" } as any, modules)).toBe(0)
   })
 
-  test("calcArea uses geodesic for geographic SR and absolute value", () => {
+  test("calcArea uses planar area and clamps to non-negative", () => {
     // Mock geometryEngine with geodesic area calculation
     const geometryEngine = {
-      geodesicArea: jest.fn(() => -2500000),
       planarArea: jest.fn(() => 1000000),
       simplify: jest.fn((p: any) => p),
     }
@@ -662,8 +664,7 @@ describe("FME geometry helpers", () => {
       toJSON: () => ({ spatialReference: { isGeographic: true } }),
     } as any
 
-    expect(calcArea(geom, modules)).toBe(2500000) // Absolute value
-    expect(geometryEngine.geodesicArea).toHaveBeenCalled()
+    expect(calcArea(geom, modules)).toBe(1000000)
   })
 
   test("validatePolygon detects missing and wrong types", () => {
@@ -674,7 +675,7 @@ describe("FME geometry helpers", () => {
 
     const wrong = validatePolygon({ type: "point" } as any, modules)
     expect(wrong.valid).toBe(false)
-    expect(wrong.error?.code).toBe("GEOM_TYPE_INVALID")
+    expect(wrong.error?.code).toBe("INVALID_GEOMETRY_TYPE")
   })
 
   test("validatePolygon uses geometryEngine.isSimple", () => {
@@ -696,7 +697,7 @@ describe("FME geometry helpers", () => {
 
     const result = validatePolygon(geometry, modules)
     expect(result.valid).toBe(false)
-    expect(result.error?.code).toBe("GEOM_SELF_INTERSECTING")
+    expect(result.error?.code).toBe("INVALID_GEOMETRY")
     expect(geometryEngine.isSimple).toHaveBeenCalled()
   })
 

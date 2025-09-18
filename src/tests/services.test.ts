@@ -8,13 +8,10 @@ import {
   type ConnectionValidationOptions,
 } from "../shared/services"
 import {
-  ErrorHandlingService,
   validateConfigFields,
   type StartupValidationOptions,
 } from "../shared/validations"
 import {
-  ErrorType,
-  ErrorSeverity,
   ParameterType,
   FormFieldType,
   type WorkspaceParameter,
@@ -29,158 +26,7 @@ const MockedFmeFlowApiClient = FmeFlowApiClient as jest.MockedClass<
   typeof FmeFlowApiClient
 >
 
-describe("ErrorHandlingService", () => {
-  let service: ErrorHandlingService
-  let mockTranslate: jest.Mock
-
-  beforeEach(() => {
-    service = new ErrorHandlingService()
-    mockTranslate = jest.fn((key: string) => `translated_${key}`)
-  })
-
-  describe("createError", () => {
-    test("creates error with minimal required parameters", () => {
-      const error = service.createError("Test error")
-
-      expect(error).toEqual(
-        expect.objectContaining({
-          message: "Test error",
-          type: ErrorType.VALIDATION,
-          code: "UNKNOWN_ERROR",
-          severity: ErrorSeverity.ERROR,
-          recoverable: false,
-          timestamp: expect.any(Date),
-          timestampMs: expect.any(Number),
-        })
-      )
-    })
-
-    test("creates error with all optional parameters", () => {
-      const retryFn = jest.fn()
-      const error = service.createError("Test error", ErrorType.NETWORK, {
-        code: "CUSTOM_CODE",
-        severity: ErrorSeverity.WARNING,
-        details: { key: "value" },
-        recoverable: true,
-        retry: retryFn,
-        userFriendlyMessage: "User friendly message",
-        suggestion: "Try this suggestion",
-      })
-
-      expect(error).toEqual(
-        expect.objectContaining({
-          message: "Test error",
-          type: ErrorType.NETWORK,
-          code: "CUSTOM_CODE",
-          severity: ErrorSeverity.WARNING,
-          details: { key: "value" },
-          recoverable: true,
-          retry: retryFn,
-          userFriendlyMessage: "User friendly message",
-          suggestion: "Try this suggestion",
-        })
-      )
-    })
-
-    test("sets consistent timestamp values", () => {
-      const error = service.createError("Test error")
-
-      // The timestampMs is hardcoded to 0 in the implementation
-      expect(error.timestampMs).toBe(0)
-      expect(typeof error.timestampMs).toBe("number")
-      expect(error.timestamp).toBeInstanceOf(Date)
-    })
-  })
-
-  describe("deriveStartupError", () => {
-    test("returns fallback for null or undefined error", () => {
-      const result = service.deriveStartupError(null, mockTranslate)
-
-      expect(result).toEqual({
-        code: "STARTUP_ERROR",
-        message: "translated_startupValidationFailed",
-      })
-    })
-
-    test("returns fallback when translate is not a function", () => {
-      const result = service.deriveStartupError(new Error("test"), null as any)
-
-      expect(result).toEqual({
-        code: "STARTUP_ERROR",
-        message: "Validation failed", // Hardcoded fallback when translate is not a function
-      })
-    })
-
-    test("recognizes known error codes", () => {
-      const error = { code: "UserEmailMissing", message: "Email missing" }
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result.code).toBe("UserEmailMissing")
-      expect(result.message).toBe("translated_userEmailMissing")
-    })
-
-    test("handles AbortError specifically", () => {
-      const error = { code: "AbortError", message: "Request aborted" }
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result.code).toBe("ABORT")
-      expect(result.message).toBe("translated_requestAborted")
-    })
-
-    test("handles status code 401", () => {
-      const error = { status: 401, message: "Unauthorized" }
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result.code).toBe("AUTH_ERROR")
-      // Now surfaces a more specific authentication message
-      expect(result.message).toBe("translated_authenticationFailed")
-    })
-
-    test("handles status code 404", () => {
-      const error = { status: 404, message: "Not found" }
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result.code).toBe("REPO_NOT_FOUND")
-      expect(result.message).toBe("translated_repoNotFound")
-    })
-
-    test("handles network timeout patterns", () => {
-      const error = new Error("Request timeout occurred")
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result.code).toBe("TIMEOUT")
-      expect(result.message).toBe("translated_timeout")
-    })
-
-    test("handles Failed to fetch error", () => {
-      const error = new TypeError("Failed to fetch")
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      // TypeError with "Failed to fetch" gets matched by the pattern check for TypeError
-      expect(result.code).toBe("NETWORK_ERROR")
-      expect(result.message).toBe("translated_networkError")
-    })
-
-    test("handles status 0 as CORS condition", () => {
-      const error = { status: 0, message: "Unknown error" } // Use a message that won't be caught by pattern matching
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      // Status 0 is treated as CORS_ERROR in test environment (no navigator.onLine)
-      expect(result.code).toBe("CORS_ERROR")
-      expect(result.message).toBe("translated_corsError")
-    })
-
-    test("falls back to generic error for unrecognized errors", () => {
-      const error = new Error("Some random error")
-      const result = service.deriveStartupError(error, mockTranslate)
-
-      expect(result).toEqual({
-        code: "STARTUP_ERROR",
-        message: "translated_startupValidationFailed",
-      })
-    })
-  })
-})
+// Removed ErrorHandlingService tests; error handling now centralized differently
 
 describe("ParameterFormService", () => {
   let service: ParameterFormService
@@ -936,7 +782,7 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(config)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toContain("serverUrl")
+      expect(result.missingFields).toContain("fmeServerUrl")
     })
 
     test("identifies missing token", () => {
@@ -949,7 +795,7 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(config)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toContain("token")
+      expect(result.missingFields).toContain("fmeServerToken")
     })
 
     test("identifies missing repository", () => {
@@ -969,7 +815,11 @@ describe("Startup Validation Functions", () => {
       const result = validateConfigFields(undefined)
 
       expect(result.isValid).toBe(false)
-      expect(result.missingFields).toEqual(["configuration"])
+      expect(result.missingFields).toEqual([
+        "fmeServerUrl",
+        "fmeServerToken",
+        "repository",
+      ])
     })
 
     test("handles whitespace-only values as missing", () => {

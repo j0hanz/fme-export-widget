@@ -287,9 +287,9 @@ describe("Fields module", () => {
       expect(normalizeFormValue([1, 2], true)).toEqual([1, 2])
     })
 
-    test("converts non-arrays to empty array for multi select", () => {
-      expect(normalizeFormValue("single", true)).toEqual([])
-      expect(normalizeFormValue(42, true)).toEqual([])
+    test("converts non-arrays to array for multi select", () => {
+      expect(normalizeFormValue("single", true)).toEqual(["single"])
+      expect(normalizeFormValue(42, true)).toEqual([42])
     })
 
     test("converts invalid types to empty string for single select", () => {

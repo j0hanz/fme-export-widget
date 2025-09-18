@@ -310,7 +310,8 @@ const determineServiceMode = (
 ): "sync" | "async" | "schedule" => {
   const data = (formData as any)?.data || {}
   const startValRaw = data.start as unknown
-  const hasStart = typeof startValRaw === "string" && startValRaw.trim().length > 0
+  const hasStart =
+    typeof startValRaw === "string" && startValRaw.trim().length > 0
   if (config?.allowScheduleMode && hasStart) return "schedule"
   const override = data._serviceMode as string
   if (override === "sync" || override === "async" || override === "schedule") {
@@ -1310,7 +1311,10 @@ export default function Widget(
     try {
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
-      const earlyMode = determineServiceMode({ data: rawDataEarly }, props.config)
+      const earlyMode = determineServiceMode(
+        { data: rawDataEarly },
+        props.config
+      )
       // Fetch email only for async mode
       const [userEmail, fmeClient] = await Promise.all([
         earlyMode === "async" ? getEmail(props.config) : Promise.resolve(""),

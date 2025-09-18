@@ -7,17 +7,15 @@ import {
   isInt,
   isNum,
   isValidEmail,
-  sanitizeFmeBaseUrl,
-  validateServerUrlKey,
-  validateTokenKey,
-  validateRepositoryKey,
-  getEmailValidationError,
+  normalizeBaseUrl,
+  validateServerUrl,
+  validateToken,
+  validateRepository,
   extractErrorMessage,
   extractHttpStatus,
   getSupportEmail,
   isAuthError,
 } from "../shared/validations"
-
 describe("shared/utils", () => {
   test("isEmpty handles primitives and arrays", () => {
     expect(isEmpty(undefined)).toBe(true)
@@ -86,86 +84,81 @@ describe("shared/utils", () => {
     expect(isValidEmail(123 as any)).toBe(false)
   })
 
-  test("sanitizeFmeBaseUrl strips /fmerest and trailing slash; invalid URL flagged", () => {
-    const a = sanitizeFmeBaseUrl("https://example.com/fmerest/v3/")
-    expect(a.isValid).toBe(true)
-    expect(a.cleaned).toBe("https://example.com")
-    expect(a.changed).toBe(true)
-    expect(a.errors).toEqual([])
+  test("normalizeBaseUrl strips /fmerest and ensures trailing slash; invalid URL returns empty", () => {
+    const a = normalizeBaseUrl("https://example.com/fmerest/v3/")
+    expect(a).toBe("https://example.com/")
 
-    const b = sanitizeFmeBaseUrl("https://example.com/base")
-    expect(b.isValid).toBe(true)
-    expect(b.cleaned).toBe("https://example.com/base")
-    expect(b.changed).toBe(false)
+    const b = normalizeBaseUrl("https://example.com/base")
+    expect(b).toBe("https://example.com/base/")
 
-    const c = sanitizeFmeBaseUrl("not a url")
-    expect(c.isValid).toBe(false)
-    expect(c.cleaned).toBe("not a url")
-    expect(c.errors).toEqual(["invalidUrl"])
+    const c = normalizeBaseUrl("not a url")
+    expect(c).toBe("")
   })
 
-  test("validateServerUrlKey enforces protocol, host, credentials, and path rules", () => {
+  test("validateServerUrl enforces protocol, host, credentials, and path rules", () => {
     // Missing
-    expect(validateServerUrlKey("")).toBe("errorMissingServerUrl")
+    expect(validateServerUrl("").key).toBe("errorMissingServerUrl")
     // Invalid parse
-    expect(validateServerUrlKey("bad")).toBe("errorInvalidServerUrl")
+    expect(validateServerUrl("bad").key).toBe("errorInvalidServerUrl")
     // Unsupported protocol
-    expect(validateServerUrlKey("ftp://example.com")).toBe(
+    expect(validateServerUrl("ftp://example.com").key).toBe(
       "errorInvalidServerUrl"
     )
     // Embedded credentials forbidden
-    expect(validateServerUrlKey("http://user:pass@example.com")).toBe(
+    expect(validateServerUrl("http://user:pass@example.com").key).toBe(
       "errorInvalidServerUrl"
     )
     // Forbidden FME path
-    expect(validateServerUrlKey("https://example.com/fmerest/v3")).toBe(
+    expect(validateServerUrl("https://example.com/fmerest/v3").key).toBe(
       "errorBadBaseUrl"
     )
     // Single-label hosts may be allowed (e.g., dev hostnames); ensure it does not produce an error
-    expect(validateServerUrlKey("https://bad")).toBeNull()
+    expect(validateServerUrl("https://bad").ok).toBe(true)
     // Valid cases
-    expect(validateServerUrlKey("https://localhost")).toBeNull()
-    expect(validateServerUrlKey("http://192.168.0.1")).toBeNull()
-    expect(validateServerUrlKey("https://example.com")).toBeNull()
-    expect(validateServerUrlKey("https://my-fmeflow")).toBeNull()
+    expect(validateServerUrl("https://localhost").ok).toBe(true)
+    expect(validateServerUrl("http://192.168.0.1").ok).toBe(true)
+    expect(validateServerUrl("https://example.com").ok).toBe(true)
+    expect(validateServerUrl("https://my-fmeflow").ok).toBe(true)
   })
 
-  test("validateTokenKey enforces length, whitespace, control chars, and blacklist of symbols", () => {
-    expect(validateTokenKey("")).toBe("errorMissingToken")
-    expect(validateTokenKey("short")).toBe("errorTokenIsInvalid")
-    expect(validateTokenKey("has space 12345")).toBe("errorTokenIsInvalid")
+  test("validateToken enforces length, whitespace, control chars, and blacklist of symbols", () => {
+    expect(validateToken("").key).toBe("errorMissingToken")
+    expect(validateToken("short").key).toBe("errorTokenIsInvalid")
+    expect(validateToken("has space 12345").key).toBe("errorTokenIsInvalid")
     // Control character \x01
-    expect(validateTokenKey("validtoken1" + String.fromCharCode(1))).toBe(
+    expect(validateToken("validtoken1" + String.fromCharCode(1)).key).toBe(
       "errorTokenIsInvalid"
     )
-    expect(validateTokenKey("bad<token>12345")).toBe("errorTokenIsInvalid")
-    expect(validateTokenKey("good_token_12345")).toBeNull()
+    expect(validateToken("bad<token>12345").key).toBe("errorTokenIsInvalid")
+    expect(validateToken("good_token_12345").ok).toBe(true)
   })
 
-  test("validateRepositoryKey checks required and existence when repos provided", () => {
-    expect(validateRepositoryKey("", null)).toBeNull()
-    expect(validateRepositoryKey("", [])).toBeNull()
-    expect(validateRepositoryKey("", ["A"])).toBe("errorRepoRequired")
-    expect(validateRepositoryKey("B", ["A"])).toBe("errorRepositoryNotFound")
-    expect(validateRepositoryKey("A", ["A"])).toBeNull()
+  test("validateRepository checks required and existence when repos provided", () => {
+    expect(validateRepository("", null).ok).toBe(true)
+    expect(validateRepository("", []).ok).toBe(true)
+    expect(validateRepository("", ["A"]).key).toBe("errorRepoRequired")
+    expect(validateRepository("B", ["A"]).key).toBe("errorRepositoryNotFound")
+    expect(validateRepository("A", ["A"]).ok).toBe(true)
   })
 
-  test("getEmailValidationError is optional and validates format", () => {
-    expect(getEmailValidationError("")).toBeNull()
-    expect(getEmailValidationError("foo@bar")).toBe("errorInvalidEmail")
-    expect(getEmailValidationError("user@ex.com")).toBeNull()
-  })
+  // getEmailValidationError removed in new validations; email checks use isValidEmail
 
   test("extractErrorMessage handles primitives, Error, common fields, and object fallback", () => {
-    expect(extractErrorMessage(undefined)).toBe("unknownErrorOccurred")
+    expect(extractErrorMessage(undefined)).toBe("Unknown error")
     expect(extractErrorMessage("msg")).toBe("msg")
     expect(extractErrorMessage(404)).toBe("404")
     expect(extractErrorMessage(new Error("boom"))).toBe("boom")
     expect(extractErrorMessage({ message: "m" })).toBe("m")
     expect(extractErrorMessage({ error: "e" })).toBe("e")
     expect(extractErrorMessage({ description: "d" })).toBe("d")
-    expect(extractErrorMessage({ detail: "x" })).toBe("x")
-    expect(extractErrorMessage({ reason: "r" })).toBe("r")
+    // 'detail' now falls back to JSON stringification
+    expect(extractErrorMessage({ detail: "x" })).toBe(
+      JSON.stringify({ detail: "x" })
+    )
+    // unknown fields like 'reason' fall back to JSON stringification
+    expect(extractErrorMessage({ reason: "r" })).toBe(
+      JSON.stringify({ reason: "r" })
+    )
     expect(extractErrorMessage({ a: 1, b: 2 })).toBe(
       JSON.stringify({ a: 1, b: 2 })
     )

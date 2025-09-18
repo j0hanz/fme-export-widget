@@ -141,10 +141,8 @@ describe("Workflow component", () => {
       />
     )
 
-    // First click pending -> reset hidden (sv: "Avbryt")
-    expect(
-      screen.queryByRole("button", { name: /Avbryt/i })
-    ).not.toBeInTheDocument()
+    // With new logic, reset is shown when isDrawing is true even if clickCount is 0
+    expect(screen.getByRole("button", { name: /Avbryt/i })).toBeInTheDocument()
 
     rerender(
       <Workflow

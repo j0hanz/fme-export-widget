@@ -319,8 +319,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         disabled={
           !localServerUrl ||
           !localToken ||
-          !!validateServerUrl(localServerUrl) ||
-          !!validateToken(localToken) ||
+          !validateServerUrl(localServerUrl).ok ||
+          !validateToken(localToken).ok ||
           availableRepos === null
         }
         aria-describedby={
@@ -328,9 +328,9 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         }
         aria-invalid={fieldErrors.repository ? true : undefined}
         placeholder={(() => {
-          const hasValidServer = !validateServerUrl(localServerUrl)
-          const hasValidToken = !validateToken(localToken)
-          if (!hasValidServer || !hasValidToken) {
+          const serverOk = validateServerUrl(localServerUrl).ok
+          const tokenOk = validateToken(localToken).ok
+          if (!serverOk || !tokenOk) {
             return translate("testConnectionFirst")
           }
 
