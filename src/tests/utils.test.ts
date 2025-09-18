@@ -84,12 +84,12 @@ describe("shared/utils", () => {
     expect(isValidEmail(123 as any)).toBe(false)
   })
 
-  test("normalizeBaseUrl strips /fmerest and ensures trailing slash; invalid URL returns empty", () => {
+  test("normalizeBaseUrl strips /fmerest and never appends trailing slash; invalid URL returns empty", () => {
     const a = normalizeBaseUrl("https://example.com/fmerest/v3/")
-    expect(a).toBe("https://example.com/")
+    expect(a).toBe("https://example.com")
 
     const b = normalizeBaseUrl("https://example.com/base")
-    expect(b).toBe("https://example.com/base/")
+    expect(b).toBe("https://example.com/base")
 
     const c = normalizeBaseUrl("not a url")
     expect(c).toBe("")

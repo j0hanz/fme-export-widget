@@ -69,13 +69,16 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
     const idxRest = lower.indexOf(FME_REST_PATH)
     if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
 
-    u.pathname = path.endsWith("/") ? path : `${path}/`
+    // Clear mutable parts
+    u.pathname = path
     u.search = ""
     u.hash = ""
     u.username = ""
     u.password = ""
 
-    return u.toString()
+    // Do not keep a trailing slash in settings UI; keep the base host/path only
+    const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
+    return `${u.origin}${cleanPath}`
   } catch {
     return ""
   }
@@ -158,43 +161,106 @@ export const validateRepository = (
   return { ok: true }
 }
 
+// Helper function for extracting HTTP status from various error structures
+export const extractHttpStatus = (error: unknown): number | undefined => {
+  if (!error || typeof error !== "object") return undefined
+
+  const obj = error as { [key: string]: unknown }
+
+  // Try standard status properties first
+  for (const prop of ["status", "statusCode", "httpStatus"]) {
+    const value = obj[prop]
+    if (typeof value === "number" && value >= 100 && value <= 599) {
+      return value
+    }
+  }
+
+  // Check for esriRequest-specific error structure
+  const details = obj.details as any
+  if (details && typeof details === "object") {
+    const detailsStatus = details.httpStatus || details.status
+    if (
+      typeof detailsStatus === "number" &&
+      detailsStatus >= 100 &&
+      detailsStatus <= 599
+    ) {
+      return detailsStatus
+    }
+  }
+
+  // Try to extract from error message using regex as last resort
+  const message = extractErrorMessage(error)
+  if (typeof message === "string") {
+    // Look for "status: 401" pattern in error messages
+    const statusMatch = /status:\s*(\d{3})/i.exec(message)
+    if (statusMatch) {
+      const statusCode = parseInt(statusMatch[1], 10)
+      if (statusCode >= 100 && statusCode <= 599) {
+        return statusCode
+      }
+    }
+  }
+
+  return undefined
+}
+
 // ------------------------------
 // 3. Error mapping (canonical API)
 // ------------------------------
 export const mapErrorToKey = (err: unknown, status?: number): string => {
   // Extract status from error object if not provided
-  if (!status && err && typeof err === "object") {
-    const errorObj = err as any
-    status = errorObj.status || errorObj.statusCode || errorObj.httpStatus
+  if (!status) {
+    status = extractHttpStatus(err)
   }
 
   // Check for explicit error codes first
   if (err && typeof err === "object") {
-    const code = (err as any).code
+    const errorObj = err as any
+    const code = errorObj.code
+
     if (typeof code === "string") {
       switch (code) {
-        case "GEOMETRY_SERIALIZATION_FAILED":
-          return "GEOMETRY_SERIALIZATION_FAILED"
+        // API client error codes from api.ts
+        case "ARCGIS_MODULE_ERROR":
+          return "startupNetworkError"
+        case "REQUEST_FAILED":
+          // Categorize primarily by HTTP status
+          if (status === 0 || status === undefined) return "startupNetworkError"
+          if (status === 401 || status === 403) return "startupTokenError"
+          if (status === 404) return "connectionFailed"
+          if (status >= 500) return "startupServerError"
+          return "startupServerError"
+        case "NETWORK_ERROR":
+          return "startupNetworkError"
+        case "INVALID_RESPONSE_FORMAT":
+          // Often indicates HTML (login page) or non-JSON where JSON was expected
+          if (status === 401 || status === 403) return "startupTokenError"
+          // Default to auth-related guidance since FME often returns HTML on auth errors
+          return "startupTokenError"
+        case "WEBHOOK_AUTH_ERROR":
+          return "startupTokenError"
+        case "SERVER_URL_ERROR":
+          return "connectionFailed"
+        case "REPOSITORIES_ERROR":
+          return "startupServerError"
+        case "REPOSITORY_ITEMS_ERROR":
+          return "startupServerError"
+        case "WORKSPACE_ITEM_ERROR":
+          return "startupServerError"
+        case "JOB_SUBMISSION_ERROR":
+          return "startupServerError"
+        case "DATA_STREAMING_ERROR":
+          return "startupServerError"
         case "DATA_DOWNLOAD_ERROR":
-        case "PAYLOAD_TOO_LARGE":
-          return "payloadTooLarge"
-        case "RATE_LIMITED":
-          return "rateLimited"
+          return "startupServerError"
+        case "INVALID_CONFIG":
+          return "startupConfigError"
+        case "GEOMETRY_MISSING":
+          return "GEOMETRY_SERIALIZATION_FAILED"
+        case "GEOMETRY_TYPE_INVALID":
+          return "GEOMETRY_SERIALIZATION_FAILED"
         case "URL_TOO_LONG":
-        case "MAX_URL_LENGTH_EXCEEDED":
           return "urlTooLong"
-        case "ETIMEDOUT":
-          return "timeout"
-        case "ECONNRESET":
-        case "ERR_NETWORK":
-          return "networkError"
-        case "ENOTFOUND":
-        case "ERR_NAME_NOT_RESOLVED":
-          return "invalidUrl"
-        case "MISSING_REQUESTER_EMAIL":
-          return "userEmailMissing"
-        case "INVALID_EMAIL":
-          return "invalidEmail"
       }
     }
   }
@@ -216,7 +282,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
       case 431:
         return "headersTooLarge"
       default:
-        if (status >= 500) return "serverError"
+        if (status >= 500) return "startupServerError"
     }
   }
 
@@ -390,21 +456,6 @@ export const extractErrorMessage = (error: unknown): string => {
   }
 
   return "Unknown error occurred"
-}
-
-export const extractHttpStatus = (error: unknown): number | undefined => {
-  if (!error || typeof error !== "object") return undefined
-
-  const obj = error as { [key: string]: unknown }
-
-  for (const prop of ["status", "statusCode", "httpStatus"]) {
-    const value = obj[prop]
-    if (typeof value === "number" && value >= 100 && value <= 599) {
-      return value
-    }
-  }
-
-  return undefined
 }
 
 export const extractHostFromUrl = (serverUrl: string): string | null => {

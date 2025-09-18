@@ -35,6 +35,7 @@ const ERR = {
   DATA_STREAMING_ERROR: "DATA_STREAMING_ERROR",
   DATA_DOWNLOAD_ERROR: "DATA_DOWNLOAD_ERROR",
   WEBHOOK_AUTH_ERROR: "WEBHOOK_AUTH_ERROR",
+  SERVER_URL_ERROR: "SERVER_URL_ERROR", // New error code for server URL issues
   INVALID_CONFIG: "INVALID_CONFIG",
   GEOMETRY_MISSING: "GEOMETRY_MISSING",
   GEOMETRY_TYPE_INVALID: "GEOMETRY_TYPE_INVALID",
@@ -496,21 +497,48 @@ const processRequestError = (
   const status = extractHttpStatus(err)
   const httpStatus = status || 0
 
+  // Debug logging to help identify error structure
+  if (process.env.NODE_ENV !== "production") {
+    console.debug("FME API - error structure debug", {
+      errorType: typeof err,
+      errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
+      extractedStatus: status,
+      rawError: err,
+    })
+  }
+
   console.error("FME API - request error", {
     url,
     token: maskToken(token),
     message,
+    status,
   })
 
   let errorMessage: string = ERR.REQUEST_FAILED
-  let errorCode: string = ERR.NETWORK_ERROR
+  let errorCode: string = ERR.REQUEST_FAILED
 
+  // Keep it simple - just categorize by HTTP status and basic patterns
   if (message.includes("Unexpected token")) {
-    console.error(
-      "FME API - Received non-JSON/HTML response where JSON expected"
-    )
     errorMessage = ERR.INVALID_RESPONSE_FORMAT
     errorCode = ERR.INVALID_RESPONSE_FORMAT
+  } else if (httpStatus === 401 || httpStatus === 403) {
+    errorMessage = ERR.WEBHOOK_AUTH_ERROR
+    errorCode = ERR.WEBHOOK_AUTH_ERROR
+  } else if (httpStatus === 404) {
+    errorMessage = ERR.REQUEST_FAILED
+    errorCode = ERR.REQUEST_FAILED
+  } else if (httpStatus >= 500) {
+    errorMessage = ERR.REQUEST_FAILED
+    errorCode = ERR.REQUEST_FAILED
+  } else if (
+    httpStatus === 0 ||
+    message.toLowerCase().includes("failed to fetch") ||
+    message.toLowerCase().includes("enotfound") ||
+    message.toLowerCase().includes("econnrefused") ||
+    message.toLowerCase().includes("dns")
+  ) {
+    errorMessage = ERR.NETWORK_ERROR
+    errorCode = ERR.NETWORK_ERROR
   }
 
   return { errorMessage, errorCode, httpStatus }

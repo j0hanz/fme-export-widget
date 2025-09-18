@@ -129,13 +129,13 @@ describe("Setting panel", () => {
       const last =
         onSettingChange.mock.calls[onSettingChange.mock.calls.length - 1][0]
       const newCfg = last?.config
-      // normalizeBaseUrl keeps a trailing slash
-      expect(getVal(newCfg, "fmeServerUrl")).toBe("https://host/")
+      // normalizeBaseUrl no longer keeps a trailing slash
+      expect(getVal(newCfg, "fmeServerUrl")).toBe("https://host")
     })
 
     // Input value is sanitized in-place
     const input = screen.getByPlaceholderText("https://fme.server.com")
-    expect(input).toHaveValue("https://host/")
+    expect(input).toHaveValue("https://host")
   })
 
   test("validates token on blur", async () => {
