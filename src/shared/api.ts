@@ -12,7 +12,8 @@ import type {
 import { FmeFlowApiError, HttpMethod } from "../config"
 import {
   extractHostFromUrl,
-  getErrorInfo,
+  extractErrorMessage,
+  extractHttpStatus,
   isJson,
   maskToken,
   isFileObject,
@@ -491,7 +492,8 @@ const processRequestError = (
   url: string,
   token: string
 ): { errorMessage: string; errorCode: string; httpStatus: number } => {
-  const { message, status, details } = getErrorInfo(err)
+  const message = extractErrorMessage(err)
+  const status = extractHttpStatus(err)
   const httpStatus = status || 0
 
   console.error("FME API - request error", {
@@ -509,12 +511,6 @@ const processRequestError = (
     )
     errorMessage = ERR.INVALID_RESPONSE_FORMAT
     errorCode = ERR.INVALID_RESPONSE_FORMAT
-  }
-
-  const det = details as any
-  if (det?.error) {
-    errorMessage = det.error.message || errorMessage
-    errorCode = det.error.code || errorCode
   }
 
   return { errorMessage, errorCode, httpStatus }
@@ -692,7 +688,7 @@ export class FmeFlowApiClient {
     try {
       return await operation()
     } catch (err) {
-      const { status } = getErrorInfo(err)
+      const status = extractHttpStatus(err)
       throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
     }
   }
@@ -1133,7 +1129,7 @@ export class FmeFlowApiClient {
       return this.parseWebhookResponse(response)
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
-      const { status } = getErrorInfo(err)
+      const status = extractHttpStatus(err)
       // Surface a code-only message; services will localize
       throw makeError(ERR.DATA_DOWNLOAD_ERROR, status || 0)
     }

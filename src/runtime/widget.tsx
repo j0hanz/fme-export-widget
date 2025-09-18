@@ -42,8 +42,7 @@ import {
 } from "../config"
 import { validateWidgetStartup } from "../shared/services"
 import {
-  ErrorHandlingService,
-  getErrorMessage,
+  mapErrorToKey,
   isValidEmail,
   getSupportEmail,
   isValidExternalUrlForOptGetUrl,
@@ -274,11 +273,15 @@ const useErrorDispatcher = (
   widgetId: string
 ) =>
   hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
-    const error = new ErrorHandlingService().createError(
+    const error: ErrorState = {
       message,
       type,
-      code ? { code } : undefined
-    )
+      code: code || "UNKNOWN",
+      severity: ErrorSeverity.ERROR,
+      recoverable: true,
+      timestamp: new Date(),
+      timestampMs: Date.now(),
+    }
     dispatch(fmeActions.setError(error, widgetId))
   })
 
@@ -450,11 +453,15 @@ const attachAoi = (
     } catch (_) {
       // If we have geometry but cannot serialize, signal a user-facing error via a marker key.
       // The caller path will convert this into a localized error message.
-      const err = new ErrorHandlingService().createError(
-        "GEOMETRY_SERIALIZATION_FAILED",
-        ErrorType.GEOMETRY,
-        { code: "GEOMETRY_SERIALIZATION_FAILED" }
-      )
+      const err: ErrorState = {
+        message: "GEOMETRY_SERIALIZATION_FAILED",
+        type: ErrorType.GEOMETRY,
+        code: "GEOMETRY_SERIALIZATION_FAILED",
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        timestamp: new Date(),
+        timestampMs: Date.now(),
+      }
       // Store an error marker to be handled by submission path
       return { ...base, __aoi_error__: err }
     }
@@ -919,20 +926,20 @@ export default function Widget(
 
   // Small helper to build consistent startup validation errors
   const createStartupError = hooks.useEventCallback(
-    (messageKey: string, code: string, retry?: () => void): ErrorState =>
-      new ErrorHandlingService().createError(
-        translate(messageKey),
-        ErrorType.CONFIG,
-        {
-          code,
-          severity: ErrorSeverity.ERROR,
-          userFriendlyMessage: props.config?.supportEmail
-            ? String(props.config.supportEmail)
-            : "",
-          suggestion: translate("retryValidation"),
-          retry,
-        }
-      )
+    (messageKey: string, code: string, retry?: () => void): ErrorState => ({
+      message: translate(messageKey),
+      type: ErrorType.CONFIG,
+      code,
+      severity: ErrorSeverity.ERROR,
+      recoverable: true,
+      timestamp: new Date(),
+      timestampMs: Date.now(),
+      userFriendlyMessage: props.config?.supportEmail
+        ? String(props.config.supportEmail)
+        : "",
+      suggestion: translate("retryValidation"),
+      retry,
+    })
   )
 
   // Keep track of ongoing startup validation to allow aborting
@@ -1019,12 +1026,13 @@ export default function Widget(
       setValidationSuccess()
     } catch (err: unknown) {
       console.error("FME Export - Startup validation failed:", err)
-      const { code, message } = new ErrorHandlingService().deriveStartupError(
-        err,
-        translate
-      )
+      const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
+      const errorCode =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as any).code)
+          : "STARTUP_VALIDATION_FAILED"
       setValidationError(
-        createStartupError(message, code, runStartupValidation)
+        createStartupError(errorKey, errorCode, runStartupValidation)
       )
     }
     // Clear abort ref if it is still the current controller
@@ -1266,7 +1274,7 @@ export default function Widget(
   // Handle submission error
   const handleSubmissionError = (error: unknown) => {
     // Prefer localized message key resolution
-    const rawKey = getErrorMessage(error) || "unknownErrorOccurred"
+    const rawKey = mapErrorToKey(error) || "unknownErrorOccurred"
     let localizedErr = ""
     try {
       localizedErr = resolveMessageOrKey(rawKey, translate)
@@ -1707,11 +1715,15 @@ export default function Widget(
     return (
       <div css={styles.parent}>
         {renderWidgetError(
-          new ErrorHandlingService().createError(
-            "mapInitFailed",
-            ErrorType.MODULE,
-            { code: "MAP_MODULES_LOAD_FAILED" }
-          ),
+          {
+            message: "mapInitFailed",
+            type: ErrorType.MODULE,
+            code: "MAP_MODULES_LOAD_FAILED",
+            severity: ErrorSeverity.ERROR,
+            recoverable: true,
+            timestamp: new Date(),
+            timestampMs: Date.now(),
+          },
           runStartupValidation
         )}
       </div>

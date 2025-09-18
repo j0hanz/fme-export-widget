@@ -31,6 +31,8 @@ import {
   makeLoadingView,
   makeEmptyView,
   ErrorType,
+  type ErrorState,
+  ErrorSeverity,
   makeErrorView,
 } from "../../config"
 import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
@@ -41,13 +43,14 @@ import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import {
-  ErrorHandlingService,
   getSupportEmail,
   stripErrorLabel,
   initFormValues,
   canResetButton,
   shouldShowWorkspaceLoading,
   validateDateTimeFormat,
+  toIsoLocal,
+  fromIsoLocal,
 } from "../../shared/validations"
 import {
   resolveMessageOrKey,
@@ -496,7 +499,6 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   config,
 }) => {
   const [parameterService] = React.useState(() => new ParameterFormService())
-  const [errorService] = React.useState(() => new ErrorHandlingService())
   const [fileMap, setFileMap] = React.useState<{
     [key: string]: File | null
   }>({})
@@ -563,11 +565,15 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = errorMsg(count)
-      const error = errorService.createError(
-        errorMessage,
-        ErrorType.VALIDATION,
-        { code: "FORM_INVALID" }
-      )
+      const error: ErrorState = {
+        message: errorMessage,
+        type: ErrorType.VALIDATION,
+        code: "FORM_INVALID",
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        timestamp: new Date(),
+        timestampMs: Date.now(),
+      }
       // Dispatch error to the store
       const dispatch = getAppStore().dispatch as any
       dispatch(fmeActions.setError(error, widgetId))
@@ -592,37 +598,8 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
   })
 
-  // Helpers to convert between UI ISO local (YYYY-MM-DDTHH:mm[:ss]) and stored schedule string (YYYY-MM-DD HH:mm:ss)
-  const toIsoLocal = hooks.useEventCallback(
-    (spaceDateTime: string | undefined): string => {
-      const s = (spaceDateTime || "").trim()
-      if (!s) return ""
-      // Ensure seconds exist; incoming format expected "YYYY-MM-DD HH:mm[:ss]"
-      const parts = s.split(" ")
-      if (parts.length !== 2) return ""
-      const [d, t] = parts
-      const tParts = t.split(":")
-      const hh = tParts[0] || "00"
-      const mm = tParts[1] || "00"
-      const ss = tParts[2] || "00"
-      return `${d}T${hh}:${mm}:${ss}`
-    }
-  )
-
-  const toSpaceDateTime = hooks.useEventCallback(
-    (isoLocal: string | undefined): string => {
-      const s = (isoLocal || "").trim()
-      if (!s) return ""
-      const parts = s.split("T")
-      if (parts.length !== 2) return ""
-      const [d, t] = parts
-      const tParts = t.split(":")
-      const hh = tParts[0] || "00"
-      const mm = tParts[1] || "00"
-      const ss = tParts[2] || "00"
-      return `${d} ${hh}:${mm}:${ss}`
-    }
-  )
+  // Use shared schedule converters from validations
+  const toSpaceDateTime = hooks.useEventCallback(fromIsoLocal)
 
   return (
     <Form

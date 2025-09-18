@@ -11,19 +11,16 @@ import {
   isNum,
   extractErrorMessage,
   extractHttpStatus,
-  getErrorMessage,
-  validateServerUrlKey,
-  hasLikelyInvalidHostname,
-} from "./validations"
-import FmeFlowApiClient from "./api"
-import {
-  type StartupValidationOptions,
-  type StartupValidationResult,
+  validateServerUrl,
   validateRequiredFields,
   createConfigError,
   createConnectionError,
   createNetworkError,
+  mapErrorToKey,
+  type StartupValidationResult,
+  type StartupValidationOptions,
 } from "./validations"
+import FmeFlowApiClient from "./api"
 
 // In-flight request deduplication caches
 const inFlight = {
@@ -416,8 +413,8 @@ export async function healthCheck(
   const startTime = Date.now()
 
   // Basic URL validation - if URL is malformed, don't even try
-  const urlKeyError = validateServerUrlKey(serverUrl)
-  if (urlKeyError) {
+  const urlValidation = validateServerUrl(serverUrl)
+  if (!urlValidation.ok) {
     return {
       reachable: false,
       responseTime: 0,
@@ -478,10 +475,8 @@ export async function healthCheck(
         }
 
         // Additional server URL verification using centralized validator and hostname heuristic
-        if (
-          validateServerUrlKey(serverUrl) ||
-          hasLikelyInvalidHostname(serverUrl)
-        ) {
+        const strictValidation = validateServerUrl(serverUrl, { strict: true })
+        if (!strictValidation.ok) {
           return {
             reachable: false,
             responseTime,
@@ -615,7 +610,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: getErrorMessage(error, status),
+                  message: mapErrorToKey(error, status),
                   type: "server",
                   status,
                 },
@@ -628,7 +623,7 @@ export async function validateConnection(
               success: false,
               steps,
               error: {
-                message: getErrorMessage(error, status),
+                message: mapErrorToKey(error, status),
                 type: "server",
                 status,
               },
@@ -642,7 +637,7 @@ export async function validateConnection(
             success: false,
             steps,
             error: {
-              message: getErrorMessage(error, status),
+              message: mapErrorToKey(error, status),
               type: status === 0 ? "network" : "server",
               status,
             },
@@ -700,7 +695,7 @@ export async function validateConnection(
         success: false,
         steps,
         error: {
-          message: getErrorMessage(error, status),
+          message: mapErrorToKey(error, status),
           type: "generic",
           status,
         },
@@ -748,7 +743,7 @@ export async function testBasicConnection(
     } catch (error) {
       return {
         success: false,
-        error: getErrorMessage(error, extractHttpStatus(error)),
+        error: mapErrorToKey(error, extractHttpStatus(error)),
         originalError: error, // Keep original error for better categorization
       }
     }
@@ -791,7 +786,7 @@ export async function getRepositories(
     } catch (error) {
       return {
         success: false,
-        error: getErrorMessage(error, extractHttpStatus(error)),
+        error: mapErrorToKey(error, extractHttpStatus(error)),
       }
     }
   })()

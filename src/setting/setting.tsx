@@ -21,11 +21,11 @@ import {
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import {
-  sanitizeFmeBaseUrl,
-  validateServerUrlKey,
-  validateTokenKey,
-  validateRepositoryKey,
-  getEmailValidationError,
+  normalizeBaseUrl,
+  validateServerUrl,
+  validateToken,
+  validateRepository,
+  isValidEmail,
   extractHttpStatus,
   parseNonNegativeInt,
   getStatusErrorMessage,
@@ -219,8 +219,8 @@ interface RepositorySelectorProps {
   localRepository: string
   availableRepos: string[] | null
   fieldErrors: FieldErrors
-  validateServerUrl: (url: string) => string | null
-  validateToken: (token: string) => string | null
+  validateServerUrl: (url: string) => { ok: boolean; key?: string }
+  validateToken: (token: string) => { ok: boolean; key?: string }
   onRepositoryChange: (repository: string) => void
   onRefreshRepositories: () => void
   translate: TranslateFn
@@ -246,7 +246,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
-    !validateServerUrl(localServerUrl) && !validateToken(localToken)
+    validateServerUrl(localServerUrl).ok && validateToken(localToken).ok
 
   return (
     <SettingRow
@@ -273,8 +273,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         options={(() => {
           // If server URL or token are invalid, show no options
           const hasValidServer =
-            !!localServerUrl && !validateServerUrl(localServerUrl)
-          const hasValidToken = !!localToken && !validateToken(localToken)
+            !!localServerUrl && validateServerUrl(localServerUrl).ok
+          const hasValidToken = !!localToken && validateToken(localToken).ok
           if (!hasValidServer || !hasValidToken) {
             return []
           }
@@ -924,7 +924,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Sanitize URL input
   const sanitizeUrl = hooks.useEventCallback(
     (rawUrl: string): SanitizationResult => {
-      return sanitizeFmeBaseUrl(rawUrl)
+      const normalized = normalizeBaseUrl(rawUrl)
+      return {
+        isValid: true,
+        cleaned: normalized,
+        errors: [],
+        changed: normalized !== rawUrl,
+      }
     }
   )
 
@@ -933,17 +939,24 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     (skipRepoCheck = false): ValidationResult => {
       const messages: Partial<FieldErrors> = {}
 
-      const serverUrlError = validateServerUrlKey(localServerUrl)
-      const tokenError = validateTokenKey(localToken)
-      const repositoryError = skipRepoCheck
-        ? null
-        : validateRepositoryKey(localRepository, availableRepos)
-      const emailError = getEmailValidationError(localSupportEmail)
+      const serverUrlValidation = validateServerUrl(localServerUrl)
+      const tokenValidation = validateToken(localToken)
+      const repositoryValidation = skipRepoCheck
+        ? { ok: true }
+        : validateRepository(localRepository, availableRepos)
+      const emailValid = isValidEmail(localSupportEmail)
 
-      if (serverUrlError) messages.serverUrl = translate(serverUrlError)
-      if (tokenError) messages.token = translate(tokenError)
-      if (repositoryError) messages.repository = translate(repositoryError)
-      if (emailError) messages.supportEmail = translate(emailError)
+      if (!serverUrlValidation.ok)
+        messages.serverUrl = translate(
+          serverUrlValidation.key || "invalidServerUrl"
+        )
+      if (!tokenValidation.ok)
+        messages.token = translate(tokenValidation.key || "invalidToken")
+      if (!repositoryValidation.ok)
+        messages.repository = translate(
+          repositoryValidation.key || "invalidRepository"
+        )
+      if (!emailValid) messages.supportEmail = translate("invalidEmail")
 
       // Preserve existing field errors for fields not being validated here
       setFieldErrors((prev) => ({
@@ -1167,8 +1180,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Auto-load repositories when both committed URL and token are valid
   React.useEffect(() => {
     const hasValidServer =
-      !!committedServerUrl && !validateServerUrlKey(committedServerUrl)
-    const hasValidToken = !!committedToken && !validateTokenKey(committedToken)
+      !!committedServerUrl && validateServerUrl(committedServerUrl).ok
+    const hasValidToken = !!committedToken && validateToken(committedToken).ok
     if (!hasValidServer || !hasValidToken) return
 
     const { cleaned } = sanitizeUrl(committedServerUrl)
@@ -1201,11 +1214,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
-    const errKey = validateServerUrlKey(url)
+    const validation = validateServerUrl(url)
     setError(
       setFieldErrors,
       "serverUrl",
-      errKey ? translate(errKey) : undefined
+      !validation.ok
+        ? translate(validation.key || "invalidServerUrl")
+        : undefined
     )
 
     // Sanitize and save to config
@@ -1216,11 +1231,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     // Update local and committed state if sanitized/blurred
     if (changed) {
       setLocalServerUrl(cleaned)
-      const cleanedErrKey = validateServerUrlKey(cleaned)
+      const cleanedValidation = validateServerUrl(cleaned)
       setError(
         setFieldErrors,
         "serverUrl",
-        cleanedErrKey ? translate(cleanedErrKey) : undefined
+        !cleanedValidation.ok
+          ? translate(cleanedValidation.key || "invalidServerUrl")
+          : undefined
       )
       setCommittedServerUrl(cleaned)
     } else {
@@ -1234,8 +1251,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
-    const errKey = validateTokenKey(token)
-    setError(setFieldErrors, "token", errKey ? translate(errKey) : undefined)
+    const validation = validateToken(token)
+    setError(
+      setFieldErrors,
+      "token",
+      !validation.ok ? translate(validation.key || "invalidToken") : undefined
+    )
 
     // Save to config and commit
     updateConfig("fmeServerToken", token)
@@ -1415,8 +1436,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           localRepository={localRepository}
           availableRepos={availableRepos}
           fieldErrors={fieldErrors}
-          validateServerUrl={validateServerUrlKey}
-          validateToken={validateTokenKey}
+          validateServerUrl={validateServerUrl}
+          validateToken={validateToken}
           onRepositoryChange={handleRepositoryChange}
           onRefreshRepositories={refreshRepositories}
           translate={translate}
@@ -1836,8 +1857,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             onBlur={(val: string) => {
               const trimmed = (val ?? "").trim()
-              const errKey = getEmailValidationError(trimmed)
-              const err = errKey ? translate(errKey) : undefined
+              const isValid = isValidEmail(trimmed)
+              const err = !isValid ? translate("invalidEmail") : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
               // Only persist when valid; blank unsets config
               if (!trimmed) {
