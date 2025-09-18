@@ -961,8 +961,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.repository = translate(composite.errors.repository)
       }
 
-      const emailValid = isValidEmail(localSupportEmail)
-      if (!emailValid) messages.supportEmail = translate("invalidEmail")
+      // Support email is optional but must be valid if provided
+      const trimmedEmail = (localSupportEmail ?? "").trim()
+      if (trimmedEmail) {
+        const emailValid = isValidEmail(trimmedEmail)
+        if (!emailValid) messages.supportEmail = translate("invalidEmail")
+      }
 
       setFieldErrors((prev) => ({
         ...prev,
@@ -1868,14 +1872,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             onBlur={(val: string) => {
               const trimmed = (val ?? "").trim()
+              // Empty: clear error and unset config
+              if (!trimmed) {
+                setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+                updateConfig("supportEmail", undefined as any)
+                setLocalSupportEmail("")
+                return
+              }
+
+              // Non-empty: validate format
               const isValid = isValidEmail(trimmed)
               const err = !isValid ? translate("invalidEmail") : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-              // Only persist when valid; blank unsets config
-              if (!trimmed) {
-                updateConfig("supportEmail", undefined as any)
-                setLocalSupportEmail("")
-              } else if (!err) {
+              if (!err) {
                 updateConfig("supportEmail", trimmed)
                 setLocalSupportEmail(trimmed)
               }

@@ -21,6 +21,7 @@ export default {
   errorMissingServerUrl: "Ange FME‑server‑URL.",
   errorBadBaseUrl: "Ange en giltig FME‑server‑URL.",
   errorMissingToken: "Ange API‑nyckeln.",
+  invalidEmail: "Ogiltig e‑postadress.",
   errorInvalidEmail: "Ogiltig e‑postadress.",
   errorUnauthorized: "Åtkomst nekad (status {status}).",
   errorUnauthorizedHelper:
