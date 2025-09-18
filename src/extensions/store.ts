@@ -1,4 +1,4 @@
-import { Immutable } from "jimu-core"
+import Immutable from "seamless-immutable"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,

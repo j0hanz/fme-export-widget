@@ -359,20 +359,14 @@ export interface TooltipProps {
 }
 
 // Additional UI component types needed by components
-export interface GroupButtonConfig {
-  readonly icon: string
-  readonly text: string
-  readonly tooltip: string
-  readonly variant?: string
-  readonly color?: string
-}
+export type GroupButtonConfig = Omit<ButtonProps, "block">
 
 export interface ButtonGroupProps extends BaseProps {
   readonly buttons?: readonly GroupButtonConfig[]
   readonly activeIndex?: number
   readonly onChange?: (index: number) => void
-  readonly leftButton?: any
-  readonly rightButton?: any
+  readonly leftButton?: GroupButtonConfig
+  readonly rightButton?: GroupButtonConfig
 }
 
 export interface TextAreaProps extends BaseProps {
@@ -443,23 +437,23 @@ export interface OrderResultProps {
   readonly onDownload?: () => void
   readonly onClose?: () => void
   readonly orderResult?: ExportResult
-  readonly translate?: (key: string, values?: any) => string
+  readonly translate?: TranslateFn
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
-  readonly config?: any
+  readonly config?: FmeExportConfig
 }
 
 export interface ExportFormProps {
   readonly parameters?: WorkspaceParameter[]
   readonly values?: FormValues
   readonly onChange?: (values: FormValues) => void
-  readonly onSubmit?: (data: any) => void
+  readonly onSubmit?: (payload: { type: string; data: FormValues }) => void
   readonly workspaceParameters?: readonly WorkspaceParameter[]
   readonly workspaceName?: string
-  readonly workspaceItem?: any
+  readonly workspaceItem?: WorkspaceItemDetail
   readonly onBack?: () => void
   readonly isSubmitting?: boolean
-  readonly translate?: (key: string, values?: any) => string
+  readonly translate?: TranslateFn
   readonly config?: FmeExportConfig
 }
 
@@ -519,7 +513,7 @@ export interface DynamicFieldProps {
   readonly field: DynamicFieldConfig
   readonly value?: FormPrimitive
   readonly onChange: (value: FormPrimitive) => void
-  readonly translate: (key: string, params?: any) => string
+  readonly translate: TranslateFn
 }
 
 export interface LoadingFlags {
@@ -691,14 +685,25 @@ export interface JobResult {
 export type JobResponse = JobResult
 
 export interface EsriModules {
-  readonly SketchViewModel: any
-  readonly GraphicsLayer: any
-  readonly geometryEngine: any
-  readonly webMercatorUtils: any
-  readonly reactiveUtils: any
-  readonly Polyline: any
-  readonly Polygon: any
-  readonly Graphic: any
+  readonly SketchViewModel: new (...args: any[]) => __esri.SketchViewModel
+  readonly GraphicsLayer: new (...args: any[]) => __esri.GraphicsLayer
+  readonly geometryEngine: {
+    readonly isSimple: (geometry: __esri.Geometry) => boolean
+    readonly planarArea: (geometry: __esri.Geometry, unit: string) => number
+  }
+  readonly webMercatorUtils: {
+    readonly webMercatorToGeographic: (
+      geometry: __esri.Geometry
+    ) => __esri.Geometry
+  }
+  readonly reactiveUtils: unknown
+  readonly Polyline: {
+    readonly fromJSON: (json: unknown) => __esri.Polyline
+  }
+  readonly Polygon: {
+    readonly fromJSON: (json: unknown) => __esri.Polygon
+  }
+  readonly Graphic: new (...args: any[]) => __esri.Graphic
 }
 
 export interface ExportResult {
@@ -714,18 +719,24 @@ export interface ExportResult {
 }
 
 export interface EsriGeometryJson {
-  readonly rings?: readonly any[][]
+  readonly rings?: ReadonlyArray<
+    ReadonlyArray<
+      | Readonly<[number, number]>
+      | Readonly<[number, number, number]>
+      | Readonly<[number, number, number, number]>
+    >
+  >
   readonly spatialReference?: {
     readonly wkid?: number
     readonly latestWkid?: number
   }
-  readonly [key: string]: any
+  readonly [key: string]: unknown
 }
 
 // Redux state
 export interface FmeAction {
   readonly type: FmeActionType
-  readonly [key: string]: any
+  readonly [key: string]: unknown
 }
 
 export type FmeActions = FmeAction
@@ -865,3 +876,46 @@ export interface ValidationResult {
   readonly messages?: { [key: string]: string }
   readonly hasErrors?: boolean
 }
+
+// Shared translation function type
+export type TranslateFn = (
+  key: string,
+  params?: { readonly [key: string]: unknown }
+) => string
+
+export interface ConnectionValidationOptions {
+  readonly serverUrl: string
+  readonly token: string
+  readonly repository?: string
+  readonly signal?: AbortSignal
+}
+
+export interface ConnectionValidationResult {
+  readonly success: boolean
+  readonly version?: string
+  readonly repositories?: readonly string[]
+  readonly error?: {
+    readonly message: string
+    readonly type: "server" | "token" | "repository" | "network" | "generic"
+    readonly status?: number
+  }
+  readonly steps: CheckSteps
+}
+
+export interface StartupValidationResult {
+  readonly isValid: boolean
+  readonly error?: ErrorState
+  readonly canProceed: boolean
+  readonly requiresSettings: boolean
+}
+
+export interface StartupValidationOptions {
+  readonly config: FmeExportConfig | undefined
+  readonly translate: TranslateFn
+  readonly signal?: AbortSignal
+}
+
+// Store-local global state (immutable) used by reducer implementation
+export type FmeStoreGlobalState = ImmutableObject<{
+  readonly byId: { readonly [id: string]: ImmutableObject<FmeWidgetState> }
+}>

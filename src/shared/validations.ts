@@ -3,9 +3,9 @@ import {
   ErrorType,
   type ErrorState,
   type FmeExportConfig,
+  type StartupValidationResult,
+  type TranslateFn,
 } from "../config"
-
-type TFn = (key: string, params?: any) => string
 
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
@@ -62,6 +62,9 @@ const hasForbiddenPaths = (pathname: string): boolean => {
   return lowerPath.includes(FME_REST_PATH)
 }
 
+// ------------------------------
+// URL helpers
+// ------------------------------
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
@@ -164,6 +167,9 @@ export const validateRepository = (
   return { ok: true }
 }
 
+// ------------------------------
+// Error mapping helpers
+// ------------------------------
 export const extractErrorMessage = (error: unknown): string => {
   if (!error) return "Unknown error"
   if (typeof error === "string") return error
@@ -218,9 +224,6 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
-// ------------------------------
-// 3. Error mapping (canonical API)
-// ------------------------------
 export const mapErrorToKey = (err: unknown, status?: number): string => {
   // Extract status from error object if not provided
   if (!status) {
@@ -389,6 +392,9 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
   return Math.floor(n)
 }
 
+// ------------------------------
+// Error constants
+// ------------------------------
 export const HTTP_STATUS_CODES = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
@@ -447,22 +453,11 @@ export function validateConnectionInputs(args: {
   return { ok: Object.keys(errors).length === 0, errors }
 }
 
-export interface StartupValidationResult {
-  isValid: boolean
-  error?: ErrorState
-  canProceed: boolean
-  requiresSettings: boolean
-}
-
-export interface StartupValidationOptions {
-  config: FmeExportConfig | undefined
-  translate: TFn
-  signal?: AbortSignal
-}
+// interfaces moved to config.ts
 
 export const validateRequiredFields = (
   config: FmeExportConfig,
-  translate: TFn
+  translate: TranslateFn
 ): StartupValidationResult => {
   const missing = getMissingConfigFields(config)
 
@@ -485,7 +480,7 @@ export const createError = (
   messageKey: string,
   type: ErrorType,
   code: string,
-  translate: TFn,
+  translate: TranslateFn,
   options?: {
     suggestion?: string
     userFriendlyMessage?: string
@@ -507,6 +502,9 @@ export const createError = (
   }
 }
 
+// ------------------------------
+// UI helpers
+// ------------------------------
 export const maskToken = (token: string): string =>
   token ? `****${token.slice(-4)}` : ""
 
@@ -552,6 +550,9 @@ export const getErrorIconSrc = (code?: string): string => {
   return "error"
 }
 
+// ------------------------------
+// FME conversions (date/time/color)
+// ------------------------------
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
   const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
@@ -728,6 +729,9 @@ export const sanitizeFormValues = (
   return masked
 }
 
+// ------------------------------
+// Geometry helpers
+// ------------------------------
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
@@ -841,7 +845,7 @@ export const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
   userEmail: string,
-  translateFn: TFn
+  translateFn: TranslateFn
 ): any => {
   const response = fmeResponse as any
   const data = response?.data
@@ -892,7 +896,9 @@ export const processFmeResponse = (
   }
 }
 
-// Workflow utility functions
+// ------------------------------
+// UI helpers (workflow)
+// ------------------------------
 export const stripErrorLabel = (errorText?: string): string | undefined => {
   const text = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
   if (!text) return undefined

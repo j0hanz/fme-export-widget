@@ -53,9 +53,8 @@ import type {
   BtnContentProps,
   IconProps,
   StateViewProps,
+  TranslateFn,
 } from "../../config"
-
-type TranslateFn = (key: string, params?: any) => string
 
 // Configuration
 export const config = {
@@ -1429,8 +1428,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     const btnConfig = {
       ...buttonConfig,
       variant:
-        (buttonConfig.variant as "text" | "contained" | "outlined") ||
-        (side === "left" ? "outlined" : "contained"),
+        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }

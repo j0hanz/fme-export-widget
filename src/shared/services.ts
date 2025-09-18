@@ -3,6 +3,10 @@ import type {
   DynamicFieldConfig,
   FormPrimitive,
   CheckSteps,
+  ConnectionValidationOptions,
+  ConnectionValidationResult,
+  StartupValidationResult,
+  StartupValidationOptions,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
 import { isEmpty } from "./utils"
@@ -15,8 +19,6 @@ import {
   validateRequiredFields,
   createError,
   mapErrorToKey,
-  type StartupValidationResult,
-  type StartupValidationOptions,
 } from "./validations"
 import FmeFlowApiClient from "./api"
 
@@ -295,26 +297,6 @@ export class ParameterFormService {
 
     return { isValid: Object.keys(errors).length === 0, errors }
   }
-}
-
-// Connection Validation Service
-export interface ConnectionValidationOptions {
-  serverUrl: string
-  token: string
-  repository?: string
-  signal?: AbortSignal
-}
-
-export interface ConnectionValidationResult {
-  success: boolean
-  version?: string
-  repositories?: string[]
-  error?: {
-    message: string
-    type: "server" | "token" | "repository" | "network" | "generic"
-    status?: number
-  }
-  steps: CheckSteps
 }
 
 /**
