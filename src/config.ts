@@ -709,6 +709,8 @@ export interface ExportResult {
   readonly workspaceName?: string
   readonly email?: string
   readonly downloadUrl?: string
+  readonly blob?: Blob
+  readonly downloadFilename?: string
 }
 
 export interface EsriGeometryJson {

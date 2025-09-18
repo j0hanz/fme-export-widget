@@ -128,21 +128,42 @@ describe("Workflow component", () => {
 
   test("header reset button visibility based on state and drawing progress", () => {
     const onReset = jest.fn()
-    const { rerender } = renderWithProviders(
+    const utils = renderWithProviders(
       <Workflow
-        state={ViewMode.DRAWING}
+        state={ViewMode.INITIAL}
         instructionText=""
         isModulesLoading={false}
         showHeaderActions={true}
-        isDrawing={true}
+        isDrawing={false}
         clickCount={0}
         drawnArea={0}
         onReset={onReset}
       />
     )
 
-    // With new logic, reset is shown when isDrawing is true even if clickCount is 0
-    expect(screen.getByRole("button", { name: /Avbryt/i })).toBeInTheDocument()
+    // In INITIAL (ButtonTabs visible), cancel should be hidden
+    expect(
+      screen.queryByRole("button", { name: /Avbryt/i })
+    ).not.toBeInTheDocument()
+
+    const { rerender } = utils
+    rerender(
+      <Workflow
+        state={ViewMode.DRAWING}
+        instructionText=""
+        isModulesLoading={false}
+        showHeaderActions={true}
+        isDrawing={false}
+        clickCount={0}
+        drawnArea={0}
+        onReset={onReset}
+      />
+    )
+
+    // In DRAWING with 0 clicks (ButtonTabs visible), cancel should be hidden
+    expect(
+      screen.queryByRole("button", { name: /Avbryt/i })
+    ).not.toBeInTheDocument()
 
     rerender(
       <Workflow

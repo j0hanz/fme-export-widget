@@ -396,6 +396,26 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
 
+  // Compute download URL if available
+  const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
+  // Create/revoke object URL only in effects to avoid side-effects during render
+  React.useEffect(() => {
+    let objectUrl: string | null = null
+    if (orderResult.downloadUrl) {
+      setDownloadUrl(orderResult.downloadUrl)
+    } else if (orderResult.blob instanceof Blob) {
+      objectUrl = URL.createObjectURL(orderResult.blob)
+      setDownloadUrl(objectUrl)
+    } else {
+      setDownloadUrl(null)
+    }
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+  }, [orderResult.downloadUrl, orderResult.blob])
+
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
     const display =
@@ -424,7 +444,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
     addRow(translate("errorCode"), orderResult.code)
 
   const titleText = isSuccess
-    ? translate("orderConfirmation")
+    ? isSyncMode
+      ? translate("orderComplete")
+      : translate("orderConfirmation")
     : translate("orderSentError")
 
   const buttonText = isSuccess
@@ -433,14 +455,14 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const buttonHandler = isSuccess ? onReuseGeography : onBack
 
-  const showDownloadLink = isSuccess && orderResult.downloadUrl
+  const showDownloadLink = isSuccess && downloadUrl
   const showMessage = isSuccess || orderResult.message
 
   // Conditional message based on sync mode
   const messageText = isSuccess
-    ? isSyncMode && orderResult.downloadUrl
-      ? null
-      : translate("emailNotificationSent")
+    ? !isSyncMode
+      ? translate("emailNotificationSent")
+      : null
     : (() => {
         // Localize known failure messages/codes
         const code = (orderResult.code || "").toString().toUpperCase()
@@ -460,12 +482,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
       {rows}
       {showDownloadLink && (
         <div css={styles.typography.caption}>
-          {translate("downloadReady")}{" "}
           <a
-            href={orderResult.downloadUrl}
+            href={downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
             css={styles.typography.link}
+            download={orderResult.downloadFilename}
           >
             {translate("clickToDownload")}
           </a>
@@ -924,6 +946,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Header
   const renderHeader = () => {
+    // Never show cancel in pre-draw states where ButtonTabs are rendered
+    if (state === ViewMode.INITIAL) return null
+    if (state === ViewMode.DRAWING && (clickCount || 0) === 0) return null
+
     const resetEnabled = canResetButton(
       onReset,
       canResetProp,

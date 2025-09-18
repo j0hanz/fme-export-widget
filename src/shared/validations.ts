@@ -1055,6 +1055,13 @@ export const processFmeResponse = (
   }
 
   const serviceInfo: any = data.serviceResponse || data
+  // Check for direct URL in various possible locations
+  const directUrlRaw: unknown = serviceInfo?.url
+  const directUrl =
+    typeof directUrlRaw === "string" && /^https?:\/\//i.test(directUrlRaw)
+      ? directUrlRaw
+      : undefined
+
   const statusRaw = serviceInfo?.statusInfo?.status || serviceInfo?.status
   const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : ""
   const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
@@ -1063,12 +1070,16 @@ export const processFmeResponse = (
   const jobId: number | undefined =
     Number.isFinite(parsedId) && parsedId > 0 ? parsedId : undefined
 
-  if (status === "success") {
+  if (status === "success" || (!!directUrl && !status)) {
+    const url = directUrl
+
     return {
       success: true,
       jobId,
       email: userEmail,
       workspaceName: workspace,
+      downloadUrl: url,
+      downloadFilename: url ? `${workspace}_export.zip` : undefined,
     }
   }
 

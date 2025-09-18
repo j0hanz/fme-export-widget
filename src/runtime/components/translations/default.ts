@@ -5,6 +5,7 @@ export default {
   retry: "Försök igen",
   validatingStartup: "Validerar konfiguration...",
   orderConfirmation: "Beställningen är bekräftad",
+  orderComplete: "Exporten är klar",
   orderSentError: "Beställningen misslyckades",
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
