@@ -558,7 +558,7 @@ export async function validateConnection(
             success: false,
             steps,
             error: {
-              message: "startupTokenError",
+              message: mapErrorToKey(error, status),
               type: "token",
               status,
             },
@@ -578,7 +578,7 @@ export async function validateConnection(
               success: false,
               steps,
               error: {
-                message: "startupServerError",
+                message: mapErrorToKey(error, status),
                 type: "server",
                 status,
               },
@@ -596,7 +596,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: "startupTokenError",
+                  message: mapErrorToKey(error, status),
                   type: "token",
                   status,
                 },

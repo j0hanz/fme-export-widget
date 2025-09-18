@@ -28,7 +28,7 @@ import {
   isValidEmail,
   extractHttpStatus,
   parseNonNegativeInt,
-  getStatusErrorMessage,
+  mapErrorToKey,
 } from "../shared/validations"
 import {
   validateConnection,
@@ -892,7 +892,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Comprehensive error processor - returns alert message for bottom display
   const processError = hooks.useEventCallback((err: unknown): string => {
     const status = err instanceof FmeFlowApiError ? err.status : 0
-    return getStatusErrorMessage(status, translate)
+    const errorKey = mapErrorToKey(err, status)
+    return translate(errorKey)
   })
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {

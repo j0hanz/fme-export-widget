@@ -419,26 +419,6 @@ export const isAuthError = (status: number): boolean => {
   )
 }
 
-export const getStatusErrorMessage = (
-  status: number,
-  translate: TFn
-): string => {
-  const errorKey = STATUS_ERROR_MAP[status]
-
-  if (errorKey) {
-    return translate(errorKey, { status })
-  }
-
-  if (
-    status >= HTTP_STATUS_CODES.SERVER_ERROR_MIN &&
-    status <= HTTP_STATUS_CODES.SERVER_ERROR_MAX
-  ) {
-    return translate("errorServerError", { status })
-  }
-
-  return translate("errorHttpStatus", { status })
-}
-
 export const extractErrorMessage = (error: unknown): string => {
   if (!error) return "Unknown error"
   if (typeof error === "string") return error

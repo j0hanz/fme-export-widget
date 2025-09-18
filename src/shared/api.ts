@@ -20,27 +20,8 @@ import {
   getFileDisplayName,
   validateRequiredConfig,
   isAuthError,
+  mapErrorToKey,
 } from "./validations"
-
-// Centralized error keys (translation keys only)
-const ERR = {
-  ARCGIS_MODULE_ERROR: "ARCGIS_MODULE_ERROR",
-  REQUEST_FAILED: "REQUEST_FAILED",
-  NETWORK_ERROR: "NETWORK_ERROR",
-  INVALID_RESPONSE_FORMAT: "INVALID_RESPONSE_FORMAT",
-  REPOSITORIES_ERROR: "REPOSITORIES_ERROR",
-  REPOSITORY_ITEMS_ERROR: "REPOSITORY_ITEMS_ERROR",
-  WORKSPACE_ITEM_ERROR: "WORKSPACE_ITEM_ERROR",
-  JOB_SUBMISSION_ERROR: "JOB_SUBMISSION_ERROR",
-  DATA_STREAMING_ERROR: "DATA_STREAMING_ERROR",
-  DATA_DOWNLOAD_ERROR: "DATA_DOWNLOAD_ERROR",
-  WEBHOOK_AUTH_ERROR: "WEBHOOK_AUTH_ERROR",
-  SERVER_URL_ERROR: "SERVER_URL_ERROR", // New error code for server URL issues
-  INVALID_CONFIG: "INVALID_CONFIG",
-  GEOMETRY_MISSING: "GEOMETRY_MISSING",
-  GEOMETRY_TYPE_INVALID: "GEOMETRY_TYPE_INVALID",
-  URL_TOO_LONG: "URL_TOO_LONG",
-} as const
 
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
@@ -59,7 +40,7 @@ async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
     const loader = mod.loadArcGISJSAPIModules
     if (typeof loader !== "function") {
       // Use key only (no fallback English)
-      throw new Error(ERR.ARCGIS_MODULE_ERROR)
+      throw new Error("ARCGIS_MODULE_ERROR")
     }
     const loaded = await loader(modules as string[])
     const unwrap = (m: any) => m?.default ?? m
@@ -172,7 +153,7 @@ async function ensureEsri(): Promise<void> {
     } catch (error) {
       // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
       console.error("ARCGIS_MODULE_ERROR", { error })
-      throw new Error(ERR.ARCGIS_MODULE_ERROR)
+      throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
 
@@ -488,62 +469,6 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
   statusText: "requestAborted",
 })
 
-const processRequestError = (
-  err: unknown,
-  url: string,
-  token: string
-): { errorMessage: string; errorCode: string; httpStatus: number } => {
-  const message = extractErrorMessage(err)
-  const status = extractHttpStatus(err)
-  const httpStatus = status || 0
-
-  // Debug logging to help identify error structure
-  if (process.env.NODE_ENV !== "production") {
-    console.debug("FME API - error structure debug", {
-      errorType: typeof err,
-      errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
-      extractedStatus: status,
-      rawError: err,
-    })
-  }
-
-  console.error("FME API - request error", {
-    url,
-    token: maskToken(token),
-    message,
-    status,
-  })
-
-  let errorMessage: string = ERR.REQUEST_FAILED
-  let errorCode: string = ERR.REQUEST_FAILED
-
-  // Keep it simple - just categorize by HTTP status and basic patterns
-  if (message.includes("Unexpected token")) {
-    errorMessage = ERR.INVALID_RESPONSE_FORMAT
-    errorCode = ERR.INVALID_RESPONSE_FORMAT
-  } else if (httpStatus === 401 || httpStatus === 403) {
-    errorMessage = ERR.WEBHOOK_AUTH_ERROR
-    errorCode = ERR.WEBHOOK_AUTH_ERROR
-  } else if (httpStatus === 404) {
-    errorMessage = ERR.REQUEST_FAILED
-    errorCode = ERR.REQUEST_FAILED
-  } else if (httpStatus >= 500) {
-    errorMessage = ERR.REQUEST_FAILED
-    errorCode = ERR.REQUEST_FAILED
-  } else if (
-    httpStatus === 0 ||
-    message.toLowerCase().includes("failed to fetch") ||
-    message.toLowerCase().includes("enotfound") ||
-    message.toLowerCase().includes("econnrefused") ||
-    message.toLowerCase().includes("dns")
-  ) {
-    errorMessage = ERR.NETWORK_ERROR
-    errorCode = ERR.NETWORK_ERROR
-  }
-
-  return { errorMessage, errorCode, httpStatus }
-}
-
 export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
@@ -783,8 +708,8 @@ export class FmeFlowApiClient {
           statusText: raw.statusText,
         }
       },
-      ERR.REPOSITORIES_ERROR,
-      ERR.REPOSITORIES_ERROR
+      "REPOSITORIES_ERROR",
+      "REPOSITORIES_ERROR"
     )
   }
 
@@ -838,8 +763,8 @@ export class FmeFlowApiClient {
           repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
-      ERR.REPOSITORY_ITEMS_ERROR,
-      ERR.REPOSITORY_ITEMS_ERROR
+      "REPOSITORY_ITEMS_ERROR",
+      "REPOSITORY_ITEMS_ERROR"
     )
   }
 
@@ -857,8 +782,8 @@ export class FmeFlowApiClient {
           cacheHint: false, // Avoid cross-repo/token contamination
           repositoryContext: repo, // Add repository context for proper cache scoping
         }),
-      ERR.WORKSPACE_ITEM_ERROR,
-      ERR.WORKSPACE_ITEM_ERROR
+      "WORKSPACE_ITEM_ERROR",
+      "WORKSPACE_ITEM_ERROR"
     )
   }
 
@@ -880,8 +805,8 @@ export class FmeFlowApiClient {
           signal,
           cacheHint: false,
         }),
-      ERR.JOB_SUBMISSION_ERROR,
-      ERR.JOB_SUBMISSION_ERROR
+      "JOB_SUBMISSION_ERROR",
+      "JOB_SUBMISSION_ERROR"
     )
   }
 
@@ -1030,7 +955,7 @@ export class FmeFlowApiClient {
 
         // Non-2xx -> surface as error for consistent handling
         if (!response.ok) {
-          throw makeError(ERR.DATA_STREAMING_ERROR, response.status)
+          throw makeError("DATA_STREAMING_ERROR", response.status)
         }
 
         // Always read as Blob; callers can decode based on content-type
@@ -1052,8 +977,8 @@ export class FmeFlowApiClient {
           statusText: response.statusText,
         }
       },
-      ERR.DATA_STREAMING_ERROR,
-      ERR.DATA_STREAMING_ERROR
+      "DATA_STREAMING_ERROR",
+      "DATA_STREAMING_ERROR"
     )
   }
 
@@ -1126,7 +1051,7 @@ export class FmeFlowApiClient {
           fullUrl.length > maxLen
         ) {
           // Emit a dedicated error code for URL length issues
-          throw makeError(ERR.URL_TOO_LONG, 0)
+          throw makeError("URL_TOO_LONG", 0)
         }
       } catch (lenErr) {
         if (lenErr instanceof FmeFlowApiError) throw lenErr
@@ -1159,7 +1084,7 @@ export class FmeFlowApiClient {
       if (err instanceof FmeFlowApiError) throw err
       const status = extractHttpStatus(err)
       // Surface a code-only message; services will localize
-      throw makeError(ERR.DATA_DOWNLOAD_ERROR, status || 0)
+      throw makeError("DATA_DOWNLOAD_ERROR", status || 0)
     }
   }
 
@@ -1218,7 +1143,7 @@ export class FmeFlowApiClient {
     const contentType = response.headers.get("content-type")
 
     if (!isJson(contentType)) {
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     let responseData: any
@@ -1226,11 +1151,11 @@ export class FmeFlowApiClient {
       responseData = await response.json()
     } catch {
       console.warn("FME API - Failed to parse webhook JSON response")
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     if (isAuthError(response.status)) {
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     return {
@@ -1345,7 +1270,7 @@ export class FmeFlowApiClient {
       if (options.body !== undefined) requestOptions.body = options.body
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError(ERR.ARCGIS_MODULE_ERROR)
+        throw makeError("ARCGIS_MODULE_ERROR")
       }
 
       const response = await esriRequestFn(url, requestOptions)
@@ -1366,12 +1291,37 @@ export class FmeFlowApiClient {
       if (err instanceof FmeFlowApiError) {
         throw err
       }
-      const { errorMessage, errorCode, httpStatus } = processRequestError(
-        err,
+
+      const httpStatus = extractHttpStatus(err) || 0
+      const message = extractErrorMessage(err)
+
+      // Determine error code for programmatic identification (simpler logic)
+      let errorCode = "REQUEST_FAILED"
+      if (message.includes("Unexpected token")) {
+        errorCode = "INVALID_RESPONSE_FORMAT"
+      }
+
+      // Get user-friendly translation key using centralized error mapping
+      const translationKey = mapErrorToKey(err, httpStatus)
+
+      // Debug logging to help identify error structure
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("FME API - error structure debug", {
+          errorType: typeof err,
+          errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
+          extractedStatus: httpStatus,
+          rawError: err,
+        })
+      }
+
+      console.error("FME API - request error", {
         url,
-        this.config.token
-      )
-      throw new FmeFlowApiError(errorMessage, errorCode, httpStatus)
+        token: maskToken(this.config.token),
+        message: extractErrorMessage(err),
+        status: httpStatus,
+      })
+
+      throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
     }
   }
 }
@@ -1392,7 +1342,7 @@ export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   try {
     validateRequiredConfig(normalizedConfig)
   } catch {
-    throw makeError(ERR.INVALID_CONFIG)
+    throw makeError("INVALID_CONFIG")
   }
 
   return new FmeFlowApiClient({
