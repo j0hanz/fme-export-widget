@@ -219,7 +219,10 @@ interface RepositorySelectorProps {
   localRepository: string
   availableRepos: string[] | null
   fieldErrors: FieldErrors
-  validateServerUrl: (url: string) => { ok: boolean; key?: string }
+  validateServerUrl: (
+    url: string,
+    opts?: { strict?: boolean; requireHttps?: boolean }
+  ) => { ok: boolean; key?: string }
   validateToken: (token: string) => { ok: boolean; key?: string }
   onRepositoryChange: (repository: string) => void
   onRefreshRepositories: () => void
@@ -246,7 +249,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
-    validateServerUrl(localServerUrl).ok && validateToken(localToken).ok
+    validateServerUrl(localServerUrl, { requireHttps: true }).ok &&
+    validateToken(localToken).ok
 
   return (
     <SettingRow
@@ -273,7 +277,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         options={(() => {
           // If server URL or token are invalid, show no options
           const hasValidServer =
-            !!localServerUrl && validateServerUrl(localServerUrl).ok
+            !!localServerUrl &&
+            validateServerUrl(localServerUrl, { requireHttps: true }).ok
           const hasValidToken = !!localToken && validateToken(localToken).ok
           if (!hasValidServer || !hasValidToken) {
             return []
@@ -319,7 +324,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         disabled={
           !localServerUrl ||
           !localToken ||
-          !validateServerUrl(localServerUrl).ok ||
+          !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
           !validateToken(localToken).ok ||
           availableRepos === null
         }
@@ -328,7 +333,9 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         }
         aria-invalid={fieldErrors.repository ? true : undefined}
         placeholder={(() => {
-          const serverOk = validateServerUrl(localServerUrl).ok
+          const serverOk = validateServerUrl(localServerUrl, {
+            requireHttps: true,
+          }).ok
           const tokenOk = validateToken(localToken).ok
           if (!serverOk || !tokenOk) {
             return translate("testConnectionFirst")
@@ -1179,7 +1186,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Auto-load repositories when both committed URL and token are valid
   React.useEffect(() => {
     const hasValidServer =
-      !!committedServerUrl && validateServerUrl(committedServerUrl).ok
+      !!committedServerUrl &&
+      validateServerUrl(committedServerUrl, { requireHttps: true }).ok
     const hasValidToken = !!committedToken && validateToken(committedToken).ok
     if (!hasValidServer || !hasValidToken) return
 
@@ -1213,7 +1221,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
-    const validation = validateServerUrl(url)
+    const validation = validateServerUrl(url, { requireHttps: true })
     setError(
       setFieldErrors,
       "serverUrl",
@@ -1230,7 +1238,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     // Update local and committed state if sanitized/blurred
     if (changed) {
       setLocalServerUrl(cleaned)
-      const cleanedValidation = validateServerUrl(cleaned)
+      const cleanedValidation = validateServerUrl(cleaned, {
+        requireHttps: true,
+      })
       setError(
         setFieldErrors,
         "serverUrl",

@@ -91,7 +91,7 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
 
 export const validateServerUrl = (
   url: string,
-  opts?: { strict?: boolean }
+  opts?: { strict?: boolean; requireHttps?: boolean }
 ): { ok: boolean; key?: string } => {
   const trimmedUrl = url?.trim()
   if (!trimmedUrl) return { ok: false, key: "errorMissingServerUrl" }
@@ -103,7 +103,17 @@ export const validateServerUrl = (
     return { ok: false, key: "errorInvalidServerUrl" }
   }
 
+  // Optional HTTPS enforcement
+  if (opts?.requireHttps && !/^https:$/i.test(parsedUrl.protocol)) {
+    return { ok: false, key: "errorInvalidServerUrl" }
+  }
+
   if (parsedUrl.username || parsedUrl.password) {
+    return { ok: false, key: "errorInvalidServerUrl" }
+  }
+
+  // Disallow query string and fragment in base URL
+  if (parsedUrl.search || parsedUrl.hash) {
     return { ok: false, key: "errorInvalidServerUrl" }
   }
 
@@ -322,7 +332,12 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   const trimmed = url.trim()
   if (!trimmed || trimmed.length > 10000) return false
   const u = safeParseUrl(trimmed)
-  return !!u && /^https?:$/i.test(u.protocol)
+  if (!u) return false
+  // Enforce HTTPS and disallow embedded credentials for remote dataset URLs
+  if (!/^https:$/i.test(u.protocol)) return false
+  // Disallow URLs with username/password
+  if (u.username || u.password) return false
+  return true
 }
 
 export const isFileObject = (value: unknown): value is File => {
@@ -797,10 +812,7 @@ export const validatePolygon = (
   }
 
   if (geometry.type !== "polygon") {
-    return makeGeometryError(
-      "geometryMustBePolygon",
-      "INVALID_GEOMETRY_TYPE"
-    )
+    return makeGeometryError("geometryMustBePolygon", "INVALID_GEOMETRY_TYPE")
   }
 
   if (!modules?.geometryEngine) {
