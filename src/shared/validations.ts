@@ -12,7 +12,7 @@ export const isInt = (value: unknown): boolean => {
   if (typeof value === "string") {
     const trimmed = value.trim()
     const num = Number(trimmed)
-    return Number.isInteger(num) && !Number.isNaN(num)
+    return Number.isInteger(num)
   }
   return false
 }
@@ -22,7 +22,8 @@ export const isNum = (value: unknown): boolean => {
   if (typeof value === "string") {
     const trimmed = value.trim()
     const num = Number(trimmed)
-    return Number.isFinite(num) && !Number.isNaN(num)
+
+    return Number.isFinite(num)
   }
   return false
 }
@@ -44,6 +45,18 @@ export const getSupportEmail = (
 const MIN_TOKEN_LENGTH = 10
 const FME_REST_PATH = "/fmerest"
 
+// Internal helpers to consolidate repeated patterns
+const isHttpStatus = (n: unknown): n is number =>
+  typeof n === "number" && n >= 100 && n <= 599
+
+const safeParseUrl = (raw: string): URL | null => {
+  try {
+    return new URL((raw || "").trim())
+  } catch {
+    return null
+  }
+}
+
 const hasForbiddenPaths = (pathname: string): boolean => {
   const lowerPath = pathname.toLowerCase()
   return lowerPath.includes(FME_REST_PATH)
@@ -54,7 +67,8 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   if (!trimmed) return ""
 
   try {
-    const u = new URL(trimmed)
+    const u = safeParseUrl(trimmed)
+    if (!u) return ""
     let path = u.pathname || "/"
     const lower = path.toLowerCase()
     const idxRest = lower.indexOf(FME_REST_PATH)
@@ -82,12 +96,8 @@ export const validateServerUrl = (
   const trimmedUrl = url?.trim()
   if (!trimmedUrl) return { ok: false, key: "errorMissingServerUrl" }
 
-  let parsedUrl: URL
-  try {
-    parsedUrl = new URL(trimmedUrl)
-  } catch {
-    return { ok: false, key: "errorInvalidServerUrl" }
-  }
+  const parsedUrl = safeParseUrl(trimmedUrl)
+  if (!parsedUrl) return { ok: false, key: "errorInvalidServerUrl" }
 
   if (!/^https?:$/i.test(parsedUrl.protocol)) {
     return { ok: false, key: "errorInvalidServerUrl" }
@@ -180,7 +190,7 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   // Try standard status properties first
   for (const prop of ["status", "statusCode", "httpStatus"]) {
     const value = obj[prop]
-    if (typeof value === "number" && value >= 100 && value <= 599) {
+    if (isHttpStatus(value)) {
       return value
     }
   }
@@ -189,13 +199,7 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   const details = obj.details as any
   if (details && typeof details === "object") {
     const detailsStatus = details.httpStatus || details.status
-    if (
-      typeof detailsStatus === "number" &&
-      detailsStatus >= 100 &&
-      detailsStatus <= 599
-    ) {
-      return detailsStatus
-    }
+    if (isHttpStatus(detailsStatus)) return detailsStatus
   }
 
   // Try to extract from error message using regex as last resort
@@ -317,12 +321,8 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (typeof url !== "string") return false
   const trimmed = url.trim()
   if (!trimmed || trimmed.length > 10000) return false
-  try {
-    const u = new URL(trimmed)
-    return /^https?:$/i.test(u.protocol)
-  } catch {
-    return false
-  }
+  const u = safeParseUrl(trimmed)
+  return !!u && /^https?:$/i.test(u.protocol)
 }
 
 export const isFileObject = (value: unknown): value is File => {
@@ -409,11 +409,8 @@ export const isAuthError = (status: number): boolean => {
 }
 
 export const extractHostFromUrl = (serverUrl: string): string | null => {
-  try {
-    return new URL(serverUrl.trim()).hostname || null
-  } catch {
-    return null
-  }
+  const u = safeParseUrl(serverUrl)
+  return u ? u.hostname || null : null
 }
 
 // Composite connection inputs validator used by settings UI
@@ -698,14 +695,13 @@ export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
 
 export const toSerializable = (error: any): any => {
   if (!error) return null
-  const base = error
   const ts =
-    typeof base.timestampMs === "number"
-      ? base.timestampMs
-      : base.timestamp instanceof Date
-        ? base.timestamp.getTime()
+    typeof error.timestampMs === "number"
+      ? error.timestampMs
+      : error.timestamp instanceof Date
+        ? error.timestamp.getTime()
         : 0
-  const { retry, timestamp, ...rest } = base
+  const { retry, timestamp, ...rest } = error
   return { ...rest, timestampMs: ts }
 }
 
@@ -779,34 +775,32 @@ export const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: any
 ): { valid: boolean; error?: ErrorState } => {
+  // Local helper to construct consistent geometry error objects
+  const makeGeometryError = (
+    message: string,
+    code: string
+  ): { valid: false; error: ErrorState } => ({
+    valid: false,
+    error: {
+      message,
+      type: ErrorType.GEOMETRY,
+      code,
+      severity: ErrorSeverity.ERROR,
+      recoverable: true,
+      timestamp: new Date(),
+      timestampMs: Date.now(),
+    },
+  })
+
   if (!geometry) {
-    return {
-      valid: false,
-      error: {
-        message: "noGeometryProvided",
-        type: ErrorType.GEOMETRY,
-        code: "NO_GEOMETRY",
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-      },
-    }
+    return makeGeometryError("noGeometryProvided", "NO_GEOMETRY")
   }
 
   if (geometry.type !== "polygon") {
-    return {
-      valid: false,
-      error: {
-        message: "geometryMustBePolygon",
-        type: ErrorType.GEOMETRY,
-        code: "INVALID_GEOMETRY_TYPE",
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-      },
-    }
+    return makeGeometryError(
+      "geometryMustBePolygon",
+      "INVALID_GEOMETRY_TYPE"
+    )
   }
 
   if (!modules?.geometryEngine) {
@@ -816,33 +810,14 @@ export const validatePolygon = (
   try {
     const isSimple = modules.geometryEngine.isSimple(geometry)
     if (!isSimple) {
-      return {
-        valid: false,
-        error: {
-          message: "polygonNotSimple",
-          type: ErrorType.GEOMETRY,
-          code: "INVALID_GEOMETRY",
-          severity: ErrorSeverity.ERROR,
-          recoverable: true,
-          timestamp: new Date(),
-          timestampMs: Date.now(),
-        },
-      }
+      return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
     }
     return { valid: true }
   } catch {
-    return {
-      valid: false,
-      error: {
-        message: "geometryValidationFailed",
-        type: ErrorType.GEOMETRY,
-        code: "GEOMETRY_VALIDATION_ERROR",
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-      },
-    }
+    return makeGeometryError(
+      "geometryValidationFailed",
+      "GEOMETRY_VALIDATION_ERROR"
+    )
   }
 }
 
