@@ -303,6 +303,22 @@ const useAbortController = () => {
   return { ref, cancel, create }
 }
 
+// Determine service mode based on form values and config
+const determineServiceMode = (
+  formData: unknown,
+  config?: FmeExportConfig
+): "sync" | "async" | "schedule" => {
+  const data = (formData as any)?.data || {}
+  const startValRaw = data.start as unknown
+  const hasStart = typeof startValRaw === "string" && startValRaw.trim().length > 0
+  if (config?.allowScheduleMode && hasStart) return "schedule"
+  const override = data._serviceMode as string
+  if (override === "sync" || override === "async" || override === "schedule") {
+    return override as any
+  }
+  return config?.syncMode ? "sync" : "async"
+}
+
 // Build base FME parameters
 const buildFmeParams = (
   formData: unknown,
@@ -315,13 +331,17 @@ const buildFmeParams = (
   const mode = (allowedModes as readonly string[]).includes(serviceMode)
     ? serviceMode
     : "async"
-  return {
+  const base = {
     ...data,
-    opt_requesteremail: userEmail,
     opt_servicemode: mode,
     opt_responseformat: "json",
     opt_showresult: "true",
+  } as { [key: string]: unknown }
+  // Only include requester email for async mode
+  if (mode === "async" && typeof userEmail === "string" && userEmail.trim()) {
+    base.opt_requesteremail = userEmail
   }
+  return base
 }
 
 // Helper: build GeoJSON Polygon from Esri polygon JSON
@@ -497,26 +517,8 @@ const prepFmeParams = (
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   const data = (formData as any)?.data || {}
-  // Determine service mode:
-  // - If allowScheduleMode and a non-empty 'start' exists -> schedule
-  // - Else, keep backward compatibility with hidden _serviceMode (if somehow provided)
-  // - Else, fall back to widget setting (sync/async)
-  let chosen: "sync" | "async" | "schedule"
-  const startValRaw = data.start as unknown
-  const hasStart =
-    typeof startValRaw === "string" && startValRaw.trim().length > 0
-
-  if (config?.allowScheduleMode && hasStart) {
-    chosen = "schedule"
-  } else if (
-    (data._serviceMode as string) === "sync" ||
-    (data._serviceMode as string) === "async" ||
-    (data._serviceMode as string) === "schedule"
-  ) {
-    chosen = data._serviceMode as "sync" | "async" | "schedule"
-  } else {
-    chosen = config?.syncMode ? "sync" : "async"
-  }
+  // Determine service mode consistently
+  const chosen = determineServiceMode({ data }, config)
 
   // Ensure schedule directives when chosen
   if (chosen === "schedule") {
@@ -997,11 +999,22 @@ export default function Widget(
         return
       }
 
-      // Step 3: validate user email
-      setValidationStep(translate("validatingUserEmail"))
-      try {
-        const email = await getEmail(props.config)
-        if (!isValidEmail(email)) {
+      // Step 3: validate user email only when async mode is in use
+      if (!props.config?.syncMode) {
+        setValidationStep(translate("validatingUserEmail"))
+        try {
+          const email = await getEmail(props.config)
+          if (!isValidEmail(email)) {
+            setValidationError(
+              createStartupError(
+                "userEmailMissing",
+                "UserEmailMissing",
+                runStartupValidation
+              )
+            )
+            return
+          }
+        } catch (emailErr) {
           setValidationError(
             createStartupError(
               "userEmailMissing",
@@ -1011,15 +1024,6 @@ export default function Widget(
           )
           return
         }
-      } catch (emailErr) {
-        setValidationError(
-          createStartupError(
-            "userEmailMissing",
-            "UserEmailMissing",
-            runStartupValidation
-          )
-        )
-        return
       }
 
       // All validation passed
@@ -1304,8 +1308,12 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
 
     try {
+      // Determine mode early from form data for email requirement
+      const rawDataEarly = (formData as any)?.data || {}
+      const earlyMode = determineServiceMode({ data: rawDataEarly }, props.config)
+      // Fetch email only for async mode
       const [userEmail, fmeClient] = await Promise.all([
-        getEmail(props.config),
+        earlyMode === "async" ? getEmail(props.config) : Promise.resolve(""),
         Promise.resolve(createFmeFlowClient(props.config)),
       ])
 
