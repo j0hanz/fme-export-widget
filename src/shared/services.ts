@@ -4,7 +4,7 @@ import type {
   FormPrimitive,
   CheckSteps,
 } from "../config"
-import { ParameterType, FormFieldType } from "../config"
+import { ParameterType, FormFieldType, ErrorType } from "../config"
 import { isEmpty } from "./utils"
 import {
   isInt,
@@ -13,9 +13,7 @@ import {
   extractHttpStatus,
   validateServerUrl,
   validateRequiredFields,
-  createConfigError,
-  createConnectionError,
-  createNetworkError,
+  createError,
   mapErrorToKey,
   type StartupValidationResult,
   type StartupValidationOptions,
@@ -812,7 +810,16 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createConfigError(translate, "configMissing"),
+      error: createError(
+        "startupConfigError",
+        ErrorType.CONFIG,
+        "configMissing",
+        translate,
+        {
+          suggestion: translate("openSettingsPanel"),
+          userFriendlyMessage: translate("startupConfigErrorHint"),
+        }
+      ),
     }
   }
 
@@ -836,7 +843,22 @@ export async function validateWidgetStartup(
         isValid: false,
         canProceed: false,
         requiresSettings: true,
-        error: createConnectionError(translate, connectionResult.error),
+        error: createError(
+          connectionResult.error?.message || "startupConnectionError",
+          ErrorType.NETWORK,
+          connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
+          translate,
+          {
+            suggestion:
+              connectionResult.error?.type === "token"
+                ? translate("checkTokenSettings")
+                : connectionResult.error?.type === "server"
+                  ? translate("checkServerUrlSettings")
+                  : connectionResult.error?.type === "repository"
+                    ? translate("checkRepositorySettings")
+                    : translate("checkConnectionSettings"),
+          }
+        ),
       }
     }
 
@@ -860,7 +882,15 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createNetworkError(translate),
+      error: createError(
+        "startupNetworkError",
+        ErrorType.NETWORK,
+        "STARTUP_NETWORK_ERROR",
+        translate,
+        {
+          suggestion: translate("checkNetworkConnection"),
+        }
+      ),
     }
   }
 }

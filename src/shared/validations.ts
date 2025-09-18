@@ -162,12 +162,15 @@ export const validateRepository = (
 // 3. Error mapping (canonical API)
 // ------------------------------
 export const mapErrorToKey = (err: unknown, status?: number): string => {
-  // Check structured error properties first
-  if (err && typeof err === "object") {
+  // Extract status from error object if not provided
+  if (!status && err && typeof err === "object") {
     const errorObj = err as any
+    status = errorObj.status || errorObj.statusCode || errorObj.httpStatus
+  }
 
-    // Check for explicit error codes
-    const code = errorObj.code
+  // Check for explicit error codes first
+  if (err && typeof err === "object") {
+    const code = (err as any).code
     if (typeof code === "string") {
       switch (code) {
         case "GEOMETRY_SERIALIZATION_FAILED":
@@ -194,13 +197,6 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
           return "invalidEmail"
       }
     }
-
-    // Check HTTP status from object properties
-    const objStatus =
-      errorObj.status || errorObj.statusCode || errorObj.httpStatus
-    if (typeof objStatus === "number") {
-      status = objStatus
-    }
   }
 
   // HTTP status-based mapping
@@ -224,34 +220,15 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
     }
   }
 
-  // Message pattern matching as fallback
+  // Simple message pattern matching as last resort
   const message = (err as Error)?.message
-  if (typeof message === "string" && message.trim()) {
-    // Direct message matches
-    if (message === "GEOMETRY_SERIALIZATION_FAILED") {
-      return "GEOMETRY_SERIALIZATION_FAILED"
-    }
-    if (message === "MISSING_REQUESTER_EMAIL") {
-      return "userEmailMissing"
-    }
-    if (message === "INVALID_EMAIL") {
-      return "invalidEmail"
-    }
-
-    // Pattern-based matching
+  if (typeof message === "string") {
     const lowerMessage = message.toLowerCase()
-    if (lowerMessage.includes("failed to fetch")) {
-      return "startupNetworkError"
-    }
-    if (lowerMessage.includes("timeout")) {
-      return "timeout"
-    }
-    if (/(cors|blocked by cors policy)/i.test(message)) {
-      return "corsError"
-    }
-    if (/url\s*too\s*long|request-uri too large/i.test(message)) {
+    if (lowerMessage.includes("failed to fetch")) return "startupNetworkError"
+    if (lowerMessage.includes("timeout")) return "timeout"
+    if (lowerMessage.includes("cors")) return "corsError"
+    if (lowerMessage.includes("url") && lowerMessage.includes("too"))
       return "urlTooLong"
-    }
   }
 
   return "unknownErrorOccurred"
@@ -398,12 +375,9 @@ export const getStatusErrorMessage = (
 
 export const extractErrorMessage = (error: unknown): string => {
   if (!error) return "Unknown error"
-
   if (typeof error === "string") return error
   if (typeof error === "number") return error.toString()
-
-  if (error instanceof Error)
-    return error.message || error.toString() || "Error object"
+  if (error instanceof Error) return error.message || "Error object"
 
   if (typeof error === "object" && error !== null) {
     const obj = error as { [key: string]: unknown }
@@ -413,21 +387,9 @@ export const extractErrorMessage = (error: unknown): string => {
       const value = obj[prop]
       if (typeof value === "string" && value.trim()) return value.trim()
     }
-
-    // Try nested error objects
-    if (obj.error && typeof obj.error === "object") {
-      const nested = obj.error as { [key: string]: unknown }
-      if (typeof nested.message === "string" && nested.message.trim()) {
-        return nested.message.trim()
-      }
-    }
   }
 
-  try {
-    return JSON.stringify(error)
-  } catch {
-    return "Unknown error occurred"
-  }
+  return "Unknown error occurred"
 }
 
 export const extractHttpStatus = (error: unknown): number | undefined => {
@@ -435,16 +397,10 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
 
   const obj = error as { [key: string]: unknown }
 
-  for (const prop of ["status", "statusCode", "httpStatus", "code"]) {
+  for (const prop of ["status", "statusCode", "httpStatus"]) {
     const value = obj[prop]
     if (typeof value === "number" && value >= 100 && value <= 599) {
       return value
-    }
-    if (typeof value === "string") {
-      const parsed = parseInt(value, 10)
-      if (Number.isFinite(parsed) && parsed >= 100 && parsed <= 599) {
-        return parsed
-      }
     }
   }
 
@@ -505,65 +461,29 @@ export const validateRequiredFields = (
   }
 }
 
-export const createConfigError = (translate: TFn, code: string): ErrorState => {
+export const createError = (
+  messageKey: string,
+  type: ErrorType,
+  code: string,
+  translate: TFn,
+  options?: {
+    suggestion?: string
+    userFriendlyMessage?: string
+    retry?: () => void
+  }
+): ErrorState => {
   return {
-    message: translate("startupConfigError") || "startupConfigError",
-    type: ErrorType.CONFIG,
+    message: translate(messageKey) || messageKey,
+    type,
     code,
     severity: ErrorSeverity.ERROR,
     recoverable: true,
     timestamp: new Date(),
     timestampMs: Date.now(),
-    userFriendlyMessage:
-      translate("startupConfigErrorHint") || "startupConfigErrorHint",
-    suggestion: translate("openSettingsPanel") || "openSettingsPanel",
-  }
-}
-
-export const createConnectionError = (
-  translate: TFn,
-  connectionError?: { message: string; type: string; status?: number }
-): ErrorState => {
-  const baseMessageKey = connectionError?.message || "startupConnectionError"
-  const baseMessage = translate(baseMessageKey) || baseMessageKey
-  let suggestion = translate("checkConnectionSettings")
-
-  if (connectionError?.type === "token") {
-    suggestion = translate("checkTokenSettings")
-  } else if (connectionError?.type === "server") {
-    suggestion = translate("checkServerUrlSettings")
-  } else if (connectionError?.type === "repository") {
-    suggestion = translate("checkRepositorySettings")
-  } else if (connectionError?.type === "network") {
-    suggestion = translate("checkNetworkConnection")
-  }
-
-  return {
-    message: baseMessage,
-    type: ErrorType.NETWORK,
-    code: connectionError?.type?.toUpperCase() || "CONNECTION_ERROR",
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion,
-  }
-}
-
-export const createNetworkError = (translate: TFn): ErrorState => {
-  const message = translate("startupNetworkError") || "startupNetworkError"
-
-  return {
-    message,
-    type: ErrorType.NETWORK,
-    code: "STARTUP_NETWORK_ERROR",
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
+    userFriendlyMessage: options?.userFriendlyMessage || "",
+    suggestion:
+      options?.suggestion || translate("checkConnectionSettings") || "",
+    retry: options?.retry,
   }
 }
 
@@ -587,85 +507,29 @@ export const getBtnAria = (
 }
 
 export const getErrorIconSrc = (code?: string): string => {
-  const defaultErrorIcon = "error"
+  if (!code) return "error"
 
-  if (!code || typeof code !== "string") return defaultErrorIcon
   const k = code.trim().toUpperCase()
 
   // Auth/token errors
-  if (
-    k === "TOKEN" ||
-    k === "AUTH_ERROR" ||
-    k === "INVALID_TOKEN" ||
-    k === "TOKEN_EXPIRED" ||
-    k === "AUTH_REQUIRED"
-  ) {
-    return "user-x"
-  }
+  if (k.includes("TOKEN") || k.includes("AUTH")) return "user-x"
 
   // Server errors
-  if (
-    k === "SERVER" ||
-    k === "SERVER_ERROR" ||
-    k === "BAD_GATEWAY" ||
-    k === "SERVICE_UNAVAILABLE" ||
-    k === "GATEWAY_TIMEOUT"
-  ) {
-    return "server"
-  }
+  if (k.includes("SERVER") || k.includes("GATEWAY")) return "server"
 
   // Repository errors
-  if (
-    k === "REPOSITORY" ||
-    k === "REPO_NOT_FOUND" ||
-    k === "REPOSITORY_NOT_FOUND" ||
-    k === "INVALID_REPOSITORY"
-  ) {
-    return "folder-x"
-  }
+  if (k.includes("REPOSITORY") || k.includes("REPO")) return "folder-x"
 
-  if (k === "DNS_ERROR") return "globe-x"
-  if (k === "NETWORK" || k === "NETWORK_ERROR") return "wifi-off"
-  if (k === "OFFLINE" || k === "STARTUP_NETWORK_ERROR") return "cloud-off"
-  if (k === "CORS_ERROR" || k === "SSL_ERROR") return "shield-x"
-  if (
-    k === "INVALID_URL" ||
-    k === "URL_TOO_LONG" ||
-    k === "MAX_URL_LENGTH_EXCEEDED"
-  )
-    return "link-off"
-  if (k === "HEADERS_TOO_LARGE") return "file-x"
-  if (k === "BAD_RESPONSE") return "alert-triangle"
-  if (k === "BAD_REQUEST") return "x-octagon"
-  if (k === "PAYLOAD_TOO_LARGE" || k === "DATA_DOWNLOAD_ERROR")
-    return "download-x"
-  if (k === "RATE_LIMITED") return "clock-x"
-  if (k === "TIMEOUT" || k === "ETIMEDOUT") return "timer-off"
-  if (k === "ABORT") return "stop-circle"
-  if (k === "CANCELLED") return "x-circle"
-  if (k === "WEBHOOK_AUTH_ERROR") return "webhook"
-  if (k === "ARCGIS_MODULE_ERROR") return "layers"
+  // Network errors
+  if (k.includes("NETWORK") || k.includes("OFFLINE")) return "wifi-off"
 
-  // Config/validation
-  if (
-    k === "INVALID_CONFIG" ||
-    k === "CONFIGMISSING" ||
-    k === "MISSINGREQUIREDFIELDS"
-  )
-    return "settings"
-  if (
-    k === "USEREMAILMISSING" ||
-    k === "MISSING_REQUESTER_EMAIL" ||
-    k === "INVALID_EMAIL"
-  )
-    return "mail-x"
+  // Specific errors
+  if (k.includes("URL")) return "link-off"
+  if (k.includes("TIMEOUT")) return "timer-off"
+  if (k.includes("CONFIG")) return "settings"
+  if (k.includes("EMAIL")) return "mail-x"
 
-  // Generic defaults
-  if (k === "CONNECTION_ERROR") return "wifi-off"
-  if (k === "SUCCESS") return "check"
-  if (k === "INFO") return "info"
-
-  return defaultErrorIcon
+  return "error"
 }
 
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
@@ -946,7 +810,7 @@ export const validatePolygon = (
       }
     }
     return { valid: true }
-  } catch (error) {
+  } catch {
     return {
       valid: false,
       error: {
@@ -1036,6 +900,7 @@ export const processFmeResponse = (
 ): any => {
   const response = fmeResponse as any
   const data = response?.data
+
   if (!data) {
     return {
       success: false,
@@ -1044,6 +909,7 @@ export const processFmeResponse = (
     }
   }
 
+  // Handle blob response
   if (data.blob instanceof Blob) {
     return {
       success: true,
@@ -1054,32 +920,20 @@ export const processFmeResponse = (
     }
   }
 
-  const serviceInfo: any = data.serviceResponse || data
-  // Check for direct URL in various possible locations
-  const directUrlRaw: unknown = serviceInfo?.url
-  const directUrl =
-    typeof directUrlRaw === "string" && /^https?:\/\//i.test(directUrlRaw)
-      ? directUrlRaw
-      : undefined
+  // Handle service response
+  const serviceInfo = data.serviceResponse || data
+  const directUrl = serviceInfo?.url
+  const status = serviceInfo?.statusInfo?.status || serviceInfo?.status
+  const jobId = serviceInfo?.jobID || serviceInfo?.id
 
-  const statusRaw = serviceInfo?.statusInfo?.status || serviceInfo?.status
-  const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : ""
-  const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
-  const parsedId =
-    typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
-  const jobId: number | undefined =
-    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : undefined
-
-  if (status === "success" || (!!directUrl && !status)) {
-    const url = directUrl
-
+  if (status === "success" || (directUrl && /^https?:\/\//.test(directUrl))) {
     return {
       success: true,
-      jobId,
+      jobId: typeof jobId === "number" ? jobId : undefined,
       email: userEmail,
       workspaceName: workspace,
-      downloadUrl: url,
-      downloadFilename: url ? `${workspace}_export.zip` : undefined,
+      downloadUrl: directUrl,
+      downloadFilename: directUrl ? `${workspace}_export.zip` : undefined,
     }
   }
 
@@ -1093,17 +947,15 @@ export const processFmeResponse = (
   }
 }
 
-// Workflow helper functions
+// Workflow utility functions
 export const stripErrorLabel = (errorText?: string): string | undefined => {
-  const t = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
-  if (!t) return undefined
+  const text = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
+  if (!text) return undefined
 
-  const colonIdx = t.indexOf(":")
-  if (colonIdx > -1) return t.substring(colonIdx + 1).trim()
+  const colonIdx = text.indexOf(":")
+  if (colonIdx > -1) return text.substring(colonIdx + 1).trim()
 
-  const isIdx = t.toLowerCase().indexOf(" is ")
-  if (isIdx > -1) return t.substring(isIdx + 4).trim()
-  return t
+  return text
 }
 
 export const initFormValues = (
@@ -1126,13 +978,9 @@ export const canResetButton = (
   isDrawing?: boolean,
   clickCount?: number
 ): boolean => {
-  if (!onReset || !canResetFlag || state === "order-result") {
-    return false
-  }
-
-  if (state === "drawing") {
+  if (!onReset || !canResetFlag || state === "order-result") return false
+  if (state === "drawing")
     return Boolean(clickCount && clickCount > 0) || Boolean(isDrawing)
-  }
   return drawnArea > 0 && state !== "initial"
 }
 

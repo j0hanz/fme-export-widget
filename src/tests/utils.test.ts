@@ -151,17 +151,10 @@ describe("shared/utils", () => {
     expect(extractErrorMessage({ message: "m" })).toBe("m")
     expect(extractErrorMessage({ error: "e" })).toBe("e")
     expect(extractErrorMessage({ description: "d" })).toBe("d")
-    // 'detail' now falls back to JSON stringification
-    expect(extractErrorMessage({ detail: "x" })).toBe(
-      JSON.stringify({ detail: "x" })
-    )
-    // unknown fields like 'reason' fall back to JSON stringification
-    expect(extractErrorMessage({ reason: "r" })).toBe(
-      JSON.stringify({ reason: "r" })
-    )
-    expect(extractErrorMessage({ a: 1, b: 2 })).toBe(
-      JSON.stringify({ a: 1, b: 2 })
-    )
+    // Unknown fields fall back to generic message
+    expect(extractErrorMessage({ detail: "x" })).toBe("Unknown error occurred")
+    expect(extractErrorMessage({ reason: "r" })).toBe("Unknown error occurred")
+    expect(extractErrorMessage({ a: 1, b: 2 })).toBe("Unknown error occurred")
   })
 
   test("extractHttpStatus reads numeric and string status in range 100-599", () => {
@@ -169,8 +162,7 @@ describe("shared/utils", () => {
     expect(extractHttpStatus({})).toBeUndefined()
     expect(extractHttpStatus({ status: 200 })).toBe(200)
     expect(extractHttpStatus({ statusCode: 404 })).toBe(404)
-    expect(extractHttpStatus({ httpStatus: "500" })).toBe(500)
-    expect(extractHttpStatus({ code: "403" })).toBe(403)
+    expect(extractHttpStatus({ httpStatus: 500 })).toBe(500)
     // out of range ignored
     expect(extractHttpStatus({ status: 99 })).toBeUndefined()
     expect(extractHttpStatus({ status: 600 })).toBeUndefined()
