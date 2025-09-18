@@ -21,14 +21,15 @@ import {
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import {
-  isAuthError,
   sanitizeFmeBaseUrl,
   validateServerUrlKey,
   validateTokenKey,
   validateRepositoryKey,
   getEmailValidationError,
   extractHttpStatus,
-} from "../shared/utils"
+  parseNonNegativeInt,
+  getStatusErrorMessage,
+} from "../shared/validations"
 import {
   validateConnection,
   getRepositories as fetchRepositoriesService,
@@ -61,20 +62,6 @@ const CONSTANTS = {
   },
   DEFAULTS: {
     MAX_M2: 100_000_000,
-  },
-  HTTP_STATUS: {
-    UNAUTHORIZED: 401,
-    FORBIDDEN: 403,
-    NOT_FOUND: 404,
-    BAD_REQUEST: 400,
-    TIMEOUT: 408,
-    GATEWAY_TIMEOUT: 504,
-    TOO_MANY_REQUESTS: 429,
-    BAD_GATEWAY: 502,
-    SERVICE_UNAVAILABLE: 503,
-    NETWORK_ERROR: 0,
-    SERVER_ERROR_MIN: 500,
-    SERVER_ERROR_MAX: 599,
   },
   COLORS: {
     BACKGROUND_DARK: "#181818",
@@ -527,19 +514,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   )
 }
 
-const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
-  [CONSTANTS.HTTP_STATUS.UNAUTHORIZED]: "errorUnauthorized",
-  [CONSTANTS.HTTP_STATUS.FORBIDDEN]: "errorUnauthorized",
-  [CONSTANTS.HTTP_STATUS.NOT_FOUND]: "errorNotFound",
-  [CONSTANTS.HTTP_STATUS.BAD_REQUEST]: "errorBadRequest",
-  [CONSTANTS.HTTP_STATUS.TIMEOUT]: "errorTimeout",
-  [CONSTANTS.HTTP_STATUS.GATEWAY_TIMEOUT]: "errorTimeout",
-  [CONSTANTS.HTTP_STATUS.TOO_MANY_REQUESTS]: "errorTooManyRequests",
-  [CONSTANTS.HTTP_STATUS.BAD_GATEWAY]: "errorGateway",
-  [CONSTANTS.HTTP_STATUS.SERVICE_UNAVAILABLE]: "errorServiceUnavailable",
-  [CONSTANTS.HTTP_STATUS.NETWORK_ERROR]: "errorNetworkShort",
-}
-
 // Small utilities
 const setError = (
   set: React.Dispatch<React.SetStateAction<FieldErrors>>,
@@ -566,13 +540,6 @@ const safeAbort = (ctrl: AbortController | null) => {
       ctrl.abort()
     } catch {}
   }
-}
-
-// Parse a non-negative integer from string; returns undefined when invalid
-const parseNonNegativeInt = (val: string): number | undefined => {
-  const n = Number(val)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.floor(n)
 }
 
 // Centralized handler for validation failure -> updates steps and field errors
@@ -630,67 +597,6 @@ const handleValidationFailure = (
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
   if (repositories) setAvailableRepos(repositories)
-}
-
-// Error message generation helpers
-const getErrorMessageWithHelper = (
-  translate: TranslateFn,
-  errorKey: string,
-  status: number,
-  helperKey?: string
-): string => {
-  // TODO(i18n): Consider moving this composition into a single translation key
-  // e.g., translate('errorWithHelper', { base: translate(errorKey, { status }), helper: translate(helperKey) })
-  const baseMessage = translate(errorKey, { status })
-  if (helperKey) {
-    const helperMessage = translate(helperKey)
-    return `${baseMessage} ${helperMessage}`
-  }
-  return baseMessage
-}
-
-const getSpecialStatusErrorMessage = (
-  status: number,
-  translate: TranslateFn,
-  errorKey: string
-): string => {
-  if (status === CONSTANTS.HTTP_STATUS.NETWORK_ERROR) {
-    return getErrorMessageWithHelper(
-      translate,
-      errorKey,
-      status,
-      "helperNetwork"
-    )
-  }
-  if (isAuthError(status)) {
-    return getErrorMessageWithHelper(translate, errorKey, status, "helperAuth")
-  }
-  if (status === CONSTANTS.HTTP_STATUS.NOT_FOUND) {
-    return getErrorMessageWithHelper(
-      translate,
-      errorKey,
-      status,
-      "helperNotFound"
-    )
-  }
-  return translate(errorKey, { status })
-}
-
-function getStatusErrorMessage(status: number, translate: TranslateFn): string {
-  const errorKey = STATUS_ERROR_MAP[status]
-
-  if (errorKey) {
-    return getSpecialStatusErrorMessage(status, translate, errorKey)
-  }
-
-  if (
-    status >= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MIN &&
-    status <= CONSTANTS.HTTP_STATUS.SERVER_ERROR_MAX
-  ) {
-    return translate("errorServer", { status })
-  }
-
-  return translate("errorHttpStatus", { status })
 }
 
 // String-only config getter to avoid repetitive type assertions

@@ -4,10 +4,10 @@ import "@testing-library/jest-dom"
 import { widgetRender, initStore, setTheme, mockTheme } from "jimu-for-test"
 import {
   DynamicField,
-  normalizeFormValue,
   makePlaceholders,
   renderInputField,
 } from "../runtime/components/fields"
+import { normalizeFormValue } from "../shared/validations"
 import { FormFieldType, type DynamicFieldConfig } from "../config"
 
 // Mock UI components to avoid rendering complexity in unit tests

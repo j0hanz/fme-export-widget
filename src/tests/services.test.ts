@@ -1,15 +1,17 @@
 import {
-  ErrorHandlingService,
   ParameterFormService,
   validateConnection,
   testBasicConnection,
   getRepositories,
   healthCheck,
   validateWidgetStartup,
-  validateConfigFields,
   type ConnectionValidationOptions,
-  type StartupValidationOptions,
 } from "../shared/services"
+import {
+  ErrorHandlingService,
+  validateConfigFields,
+  type StartupValidationOptions,
+} from "../shared/validations"
 import {
   ErrorType,
   ErrorSeverity,

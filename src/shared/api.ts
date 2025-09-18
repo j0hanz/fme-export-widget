@@ -10,7 +10,16 @@ import type {
   PrimitiveParams,
 } from "../config"
 import { FmeFlowApiError, HttpMethod } from "../config"
-import { isAuthError } from "./utils"
+import {
+  extractHostFromUrl,
+  getErrorInfo,
+  isJson,
+  maskToken,
+  isFileObject,
+  getFileDisplayName,
+  validateRequiredConfig,
+  isAuthError,
+} from "./validations"
 
 // Centralized error keys (translation keys only)
 const ERR = {
@@ -222,13 +231,6 @@ const API = {
 } as const
 
 // Add interceptor to append fmetoken to requests to the specified server URL
-const extractHostFromUrl = (serverUrl: string): string | null => {
-  try {
-    return new URL(serverUrl).host
-  } catch {
-    return null
-  }
-}
 
 // Create a regex pattern to match the host in URLs
 const createHostPattern = (host: string): RegExp => {
@@ -309,65 +311,6 @@ const toStr = (val: unknown): string => {
       : Object.prototype.toString.call(val)
 }
 
-const extractStatusFromMessage = (message: string): number | undefined => {
-  // Define status extraction patterns in order of specificity
-  const statusPatterns = [
-    /status:\s*(\d{3})/i, // "status: 401"
-    /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i, // "401 (Unauthorized)"
-    /\b(\d{3})\b/, // standalone "401"
-  ]
-
-  for (const pattern of statusPatterns) {
-    const match = message.match(pattern)
-    if (match) {
-      return parseInt(match[1], 10)
-    }
-  }
-
-  return undefined
-}
-
-const getErrorInfo = (
-  err: unknown
-): {
-  message: string
-  status?: number
-  details?: unknown
-} => {
-  if (err && typeof err === "object") {
-    const anyErr = err as any
-
-    // Try multiple ways to extract status code
-    const status =
-      anyErr.status ||
-      anyErr.httpStatus ||
-      anyErr.httpCode ||
-      anyErr.code ||
-      anyErr.response?.status ||
-      anyErr.details?.httpCode ||
-      (typeof anyErr.message === "string"
-        ? extractStatusFromMessage(anyErr.message)
-        : undefined)
-
-    return {
-      message:
-        typeof anyErr.message === "string"
-          ? anyErr.message
-          : toStr(anyErr.message),
-      status: typeof status === "number" ? status : undefined,
-      details: anyErr.details,
-    }
-  }
-  return { message: toStr(err) }
-}
-
-const isJson = (contentType: string | null): boolean =>
-  contentType?.includes("application/json") ?? false
-
-// Parse webhook response with error handling
-const maskToken = (token: string): string =>
-  token ? `****${token.slice(-4)}` : ""
-
 // URL building utilities
 const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   // Normalize server base by removing trailing /fmeserver or /fmerest and any trailing slash
@@ -447,31 +390,6 @@ const resolveRequestUrl = (
     return buildUrl(serverUrl, endpoint.slice(1))
   }
   return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
-}
-
-const isFileObject = (value: unknown): value is File => {
-  try {
-    // Check if File constructor exists in the global scope
-    const FileConstructor = (globalThis as any).File
-    if (typeof FileConstructor === "undefined") return false
-
-    // Safely check instanceof
-    return value instanceof FileConstructor
-  } catch {
-    // If instanceof check fails, fall back to duck typing
-    return (
-      value !== null &&
-      typeof value === "object" &&
-      typeof (value as any).name === "string" &&
-      typeof (value as any).size === "number"
-    )
-  }
-}
-
-// Get a safe display name for a File object
-const getFileDisplayName = (file: File): string => {
-  const name = file.name
-  return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
 }
 
 const buildParams = (
@@ -1434,7 +1352,6 @@ export class FmeFlowApiClient {
   }
 }
 
-// Configuration Processing Utilities
 const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
   token:
@@ -1446,15 +1363,13 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   timeout: config.requestTimeout,
 })
 
-const validateRequiredConfig = (config: FmeFlowConfig): void => {
-  if (!config.serverUrl || !config.token || !config.repository) {
-    throw makeError(ERR.INVALID_CONFIG)
-  }
-}
-
 export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   const normalizedConfig = normalizeConfigParams(config)
-  validateRequiredConfig(normalizedConfig)
+  try {
+    validateRequiredConfig(normalizedConfig)
+  } catch {
+    throw makeError(ERR.INVALID_CONFIG)
+  }
 
   return new FmeFlowApiClient({
     ...normalizedConfig,

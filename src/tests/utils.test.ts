@@ -1,9 +1,11 @@
 import {
   isEmpty,
-  isAuthError,
+  resolveMessageOrKey,
+  buildSupportHintText,
+} from "../shared/utils"
+import {
   isInt,
   isNum,
-  resolveMessageOrKey,
   isValidEmail,
   sanitizeFmeBaseUrl,
   validateServerUrlKey,
@@ -12,9 +14,9 @@ import {
   getEmailValidationError,
   extractErrorMessage,
   extractHttpStatus,
-  buildSupportHintText,
   getSupportEmail,
-} from "../shared/utils"
+  isAuthError,
+} from "../shared/validations"
 
 describe("shared/utils", () => {
   test("isEmpty handles primitives and arrays", () => {

@@ -29,8 +29,6 @@ import type {
   FmeWidgetState,
   WorkspaceParameter,
   WorkspaceItemDetail,
-  FmeResponse,
-  FmeServiceInfo,
   ErrorState,
 } from "../config"
 import {
@@ -42,19 +40,21 @@ import {
   LAYER_CONFIG,
   VIEW_ROUTES,
 } from "../config"
+import { validateWidgetStartup } from "../shared/services"
 import {
   ErrorHandlingService,
-  validateWidgetStartup,
   getErrorMessage,
-} from "../shared/services"
-import { fmeActions, initialFmeState } from "../extensions/store"
-import {
-  resolveMessageOrKey,
   isValidEmail,
-  buildSupportHintText,
   getSupportEmail,
   isValidExternalUrlForOptGetUrl,
-} from "../shared/utils"
+  calcArea,
+  validatePolygon,
+  checkMaxArea,
+  isPolygonGeometry,
+  processFmeResponse,
+} from "../shared/validations"
+import { fmeActions, initialFmeState } from "../extensions/store"
+import { resolveMessageOrKey, buildSupportHintText } from "../shared/utils"
 
 // Dynamic ESRI module loader with test environment support
 const loadEsriModules = async (
@@ -300,108 +300,6 @@ const useAbortController = () => {
   return { ref, cancel, create }
 }
 
-// Geometry area calculation
-const calcArea = (
-  geometry: __esri.Geometry | undefined,
-  modules: EsriModules
-): number => {
-  if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
-    return 0
-  }
-
-  try {
-    const polygon = modules.Polygon.fromJSON(geometry.toJSON())
-    const engine = modules.geometryEngine
-    const simplified = (engine.simplify(polygon) || polygon) as __esri.Polygon
-
-    const sr = polygon.spatialReference
-    const useGeodesic = sr?.isGeographic || sr?.isWebMercator
-    const area = useGeodesic
-      ? engine.geodesicArea(simplified, "square-meters")
-      : engine.planarArea(simplified, "square-meters")
-
-    return Number.isFinite(area) ? Math.abs(area) : 0
-  } catch (error) {
-    console.warn("Error calculating geometry area:", error)
-    return 0
-  }
-}
-
-// Polygon validation
-const validatePolygon = (
-  geometry: __esri.Geometry | undefined,
-  modules: EsriModules
-): { valid: boolean; error?: ErrorState } => {
-  if (!geometry) {
-    return {
-      valid: false,
-      error: new ErrorHandlingService().createError(
-        "GEOMETRY_MISSING",
-        ErrorType.GEOMETRY,
-        {
-          code: "GEOM_MISSING",
-        }
-      ),
-    }
-  }
-
-  if (geometry.type !== "polygon") {
-    return {
-      valid: false,
-      error: new ErrorHandlingService().createError(
-        "GEOMETRY_TYPE_INVALID",
-        ErrorType.GEOMETRY,
-        { code: "GEOM_TYPE_INVALID" }
-      ),
-    }
-  }
-
-  if (!modules?.geometryEngine) {
-    return { valid: true }
-  }
-
-  try {
-    const polygon = modules.Polygon.fromJSON(geometry.toJSON())
-    if (!modules.geometryEngine.isSimple(polygon)) {
-      return {
-        valid: false,
-        error: new ErrorHandlingService().createError(
-          "GEOMETRY_SELF_INTERSECTING",
-          ErrorType.GEOMETRY,
-          { code: "GEOM_SELF_INTERSECTING" }
-        ),
-      }
-    }
-    return { valid: true }
-  } catch (error) {
-    console.warn("Error validating polygon:", error)
-    return {
-      valid: false,
-      error: new ErrorHandlingService().createError(
-        "GEOMETRY_INVALID",
-        ErrorType.GEOMETRY,
-        { code: "GEOM_INVALID" }
-      ),
-    }
-  }
-}
-
-// Area constraints
-const checkMaxArea = (
-  area: number,
-  maxArea?: number
-): { ok: boolean; message?: string; code?: string } => {
-  if (!maxArea || area <= maxArea) {
-    return { ok: true }
-  }
-
-  return {
-    ok: false,
-    message: "AREA_TOO_LARGE",
-    code: "AREA_TOO_LARGE",
-  }
-}
-
 // Build base FME parameters
 const buildFmeParams = (
   formData: unknown,
@@ -421,31 +319,6 @@ const buildFmeParams = (
     opt_responseformat: "json",
     opt_showresult: "true",
   }
-}
-
-// Type guard: checks for valid Esri Polygon geometry JSON, handling Graphic JSON wrapper.
-const isPolygonGeometry = (
-  value: unknown
-): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
-
-  // Handle cases where the geometry is wrapped in a `geometry` property (e.g., Graphic JSON)
-  const geom =
-    "geometry" in value ? (value as { geometry: unknown }).geometry : value
-  if (!geom || typeof geom !== "object") return false
-
-  // Check for the defining characteristic of a polygon: the `rings` array.
-  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
-  if (!Array.isArray(rings) || rings.length === 0) return false
-  // Each ring must be an array of at least 3 tuples, each tuple being an array of 2-4 finite numbers.
-  const isValidTuple = (pt: unknown) =>
-    Array.isArray(pt) &&
-    pt.length >= 2 &&
-    pt.length <= 4 &&
-    pt.every((n) => Number.isFinite(n))
-  const isValidRing = (ring: unknown) =>
-    Array.isArray(ring) && ring.length >= 3 && ring.every(isValidTuple)
-  return (rings as unknown[]).every(isValidRing)
 }
 
 // Helper: build GeoJSON Polygon from Esri polygon JSON
@@ -836,72 +709,6 @@ const setupSketchEventHandlers = (
         break
     }
   })
-}
-
-// Process FME response
-const processFmeResponse = (
-  fmeResponse: unknown,
-  workspace: string,
-  userEmail: string,
-  translateFn: (key: string) => string
-): ExportResult => {
-  const response = fmeResponse as FmeResponse
-  const data = response?.data
-  if (!data) {
-    return {
-      success: false,
-      message: translateFn("unexpectedFmeResponse"),
-      code: "INVALID_RESPONSE",
-    }
-  }
-
-  // Handle direct Blob response (streaming mode)
-  if ((data as any)?.blob instanceof Blob) {
-    const blob: Blob = (data as any).blob
-    const contentType: string | undefined =
-      (data as any).contentType || blob.type
-    // Create a temporary object URL for download
-    const url = URL.createObjectURL(blob)
-    return {
-      success: true,
-      message: translateFn("exportOrderSubmitted"),
-      workspaceName: workspace,
-      email: userEmail,
-      downloadUrl: url,
-      // We don't have a jobId in streaming mode
-      code: contentType || undefined,
-    }
-  }
-
-  const serviceInfo: FmeServiceInfo =
-    (data as any).serviceResponse || (data as any)
-  const statusRaw = serviceInfo?.statusInfo?.status || serviceInfo?.status
-  const status = typeof statusRaw === "string" ? statusRaw.toLowerCase() : ""
-  const rawId = (serviceInfo?.jobID ?? serviceInfo?.id) as unknown
-  const parsedId =
-    typeof rawId === "number" ? rawId : rawId != null ? Number(rawId) : NaN
-  const jobId: number | undefined =
-    Number.isFinite(parsedId) && parsedId > 0 ? parsedId : undefined
-
-  if (status === "success") {
-    return {
-      success: true,
-      message: translateFn("exportOrderSubmitted"),
-      jobId,
-      workspaceName: workspace,
-      email: userEmail,
-      downloadUrl: serviceInfo?.url,
-    }
-  }
-
-  return {
-    success: false,
-    message:
-      serviceInfo?.statusInfo?.message ||
-      serviceInfo?.message ||
-      translateFn("fmeJobSubmissionFailed"),
-    code: "FME_JOB_FAILURE",
-  }
 }
 
 // Area formatting with i18n support
@@ -2030,12 +1837,11 @@ Reflect.set(
 
 // Consolidated exports (internal helpers exposed strictly for unit tests)
 export {
-  calcArea,
-  validatePolygon,
   getEmail,
   attachAoi,
   isValidExternalUrlForOptGetUrl,
   prepFmeParams,
-  // Expose for unit tests
+  calcArea,
+  validatePolygon,
   processFmeResponse,
 }

@@ -93,7 +93,7 @@ describe("Setting panel", () => {
     // Server URL and Token inputs are present via placeholders
     const urlInput = screen.getByPlaceholderText("https://fme.server.com")
     expect(urlInput).toBeInTheDocument()
-    const tokenInput = screen.getByPlaceholderText(/Din FME.?nyckel/i)
+    const tokenInput = screen.getByPlaceholderText(/Din API.?nyckel/i)
     expect(tokenInput).toBeInTheDocument()
 
     // Test button is disabled when missing fields
@@ -143,7 +143,7 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    const tokenInput = screen.getByPlaceholderText(/Din FME.?nyckel/i)
+    const tokenInput = screen.getByPlaceholderText(/Din API.?nyckel/i)
     fireEvent.change(tokenInput, { target: { value: "short" } })
     fireEvent.blur(tokenInput)
 
@@ -469,10 +469,8 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    // Find by label text
-    const label = screen.getByText(/Tidsgräns \(ms\)/i)
-    const row = label.closest("div")?.parentElement
-    const input = row?.querySelector("input")
+    // Select by placeholder to avoid coupling to exact label wording
+    const input = screen.getByPlaceholderText("30000")
     expect(input).toBeInTheDocument()
 
     // Placeholder communicates default 30000; helper is now a tooltip on the label
@@ -510,9 +508,7 @@ describe("Setting panel", () => {
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
 
-    const label = screen.getByText(/Tidsgräns \(ms\)/i)
-    const row = label.closest("div")?.parentElement
-    const input = row?.querySelector("input")
+    const input = screen.getByPlaceholderText("30000")
     expect(input).toBeInTheDocument()
 
     fireEvent.change(input as Element, { target: { value: "999999999" } })
@@ -579,12 +575,13 @@ describe("Setting panel", () => {
     const WrappedSetting = wrapWidgetSetting(Setting as any)
     renderSetting(<WrappedSetting {...props} />)
 
-    // Find by label text and use its sibling input
-    const label = screen.getByText(/Uppladdningsparameternamn \(valfritt\)/i)
-    const row = label.closest("div")?.parentElement
-    const input = row?.querySelector("input")
+    // Select the input by its placeholder to avoid coupling to label wording
+    const input = screen.getByPlaceholderText(/INPUT_DATASET/i)
     expect(input).toBeInTheDocument()
-    expect(input?.placeholder).toMatch(/INPUT_DATASET/i)
+    expect(input).toHaveAttribute(
+      "placeholder",
+      expect.stringMatching(/INPUT_DATASET/i)
+    )
 
     // Type a value and blur -> saved to config
     fireEvent.change(input as Element, { target: { value: "INPUT_DATASET" } })

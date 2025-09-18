@@ -25,11 +25,13 @@ import {
   attachAoi,
   prepFmeParams,
   getEmail,
-  processFmeResponse,
-  calcArea,
-  validatePolygon,
   formatArea,
 } from "../runtime/widget"
+import {
+  calcArea,
+  validatePolygon,
+  processFmeResponse,
+} from "../shared/validations"
 import {
   validateConnection,
   healthCheck,

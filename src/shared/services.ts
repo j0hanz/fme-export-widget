@@ -1,25 +1,29 @@
 import type {
-  ErrorState,
   WorkspaceParameter,
   DynamicFieldConfig,
   FormPrimitive,
   CheckSteps,
-  FmeExportConfig,
 } from "../config"
+import { ParameterType, FormFieldType } from "../config"
+import { isEmpty } from "./utils"
 import {
-  ErrorType,
-  ErrorSeverity,
-  ParameterType,
-  FormFieldType,
-} from "../config"
-import {
-  isEmpty,
   isInt,
   isNum,
   extractErrorMessage,
   extractHttpStatus,
-} from "./utils"
+  getErrorMessage,
+  validateServerUrlKey,
+  hasLikelyInvalidHostname,
+} from "./validations"
 import FmeFlowApiClient from "./api"
+import {
+  type StartupValidationOptions,
+  type StartupValidationResult,
+  validateRequiredFields,
+  createConfigError,
+  createConnectionError,
+  createNetworkError,
+} from "./validations"
 
 // In-flight request deduplication caches
 const inFlight = {
@@ -49,322 +53,7 @@ const inFlight = {
   >(),
 }
 
-// Error service
-export class ErrorHandlingService {
-  createError(
-    message: string,
-    type: ErrorType = ErrorType.VALIDATION,
-    options: {
-      code?: string
-      severity?: ErrorSeverity
-      details?: { [key: string]: unknown }
-      recoverable?: boolean
-      retry?: () => void
-      userFriendlyMessage?: string
-      suggestion?: string
-    } = {}
-  ): ErrorState {
-    const {
-      code = "UNKNOWN_ERROR",
-      severity = ErrorSeverity.ERROR,
-      details,
-      recoverable = false,
-      retry,
-      userFriendlyMessage,
-      suggestion,
-    } = options
-
-    return {
-      message,
-      type,
-      code,
-      severity,
-      details,
-      recoverable,
-      retry,
-      timestamp: new Date(),
-      timestampMs: 0, // Keep original test-expected value
-      userFriendlyMessage,
-      suggestion,
-    }
-  }
-  // Derive standardized error from various error inputs
-  deriveStartupError(
-    error: unknown,
-    translate: (key: string) => string
-  ): { code: string; message: string } {
-    if (typeof translate !== "function") {
-      return {
-        code: "STARTUP_ERROR",
-        message: "Validation failed",
-      }
-    }
-    if (!error) {
-      return {
-        code: "STARTUP_ERROR",
-        message: translate("startupValidationFailed"),
-      }
-    }
-
-    const errorObj = error as { [key: string]: unknown }
-    const errorCode =
-      (errorObj.code as string) || (errorObj.name as string) || ""
-    const status = this.normalizeStatus(errorObj.status)
-    const message = (error as Error)?.message || ""
-
-    // Check known error codes first
-    const knownCodeResult = this.checkKnownErrorCodes(
-      errorCode,
-      message,
-      translate
-    )
-    if (knownCodeResult) return knownCodeResult
-
-    // Check specific error patterns
-    const specificErrorResult = this.checkSpecificErrorPatterns(
-      errorCode,
-      message,
-      translate
-    )
-    if (specificErrorResult) return specificErrorResult
-
-    // Check HTTP status codes
-    if (typeof status === "number") {
-      const statusResult = this.checkHttpStatusCodes(status, translate)
-      if (statusResult) return statusResult
-    }
-
-    // Check message patterns
-    const messageResult = this.checkMessagePatterns(message, error, translate)
-    if (messageResult) return messageResult
-
-    // Check for offline/CORS conditions
-    const networkResult = this.checkNetworkConditions(status, translate)
-    if (networkResult) return networkResult
-
-    return {
-      code: "STARTUP_ERROR",
-      message: translate("startupValidationFailed"),
-    }
-  }
-
-  // Normalize status value to number if possible
-  private normalizeStatus(status: unknown): number | undefined {
-    if (typeof status === "number") return status
-    if (typeof status === "string") {
-      const parsed = Number(status)
-      return Number.isFinite(parsed) ? parsed : undefined
-    }
-    return undefined
-  }
-  // Check against known error code mappings
-  private checkKnownErrorCodes(
-    errorCode: string,
-    message: string,
-    translate: (key: string) => string
-  ): { code: string; message: string } | null {
-    const knownCodes: { [key: string]: string } = {
-      UserEmailMissing: "userEmailMissing",
-      INVALID_EMAIL: "invalidEmail",
-      INVALID_CONFIG: "invalidConfiguration",
-      WEBHOOK_AUTH_ERROR: "authenticationFailed",
-      ARCGIS_MODULE_ERROR: "connectionFailed",
-      DATA_DOWNLOAD_ERROR: "payloadTooLarge",
-      ABORT: "requestAborted",
-      CANCELLED: "operationCancelled",
-      CORS_ERROR: "corsError",
-      OFFLINE: "offline",
-      SSL_ERROR: "sslError",
-      INVALID_URL: "invalidUrl",
-      RATE_LIMITED: "rateLimited",
-      BAD_GATEWAY: "badGateway",
-      SERVICE_UNAVAILABLE: "serviceUnavailable",
-      GATEWAY_TIMEOUT: "gatewayTimeout",
-      BAD_REQUEST: "badRequest",
-      PAYLOAD_TOO_LARGE: "payloadTooLarge",
-      // Common platform/browser/node error codes/names
-      ETIMEDOUT: "timeout",
-      ECONNRESET: "networkError",
-      ENOTFOUND: "invalidUrl",
-      EAI_AGAIN: "networkError",
-      ERR_NAME_NOT_RESOLVED: "invalidUrl",
-      ERR_CONNECTION_REFUSED: "connectionFailed",
-      ERR_NETWORK: "networkError",
-      AUTH_REQUIRED: "startupTokenError",
-      INVALID_TOKEN: "startupTokenError",
-      TOKEN_EXPIRED: "startupTokenError",
-      REPOSITORY_NOT_FOUND: "repoNotFound",
-      INVALID_REPOSITORY: "repoNotFound",
-      URL_TOO_LONG: "urlTooLong",
-      MAX_URL_LENGTH_EXCEEDED: "urlTooLong",
-      DNS_ERROR: "connectionFailed",
-    }
-
-    // Check if message itself is a known code
-    if (message && knownCodes[message]) {
-      return { code: message, message: translate(knownCodes[message]) }
-    }
-
-    if (errorCode && knownCodes[errorCode]) {
-      return { code: errorCode, message: translate(knownCodes[errorCode]) }
-    }
-
-    return null
-  }
-
-  // Check for specific error patterns
-  private checkSpecificErrorPatterns(
-    errorCode: string,
-    message: string,
-    translate: (key: string) => string
-  ): { code: string; message: string } | null {
-    if (errorCode === "AbortError" || errorCode === "ABORT") {
-      return { code: "ABORT", message: translate("requestAborted") }
-    }
-    if (errorCode === "CancelledPromiseError" || /cancel/i.test(message)) {
-      return { code: "CANCELLED", message: translate("operationCancelled") }
-    }
-    return null
-  }
-
-  // Check HTTP status codes and return appropriate error
-  private checkHttpStatusCodes(
-    status: number,
-    translate: (key: string) => string
-  ): { code: string; message: string } | null {
-    if (status === 408) {
-      return { code: "TIMEOUT", message: translate("timeout") }
-    }
-    if (status === 401 || status === 403) {
-      return {
-        code: "AUTH_ERROR",
-        message: translate("authenticationFailed"),
-      }
-    }
-    if (status === 404) {
-      return { code: "REPO_NOT_FOUND", message: translate("repoNotFound") }
-    }
-    if (status === 429) {
-      return { code: "RATE_LIMITED", message: translate("rateLimited") }
-    }
-    if (status === 413) {
-      return {
-        code: "PAYLOAD_TOO_LARGE",
-        message: translate("payloadTooLarge"),
-      }
-    }
-    if (status === 431) {
-      return {
-        code: "HEADERS_TOO_LARGE",
-        message: translate("headersTooLarge"),
-      }
-    }
-    if (status === 400 || status === 422) {
-      return { code: "BAD_REQUEST", message: translate("badRequest") }
-    }
-    if (status === 502) {
-      return { code: "BAD_GATEWAY", message: translate("badGateway") }
-    }
-    if (status === 503) {
-      return {
-        code: "SERVICE_UNAVAILABLE",
-        message: translate("serviceUnavailable"),
-      }
-    }
-    if (status === 504) {
-      return {
-        code: "GATEWAY_TIMEOUT",
-        message: translate("gatewayTimeout"),
-      }
-    }
-    if (status >= 500) {
-      return { code: "SERVER_ERROR", message: translate("serverError") }
-    }
-    return null
-  }
-
-  // Check message patterns for specific error types
-  private checkMessagePatterns(
-    message: string,
-    error: unknown,
-    translate: (key: string) => string
-  ): { code: string; message: string } | null {
-    if (typeof message !== "string") return null
-
-    if (/timeout/i.test(message)) {
-      return { code: "TIMEOUT", message: translate("timeout") }
-    }
-    if (/^TypeError: Failed to fetch$/i.test(message)) {
-      // Could be CORS or offline - check if offline
-      return this.handleFetchError(translate)
-    }
-    if (/network|failed to fetch|net::|ECONNRESET|ERR_NETWORK/i.test(message)) {
-      return { code: "NETWORK_ERROR", message: translate("networkError") }
-    }
-    if (/unexpected token|json|parse/i.test(message)) {
-      return { code: "BAD_RESPONSE", message: translate("badResponse") }
-    }
-    if (/invalid url/i.test(message)) {
-      return { code: "INVALID_URL", message: translate("invalidUrl") }
-    }
-    if (/ssl|certificate|self[- ]signed/i.test(message)) {
-      return { code: "SSL_ERROR", message: translate("sslError") }
-    }
-    if (/CORS|blocked by CORS policy/i.test(message)) {
-      return { code: "CORS_ERROR", message: translate("corsError") }
-    }
-    if (/URL( |%20)?too( |%20)?long|Request-URI Too Large/i.test(message)) {
-      return { code: "URL_TOO_LONG", message: translate("urlTooLong") }
-    }
-    if (/Name or service not known|DNS|ERR_NAME_NOT_RESOLVED/i.test(message)) {
-      return { code: "DNS_ERROR", message: translate("connectionFailed") }
-    }
-    if (
-      (error as Error)?.name === "TypeError" &&
-      /fetch/i.test((error as Error)?.message)
-    ) {
-      return { code: "NETWORK_ERROR", message: translate("networkError") }
-    }
-    return null
-  }
-
-  // Handle "Failed to fetch" error by checking online status
-  private handleFetchError(translate: (key: string) => string): {
-    code: string
-    message: string
-  } {
-    try {
-      const nav = (globalThis as { navigator?: { onLine?: boolean } })
-        ?.navigator
-      if (nav && !nav.onLine) {
-        return { code: "OFFLINE", message: translate("offline") }
-      }
-    } catch {
-      // Ignore errors accessing navigator
-    }
-    return { code: "CORS_ERROR", message: translate("corsError") }
-  }
-
-  // Check for offline or CORS conditions based on status
-  private checkNetworkConditions(
-    status: number | undefined,
-    translate: (key: string) => string
-  ): { code: string; message: string } | null {
-    if (status === 0) {
-      try {
-        const nav = (globalThis as { navigator?: { onLine?: boolean } })
-          ?.navigator
-        if (nav && !nav.onLine) {
-          return { code: "OFFLINE", message: translate("offline") }
-        }
-      } catch {
-        // Ignore errors accessing navigator
-      }
-      return { code: "CORS_ERROR", message: translate("corsError") }
-    }
-    return null
-  }
-}
+// ErrorHandlingService now lives in ./validations and is re-exported above
 
 // Parameter service
 export class ParameterFormService {
@@ -727,18 +416,8 @@ export async function healthCheck(
   const startTime = Date.now()
 
   // Basic URL validation - if URL is malformed, don't even try
-  try {
-    const url = new URL(serverUrl)
-    // Additional check: URL should have proper protocol and host
-    if (!url.protocol || !url.host || url.host.endsWith(".")) {
-      return {
-        reachable: false,
-        responseTime: 0,
-        error: "invalidUrl",
-        status: 0,
-      }
-    }
-  } catch {
+  const urlKeyError = validateServerUrlKey(serverUrl)
+  if (urlKeyError) {
     return {
       reachable: false,
       responseTime: 0,
@@ -798,20 +477,17 @@ export async function healthCheck(
           }
         }
 
-        try {
-          const url = new URL(serverUrl)
-          const hostname = url.hostname
-
-          if (!hostname.includes(".") || hostname.length < 4) {
-            return {
-              reachable: false,
-              responseTime,
-              error: "invalidUrl",
-              status,
-            }
+        // Additional server URL verification using centralized validator and hostname heuristic
+        if (
+          validateServerUrlKey(serverUrl) ||
+          hasLikelyInvalidHostname(serverUrl)
+        ) {
+          return {
+            reachable: false,
+            responseTime,
+            error: "invalidUrl",
+            status,
           }
-        } catch {
-          // URL parsing already handled above
         }
         return { reachable: true, responseTime, status }
       }
@@ -1129,24 +805,7 @@ export async function getRepositories(
   }
 }
 
-// Startup Validation Service
-export interface StartupValidationResult {
-  isValid: boolean
-  error?: ErrorState
-  canProceed: boolean
-  requiresSettings: boolean
-}
-
-export interface StartupValidationOptions {
-  config: FmeExportConfig | undefined
-  translate: (key: string, params?: any) => string
-  signal?: AbortSignal
-}
-
-/**
- * Validate widget configuration at startup
- * Returns validation result with appropriate error states and user guidance
- */
+// Widget startup validation
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {
@@ -1209,213 +868,4 @@ export async function validateWidgetStartup(
       error: createNetworkError(translate),
     }
   }
-}
-
-/**
- * Validate that all required configuration fields are present
- */
-function validateRequiredFields(
-  config: FmeExportConfig,
-  translate: (key: string, params?: any) => string
-): StartupValidationResult {
-  const missing: string[] = []
-
-  if (!config.fmeServerUrl?.trim()) {
-    missing.push(translate("fmeServerUrl"))
-  }
-
-  if (!config.fmeServerToken?.trim()) {
-    missing.push(translate("fmeServerToken"))
-  }
-
-  if (!config.repository?.trim()) {
-    missing.push(translate("fmeRepository"))
-  }
-
-  if (missing.length > 0) {
-    return {
-      isValid: false,
-      canProceed: false,
-      requiresSettings: true,
-      error: createConfigError(translate, "missingRequiredFields"),
-    }
-  }
-
-  return {
-    isValid: true,
-    canProceed: true,
-    requiresSettings: false,
-  }
-}
-
-/**
- * Create configuration error with user guidance
- */
-function createConfigError(
-  translate: (key: string, params?: any) => string,
-  code: string
-): ErrorState {
-  return {
-    message: translate("startupConfigError") || "startupConfigError",
-    type: ErrorType.CONFIG,
-    code,
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage:
-      translate("startupConfigErrorHint") || "startupConfigErrorHint",
-    suggestion: translate("openSettingsPanel") || "openSettingsPanel",
-  }
-}
-
-/**
- * Create connection error from validation service result
- */
-function createConnectionError(
-  translate: (key: string, params?: any) => string,
-  connectionError?: { message: string; type: string; status?: number }
-): ErrorState {
-  // Interpret incoming message as a translation key when possible
-  const baseMessageKey = connectionError?.message || "startupConnectionError"
-  let baseMessage = translate(baseMessageKey) || baseMessageKey
-  let suggestion = translate("checkConnectionSettings")
-
-  // Provide specific guidance based on error type
-  if (connectionError?.type === "token") {
-    baseMessage = translate("startupTokenError") || baseMessage
-    suggestion = translate("checkTokenSettings")
-  } else if (connectionError?.type === "server") {
-    baseMessage = translate("startupServerError") || baseMessage
-    suggestion = translate("checkServerSettings")
-  } else if (connectionError?.type === "repository") {
-    baseMessage = translate("repositoryNotAccessible") || baseMessage
-    suggestion = translate("checkRepositorySettings")
-  } else if (connectionError?.type === "network") {
-    baseMessage = translate("startupNetworkError") || baseMessage
-    suggestion = translate("checkNetworkConnection")
-  }
-
-  return {
-    message: baseMessage,
-    type: ErrorType.NETWORK,
-    code: connectionError?.type?.toUpperCase() || "CONNECTION_ERROR",
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion,
-  }
-}
-
-/**
- * Create network error from exception
- */
-function createNetworkError(
-  translate: (key: string, params?: any) => string
-): ErrorState {
-  const message = translate("startupNetworkError") || "startupNetworkError"
-
-  return {
-    message,
-    type: ErrorType.NETWORK,
-    code: "STARTUP_NETWORK_ERROR",
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion: translate("checkNetworkConnection") || "checkNetworkConnection",
-  }
-}
-
-/**
- * Quick validation check without network calls
- * Used for initial validation before attempting connection
- */
-export function validateConfigFields(config: FmeExportConfig | undefined): {
-  isValid: boolean
-  missingFields: string[]
-} {
-  if (!config) {
-    return {
-      isValid: false,
-      missingFields: ["configuration"],
-    }
-  }
-
-  const missing: string[] = []
-
-  if (!config.fmeServerUrl?.trim()) {
-    missing.push("serverUrl")
-  }
-
-  if (!config.fmeServerToken?.trim()) {
-    missing.push("token")
-  }
-
-  if (!config.repository?.trim()) {
-    missing.push("repository")
-  }
-
-  return {
-    isValid: missing.length === 0,
-    missingFields: missing,
-  }
-}
-
-// Helper functions with improved type safety
-export function getErrorMessage(err: unknown, status?: number): string {
-  // Prefer explicit error code mappings when present
-  const code = (err as any)?.code
-  if (typeof code === "string") {
-    if (code === "GEOMETRY_SERIALIZATION_FAILED")
-      return "GEOMETRY_SERIALIZATION_FAILED"
-    if (code === "DATA_DOWNLOAD_ERROR") return "payloadTooLarge"
-    if (code === "PAYLOAD_TOO_LARGE") return "payloadTooLarge"
-    if (code === "RATE_LIMITED") return "rateLimited"
-    if (code === "URL_TOO_LONG" || code === "MAX_URL_LENGTH_EXCEEDED")
-      return "urlTooLong"
-    if (code === "ETIMEDOUT") return "timeout"
-    if (code === "ECONNRESET" || code === "ERR_NETWORK") return "networkError"
-    if (code === "ENOTFOUND" || code === "ERR_NAME_NOT_RESOLVED")
-      return "invalidUrl"
-    if (code === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
-    if (code === "INVALID_EMAIL") return "invalidEmail"
-  }
-  // Handle known status codes first
-  if (status === 0) return "startupNetworkError"
-  if (status === 408) return "timeout"
-  if (status === 401 || status === 403) return "startupTokenError"
-  if (status === 404) return "connectionFailed"
-  if (status === 429) return "rateLimited"
-  if (status === 431) return "headersTooLarge"
-  if (status && status >= 500) return "serverError"
-
-  // Extract message from error object
-  const message = (err as Error)?.message
-  if (typeof message === "string" && message.trim()) {
-    if (message === "GEOMETRY_SERIALIZATION_FAILED")
-      return "GEOMETRY_SERIALIZATION_FAILED"
-    if (message === "MISSING_REQUESTER_EMAIL") return "userEmailMissing"
-    if (message === "INVALID_EMAIL") return "invalidEmail"
-    // Normalize common fetch error messages
-    const lowerMessage = message.toLowerCase()
-    if (lowerMessage.includes("failed to fetch")) {
-      return "startupNetworkError"
-    }
-    if (lowerMessage.includes("timeout")) {
-      return "timeout"
-    }
-    if (/(cors|blocked by cors policy)/i.test(message)) {
-      return "corsError"
-    }
-    if (/url\s*too\s*long|request-uri too large/i.test(message)) {
-      return "urlTooLong"
-    }
-    return "unknownErrorOccurred"
-  }
-
-  return "unknownErrorOccurred"
 }

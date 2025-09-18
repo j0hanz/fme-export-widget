@@ -19,8 +19,7 @@ export default {
   testConnectionFirst: "Testa anslutningen först",
   errorGeneric: "Ett oväntat fel inträffade.",
   errorMissingServerUrl: "Ange FME‑server‑URL.",
-  errorBadBaseUrl:
-    "Ange en giltig FME‑server‑URL.",
+  errorBadBaseUrl: "Ange en giltig FME‑server‑URL.",
   errorMissingToken: "Ange API‑nyckeln.",
   errorInvalidEmail: "Ogiltig e‑postadress.",
   errorUnauthorized: "Åtkomst nekad (status {status}).",

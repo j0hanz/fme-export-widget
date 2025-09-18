@@ -11,49 +11,10 @@ import {
   type WorkspaceItem,
   type WorkspaceItemDetail,
   type WorkspaceParameter,
-  ParameterType,
   type ExportResult,
   type FormValues,
 } from "../config"
-
-// Error serialization for storing in Redux state
-const toSerializable = (
-  error: ErrorState | SerializableErrorState | null
-): SerializableErrorState | null => {
-  if (!error) return null
-  const base = error as any
-  // Preserve timestampMs if provided; else derive from timestamp Date; else default to 0
-  const ts =
-    typeof base.timestampMs === "number"
-      ? base.timestampMs
-      : base.timestamp instanceof Date
-        ? base.timestamp.getTime()
-        : 0
-  const { retry, timestamp, ...rest } = base
-  return { ...rest, timestampMs: ts } as SerializableErrorState
-}
-
-// Prevent storing secrets in Redux: mask password-type parameters
-const sanitizeFormValues = (
-  formValues: FormValues,
-  parameters: readonly WorkspaceParameter[]
-): FormValues => {
-  if (!formValues) return formValues
-  const secretNames = new Set(
-    (parameters || [])
-      .filter((p) => p && p.type === ParameterType.PASSWORD)
-      .map((p) => p.name)
-  )
-  if (secretNames.size === 0) return formValues
-  const masked: FormValues = {}
-  for (const k of Object.keys(formValues || {})) {
-    masked[k] =
-      secretNames.has(k) && formValues[k]
-        ? ("[redacted]" as any)
-        : formValues[k]
-  }
-  return masked
-}
+import { toSerializable, sanitizeFormValues } from "../shared/validations"
 
 // Action creators
 export const fmeActions = {

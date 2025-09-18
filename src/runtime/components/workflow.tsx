@@ -39,14 +39,19 @@ import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import exportIcon from "jimu-icons/svg/outlined/editor/export.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
+import { ParameterFormService } from "../../shared/services"
 import {
-  ParameterFormService,
   ErrorHandlingService,
-} from "../../shared/services"
+  getSupportEmail,
+  stripErrorLabel,
+  initFormValues,
+  canResetButton,
+  shouldShowWorkspaceLoading,
+  validateDateTimeFormat,
+} from "../../shared/validations"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
-  getSupportEmail,
   maskEmailForDisplay,
   stripHtmlToText,
 } from "../../shared/utils"
@@ -77,65 +82,6 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Utility functions
-const canResetButton = (
-  onReset: (() => void) | undefined,
-  canResetFlag: boolean,
-  state: ViewMode,
-  drawnArea: number,
-  isDrawing?: boolean,
-  clickCount?: number
-): boolean => {
-  if (!onReset || !canResetFlag || state === ViewMode.ORDER_RESULT) {
-    return false
-  }
-
-  if (state === ViewMode.DRAWING) {
-    // During drawing, enable if at least one click has been made
-    return !(isDrawing && (clickCount ?? 0) === 0)
-  }
-  // In other states, enable if there is a drawn area and not in initial state
-  return drawnArea > 0 && state !== ViewMode.INITIAL
-}
-
-const shouldShowWorkspaceLoading = (
-  isLoading: boolean,
-  workspaces: readonly WorkspaceItem[],
-  state: ViewMode,
-  hasError?: boolean
-): boolean => {
-  if (hasError) return false
-  const needsLoading =
-    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
-  return isLoading || (!workspaces.length && needsLoading)
-}
-
-const initFormValues = (
-  formConfig: readonly DynamicFieldConfig[]
-): FormValues => {
-  const result: FormValues = {}
-  for (const field of formConfig) {
-    if (field.defaultValue !== undefined) {
-      result[field.name] = field.defaultValue
-    } else if (field.type === FormFieldType.MULTI_SELECT) {
-      result[field.name] = []
-    }
-  }
-  return result
-}
-
-const stripErrorLabel = (errorText?: string): string | undefined => {
-  const t = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
-  if (!t) return undefined
-
-  const colonIdx = t.indexOf(":")
-  if (colonIdx > -1) return t.slice(colonIdx + 1).trim()
-
-  const isIdx = t.toLowerCase().indexOf(" is ")
-  if (isIdx > -1) return t.slice(isIdx + 4).trim()
-  return t
-}
-
 // Form validation helpers
 const createFormValidator = (
   parameterService: ParameterFormService,
@@ -158,8 +104,7 @@ const createFormValidator = (
     const startRaw = values.start as unknown
     if (typeof startRaw === "string" && startRaw.trim() !== "") {
       const startTrimmed = startRaw.trim()
-      const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
-      if (!dateTimeRegex.test(startTrimmed)) {
+      if (!validateDateTimeFormat(startTrimmed)) {
         // Use a translation key so UI can localize
         errors.start = "invalidDateTimeFormat"
       }
