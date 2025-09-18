@@ -10,8 +10,7 @@ export default {
   workspace: "Arbetsyta",
   notificationEmail: "E‑post",
   contactSupportWithEmail: "Kontakta supporten på {email}",
-  emailNotificationSent:
-    "När beställningen är klar skickas ett e‑postmeddelande till den här adressen.",
+  emailNotificationSent: "E‑postmeddelande skickas när jobbet är klart.",
   downloadReady: "Nedladdning klar:",
   clickToDownload: "Ladda ner filen",
   reuseGeography: "Ny beställning",

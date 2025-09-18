@@ -1048,8 +1048,8 @@ export const processFmeResponse = (
     return {
       success: true,
       blob: data.blob,
-      userEmail,
-      workspace,
+      email: userEmail,
+      workspaceName: workspace,
       downloadFilename: `${workspace}_export.zip`,
     }
   }
@@ -1067,8 +1067,8 @@ export const processFmeResponse = (
     return {
       success: true,
       jobId,
-      userEmail,
-      workspace,
+      email: userEmail,
+      workspaceName: workspace,
     }
   }
 
