@@ -66,4 +66,8 @@ export default {
   INVALID_CONFIG: "Ogiltig konfiguration.",
   GEOMETRY_MISSING: "Geometri saknas.",
   GEOMETRY_TYPE_INVALID: "Ogiltig geometrityp (polygon krävs).",
+  noGeometryProvided: "Ingen geometri angiven",
+  geometryMustBePolygon: "Geometrin måste vara en polygon",
+  polygonNotSimple: "Polygonen är inte enkel (självskärning)",
+  geometryValidationFailed: "Det gick inte att validera polygonen",
 }

@@ -24,11 +24,11 @@ import {
   normalizeBaseUrl,
   validateServerUrl,
   validateToken,
-  validateRepository,
   isValidEmail,
   extractHttpStatus,
   parseNonNegativeInt,
   mapErrorToKey,
+  validateConnectionInputs,
 } from "../shared/validations"
 import {
   validateConnection,
@@ -938,28 +938,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Unified input validation
   const validateAllInputs = hooks.useEventCallback(
     (skipRepoCheck = false): ValidationResult => {
+      const composite = validateConnectionInputs({
+        url: localServerUrl,
+        token: localToken,
+        repository: localRepository,
+        availableRepos: skipRepoCheck ? null : availableRepos,
+      })
+
       const messages: Partial<FieldErrors> = {}
+      if (!composite.ok) {
+        if (composite.errors.serverUrl)
+          messages.serverUrl = translate(composite.errors.serverUrl)
+        if (composite.errors.token)
+          messages.token = translate(composite.errors.token)
+        if (!skipRepoCheck && composite.errors.repository)
+          messages.repository = translate(composite.errors.repository)
+      }
 
-      const serverUrlValidation = validateServerUrl(localServerUrl)
-      const tokenValidation = validateToken(localToken)
-      const repositoryValidation = skipRepoCheck
-        ? { ok: true }
-        : validateRepository(localRepository, availableRepos)
       const emailValid = isValidEmail(localSupportEmail)
-
-      if (!serverUrlValidation.ok)
-        messages.serverUrl = translate(
-          serverUrlValidation.key || "invalidServerUrl"
-        )
-      if (!tokenValidation.ok)
-        messages.token = translate(tokenValidation.key || "invalidToken")
-      if (!repositoryValidation.ok)
-        messages.repository = translate(
-          repositoryValidation.key || "invalidRepository"
-        )
       if (!emailValid) messages.supportEmail = translate("invalidEmail")
 
-      // Preserve existing field errors for fields not being validated here
       setFieldErrors((prev) => ({
         ...prev,
         serverUrl: messages.serverUrl,

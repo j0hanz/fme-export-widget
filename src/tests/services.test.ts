@@ -9,6 +9,8 @@ import {
 } from "../shared/services"
 import {
   validateConfigFields,
+  validateConnectionInputs,
+  mapErrorToKey,
   type StartupValidationOptions,
 } from "../shared/validations"
 import {
@@ -1034,5 +1036,45 @@ describe("Deduplication caches for validateConnection/testBasicConnection/getRep
     expect(res2.success).toBe(true)
     expect(res1.repositories).toEqual(["x"])
     expect(res2.repositories).toEqual(["x"])
+  })
+})
+
+describe("Composite validator and error mapping", () => {
+  test("validateConnectionInputs returns errors for missing fields and invalid repo", () => {
+    const res = validateConnectionInputs({
+      url: "",
+      token: "",
+      repository: "repoX",
+      availableRepos: ["a", "b"],
+    })
+    expect(res.ok).toBe(false)
+    expect(res.errors.serverUrl).toBeDefined()
+    expect(res.errors.token).toBeDefined()
+    expect(res.errors.repository).toBe("errorRepositoryNotFound")
+  })
+
+  test("validateConnectionInputs ok with valid inputs", () => {
+    const res = validateConnectionInputs({
+      url: "https://fme.example.com",
+      token: "validToken12345",
+      repository: "a",
+      availableRepos: ["a", "b"],
+    })
+    expect(res.ok).toBe(true)
+    expect(res.errors).toEqual({})
+  })
+
+  test("mapErrorToKey handles known codes and statuses", () => {
+    expect(mapErrorToKey(new Error("Failed to fetch"))).toBe(
+      "startupNetworkError"
+    )
+    expect(mapErrorToKey({ code: "URL_TOO_LONG" })).toBe("urlTooLong")
+    expect(mapErrorToKey({ code: "REQUEST_FAILED" }, 401)).toBe(
+      "startupTokenError"
+    )
+    expect(mapErrorToKey({ code: "REQUEST_FAILED" }, 504)).toBe(
+      "startupServerError"
+    )
+    expect(mapErrorToKey({}, 404)).toBe("connectionFailed")
   })
 })

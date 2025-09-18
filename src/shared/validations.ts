@@ -399,19 +399,6 @@ export const HTTP_STATUS_CODES = {
   SERVER_ERROR_MAX: 599,
 } as const
 
-export const STATUS_ERROR_MAP: { readonly [status: number]: string } = {
-  [HTTP_STATUS_CODES.UNAUTHORIZED]: "errorUnauthorized",
-  [HTTP_STATUS_CODES.FORBIDDEN]: "errorUnauthorized",
-  [HTTP_STATUS_CODES.NOT_FOUND]: "errorNotFound",
-  [HTTP_STATUS_CODES.BAD_REQUEST]: "errorBadRequest",
-  [HTTP_STATUS_CODES.TIMEOUT]: "errorTimeout",
-  [HTTP_STATUS_CODES.GATEWAY_TIMEOUT]: "errorTimeout",
-  [HTTP_STATUS_CODES.TOO_MANY_REQUESTS]: "errorTooManyRequests",
-  [HTTP_STATUS_CODES.BAD_GATEWAY]: "errorGateway",
-  [HTTP_STATUS_CODES.SERVICE_UNAVAILABLE]: "errorServiceUnavailable",
-  [HTTP_STATUS_CODES.NETWORK_ERROR]: "errorNetworkShort",
-} as const
-
 export const isAuthError = (status: number): boolean => {
   return (
     status === HTTP_STATUS_CODES.UNAUTHORIZED ||
@@ -444,6 +431,37 @@ export const extractHostFromUrl = (serverUrl: string): string | null => {
   } catch {
     return null
   }
+}
+
+// Composite connection inputs validator used by settings UI
+export function validateConnectionInputs(args: {
+  url: string
+  token: string
+  repository?: string
+  availableRepos?: string[] | null
+}): {
+  ok: boolean
+  errors: { serverUrl?: string; token?: string; repository?: string }
+} {
+  const { url, token, repository, availableRepos } = args || ({} as any)
+
+  const errors: { serverUrl?: string; token?: string; repository?: string } = {}
+
+  const u = validateServerUrl(url)
+  if (!u.ok) errors.serverUrl = u.key || "errorInvalidServerUrl"
+
+  const t = validateToken(token)
+  if (!t.ok) errors.token = t.key || "errorTokenIsInvalid"
+
+  // If availableRepos is null, skip repository validation (not loaded yet)
+  const repoCheck = validateRepository(
+    repository || "",
+    availableRepos === undefined ? [] : availableRepos
+  )
+  if (!repoCheck.ok)
+    errors.repository = repoCheck.key || "errorRepositoryNotFound"
+
+  return { ok: Object.keys(errors).length === 0, errors }
 }
 
 export interface StartupValidationResult {
@@ -794,7 +812,7 @@ export const validatePolygon = (
     return {
       valid: false,
       error: {
-        message: "No geometry provided",
+        message: "noGeometryProvided",
         type: ErrorType.GEOMETRY,
         code: "NO_GEOMETRY",
         severity: ErrorSeverity.ERROR,
@@ -809,7 +827,7 @@ export const validatePolygon = (
     return {
       valid: false,
       error: {
-        message: "Geometry must be a polygon",
+        message: "geometryMustBePolygon",
         type: ErrorType.GEOMETRY,
         code: "INVALID_GEOMETRY_TYPE",
         severity: ErrorSeverity.ERROR,
@@ -830,7 +848,7 @@ export const validatePolygon = (
       return {
         valid: false,
         error: {
-          message: "Polygon geometry is not simple (may be self-intersecting)",
+          message: "polygonNotSimple",
           type: ErrorType.GEOMETRY,
           code: "INVALID_GEOMETRY",
           severity: ErrorSeverity.ERROR,
@@ -845,7 +863,7 @@ export const validatePolygon = (
     return {
       valid: false,
       error: {
-        message: "Failed to validate polygon geometry",
+        message: "geometryValidationFailed",
         type: ErrorType.GEOMETRY,
         code: "GEOMETRY_VALIDATION_ERROR",
         severity: ErrorSeverity.ERROR,
@@ -872,57 +890,7 @@ export const checkMaxArea = (
   }
 }
 
-export const isWebhookUrlTooLong = (args: WebhookLenArgs): boolean => {
-  const {
-    serverUrl,
-    repository,
-    workspace,
-    parameters = {},
-    token,
-    maxLen = 4000,
-  } = args
-
-  const normalizedBase = normalizeBaseUrl(serverUrl)
-  if (!normalizedBase) return false
-
-  const baseUrl = normalizedBase.endsWith("/")
-    ? normalizedBase.slice(0, -1)
-    : normalizedBase
-  const webhookUrl = `${baseUrl}/fmedatadownload/${repository}/${workspace}.fmw`
-
-  const params = new URLSearchParams()
-
-  params.set("opt_responseformat", "json")
-  params.set("opt_showresult", "true")
-
-  const excludeKeys = new Set([
-    "token",
-    "fmetoken",
-    "opt_responseformat",
-    "opt_showresult",
-  ])
-  for (const [key, value] of Object.entries(parameters)) {
-    if (!excludeKeys.has(key) && value != null) {
-      const stringValue =
-        typeof value === "string"
-          ? value
-          : typeof value === "number"
-            ? value.toString()
-            : typeof value === "boolean"
-              ? value.toString()
-              : JSON.stringify(value)
-      params.set(key, stringValue)
-    }
-  }
-
-  if (token) {
-    params.set("token", token)
-  }
-
-  const fullUrl = `${webhookUrl}?${params.toString()}`
-  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
-}
-
+// FME response processing
 export const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
