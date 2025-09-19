@@ -1073,13 +1073,7 @@ export default function Widget(
         props.config
       )
 
-      // Detect AOI serialization failure injected by attachAoi
-      if ((baseParams as any).__aoi_error__) {
-        const aoiErr = (baseParams as any).__aoi_error__ as ErrorState
-        // Surface user-friendly error and stop
-        dispatch(fmeActions.setError(aoiErr, widgetId))
-        return
-      }
+      // prepFmeParams now throws on AOI serialization failure; allow catch to handle
 
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
@@ -1145,10 +1139,7 @@ export default function Widget(
 
       // Apply admin defaults and record for testing
       finalParams = applyDirectiveDefaults(finalParams, props.config)
-      // Ensure hidden error marker isn't leaked
-      try {
-        delete (finalParams as any).__aoi_error__
-      } catch {}
+      // No sentinel markers are added; nothing to strip
       try {
         ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
       } catch {

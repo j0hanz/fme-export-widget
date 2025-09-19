@@ -36,7 +36,6 @@ import {
   validateConnection,
   healthCheck,
   ParameterFormService,
-  type ConnectionValidationOptions,
 } from "../shared/services"
 import { DynamicField } from "../runtime/components/fields"
 import runtimeMsgs from "../runtime/components/translations/default"
@@ -404,7 +403,9 @@ describe("FME internal helper functions", () => {
       ],
     }
     const cfg: any = { aoiParamName: "CustomAOI" }
-    const out = attachAoi(base, polygon, undefined as any, null, cfg)
+    const res = attachAoi(base, polygon, undefined as any, null, cfg) as any
+    expect(res.ok).toBe(true)
+    const out = res.params
     expect(out.CustomAOI).toBeDefined()
     expect(() => JSON.parse(out.CustomAOI as string)).not.toThrow()
     expect(out.a).toBe(1)
@@ -740,7 +741,7 @@ describe("FME connection validation", () => {
   })
 
   test("validateConnection handles successful connection", async () => {
-    const options: ConnectionValidationOptions = {
+    const options = {
       serverUrl: "https://fmeflow.example.com",
       token: "test-token",
       repository: "test-repo",
@@ -770,7 +771,7 @@ describe("FME connection validation", () => {
   })
 
   test("validateConnection handles server connection error", async () => {
-    const options: ConnectionValidationOptions = {
+    const options = {
       serverUrl: "https://unreachable.example.com",
       token: "test-token",
       repository: "test-repo",
@@ -786,7 +787,7 @@ describe("FME connection validation", () => {
   })
 
   test("validateConnection handles authentication error", async () => {
-    const options: ConnectionValidationOptions = {
+    const options = {
       serverUrl: "https://fmeflow.example.com",
       token: "invalid-token",
       repository: "test-repo",

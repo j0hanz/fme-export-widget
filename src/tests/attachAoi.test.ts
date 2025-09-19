@@ -70,20 +70,20 @@ describe("attachAoi AOI exports (GeoJSON/WKT)", () => {
       aoiWktParamName: "AOI_WKT",
     } as any
 
-    const out = attachAoi(baseParams, aoi3857, undefined as any, modules, cfg)
+    const res = attachAoi(baseParams, aoi3857, undefined as any, modules, cfg)
+    expect(res.ok).toBe(true)
+    const out: any = (res as any).params
 
     // Baseline AOI Esri JSON string always present under default param name
-    expect(typeof (out as any).AreaOfInterest).toBe("string")
+    expect(typeof out.AreaOfInterest).toBe("string")
 
     // GeoJSON reflects WGS84 rings from the wmUtils stub
-    const gj = JSON.parse((out as any).AOI_GJ)
+    const gj = JSON.parse(out.AOI_GJ)
     expect(gj).toMatchObject({ type: "Polygon" })
     expect(gj.coordinates).toEqual(wgs84Rings)
 
     // WKT reflects WGS84 rings
-    expect((out as any).AOI_WKT).toBe(
-      "POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))"
-    )
+    expect(out.AOI_WKT).toBe("POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))")
   })
 
   test("passes through 4326 without calling webMercatorUtils", () => {
@@ -111,13 +111,15 @@ describe("attachAoi AOI exports (GeoJSON/WKT)", () => {
       aoiGeoJsonParamName: "GJ",
       aoiWktParamName: "WKT",
     } as any
-    const out = attachAoi(baseParams, aoi4326, undefined as any, modules, cfg)
+    const res2 = attachAoi(baseParams, aoi4326, undefined as any, modules, cfg)
+    expect(res2.ok).toBe(true)
+    const out: any = (res2 as any).params
 
     // wmUtils should not be called for 4326 input
     expect(spy).not.toHaveBeenCalled()
 
-    const gj = JSON.parse((out as any).GJ)
+    const gj = JSON.parse(out.GJ)
     expect(gj.coordinates).toEqual(aoi4326.rings)
-    expect((out as any).WKT).toBe("POLYGON((1 2, 3 2, 3 4, 1 4, 1 2))")
+    expect(out.WKT).toBe("POLYGON((1 2, 3 2, 3 4, 1 4, 1 2))")
   })
 })
