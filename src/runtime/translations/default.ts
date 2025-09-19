@@ -46,6 +46,7 @@ export default {
   drawingLayerTitle: "Rityta",
   userEmailMissing:
     "Användarens e‑postadress krävs för att använda denna funktion",
+  loadingTimeout: "Något gick fel vid inläsning. Försök igen.",
   GEOMETRY_MISSING: "Ingen geometri angiven",
   GEOMETRY_TYPE_INVALID: "Endast polygoner stöds",
   POLYGON_SELF_INTERSECTING: "Polygonen är inte enkel (självskärning)",

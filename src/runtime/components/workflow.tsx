@@ -242,7 +242,9 @@ const useWorkspaceLoader = (opts: {
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) return
+    if (!fmeClient || !config?.repository) {
+      return
+    }
 
     cancelCurrent()
     const controller = new AbortController()
@@ -261,7 +263,9 @@ const useWorkspaceLoader = (opts: {
         )
       )
 
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted) {
+        return
+      }
 
       if (response.status === 200 && response.data.items) {
         const items = (response.data.items as readonly any[]).filter(
@@ -288,9 +292,11 @@ const useWorkspaceLoader = (opts: {
           dispatch(fmeActions.setWorkspaceItems(sorted, repoName, widgetId))
         }
       } else {
+        console.error("FME Export - Unexpected response format:", response)
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
+      console.error("FME Export - Workspace loading failed:", err)
       const msg = formatError(err, "failedToLoadWorkspaces")
       if (msg && isMountedRef.current) setError(msg)
     } finally {
@@ -363,17 +369,37 @@ const useWorkspaceLoader = (opts: {
     cancelCurrent()
     setWorkspaces([])
     setError(null)
+    // Important: reset loading state to allow new requests
+    setIsLoading(false)
   }, [config?.repository])
 
   const scheduleLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
     }
+    
     loadTimeoutRef.current = setTimeout(() => {
       void loadAll()
       loadTimeoutRef.current = null
     }, MS_LOADING)
   })
+
+  // Safety mechanism: if loading is stuck for too long, reset it
+  hooks.useUpdateEffect(() => {
+    if (isLoading && isMountedRef.current) {
+      const timeoutId = setTimeout(() => {
+        if (isMountedRef.current && isLoading) {
+          console.warn("FME Export - Loading timeout, resetting loading state")
+          setIsLoading(false)
+          setError(translate("loadingTimeout"))
+        }
+      }, 30000) // 30 second timeout
+
+      return () => {
+        clearTimeout(timeoutId)
+      }
+    }
+  }, [isLoading])
 
   return { workspaces, isLoading, error, loadAll, loadItem, scheduleLoad }
 }
