@@ -14,7 +14,8 @@ import {
   type ExportResult,
   type FormValues,
 } from "../config"
-import { toSerializable, sanitizeFormValues } from "../shared/validations"
+import { sanitizeFormValues } from "../shared/validations"
+import { toSerializable } from "../shared/utils"
 
 // Action creators
 export const fmeActions = {

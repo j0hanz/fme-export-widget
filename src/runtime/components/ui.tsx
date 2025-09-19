@@ -38,8 +38,10 @@ import {
   EMAIL_PLACEHOLDER,
   stripHtmlToText,
   styleCss,
+  getErrorIconSrc,
+  getBtnAria,
+  ariaDesc,
 } from "../../shared/utils"
-import { getErrorIconSrc, getBtnAria, ariaDesc } from "../../shared/validations"
 import type {
   ViewAction,
   ButtonProps,

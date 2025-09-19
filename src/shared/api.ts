@@ -11,11 +11,7 @@ import type {
 } from "../config"
 import { FmeFlowApiError, HttpMethod } from "../config"
 import {
-  extractHostFromUrl,
-  extractErrorMessage,
   extractHttpStatus,
-  isJson,
-  maskToken,
   validateRequiredConfig,
   isAuthError,
   mapErrorToKey,
@@ -29,6 +25,10 @@ import {
   safeLogParams,
   makeScopeId,
   makeGeoJson,
+  isJson,
+  maskToken,
+  extractHostFromUrl,
+  extractErrorMessage,
 } from "./utils"
 
 // Construct a typed FME Flow API error with identical message and code.
@@ -382,6 +382,14 @@ export class FmeFlowApiClient {
     this.config = config
     void setApiSettings(config)
     void addFmeInterceptor(config.serverUrl, config.token)
+    try {
+      console.log("EXB-API init", {
+        basePath: this.basePath,
+        server: (config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
+        token: maskToken(config.token),
+        repository: config.repository,
+      })
+    } catch {}
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -555,6 +563,13 @@ export class FmeFlowApiClient {
     this.config = { ...this.config, ...config }
     void setApiSettings(this.config)
     void addFmeInterceptor(this.config.serverUrl, this.config.token)
+    try {
+      console.log("EXB-API updateConfig", {
+        server: (this.config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
+        token: maskToken(this.config.token),
+        repository: this.config.repository,
+      })
+    } catch {}
   }
 
   /**
@@ -578,6 +593,12 @@ export class FmeFlowApiClient {
   async getRepositories(
     signal?: AbortSignal
   ): Promise<ApiResponse<Array<{ name: string }>>> {
+    try {
+      console.log("EXB-API getRepositories() invoked", {
+        server: (this.config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
+        token: maskToken(this.config.token),
+      })
+    } catch {}
     return this.withApiError(
       async () => {
         // Use the collection endpoint without a trailing slash
@@ -591,6 +612,18 @@ export class FmeFlowApiClient {
           cacheHint: false, // Avoid cross-token header-insensitive caches
           query: { limit: -1, offset: -1 },
         })
+        try {
+          const d: any = raw?.data
+          const count = Array.isArray(d)
+            ? d.length
+            : Array.isArray(d?.items)
+              ? d?.items?.length || 0
+              : 0
+          console.log("EXB-API getRepositories() response", {
+            status: raw?.status,
+            count,
+          })
+        } catch {}
 
         const data = raw?.data
         let items: Array<{ name: string }>
@@ -663,6 +696,14 @@ export class FmeFlowApiClient {
     if (type) query.type = type
     if (typeof limit === "number") query.limit = limit
     if (typeof offset === "number") query.offset = offset
+    try {
+      console.log("EXB-API getRepositoryItems()", {
+        repo,
+        type: type || null,
+        limit: limit ?? null,
+        offset: offset ?? null,
+      })
+    } catch {}
     return this.withApiError(
       () =>
         this.request(endpoint, {
@@ -683,6 +724,9 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<any>> {
     const repo = this.resolveRepository(repository)
     const endpoint = this.repoEndpoint(repo, "items", workspace)
+    try {
+      console.log("EXB-API getWorkspaceItem()", { repo, workspace })
+    } catch {}
     return this.withApiError(
       () =>
         this.request<any>(endpoint, {
@@ -1106,6 +1150,22 @@ export class FmeFlowApiClient {
     )
 
     console.log("FME API - Making request to:", url)
+    try {
+      const method = (options.method || HttpMethod.GET).toString()
+      const repoCtx = (options as any)?.repositoryContext
+      const q = options.query || {}
+      const qKeys = Object.keys(q || {}).filter(
+        (k) => !/^fmetoken|token|__scope$/i.test(k)
+      )
+      console.log("EXB-API request details", {
+        method,
+        repositoryContext: repoCtx || null,
+        queryKeys: qKeys,
+        hasTokenParam:
+          typeof (q as any)?.fmetoken !== "undefined" ||
+          typeof (q as any)?.token !== "undefined",
+      })
+    } catch {}
 
     try {
       const headers: { [key: string]: string } = {
@@ -1166,6 +1226,12 @@ export class FmeFlowApiClient {
       }
 
       const response = await esriRequestFn(url, requestOptions)
+      try {
+        console.log("EXB-API response", {
+          status: response?.httpStatus || response?.status || 200,
+          url,
+        })
+      } catch {}
 
       return {
         data: response.data,

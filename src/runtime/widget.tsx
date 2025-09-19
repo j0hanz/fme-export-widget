@@ -42,8 +42,6 @@ import {
 import { validateWidgetStartup } from "../shared/services"
 import {
   mapErrorToKey,
-  isValidEmail,
-  getSupportEmail,
   isValidExternalUrlForOptGetUrl,
   calcArea,
   validatePolygon,
@@ -60,6 +58,8 @@ import {
   determineServiceMode,
   applyDirectiveDefaults,
   formatArea,
+  isValidEmail,
+  getSupportEmail,
 } from "../shared/utils"
 
 // Dynamic ESRI module loader with test environment support
@@ -686,10 +686,16 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
+    try {
+      console.log("EXB-Widget validation step", { step })
+    } catch {}
     dispatch(fmeActions.setStartupValidationState(true, step, null, widgetId))
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
+    try {
+      console.log("EXB-Widget validation success")
+    } catch {}
     dispatch(
       fmeActions.setStartupValidationState(false, undefined, null, widgetId)
     )
@@ -698,6 +704,12 @@ export default function Widget(
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
+    try {
+      console.log("EXB-Widget validation error", {
+        code: error?.code,
+        message: error?.message,
+      })
+    } catch {}
     dispatch(
       fmeActions.setStartupValidationState(false, undefined, error, widgetId)
     )
@@ -726,6 +738,7 @@ export default function Widget(
 
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
+    console.log("EXB-Widget runStartupValidation")
     // Skip if widget is not active
     if (startupAbortRef.current) {
       abortAndClear(startupAbortRef)
@@ -804,6 +817,9 @@ export default function Widget(
       setValidationSuccess()
     } catch (err: unknown) {
       console.error("FME Export - Startup validation failed:", err)
+      try {
+        console.log("EXB-Widget runStartupValidation error", err)
+      } catch {}
       const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
       const errorCode =
         typeof err === "object" && err !== null && "code" in err
@@ -825,6 +841,7 @@ export default function Widget(
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     isInitialLoadRef.current = false
+    console.log("EXB-Widget initial load -> runStartupValidation")
     runStartupValidation()
   })
 
@@ -881,6 +898,11 @@ export default function Widget(
     prevConnRef.current = next
 
     try {
+      console.log("EXB-Widget config change", {
+        serverChanged,
+        tokenChanged,
+        repoChanged,
+      })
       if (serverChanged || tokenChanged) {
         // Full revalidation required when connection credentials change
         resetForRevalidation(false)
@@ -1056,6 +1078,10 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
 
     try {
+      console.log("EXB-Widget form submit start", {
+        workspace: reduxState.selectedWorkspace,
+        viewMode: reduxState.viewMode,
+      })
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
       const earlyMode = determineServiceMode({ data: rawDataEarly }, config)
@@ -1186,9 +1212,18 @@ export default function Widget(
           controller.signal
         )
       )
+      try {
+        console.log("EXB-Widget form submit response", {
+          ok: true,
+          workspace,
+        })
+      } catch {}
 
       handleSubmissionSuccess(fmeResponse, workspace, userEmail)
     } catch (error) {
+      try {
+        console.log("EXB-Widget form submit error", error)
+      } catch {}
       handleSubmissionError(error)
     } finally {
       dispatch(
@@ -1371,6 +1406,10 @@ export default function Widget(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
+      console.log("EXB-Widget workspace selected", {
+        workspaceName,
+        paramCount: parameters?.length || 0,
+      })
       dispatch(
         fmeActions.setSelectedWorkspace(
           workspaceName,
@@ -1399,6 +1438,9 @@ export default function Widget(
 
   // Navigation helpers
   const navigateTo = hooks.useEventCallback((viewMode: ViewMode) => {
+    try {
+      console.log("EXB-Widget navigateTo", { viewMode })
+    } catch {}
     dispatch(fmeActions.setViewMode(viewMode, widgetId))
   })
 

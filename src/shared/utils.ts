@@ -560,7 +560,7 @@ export const toStr = (val: unknown): string => {
 
 export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
   const base = serverUrl
-    .replace(/\/(?:fmeserver|fmerest(?:\/v\d+)?)\/?$/i, "")
+    .replace(/\/(?:fmeserver|fmerest)$/i, "")
     .replace(/\/$/, "")
 
   const encodePath = (s: string): string =>

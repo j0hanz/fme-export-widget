@@ -9,11 +9,10 @@ import type {
   StartupValidationOptions,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
-import { isEmpty } from "./utils"
+import { isEmpty, extractErrorMessage } from "./utils"
 import {
   isInt,
   isNum,
-  extractErrorMessage,
   extractHttpStatus,
   validateServerUrl,
   validateRequiredFields,
@@ -511,6 +510,13 @@ export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
   const { serverUrl, token, repository, signal } = options
+  try {
+    console.log("EXB-Services validateConnection start", {
+      serverUrl,
+      tokenMasked: token ? `****${token.slice(-4)}` : "",
+      repository: repository || null,
+    })
+  } catch {}
 
   const key = `${serverUrl}|${token}|${repository || "_"}`
 
@@ -648,6 +654,11 @@ export async function validateConnection(
         try {
           const reposResp = await client.getRepositories(signal)
           repositories = parseRepositoryNames(reposResp?.data)
+          try {
+            console.log("EXB-Services validateConnection repos", {
+              count: repositories.length,
+            })
+          } catch {}
         } catch (error) {
           repositories = []
         }
@@ -678,6 +689,9 @@ export async function validateConnection(
           steps,
         }
       } catch (error) {
+        try {
+          console.log("EXB-Services validateConnection error", error)
+        } catch {}
         if ((error as Error)?.name === "AbortError") {
           return {
             success: false,
@@ -748,9 +762,21 @@ export async function getRepositories(
   token: string,
   signal?: AbortSignal
 ): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
-  const key = `${serverUrl}|${token}`
-  return withInflight(inFlight.getRepositories, key, async () => {
+  // If already aborted, throw to allow callers to ignore gracefully
+  if (signal?.aborted) {
+    const abortErr = new DOMException("Operation was aborted", "AbortError")
+    ;(abortErr as any).name = "AbortError"
+    throw abortErr
+  }
+
+  // When a signal is provided (typical for settings UI), bypass dedup
+  // to avoid race conditions where a newly-triggered request reuses an aborted promise.
+  const execute = async () => {
     try {
+      console.log("EXB-Services getRepositories start", {
+        serverUrl,
+        tokenMasked: token ? `****${token.slice(-4)}` : "",
+      })
       const client = new FmeFlowApiClient({
         serverUrl,
         token,
@@ -758,19 +784,47 @@ export async function getRepositories(
       })
 
       const resp = await client.getRepositories(signal)
+      // If the underlying API returned a synthetic aborted response, surface it as an AbortError
+      if ((resp as any)?.status === 0 || (resp as any)?.statusText === "requestAborted") {
+        const abortErr = new DOMException("Operation was aborted", "AbortError")
+        ;(abortErr as any).name = "AbortError"
+        throw abortErr
+      }
       const repositories = parseRepositoryNames(resp?.data)
+      console.log("EXB-Services getRepositories done", {
+        count: repositories.length,
+      })
 
       return {
         success: true,
         repositories,
       }
     } catch (error) {
+      if ((error as Error)?.name === "AbortError") {
+        // Re-throw as a proper Error-derived object to satisfy lint rules
+        const abortErr = new DOMException(
+          (error as Error).message || "Operation was aborted",
+          "AbortError"
+        )
+        ;(abortErr as any).name = "AbortError"
+        throw abortErr
+      }
+      try {
+        console.log("EXB-Services getRepositories error", error)
+      } catch {}
       return {
         success: false,
         error: mapErrorToKey(error, extractHttpStatus(error)),
       }
     }
-  })
+  }
+
+  if (signal) {
+    return await execute()
+  }
+
+  const key = `${serverUrl}|${token}`
+  return withInflight(inFlight.getRepositories, key, execute)
 }
 
 // Widget startup validation

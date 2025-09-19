@@ -1,7 +1,13 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx, css } from "jimu-core"
-import { setError, clearErrors, safeAbort } from "../shared/utils"
+import {
+  setError,
+  clearErrors,
+  safeAbort,
+  parseNonNegativeInt,
+  isValidEmail,
+} from "../shared/utils"
 import { useTheme } from "jimu-theme"
 import { useSelector, useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -25,9 +31,7 @@ import {
   normalizeBaseUrl,
   validateServerUrl,
   validateToken,
-  isValidEmail,
   extractHttpStatus,
-  parseNonNegativeInt,
   mapErrorToKey,
   validateConnectionInputs,
 } from "../shared/validations"
@@ -252,14 +256,14 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
     validateServerUrl(localServerUrl, { requireHttps: true }).ok &&
-    validateToken(localToken).ok
+    Boolean((localToken || "").trim())
 
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
       const hasValidServer =
         !!localServerUrl &&
         validateServerUrl(localServerUrl, { requireHttps: true }).ok
-      const hasValidToken = !!localToken && validateToken(localToken).ok
+      const hasValidToken = Boolean((localToken || "").trim())
       if (!hasValidServer || !hasValidToken) return []
       if (availableRepos === null) return []
 
@@ -321,9 +325,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         }}
         disabled={
           !localServerUrl ||
-          !localToken ||
+          !(localToken || "").trim() ||
           !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
-          !validateToken(localToken).ok ||
           availableRepos === null
         }
         aria-describedby={
@@ -334,7 +337,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           const serverOk = validateServerUrl(localServerUrl, {
             requireHttps: true,
           }).ok
-          const tokenOk = validateToken(localToken).ok
+          const tokenOk = Boolean((localToken || "").trim())
           if (!serverOk || !tokenOk) {
             return translate("testConnectionFirst")
           }
@@ -804,6 +807,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       safeAbort(reposAbortRef.current)
       reposAbortRef.current = null
     }
+    try {
+      console.log("EXB-Setting abortReposRequest")
+    } catch {}
   })
 
   // Unified repository loader used by both auto-load and manual refresh
@@ -825,9 +831,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       try {
+        console.log("EXB-Setting loadRepositories start", {
+          serverUrl,
+          tokenMasked: token ? `****${token.slice(-4)}` : "",
+          indicateLoading,
+        })
         const result = await fetchRepositoriesService(serverUrl, token, signal)
         if (signal.aborted) return
         const next = result.repositories || []
+        console.log("EXB-Setting loadRepositories result", {
+          count: next.length,
+        })
         setAvailableRepos(next)
         clearErrors(setFieldErrors, ["repository"])
         setReposHint(null)
@@ -839,6 +853,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setReposHint(translate("errorRepositories"))
         }
       } finally {
+        console.log("EXB-Setting loadRepositories end")
         if (reposAbortRef.current === ctrl) reposAbortRef.current = null
       }
     }
@@ -848,7 +863,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
-    abortReposRequest()
   })
 
   // Cleanup on unmount
@@ -1143,6 +1157,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   React.useEffect(() => {
     if (!committedServerUrl && !committedToken) return
+    console.log("EXB-Setting clearRepositoryEphemeralState effect", {
+      committedServerUrl,
+      committedTokenMasked: committedToken
+        ? `****${committedToken.slice(-4)}`
+        : "",
+    })
     clearRepositoryEphemeralState()
   }, [
     committedServerUrl,
@@ -1156,10 +1176,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const hasValidServer =
       !!committedServerUrl &&
       validateServerUrl(committedServerUrl, { requireHttps: true }).ok
-    const hasValidToken = !!committedToken && validateToken(committedToken).ok
+    const hasValidToken = Boolean((committedToken || "").trim())
     if (!hasValidServer || !hasValidToken) return
 
     const { cleaned } = sanitizeUrl(committedServerUrl)
+    console.log("EXB-Setting auto-load repositories effect", {
+      cleaned,
+      committedTokenMasked: committedToken
+        ? `****${committedToken.slice(-4)}`
+        : "",
+    })
     loadRepositories(cleaned, committedToken, { indicateLoading: true })
     return () => abortReposRequest()
   }, [
@@ -1188,6 +1214,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
+    console.log("EXB-Setting serverUrl blur", { url })
     // Validate on blur
     const validation = validateServerUrl(url, { requireHttps: true })
     setError(
@@ -1227,6 +1254,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
+    console.log("EXB-Setting token blur", {
+      tokenMasked: token ? `****${token.slice(-4)}` : "",
+    })
     // Validate on blur
     const validation = validateToken(token)
     setError(
@@ -1270,6 +1300,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
+      console.log("EXB-Setting repository change", {
+        from: localRepository,
+        to: newRepository,
+      })
       const previousRepository = currentRepository
 
       // Update local state
@@ -1278,6 +1312,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       // Clear workspace-related state when switching repositories for isolation
       if (previousRepository !== newRepository) {
+        console.log("EXB-Setting clearing runtime workspace state", {
+          previousRepository,
+          newRepository,
+        })
         dispatch(fmeActions.clearWorkspaceState(newRepository, id))
       }
 

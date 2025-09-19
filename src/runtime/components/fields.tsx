@@ -25,7 +25,13 @@ import {
   type FormPrimitive,
   type SelectValue,
 } from "../../config"
+import defaultMessages from "./translations/default"
 import {
+  asString,
+  makePlaceholders,
+  getTextPlaceholder,
+  computeSelectCoerce,
+  parseTableRows,
   fmeDateTimeToInput,
   inputToFmeDateTime,
   fmeDateToInput,
@@ -35,14 +41,6 @@ import {
   normalizedRgbToHex,
   hexToNormalizedRgb,
   normalizeFormValue,
-} from "../../shared/validations"
-import defaultMessages from "./translations/default"
-import {
-  asString,
-  makePlaceholders,
-  getTextPlaceholder,
-  computeSelectCoerce,
-  parseTableRows,
 } from "../../shared/utils"
 
 // makePlaceholders is now imported from shared/utils
