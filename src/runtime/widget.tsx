@@ -130,9 +130,7 @@ const MODULES = [
   "esri/Graphic",
 ] as const
 
-// Area constants and param sanitation now live in shared/utils
-
-// Small runtime helpers to reduce duplication
+// Safe operation helpers
 const safeCancelSketch = (vm?: __esri.SketchViewModel | null): void => {
   if (!vm) return
   try {
@@ -147,6 +145,18 @@ const safeClearLayer = (layer?: __esri.GraphicsLayer | null): void => {
   } catch {}
 }
 
+const removeLayerFromMap = (
+  jmv?: JimuMapView | null,
+  layer?: __esri.GraphicsLayer | null
+): void => {
+  if (!jmv || !layer) return
+  try {
+    if (jmv.view?.map && layer.parent) {
+      jmv.view.map.remove(layer)
+    }
+  } catch {}
+}
+
 const abortAndClear = (
   ref: React.MutableRefObject<AbortController | null>
 ): void => {
@@ -157,8 +167,8 @@ const abortAndClear = (
   ref.current = null
 }
 
-// Module loading hook
-const useModules = (): {
+// Consolidated module and resource management
+const useEsriModules = (): {
   modules: EsriModules | null
   loading: boolean
 } => {
@@ -219,9 +229,9 @@ const useModules = (): {
   return state
 }
 
-// Map state management
-const useMapState = () => {
-  const [mapResources, setMapResources] = React.useState<{
+// Consolidated map state and resource management
+const useMapResources = () => {
+  const [state, setState] = React.useState<{
     jimuMapView: JimuMapView | null
     sketchViewModel: __esri.SketchViewModel | null
     graphicsLayer: __esri.GraphicsLayer | null
@@ -233,23 +243,18 @@ const useMapState = () => {
     currentGeometry: null,
   })
 
-  const updateMapResource = hooks.useEventCallback(
-    <K extends keyof typeof mapResources>(
-      key: K,
-      value: (typeof mapResources)[K]
-    ) => {
-      setMapResources((prev) => ({ ...prev, [key]: value }))
+  const updateResource = hooks.useEventCallback(
+    <K extends keyof typeof state>(key: K, value: (typeof state)[K]) => {
+      setState((prev) => ({ ...prev, [key]: value }))
     }
   )
 
-  // Centralized cleanup with improved error handling and safety checks
   const cleanupResources = hooks.useEventCallback(() => {
-    const { sketchViewModel, graphicsLayer, jimuMapView } = mapResources
+    const { sketchViewModel, graphicsLayer, jimuMapView } = state
 
-    // Safely cancel sketch operations
-    if (sketchViewModel?.activeTool) {
+    if (sketchViewModel) {
       try {
-        sketchViewModel.cancel()
+        safeCancelSketch(sketchViewModel)
         if (typeof sketchViewModel.destroy === "function") {
           sketchViewModel.destroy()
         }
@@ -258,22 +263,16 @@ const useMapState = () => {
       }
     }
 
-    // Safely remove and clear graphics layer
     if (graphicsLayer) {
       try {
-        if (jimuMapView?.view?.map && graphicsLayer.parent) {
-          jimuMapView.view.map.remove(graphicsLayer)
-        }
-        if (typeof graphicsLayer.removeAll === "function") {
-          graphicsLayer.removeAll()
-        }
+        removeLayerFromMap(jimuMapView, graphicsLayer)
+        safeClearLayer(graphicsLayer)
       } catch (error) {
         console.warn("Widget - Error cleaning up GraphicsLayer:", error)
       }
     }
 
-    // Reset all resources
-    setMapResources({
+    setState({
       jimuMapView: null,
       sketchViewModel: null,
       graphicsLayer: null,
@@ -282,15 +281,15 @@ const useMapState = () => {
   })
 
   return {
-    ...mapResources,
+    ...state,
     setJimuMapView: (view: JimuMapView | null) =>
-      updateMapResource("jimuMapView", view),
+      updateResource("jimuMapView", view),
     setSketchViewModel: (vm: __esri.SketchViewModel | null) =>
-      updateMapResource("sketchViewModel", vm),
+      updateResource("sketchViewModel", vm),
     setGraphicsLayer: (layer: __esri.GraphicsLayer | null) =>
-      updateMapResource("graphicsLayer", layer),
+      updateResource("graphicsLayer", layer),
     setCurrentGeometry: (geom: __esri.Geometry | null) =>
-      updateMapResource("currentGeometry", geom),
+      updateResource("currentGeometry", geom),
     cleanupResources,
   }
 }
@@ -516,6 +515,49 @@ export default function Widget(
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionController = useAbortController()
 
+  // Centralized Redux reset helpers to avoid duplicated dispatch sequences
+  const resetReduxForRevalidation = hooks.useEventCallback(() => {
+    dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION, widgetId))
+    dispatch(fmeActions.setGeometry(null, 0, widgetId))
+    dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+    dispatch(fmeActions.setError(null, widgetId))
+    dispatch(
+      fmeActions.setSelectedWorkspace(null, config?.repository, widgetId)
+    )
+    dispatch(
+      fmeActions.setWorkspaceParameters([], "", config?.repository, widgetId)
+    )
+    dispatch(fmeActions.setWorkspaceItem(null, config?.repository, widgetId))
+    dispatch(fmeActions.setFormValues({}, widgetId))
+    dispatch(fmeActions.setOrderResult(null, widgetId))
+  })
+
+  const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
+    dispatch(fmeActions.setGeometry(null, 0, widgetId))
+    dispatch(
+      fmeActions.setDrawingState(false, 0, reduxState.drawingTool, widgetId)
+    )
+    dispatch(fmeActions.setClickCount(0, widgetId))
+    dispatch(fmeActions.setError(null, widgetId))
+    dispatch(fmeActions.setImportError(null, widgetId))
+    dispatch(fmeActions.setExportError(null, widgetId))
+    dispatch(fmeActions.setOrderResult(null, widgetId))
+    dispatch(
+      fmeActions.setSelectedWorkspace(null, config?.repository, widgetId)
+    )
+    dispatch(fmeActions.setFormValues({}, widgetId))
+    dispatch(
+      fmeActions.setLoadingFlags(
+        {
+          isModulesLoading: false,
+          isSubmittingOrder: false,
+        } as any,
+        widgetId
+      )
+    )
+    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+  })
+
   // Render error view with translation and support hints
   const renderWidgetError = hooks.useEventCallback(
     (
@@ -555,7 +597,7 @@ export default function Widget(
 
       // Determine support hint
       const ufm = error.userFriendlyMessage
-      const supportEmail = getSupportEmail(props.config?.supportEmail)
+      const supportEmail = getSupportEmail(config?.supportEmail)
       const supportHint = buildSupportHintText(
         translate,
         supportEmail,
@@ -623,13 +665,13 @@ export default function Widget(
     }
   )
 
-  const { modules, loading: modulesLoading } = useModules()
-  const localMapState = useMapState()
+  const { modules, loading: modulesLoading } = useEsriModules()
+  const mapResources = useMapResources()
 
   // Redux state selector and dispatcher
   const isActive = hooks.useWidgetActived(widgetId)
 
-  // Destructure local map state
+  // Destructure map resources
   const {
     jimuMapView,
     setJimuMapView,
@@ -640,7 +682,7 @@ export default function Widget(
     currentGeometry,
     setCurrentGeometry,
     cleanupResources,
-  } = localMapState
+  } = mapResources
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
@@ -671,8 +713,8 @@ export default function Widget(
       recoverable: true,
       timestamp: new Date(),
       timestampMs: Date.now(),
-      userFriendlyMessage: props.config?.supportEmail
-        ? String(props.config.supportEmail)
+      userFriendlyMessage: config?.supportEmail
+        ? String(config.supportEmail)
         : "",
       suggestion: translate("retryValidation"),
       retry,
@@ -732,10 +774,10 @@ export default function Widget(
       }
 
       // Step 3: validate user email only when async mode is in use
-      if (!props.config?.syncMode) {
+      if (!config?.syncMode) {
         setValidationStep(translate("validatingUserEmail"))
         try {
-          const email = await getEmail(props.config)
+          const email = await getEmail(config)
           if (!isValidEmail(email)) {
             setValidationError(
               createStartupError(
@@ -805,30 +847,7 @@ export default function Widget(
         } catch (_) {}
       }
       // Reset redux state
-      dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION, widgetId))
-      dispatch(fmeActions.setGeometry(null, 0, widgetId))
-      dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-      dispatch(fmeActions.setError(null, widgetId))
-      dispatch(
-        fmeActions.setSelectedWorkspace(
-          null,
-          props.config?.repository,
-          widgetId
-        )
-      )
-      dispatch(
-        fmeActions.setWorkspaceParameters(
-          [],
-          "",
-          props.config?.repository,
-          widgetId
-        )
-      )
-      dispatch(
-        fmeActions.setWorkspaceItem(null, props.config?.repository, widgetId)
-      )
-      dispatch(fmeActions.setFormValues({}, widgetId))
-      dispatch(fmeActions.setOrderResult(null, widgetId))
+      resetReduxForRevalidation()
     }
   )
 
@@ -838,9 +857,9 @@ export default function Widget(
     token?: string
     repo?: string
   }>({
-    url: props.config?.fmeServerUrl,
-    token: props.config?.fmeServerToken,
-    repo: props.config?.repository,
+    url: config?.fmeServerUrl,
+    token: config?.fmeServerToken,
+    repo: config?.repository,
   })
 
   // React to config changes with scoped behavior
@@ -849,9 +868,9 @@ export default function Widget(
 
     const prev = prevConnRef.current
     const next = {
-      url: props.config?.fmeServerUrl,
-      token: props.config?.fmeServerToken,
-      repo: props.config?.repository,
+      url: config?.fmeServerUrl,
+      token: config?.fmeServerToken,
+      repo: config?.repository,
     }
 
     const serverChanged = prev.url !== next.url
@@ -867,15 +886,21 @@ export default function Widget(
         resetForRevalidation(false)
         runStartupValidation()
       } else if (repoChanged) {
-        // Repository change only requires resetting selection and revalidation
+        // Repository change: clear workspace-related state and revalidate
         if (startupAbortRef.current) {
           abortAndClear(startupAbortRef)
         }
+        try {
+          dispatch(fmeActions.clearWorkspaceState(config?.repository, widgetId))
+        } catch {}
+        // Lightweight reset (keep map resources) then re-run validation
+        resetForRevalidation(false)
+        runStartupValidation()
       }
     } catch (error) {
       console.warn("Error handling config change:", error)
     }
-  }, [props.config, resetForRevalidation, runStartupValidation])
+  }, [config, resetForRevalidation, runStartupValidation, dispatch, widgetId])
 
   // React to map selection changes by re-running startup validation
   React.useEffect(() => {
@@ -898,9 +923,7 @@ export default function Widget(
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    if (graphicsLayer) {
-      graphicsLayer.removeAll()
-    }
+    safeClearLayer(graphicsLayer)
   })
 
   // Drawing complete with enhanced Graphic functionality
@@ -925,7 +948,7 @@ export default function Widget(
         const calculatedArea = calcArea(geomForUse, modules)
 
         // Max area validation
-        const maxCheck = checkMaxArea(calculatedArea, props.config?.maxArea)
+        const maxCheck = checkMaxArea(calculatedArea, config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
             dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
@@ -970,7 +993,7 @@ export default function Widget(
     }
 
     // Re-validate area constraints before submission
-    const maxCheck = checkMaxArea(reduxState.drawnArea, props.config?.maxArea)
+    const maxCheck = checkMaxArea(reduxState.drawnArea, config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
       dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
       return false
@@ -1011,7 +1034,7 @@ export default function Widget(
       localizedErr = translate("unknownErrorOccurred")
     }
     // Build localized failure message and append contact support hint
-    const configured = getSupportEmail(props.config?.supportEmail)
+    const configured = getSupportEmail(config?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("orderFailed")
     const resultMessage =
@@ -1035,14 +1058,11 @@ export default function Widget(
     try {
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
-      const earlyMode = determineServiceMode(
-        { data: rawDataEarly },
-        props.config
-      )
+      const earlyMode = determineServiceMode({ data: rawDataEarly }, config)
       // Fetch email only for async mode
       const [userEmail, fmeClient] = await Promise.all([
-        earlyMode === "async" ? getEmail(props.config) : Promise.resolve(""),
-        Promise.resolve(createFmeFlowClient(props.config)),
+        earlyMode === "async" ? getEmail(config) : Promise.resolve(""),
+        Promise.resolve(createFmeFlowClient(config)),
       ])
 
       const workspace = reduxState.selectedWorkspace
@@ -1070,7 +1090,7 @@ export default function Widget(
         reduxState.geometryJson,
         currentGeometry,
         modules,
-        props.config
+        config
       )
 
       // Detect AOI serialization failure injected by attachAoi
@@ -1086,7 +1106,7 @@ export default function Widget(
       const remoteUrlRaw = rawData.__remote_dataset_url__ as string | undefined
       const remoteUrl =
         typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
-      const urlFeatureOn = Boolean(props.config?.allowRemoteUrlDataset)
+      const urlFeatureOn = Boolean(config?.allowRemoteUrlDataset)
 
       // First pass: set opt_geturl only if URL is valid
       if (
@@ -1099,7 +1119,7 @@ export default function Widget(
 
       // Second pass: if no opt_geturl set, consider upload fallback
       const wantsUpload =
-        props.config?.allowRemoteDataset && uploadFile instanceof File
+        config?.allowRemoteDataset && uploadFile instanceof File
       if (typeof finalParams.opt_geturl === "undefined" && wantsUpload) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
@@ -1112,7 +1132,7 @@ export default function Widget(
 
         // Find a suitable workspace parameter to assign the uploaded path
         const params = reduxState.workspaceParameters || []
-        const explicitNameRaw = (props.config as any)?.uploadTargetParamName
+        const explicitNameRaw = (config as any)?.uploadTargetParamName
         const explicitName =
           typeof explicitNameRaw === "string" && explicitNameRaw.trim()
             ? explicitNameRaw.trim()
@@ -1144,7 +1164,7 @@ export default function Widget(
       }
 
       // Apply admin defaults and record for testing
-      finalParams = applyDirectiveDefaults(finalParams, props.config)
+      finalParams = applyDirectiveDefaults(finalParams, config)
       // Ensure hidden error marker isn't leaked
       try {
         delete (finalParams as any).__aoi_error__
@@ -1156,7 +1176,7 @@ export default function Widget(
       }
 
       // Submit to FME Flow
-      const serviceType = props.config?.service || "download"
+      const serviceType = config?.service || "download"
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
@@ -1332,32 +1352,7 @@ export default function Widget(
     }
 
     // Reset Redux state
-    dispatch(fmeActions.setGeometry(null, 0, widgetId))
-    dispatch(
-      fmeActions.setDrawingState(false, 0, reduxState.drawingTool, widgetId)
-    )
-    dispatch(fmeActions.setClickCount(0, widgetId))
-    dispatch(fmeActions.setError(null, widgetId))
-    dispatch(fmeActions.setImportError(null, widgetId))
-    dispatch(fmeActions.setExportError(null, widgetId))
-    dispatch(fmeActions.setOrderResult(null, widgetId))
-    dispatch(
-      fmeActions.setSelectedWorkspace(null, props.config?.repository, widgetId)
-    )
-    // Reset workspace parameters and item
-    dispatch(fmeActions.setFormValues({}, widgetId))
-    // Reset workspace parameters
-    dispatch(
-      fmeActions.setLoadingFlags(
-        {
-          isModulesLoading: false,
-          isSubmittingOrder: false,
-        } as any,
-        widgetId
-      )
-    )
-    // Reset view mode to initial
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+    resetReduxToInitialDrawing()
   })
   hooks.useUpdateEffect(() => {
     // Reset when widget is closed
@@ -1379,7 +1374,7 @@ export default function Widget(
       dispatch(
         fmeActions.setSelectedWorkspace(
           workspaceName,
-          props.config?.repository,
+          config?.repository,
           widgetId
         )
       )
@@ -1387,16 +1382,12 @@ export default function Widget(
         fmeActions.setWorkspaceParameters(
           parameters,
           workspaceName,
-          props.config?.repository,
+          config?.repository,
           widgetId
         )
       )
       dispatch(
-        fmeActions.setWorkspaceItem(
-          workspaceItem,
-          props.config?.repository,
-          widgetId
-        )
+        fmeActions.setWorkspaceItem(workspaceItem, config?.repository, widgetId)
       )
       dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM, widgetId))
     }
@@ -1463,7 +1454,7 @@ export default function Widget(
     )
   }
 
-  if (reduxState.error && reduxState.error.severity === "error") {
+  if (reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR) {
     // Handle other errors (non-startup validation)
     return <div css={styles.parent}>{renderWidgetError(reduxState.error)}</div>
   }
@@ -1519,11 +1510,7 @@ export default function Widget(
             reduxState.clickCount === 0 &&
             sketchViewModel
           ) {
-            try {
-              sketchViewModel.cancel()
-            } catch (e) {
-              // ignore cancellation errors
-            }
+            safeCancelSketch(sketchViewModel)
             handleStartDrawing(tool)
           }
         }}

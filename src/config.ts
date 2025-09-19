@@ -293,7 +293,6 @@ export interface InputProps extends BaseProps {
 export interface ButtonProps extends BaseProps {
   readonly text?: React.ReactNode
   readonly icon?: string | React.ReactNode
-  readonly iconPosition?: "left" | "right"
   readonly variant?: "contained" | "outlined" | "text"
   readonly size?: "sm" | "lg" | "default"
   readonly tooltip?: string
@@ -350,7 +349,6 @@ export interface ButtonTabsProps extends BaseProps {
 
 export interface TooltipProps {
   readonly content?: React.ReactNode
-  readonly title?: React.ReactNode
   readonly children: React.ReactNode
   readonly placement?: "top" | "bottom" | "left" | "right"
   readonly disabled?: boolean
@@ -385,7 +383,6 @@ export interface BtnContentProps {
   readonly text?: string | React.ReactNode
   readonly loading?: boolean
   readonly children?: React.ReactNode
-  readonly iconPosition?: "left" | "right"
   readonly alignText?: string
 }
 
@@ -488,7 +485,6 @@ export interface StateViewProps extends BaseProps {
     actions?: readonly ViewAction[],
     ariaLabel?: string
   ) => React.ReactNode
-  readonly testId?: string
 }
 
 // Form and validation
