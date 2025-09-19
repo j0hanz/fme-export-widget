@@ -516,6 +516,7 @@ describe("FME workspace discovery in Workflow", () => {
     const mockClient = {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
+      getWorkspaceParameters: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
 
@@ -567,13 +568,18 @@ describe("FME workspace discovery in Workflow", () => {
     // StateView minimum delay before list renders
     jest.advanceTimersByTime(1200)
 
-    // Prepare item details mock before click
+    // Prepare item details and parameters mocks before click
     mockClient.getWorkspaceItem.mockResolvedValueOnce({
       status: 200,
       data: {
-        parameters: [{ name: "count", type: ParameterType.INTEGER }],
         title: "Workspace One",
+        description: "Test workspace",
       },
+    })
+
+    mockClient.getWorkspaceParameters.mockResolvedValueOnce({
+      status: 200,
+      data: [{ name: "count", type: ParameterType.INTEGER }],
     })
 
     const firstItem = await screen.findByRole("listitem", {
@@ -594,6 +600,7 @@ describe("FME workspace discovery in Workflow", () => {
     const mockClient = {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
+      getWorkspaceParameters: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
     mockClient.getRepositoryItems.mockRejectedValueOnce(new Error("boom"))
@@ -629,6 +636,10 @@ describe("FME workspace discovery in Workflow", () => {
 
     expect(screen.getByRole("status")).toBeInTheDocument()
     jest.advanceTimersByTime(600)
+    await waitFor(() => {
+      expect(mockClient.getRepositoryItems).toHaveBeenCalled()
+    })
+    // Wait for error processing
     await waitFor(() => undefined)
     jest.advanceTimersByTime(1200)
 
