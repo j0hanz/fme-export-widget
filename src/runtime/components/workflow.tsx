@@ -375,7 +375,7 @@ const useWorkspaceLoader = (opts: {
     if (loadTimeoutRef.current) {
       clearTimeout(loadTimeoutRef.current)
     }
-    
+
     loadTimeoutRef.current = setTimeout(() => {
       void loadAll()
       loadTimeoutRef.current = null
@@ -1165,4 +1165,3 @@ export const Workflow: React.FC<WorkflowProps> = ({
 }
 
 export default Workflow
-

@@ -785,7 +785,10 @@ export async function getRepositories(
 
       const resp = await client.getRepositories(signal)
       // If the underlying API returned a synthetic aborted response, surface it as an AbortError
-      if ((resp as any)?.status === 0 || (resp as any)?.statusText === "requestAborted") {
+      if (
+        (resp as any)?.status === 0 ||
+        (resp as any)?.statusText === "requestAborted"
+      ) {
         const abortErr = new DOMException("Operation was aborted", "AbortError")
         ;(abortErr as any).name = "AbortError"
         throw abortErr

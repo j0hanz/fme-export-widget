@@ -652,7 +652,14 @@ export const interceptorExists = (
 ): boolean => {
   return (
     interceptors?.some((it: any) => {
-      return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
+      if (!it || !it._fmeInterceptor) return false
+      const rx: any = it.urls
+      if (rx instanceof RegExp) {
+        return rx.source === pattern.source && rx.flags === pattern.flags
+      }
+      // Fallback: treat urls as string and test against host pattern
+      const s = typeof rx === "string" ? rx : String(rx || "")
+      return pattern.test(s)
     }) ?? false
   )
 }

@@ -71,6 +71,8 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
+// Keep latest FME tokens per-host so the interceptor always uses fresh values
+const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
 /**
  * Reset loaded ArcGIS modules cache and computed limits (used in tests).
@@ -238,12 +240,15 @@ async function addFmeInterceptor(
   token: string
 ): Promise<void> {
   if (!serverUrl || !token) return
+  const host = extractHostFromUrl(serverUrl)
+  if (!host) return
+
+  // Always record the latest token for this host
+  _fmeTokensByHost[host.toLowerCase()] = token
+
   await ensureEsri()
   const esriConfig = asEsriConfig(_esriConfig)
   if (!esriConfig) return
-
-  const host = extractHostFromUrl(serverUrl)
-  if (!host) return
 
   const pattern = createHostPattern(host)
   if (interceptorExists(esriConfig.request.interceptors, pattern)) return
@@ -256,8 +261,23 @@ async function addFmeInterceptor(
       }
       const ro: any = params.requestOptions
       ro.query = ro.query || {}
-      if (token && !ro.query.fmetoken) {
-        ro.query.fmetoken = token
+      try {
+        // Resolve host from request URL and use the freshest token for it
+        const reqUrl = (params?.url || params?.urlTemplate || "").toString()
+        const reqHost = new URL(
+          reqUrl,
+          globalThis.location?.origin || "http://d"
+        ).host.toLowerCase()
+        const currentToken = _fmeTokensByHost[reqHost]
+        if (currentToken && !ro.query.fmetoken) {
+          ro.query.fmetoken = currentToken
+        }
+      } catch {
+        // If URL parsing fails, fall back to host pattern token
+        const currentToken = _fmeTokensByHost[host.toLowerCase()]
+        if (currentToken && !ro.query.fmetoken) {
+          ro.query.fmetoken = currentToken
+        }
       }
     },
     _fmeInterceptor: true,
@@ -1181,23 +1201,6 @@ export class FmeFlowApiClient {
           options.repositoryContext
         )
         if (query.__scope === undefined) query.__scope = scope
-
-        // Security-conscious token propagation: only attach fmetoken for requests to the configured FME host
-        try {
-          const serverHost = new URL(this.config.serverUrl).host.toLowerCase()
-          const requestHost = new URL(url).host.toLowerCase()
-          if (
-            this.config.token &&
-            serverHost &&
-            requestHost &&
-            serverHost === requestHost &&
-            query.fmetoken === undefined
-          ) {
-            query.fmetoken = this.config.token
-          }
-        } catch {
-          // Ignore URL parsing errors; do not attach token if uncertain
-        }
       }
 
       const requestOptions: any = {
