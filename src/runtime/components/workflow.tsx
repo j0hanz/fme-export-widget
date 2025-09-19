@@ -24,7 +24,6 @@ import {
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
-  type ApiResponse,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -318,29 +317,39 @@ const useWorkspaceLoader = (opts: {
 
       try {
         const repoToUse = String(repositoryName || config?.repository || "")
-        const response: ApiResponse<any> = await makeCancelable(
-          fmeClient.getWorkspaceItem(
-            workspaceName,
-            repoToUse,
-            controller.signal
-          )
-        )
 
-        if (response.status === 200 && response.data?.parameters) {
-          onWorkspaceSelected?.(
-            workspaceName,
-            response.data.parameters,
-            response.data
-          )
+        // Call both endpoints: workspace item details and parameters separately
+        const [itemResponse, parametersResponse] = await Promise.all([
+          makeCancelable(
+            fmeClient.getWorkspaceItem(
+              workspaceName,
+              repoToUse,
+              controller.signal
+            )
+          ),
+          makeCancelable(
+            fmeClient.getWorkspaceParameters(
+              workspaceName,
+              repoToUse,
+              controller.signal
+            )
+          ),
+        ])
+
+        if (itemResponse.status === 200 && parametersResponse.status === 200) {
+          const workspaceItem = itemResponse.data
+          const parameters = parametersResponse.data || []
+
+          onWorkspaceSelected?.(workspaceName, parameters, workspaceItem)
           // Dispatch workspace item and parameters with repository context
           const dispatch = getAppStore().dispatch as any
           const repoName = String(repoToUse)
           dispatch(
-            fmeActions.setWorkspaceItem(response.data, repoName, widgetId)
+            fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
           )
           dispatch(
             fmeActions.setWorkspaceParameters(
-              response.data.parameters,
+              parameters,
               workspaceName,
               repoName,
               widgetId
@@ -972,7 +981,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         scheduleWsLoad()
       }
     }
-  }, [config?.repository, isWorkspaceSelectionContext])
+  }, [config?.repository])
 
   // Header
   const renderHeader = () => {

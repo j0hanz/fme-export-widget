@@ -251,37 +251,62 @@ async function addFmeInterceptor(
   if (!esriConfig) return
 
   const pattern = createHostPattern(host)
-  if (interceptorExists(esriConfig.request.interceptors, pattern)) return
+  if (interceptorExists(esriConfig.request.interceptors, pattern)) {
+    console.log("FME API - Interceptor already exists for:", pattern)
+    return
+  }
+
+  console.log(
+    "FME API - Adding interceptor for:",
+    pattern,
+    "Token:",
+    maskToken(token)
+  )
 
   esriConfig.request.interceptors?.push({
     urls: pattern,
     before(params: any) {
+      console.log("FME API - Interceptor called for:", params?.url)
       if (!params || !params.requestOptions) {
         params.requestOptions = {}
       }
       const ro: any = params.requestOptions
       ro.query = ro.query || {}
-      try {
-        // Resolve host from request URL and use the freshest token for it
-        const reqUrl = (params?.url || params?.urlTemplate || "").toString()
-        const reqHost = new URL(
-          reqUrl,
-          globalThis.location?.origin || "http://d"
-        ).host.toLowerCase()
-        const currentToken = _fmeTokensByHost[reqHost]
-        if (currentToken && !ro.query.fmetoken) {
+      ro.headers = ro.headers || {}
+
+      // Always use the token stored for this host pattern
+      const currentToken = _fmeTokensByHost[host.toLowerCase()]
+      if (currentToken) {
+        console.log("FME API - Adding token to request")
+        // Add token as query parameter if not already present
+        if (!ro.query.fmetoken) {
           ro.query.fmetoken = currentToken
         }
-      } catch {
-        // If URL parsing fails, fall back to host pattern token
-        const currentToken = _fmeTokensByHost[host.toLowerCase()]
-        if (currentToken && !ro.query.fmetoken) {
-          ro.query.fmetoken = currentToken
-        }
+        // Always set Authorization header with correct FME Flow format
+        ro.headers.Authorization = `fmetoken token=${currentToken}`
+      } else {
+        // Debug: log when token is missing
+        console.warn(
+          "FME API - No token found for host:",
+          host.toLowerCase(),
+          "Available hosts:",
+          Object.keys(_fmeTokensByHost)
+        )
       }
     },
     _fmeInterceptor: true,
   })
+
+  // Test the pattern immediately
+  const testUrl = `${serverUrl}/test`
+  console.log(
+    "FME API - Testing pattern:",
+    pattern,
+    "against URL:",
+    testUrl,
+    "Matches:",
+    pattern.test(testUrl)
+  )
 }
 // Get max URL length from esriConfig if available; otherwise use default
 // Cache the result to avoid repeated config lookups
@@ -693,6 +718,28 @@ export class FmeFlowApiClient {
       cacheHint: false, // Disable header-insensitive caching
       repositoryContext: repo, // Add repository context for proper cache scoping
     })
+  }
+
+  async getWorkspaceParameters(
+    workspace: string,
+    repository?: string,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<WorkspaceParameter[]>> {
+    const repo = this.resolveRepository(repository)
+    const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
+    try {
+      console.log("EXB-API getWorkspaceParameters()", { repo, workspace })
+    } catch {}
+    return this.withApiError(
+      () =>
+        this.request<WorkspaceParameter[]>(endpoint, {
+          signal,
+          cacheHint: false, // Disable header-insensitive caching
+          repositoryContext: repo, // Add repository context for proper cache scoping
+        }),
+      "WORKSPACE_PARAMETERS_ERROR",
+      "WORKSPACE_PARAMETERS_ERROR"
+    )
   }
 
   // Generic request method
@@ -1209,6 +1256,31 @@ export class FmeFlowApiClient {
         responseType: "json",
         headers,
         signal: options.signal,
+      }
+
+      // BYPASS INTERCEPTOR - Add FME authentication directly
+      try {
+        const serverHost = extractHostFromUrl(
+          this.config.serverUrl
+        )?.toLowerCase()
+        const reqHost = new URL(
+          url,
+          globalThis.location?.origin || "http://d"
+        ).host.toLowerCase()
+        if (serverHost && reqHost === serverHost && this.config.token) {
+          console.log(
+            "FME API - Adding token directly to request (bypassing interceptor)"
+          )
+          // Add token as query parameter
+          if (!requestOptions.query.fmetoken) {
+            requestOptions.query.fmetoken = this.config.token
+          }
+          // Add Authorization header with correct FME Flow format
+          requestOptions.headers = requestOptions.headers || {}
+          requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+        }
+      } catch (e) {
+        console.warn("FME API - Error adding token directly:", e)
       }
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
