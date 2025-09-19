@@ -369,17 +369,13 @@ export const toWgs84PolygonJson = (
   }
 }
 
-export type AttachAoiResult =
-  | { ok: true; params: { [key: string]: unknown } }
-  | { ok: false; error: ErrorState }
-
 export const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
   modules: EsriModules | null | undefined,
   config?: FmeExportConfig
-): AttachAoiResult => {
+): { [key: string]: unknown } => {
   const paramName = sanitizeParamKey(config?.aoiParamName, "AreaOfInterest")
   let aoiJson: unknown = null
 
@@ -427,7 +423,7 @@ export const attachAoi = (
         } catch {}
       }
 
-      return { ok: true, params: out }
+      return out
     } catch (_) {
       const err: ErrorState = {
         message: "GEOMETRY_SERIALIZATION_FAILED",
@@ -438,11 +434,11 @@ export const attachAoi = (
         timestamp: new Date(),
         timestampMs: Date.now(),
       }
-      return { ok: false, error: err }
+      return { ...base, __aoi_error__: err }
     }
   }
 
-  return { ok: true, params: base }
+  return base
 }
 
 export const applyDirectiveDefaults = (
@@ -490,20 +486,14 @@ export const prepFmeParams = (
       : original
 
   const base = buildFmeParams({ data }, userEmail, chosen)
-  const aoiRes = attachAoi(base, geometryJson, currentGeometry, modules, config)
-  if (!aoiRes.ok) {
-    // escalate as error to let callers handle it explicitly
-    const errCode = (aoiRes as { ok: false; error: ErrorState }).error.code
-    const errType = (aoiRes as { ok: false; error: ErrorState }).error.type
-    const e = new Error(errCode || "GEOMETRY_SERIALIZATION_FAILED")
-    ;(e as any).code = errCode
-    ;(e as any).type = errType
-    throw e
-  }
-  return applyDirectiveDefaults(
-    (aoiRes as { ok: true; params: any }).params,
+  const withAoi = attachAoi(
+    base,
+    geometryJson,
+    currentGeometry,
+    modules,
     config
   )
+  return applyDirectiveDefaults(withAoi, config)
 }
 
 export function formatArea(area: number, modules: EsriModules): string {
@@ -619,11 +609,6 @@ export const buildParams = (
   }
 
   if (webhookDefaults) {
-    /**
-     * Data Download webhook expects sync|async only; schedule is not supported.
-     * We coerce schedule->async here to align with FME Flow webhook behavior.
-     * For REST v3 job submissions, scheduling is handled via submit APIs, not webhooks.
-     */
     urlParams.append("opt_responseformat", "json")
     urlParams.append("opt_showresult", "true")
     const raw = (params as any)?.opt_servicemode

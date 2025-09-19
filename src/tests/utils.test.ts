@@ -342,12 +342,10 @@ describe("shared/utils", () => {
       const modules: any = {
         Polygon: { fromJSON: (j: any) => ({ ...j, toJSON: () => j }) },
       }
-      const res = attachAoi(base, { geometry: poly }, undefined, modules, {
+      const out = attachAoi(base, { geometry: poly }, undefined, modules, {
         aoiGeoJsonParamName: "AOI_GJ",
         aoiWktParamName: "AOI_WKT",
       } as any)
-      expect(res.ok).toBe(true)
-      const out = (res as any).params
       expect(out.x).toBe(1)
       expect(typeof out.AreaOfInterest).toBe("string")
       expect(typeof out.AOI_GJ).toBe("string")
@@ -370,9 +368,9 @@ describe("shared/utils", () => {
       const modules: any = {
         Polygon: { fromJSON: (j: any) => ({ ...j, toJSON: () => j }) },
       }
-      const res = attachAoi(base, bad, undefined as any, modules)
-      expect(res.ok).toBe(false)
-      const err = (res as any).error
+      const out = attachAoi(base, bad, undefined as any, modules)
+      expect(Object.keys(out)).toContain("__aoi_error__")
+      const err = (out as any).__aoi_error__
       expect(err.code).toBe("GEOMETRY_SERIALIZATION_FAILED")
     })
 
