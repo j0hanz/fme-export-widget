@@ -3,9 +3,19 @@
   "fmeServerToken": "",
   "repository": "",
   "supportEmail": "",
+  "service": "download",
+  "syncMode": false,
+  "maskEmailOnSuccess": false,
   "requestTimeout": "",
   "maxArea": "",
   "tm_ttc": "",
   "tm_ttl": "",
-  "tm_tag": ""
+  "tm_tag": "",
+  "aoiParamName": "",
+  "aoiGeoJsonParamName": "",
+  "aoiWktParamName": "",
+  "uploadTargetParamName": "",
+  "allowScheduleMode": false,
+  "allowRemoteDataset": false,
+  "allowRemoteUrlDataset": false
 }
