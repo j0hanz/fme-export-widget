@@ -16,17 +16,29 @@ import {
   extractHttpStatus,
   isJson,
   maskToken,
-  isFileObject,
-  getFileDisplayName,
   validateRequiredConfig,
   isAuthError,
   mapErrorToKey,
 } from "./validations"
+import {
+  buildUrl,
+  resolveRequestUrl,
+  buildParams,
+  createHostPattern,
+  interceptorExists,
+  safeLogParams,
+  makeScopeId,
+  makeGeoJson,
+} from "./utils"
 
+// Construct a typed FME Flow API error with identical message and code.
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
 
-// Inline loader helper for EXB with error handling
+/**
+ * Dynamically loads ArcGIS JSAPI modules within EXB with test-mode short circuit.
+ * Throws a code-only error (ARCGIS_MODULE_ERROR) for consistent upstream handling.
+ */
 async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
   // Check test environment first for better performance
   if (process.env.NODE_ENV === "test") {
@@ -60,7 +72,9 @@ let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
 
-// Reset loaded ArcGIS modules (for testing purposes)
+/**
+ * Reset loaded ArcGIS modules cache and computed limits (used in tests).
+ */
 export function resetEsriCache(): void {
   _esriRequest = undefined
   _esriConfig = undefined
@@ -77,7 +91,9 @@ const isTestEnv = (): boolean =>
   (!!(process as any).env.JEST_WORKER_ID ||
     (process as any).env.NODE_ENV === "test")
 
-// ESRI module loading with caching and error handling
+/**
+ * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
+ */
 async function ensureEsri(): Promise<void> {
   // Quick return if already loaded
   if (
@@ -215,20 +231,7 @@ const API = {
 
 // Add interceptor to append fmetoken to requests to the specified server URL
 
-// Create a regex pattern to match the host in URLs
-const createHostPattern = (host: string): RegExp => {
-  const escapedHost = host.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
-  return new RegExp(`^https?://${escapedHost}`, "i")
-}
-
-// Check if an interceptor for the given host pattern already exists
-const interceptorExists = (interceptors: any[], pattern: RegExp): boolean => {
-  return (
-    interceptors?.some((it: any) => {
-      return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
-    }) ?? false
-  )
-}
+// helper moved to utils.ts: createHostPattern, interceptorExists
 
 async function addFmeInterceptor(
   serverUrl: string,
@@ -272,68 +275,17 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// Error handling utilities
-const toStr = (val: unknown): string => {
-  if (typeof val === "string") return val
-  if (typeof val === "number" || typeof val === "boolean") return String(val)
-  if (val && typeof val === "object") {
-    try {
-      return JSON.stringify(val)
-    } catch {
-      console.warn(
-        "FME API - Failed to stringify value for parameter conversion:",
-        val
-      )
-      return Object.prototype.toString.call(val)
-    }
-  }
-  return val === undefined
-    ? "undefined"
-    : val === null
-      ? "null"
-      : Object.prototype.toString.call(val)
-}
+// helper moved to utils.ts: toStr
 
-// URL building utilities
-const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  // Normalize server base by removing trailing /fmeserver or /fmerest and any trailing slash
-  const base = serverUrl
-    .replace(/\/(?:fmeserver|fmerest)$/i, "")
-    .replace(/\/$/, "")
-
-  // Encode each provided segment, while preserving internal slashes inside a segment string
-  const encodePath = (s: string): string =>
-    s
-      .split("/")
-      .filter((part) => Boolean(part) && part !== "." && part !== "..")
-      .map((p) => encodeURIComponent(p))
-      .join("/")
-
-  const path = segments
-    .filter((seg): seg is string => typeof seg === "string" && seg.length > 0)
-    .map((seg) => encodePath(seg))
-    .join("/")
-
-  return path ? `${base}/${path}` : base
-}
+// helpers moved to utils.ts: buildUrl
 
 // Create a stable scope ID from server URL, token, and repository for caching purposes
-function makeScopeId(
-  serverUrl: string,
-  token: string,
-  repository?: string
-): string {
-  const s = `${serverUrl}::${token || ""}::${repository || ""}`
-  // DJB2 hash function
-  let h = 5381
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h) ^ s.charCodeAt(i)
-  }
-  const n = Math.abs(h >>> 0)
-  return n.toString(36)
-}
+// helper moved to utils.ts: makeScopeId
 
-// Check if a webhook URL with parameters would exceed max length
+/**
+ * Computes whether a webhook URL would exceed the max supported URL length.
+ * Includes default opt_* params and token if supplied.
+ */
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
@@ -361,54 +313,9 @@ export function isWebhookUrlTooLong(
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
 
-const resolveRequestUrl = (
-  endpoint: string,
-  serverUrl: string,
-  basePath: string
-): string => {
-  if (endpoint.startsWith("http")) {
-    return endpoint
-  }
-  if (endpoint.startsWith("/fme")) {
-    return buildUrl(serverUrl, endpoint.slice(1))
-  }
-  return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
-}
+// helper moved to utils.ts: resolveRequestUrl
 
-const buildParams = (
-  params: PrimitiveParams = {},
-  excludeKeys: string[] = [],
-  webhookDefaults = false
-): URLSearchParams => {
-  const urlParams = new URLSearchParams()
-  if (!params || typeof params !== "object") return urlParams
-
-  const excludeSet = new Set(excludeKeys)
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || excludeSet.has(key)) continue
-
-    // Special handling for File objects: use file name instead of full object
-    if (isFileObject(value)) {
-      urlParams.append(key, getFileDisplayName(value))
-      continue
-    }
-
-    urlParams.append(key, toStr(value))
-  }
-
-  // Add webhook-specific defaults if requested
-  if (webhookDefaults) {
-    urlParams.append("opt_responseformat", "json")
-    urlParams.append("opt_showresult", "true")
-    // Default to async unless explicitly set to "sync"
-    const raw = (params as any)?.opt_servicemode
-    const requested = typeof raw === "string" ? raw.trim().toLowerCase() : ""
-    const mode = requested === "sync" ? "sync" : "async"
-    urlParams.append("opt_servicemode", mode)
-  }
-
-  return urlParams
-}
+// helper moved to utils.ts: buildParams
 
 // Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
@@ -441,12 +348,7 @@ const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
   }
 }
 
-const makeGeoJson = (polygon: __esri.Polygon) => ({
-  type: "Polygon" as const,
-  coordinates: (polygon.rings || []).map((ring: any[]) =>
-    ring.map((pt: any) => [pt[0], pt[1]] as [number, number])
-  ),
-})
+// helper moved to utils.ts: makeGeoJson
 
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   await ensureEsri()
@@ -469,6 +371,8 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
   statusText: "requestAborted",
 })
 
+// helper moved to utils.ts: safeLogParams
+
 export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
@@ -480,6 +384,7 @@ export class FmeFlowApiClient {
     void addFmeInterceptor(config.serverUrl, config.token)
   }
 
+  /** Upload a file/blob to FME temp shared resource. */
   async uploadToTemp(
     file: File | Blob,
     options?: { subfolder?: string; signal?: AbortSignal }
@@ -652,6 +557,9 @@ export class FmeFlowApiClient {
     void addFmeInterceptor(this.config.serverUrl, this.config.token)
   }
 
+  /**
+   * Calls /info on FME server to verify connectivity and get version info.
+   */
   async testConnection(
     signal?: AbortSignal
   ): Promise<ApiResponse<{ build: string; version: string }>> {
@@ -931,20 +839,12 @@ export class FmeFlowApiClient {
         }
 
         // Best-effort safe logging without sensitive params
-        try {
-          const safeParams = new URLSearchParams()
-          for (const k of API.WEBHOOK_LOG_WHITELIST) {
-            const v = params.get(k)
-            if (v !== null) safeParams.set(k, v)
-          }
-          console.log(
-            "STREAMING_CALL",
-            url.split("?")[0],
-            `params=${safeParams.toString()}`
-          )
-        } catch {
-          /* ignore logging issues */
-        }
+        safeLogParams(
+          "STREAMING_CALL",
+          url.split("?")[0],
+          params,
+          API.WEBHOOK_LOG_WHITELIST
+        )
 
         const response = await fetch(url, {
           method: "POST",
@@ -1058,21 +958,13 @@ export class FmeFlowApiClient {
         // If any unexpected error occurs during length validation, proceed with webhook
       }
 
-      try {
-        const safeParams = new URLSearchParams()
-        for (const k of API.WEBHOOK_LOG_WHITELIST) {
-          const v = params.get(k)
-          if (v !== null) safeParams.set(k, v)
-        }
-        console.log(
-          "WEBHOOK_CALL",
-          webhookUrl,
-          `params=${safeParams.toString()}`
-        )
-      } catch {
-        console.warn("FME API - Failed to log webhook parameters safely")
-        /* ignore logging issues */
-      }
+      // Best-effort safe logging without sensitive params
+      safeLogParams(
+        "WEBHOOK_CALL",
+        webhookUrl,
+        params,
+        API.WEBHOOK_LOG_WHITELIST
+      )
 
       const response = await fetch(fullUrl, {
         method: "GET",
@@ -1337,6 +1229,9 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   timeout: config.requestTimeout,
 })
 
+/**
+ * Factory to construct the API client with normalized config and validation.
+ */
 export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   const normalizedConfig = normalizeConfigParams(config)
   try {

@@ -9,7 +9,6 @@ import {
   ReactRedux,
   type IMState,
   WidgetState,
-  SessionManager,
 } from "jimu-core"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
@@ -49,11 +48,19 @@ import {
   calcArea,
   validatePolygon,
   checkMaxArea,
-  isPolygonGeometry,
   processFmeResponse,
 } from "../shared/validations"
 import { fmeActions, initialFmeState } from "../extensions/store"
-import { resolveMessageOrKey, buildSupportHintText } from "../shared/utils"
+import {
+  resolveMessageOrKey,
+  buildSupportHintText,
+  getEmail,
+  attachAoi,
+  prepFmeParams,
+  determineServiceMode,
+  applyDirectiveDefaults,
+  formatArea,
+} from "../shared/utils"
 
 // Dynamic ESRI module loader with test environment support
 const loadEsriModules = async (
@@ -123,11 +130,32 @@ const MODULES = [
   "esri/Graphic",
 ] as const
 
-// Area calculation and formatting
-const GEOMETRY_CONSTS = {
-  M2_PER_KM2: 1_000_000, // m² -> 1 km²
-  AREA_DECIMALS: 2,
-} as const
+// Area constants and param sanitation now live in shared/utils
+
+// Small runtime helpers to reduce duplication
+const safeCancelSketch = (vm?: __esri.SketchViewModel | null): void => {
+  if (!vm) return
+  try {
+    vm.cancel()
+  } catch {}
+}
+
+const safeClearLayer = (layer?: __esri.GraphicsLayer | null): void => {
+  if (!layer) return
+  try {
+    layer.removeAll()
+  } catch {}
+}
+
+const abortAndClear = (
+  ref: React.MutableRefObject<AbortController | null>
+): void => {
+  if (!ref?.current) return
+  try {
+    ref.current.abort()
+  } catch {}
+  ref.current = null
+}
 
 // Module loading hook
 const useModules = (): {
@@ -303,271 +331,6 @@ const useAbortController = () => {
   return { ref, cancel, create }
 }
 
-// Determine service mode based on form values and config
-const determineServiceMode = (
-  formData: unknown,
-  config?: FmeExportConfig
-): "sync" | "async" | "schedule" => {
-  const data = (formData as any)?.data || {}
-  const startValRaw = data.start as unknown
-  const hasStart =
-    typeof startValRaw === "string" && startValRaw.trim().length > 0
-  if (config?.allowScheduleMode && hasStart) return "schedule"
-  const override = data._serviceMode as string
-  if (override === "sync" || override === "async" || override === "schedule") {
-    return override as any
-  }
-  return config?.syncMode ? "sync" : "async"
-}
-
-// Build base FME parameters
-const buildFmeParams = (
-  formData: unknown,
-  userEmail: string,
-  serviceMode: "sync" | "async" | "schedule" = "async"
-): { [key: string]: unknown } => {
-  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
-  // allowlist service mode
-  const allowedModes = ["sync", "async", "schedule"] as const
-  const mode = (allowedModes as readonly string[]).includes(serviceMode)
-    ? serviceMode
-    : "async"
-  const base = {
-    ...data,
-    opt_servicemode: mode,
-    opt_responseformat: "json",
-    opt_showresult: "true",
-  } as { [key: string]: unknown }
-  // Only include requester email for async mode
-  if (mode === "async" && typeof userEmail === "string" && userEmail.trim()) {
-    base.opt_requesteremail = userEmail
-  }
-  return base
-}
-
-// Helper: build GeoJSON Polygon from Esri polygon JSON
-const polygonJsonToGeoJson = (poly: any): any => {
-  const rings = Array.isArray(poly?.rings) ? poly.rings : []
-  const coords = rings.map((ring: any[]) =>
-    (Array.isArray(ring) ? ring : []).map((pt: any) => [pt[0], pt[1]])
-  )
-  return { type: "Polygon", coordinates: coords }
-}
-
-// Helper: build WKT POLYGON or MULTIPOLYGON from Esri polygon JSON
-const polygonJsonToWkt = (poly: any): string => {
-  const rings = Array.isArray(poly?.rings) ? poly.rings : []
-  if (!rings.length) return "POLYGON EMPTY"
-
-  // FME/WKT expects outer ring(s) CCW and holes CW, but we'll emit rings as-is
-  // using polygon with inner rings.
-  const ringToText = (ring: any[]): string => {
-    const arr = Array.isArray(ring) ? ring.slice() : []
-    // Ensure ring is closed (first == last)
-    if (arr.length > 0) {
-      const first = arr[0]
-      const last = arr[arr.length - 1]
-      const same =
-        Array.isArray(first) &&
-        Array.isArray(last) &&
-        first.length >= 2 &&
-        last.length >= 2 &&
-        first[0] === last[0] &&
-        first[1] === last[1]
-      if (!same) arr.push(first)
-    }
-    const coords = arr.map((pt: any) => `${pt[0]} ${pt[1]}`).join(", ")
-    return `(${coords})`
-  }
-
-  // Group first ring as shell and remaining as holes for a single polygon
-  const wktRings = rings.map(ringToText).join(", ")
-  return `POLYGON(${wktRings})`
-}
-
-// Convert polygon JSON to WGS84 if needed, using provided Esri modules.
-const toWgs84PolygonJson = (
-  polyJson: any,
-  modules: EsriModules | null | undefined
-): any => {
-  try {
-    const Polygon = modules?.Polygon
-    const wmUtils = modules?.webMercatorUtils
-    if (!Polygon) return polyJson
-
-    const poly = Polygon.fromJSON(polyJson)
-    const wkid = poly?.spatialReference?.wkid
-
-    // Already WGS84
-    if (wkid === 4326) return poly.toJSON()
-
-    // WebMercator -> WGS84
-    if (wkid === 3857 && wmUtils?.webMercatorToGeographic) {
-      const g = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
-      return g?.toJSON?.() ?? poly.toJSON()
-    }
-    return poly.toJSON()
-  } catch {
-    // On any failure, return original input unmodified
-    return polyJson
-  }
-}
-
-// Attach AOI to FME parameters
-const attachAoi = (
-  base: { [key: string]: unknown },
-  geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined,
-  modules: EsriModules | null | undefined,
-  config?: FmeExportConfig
-): { [key: string]: unknown } => {
-  // Sanitize parameter name to safe characters
-  const rawName = (config?.aoiParamName || "AreaOfInterest").toString()
-  const safeName = rawName.replace(/[^A-Za-z0-9_\-]/g, "").trim()
-  const paramName = safeName || "AreaOfInterest"
-  let aoiJson: unknown = null
-
-  // Use the provided geometry JSON if it's a valid polygon
-  if (isPolygonGeometry(geometryJson)) {
-    aoiJson = "geometry" in geometryJson ? geometryJson.geometry : geometryJson
-  } else {
-    // As a fallback, use the current geometry from the map state
-    const geometryToUse = currentGeometry?.toJSON()
-    if (isPolygonGeometry(geometryToUse)) {
-      aoiJson = geometryToUse
-    }
-  }
-
-  if (aoiJson) {
-    try {
-      const serialized = JSON.stringify(aoiJson)
-      const out: { [key: string]: unknown } = {
-        ...base,
-        [paramName]: serialized,
-      }
-
-      // Optionally add GeoJSON AOI if configured
-      const gjName = (config?.aoiGeoJsonParamName || "").toString().trim()
-      if (gjName) {
-        try {
-          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
-          const geojson = polygonJsonToGeoJson(wgs84Poly)
-          out[gjName] = JSON.stringify(geojson)
-        } catch (e) {
-          // ignore geojson conversion failure, keep Esri JSON
-        }
-      }
-
-      // Optionally add WKT AOI if configured
-      const wktName = (config?.aoiWktParamName || "").toString().trim()
-      if (wktName) {
-        try {
-          const wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
-          const wkt = polygonJsonToWkt(wgs84Poly)
-          out[wktName] = wkt
-        } catch (e) {
-          // ignore wkt conversion failure, keep Esri JSON
-        }
-      }
-
-      return out
-    } catch (_) {
-      // If we have geometry but cannot serialize, signal a user-facing error via a marker key.
-      // The caller path will convert this into a localized error message.
-      const err: ErrorState = {
-        message: "GEOMETRY_SERIALIZATION_FAILED",
-        type: ErrorType.GEOMETRY,
-        code: "GEOMETRY_SERIALIZATION_FAILED",
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-      }
-      // Store an error marker to be handled by submission path
-      return { ...base, __aoi_error__: err }
-    }
-  }
-
-  return base
-}
-
-// Get and validate user email
-const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
-  const user = await SessionManager.getInstance().getUserInfo()
-  const email = user?.email
-  if (!email) {
-    const err = new Error("MISSING_REQUESTER_EMAIL")
-    err.name = "MISSING_REQUESTER_EMAIL"
-    throw err
-  }
-  if (!isValidEmail(email)) {
-    const err = new Error("INVALID_EMAIL")
-    err.name = "INVALID_EMAIL"
-    throw err
-  }
-  return email
-}
-
-// Prepare FME parameters for submission
-const prepFmeParams = (
-  formData: unknown,
-  userEmail: string,
-  geometryJson: unknown,
-  currentGeometry: __esri.Geometry | undefined,
-  modules: EsriModules | null | undefined,
-  config?: FmeExportConfig
-): { [key: string]: unknown } => {
-  const data = (formData as any)?.data || {}
-  // Determine service mode consistently
-  const chosen = determineServiceMode({ data }, config)
-
-  // Ensure schedule directives when chosen
-  if (chosen === "schedule") {
-    if (!data.trigger) data.trigger = "runonce"
-    // 'start' expected in 'YYYY-MM-DD HH:mm:ss' from the form
-  }
-
-  const base = buildFmeParams({ data }, userEmail, chosen)
-  const withAoi = attachAoi(
-    base,
-    geometryJson,
-    currentGeometry,
-    modules,
-    config
-  )
-  return applyDirectiveDefaults(withAoi, config)
-}
-
-// Apply admin defaults for FME Task Manager directives
-const applyDirectiveDefaults = (
-  params: { [key: string]: unknown },
-  config?: FmeExportConfig
-): { [key: string]: unknown } => {
-  if (!config) return params
-  const out: { [key: string]: unknown } = { ...params }
-  const has = (k: string) => Object.prototype.hasOwnProperty.call(out, k)
-
-  const toPosInt = (v: unknown): number | undefined => {
-    const n = typeof v === "string" ? Number(v) : (v as number)
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
-  }
-
-  if (!has("tm_ttc")) {
-    const v = toPosInt(config.tm_ttc)
-    if (v !== undefined) out.tm_ttc = v
-  }
-  if (!has("tm_ttl")) {
-    const v = toPosInt(config.tm_ttl)
-    if (v !== undefined) out.tm_ttl = v
-  }
-  if (!has("tm_tag")) {
-    const v = typeof config.tm_tag === "string" ? config.tm_tag.trim() : ""
-    if (v) out.tm_tag = v.substring(0, 128)
-  }
-
-  return out
-}
-
 // Initialize graphics layers for drawing
 const createLayers = (
   jmv: JimuMapView,
@@ -721,36 +484,7 @@ const setupSketchEventHandlers = (
   })
 }
 
-// Area formatting with i18n support
-export function formatArea(area: number, modules: EsriModules): string {
-  if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
-
-  // Use consistent formatting approach
-  const formatNumber = (value: number, decimals: number): string => {
-    const intlModule = (modules as any)?.intl
-    if (intlModule && typeof intlModule.formatNumber === "function") {
-      return intlModule.formatNumber(value, {
-        style: "decimal",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: decimals,
-      })
-    }
-    return value.toLocaleString(undefined, {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: decimals,
-    })
-  }
-
-  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
-    const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
-    const formatted = formatNumber(areaInSqKm, GEOMETRY_CONSTS.AREA_DECIMALS)
-    return `${formatted} km²`
-  }
-
-  const roundedArea = Math.round(area)
-  const formatted = formatNumber(roundedArea, 0)
-  return `${formatted} m²`
-}
+// Area formatting is imported from shared/utils
 
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
@@ -952,10 +686,7 @@ export default function Widget(
   const runStartupValidation = hooks.useEventCallback(async () => {
     // Skip if widget is not active
     if (startupAbortRef.current) {
-      try {
-        startupAbortRef.current.abort()
-      } catch (_) {}
-      startupAbortRef.current = null
+      abortAndClear(startupAbortRef)
     }
     const controller = new AbortController()
     startupAbortRef.current = controller
@@ -1061,14 +792,10 @@ export default function Widget(
       // Cancel any ongoing submission
       submissionController.cancel()
       if (sketchViewModel) {
-        try {
-          sketchViewModel.cancel()
-        } catch (_) {}
+        safeCancelSketch(sketchViewModel)
       }
       if (graphicsLayer) {
-        try {
-          graphicsLayer.removeAll()
-        } catch (_) {}
+        safeClearLayer(graphicsLayer)
       }
       // Reset local state
       setCurrentGeometry(null)
@@ -1142,10 +869,7 @@ export default function Widget(
       } else if (repoChanged) {
         // Repository change only requires resetting selection and revalidation
         if (startupAbortRef.current) {
-          try {
-            startupAbortRef.current.abort()
-          } catch (_) {}
-          startupAbortRef.current = null
+          abortAndClear(startupAbortRef)
         }
       }
     } catch (error) {
@@ -1377,10 +1101,9 @@ export default function Widget(
       const wantsUpload =
         props.config?.allowRemoteDataset && uploadFile instanceof File
       if (typeof finalParams.opt_geturl === "undefined" && wantsUpload) {
-        const fmeClientForUpload = createFmeFlowClient(props.config)
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
-          fmeClientForUpload.uploadToTemp(uploadFile, {
+          fmeClient.uploadToTemp(uploadFile, {
             subfolder,
             signal: controller.signal,
           })
@@ -1496,11 +1219,7 @@ export default function Widget(
   // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
   hooks.useUpdateEffect(() => {
     if (!isActive && sketchViewModel) {
-      try {
-        sketchViewModel.cancel()
-      } catch (e) {
-        // noop
-      }
+      safeCancelSketch(sketchViewModel)
     }
   }, [isActive, sketchViewModel])
 
@@ -1520,10 +1239,7 @@ export default function Widget(
       submissionController.cancel()
       // Abort any in-flight startup validation
       if (startupAbortRef.current) {
-        try {
-          startupAbortRef.current.abort()
-        } catch (_) {}
-        startupAbortRef.current = null
+        abortAndClear(startupAbortRef)
       }
       cleanupResources()
     }
@@ -1562,11 +1278,7 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Ensure any in-progress draw is canceled before starting a new one
-    try {
-      sketchViewModel.cancel()
-    } catch (e) {
-      // ignore cancellation errors
-    }
+    safeCancelSketch(sketchViewModel)
 
     // Start drawing immediately; prior cancel avoids overlap
     const arg: "rectangle" | "polygon" =
@@ -1616,11 +1328,7 @@ export default function Widget(
 
     // Cancel any in-progress drawing
     if (sketchViewModel) {
-      try {
-        sketchViewModel.cancel()
-      } catch (e) {
-        // ignore cancellation errors
-      }
+      safeCancelSketch(sketchViewModel)
     }
 
     // Reset Redux state
@@ -1865,6 +1573,7 @@ export {
   attachAoi,
   isValidExternalUrlForOptGetUrl,
   prepFmeParams,
+  formatArea,
   calcArea,
   validatePolygon,
   processFmeResponse,

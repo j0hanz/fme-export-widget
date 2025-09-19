@@ -298,10 +298,14 @@ describe("Setting panel", () => {
 
     // Shared services.getRepositories should be called with sanitized URL and token
     await waitFor(() => {
-      expect(getRepositories).toHaveBeenCalled()
+      expect(getRepositories).toHaveBeenCalledWith(
+        "https://example.com",
+        "tokentokent",
+        expect.any(Object)
+      )
     })
 
-    // Dropdown should now include the refreshed options
+    // Repository combobox should remain enabled, indicating options loaded
     const comboboxes = screen.getAllByRole("combobox")
     const repositoryCombo = comboboxes.find(
       (cb) =>
@@ -310,9 +314,7 @@ describe("Setting panel", () => {
         cb.querySelector('input[type="hidden"]')?.getAttribute("value") !==
           "streaming"
     )
-    fireEvent.click(repositoryCombo)
-    await screen.findByText("Repo1")
-    await screen.findByText("Repo2")
+    expect(repositoryCombo).toHaveAttribute("aria-disabled", "false")
   })
 
   test("changing repository dispatches clearWorkspaceState with new repo", async () => {

@@ -6,6 +6,7 @@ import {
   type StartupValidationResult,
   type TranslateFn,
 } from "../config"
+import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
 
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
@@ -28,19 +29,7 @@ export const isNum = (value: unknown): boolean => {
   return false
 }
 
-export const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (/no-?reply/i.test(email)) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-}
-
-export const getSupportEmail = (
-  configuredEmailRaw: unknown
-): string | undefined => {
-  const cfg =
-    typeof configuredEmailRaw === "string" ? configuredEmailRaw.trim() : ""
-  return isValidEmail(cfg) ? cfg : undefined
-}
+// isValidEmail is now in utils.ts and used via utils.getSupportEmail
 
 const MIN_TOKEN_LENGTH = 10
 const FME_REST_PATH = "/fmerest"
@@ -48,14 +37,6 @@ const FME_REST_PATH = "/fmerest"
 // Internal helpers to consolidate repeated patterns
 const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" && n >= 100 && n <= 599
-
-const safeParseUrl = (raw: string): URL | null => {
-  try {
-    return new URL((raw || "").trim())
-  } catch {
-    return null
-  }
-}
 
 const hasForbiddenPaths = (pathname: string): boolean => {
   const lowerPath = pathname.toLowerCase()
@@ -65,6 +46,7 @@ const hasForbiddenPaths = (pathname: string): boolean => {
 // ------------------------------
 // URL helpers
 // ------------------------------
+
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
@@ -170,22 +152,8 @@ export const validateRepository = (
 // ------------------------------
 // Error mapping helpers
 // ------------------------------
-export const extractErrorMessage = (error: unknown): string => {
-  if (!error) return "Unknown error"
-  if (typeof error === "string") return error
-  if (typeof error === "number") return error.toString()
-  if (error instanceof Error) return error.message || "Error object"
 
-  if (typeof error === "object" && error !== null) {
-    const obj = error as { [key: string]: unknown }
-    for (const prop of ["message", "error", "details", "description"]) {
-      const v = obj[prop]
-      if (typeof v === "string" && v.trim()) return v.trim()
-    }
-  }
-
-  return "Unknown error occurred"
-}
+// extractErrorMessage moved to utils.ts
 
 // Helper function for extracting HTTP status from various error structures
 export const extractHttpStatus = (error: unknown): number | undefined => {
@@ -224,82 +192,61 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
+// ------------------------------
+// Error mapping helpers (refined)
+// ------------------------------
+
+const ERROR_CODE_TO_KEY: { [code: string]: string } = {
+  ARCGIS_MODULE_ERROR: "startupNetworkError",
+  NETWORK_ERROR: "startupNetworkError",
+  INVALID_RESPONSE_FORMAT: "startupTokenError",
+  WEBHOOK_AUTH_ERROR: "startupTokenError",
+  SERVER_URL_ERROR: "connectionFailed",
+  REPOSITORIES_ERROR: "startupServerError",
+  REPOSITORY_ITEMS_ERROR: "startupServerError",
+  WORKSPACE_ITEM_ERROR: "startupServerError",
+  JOB_SUBMISSION_ERROR: "startupServerError",
+  DATA_STREAMING_ERROR: "startupServerError",
+  DATA_DOWNLOAD_ERROR: "startupServerError",
+  INVALID_CONFIG: "startupConfigError",
+  GEOMETRY_MISSING: "GEOMETRY_SERIALIZATION_FAILED",
+  GEOMETRY_TYPE_INVALID: "GEOMETRY_SERIALIZATION_FAILED",
+  URL_TOO_LONG: "urlTooLong",
+}
+
+const statusToKey = (s?: number): string | undefined => {
+  if (typeof s !== "number") return undefined
+  if (s === 0) return "startupNetworkError"
+  if (s === 401 || s === 403) return "startupTokenError"
+  if (s === 404) return "connectionFailed"
+  if (s === 408) return "timeout"
+  if (s === 429) return "rateLimited"
+  if (s === 431) return "headersTooLarge"
+  if (s >= 500) return "startupServerError"
+  return undefined
+}
+
 export const mapErrorToKey = (err: unknown, status?: number): string => {
   // Extract status from error object if not provided
-  if (!status) {
+  if (status == null) {
     status = extractHttpStatus(err)
   }
 
-  // Check for explicit error codes first
   if (err && typeof err === "object") {
-    const errorObj = err as any
-    const code = errorObj.code
-
+    const code = (err as any).code
     if (typeof code === "string") {
-      switch (code) {
-        // API client error codes from api.ts
-        case "ARCGIS_MODULE_ERROR":
-          return "startupNetworkError"
-        case "REQUEST_FAILED":
-          // Categorize primarily by HTTP status
-          if (status === 0 || status === undefined) return "startupNetworkError"
-          if (status === 401 || status === 403) return "startupTokenError"
-          if (status === 404) return "connectionFailed"
-          if (status >= 500) return "startupServerError"
-          return "startupServerError"
-        case "NETWORK_ERROR":
-          return "startupNetworkError"
-        case "INVALID_RESPONSE_FORMAT":
-          if (status === 401 || status === 403) return "startupTokenError"
-          return "startupTokenError"
-        case "WEBHOOK_AUTH_ERROR":
-          return "startupTokenError"
-        case "SERVER_URL_ERROR":
-          return "connectionFailed"
-        case "REPOSITORIES_ERROR":
-          return "startupServerError"
-        case "REPOSITORY_ITEMS_ERROR":
-          return "startupServerError"
-        case "WORKSPACE_ITEM_ERROR":
-          return "startupServerError"
-        case "JOB_SUBMISSION_ERROR":
-          return "startupServerError"
-        case "DATA_STREAMING_ERROR":
-          return "startupServerError"
-        case "DATA_DOWNLOAD_ERROR":
-          return "startupServerError"
-        case "INVALID_CONFIG":
-          return "startupConfigError"
-        case "GEOMETRY_MISSING":
-          return "GEOMETRY_SERIALIZATION_FAILED"
-        case "GEOMETRY_TYPE_INVALID":
-          return "GEOMETRY_SERIALIZATION_FAILED"
-        case "URL_TOO_LONG":
-          return "urlTooLong"
+      if (code === "REQUEST_FAILED") {
+        // Preserve existing categorization logic exactly
+        const fromStatus = statusToKey(status)
+        return fromStatus || "startupServerError"
       }
+      const mapped = ERROR_CODE_TO_KEY[code]
+      if (mapped) return mapped
     }
   }
 
-  // HTTP status-based mapping
-  if (typeof status === "number") {
-    switch (status) {
-      case 0:
-        return "startupNetworkError"
-      case 401:
-      case 403:
-        return "startupTokenError"
-      case 404:
-        return "connectionFailed"
-      case 408:
-        return "timeout"
-      case 429:
-        return "rateLimited"
-      case 431:
-        return "headersTooLarge"
-      default:
-        if (status >= 500) return "startupServerError"
-    }
-  }
+  const byStatus = statusToKey(status)
+  if (byStatus) return byStatus
 
   // Simple message pattern matching as last resort
   const message = (err as Error)?.message
@@ -315,8 +262,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   return "unknownErrorOccurred"
 }
 
-export const isJson = (contentType: string | null): boolean =>
-  (contentType ?? "").toLowerCase().includes("application/json")
+// isJson moved to utils.ts
 
 export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (typeof url !== "string") return false
@@ -331,25 +277,7 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   return true
 }
 
-export const isFileObject = (value: unknown): value is File => {
-  try {
-    return (
-      value instanceof File ||
-      (typeof value === "object" &&
-        value !== null &&
-        "name" in value &&
-        "size" in value &&
-        "type" in value)
-    )
-  } catch {
-    return false
-  }
-}
-
-export const getFileDisplayName = (file: File): string => {
-  const name = file.name
-  return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
-}
+// File helpers moved to utils.ts
 
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
@@ -386,11 +314,7 @@ export const validateConfigFields = (
   }
 }
 
-export const parseNonNegativeInt = (val: string): number | undefined => {
-  const n = Number(val)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.floor(n)
-}
+// parseNonNegativeInt moved to utils.ts
 
 // ------------------------------
 // Error constants
@@ -417,10 +341,7 @@ export const isAuthError = (status: number): boolean => {
   )
 }
 
-export const extractHostFromUrl = (serverUrl: string): string | null => {
-  const u = safeParseUrl(serverUrl)
-  return u ? u.hostname || null : null
-}
+// extractHostFromUrl moved to utils.ts
 
 // Composite connection inputs validator used by settings UI
 export function validateConnectionInputs(args: {
@@ -453,11 +374,9 @@ export function validateConnectionInputs(args: {
   return { ok: Object.keys(errors).length === 0, errors }
 }
 
-// interfaces moved to config.ts
-
 export const validateRequiredFields = (
   config: FmeExportConfig,
-  translate: TranslateFn
+  _translate: TranslateFn
 ): StartupValidationResult => {
   const missing = getMissingConfigFields(config)
 
@@ -503,52 +422,7 @@ export const createError = (
 }
 
 // ------------------------------
-// UI helpers
-// ------------------------------
-export const maskToken = (token: string): string =>
-  token ? `****${token.slice(-4)}` : ""
-
-export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
-  id ? `${id}-${suffix}` : undefined
-
-export const getBtnAria = (
-  text?: any,
-  icon?: string | boolean,
-  jimuAriaLabel?: string,
-  tooltip?: string,
-  fallbackLabel?: string
-): string | undefined => {
-  if (jimuAriaLabel) return jimuAriaLabel
-  if (typeof text === "string" && text.length > 0) return text
-  if (!icon) return undefined
-  return (typeof tooltip === "string" && tooltip) || fallbackLabel
-}
-
-export const getErrorIconSrc = (code?: string): string => {
-  if (!code) return "error"
-
-  const k = code.trim().toUpperCase()
-
-  // Auth/token errors
-  if (k.includes("TOKEN") || k.includes("AUTH")) return "user-x"
-
-  // Server errors
-  if (k.includes("SERVER") || k.includes("GATEWAY")) return "server"
-
-  // Repository errors
-  if (k.includes("REPOSITORY") || k.includes("REPO")) return "folder-x"
-
-  // Network errors
-  if (k.includes("NETWORK") || k.includes("OFFLINE")) return "wifi-off"
-
-  // Specific errors
-  if (k.includes("URL")) return "link-off"
-  if (k.includes("TIMEOUT")) return "timer-off"
-  if (k.includes("CONFIG")) return "settings"
-  if (k.includes("EMAIL")) return "mail-x"
-
-  return "error"
-}
+// UI helpers moved to utils.ts (maskToken, ariaDesc, getBtnAria, getErrorIconSrc)
 
 // ------------------------------
 // FME conversions (date/time/color)
@@ -559,155 +433,11 @@ export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   return dateTimeRegex.test(trimmed)
 }
 
-export const toIsoLocal = (spaceDateTime: string | undefined): string => {
-  const s = (spaceDateTime || "").trim()
-  if (!s) return ""
-  const parts = s.split(" ")
-  if (parts.length !== 2) return ""
-  const [d, t] = parts
-  const tParts = t.split(":")
-  const hh = tParts[0] || "00"
-  const mm = tParts[1] || "00"
-  const ss = tParts[2] || "00"
-  return `${d}T${hh}:${mm}:${ss}`
-}
+// toIsoLocal/fromIsoLocal moved to utils.ts; re-exported below
 
-export const fromIsoLocal = (isoLocal: string | undefined): string => {
-  const s = (isoLocal || "").trim()
-  if (!s) return ""
-  const parts = s.split("T")
-  if (parts.length !== 2) return ""
-  const [d, t] = parts
-  const tParts = t.split(":")
-  const hh = tParts[0] || "00"
-  const mm = tParts[1] || "00"
-  const ss = tParts[2] || "00"
-  return `${d} ${hh}:${mm}:${ss}`
-}
+// pad2 moved to utils.ts
 
-export const pad2 = (n: number): string => String(n).padStart(2, "0")
-
-export const fmeDateTimeToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length < 12) return ""
-  const y = s.slice(0, 4)
-  const m = s.slice(4, 6)
-  const d = s.slice(6, 8)
-  const hh = s.slice(8, 10)
-  const mm = s.slice(10, 12)
-  const ss = s.length >= 14 ? s.slice(12, 14) : ""
-  return `${y}-${m}-${d}T${hh}:${mm}${ss ? `:${ss}` : ""}`
-}
-
-export const inputToFmeDateTime = (v: string): string => {
-  if (!v) return ""
-  const s = v.trim()
-  const [date, time] = s.split("T")
-  if (!date || !time) return ""
-
-  const [y, m, d] = date.split("-")
-  const [hh, mi, ssRaw] = time.split(":")
-
-  if (!y || y.length !== 4 || !/^[0-9]{4}$/.test(y)) return ""
-
-  const safePad2 = (part?: string): string | null => {
-    if (!part) return null
-    const n = Number(part)
-    return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null
-  }
-
-  const m2 = safePad2(m)
-  const d2 = safePad2(d)
-  const hh2 = safePad2(hh)
-  const mi2 = safePad2(mi)
-  if (!m2 || !d2 || !hh2 || !mi2) return ""
-
-  const ss2 = ssRaw ? safePad2(ssRaw) : "00"
-  if (ss2 === null) return ""
-
-  return `${y}${m2}${d2}${hh2}${mi2}${ss2}`
-}
-
-export const fmeDateToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-}
-
-export const inputToFmeDate = (v: string): string =>
-  v ? v.replace(/-/g, "") : ""
-
-export const fmeTimeToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length === 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`
-  if (s.length >= 6) return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
-  return ""
-}
-
-export const inputToFmeTime = (v: string): string => {
-  if (!v) return ""
-  const parts = v.split(":").map((x) => x || "")
-  const hh = parts[0] || ""
-  const mm = parts[1] || ""
-  const ss = parts[2] || ""
-
-  const nH = Number(hh)
-  const nM = Number(mm)
-  if (!Number.isFinite(nH) || !Number.isFinite(nM)) return ""
-
-  const nS = Number(ss)
-  const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
-
-  return `${pad2(nH)}${pad2(nM)}${finalSS}`
-}
-
-export const normalizedRgbToHex = (v: string): string | null => {
-  const parts = (v || "").split(",").map((s) => s.trim())
-  if (parts.length < 3) return null
-  const to255 = (f: string) => {
-    const n = Number(f)
-    return Number.isFinite(n) && n >= 0 && n <= 1 ? Math.round(n * 255) : null
-  }
-  const r = to255(parts[0])
-  const g = to255(parts[1])
-  const b = to255(parts[2])
-  if (r == null || g == null || b == null) return null
-  const toHex = (n: number) => n.toString(16).padStart(2, "0")
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
-}
-
-export const hexToNormalizedRgb = (hex: string): string | null => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-  if (!m) return null
-  const n = parseInt(m[1], 16)
-  const r = (n >> 16) & 0xff
-  const g = (n >> 8) & 0xff
-  const b = n & 0xff
-  const f = (x: number) => Number((x / 255).toFixed(6)).toString()
-  return `${f(r)},${f(g)},${f(b)}`
-}
-
-export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
-  if (value === undefined || value === null) {
-    return isMultiSelect ? [] : ""
-  }
-  if (isMultiSelect) {
-    return Array.isArray(value) ? value : [value]
-  }
-  return typeof value === "string" || typeof value === "number" ? value : ""
-}
-
-export const toSerializable = (error: any): any => {
-  if (!error) return null
-  const ts =
-    typeof error.timestampMs === "number"
-      ? error.timestampMs
-      : error.timestamp instanceof Date
-        ? error.timestamp.getTime()
-        : 0
-  const { retry, timestamp, ...rest } = error
-  return { ...rest, timestampMs: ts }
-}
+// Form & conversion helpers moved to utils.ts (fmeDateTimeToInput, inputToFmeDateTime, etc.)
 
 export const sanitizeFormValues = (
   formValues: any,
@@ -732,27 +462,7 @@ export const sanitizeFormValues = (
 // ------------------------------
 // Geometry helpers
 // ------------------------------
-export const isPolygonGeometry = (
-  value: unknown
-): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
-
-  const geom =
-    "geometry" in value ? (value as { geometry: unknown }).geometry : value
-  if (!geom || typeof geom !== "object") return false
-
-  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
-  if (!Array.isArray(rings) || rings.length === 0) return false
-
-  const isValidTuple = (pt: unknown) =>
-    Array.isArray(pt) &&
-    pt.length >= 2 &&
-    pt.length <= 4 &&
-    pt.every((n) => Number.isFinite(n))
-  const isValidRing = (ring: unknown) =>
-    Array.isArray(ring) && ring.length >= 3 && ring.every(isValidTuple)
-  return (rings as unknown[]).every(isValidRing)
-}
+// Geometry shape checker moved to utils.ts (isPolygonGeometry)
 
 export const calcArea = (
   geometry: __esri.Geometry | undefined,
@@ -896,53 +606,46 @@ export const processFmeResponse = (
   }
 }
 
-// ------------------------------
-// UI helpers (workflow)
-// ------------------------------
-export const stripErrorLabel = (errorText?: string): string | undefined => {
-  const text = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
-  if (!text) return undefined
+// UI helpers (workflow) moved to utils.ts
 
-  const colonIdx = text.indexOf(":")
-  if (colonIdx > -1) return text.substring(colonIdx + 1).trim()
-
-  return text
-}
-
-export const initFormValues = (
-  formConfig: readonly any[]
-): { [key: string]: any } => {
-  const result: { [key: string]: any } = {}
-  for (const field of formConfig) {
-    if (field?.name) {
-      result[field.name] = field.defaultValue ?? ""
-    }
-  }
-  return result
-}
-
-export const canResetButton = (
-  onReset: (() => void) | undefined,
-  canResetFlag: boolean,
-  state: string,
-  drawnArea: number,
-  isDrawing?: boolean,
-  clickCount?: number
-): boolean => {
-  if (!onReset || !canResetFlag || state === "order-result") return false
-  if (state === "drawing")
-    return Boolean(clickCount && clickCount > 0) || Boolean(isDrawing)
-  return drawnArea > 0 && state !== "initial"
-}
-
-export const shouldShowWorkspaceLoading = (
-  isLoading: boolean,
-  workspaces: readonly any[],
-  state: string,
-  hasError?: boolean
-): boolean => {
-  if (hasError) return false
-  const needsLoading =
-    state === "workspace-selection" || state === "export-options"
-  return isLoading || (!workspaces.length && needsLoading)
-}
+export {
+  // general utils
+  isValidEmail,
+  getSupportEmail,
+  isJson,
+  safeParseUrl,
+  extractErrorMessage,
+  extractHostFromUrl,
+  // file utils
+  isFileObject,
+  getFileDisplayName,
+  // numbers/strings
+  parseNonNegativeInt,
+  pad2,
+  // datetime and color conversions
+  fmeDateTimeToInput,
+  inputToFmeDateTime,
+  fmeDateToInput,
+  inputToFmeDate,
+  fmeTimeToInput,
+  inputToFmeTime,
+  normalizedRgbToHex,
+  hexToNormalizedRgb,
+  toIsoLocal,
+  fromIsoLocal,
+  // forms
+  normalizeFormValue,
+  toSerializable,
+  // geometry
+  isPolygonGeometry,
+  // UI helpers
+  ariaDesc,
+  getBtnAria,
+  getErrorIconSrc,
+  // workflow helpers
+  stripErrorLabel,
+  initFormValues,
+  canResetButton,
+  shouldShowWorkspaceLoading,
+  maskToken,
+} from "./utils"

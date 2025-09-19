@@ -1,6 +1,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx, css } from "jimu-core"
+import { setError, clearErrors, safeAbort } from "../shared/utils"
 import { useTheme } from "jimu-theme"
 import { useSelector, useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -86,16 +87,9 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   translate,
   styles,
 }) => {
-  const renderConnectionStatus = (): React.ReactNode => {
-    const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
-      { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
-      { label: translate("fmeServerToken"), status: checkSteps.token },
-      { label: translate("fmeRepository"), status: checkSteps.repository },
-    ]
-    const rows = rowsAll.filter((r) => r.status !== "idle")
-
-    // Helper to get style for each status
-    const getStatusStyle = (s: StepStatus | string): unknown => {
+  // Hoisted helpers for readability and stability
+  const getStatusStyle = hooks.useEventCallback(
+    (s: StepStatus | string): unknown => {
       switch (s) {
         case "ok":
           return styles.STATUS.COLOR.OK
@@ -107,28 +101,37 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         case "idle":
           return styles.STATUS.COLOR.PENDING
         default:
-          // Handle StepStatus objects
           if (typeof s === "object" && s !== null) {
-            return s.completed
+            return (s as any).completed
               ? styles.STATUS.COLOR.OK
               : styles.STATUS.COLOR.FAIL
           }
           return styles.STATUS.COLOR.PENDING
       }
     }
+  )
 
-    // Normalize status-to-text mapping for readability and consistency
-    const getStatusText = (status: StepStatus | string): string => {
+  const getStatusText = hooks.useEventCallback(
+    (status: StepStatus | string): string => {
       if (typeof status === "string") {
         if (status === "ok") return translate("ok")
         if (status === "fail") return translate("failed")
         if (status === "skip") return translate("skipped")
         return translate("checking")
       }
-      if (status?.completed) return translate("ok")
-      if (status?.error) return translate("failed")
+      if ((status as any)?.completed) return translate("ok")
+      if ((status as any)?.error) return translate("failed")
       return translate("checking")
     }
+  )
+
+  const renderConnectionStatus = (): React.ReactNode => {
+    const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
+      { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
+      { label: translate("fmeServerToken"), status: checkSteps.token },
+      { label: translate("fmeRepository"), status: checkSteps.repository },
+    ]
+    const rows = rowsAll.filter((r) => r.status !== "idle")
 
     const StatusRow = ({
       label,
@@ -146,7 +149,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
               <span aria-hidden="true">{translate("colon")}</span>
             </>
           </div>
-          <div css={css(color as any)}>{getStatusText(status)}</div>
+          <div css={css(color)}>{getStatusText(status)}</div>
         </div>
       )
     }
@@ -251,6 +254,40 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     validateServerUrl(localServerUrl, { requireHttps: true }).ok &&
     validateToken(localToken).ok
 
+  const buildRepoOptions = hooks.useEventCallback(
+    (): Array<{ label: string; value: string }> => {
+      const hasValidServer =
+        !!localServerUrl &&
+        validateServerUrl(localServerUrl, { requireHttps: true }).ok
+      const hasValidToken = !!localToken && validateToken(localToken).ok
+      if (!hasValidServer || !hasValidToken) return []
+      if (availableRepos === null) return []
+
+      const src =
+        Array.isArray(availableRepos) && availableRepos.length > 0
+          ? availableRepos
+          : []
+
+      const seen = new Set<string>()
+      const opts: Array<{ label: string; value: string }> = []
+      if (
+        localRepository &&
+        typeof localRepository === "string" &&
+        localRepository.trim()
+      ) {
+        seen.add(localRepository)
+        opts.push({ label: localRepository, value: localRepository })
+      }
+      for (const name of src) {
+        if (!seen.has(name) && typeof name === "string" && name.trim()) {
+          seen.add(name)
+          opts.push({ label: name, value: name })
+        }
+      }
+      return opts
+    }
+  )
+
   return (
     <SettingRow
       flow="wrap"
@@ -273,45 +310,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       tag="label"
     >
       <Select
-        options={(() => {
-          // If server URL or token are invalid, show no options
-          const hasValidServer =
-            !!localServerUrl &&
-            validateServerUrl(localServerUrl, { requireHttps: true }).ok
-          const hasValidToken = !!localToken && validateToken(localToken).ok
-          if (!hasValidServer || !hasValidToken) {
-            return []
-          }
-
-          if (availableRepos === null) {
-            return []
-          }
-
-          // Use availableRepos if populated; otherwise empty list
-          const src =
-            Array.isArray(availableRepos) && availableRepos.length > 0
-              ? availableRepos
-              : []
-
-          // Deduplicate options while preserving order and ensure current selection is present
-          const seen = new Set<string>()
-          const opts: Array<{ label: string; value: string }> = []
-          if (
-            localRepository &&
-            typeof localRepository === "string" &&
-            localRepository.trim()
-          ) {
-            seen.add(localRepository)
-            opts.push({ label: localRepository, value: localRepository })
-          }
-          for (const name of src) {
-            if (!seen.has(name) && typeof name === "string" && name.trim()) {
-              seen.add(name)
-              opts.push({ label: name, value: name })
-            }
-          }
-          return opts
-        })()}
+        options={buildRepoOptions()}
         value={localRepository || undefined}
         onChange={(val) => {
           const next =
@@ -394,6 +393,58 @@ interface JobDirectivesSectionProps {
   ID: { tm_ttc: string; tm_ttl: string; tm_tag: string }
 }
 
+// Reusable field row to ensure consistent markup and error rendering
+const FieldRow: React.FC<{
+  id: string
+  label: React.ReactNode
+  value: string
+  onChange: (val: string) => void
+  onBlur?: (val: string) => void
+  placeholder?: string
+  type?: "text" | "email" | "password"
+  required?: boolean
+  errorText?: string
+  styles: ReturnType<typeof useSettingStyles>
+}> = ({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  type = "text",
+  required = false,
+  errorText,
+  styles,
+}) => (
+  <SettingRow flow="wrap" label={label} level={1} tag="label">
+    <Input
+      id={id}
+      type={type}
+      required={required}
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      errorText={errorText}
+      aria-invalid={errorText ? true : undefined}
+      aria-describedby={errorText ? `${id}-error` : undefined}
+    />
+    {errorText && (
+      <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
+        <Alert
+          id={`${id}-error`}
+          fullWidth
+          css={css(styles.ALERT_INLINE as any)}
+          text={errorText}
+          type="error"
+          closable={false}
+        />
+      </SettingRow>
+    )}
+  </SettingRow>
+)
+
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
@@ -409,143 +460,54 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   styles,
   ID,
 }) => {
-  const renderInputField = ({
-    id,
-    label,
-    value,
-    onChange,
-    onBlur,
-    placeholder,
-  }: {
-    id: string
-    label: React.ReactNode
-    value: string
-    onChange: (val: string) => void
-    onBlur: (val: string) => void
-    placeholder?: string
-  }) => {
-    const error = fieldErrors[id as keyof typeof fieldErrors]
-    const describedBy: string[] = []
-    if (error) describedBy.push(`${id}-error`)
-    return (
-      <SettingRow flow="wrap" label={label} level={1} tag="label">
-        <Input
-          id={id}
-          value={value}
-          onChange={onChange}
-          onBlur={onBlur}
-          placeholder={placeholder}
-          errorText={error}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={
-            describedBy.length ? describedBy.join(" ") : undefined
-          }
-        />
-        {error && (
-          <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
-            <Alert
-              id={`${id}-error`}
-              fullWidth
-              css={css(styles.ALERT_INLINE as any)}
-              text={error}
-              type="error"
-              closable={false}
-            />
-          </SettingRow>
-        )}
-      </SettingRow>
-    )
-  }
-
   return (
     <SettingSection>
       {/* Job directives (admin defaults) */}
-      {renderInputField({
-        id: ID.tm_ttc,
-        label: (
+      <FieldRow
+        id={ID.tm_ttc}
+        label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
             <span>{translate("tm_ttcLabel")}</span>
           </Tooltip>
-        ),
-        value: localTmTtc,
-        onChange: onTmTtcChange,
-        onBlur: onTmTtcBlur,
-        placeholder: translate("tm_ttcPlaceholder"),
-      })}
-      {renderInputField({
-        id: ID.tm_ttl,
-        label: (
+        }
+        value={localTmTtc}
+        onChange={onTmTtcChange}
+        onBlur={onTmTtcBlur}
+        placeholder={translate("tm_ttcPlaceholder")}
+        errorText={fieldErrors.tm_ttc}
+        styles={styles}
+      />
+      <FieldRow
+        id={ID.tm_ttl}
+        label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
             <span>{translate("tm_ttlLabel")}</span>
           </Tooltip>
-        ),
-        value: localTmTtl,
-        onChange: onTmTtlChange,
-        onBlur: onTmTtlBlur,
-        placeholder: translate("tm_ttlPlaceholder"),
-      })}
-      <SettingRow
-        flow="wrap"
+        }
+        value={localTmTtl}
+        onChange={onTmTtlChange}
+        onBlur={onTmTtlBlur}
+        placeholder={translate("tm_ttlPlaceholder")}
+        errorText={fieldErrors.tm_ttl}
+        styles={styles}
+      />
+      <FieldRow
+        id={ID.tm_tag}
         label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
             <span>{translate("tm_tagLabel")}</span>
           </Tooltip>
         }
-        level={1}
-        tag="label"
-      >
-        <Input
-          id={ID.tm_tag}
-          value={localTmTag}
-          onChange={onTmTagChange}
-          onBlur={onTmTagBlur}
-          placeholder={translate("tm_tagPlaceholder")}
-          errorText={fieldErrors.tm_tag}
-        />
-        {fieldErrors.tm_tag && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              id={`${ID.tm_tag}-error`}
-              fullWidth
-              css={css(styles.ALERT_INLINE as any)}
-              text={fieldErrors.tm_tag}
-              type="error"
-              closable={false}
-            />
-          </SettingRow>
-        )}
-      </SettingRow>
+        value={localTmTag}
+        onChange={onTmTagChange}
+        onBlur={onTmTagBlur}
+        placeholder={translate("tm_tagPlaceholder")}
+        errorText={fieldErrors.tm_tag}
+        styles={styles}
+      />
       {/** Helper moved to label tooltips */}
     </SettingSection>
   )
-}
-
-// Small utilities
-const setError = (
-  set: React.Dispatch<React.SetStateAction<FieldErrors>>,
-  key: keyof FieldErrors,
-  value?: string
-) => {
-  set((prev) => ({ ...prev, [key]: value }))
-}
-
-const clearErrors = (
-  set: React.Dispatch<React.SetStateAction<FieldErrors>>,
-  keys: Array<keyof FieldErrors>
-) => {
-  set((prev) => {
-    const next = { ...prev }
-    for (const k of keys) (next as any)[k] = undefined
-    return next
-  })
-}
-
-const safeAbort = (ctrl: AbortController | null) => {
-  if (ctrl) {
-    try {
-      ctrl.abort()
-    } catch {}
-  }
 }
 
 // Centralized handler for validation failure -> updates steps and field errors
@@ -1325,84 +1287,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   // Helper for rendering input fields with error alerts
-  const renderInputField = hooks.useEventCallback(
-    ({
-      id,
-      label,
-      value,
-      onChange,
-      onBlur,
-      placeholder,
-      type = "text",
-      required = false,
-    }: {
-      id: string
-      label: React.ReactNode
-      value: string
-      onChange: (val: string) => void
-      onBlur?: (val: string) => void
-      placeholder?: string
-      type?: "text" | "email" | "password"
-      required?: boolean
-    }) => {
-      // Map control IDs to fieldErrors keys so the correct inline Alert renders
-      let key: keyof typeof fieldErrors | undefined
-      switch (id) {
-        case ID.serverUrl:
-          key = "serverUrl"
-          break
-        case ID.token:
-          key = "token"
-          break
-        case ID.repository:
-          key = "repository"
-          break
-        case ID.tm_ttc:
-          key = "tm_ttc"
-          break
-        case ID.tm_ttl:
-          key = "tm_ttl"
-          break
-        case ID.tm_tag:
-          key = "tm_tag"
-          break
-        case ID.supportEmail:
-          key = "supportEmail"
-          break
-        default:
-          key = undefined
-      }
-      const error = key ? fieldErrors[key] : undefined
-      return (
-        <SettingRow flow="wrap" label={label} level={1} tag="label">
-          <Input
-            id={id}
-            type={type}
-            required={required}
-            value={value}
-            onChange={onChange}
-            onBlur={onBlur}
-            placeholder={placeholder}
-            errorText={error}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? `${id}-error` : undefined}
-          />
-          {error && (
-            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
-              <Alert
-                id={`${id}-error`}
-                fullWidth
-                css={css(sstyles.ALERT_INLINE as any)}
-                text={error}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
-      )
-    }
-  )
+  // Reuse FieldRow for consistent input rendering
 
   return (
     <>
@@ -1414,26 +1299,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
         </SettingRow>
         {/* FME Server URL */}
-        {renderInputField({
-          id: ID.serverUrl,
-          label: renderRequiredLabel(translate("fmeServerUrl")),
-          value: localServerUrl,
-          onChange: handleServerUrlChange,
-          onBlur: handleServerUrlBlur,
-          placeholder: translate("serverUrlPlaceholder"),
-          required: true,
-        })}
+        <FieldRow
+          id={ID.serverUrl}
+          label={renderRequiredLabel(translate("fmeServerUrl"))}
+          value={localServerUrl}
+          onChange={handleServerUrlChange}
+          onBlur={handleServerUrlBlur}
+          placeholder={translate("serverUrlPlaceholder")}
+          required
+          errorText={fieldErrors.serverUrl}
+          styles={sstyles}
+        />
         {/* FME Server Token */}
-        {renderInputField({
-          id: ID.token,
-          label: renderRequiredLabel(translate("fmeServerToken")),
-          value: localToken,
-          onChange: handleTokenChange,
-          onBlur: handleTokenBlur,
-          placeholder: translate("tokenPlaceholder"),
-          type: "password",
-          required: true,
-        })}
+        <FieldRow
+          id={ID.token}
+          label={renderRequiredLabel(translate("fmeServerToken"))}
+          value={localToken}
+          onChange={handleTokenChange}
+          onBlur={handleTokenBlur}
+          placeholder={translate("tokenPlaceholder")}
+          type="password"
+          required
+          errorText={fieldErrors.token}
+          styles={sstyles}
+        />
         {/* Test connection section */}
         <ConnectionTestSection
           testState={testState}
@@ -1655,35 +1544,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       </SettingSection>
       <SettingSection>
         {/* AOI Parameter Name */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.aoiParamName}
           label={
             <Tooltip content={translate("aoiParamNameHelper")} placement="top">
               <span>{translate("aoiParamNameLabel")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.aoiParamName}
-            value={localAoiParamName}
-            onChange={(val: string) => {
-              setLocalAoiParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = val.trim()
-              const finalValue = trimmed || "AreaOfInterest"
-              updateConfig("aoiParamName", finalValue)
-              setLocalAoiParamName(finalValue)
-            }}
-            placeholder={translate("aoiParamNamePlaceholder")}
-          />
-        </SettingRow>
+          value={localAoiParamName}
+          onChange={(val: string) => {
+            setLocalAoiParamName(val)
+          }}
+          onBlur={(val: string) => {
+            const trimmed = val.trim()
+            const finalValue = trimmed || "AreaOfInterest"
+            updateConfig("aoiParamName", finalValue)
+            setLocalAoiParamName(finalValue)
+          }}
+          placeholder={translate("aoiParamNamePlaceholder")}
+          styles={sstyles}
+        />
 
         {/* AOI GeoJSON parameter name (optional) */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.aoiGeoJsonParamName}
           label={
             <Tooltip
               content={translate("aoiGeoJsonParamNameHelper")}
@@ -1692,32 +1576,27 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <span>{translate("aoiGeoJsonParamNameLabel")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.aoiGeoJsonParamName}
-            value={localAoiGeoJsonParamName}
-            onChange={(val: string) => {
-              setLocalAoiGeoJsonParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              if (!trimmed) {
-                updateConfig("aoiGeoJsonParamName", undefined as any)
-                setLocalAoiGeoJsonParamName("")
-              } else {
-                updateConfig("aoiGeoJsonParamName", trimmed as any)
-                setLocalAoiGeoJsonParamName(trimmed)
-              }
-            }}
-            placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
-          />
-        </SettingRow>
+          value={localAoiGeoJsonParamName}
+          onChange={(val: string) => {
+            setLocalAoiGeoJsonParamName(val)
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            if (!trimmed) {
+              updateConfig("aoiGeoJsonParamName", undefined as any)
+              setLocalAoiGeoJsonParamName("")
+            } else {
+              updateConfig("aoiGeoJsonParamName", trimmed as any)
+              setLocalAoiGeoJsonParamName(trimmed)
+            }
+          }}
+          placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
+          styles={sstyles}
+        />
 
         {/* AOI WKT parameter name (optional) */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.aoiWktParamName}
           label={
             <Tooltip
               content={translate("aoiWktParamNameHelper")}
@@ -1726,32 +1605,27 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <span>{translate("aoiWktParamNameLabel")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.aoiWktParamName}
-            value={localAoiWktParamName}
-            onChange={(val: string) => {
-              setLocalAoiWktParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              if (!trimmed) {
-                updateConfig("aoiWktParamName", undefined as any)
-                setLocalAoiWktParamName("")
-              } else {
-                updateConfig("aoiWktParamName", trimmed as any)
-                setLocalAoiWktParamName(trimmed)
-              }
-            }}
-            placeholder={translate("aoiWktParamNamePlaceholder")}
-          />
-        </SettingRow>
+          value={localAoiWktParamName}
+          onChange={(val: string) => {
+            setLocalAoiWktParamName(val)
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            if (!trimmed) {
+              updateConfig("aoiWktParamName", undefined as any)
+              setLocalAoiWktParamName("")
+            } else {
+              updateConfig("aoiWktParamName", trimmed as any)
+              setLocalAoiWktParamName(trimmed)
+            }
+          }}
+          placeholder={translate("aoiWktParamNamePlaceholder")}
+          styles={sstyles}
+        />
 
         {/* Upload Target Parameter Name (optional) */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.uploadTargetParamName}
           label={
             <Tooltip
               content={translate("uploadTargetParamNameHelper")}
@@ -1760,33 +1634,28 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <span>{translate("uploadTargetParamNameLabel")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.uploadTargetParamName}
-            value={localUploadTargetParamName}
-            onChange={(val: string) => {
-              setLocalUploadTargetParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              // Empty clears the config (auto-detect will be used)
-              if (!trimmed) {
-                updateConfig("uploadTargetParamName", undefined as any)
-                setLocalUploadTargetParamName("")
-              } else {
-                updateConfig("uploadTargetParamName", trimmed as any)
-                setLocalUploadTargetParamName(trimmed)
-              }
-            }}
-            placeholder={translate("uploadTargetParamNamePlaceholder")}
-          />
-        </SettingRow>
+          value={localUploadTargetParamName}
+          onChange={(val: string) => {
+            setLocalUploadTargetParamName(val)
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            // Empty clears the config (auto-detect will be used)
+            if (!trimmed) {
+              updateConfig("uploadTargetParamName", undefined as any)
+              setLocalUploadTargetParamName("")
+            } else {
+              updateConfig("uploadTargetParamName", trimmed as any)
+              setLocalUploadTargetParamName(trimmed)
+            }
+          }}
+          placeholder={translate("uploadTargetParamNamePlaceholder")}
+          styles={sstyles}
+        />
 
         {/* Max AOI area (m²) */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.maxArea}
           label={
             <Tooltip
               content={translate("maxAreaHelper", {
@@ -1798,113 +1667,79 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <span>{translate("maxAreaLabel")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.maxArea}
-            value={localMaxAreaM2}
-            onChange={(val: string) => {
-              setLocalMaxAreaM2(val)
-              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              const coerced = parseNonNegativeInt(trimmed)
-              // Blank, zero, or invalid -> unset
-              if (coerced === undefined || coerced === 0) {
-                updateConfig("maxArea", undefined as any)
-                setLocalMaxAreaM2("")
-                return
-              }
-              // Enforce upper cap in m²
-              if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
-                // Do not save; show inline error
-                setFieldErrors((prev) => ({
-                  ...prev,
-                  maxArea: translate("errorMaxAreaTooLarge", {
-                    maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                  }),
-                }))
-                return
-              }
-              const m2 = coerced
-              updateConfig("maxArea", m2 as any)
-              setLocalMaxAreaM2(String(m2))
-              // Clear any lingering error on valid save
-              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-            }}
-            placeholder={translate("maxAreaPlaceholder")}
-            errorText={fieldErrors.maxArea}
-          />
-          {fieldErrors.maxArea && (
-            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
-              <Alert
-                id={`${ID.maxArea}-error`}
-                fullWidth
-                css={css(sstyles.ALERT_INLINE as any)}
-                text={fieldErrors.maxArea}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
+          value={localMaxAreaM2}
+          onChange={(val: string) => {
+            setLocalMaxAreaM2(val)
+            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            const coerced = parseNonNegativeInt(trimmed)
+            // Blank, zero, or invalid -> unset
+            if (coerced === undefined || coerced === 0) {
+              updateConfig("maxArea", undefined as any)
+              setLocalMaxAreaM2("")
+              return
+            }
+            // Enforce upper cap in m²
+            if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
+              // Do not save; show inline error
+              setFieldErrors((prev) => ({
+                ...prev,
+                maxArea: translate("errorMaxAreaTooLarge", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                }),
+              }))
+              return
+            }
+            const m2 = coerced
+            updateConfig("maxArea", m2 as any)
+            setLocalMaxAreaM2(String(m2))
+            // Clear any lingering error on valid save
+            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+          }}
+          placeholder={translate("maxAreaPlaceholder")}
+          errorText={fieldErrors.maxArea}
+          styles={sstyles}
+        />
         {/* Support email (optional) */}
-        <SettingRow
-          flow="wrap"
+        <FieldRow
+          id={ID.supportEmail}
           label={
             <Tooltip content={translate("supportEmailHelper")} placement="top">
               <span>{translate("supportEmail")}</span>
             </Tooltip>
           }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.supportEmail}
-            type="email"
-            value={localSupportEmail}
-            onChange={(val: string) => {
-              setLocalSupportEmail(val)
-              // Clear previous error immediately, validate on blur
+          type="email"
+          value={localSupportEmail}
+          onChange={(val: string) => {
+            setLocalSupportEmail(val)
+            // Clear previous error immediately, validate on blur
+            setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            // Empty: clear error and unset config
+            if (!trimmed) {
               setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              // Empty: clear error and unset config
-              if (!trimmed) {
-                setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-                updateConfig("supportEmail", undefined as any)
-                setLocalSupportEmail("")
-                return
-              }
+              updateConfig("supportEmail", undefined as any)
+              setLocalSupportEmail("")
+              return
+            }
 
-              // Non-empty: validate format
-              const isValid = isValidEmail(trimmed)
-              const err = !isValid ? translate("invalidEmail") : undefined
-              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-              if (!err) {
-                updateConfig("supportEmail", trimmed)
-                setLocalSupportEmail(trimmed)
-              }
-            }}
-            placeholder={translate("supportEmailPlaceholder")}
-            errorText={fieldErrors.supportEmail}
-          />
-          {fieldErrors.supportEmail && (
-            <SettingRow flow="wrap" level={3} css={css(sstyles.ROW as any)}>
-              <Alert
-                id={`${ID.supportEmail}-error`}
-                fullWidth
-                css={css(sstyles.ALERT_INLINE as any)}
-                text={fieldErrors.supportEmail}
-                type="error"
-                closable={false}
-              />
-            </SettingRow>
-          )}
-        </SettingRow>
+            // Non-empty: validate format
+            const isValid = isValidEmail(trimmed)
+            const err = !isValid ? translate("invalidEmail") : undefined
+            setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+            if (!err) {
+              updateConfig("supportEmail", trimmed)
+              setLocalSupportEmail(trimmed)
+            }
+          }}
+          placeholder={translate("supportEmailPlaceholder")}
+          errorText={fieldErrors.supportEmail}
+          styles={sstyles}
+        />
         {/** Helper moved to label tooltip */}
       </SettingSection>
 

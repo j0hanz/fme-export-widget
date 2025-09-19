@@ -37,14 +37,15 @@ import {
   normalizeFormValue,
 } from "../../shared/validations"
 import defaultMessages from "./translations/default"
+import {
+  asString,
+  makePlaceholders,
+  getTextPlaceholder,
+  computeSelectCoerce,
+  parseTableRows,
+} from "../../shared/utils"
 
-export const makePlaceholders = (
-  translate: (k: string, p?: any) => string,
-  fieldLabel: string
-) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
-})
+// makePlaceholders is now imported from shared/utils
 
 // Input rendering helper
 export const renderInputField = (
@@ -106,21 +107,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
 
   // Compute if select values can be coerced to numbers
-  const computeSelectCoerce = (): "number" | "string" | undefined => {
-    if (!isSelectType || !selectOptions.length) return undefined
-    const vals = selectOptions.map((o) => o.value)
-    const allNumeric = vals.every((v) => {
-      if (typeof v === "number") return Number.isFinite(v)
-      if (typeof v === "string") {
-        if (v.trim() === "") return false
-        const n = Number(v)
-        return Number.isFinite(n) && String(n) === v
-      }
-      return false
-    })
-    return allNumeric ? "number" : undefined
-  }
-  const selectCoerce = computeSelectCoerce()
+  const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
 
   hooks.useEffectOnce(() => {
     if (!isSingleOption) return
@@ -145,22 +132,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.TABLE: {
         // Minimal table: array of strings; allow add/remove rows
-        const parseRows = (): string[] => {
-          const v = value as any
-          if (Array.isArray(v))
-            return v.map((x) => (typeof x === "string" ? x : String(x)))
-          if (typeof v === "string") {
-            try {
-              const arr = JSON.parse(v)
-              return Array.isArray(arr) ? arr.map((x) => String(x)) : []
-            } catch {
-              return v ? [v] : []
-            }
-          }
-          return []
-        }
-
-        const rows = parseRows()
+        const rows = parseTableRows(value)
 
         const updateRow = (idx: number, val: string) => {
           const next = [...rows]
@@ -256,7 +228,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.URL: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <UrlInput
             value={val}
@@ -287,7 +259,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.TEXTAREA:
         return (
           <TextArea
-            value={fieldValue as string}
+            value={asString(fieldValue)}
             placeholder={placeholders.enter}
             onChange={(val) => {
               onChange(val as FormPrimitive)
@@ -319,8 +291,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <Input
             type="password"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
+            value={asString(fieldValue)}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
@@ -359,7 +331,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       case FormFieldType.RADIO: {
         const options = field.options || []
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Radio
             options={options.map((opt) => ({
@@ -455,7 +427,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.MONTH: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="month"
@@ -464,12 +436,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value as FormPrimitive)
             }}
             disabled={field.readOnly}
-            placeholder={field.placeholder || placeholders.enter}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
           />
         )
       }
       case FormFieldType.WEEK: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="week"
@@ -478,7 +450,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value as FormPrimitive)
             }}
             disabled={field.readOnly}
-            placeholder={field.placeholder || placeholders.enter}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
           />
         )
       }
@@ -498,12 +470,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.EMAIL: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="email"
             value={val}
-            placeholder={field.placeholder || translate("placeholderEmail")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "email"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -512,12 +489,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.PHONE: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="tel"
             value={val}
-            placeholder={field.placeholder || translate("placeholderPhone")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "phone"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -526,12 +508,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.SEARCH: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="search"
             value={val}
-            placeholder={field.placeholder || translate("placeholderSearch")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "search"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -543,8 +530,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <Input
             type="text"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
+            value={asString(fieldValue)}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
@@ -559,3 +546,5 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 }
 
 export default DynamicField
+// Re-export for backwards compatibility in tests and callers
+export { makePlaceholders } from "../../shared/utils"

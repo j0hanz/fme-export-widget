@@ -1,4 +1,4 @@
-import Immutable from "seamless-immutable"
+import * as SeamlessImmutable from "seamless-immutable"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,
@@ -194,7 +194,7 @@ export const initialFmeState: FmeWidgetState = {
   workspaceItem: null,
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
-  currentRepository: null, // Track current repository for proper workspace isolation
+  currentRepository: null,
 
   // Loading and errors
   isModulesLoading: false,
@@ -203,6 +203,11 @@ export const initialFmeState: FmeWidgetState = {
   importError: null,
   exportError: null,
 }
+
+// Seamless-immutable typing is broken, so we need to force it here
+const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
+  input: any
+) => any
 
 // Reducer for a single widget instance
 const reduceOne = (

@@ -57,16 +57,10 @@ import {
   buildSupportHintText,
   maskEmailForDisplay,
   stripHtmlToText,
+  MS_LOADING,
+  WORKSPACE_ITEM_TYPE,
+  ERROR_NAMES,
 } from "../../shared/utils"
-
-// Constants
-const MS_LOADING = 500
-const WORKSPACE_ITEM_TYPE = "WORKSPACE"
-
-const ERROR_NAMES = {
-  CANCELLED_PROMISE: "CancelledPromiseError",
-  ABORT: "AbortError",
-} as const
 
 const DRAWING_MODE_TABS = [
   {
@@ -620,8 +614,8 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
   })
 
-  // Use shared schedule converters from validations
-  const toSpaceDateTime = hooks.useEventCallback(fromIsoLocal)
+  // ISO (widget control) -> space-delimited (FME) local datetime string
+  const isoToSpaceLocal = hooks.useEventCallback(fromIsoLocal)
 
   return (
     <Form
@@ -648,7 +642,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
           <DateTimePickerWrapper
             value={toIsoLocal(formState.values.start as string | undefined)}
             onChange={(iso) => {
-              const spaceVal = toSpaceDateTime(iso)
+              const spaceVal = isoToSpaceLocal(iso)
               setField("start", spaceVal)
             }}
           />
@@ -807,6 +801,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
+  // Render drawing mode tabs
+  const renderDrawingModeTabs = hooks.useEventCallback(() => (
+    <div css={styles.centered}>
+      <ButtonTabs
+        items={getDrawingModeItems()}
+        value={drawingMode}
+        onChange={(val) => {
+          onDrawingModeChange?.(val as DrawingTool)
+        }}
+        aria-label={translate("drawingModeTooltip")}
+      />
+    </div>
+  ))
+
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
     (message?: string, subMessage?: string) => (
@@ -888,6 +896,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     onWorkspaceSelected,
   })
 
+  // Helper: are we in a workspace selection context?
+  const isWorkspaceSelectionContext =
+    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
+
   // Render workspace buttons
   const renderWsButtons = () =>
     workspaces.map((workspace) => (
@@ -911,16 +923,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
-    if (
-      state === ViewMode.WORKSPACE_SELECTION ||
-      state === ViewMode.EXPORT_OPTIONS
-    ) {
+    if (isWorkspaceSelectionContext) {
       if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
         scheduleWsLoad()
       }
     }
   }, [
-    state,
+    isWorkspaceSelectionContext,
     workspaces.length,
     isLoadingWorkspaces,
     workspaceError,
@@ -935,14 +944,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
         fmeActions.clearWorkspaceState(config.repository, widgetId || "")
       )
       // Force reload of workspaces for new repository
-      if (
-        state === ViewMode.WORKSPACE_SELECTION ||
-        state === ViewMode.EXPORT_OPTIONS
-      ) {
+      if (isWorkspaceSelectionContext) {
         scheduleWsLoad()
       }
     }
-  }, [config?.repository])
+  }, [config?.repository, isWorkspaceSelectionContext])
 
   // Header
   const renderHeader = () => {
@@ -982,19 +988,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (isModulesLoading) {
       return renderLoading(undefined, translate("preparingMapTools"))
     }
-
-    return (
-      <div css={styles.centered}>
-        <ButtonTabs
-          items={getDrawingModeItems()}
-          value={drawingMode}
-          onChange={(val) => {
-            onDrawingModeChange?.(val as DrawingTool)
-          }}
-          aria-label={translate("drawingModeTooltip")}
-        />
-      </div>
-    )
+    return renderDrawingModeTabs()
   }
 
   const renderDrawing = () => (
@@ -1125,18 +1119,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         return renderInitial()
       case ViewMode.DRAWING:
         if ((clickCount || 0) === 0) {
-          return (
-            <div css={styles.centered}>
-              <ButtonTabs
-                items={getDrawingModeItems()}
-                value={drawingMode}
-                onChange={(val) => {
-                  onDrawingModeChange?.(val as DrawingTool)
-                }}
-                aria-label={translate("drawingModeTooltip")}
-              />
-            </div>
-          )
+          return renderDrawingModeTabs()
         }
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:

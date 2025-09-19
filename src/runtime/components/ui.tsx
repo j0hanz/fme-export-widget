@@ -34,7 +34,11 @@ import {
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
-import { EMAIL_PLACEHOLDER, stripHtmlToText } from "../../shared/utils"
+import {
+  EMAIL_PLACEHOLDER,
+  stripHtmlToText,
+  styleCss,
+} from "../../shared/utils"
 import { getErrorIconSrc, getBtnAria, ariaDesc } from "../../shared/validations"
 import type {
   ViewAction,
@@ -496,10 +500,7 @@ export const Input: React.FC<InputProps> = ({
       aria-required={required}
       aria-invalid={!!errorText}
       aria-describedby={errorText && props.id ? ariaDesc(props.id) : undefined}
-      css={[
-        styles.fullWidth,
-        (props as any).style && css((props as any).style),
-      ]}
+      css={[styles.fullWidth, styleCss((props as any).style)]}
     />
   )
 }
@@ -529,7 +530,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      css={[styles.textareaResize, props.style && css(props.style as any)]}
+      css={[styles.textareaResize, styleCss(props.style as any)]}
       aria-required={props.required}
       aria-invalid={!!validationMessage}
       aria-describedby={
@@ -559,7 +560,7 @@ export const UrlInput: React.FC<{
         const sanitized = raw
         onChange?.(sanitized)
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -588,9 +589,10 @@ export const Radio: React.FC<{
   "aria-label": ariaLabel,
 }) => {
   const styles = useStyles()
+  const isControlled = value !== undefined
   return (
     <div
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -598,8 +600,9 @@ export const Radio: React.FC<{
         <JimuRadio
           key={option.value}
           value={option.value}
-          checked={value === option.value}
-          defaultChecked={defaultValue === option.value}
+          {...(isControlled
+            ? { checked: value === option.value }
+            : { defaultChecked: defaultValue === option.value })}
           disabled={disabled}
           onChange={(e) => {
             onChange?.(e.target.value)
@@ -650,7 +653,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -698,7 +701,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -720,7 +723,7 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -741,7 +744,7 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -780,7 +783,7 @@ export const DatePickerWrapper: React.FC<{
         // also try opening on mouse/touch down for convenience
         openPicker()
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     />
   )
 }
@@ -839,7 +842,7 @@ export const DateTimePickerWrapper: React.FC<{
         styles.row,
         styles.fullWidth,
         css({ flexWrap: "wrap", gap: 4 }),
-        style && css(style as any),
+        styleCss(style),
       ]}
     >
       <input
@@ -881,7 +884,7 @@ export const RichText: React.FC<{
 }> = ({ html, placeholder, className, style }) => {
   const text = stripHtmlToText(html)
   return (
-    <div className={className} css={style ? css(style as any) : undefined}>
+    <div className={className} css={styleCss(style)}>
       {text || placeholder || ""}
     </div>
   )
@@ -949,7 +952,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={[styles.fullWidth, styleCss(style)]}
     >
       {(options || [])
         .map((option) => {
@@ -1023,7 +1026,7 @@ export const MultiSelectControl: React.FC<{
     }))
 
   return (
-    <div css={style ? css(style as any) : undefined}>
+    <div css={styleCss(style)}>
       <MultiSelect
         values={current || []}
         defaultValues={defaultValues}
@@ -1496,7 +1499,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <Field
         className={className}
-        css={style ? css(style as any) : undefined}
+        style={style}
         label={label}
         helper={helper}
         required={required}
@@ -1531,10 +1534,7 @@ export const Field: React.FC<FieldProps> = ({
     autoId
   )
   return (
-    <FormGroup
-      className={className}
-      css={[styles.fieldGroup, style && css(style as any)]}
-    >
+    <FormGroup className={className} css={[styles.fieldGroup, styleCss(style)]}>
       <Label
         css={[styles.block, styles.typography.label]}
         check={false}
