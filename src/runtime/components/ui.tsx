@@ -435,7 +435,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
       title={tooltipContent as any}
       showArrow={showArrow}
       placement={placementProp as any}
-      disabled={false}
       {...otherProps}
     >
       {anchor}
@@ -696,9 +695,9 @@ export const NumericInput: React.FC<{
       placeholder={placeholder}
       disabled={disabled}
       aria-label={ariaLabel}
-      onChange={(value) => {
-        if (typeof value === "number") {
-          onChange?.(value)
+      onChange={(num) => {
+        if (typeof num === "number") {
+          onChange?.(num)
         }
       }}
       css={[styles.fullWidth, styleCss(style)]}
@@ -801,11 +800,16 @@ export const DateTimePickerWrapper: React.FC<{
   const timeRef = React.useRef<HTMLInputElement | null>(null)
 
   // Local split state for better typing UX
-  const [datePart, setDatePart] = React.useState<string>("")
-  const [timePart, setTimePart] = React.useState<string>("")
+  const initialSrc = value ?? defaultValue ?? ""
+  const [initialDate, initialTime] =
+    typeof initialSrc === "string" && initialSrc
+      ? initialSrc.split("T")
+      : ["", ""]
+  const [datePart, setDatePart] = React.useState<string>(initialDate || "")
+  const [timePart, setTimePart] = React.useState<string>(initialTime || "")
 
   // Sync from controlled props
-  React.useEffect(() => {
+  hooks.useUpdateEffect(() => {
     const src = value ?? defaultValue ?? ""
     if (typeof src === "string" && src) {
       const [d, t] = src.split("T")
@@ -1067,7 +1071,6 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Extract aria-label without useMemo for simplicity
   const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
@@ -1077,7 +1080,6 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Safely type the color prop without useMemo
   const safeColor: "default" | "inherit" | "primary" | "secondary" =
     color === "default" ||
     color === "inherit" ||
@@ -1226,7 +1228,6 @@ const StateView: React.FC<StateViewProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const [showLoading, setShowLoading] = React.useState(state.kind === "loading")
   const loadingStartedAtRef = React.useRef<number | null>(null)
-  // Persist last loading messages to show while holding the loader after a state change
   const lastLoadingRef = React.useRef<{
     message?: React.ReactNode
     detail?: React.ReactNode
@@ -1235,40 +1236,49 @@ const StateView: React.FC<StateViewProps> = ({
       ? { message: (state as any).message, detail: (state as any).detail }
       : null
   )
-  React.useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    if (state.kind === "loading") {
-      setShowLoading(true)
-      if (loadingStartedAtRef.current == null) {
-        loadingStartedAtRef.current = Date.now()
+  const holdTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  hooks.useEffectWithPreviousValues(
+    (_prev) => {
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current)
+        holdTimerRef.current = null
       }
-      lastLoadingRef.current = {
-        message: (state as any).message,
-        detail: (state as any).detail,
-      }
-    } else if (loadingStartedAtRef.current != null) {
-      const elapsed = Date.now() - loadingStartedAtRef.current
-      const remaining = Math.max(0, config.loading.delay - elapsed)
 
-      if (remaining > 0) {
-        timer = setTimeout(() => {
+      if (state.kind === "loading") {
+        setShowLoading(true)
+        if (loadingStartedAtRef.current == null) {
+          loadingStartedAtRef.current = Date.now()
+        }
+        lastLoadingRef.current = {
+          message: (state as any).message,
+          detail: (state as any).detail,
+        }
+        return
+      }
+
+      if (loadingStartedAtRef.current != null) {
+        const elapsed = Date.now() - loadingStartedAtRef.current
+        const remaining = Math.max(0, config.loading.delay - elapsed)
+
+        if (remaining > 0) {
+          holdTimerRef.current = setTimeout(() => {
+            setShowLoading(false)
+            loadingStartedAtRef.current = null
+          }, remaining)
+        } else {
           setShowLoading(false)
           loadingStartedAtRef.current = null
-        }, remaining)
+        }
       } else {
         setShowLoading(false)
         loadingStartedAtRef.current = null
       }
-    } else {
-      setShowLoading(false)
-      loadingStartedAtRef.current = null
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state])
+    },
+    [state]
+  )
+  hooks.useUnmount(() => {
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current)
+  })
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
