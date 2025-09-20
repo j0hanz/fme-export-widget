@@ -436,12 +436,6 @@ const setupSketchEventHandlers = (
   let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    try {
-      console.log("EXB-Widget Sketch create", {
-        state: evt.state,
-        tool: (evt as any)?.tool,
-      })
-    } catch {}
     switch (evt.state) {
       case "start":
         clickCount = 0
@@ -502,12 +496,6 @@ const setupSketchEventHandlers = (
 
   // Re-run the same completion pipeline when a reshape finishes
   sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
-    try {
-      console.log("EXB-Widget Sketch update", {
-        state: evt.state,
-        tool: (evt as any)?.tool,
-      })
-    } catch {}
     if (
       evt.state === "complete" &&
       Array.isArray(evt.graphics) &&
@@ -749,16 +737,10 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    try {
-      console.log("EXB-Widget validation step", { step })
-    } catch {}
     dispatch(fmeActions.setStartupValidationState(true, step, null, widgetId))
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
-    try {
-      console.log("EXB-Widget validation success")
-    } catch {}
     dispatch(
       fmeActions.setStartupValidationState(false, undefined, null, widgetId)
     )
@@ -767,12 +749,6 @@ export default function Widget(
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    try {
-      console.log("EXB-Widget validation error", {
-        code: error?.code,
-        message: error?.message,
-      })
-    } catch {}
     dispatch(
       fmeActions.setStartupValidationState(false, undefined, error, widgetId)
     )
@@ -801,7 +777,6 @@ export default function Widget(
 
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
-    console.log("EXB-Widget runStartupValidation")
     // Skip if widget is not active
     if (startupAbortRef.current) {
       abortAndClear(startupAbortRef)
@@ -880,9 +855,6 @@ export default function Widget(
       setValidationSuccess()
     } catch (err: unknown) {
       console.error("FME Export - Startup validation failed:", err)
-      try {
-        console.log("EXB-Widget runStartupValidation error", err)
-      } catch {}
       const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
       const errorCode =
         typeof err === "object" && err !== null && "code" in err
@@ -904,7 +876,6 @@ export default function Widget(
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     isInitialLoadRef.current = false
-    console.log("EXB-Widget initial load -> runStartupValidation")
     runStartupValidation()
   })
 
@@ -961,11 +932,6 @@ export default function Widget(
     prevConnRef.current = next
 
     try {
-      console.log("EXB-Widget config change", {
-        serverChanged,
-        tokenChanged,
-        repoChanged,
-      })
       if (serverChanged || tokenChanged) {
         // Full revalidation required when connection credentials change
         resetForRevalidation(false)
@@ -1153,10 +1119,6 @@ export default function Widget(
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
 
     try {
-      console.log("EXB-Widget form submit start", {
-        workspace: reduxState.selectedWorkspace,
-        viewMode: reduxState.viewMode,
-      })
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
       const earlyMode = determineServiceMode({ data: rawDataEarly }, config)
@@ -1287,18 +1249,8 @@ export default function Widget(
           controller.signal
         )
       )
-      try {
-        console.log("EXB-Widget form submit response", {
-          ok: true,
-          workspace,
-        })
-      } catch {}
-
       handleSubmissionSuccess(fmeResponse, workspace, userEmail)
     } catch (error) {
-      try {
-        console.log("EXB-Widget form submit error", error)
-      } catch {}
       handleSubmissionError(error)
     } finally {
       dispatch(
@@ -1400,14 +1352,6 @@ export default function Widget(
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     if (!sketchViewModel) return
 
-    try {
-      console.log("EXB-Widget drawing start", {
-        tool,
-        viewMode: reduxState.viewMode,
-        clickCount: reduxState.clickCount,
-      })
-    } catch {}
-
     // Set tool
     dispatch(fmeActions.setDrawingState(true, 0, tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
@@ -1437,7 +1381,8 @@ export default function Widget(
           maybePromise.catch((err: any) => {
             const name = (err && (err.name || err.code)) || ""
             const msg = err?.message || ""
-            const isAbort = /abort/i.test(String(name)) || /abort/i.test(String(msg))
+            const isAbort =
+              /abort/i.test(String(name)) || /abort/i.test(String(msg))
             if (!isAbort) {
               try {
                 console.warn("EXB-Widget sketch.create promise error", err)
@@ -1523,10 +1468,6 @@ export default function Widget(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      console.log("EXB-Widget workspace selected", {
-        workspaceName,
-        paramCount: parameters?.length || 0,
-      })
       dispatch(
         fmeActions.setSelectedWorkspace(
           workspaceName,
@@ -1555,9 +1496,6 @@ export default function Widget(
 
   // Navigation helpers
   const navigateTo = hooks.useEventCallback((viewMode: ViewMode) => {
-    try {
-      console.log("EXB-Widget navigateTo", { viewMode })
-    } catch {}
     dispatch(fmeActions.setViewMode(viewMode, widgetId))
   })
 
@@ -1661,14 +1599,6 @@ export default function Widget(
         formatArea={(area: number) => formatArea(area, modules)}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
-          try {
-            console.log("EXB-Widget onDrawingModeChange", {
-              from: reduxState.drawingTool,
-              to: tool,
-              viewMode: reduxState.viewMode,
-              clickCount: reduxState.clickCount,
-            })
-          } catch {}
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           // Rely on the auto-start effect to begin drawing; avoids duplicate create() calls
         }}

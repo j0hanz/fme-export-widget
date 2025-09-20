@@ -510,13 +510,6 @@ export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
   const { serverUrl, token, repository, signal } = options
-  try {
-    console.log("EXB-Services validateConnection start", {
-      serverUrl,
-      tokenMasked: token ? `****${token.slice(-4)}` : "",
-      repository: repository || null,
-    })
-  } catch {}
 
   const key = `${serverUrl}|${token}|${repository || "_"}`
 
@@ -654,11 +647,6 @@ export async function validateConnection(
         try {
           const reposResp = await client.getRepositories(signal)
           repositories = parseRepositoryNames(reposResp?.data)
-          try {
-            console.log("EXB-Services validateConnection repos", {
-              count: repositories.length,
-            })
-          } catch {}
         } catch (error) {
           repositories = []
         }
@@ -689,9 +677,6 @@ export async function validateConnection(
           steps,
         }
       } catch (error) {
-        try {
-          console.log("EXB-Services validateConnection error", error)
-        } catch {}
         if ((error as Error)?.name === "AbortError") {
           return {
             success: false,
@@ -773,10 +758,6 @@ export async function getRepositories(
   // to avoid race conditions where a newly-triggered request reuses an aborted promise.
   const execute = async () => {
     try {
-      console.log("EXB-Services getRepositories start", {
-        serverUrl,
-        tokenMasked: token ? `****${token.slice(-4)}` : "",
-      })
       const client = new FmeFlowApiClient({
         serverUrl,
         token,
@@ -794,9 +775,6 @@ export async function getRepositories(
         throw abortErr
       }
       const repositories = parseRepositoryNames(resp?.data)
-      console.log("EXB-Services getRepositories done", {
-        count: repositories.length,
-      })
 
       return {
         success: true,
@@ -812,9 +790,6 @@ export async function getRepositories(
         ;(abortErr as any).name = "AbortError"
         throw abortErr
       }
-      try {
-        console.log("EXB-Services getRepositories error", error)
-      } catch {}
       return {
         success: false,
         error: mapErrorToKey(error, extractHttpStatus(error)),

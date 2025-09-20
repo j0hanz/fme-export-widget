@@ -252,21 +252,12 @@ async function addFmeInterceptor(
 
   const pattern = createHostPattern(host)
   if (interceptorExists(esriConfig.request.interceptors, pattern)) {
-    console.log("FME API - Interceptor already exists for:", pattern)
     return
   }
-
-  console.log(
-    "FME API - Adding interceptor for:",
-    pattern,
-    "Token:",
-    maskToken(token)
-  )
 
   esriConfig.request.interceptors?.push({
     urls: pattern,
     before(params: any) {
-      console.log("FME API - Interceptor called for:", params?.url)
       if (!params || !params.requestOptions) {
         params.requestOptions = {}
       }
@@ -277,7 +268,6 @@ async function addFmeInterceptor(
       // Always use the token stored for this host pattern
       const currentToken = _fmeTokensByHost[host.toLowerCase()]
       if (currentToken) {
-        console.log("FME API - Adding token to request")
         // Add token as query parameter if not already present
         if (!ro.query.fmetoken) {
           ro.query.fmetoken = currentToken
@@ -296,17 +286,6 @@ async function addFmeInterceptor(
     },
     _fmeInterceptor: true,
   })
-
-  // Test the pattern immediately
-  const testUrl = `${serverUrl}/test`
-  console.log(
-    "FME API - Testing pattern:",
-    pattern,
-    "against URL:",
-    testUrl,
-    "Matches:",
-    pattern.test(testUrl)
-  )
 }
 // Get max URL length from esriConfig if available; otherwise use default
 // Cache the result to avoid repeated config lookups
@@ -427,14 +406,6 @@ export class FmeFlowApiClient {
     this.config = config
     void setApiSettings(config)
     void addFmeInterceptor(config.serverUrl, config.token)
-    try {
-      console.log("EXB-API init", {
-        basePath: this.basePath,
-        server: (config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
-        token: maskToken(config.token),
-        repository: config.repository,
-      })
-    } catch {}
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -608,13 +579,6 @@ export class FmeFlowApiClient {
     this.config = { ...this.config, ...config }
     void setApiSettings(this.config)
     void addFmeInterceptor(this.config.serverUrl, this.config.token)
-    try {
-      console.log("EXB-API updateConfig", {
-        server: (this.config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
-        token: maskToken(this.config.token),
-        repository: this.config.repository,
-      })
-    } catch {}
   }
 
   /**
@@ -638,12 +602,6 @@ export class FmeFlowApiClient {
   async getRepositories(
     signal?: AbortSignal
   ): Promise<ApiResponse<Array<{ name: string }>>> {
-    try {
-      console.log("EXB-API getRepositories() invoked", {
-        server: (this.config.serverUrl || "").replace(/:\/\/.+?@/, "://***@"),
-        token: maskToken(this.config.token),
-      })
-    } catch {}
     return this.withApiError(
       async () => {
         // Use the collection endpoint without a trailing slash
@@ -657,18 +615,6 @@ export class FmeFlowApiClient {
           cacheHint: false, // Avoid cross-token header-insensitive caches
           query: { limit: -1, offset: -1 },
         })
-        try {
-          const d: any = raw?.data
-          const count = Array.isArray(d)
-            ? d.length
-            : Array.isArray(d?.items)
-              ? d?.items?.length || 0
-              : 0
-          console.log("EXB-API getRepositories() response", {
-            status: raw?.status,
-            count,
-          })
-        } catch {}
 
         const data = raw?.data
         let items: Array<{ name: string }>
@@ -727,9 +673,6 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<WorkspaceParameter[]>> {
     const repo = this.resolveRepository(repository)
     const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
-    try {
-      console.log("EXB-API getWorkspaceParameters()", { repo, workspace })
-    } catch {}
     return this.withApiError(
       () =>
         this.request<WorkspaceParameter[]>(endpoint, {
@@ -763,14 +706,6 @@ export class FmeFlowApiClient {
     if (type) query.type = type
     if (typeof limit === "number") query.limit = limit
     if (typeof offset === "number") query.offset = offset
-    try {
-      console.log("EXB-API getRepositoryItems()", {
-        repo,
-        type: type || null,
-        limit: limit ?? null,
-        offset: offset ?? null,
-      })
-    } catch {}
     return this.withApiError(
       () =>
         this.request(endpoint, {
@@ -791,9 +726,6 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<any>> {
     const repo = this.resolveRepository(repository)
     const endpoint = this.repoEndpoint(repo, "items", workspace)
-    try {
-      console.log("EXB-API getWorkspaceItem()", { repo, workspace })
-    } catch {}
     return this.withApiError(
       () =>
         this.request<any>(endpoint, {
@@ -1216,24 +1148,6 @@ export class FmeFlowApiClient {
       this.basePath
     )
 
-    console.log("FME API - Making request to:", url)
-    try {
-      const method = (options.method || HttpMethod.GET).toString()
-      const repoCtx = (options as any)?.repositoryContext
-      const q = options.query || {}
-      const qKeys = Object.keys(q || {}).filter(
-        (k) => !/^fmetoken|token|__scope$/i.test(k)
-      )
-      console.log("EXB-API request details", {
-        method,
-        repositoryContext: repoCtx || null,
-        queryKeys: qKeys,
-        hasTokenParam:
-          typeof (q as any)?.fmetoken !== "undefined" ||
-          typeof (q as any)?.token !== "undefined",
-      })
-    } catch {}
-
     try {
       const headers: { [key: string]: string } = {
         ...(options.headers || {}),
@@ -1268,9 +1182,6 @@ export class FmeFlowApiClient {
           globalThis.location?.origin || "http://d"
         ).host.toLowerCase()
         if (serverHost && reqHost === serverHost && this.config.token) {
-          console.log(
-            "FME API - Adding token directly to request (bypassing interceptor)"
-          )
           // Add token as query parameter
           if (!requestOptions.query.fmetoken) {
             requestOptions.query.fmetoken = this.config.token
@@ -1301,12 +1212,6 @@ export class FmeFlowApiClient {
       }
 
       const response = await esriRequestFn(url, requestOptions)
-      try {
-        console.log("EXB-API response", {
-          status: response?.httpStatus || response?.status || 200,
-          url,
-        })
-      } catch {}
 
       return {
         data: response.data,

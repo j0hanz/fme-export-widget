@@ -807,9 +807,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       safeAbort(reposAbortRef.current)
       reposAbortRef.current = null
     }
-    try {
-      console.log("EXB-Setting abortReposRequest")
-    } catch {}
   })
 
   // Unified repository loader used by both auto-load and manual refresh
@@ -831,17 +828,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       try {
-        console.log("EXB-Setting loadRepositories start", {
-          serverUrl,
-          tokenMasked: token ? `****${token.slice(-4)}` : "",
-          indicateLoading,
-        })
         const result = await fetchRepositoriesService(serverUrl, token, signal)
         if (signal.aborted) return
         const next = result.repositories || []
-        console.log("EXB-Setting loadRepositories result", {
-          count: next.length,
-        })
         setAvailableRepos(next)
         clearErrors(setFieldErrors, ["repository"])
         setReposHint(null)
@@ -853,7 +842,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setReposHint(translate("errorRepositories"))
         }
       } finally {
-        console.log("EXB-Setting loadRepositories end")
         if (reposAbortRef.current === ctrl) reposAbortRef.current = null
       }
     }
@@ -1157,12 +1145,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   React.useEffect(() => {
     if (!committedServerUrl && !committedToken) return
-    console.log("EXB-Setting clearRepositoryEphemeralState effect", {
-      committedServerUrl,
-      committedTokenMasked: committedToken
-        ? `****${committedToken.slice(-4)}`
-        : "",
-    })
     clearRepositoryEphemeralState()
   }, [
     committedServerUrl,
@@ -1180,12 +1162,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (!hasValidServer || !hasValidToken) return
 
     const { cleaned } = sanitizeUrl(committedServerUrl)
-    console.log("EXB-Setting auto-load repositories effect", {
-      cleaned,
-      committedTokenMasked: committedToken
-        ? `****${committedToken.slice(-4)}`
-        : "",
-    })
     loadRepositories(cleaned, committedToken, { indicateLoading: true })
     return () => abortReposRequest()
   }, [
@@ -1214,7 +1190,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
-    console.log("EXB-Setting serverUrl blur", { url })
     // Validate on blur
     const validation = validateServerUrl(url, { requireHttps: true })
     setError(
@@ -1254,9 +1229,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
-    console.log("EXB-Setting token blur", {
-      tokenMasked: token ? `****${token.slice(-4)}` : "",
-    })
     // Validate on blur
     const validation = validateToken(token)
     setError(
@@ -1300,10 +1272,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
-      console.log("EXB-Setting repository change", {
-        from: localRepository,
-        to: newRepository,
-      })
       const previousRepository = currentRepository
 
       // Update local state
@@ -1312,10 +1280,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       // Clear workspace-related state when switching repositories for isolation
       if (previousRepository !== newRepository) {
-        console.log("EXB-Setting clearing runtime workspace state", {
-          previousRepository,
-          newRepository,
-        })
         dispatch(fmeActions.clearWorkspaceState(newRepository, id))
       }
 
