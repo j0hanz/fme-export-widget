@@ -20,21 +20,23 @@ import {
   type WorkspaceParameter,
   type DynamicFieldConfig,
   type EsriModules,
+  type ConnectionValidationOptions,
 } from "../config"
 import {
   attachAoi,
   prepFmeParams,
   getEmail,
-  processFmeResponse,
-  calcArea,
-  validatePolygon,
   formatArea,
 } from "../runtime/widget"
+import {
+  calcArea,
+  validatePolygon,
+  processFmeResponse,
+} from "../shared/validations"
 import {
   validateConnection,
   healthCheck,
   ParameterFormService,
-  type ConnectionValidationOptions,
 } from "../shared/services"
 import { DynamicField } from "../runtime/components/fields"
 import runtimeMsgs from "../runtime/components/translations/default"
@@ -319,7 +321,7 @@ describe("FME dataset submission behavior", () => {
     ;(global as any).__WORKFLOW_FORM_DATA__ = {
       type: "demo",
       data: {
-        __remote_dataset_url__: "http://user:pw@insecure.example/file.zip", // invalid per validator
+        __remote_dataset_url__: "ftp://insecure.example/file.zip", // invalid per new validator (non-http/https)
         __upload_file__: fakeFile,
       },
     }
@@ -432,7 +434,8 @@ describe("FME internal helper functions", () => {
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
     expect(out.trigger).toBe("runonce")
-    expect(out.opt_requesteremail).toBe("user@example.com")
+    // requester email is only added for async mode now
+    expect(out.opt_requesteremail).toBeUndefined()
   })
 
   test("prepFmeParams passes schedule metadata (name/category/description)", () => {
@@ -497,7 +500,9 @@ describe("FME internal helper functions", () => {
       (k: string) => k
     )
     expect(res.success).toBe(true)
-    expect(typeof res.downloadUrl).toBe("string")
+    // New behavior returns blob and filename; no direct downloadUrl guaranteed
+    expect(res.blob).toBeInstanceOf(Blob)
+    expect(res.downloadFilename).toBe("my.fmw_export.zip")
   })
 })
 
@@ -511,6 +516,7 @@ describe("FME workspace discovery in Workflow", () => {
     const mockClient = {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
+      getWorkspaceParameters: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
 
@@ -562,13 +568,18 @@ describe("FME workspace discovery in Workflow", () => {
     // StateView minimum delay before list renders
     jest.advanceTimersByTime(1200)
 
-    // Prepare item details mock before click
+    // Prepare item details and parameters mocks before click
     mockClient.getWorkspaceItem.mockResolvedValueOnce({
       status: 200,
       data: {
-        parameters: [{ name: "count", type: ParameterType.INTEGER }],
         title: "Workspace One",
+        description: "Test workspace",
       },
+    })
+
+    mockClient.getWorkspaceParameters.mockResolvedValueOnce({
+      status: 200,
+      data: [{ name: "count", type: ParameterType.INTEGER }],
     })
 
     const firstItem = await screen.findByRole("listitem", {
@@ -589,6 +600,7 @@ describe("FME workspace discovery in Workflow", () => {
     const mockClient = {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
+      getWorkspaceParameters: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
     mockClient.getRepositoryItems.mockRejectedValueOnce(new Error("boom"))
@@ -624,6 +636,10 @@ describe("FME workspace discovery in Workflow", () => {
 
     expect(screen.getByRole("status")).toBeInTheDocument()
     jest.advanceTimersByTime(600)
+    await waitFor(() => {
+      expect(mockClient.getRepositoryItems).toHaveBeenCalled()
+    })
+    // Wait for error processing
     await waitFor(() => undefined)
     jest.advanceTimersByTime(1200)
 
@@ -639,10 +655,9 @@ describe("FME geometry helpers", () => {
     expect(calcArea({ type: "point" } as any, modules)).toBe(0)
   })
 
-  test("calcArea uses geodesic for geographic SR and absolute value", () => {
+  test("calcArea uses planar area and clamps to non-negative", () => {
     // Mock geometryEngine with geodesic area calculation
     const geometryEngine = {
-      geodesicArea: jest.fn(() => -2500000),
       planarArea: jest.fn(() => 1000000),
       simplify: jest.fn((p: any) => p),
     }
@@ -660,8 +675,7 @@ describe("FME geometry helpers", () => {
       toJSON: () => ({ spatialReference: { isGeographic: true } }),
     } as any
 
-    expect(calcArea(geom, modules)).toBe(2500000) // Absolute value
-    expect(geometryEngine.geodesicArea).toHaveBeenCalled()
+    expect(calcArea(geom, modules)).toBe(1000000)
   })
 
   test("validatePolygon detects missing and wrong types", () => {
@@ -672,7 +686,7 @@ describe("FME geometry helpers", () => {
 
     const wrong = validatePolygon({ type: "point" } as any, modules)
     expect(wrong.valid).toBe(false)
-    expect(wrong.error?.code).toBe("GEOM_TYPE_INVALID")
+    expect(wrong.error?.code).toBe("INVALID_GEOMETRY_TYPE")
   })
 
   test("validatePolygon uses geometryEngine.isSimple", () => {
@@ -694,7 +708,7 @@ describe("FME geometry helpers", () => {
 
     const result = validatePolygon(geometry, modules)
     expect(result.valid).toBe(false)
-    expect(result.error?.code).toBe("GEOM_SELF_INTERSECTING")
+    expect(result.error?.code).toBe("INVALID_GEOMETRY")
     expect(geometryEngine.isSimple).toHaveBeenCalled()
   })
 

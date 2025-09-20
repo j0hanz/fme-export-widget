@@ -10,31 +10,35 @@ import type {
   PrimitiveParams,
 } from "../config"
 import { FmeFlowApiError, HttpMethod } from "../config"
-import { isAuthError } from "./utils"
+import {
+  extractHttpStatus,
+  validateRequiredConfig,
+  isAuthError,
+  mapErrorToKey,
+} from "./validations"
+import {
+  buildUrl,
+  resolveRequestUrl,
+  buildParams,
+  createHostPattern,
+  interceptorExists,
+  safeLogParams,
+  makeScopeId,
+  makeGeoJson,
+  isJson,
+  maskToken,
+  extractHostFromUrl,
+  extractErrorMessage,
+} from "./utils"
 
-// Centralized error keys (translation keys only)
-const ERR = {
-  ARCGIS_MODULE_ERROR: "ARCGIS_MODULE_ERROR",
-  REQUEST_FAILED: "REQUEST_FAILED",
-  NETWORK_ERROR: "NETWORK_ERROR",
-  INVALID_RESPONSE_FORMAT: "INVALID_RESPONSE_FORMAT",
-  REPOSITORIES_ERROR: "REPOSITORIES_ERROR",
-  REPOSITORY_ITEMS_ERROR: "REPOSITORY_ITEMS_ERROR",
-  WORKSPACE_ITEM_ERROR: "WORKSPACE_ITEM_ERROR",
-  JOB_SUBMISSION_ERROR: "JOB_SUBMISSION_ERROR",
-  DATA_STREAMING_ERROR: "DATA_STREAMING_ERROR",
-  DATA_DOWNLOAD_ERROR: "DATA_DOWNLOAD_ERROR",
-  WEBHOOK_AUTH_ERROR: "WEBHOOK_AUTH_ERROR",
-  INVALID_CONFIG: "INVALID_CONFIG",
-  GEOMETRY_MISSING: "GEOMETRY_MISSING",
-  GEOMETRY_TYPE_INVALID: "GEOMETRY_TYPE_INVALID",
-  URL_TOO_LONG: "URL_TOO_LONG",
-} as const
-
+// Construct a typed FME Flow API error with identical message and code.
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
 
-// Inline loader helper for EXB with error handling
+/**
+ * Dynamically loads ArcGIS JSAPI modules within EXB with test-mode short circuit.
+ * Throws a code-only error (ARCGIS_MODULE_ERROR) for consistent upstream handling.
+ */
 async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
   // Check test environment first for better performance
   if (process.env.NODE_ENV === "test") {
@@ -48,7 +52,7 @@ async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
     const loader = mod.loadArcGISJSAPIModules
     if (typeof loader !== "function") {
       // Use key only (no fallback English)
-      throw new Error(ERR.ARCGIS_MODULE_ERROR)
+      throw new Error("ARCGIS_MODULE_ERROR")
     }
     const loaded = await loader(modules as string[])
     const unwrap = (m: any) => m?.default ?? m
@@ -67,8 +71,12 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
+// Keep latest FME tokens per-host so the interceptor always uses fresh values
+const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
-// Reset loaded ArcGIS modules (for testing purposes)
+/**
+ * Reset loaded ArcGIS modules cache and computed limits (used in tests).
+ */
 export function resetEsriCache(): void {
   _esriRequest = undefined
   _esriConfig = undefined
@@ -85,7 +93,9 @@ const isTestEnv = (): boolean =>
   (!!(process as any).env.JEST_WORKER_ID ||
     (process as any).env.NODE_ENV === "test")
 
-// ESRI module loading with caching and error handling
+/**
+ * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
+ */
 async function ensureEsri(): Promise<void> {
   // Quick return if already loaded
   if (
@@ -161,7 +171,7 @@ async function ensureEsri(): Promise<void> {
     } catch (error) {
       // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
       console.error("ARCGIS_MODULE_ERROR", { error })
-      throw new Error(ERR.ARCGIS_MODULE_ERROR)
+      throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
 
@@ -222,43 +232,28 @@ const API = {
 } as const
 
 // Add interceptor to append fmetoken to requests to the specified server URL
-const extractHostFromUrl = (serverUrl: string): string | null => {
-  try {
-    return new URL(serverUrl).host
-  } catch {
-    return null
-  }
-}
 
-// Create a regex pattern to match the host in URLs
-const createHostPattern = (host: string): RegExp => {
-  const escapedHost = host.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")
-  return new RegExp(`^https?://${escapedHost}`, "i")
-}
-
-// Check if an interceptor for the given host pattern already exists
-const interceptorExists = (interceptors: any[], pattern: RegExp): boolean => {
-  return (
-    interceptors?.some((it: any) => {
-      return it._fmeInterceptor && it.urls && pattern.test(it.urls.toString())
-    }) ?? false
-  )
-}
+// helper moved to utils.ts: createHostPattern, interceptorExists
 
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
 ): Promise<void> {
   if (!serverUrl || !token) return
+  const host = extractHostFromUrl(serverUrl)
+  if (!host) return
+
+  // Always record the latest token for this host
+  _fmeTokensByHost[host.toLowerCase()] = token
+
   await ensureEsri()
   const esriConfig = asEsriConfig(_esriConfig)
   if (!esriConfig) return
 
-  const host = extractHostFromUrl(serverUrl)
-  if (!host) return
-
   const pattern = createHostPattern(host)
-  if (interceptorExists(esriConfig.request.interceptors, pattern)) return
+  if (interceptorExists(esriConfig.request.interceptors, pattern)) {
+    return
+  }
 
   esriConfig.request.interceptors?.push({
     urls: pattern,
@@ -268,8 +263,25 @@ async function addFmeInterceptor(
       }
       const ro: any = params.requestOptions
       ro.query = ro.query || {}
-      if (token && !ro.query.fmetoken) {
-        ro.query.fmetoken = token
+      ro.headers = ro.headers || {}
+
+      // Always use the token stored for this host pattern
+      const currentToken = _fmeTokensByHost[host.toLowerCase()]
+      if (currentToken) {
+        // Add token as query parameter if not already present
+        if (!ro.query.fmetoken) {
+          ro.query.fmetoken = currentToken
+        }
+        // Always set Authorization header with correct FME Flow format
+        ro.headers.Authorization = `fmetoken token=${currentToken}`
+      } else {
+        // Debug: log when token is missing
+        console.warn(
+          "FME API - No token found for host:",
+          host.toLowerCase(),
+          "Available hosts:",
+          Object.keys(_fmeTokensByHost)
+        )
       }
     },
     _fmeInterceptor: true,
@@ -287,127 +299,17 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// Error handling utilities
-const toStr = (val: unknown): string => {
-  if (typeof val === "string") return val
-  if (typeof val === "number" || typeof val === "boolean") return String(val)
-  if (val && typeof val === "object") {
-    try {
-      return JSON.stringify(val)
-    } catch {
-      console.warn(
-        "FME API - Failed to stringify value for parameter conversion:",
-        val
-      )
-      return Object.prototype.toString.call(val)
-    }
-  }
-  return val === undefined
-    ? "undefined"
-    : val === null
-      ? "null"
-      : Object.prototype.toString.call(val)
-}
+// helper moved to utils.ts: toStr
 
-const extractStatusFromMessage = (message: string): number | undefined => {
-  // Define status extraction patterns in order of specificity
-  const statusPatterns = [
-    /status:\s*(\d{3})/i, // "status: 401"
-    /\b(\d{3})\s*\((?:Unauthorized|Forbidden|Not Found|Bad Request|Internal Server Error|Service Unavailable|Gateway)/i, // "401 (Unauthorized)"
-    /\b(\d{3})\b/, // standalone "401"
-  ]
-
-  for (const pattern of statusPatterns) {
-    const match = message.match(pattern)
-    if (match) {
-      return parseInt(match[1], 10)
-    }
-  }
-
-  return undefined
-}
-
-const getErrorInfo = (
-  err: unknown
-): {
-  message: string
-  status?: number
-  details?: unknown
-} => {
-  if (err && typeof err === "object") {
-    const anyErr = err as any
-
-    // Try multiple ways to extract status code
-    const status =
-      anyErr.status ||
-      anyErr.httpStatus ||
-      anyErr.httpCode ||
-      anyErr.code ||
-      anyErr.response?.status ||
-      anyErr.details?.httpCode ||
-      (typeof anyErr.message === "string"
-        ? extractStatusFromMessage(anyErr.message)
-        : undefined)
-
-    return {
-      message:
-        typeof anyErr.message === "string"
-          ? anyErr.message
-          : toStr(anyErr.message),
-      status: typeof status === "number" ? status : undefined,
-      details: anyErr.details,
-    }
-  }
-  return { message: toStr(err) }
-}
-
-const isJson = (contentType: string | null): boolean =>
-  contentType?.includes("application/json") ?? false
-
-// Parse webhook response with error handling
-const maskToken = (token: string): string =>
-  token ? `****${token.slice(-4)}` : ""
-
-// URL building utilities
-const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  // Normalize server base by removing trailing /fmeserver or /fmerest and any trailing slash
-  const base = serverUrl
-    .replace(/\/(?:fmeserver|fmerest)$/i, "")
-    .replace(/\/$/, "")
-
-  // Encode each provided segment, while preserving internal slashes inside a segment string
-  const encodePath = (s: string): string =>
-    s
-      .split("/")
-      .filter((part) => Boolean(part) && part !== "." && part !== "..")
-      .map((p) => encodeURIComponent(p))
-      .join("/")
-
-  const path = segments
-    .filter((seg): seg is string => typeof seg === "string" && seg.length > 0)
-    .map((seg) => encodePath(seg))
-    .join("/")
-
-  return path ? `${base}/${path}` : base
-}
+// helpers moved to utils.ts: buildUrl
 
 // Create a stable scope ID from server URL, token, and repository for caching purposes
-function makeScopeId(
-  serverUrl: string,
-  token: string,
-  repository?: string
-): string {
-  const s = `${serverUrl}::${token || ""}::${repository || ""}`
-  // DJB2 hash function
-  let h = 5381
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) + h) ^ s.charCodeAt(i)
-  }
-  const n = Math.abs(h >>> 0)
-  return n.toString(36)
-}
+// helper moved to utils.ts: makeScopeId
 
-// Check if a webhook URL with parameters would exceed max length
+/**
+ * Computes whether a webhook URL would exceed the max supported URL length.
+ * Includes default opt_* params and token if supplied.
+ */
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
@@ -435,79 +337,9 @@ export function isWebhookUrlTooLong(
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
 
-const resolveRequestUrl = (
-  endpoint: string,
-  serverUrl: string,
-  basePath: string
-): string => {
-  if (endpoint.startsWith("http")) {
-    return endpoint
-  }
-  if (endpoint.startsWith("/fme")) {
-    return buildUrl(serverUrl, endpoint.slice(1))
-  }
-  return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
-}
+// helper moved to utils.ts: resolveRequestUrl
 
-const isFileObject = (value: unknown): value is File => {
-  try {
-    // Check if File constructor exists in the global scope
-    const FileConstructor = (globalThis as any).File
-    if (typeof FileConstructor === "undefined") return false
-
-    // Safely check instanceof
-    return value instanceof FileConstructor
-  } catch {
-    // If instanceof check fails, fall back to duck typing
-    return (
-      value !== null &&
-      typeof value === "object" &&
-      typeof (value as any).name === "string" &&
-      typeof (value as any).size === "number"
-    )
-  }
-}
-
-// Get a safe display name for a File object
-const getFileDisplayName = (file: File): string => {
-  const name = file.name
-  return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
-}
-
-const buildParams = (
-  params: PrimitiveParams = {},
-  excludeKeys: string[] = [],
-  webhookDefaults = false
-): URLSearchParams => {
-  const urlParams = new URLSearchParams()
-  if (!params || typeof params !== "object") return urlParams
-
-  const excludeSet = new Set(excludeKeys)
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || excludeSet.has(key)) continue
-
-    // Special handling for File objects: use file name instead of full object
-    if (isFileObject(value)) {
-      urlParams.append(key, getFileDisplayName(value))
-      continue
-    }
-
-    urlParams.append(key, toStr(value))
-  }
-
-  // Add webhook-specific defaults if requested
-  if (webhookDefaults) {
-    urlParams.append("opt_responseformat", "json")
-    urlParams.append("opt_showresult", "true")
-    // Default to async unless explicitly set to "sync"
-    const raw = (params as any)?.opt_servicemode
-    const requested = typeof raw === "string" ? raw.trim().toLowerCase() : ""
-    const mode = requested === "sync" ? "sync" : "async"
-    urlParams.append("opt_servicemode", mode)
-  }
-
-  return urlParams
-}
+// helper moved to utils.ts: buildParams
 
 // Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
@@ -540,12 +372,7 @@ const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
   }
 }
 
-const makeGeoJson = (polygon: __esri.Polygon) => ({
-  type: "Polygon" as const,
-  coordinates: (polygon.rings || []).map((ring: any[]) =>
-    ring.map((pt: any) => [pt[0], pt[1]] as [number, number])
-  ),
-})
+// helper moved to utils.ts: makeGeoJson
 
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   await ensureEsri()
@@ -568,39 +395,7 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
   statusText: "requestAborted",
 })
 
-const processRequestError = (
-  err: unknown,
-  url: string,
-  token: string
-): { errorMessage: string; errorCode: string; httpStatus: number } => {
-  const { message, status, details } = getErrorInfo(err)
-  const httpStatus = status || 0
-
-  console.error("FME API - request error", {
-    url,
-    token: maskToken(token),
-    message,
-  })
-
-  let errorMessage: string = ERR.REQUEST_FAILED
-  let errorCode: string = ERR.NETWORK_ERROR
-
-  if (message.includes("Unexpected token")) {
-    console.error(
-      "FME API - Received non-JSON/HTML response where JSON expected"
-    )
-    errorMessage = ERR.INVALID_RESPONSE_FORMAT
-    errorCode = ERR.INVALID_RESPONSE_FORMAT
-  }
-
-  const det = details as any
-  if (det?.error) {
-    errorMessage = det.error.message || errorMessage
-    errorCode = det.error.code || errorCode
-  }
-
-  return { errorMessage, errorCode, httpStatus }
-}
+// helper moved to utils.ts: safeLogParams
 
 export class FmeFlowApiClient {
   private config: FmeFlowConfig
@@ -613,6 +408,7 @@ export class FmeFlowApiClient {
     void addFmeInterceptor(config.serverUrl, config.token)
   }
 
+  /** Upload a file/blob to FME temp shared resource. */
   async uploadToTemp(
     file: File | Blob,
     options?: { subfolder?: string; signal?: AbortSignal }
@@ -774,7 +570,7 @@ export class FmeFlowApiClient {
     try {
       return await operation()
     } catch (err) {
-      const { status } = getErrorInfo(err)
+      const status = extractHttpStatus(err)
       throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
     }
   }
@@ -785,6 +581,9 @@ export class FmeFlowApiClient {
     void addFmeInterceptor(this.config.serverUrl, this.config.token)
   }
 
+  /**
+   * Calls /info on FME server to verify connectivity and get version info.
+   */
   async testConnection(
     signal?: AbortSignal
   ): Promise<ApiResponse<{ build: string; version: string }>> {
@@ -841,8 +640,8 @@ export class FmeFlowApiClient {
           statusText: raw.statusText,
         }
       },
-      ERR.REPOSITORIES_ERROR,
-      ERR.REPOSITORIES_ERROR
+      "REPOSITORIES_ERROR",
+      "REPOSITORIES_ERROR"
     )
   }
 
@@ -865,6 +664,25 @@ export class FmeFlowApiClient {
       cacheHint: false, // Disable header-insensitive caching
       repositoryContext: repo, // Add repository context for proper cache scoping
     })
+  }
+
+  async getWorkspaceParameters(
+    workspace: string,
+    repository?: string,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<WorkspaceParameter[]>> {
+    const repo = this.resolveRepository(repository)
+    const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
+    return this.withApiError(
+      () =>
+        this.request<WorkspaceParameter[]>(endpoint, {
+          signal,
+          cacheHint: false, // Disable header-insensitive caching
+          repositoryContext: repo, // Add repository context for proper cache scoping
+        }),
+      "WORKSPACE_PARAMETERS_ERROR",
+      "WORKSPACE_PARAMETERS_ERROR"
+    )
   }
 
   // Generic request method
@@ -896,8 +714,8 @@ export class FmeFlowApiClient {
           repositoryContext: repo, // Add repository context for proper cache scoping
           query,
         }),
-      ERR.REPOSITORY_ITEMS_ERROR,
-      ERR.REPOSITORY_ITEMS_ERROR
+      "REPOSITORY_ITEMS_ERROR",
+      "REPOSITORY_ITEMS_ERROR"
     )
   }
 
@@ -915,8 +733,8 @@ export class FmeFlowApiClient {
           cacheHint: false, // Avoid cross-repo/token contamination
           repositoryContext: repo, // Add repository context for proper cache scoping
         }),
-      ERR.WORKSPACE_ITEM_ERROR,
-      ERR.WORKSPACE_ITEM_ERROR
+      "WORKSPACE_ITEM_ERROR",
+      "WORKSPACE_ITEM_ERROR"
     )
   }
 
@@ -938,8 +756,8 @@ export class FmeFlowApiClient {
           signal,
           cacheHint: false,
         }),
-      ERR.JOB_SUBMISSION_ERROR,
-      ERR.JOB_SUBMISSION_ERROR
+      "JOB_SUBMISSION_ERROR",
+      "JOB_SUBMISSION_ERROR"
     )
   }
 
@@ -1064,20 +882,12 @@ export class FmeFlowApiClient {
         }
 
         // Best-effort safe logging without sensitive params
-        try {
-          const safeParams = new URLSearchParams()
-          for (const k of API.WEBHOOK_LOG_WHITELIST) {
-            const v = params.get(k)
-            if (v !== null) safeParams.set(k, v)
-          }
-          console.log(
-            "STREAMING_CALL",
-            url.split("?")[0],
-            `params=${safeParams.toString()}`
-          )
-        } catch {
-          /* ignore logging issues */
-        }
+        safeLogParams(
+          "STREAMING_CALL",
+          url.split("?")[0],
+          params,
+          API.WEBHOOK_LOG_WHITELIST
+        )
 
         const response = await fetch(url, {
           method: "POST",
@@ -1088,7 +898,7 @@ export class FmeFlowApiClient {
 
         // Non-2xx -> surface as error for consistent handling
         if (!response.ok) {
-          throw makeError(ERR.DATA_STREAMING_ERROR, response.status)
+          throw makeError("DATA_STREAMING_ERROR", response.status)
         }
 
         // Always read as Blob; callers can decode based on content-type
@@ -1110,8 +920,8 @@ export class FmeFlowApiClient {
           statusText: response.statusText,
         }
       },
-      ERR.DATA_STREAMING_ERROR,
-      ERR.DATA_STREAMING_ERROR
+      "DATA_STREAMING_ERROR",
+      "DATA_STREAMING_ERROR"
     )
   }
 
@@ -1184,28 +994,20 @@ export class FmeFlowApiClient {
           fullUrl.length > maxLen
         ) {
           // Emit a dedicated error code for URL length issues
-          throw makeError(ERR.URL_TOO_LONG, 0)
+          throw makeError("URL_TOO_LONG", 0)
         }
       } catch (lenErr) {
         if (lenErr instanceof FmeFlowApiError) throw lenErr
         // If any unexpected error occurs during length validation, proceed with webhook
       }
 
-      try {
-        const safeParams = new URLSearchParams()
-        for (const k of API.WEBHOOK_LOG_WHITELIST) {
-          const v = params.get(k)
-          if (v !== null) safeParams.set(k, v)
-        }
-        console.log(
-          "WEBHOOK_CALL",
-          webhookUrl,
-          `params=${safeParams.toString()}`
-        )
-      } catch {
-        console.warn("FME API - Failed to log webhook parameters safely")
-        /* ignore logging issues */
-      }
+      // Best-effort safe logging without sensitive params
+      safeLogParams(
+        "WEBHOOK_CALL",
+        webhookUrl,
+        params,
+        API.WEBHOOK_LOG_WHITELIST
+      )
 
       const response = await fetch(fullUrl, {
         method: "GET",
@@ -1215,9 +1017,9 @@ export class FmeFlowApiClient {
       return this.parseWebhookResponse(response)
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
-      const { status } = getErrorInfo(err)
+      const status = extractHttpStatus(err)
       // Surface a code-only message; services will localize
-      throw makeError(ERR.DATA_DOWNLOAD_ERROR, status || 0)
+      throw makeError("DATA_DOWNLOAD_ERROR", status || 0)
     }
   }
 
@@ -1276,7 +1078,7 @@ export class FmeFlowApiClient {
     const contentType = response.headers.get("content-type")
 
     if (!isJson(contentType)) {
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     let responseData: any
@@ -1284,11 +1086,11 @@ export class FmeFlowApiClient {
       responseData = await response.json()
     } catch {
       console.warn("FME API - Failed to parse webhook JSON response")
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     if (isAuthError(response.status)) {
-      throw makeError(ERR.WEBHOOK_AUTH_ERROR, response.status)
+      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
     return {
@@ -1346,8 +1148,6 @@ export class FmeFlowApiClient {
       this.basePath
     )
 
-    console.log("FME API - Making request to:", url)
-
     try {
       const headers: { [key: string]: string } = {
         ...(options.headers || {}),
@@ -1362,23 +1162,6 @@ export class FmeFlowApiClient {
           options.repositoryContext
         )
         if (query.__scope === undefined) query.__scope = scope
-
-        // Security-conscious token propagation: only attach fmetoken for requests to the configured FME host
-        try {
-          const serverHost = new URL(this.config.serverUrl).host.toLowerCase()
-          const requestHost = new URL(url).host.toLowerCase()
-          if (
-            this.config.token &&
-            serverHost &&
-            requestHost &&
-            serverHost === requestHost &&
-            query.fmetoken === undefined
-          ) {
-            query.fmetoken = this.config.token
-          }
-        } catch {
-          // Ignore URL parsing errors; do not attach token if uncertain
-        }
       }
 
       const requestOptions: any = {
@@ -1387,6 +1170,28 @@ export class FmeFlowApiClient {
         responseType: "json",
         headers,
         signal: options.signal,
+      }
+
+      // BYPASS INTERCEPTOR - Add FME authentication directly
+      try {
+        const serverHost = extractHostFromUrl(
+          this.config.serverUrl
+        )?.toLowerCase()
+        const reqHost = new URL(
+          url,
+          globalThis.location?.origin || "http://d"
+        ).host.toLowerCase()
+        if (serverHost && reqHost === serverHost && this.config.token) {
+          // Add token as query parameter
+          if (!requestOptions.query.fmetoken) {
+            requestOptions.query.fmetoken = this.config.token
+          }
+          // Add Authorization header with correct FME Flow format
+          requestOptions.headers = requestOptions.headers || {}
+          requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+        }
+      } catch (e) {
+        console.warn("FME API - Error adding token directly:", e)
       }
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
@@ -1403,7 +1208,7 @@ export class FmeFlowApiClient {
       if (options.body !== undefined) requestOptions.body = options.body
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError(ERR.ARCGIS_MODULE_ERROR)
+        throw makeError("ARCGIS_MODULE_ERROR")
       }
 
       const response = await esriRequestFn(url, requestOptions)
@@ -1424,17 +1229,41 @@ export class FmeFlowApiClient {
       if (err instanceof FmeFlowApiError) {
         throw err
       }
-      const { errorMessage, errorCode, httpStatus } = processRequestError(
-        err,
+
+      const httpStatus = extractHttpStatus(err) || 0
+      const message = extractErrorMessage(err)
+
+      // Determine error code for programmatic identification (simpler logic)
+      let errorCode = "REQUEST_FAILED"
+      if (message.includes("Unexpected token")) {
+        errorCode = "INVALID_RESPONSE_FORMAT"
+      }
+
+      // Get user-friendly translation key using centralized error mapping
+      const translationKey = mapErrorToKey(err, httpStatus)
+
+      // Debug logging to help identify error structure
+      if (process.env.NODE_ENV !== "production") {
+        console.debug("FME API - error structure debug", {
+          errorType: typeof err,
+          errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
+          extractedStatus: httpStatus,
+          rawError: err,
+        })
+      }
+
+      console.error("FME API - request error", {
         url,
-        this.config.token
-      )
-      throw new FmeFlowApiError(errorMessage, errorCode, httpStatus)
+        token: maskToken(this.config.token),
+        message: extractErrorMessage(err),
+        status: httpStatus,
+      })
+
+      throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
     }
   }
 }
 
-// Configuration Processing Utilities
 const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
   token:
@@ -1446,15 +1275,16 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   timeout: config.requestTimeout,
 })
 
-const validateRequiredConfig = (config: FmeFlowConfig): void => {
-  if (!config.serverUrl || !config.token || !config.repository) {
-    throw makeError(ERR.INVALID_CONFIG)
-  }
-}
-
+/**
+ * Factory to construct the API client with normalized config and validation.
+ */
 export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   const normalizedConfig = normalizeConfigParams(config)
-  validateRequiredConfig(normalizedConfig)
+  try {
+    validateRequiredConfig(normalizedConfig)
+  } catch {
+    throw makeError("INVALID_CONFIG")
+  }
 
   return new FmeFlowApiClient({
     ...normalizedConfig,

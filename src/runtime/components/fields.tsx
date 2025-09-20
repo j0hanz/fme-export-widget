@@ -26,140 +26,24 @@ import {
   type SelectValue,
 } from "../../config"
 import defaultMessages from "./translations/default"
+import {
+  asString,
+  makePlaceholders,
+  getTextPlaceholder,
+  computeSelectCoerce,
+  parseTableRows,
+  fmeDateTimeToInput,
+  inputToFmeDateTime,
+  fmeDateToInput,
+  inputToFmeDate,
+  fmeTimeToInput,
+  inputToFmeTime,
+  normalizedRgbToHex,
+  hexToNormalizedRgb,
+  normalizeFormValue,
+} from "../../shared/utils"
 
-const pad2 = (n: number) => String(n).padStart(2, "0")
-
-const fmeDateTimeToInput = (v: string): string => {
-  // YYYYMMDDHHmmss -> YYYY-MM-DDTHH:mm[:ss]
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length < 12) return ""
-  const y = s.slice(0, 4)
-  const m = s.slice(4, 6)
-  const d = s.slice(6, 8)
-  const hh = s.slice(8, 10)
-  const mm = s.slice(10, 12)
-  const ss = s.length >= 14 ? s.slice(12, 14) : ""
-  return `${y}-${m}-${d}T${hh}:${mm}${ss ? `:${ss}` : ""}`
-}
-
-const inputToFmeDateTime = (v: string): string => {
-  // YYYY-MM-DDTHH:mm[:ss] -> YYYYMMDDHHmmss
-  if (!v) return ""
-  const s = v.trim()
-  const [date, time] = s.split("T")
-  if (!date || !time) return ""
-
-  const [y, m, d] = date.split("-")
-  const [hh, mi, ssRaw] = time.split(":")
-
-  // Year must be 4 digits
-  if (!y || y.length !== 4 || !/^[0-9]{4}$/.test(y)) return ""
-
-  const safePad2 = (part?: string): string | null => {
-    if (!part && part !== "0") return null
-    const n = Number(part)
-    if (!Number.isFinite(n)) return null
-    return pad2(n)
-  }
-
-  const m2 = safePad2(m)
-  const d2 = safePad2(d)
-  const hh2 = safePad2(hh)
-  const mi2 = safePad2(mi)
-  if (!m2 || !d2 || !hh2 || !mi2) return ""
-
-  const ss2 = ssRaw ? safePad2(ssRaw) : "00"
-  if (ss2 === null) return ""
-
-  return `${y}${m2}${d2}${hh2}${mi2}${ss2}`
-}
-
-const fmeDateToInput = (v: string): string => {
-  // YYYYMMDD -> YYYY-MM-DD
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-}
-
-const inputToFmeDate = (v: string): string => (v ? v.replace(/-/g, "") : "")
-// HHmmss or HHmm -> HH:mm[:ss]
-const fmeTimeToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length === 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`
-  if (s.length >= 6) return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
-  return ""
-}
-
-const inputToFmeTime = (v: string): string => {
-  // HH:mm or HH:mm:ss -> HHmmss
-  if (!v) return ""
-  const parts = v.split(":").map((x) => x || "")
-  const hh = parts[0] || ""
-  const mm = parts[1] || ""
-  const ss = parts[2] || ""
-
-  const nH = Number(hh)
-  const nM = Number(mm)
-  // FME time requires HHmm, ss is optional
-  if (!Number.isFinite(nH) || !Number.isFinite(nM)) return ""
-
-  const nS = Number(ss)
-  const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
-
-  return `${pad2(nH)}${pad2(nM)}${finalSS}`
-}
-
-const normalizedRgbToHex = (v: string): string | null => {
-  // "r,g,b[,a]" floats (0..1) -> "#RRGGBB"
-  const parts = (v || "").split(",").map((s) => s.trim())
-  if (parts.length < 3) return null
-  const to255 = (f: string) => {
-    const n = Number(f)
-    if (!Number.isFinite(n)) return null
-    const clamped = Math.max(0, Math.min(1, n))
-    return Math.round(clamped * 255)
-  }
-  const r = to255(parts[0])
-  const g = to255(parts[1])
-  const b = to255(parts[2])
-  if (r == null || g == null || b == null) return null
-  const toHex = (n: number) => n.toString(16).padStart(2, "0")
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
-}
-
-const hexToNormalizedRgb = (hex: string): string | null => {
-  // "#RRGGBB" -> "r,g,b" floats (0..1)
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-  if (!m) return null
-  const n = parseInt(m[1], 16)
-  const r = (n >> 16) & 0xff
-  const g = (n >> 8) & 0xff
-  const b = n & 0xff
-  const f = (x: number) => Number((x / 255).toFixed(6)).toString()
-  return `${f(r)},${f(g)},${f(b)}`
-}
-
-// Utility functions for field handling
-export const normalizeFormValue = (
-  value: FormPrimitive | undefined,
-  isMultiSelect: boolean
-): FormPrimitive | SelectValue => {
-  if (value === undefined || value === null) {
-    return isMultiSelect ? [] : ""
-  }
-  if (isMultiSelect) {
-    return Array.isArray(value) ? value : []
-  }
-  return typeof value === "string" || typeof value === "number" ? value : ""
-}
-
-export const makePlaceholders = (
-  translate: (k: string, p?: any) => string,
-  fieldLabel: string
-) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
-})
+// makePlaceholders is now imported from shared/utils
 
 // Input rendering helper
 export const renderInputField = (
@@ -221,21 +105,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
 
   // Compute if select values can be coerced to numbers
-  const computeSelectCoerce = (): "number" | "string" | undefined => {
-    if (!isSelectType || !selectOptions.length) return undefined
-    const vals = selectOptions.map((o) => o.value)
-    const allNumeric = vals.every((v) => {
-      if (typeof v === "number") return Number.isFinite(v)
-      if (typeof v === "string") {
-        if (v.trim() === "") return false
-        const n = Number(v)
-        return Number.isFinite(n) && String(n) === v
-      }
-      return false
-    })
-    return allNumeric ? "number" : undefined
-  }
-  const selectCoerce = computeSelectCoerce()
+  const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
 
   hooks.useEffectOnce(() => {
     if (!isSingleOption) return
@@ -260,22 +130,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.TABLE: {
         // Minimal table: array of strings; allow add/remove rows
-        const parseRows = (): string[] => {
-          const v = value as any
-          if (Array.isArray(v))
-            return v.map((x) => (typeof x === "string" ? x : String(x)))
-          if (typeof v === "string") {
-            try {
-              const arr = JSON.parse(v)
-              return Array.isArray(arr) ? arr.map((x) => String(x)) : []
-            } catch {
-              return v ? [v] : []
-            }
-          }
-          return []
-        }
-
-        const rows = parseRows()
+        const rows = parseTableRows(value)
 
         const updateRow = (idx: number, val: string) => {
           const next = [...rows]
@@ -371,7 +226,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.URL: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <UrlInput
             value={val}
@@ -402,7 +257,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.TEXTAREA:
         return (
           <TextArea
-            value={fieldValue as string}
+            value={asString(fieldValue)}
             placeholder={placeholders.enter}
             onChange={(val) => {
               onChange(val as FormPrimitive)
@@ -434,8 +289,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <Input
             type="password"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
+            value={asString(fieldValue)}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
@@ -474,7 +329,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       case FormFieldType.RADIO: {
         const options = field.options || []
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Radio
             options={options.map((opt) => ({
@@ -570,7 +425,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.MONTH: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="month"
@@ -579,12 +434,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value as FormPrimitive)
             }}
             disabled={field.readOnly}
-            placeholder={field.placeholder || placeholders.enter}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
           />
         )
       }
       case FormFieldType.WEEK: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="week"
@@ -593,7 +448,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(value as FormPrimitive)
             }}
             disabled={field.readOnly}
-            placeholder={field.placeholder || placeholders.enter}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
           />
         )
       }
@@ -613,12 +468,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.EMAIL: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="email"
             value={val}
-            placeholder={field.placeholder || translate("placeholderEmail")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "email"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -627,12 +487,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.PHONE: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="tel"
             value={val}
-            placeholder={field.placeholder || translate("placeholderPhone")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "phone"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -641,12 +506,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.SEARCH: {
-        const val = typeof fieldValue === "string" ? fieldValue : ""
+        const val = asString(fieldValue)
         return (
           <Input
             type="search"
             value={val}
-            placeholder={field.placeholder || translate("placeholderSearch")}
+            placeholder={getTextPlaceholder(
+              field,
+              placeholders,
+              translate,
+              "search"
+            )}
             onChange={(value) => {
               onChange(value as FormPrimitive)
             }}
@@ -658,8 +528,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <Input
             type="text"
-            value={(fieldValue as string) || ""}
-            placeholder={field.placeholder || placeholders.enter}
+            value={asString(fieldValue)}
+            placeholder={getTextPlaceholder(field, placeholders, translate)}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
@@ -674,3 +544,5 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 }
 
 export default DynamicField
+// Re-export for backwards compatibility in tests and callers
+export { makePlaceholders } from "../../shared/utils"

@@ -98,12 +98,12 @@ describe("Workflow component", () => {
       />
     )
 
-    // Radiogroup and radios via ButtonTabs (sv labels)
-    const group = screen.getByRole("radiogroup")
-    const polygon = within(group).getByRole("radio", { name: /Polygon/i })
-    const rectangle = within(group).getByRole("radio", { name: /Rektangel/i })
+    // Tablist and tabs via ButtonTabs (sv labels)
+    const group = screen.getByRole("tablist")
+    const polygon = within(group).getByRole("tab", { name: /Polygon/i })
+    const rectangle = within(group).getByRole("tab", { name: /Rektangel/i })
 
-    expect(polygon).toHaveAttribute("aria-checked", "true")
+    expect(polygon).toHaveAttribute("aria-selected", "true")
     rectangle.click()
     await waitFor(() => {
       expect(onDrawingModeChange).toHaveBeenCalledWith(DrawingTool.RECTANGLE)
@@ -128,20 +128,39 @@ describe("Workflow component", () => {
 
   test("header reset button visibility based on state and drawing progress", () => {
     const onReset = jest.fn()
-    const { rerender } = renderWithProviders(
+    const utils = renderWithProviders(
       <Workflow
-        state={ViewMode.DRAWING}
+        state={ViewMode.INITIAL}
         instructionText=""
         isModulesLoading={false}
         showHeaderActions={true}
-        isDrawing={true}
+        isDrawing={false}
         clickCount={0}
         drawnArea={0}
         onReset={onReset}
       />
     )
 
-    // First click pending -> reset hidden (sv: "Avbryt")
+    // In INITIAL (ButtonTabs visible), cancel should be hidden
+    expect(
+      screen.queryByRole("button", { name: /Avbryt/i })
+    ).not.toBeInTheDocument()
+
+    const { rerender } = utils
+    rerender(
+      <Workflow
+        state={ViewMode.DRAWING}
+        instructionText=""
+        isModulesLoading={false}
+        showHeaderActions={true}
+        isDrawing={false}
+        clickCount={0}
+        drawnArea={0}
+        onReset={onReset}
+      />
+    )
+
+    // In DRAWING with 0 clicks (ButtonTabs visible), cancel should be hidden
     expect(
       screen.queryByRole("button", { name: /Avbryt/i })
     ).not.toBeInTheDocument()

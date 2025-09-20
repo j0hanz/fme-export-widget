@@ -4,10 +4,10 @@ import "@testing-library/jest-dom"
 import { widgetRender, initStore, setTheme, mockTheme } from "jimu-for-test"
 import {
   DynamicField,
-  normalizeFormValue,
   makePlaceholders,
   renderInputField,
 } from "../runtime/components/fields"
+import { normalizeFormValue } from "../shared/validations"
 import { FormFieldType, type DynamicFieldConfig } from "../config"
 
 // Mock UI components to avoid rendering complexity in unit tests
@@ -287,9 +287,9 @@ describe("Fields module", () => {
       expect(normalizeFormValue([1, 2], true)).toEqual([1, 2])
     })
 
-    test("converts non-arrays to empty array for multi select", () => {
-      expect(normalizeFormValue("single", true)).toEqual([])
-      expect(normalizeFormValue(42, true)).toEqual([])
+    test("converts non-arrays to array for multi select", () => {
+      expect(normalizeFormValue("single", true)).toEqual(["single"])
+      expect(normalizeFormValue(42, true)).toEqual([42])
     })
 
     test("converts invalid types to empty string for single select", () => {

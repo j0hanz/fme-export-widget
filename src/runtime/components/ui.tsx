@@ -34,7 +34,14 @@ import {
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
-import { EMAIL_PLACEHOLDER, stripHtmlToText } from "../../shared/utils"
+import {
+  EMAIL_PLACEHOLDER,
+  stripHtmlToText,
+  styleCss,
+  getErrorIconSrc,
+  getBtnAria,
+  ariaDesc,
+} from "../../shared/utils"
 import type {
   ViewAction,
   ButtonProps,
@@ -52,29 +59,8 @@ import type {
   BtnContentProps,
   IconProps,
   StateViewProps,
+  TranslateFn,
 } from "../../config"
-import errorIcon from "jimu-icons/svg/outlined/suggested/error.svg"
-import warningIcon from "jimu-icons/svg/outlined/suggested/warning.svg"
-import infoIcon from "jimu-icons/svg/outlined/suggested/info.svg"
-import successIcon from "jimu-icons/svg/outlined/suggested/success.svg"
-import lockIcon from "jimu-icons/svg/outlined/editor/lock.svg"
-import stopIcon from "jimu-icons/svg/outlined/editor/stop-circle.svg"
-import closeCircleIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
-import pendingIcon from "jimu-icons/svg/outlined/editor/pending.svg"
-import personLockIcon from "jimu-icons/svg/outlined/application/person-lock.svg"
-import emailIcon from "jimu-icons/svg/outlined/application/email.svg"
-import settingsIcon from "jimu-icons/svg/outlined/application/setting.svg"
-import folderIcon from "jimu-icons/svg/outlined/application/folder.svg"
-import urlIcon from "jimu-icons/svg/outlined/data/url.svg"
-import codeIcon from "jimu-icons/svg/outlined/data/code.svg"
-import documentIcon from "jimu-icons/svg/outlined/data/document.svg"
-import frameworkIcon from "jimu-icons/svg/outlined/brand/widget-framework.svg"
-import offlineIcon from "jimu-icons/svg/outlined/editor/sync-off.svg"
-import unlinkChainIcon from "jimu-icons/svg/outlined/editor/unlink-chain.svg"
-import globeIcon from "jimu-icons/svg/outlined/data/globe.svg"
-import minusCircleIcon from "jimu-icons/svg/outlined/editor/minus-circle.svg"
-
-type TranslateFn = (key: string, params?: any) => string
 
 // Configuration
 export const config = {
@@ -92,7 +78,6 @@ export const config = {
   button: {
     defaults: {
       block: true,
-      iconPosition: "right" as const,
       tooltipPosition: "top" as const,
     },
     offset: "10px",
@@ -277,80 +262,6 @@ export const useStyles = () => {
 
   return stylesRef.current || createStyles(theme)
 }
-export const getErrorIconSrc = (code?: string): string => {
-  if (!code || typeof code !== "string") return errorIcon
-  const k = code.trim().toUpperCase()
-
-  if (
-    k === "TOKEN" ||
-    k === "AUTH_ERROR" ||
-    k === "INVALID_TOKEN" ||
-    k === "TOKEN_EXPIRED" ||
-    k === "AUTH_REQUIRED"
-  ) {
-    return lockIcon
-  }
-  if (
-    k === "SERVER" ||
-    k === "SERVER_ERROR" ||
-    k === "BAD_GATEWAY" ||
-    k === "SERVICE_UNAVAILABLE" ||
-    k === "GATEWAY_TIMEOUT"
-  ) {
-    return errorIcon
-  }
-  if (
-    k === "REPOSITORY" ||
-    k === "REPO_NOT_FOUND" ||
-    k === "REPOSITORY_NOT_FOUND" ||
-    k === "INVALID_REPOSITORY"
-  ) {
-    return folderIcon
-  }
-  if (k === "DNS_ERROR") return globeIcon
-  if (k === "NETWORK" || k === "NETWORK_ERROR") return unlinkChainIcon
-
-  // Specific technical issues
-  if (k === "OFFLINE" || k === "STARTUP_NETWORK_ERROR") return offlineIcon
-  if (k === "CORS_ERROR" || k === "SSL_ERROR") return lockIcon
-  if (
-    k === "INVALID_URL" ||
-    k === "URL_TOO_LONG" ||
-    k === "MAX_URL_LENGTH_EXCEEDED"
-  )
-    return urlIcon
-  if (k === "HEADERS_TOO_LARGE") return documentIcon
-  if (k === "BAD_RESPONSE") return codeIcon
-  if (k === "BAD_REQUEST") return warningIcon
-  if (k === "PAYLOAD_TOO_LARGE" || k === "DATA_DOWNLOAD_ERROR")
-    return documentIcon
-  if (k === "RATE_LIMITED") return minusCircleIcon
-  if (k === "TIMEOUT" || k === "ETIMEDOUT") return pendingIcon
-  if (k === "ABORT") return stopIcon
-  if (k === "CANCELLED") return closeCircleIcon
-  if (k === "WEBHOOK_AUTH_ERROR") return personLockIcon
-  if (k === "ARCGIS_MODULE_ERROR") return frameworkIcon
-
-  // Configuration & validation
-  if (
-    k === "INVALID_CONFIG" ||
-    k === "CONFIGMISSING" ||
-    k === "MISSINGREQUIREDFIELDS"
-  )
-    return settingsIcon
-  if (
-    k === "USEREMAILMISSING" ||
-    k === "MISSING_REQUESTER_EMAIL" ||
-    k === "INVALID_EMAIL"
-  )
-    return emailIcon
-
-  // Generic defaults
-  if (k === "CONNECTION_ERROR") return unlinkChainIcon
-  if (k === "SUCCESS") return successIcon
-  if (k === "INFO") return infoIcon
-  return errorIcon
-}
 
 // Utility functions
 let idSeq = 0
@@ -399,26 +310,85 @@ const withId = (
   return { id: undefined, child }
 }
 
-// Helper functions
-const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
-  id ? `${id}-${suffix}` : undefined
-
-const getBtnAria = (
-  text?: React.ReactNode,
-  icon?: string | boolean,
-  jimuAriaLabel?: string,
-  tooltip?: string,
-  fallbackLabel?: string
-): string | undefined => {
-  // If there's an explicit aria-label, use it
-  if (jimuAriaLabel) return jimuAriaLabel
-  // If there's visible text, use it
-  if (typeof text === "string" && text.length > 0) return text
-  // if no icon, no need for aria-label
-  if (!icon) return undefined
-  // If there's an icon but no text, use tooltip or fallback label
-  return (typeof tooltip === "string" && tooltip) || fallbackLabel
+// Compose common css arrays with optional custom styles
+const applyComponentStyles = (
+  base: Array<ReturnType<typeof css> | undefined>,
+  customStyle?: React.CSSProperties
+) => {
+  return [...base, styleCss(customStyle)].filter(Boolean)
 }
+
+// Build common ARIA attributes for form inputs/areas
+const getFormAria = (opts: {
+  id?: string
+  required?: boolean
+  errorText?: string | boolean
+  errorSuffix?: string
+}) => {
+  const { id, required, errorText, errorSuffix } = opts || {}
+  return {
+    "aria-required": !!required,
+    "aria-invalid": !!errorText,
+    "aria-describedby": errorText && id ? ariaDesc(id, errorSuffix) : undefined,
+  } as const
+}
+
+// Wrap an element with Tooltip and layout wrapper when tooltip is provided
+const wrapWithTooltip = (
+  element: React.ReactElement,
+  opts: {
+    tooltip?: React.ReactNode
+    placement?: any
+    block?: boolean
+    jimuCss?: any
+    jimuStyle?: React.CSSProperties
+  }
+) => {
+  const { tooltip, placement, block, jimuCss, jimuStyle } = opts || {}
+  if (!tooltip) return element
+
+  const wrapperCss = [
+    jimuCss,
+    styleCss(jimuStyle),
+    css(
+      block
+        ? { display: "block", width: "100%", minWidth: 0 }
+        : { display: "inline-flex", minWidth: 0 }
+    ),
+  ]
+
+  const anchorCss = css({
+    display: "flex",
+    width: "100%",
+    minWidth: 0,
+    "& > *": { flex: 1, minWidth: 0 },
+  })
+
+  return (
+    <span css={wrapperCss as any}>
+      <Tooltip content={tooltip} placement={placement}>
+        <span css={anchorCss}>{element}</span>
+      </Tooltip>
+    </span>
+  )
+}
+
+// Render the required mark with tooltip and proper aria
+const getRequiredMark = (
+  translate: (k: string, vars?: any) => string,
+  styles: ReturnType<typeof useStyles>
+) => (
+  <Tooltip content={translate("requiredField")} placement="bottom">
+    <span
+      css={styles.typography.required}
+      aria-label={translate("ariaRequired")}
+      role="img"
+      aria-hidden="false"
+    >
+      {config.required}
+    </span>
+  </Tooltip>
+)
 
 // Button content component extracted from Button
 const BtnContent: React.FC<BtnContentProps> = ({
@@ -426,7 +396,6 @@ const BtnContent: React.FC<BtnContentProps> = ({
   children,
   text,
   icon,
-  iconPosition,
   alignText,
 }) => {
   const styles = useStyles()
@@ -458,7 +427,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
 
   const iconWithPosition = (
     <span
-      css={[styles.button.icon, css({ [iconPosition]: config.button.offset })]}
+      css={[styles.button.icon, css({ right: config.button.offset })]}
       aria-hidden="true"
     >
       {iconEl}
@@ -467,22 +436,19 @@ const BtnContent: React.FC<BtnContentProps> = ({
 
   return (
     <>
-      {iconPosition === "left" && iconWithPosition}
+      {/* left icon not supported */}
       <div
         css={[
           styles.button.text,
           css({
             textAlign: alignText as any,
-            paddingLeft:
-              iconPosition === "left" ? config.button.textPadding : undefined,
-            paddingRight:
-              iconPosition === "right" ? config.button.textPadding : undefined,
+            paddingRight: config.button.textPadding,
           }),
         ]}
       >
         {text}
       </div>
-      {iconPosition === "right" && iconWithPosition}
+      {iconWithPosition}
     </>
   )
 }
@@ -503,7 +469,7 @@ export const Icon: React.FC<IconProps> = ({
       role="img"
       aria-hidden={!ariaLabel}
       aria-label={ariaLabel}
-      css={style ? css(style as any) : undefined}
+      css={applyComponentStyles([], style as any)}
     />
   )
 }
@@ -515,10 +481,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
   showArrow = config.tooltip.showArrow,
   placement = config.tooltip.position.top,
   disabled = false,
-  title,
   ...otherProps
 }) => {
-  const tooltipContent = title ?? content
+  const tooltipContent = content
   if (!React.isValidElement(children) || !tooltipContent || disabled) {
     return <>{children}</>
   }
@@ -597,6 +562,8 @@ export const Input: React.FC<InputProps> = ({
     }
   )
 
+  const aria = getFormAria({ id: (props as any).id, required, errorText })
+
   return (
     <TextInput
       {...props}
@@ -608,13 +575,8 @@ export const Input: React.FC<InputProps> = ({
       required={required}
       maxLength={maxLength}
       title={errorText}
-      aria-required={required}
-      aria-invalid={!!errorText}
-      aria-describedby={errorText && props.id ? ariaDesc(props.id) : undefined}
-      css={[
-        styles.fullWidth,
-        (props as any).style && css((props as any).style),
-      ]}
+      {...aria}
+      css={applyComponentStyles([styles.fullWidth], (props as any).style)}
     />
   )
 }
@@ -639,17 +601,20 @@ export const TextArea: React.FC<TextAreaProps> = ({
 
   const validationMessage = (props as any).validationMessage || props.errorText
 
+  const aria = getFormAria({
+    id: (props as any).id,
+    required: (props as any).required,
+    errorText: validationMessage,
+    errorSuffix: "error",
+  })
+
   return (
     <JimuTextArea
       {...props}
       value={value}
       onChange={handleChange}
-      css={[styles.textareaResize, props.style && css(props.style as any)]}
-      aria-required={props.required}
-      aria-invalid={!!validationMessage}
-      aria-describedby={
-        validationMessage && props.id ? ariaDesc(props.id, "error") : undefined
-      }
+      css={applyComponentStyles([styles.textareaResize], props.style as any)}
+      {...aria}
     />
   )
 }
@@ -674,7 +639,7 @@ export const UrlInput: React.FC<{
         const sanitized = raw
         onChange?.(sanitized)
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -703,9 +668,10 @@ export const Radio: React.FC<{
   "aria-label": ariaLabel,
 }) => {
   const styles = useStyles()
+  const isControlled = value !== undefined
   return (
     <div
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -713,8 +679,9 @@ export const Radio: React.FC<{
         <JimuRadio
           key={option.value}
           value={option.value}
-          checked={value === option.value}
-          defaultChecked={defaultValue === option.value}
+          {...(isControlled
+            ? { checked: value === option.value }
+            : { defaultChecked: defaultValue === option.value })}
           disabled={disabled}
           onChange={(e) => {
             onChange?.(e.target.value)
@@ -765,7 +732,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -813,7 +780,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -835,7 +802,7 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -856,7 +823,7 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -895,7 +862,7 @@ export const DatePickerWrapper: React.FC<{
         // also try opening on mouse/touch down for convenience
         openPicker()
       }}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     />
   )
 }
@@ -951,10 +918,10 @@ export const DateTimePickerWrapper: React.FC<{
   return (
     <div
       css={[
-        styles.row,
-        styles.fullWidth,
-        css({ flexWrap: "wrap", gap: 4 }),
-        style && css(style as any),
+        ...applyComponentStyles(
+          [styles.row, styles.fullWidth, css({ flexWrap: "wrap", gap: 4 })],
+          style
+        ),
       ]}
     >
       <input
@@ -996,7 +963,7 @@ export const RichText: React.FC<{
 }> = ({ html, placeholder, className, style }) => {
   const text = stripHtmlToText(html)
   return (
-    <div className={className} css={style ? css(style as any) : undefined}>
+    <div className={className} css={styleCss(style)}>
       {text || placeholder || ""}
     </div>
   )
@@ -1064,7 +1031,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={[styles.fullWidth, style && css(style as any)]}
+      css={applyComponentStyles([styles.fullWidth], style)}
     >
       {(options || [])
         .map((option) => {
@@ -1138,7 +1105,7 @@ export const MultiSelectControl: React.FC<{
     }))
 
   return (
-    <div css={style ? css(style as any) : undefined}>
+    <div css={applyComponentStyles([], style)}>
       <MultiSelect
         values={current || []}
         defaultValues={defaultValues}
@@ -1156,7 +1123,6 @@ export const MultiSelectControl: React.FC<{
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
-  iconPosition = config.button.defaults.iconPosition,
   alignText = "start",
   tooltip,
   tooltipDisabled = false,
@@ -1230,43 +1196,21 @@ export const Button: React.FC<ButtonProps> = ({
         loading={loading}
         text={text}
         icon={icon}
-        iconPosition={iconPosition}
         alignText={alignText}
       >
         {children}
       </BtnContent>
     </JimuButton>
   )
-
-  if (hasTooltip) {
-    // Outer wrapper is the flex item and carries caller CSS; inner anchor grows to fill
-    const wrapperCss = [
-      jimuCss,
-      jimuStyle && css(jimuStyle),
-      css(
-        block
-          ? { display: "block", width: "100%", minWidth: 0 }
-          : { display: "inline-flex", minWidth: 0 }
-      ),
-    ]
-
-    const anchorCss = css({
-      display: "flex",
-      width: "100%",
-      minWidth: 0,
-      "& > *": { flex: 1, minWidth: 0 },
-    })
-
-    return (
-      <span css={wrapperCss as any}>
-        <Tooltip content={tooltip} placement={tooltipPlacement}>
-          <span css={anchorCss}>{buttonElement}</span>
-        </Tooltip>
-      </span>
-    )
-  }
-
-  return buttonElement
+  return hasTooltip
+    ? wrapWithTooltip(buttonElement, {
+        tooltip,
+        placement: tooltipPlacement,
+        block,
+        jimuCss,
+        jimuStyle,
+      })
+    : buttonElement
 }
 
 // ButtonTabs component
@@ -1279,26 +1223,28 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   ariaLabel,
 }) => {
   const styles = useStyles()
-  const [value, handleValueChange] = useValue(
-    controlled,
+  const [uncontrolledValue, setUncontrolledValue] = useValue(
+    undefined,
     defaultValue || items[0]?.value
   )
+  const isControlled = controlled !== undefined
+  const currentValue = isControlled ? controlled : uncontrolledValue
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    handleValueChange(final as any)
+    if (!isControlled) setUncontrolledValue(final as any)
     onChange?.(final as any)
     onTabChange?.(final as any)
   })
 
   return (
     <AdvancedButtonGroup
-      role="radiogroup"
+      role="tablist"
       aria-label={ariaLabel}
       css={[styles.row, styles.gapBtnGroup]}
     >
       {items.map((item, i) => {
-        const active = value === item.value
+        const active = currentValue === item.value
         return (
           <Button
             key={
@@ -1310,13 +1256,17 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
-            variant="contained"
-            role="radio"
-            aria-checked={active}
+            variant={active ? "contained" : "outlined"}
+            color={active ? "primary" : "default"}
+            role="tab"
+            aria-selected={active}
             tooltip={item.tooltip}
             tooltipPlacement="top"
             disabled={item.disabled}
-            onClick={() => handleChange(item.value)}
+            onClick={() => {
+              if (active) return
+              handleChange(item.value)
+            }}
             block={true}
           />
         )
@@ -1331,7 +1281,6 @@ const StateView: React.FC<StateViewProps> = ({
   className,
   style,
   renderActions,
-  testId,
   center,
 }) => {
   const styles = useStyles()
@@ -1509,11 +1458,10 @@ const StateView: React.FC<StateViewProps> = ({
   return (
     <div
       className={className}
-      data-testid={testId}
-      css={[
-        shouldCenter ? styles.centered : undefined,
-        style && css(style as any),
-      ]}
+      css={applyComponentStyles(
+        [shouldCenter ? styles.centered : undefined],
+        style as any
+      )}
     >
       {content}
     </div>
@@ -1543,8 +1491,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     const btnConfig = {
       ...buttonConfig,
       variant:
-        (buttonConfig.variant as "text" | "contained" | "outlined") ||
-        (side === "left" ? "outlined" : "contained"),
+        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
       color: buttonConfig.color || (side === "left" ? "default" : "primary"),
       key: side,
     }
@@ -1553,7 +1500,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 
   return (
     <div
-      css={[styles.button.group, style && css(style as any)]}
+      css={applyComponentStyles([styles.button.group], style as any)}
       className={className}
     >
       {leftButton && createButton(leftButton, "left")}
@@ -1612,7 +1559,7 @@ export const Form: React.FC<FormProps> = (props) => {
     return (
       <Field
         className={className}
-        css={style ? css(style as any) : undefined}
+        style={style}
         label={label}
         helper={helper}
         required={required}
@@ -1649,7 +1596,7 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup
       className={className}
-      css={[styles.fieldGroup, style && css(style as any)]}
+      css={applyComponentStyles([styles.fieldGroup], style)}
     >
       <Label
         css={[styles.block, styles.typography.label]}
@@ -1657,18 +1604,7 @@ export const Field: React.FC<FieldProps> = ({
         for={fieldId}
       >
         {label}
-        {required && (
-          <Tooltip content={translate("requiredField")} placement="bottom">
-            <span
-              css={styles.typography.required}
-              aria-label={translate("ariaRequired")}
-              role="img"
-              aria-hidden="false"
-            >
-              {config.required}
-            </span>
-          </Tooltip>
-        )}
+        {required && getRequiredMark(translate, styles)}
       </Label>
       {!readOnly && renderedChild}
       {helper && !error && (

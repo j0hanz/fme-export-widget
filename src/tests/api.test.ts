@@ -119,16 +119,28 @@ describe("shared/api FmeFlowApiClient", () => {
     expect(calledUrl).toBe("https://host.example.com/fmerest/v3/info")
   })
 
-  test("GET requests include fmetoken and __scope query params; absolute URL is preserved", async () => {
+  test("GET requests add __scope and install interceptor; absolute URL is preserved", async () => {
     const esriRequest = (global as any).esriRequest as jest.Mock
     const client = makeClient()
     await client.validateRepository("repo1")
 
     const [, options] = esriRequest.mock.calls[0]
     expect(options.method).toBe("get")
-    expect(options.query.fmetoken).toBe("superSecretToken1234")
     expect(typeof options.query.__scope).toBe("string")
     expect(options.query.__scope.length).toBeGreaterThan(0)
+
+    // Interceptor should be installed for host and inject fmetoken via before() hook
+    const interceptors = (global as any).esriConfig.request.interceptors
+    expect(Array.isArray(interceptors)).toBe(true)
+    const fmeInterceptor = interceptors.find((i: any) => i && i._fmeInterceptor)
+    expect(fmeInterceptor).toBeTruthy()
+    // Simulate esri/request invoking before() to ensure it injects token
+    const params: any = {
+      url: "https://fme.example.com/fmerest/v3/repositories/repo1",
+      requestOptions: { query: {} },
+    }
+    fmeInterceptor.before(params)
+    expect(params.requestOptions.query.fmetoken).toBe("superSecretToken1234")
 
     // Absolute URL remains unchanged
     await client.customRequest<any>("https://example.com/path", HttpMethod.GET)
@@ -168,7 +180,7 @@ describe("shared/api FmeFlowApiClient", () => {
     expect(res2.data).toEqual([{ name: "x" }, { name: "y" }])
   })
 
-  test("getRepositoryItems includes query filters and cache hints", async () => {
+  test("getRepositoryItems includes query filters and cache hints; interceptor can inject token", async () => {
     const esriRequest = (global as any).esriRequest as jest.Mock
     const client = makeClient()
     await client.getRepositoryItems("repoA", "FMW", 10, 5)
@@ -180,9 +192,40 @@ describe("shared/api FmeFlowApiClient", () => {
         limit: 10,
         offset: 5,
         __scope: expect.any(String),
-        fmetoken: expect.any(String),
       })
     )
+    // Verify interceptor can inject token
+    const interceptors = (global as any).esriConfig.request.interceptors
+    const fmeInterceptor = interceptors.find((i: any) => i && i._fmeInterceptor)
+    const params: any = {
+      url: "https://fme.example.com/fmerest/v3/repositories/repoA/items",
+      requestOptions: { query: { ...options.query } },
+    }
+    fmeInterceptor.before(params)
+    expect(params.requestOptions.query.fmetoken).toBe("superSecretToken1234")
+  })
+
+  test("interceptor uses latest token after updateConfig (no duplicates)", async () => {
+    const client = makeClient({ token: "firstToken" })
+    // Trigger interceptor setup
+    await client.validateRepository("repo1")
+    const interceptors = (global as any).esriConfig.request.interceptors
+    const beforeCount = interceptors.filter(
+      (i: any) => i && i._fmeInterceptor
+    ).length
+    // Rotate token
+    client.updateConfig({ token: "secondToken9999" })
+    const afterCount = interceptors.filter(
+      (i: any) => i && i._fmeInterceptor
+    ).length
+    expect(afterCount).toBe(beforeCount) // no duplicate interceptors
+    const fmeInterceptor = interceptors.find((i: any) => i && i._fmeInterceptor)
+    const params: any = {
+      url: "https://fme.example.com/fmerest/v3/repositories/repo1",
+      requestOptions: { query: {} },
+    }
+    fmeInterceptor.before(params)
+    expect(params.requestOptions.query.fmetoken).toBe("secondToken9999")
   })
 
   test("workspace endpoints target correct paths and disable caching", async () => {

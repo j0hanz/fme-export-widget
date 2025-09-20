@@ -1,4 +1,4 @@
-import { Immutable } from "jimu-core"
+import * as SeamlessImmutable from "seamless-immutable"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,
@@ -11,49 +11,11 @@ import {
   type WorkspaceItem,
   type WorkspaceItemDetail,
   type WorkspaceParameter,
-  ParameterType,
   type ExportResult,
   type FormValues,
 } from "../config"
-
-// Error serialization for storing in Redux state
-const toSerializable = (
-  error: ErrorState | SerializableErrorState | null
-): SerializableErrorState | null => {
-  if (!error) return null
-  const base = error as any
-  // Preserve timestampMs if provided; else derive from timestamp Date; else default to 0
-  const ts =
-    typeof base.timestampMs === "number"
-      ? base.timestampMs
-      : base.timestamp instanceof Date
-        ? base.timestamp.getTime()
-        : 0
-  const { retry, timestamp, ...rest } = base
-  return { ...rest, timestampMs: ts } as SerializableErrorState
-}
-
-// Prevent storing secrets in Redux: mask password-type parameters
-const sanitizeFormValues = (
-  formValues: FormValues,
-  parameters: readonly WorkspaceParameter[]
-): FormValues => {
-  if (!formValues) return formValues
-  const secretNames = new Set(
-    (parameters || [])
-      .filter((p) => p && p.type === ParameterType.PASSWORD)
-      .map((p) => p.name)
-  )
-  if (secretNames.size === 0) return formValues
-  const masked: FormValues = {}
-  for (const k of Object.keys(formValues || {})) {
-    masked[k] =
-      secretNames.has(k) && formValues[k]
-        ? ("[redacted]" as any)
-        : formValues[k]
-  }
-  return masked
-}
+import { sanitizeFormValues } from "../shared/validations"
+import { toSerializable } from "../shared/utils"
 
 // Action creators
 export const fmeActions = {
@@ -233,7 +195,7 @@ export const initialFmeState: FmeWidgetState = {
   workspaceItem: null,
   isLoadingWorkspaces: false,
   isLoadingParameters: false,
-  currentRepository: null, // Track current repository for proper workspace isolation
+  currentRepository: null,
 
   // Loading and errors
   isModulesLoading: false,
@@ -242,6 +204,11 @@ export const initialFmeState: FmeWidgetState = {
   importError: null,
   exportError: null,
 }
+
+// Seamless-immutable typing is broken, so we need to force it here
+const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
+  input: any
+) => any
 
 // Reducer for a single widget instance
 const reduceOne = (
