@@ -1223,26 +1223,28 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   ariaLabel,
 }) => {
   const styles = useStyles()
-  const [value, handleValueChange] = useValue(
-    controlled,
+  const [uncontrolledValue, setUncontrolledValue] = useValue(
+    undefined,
     defaultValue || items[0]?.value
   )
+  const isControlled = controlled !== undefined
+  const currentValue = isControlled ? controlled : uncontrolledValue
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    handleValueChange(final as any)
+    if (!isControlled) setUncontrolledValue(final as any)
     onChange?.(final as any)
     onTabChange?.(final as any)
   })
 
   return (
     <AdvancedButtonGroup
-      role="radiogroup"
+      role="tablist"
       aria-label={ariaLabel}
       css={[styles.row, styles.gapBtnGroup]}
     >
       {items.map((item, i) => {
-        const active = value === item.value
+        const active = currentValue === item.value
         return (
           <Button
             key={
@@ -1254,13 +1256,17 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
-            variant="contained"
-            role="radio"
-            aria-checked={active}
+            variant={active ? "contained" : "outlined"}
+            color={active ? "primary" : "default"}
+            role="tab"
+            aria-selected={active}
             tooltip={item.tooltip}
             tooltipPlacement="top"
             disabled={item.disabled}
-            onClick={() => handleChange(item.value)}
+            onClick={() => {
+              if (active) return
+              handleChange(item.value)
+            }}
             block={true}
           />
         )

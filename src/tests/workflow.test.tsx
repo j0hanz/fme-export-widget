@@ -98,12 +98,12 @@ describe("Workflow component", () => {
       />
     )
 
-    // Radiogroup and radios via ButtonTabs (sv labels)
-    const group = screen.getByRole("radiogroup")
-    const polygon = within(group).getByRole("radio", { name: /Polygon/i })
-    const rectangle = within(group).getByRole("radio", { name: /Rektangel/i })
+    // Tablist and tabs via ButtonTabs (sv labels)
+    const group = screen.getByRole("tablist")
+    const polygon = within(group).getByRole("tab", { name: /Polygon/i })
+    const rectangle = within(group).getByRole("tab", { name: /Rektangel/i })
 
-    expect(polygon).toHaveAttribute("aria-checked", "true")
+    expect(polygon).toHaveAttribute("aria-selected", "true")
     rectangle.click()
     await waitFor(() => {
       expect(onDrawingModeChange).toHaveBeenCalledWith(DrawingTool.RECTANGLE)

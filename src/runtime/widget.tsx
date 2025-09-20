@@ -436,6 +436,12 @@ const setupSketchEventHandlers = (
   let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
+    try {
+      console.log("EXB-Widget Sketch create", {
+        state: evt.state,
+        tool: (evt as any)?.tool,
+      })
+    } catch {}
     switch (evt.state) {
       case "start":
         clickCount = 0
@@ -472,7 +478,19 @@ const setupSketchEventHandlers = (
       case "complete":
         clickCount = 0
         dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-        onDrawComplete(evt)
+        try {
+          onDrawComplete(evt)
+        } catch (err: any) {
+          const name = (err && (err.name || err.code)) || ""
+          const msg = err?.message || ""
+          const isAbort =
+            /abort/i.test(String(name)) || /abort/i.test(String(msg))
+          if (!isAbort) {
+            try {
+              console.warn("EXB-Widget onDrawComplete error", err)
+            } catch {}
+          }
+        }
         break
 
       case "cancel":
@@ -484,16 +502,34 @@ const setupSketchEventHandlers = (
 
   // Re-run the same completion pipeline when a reshape finishes
   sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
+    try {
+      console.log("EXB-Widget Sketch update", {
+        state: evt.state,
+        tool: (evt as any)?.tool,
+      })
+    } catch {}
     if (
       evt.state === "complete" &&
       Array.isArray(evt.graphics) &&
       (evt.graphics[0] as any)?.geometry
     ) {
-      onDrawComplete({
-        graphic: evt.graphics[0] as any,
-        state: "complete",
-        tool: (evt as any).tool,
-      } as any)
+      try {
+        onDrawComplete({
+          graphic: evt.graphics[0] as any,
+          state: "complete",
+          tool: (evt as any).tool,
+        } as any)
+      } catch (err: any) {
+        const name = (err && (err.name || err.code)) || ""
+        const msg = err?.message || ""
+        const isAbort =
+          /abort/i.test(String(name)) || /abort/i.test(String(msg))
+        if (!isAbort) {
+          try {
+            console.warn("EXB-Widget onDrawComplete(update) error", err)
+          } catch {}
+        }
+      }
     }
   })
 }
@@ -1364,6 +1400,14 @@ export default function Widget(
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     if (!sketchViewModel) return
 
+    try {
+      console.log("EXB-Widget drawing start", {
+        tool,
+        viewMode: reduxState.viewMode,
+        clickCount: reduxState.clickCount,
+      })
+    } catch {}
+
     // Set tool
     dispatch(fmeActions.setDrawingState(true, 0, tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
@@ -1371,14 +1415,36 @@ export default function Widget(
     // Clear and hide
     resetGraphicsAndMeasurements()
 
-    // Ensure any in-progress draw is canceled before starting a new one
-    safeCancelSketch(sketchViewModel)
+    // Cancel only if SketchViewModel is actively drawing to reduce AbortError races
+    try {
+      const anyVm = sketchViewModel as any
+      const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
+      if (isActive) {
+        safeCancelSketch(sketchViewModel)
+      }
+    } catch {
+      // fallback best-effort cancel
+      safeCancelSketch(sketchViewModel)
+    }
 
     // Start drawing immediately; prior cancel avoids overlap
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
     if (sketchViewModel?.create) {
-      sketchViewModel.create(arg)
+      try {
+        sketchViewModel.create(arg)
+      } catch (err: any) {
+        // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
+        const name = (err && (err.name || err.code)) || ""
+        const msg = err?.message || ""
+        const isAbort =
+          /abort/i.test(String(name)) || /abort/i.test(String(msg))
+        if (!isAbort) {
+          try {
+            console.warn("EXB-Widget sketch.create error", err)
+          } catch {}
+        }
+      }
     }
   })
 
@@ -1583,6 +1649,14 @@ export default function Widget(
         formatArea={(area: number) => formatArea(area, modules)}
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
+          try {
+            console.log("EXB-Widget onDrawingModeChange", {
+              from: reduxState.drawingTool,
+              to: tool,
+              viewMode: reduxState.viewMode,
+              clickCount: reduxState.clickCount,
+            })
+          } catch {}
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
 
           // If already in drawing mode, restart drawing with new tool
@@ -1591,7 +1665,6 @@ export default function Widget(
             reduxState.clickCount === 0 &&
             sketchViewModel
           ) {
-            safeCancelSketch(sketchViewModel)
             handleStartDrawing(tool)
           }
         }}

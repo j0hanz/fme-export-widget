@@ -228,7 +228,7 @@ describe("UI components", () => {
     expect(onLeft).toHaveBeenCalled()
     expect(onRight).toHaveBeenCalled()
 
-    // ButtonTabs emits onChange and onTabChange
+    // ButtonTabs emits onChange and onTabChange (uncontrolled)
     const onChange = jest.fn()
     const onTabChange = jest.fn()
     const items = [
@@ -243,10 +243,39 @@ describe("UI components", () => {
         onTabChange={onTabChange as any}
       />
     )
-    fireEvent.click(screen.getByRole("radio", { name: /Two/i }))
+    fireEvent.click(screen.getByRole("tab", { name: /Two/i }))
     await waitForMilliseconds(0)
     expect(onChange).toHaveBeenCalledWith("2")
     expect(onTabChange).toHaveBeenCalled()
+  })
+
+  test("ButtonTabs controlled: clicking updates aria-selected state", async () => {
+    const items = [
+      { label: "Polygon", value: 0 },
+      { label: "Rectangle", value: 1 },
+    ]
+    const Wrapper = () => {
+      const [val, setVal] = React.useState<number>(0)
+      return (
+        <ButtonTabs
+          items={items as any}
+          value={val}
+          onChange={(next: number) => {
+            setVal(next)
+          }}
+          ariaLabel="Drawing mode"
+        />
+      )
+    }
+    renderWithProviders(<Wrapper />)
+    const tabs = screen.getAllByRole("tab")
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true")
+    expect(tabs[1]).toHaveAttribute("aria-selected", "false")
+
+    fireEvent.click(screen.getByRole("tab", { name: /Rectangle/i }))
+    await waitForMilliseconds(0)
+    expect(tabs[0]).toHaveAttribute("aria-selected", "false")
+    expect(tabs[1]).toHaveAttribute("aria-selected", "true")
   })
   test("Select and MultiSelectControl components render correctly", async () => {
     const options = [
