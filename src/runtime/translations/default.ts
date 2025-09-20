@@ -58,6 +58,8 @@ export default {
   polygonNotSimple: "Polygonen är inte enkel (självskärning)",
   geometryValidationFailed: "Det gick inte att validera polygonen",
   AREA_TOO_LARGE: "Området är för stort",
+  geometryInvalidHint:
+    "Polygonen är inte sluten, korsar sig själv eller har noll area.",
   MAP_INIT_ERROR: "Misslyckades att initiera kartan",
   DRAWING_COMPLETE_ERROR: "Misslyckades att avsluta ritning",
   requestAborted: "Begäran avbröts.",

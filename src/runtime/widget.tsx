@@ -610,14 +610,22 @@ export default function Widget(
         if (!baseMessage) baseMessage = translate("unknownErrorOccurred")
       }
 
-      // Determine support hint
+      // Decide how to guide the user depending on error type
+      const isGeometryInvalid = (() => {
+        const c = (error.code || "").toUpperCase()
+        return c === "GEOMETRY_INVALID" || c === "INVALID_GEOMETRY"
+      })()
+
+      // For geometry invalid errors: suppress code and support email; show an explanatory hint
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(config?.supportEmail)
-      const supportHint = buildSupportHintText(
-        translate,
-        supportEmail,
-        typeof ufm === "string" ? ufm : undefined
-      )
+      const supportHint = isGeometryInvalid
+        ? translate("geometryInvalidHint")
+        : buildSupportHintText(
+            translate,
+            supportEmail,
+            typeof ufm === "string" ? ufm : undefined
+          )
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -647,7 +655,7 @@ export default function Widget(
         <StateView
           // Show the base error message only; render support hint separately below
           state={makeErrorView(baseMessage, {
-            code: error.code,
+            code: isGeometryInvalid ? undefined : error.code,
             actions,
           })}
           renderActions={(act, ariaLabel) => (
@@ -656,13 +664,17 @@ export default function Widget(
               aria-label={ariaLabel}
               data-actions-count={act?.length ?? 0}
             >
-              {/* Render support hint on its own row */}
+              {/* Render hint row: for geometry errors show plain text without support email */}
               <div>
-                {renderSupportHint(
-                  supportEmail,
-                  translate,
-                  styles,
-                  supportHint
+                {isGeometryInvalid ? (
+                  <div css={styles.typography.caption}>{supportHint}</div>
+                ) : (
+                  renderSupportHint(
+                    supportEmail,
+                    translate,
+                    styles,
+                    supportHint
+                  )
                 )}
               </div>
               {Array.isArray(act) && act.length > 0 && (
@@ -973,9 +985,15 @@ export default function Widget(
         // Validate
         const validation = validatePolygon(geometry, modules)
         if (!validation.valid) {
-          if (validation.error) {
+          // Remove erroneous graphic and reset drawing state
+          try {
+            graphicsLayer?.remove(evt.graphic as any)
+          } catch {}
+          dispatch(fmeActions.setGeometry(null, 0, widgetId))
+          dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+          dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+          if (validation.error)
             dispatch(fmeActions.setError(validation.error, widgetId))
-          }
           return
         }
         const geomForUse =
@@ -1002,9 +1020,9 @@ export default function Widget(
           return
         }
 
-        // Set visual symbol
+        // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
-          if (evt.graphic) evt.graphic.geometry = geomForUse
+          evt.graphic.geometry = geomForUse
           evt.graphic.symbol = HIGHLIGHT_SYMBOL as any
         }
 

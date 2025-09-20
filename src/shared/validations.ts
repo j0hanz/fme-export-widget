@@ -29,8 +29,6 @@ export const isNum = (value: unknown): boolean => {
   return false
 }
 
-// isValidEmail is now in utils.ts and used via utils.getSupportEmail
-
 const MIN_TOKEN_LENGTH = 10
 const FME_REST_PATH = "/fmerest"
 
@@ -42,10 +40,6 @@ const hasForbiddenPaths = (pathname: string): boolean => {
   const lowerPath = pathname.toLowerCase()
   return lowerPath.includes(FME_REST_PATH)
 }
-
-// ------------------------------
-// URL helpers
-// ------------------------------
 
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
@@ -149,12 +143,6 @@ export const validateRepository = (
   return { ok: true }
 }
 
-// ------------------------------
-// Error mapping helpers
-// ------------------------------
-
-// extractErrorMessage moved to utils.ts
-
 // Helper function for extracting HTTP status from various error structures
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
@@ -191,10 +179,6 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
 
   return undefined
 }
-
-// ------------------------------
-// Error mapping helpers (refined)
-// ------------------------------
 
 const ERROR_CODE_TO_KEY: { [code: string]: string } = {
   ARCGIS_MODULE_ERROR: "startupNetworkError",
@@ -262,8 +246,6 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   return "unknownErrorOccurred"
 }
 
-// isJson moved to utils.ts
-
 export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (typeof url !== "string") return false
   const trimmed = url.trim()
@@ -276,8 +258,6 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (u.username || u.password) return false
   return true
 }
-
-// File helpers moved to utils.ts
 
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
@@ -314,11 +294,6 @@ export const validateConfigFields = (
   }
 }
 
-// parseNonNegativeInt moved to utils.ts
-
-// ------------------------------
-// Error constants
-// ------------------------------
 export const HTTP_STATUS_CODES = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
@@ -341,9 +316,6 @@ export const isAuthError = (status: number): boolean => {
   )
 }
 
-// extractHostFromUrl moved to utils.ts
-
-// Composite connection inputs validator used by settings UI
 export function validateConnectionInputs(args: {
   url: string
   token: string
@@ -421,23 +393,12 @@ export const createError = (
   }
 }
 
-// ------------------------------
-// UI helpers moved to utils.ts (maskToken, ariaDesc, getBtnAria, getErrorIconSrc)
-
-// ------------------------------
 // FME conversions (date/time/color)
-// ------------------------------
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
   const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
   return dateTimeRegex.test(trimmed)
 }
-
-// toIsoLocal/fromIsoLocal moved to utils.ts; re-exported below
-
-// pad2 moved to utils.ts
-
-// Form & conversion helpers moved to utils.ts (fmeDateTimeToInput, inputToFmeDateTime, etc.)
 
 export const sanitizeFormValues = (
   formValues: any,
@@ -459,28 +420,37 @@ export const sanitizeFormValues = (
   return masked
 }
 
-// ------------------------------
 // Geometry helpers
-// ------------------------------
-// Geometry shape checker moved to utils.ts (isPolygonGeometry)
-
 export const calcArea = (
   geometry: __esri.Geometry | undefined,
   modules: any
 ): number => {
   if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine)
     return 0
-  try {
-    const wkid =
-      (geometry.spatialReference && (geometry.spatialReference as any).wkid) ||
-      0
-    const engine = modules.geometryEngine
-    if (wkid === 4326 || wkid === 3857 || wkid === 102100) {
-      const a = engine.geodesicArea(geometry as __esri.Polygon, "square-meters")
-      return Number.isFinite(a) && a >= 0 ? a : 0
+
+  const engine = modules.geometryEngine
+
+  const isGeographic = (): boolean => {
+    try {
+      const sr: any = (geometry as any).spatialReference || {}
+      if (sr && (sr.isGeographic || sr.isWGS84)) return true
+      if (typeof sr.wkid === "number" && sr.wkid === 4326) return true
+      const json = (geometry as any).toJSON?.()
+      const jsr = json?.spatialReference || {}
+      return Boolean(jsr.isGeographic) || jsr.wkid === 4326
+    } catch {
+      return false
     }
-    const a = engine.planarArea(geometry as __esri.Polygon, "square-meters")
-    return Number.isFinite(a) && a >= 0 ? a : 0
+  }
+
+  try {
+    const area = isGeographic()
+      ? engine.geodesicArea
+        ? engine.geodesicArea(geometry as __esri.Polygon, "square-meters")
+        : engine.planarArea(geometry as __esri.Polygon, "square-meters")
+      : engine.planarArea(geometry as __esri.Polygon, "square-meters")
+
+    return Number.isFinite(area) && area > 0 ? area : 0
   } catch (e) {
     console.warn("Failed to calculate polygon area:", e)
     return 0
@@ -503,7 +473,7 @@ export const validatePolygon = (
         valid: false,
         error: buildErrorStateSimple(
           messageKey,
-          ErrorType.VALIDATION,
+          ErrorType.GEOMETRY,
           code,
           (k: string) => k
         ),
@@ -514,7 +484,7 @@ export const validatePolygon = (
         valid: false,
         error: {
           message: messageKey,
-          type: ErrorType.VALIDATION,
+          type: ErrorType.GEOMETRY,
           code,
           severity: ErrorSeverity.ERROR,
           recoverable: true,
@@ -535,23 +505,78 @@ export const validatePolygon = (
     return makeGeometryError("geometryMustBePolygon", "INVALID_GEOMETRY_TYPE")
   }
 
+  // If geometry engine is not available, skip detailed validation
   if (!modules?.geometryEngine) {
     return { valid: true }
   }
 
   try {
-    const engine = modules.geometryEngine
-    // If not simple, try to simplify
-    if (!engine.isSimple(geometry)) {
-      const fixed = engine.simplify(
-        geometry as __esri.Polygon
-      ) as __esri.Polygon | null
-      if (!fixed || !engine.isSimple(fixed)) {
+    const engine: any = modules.geometryEngine
+    let poly = geometry as __esri.Polygon
+
+    // 1) Simplify and/or check if simple (if supported by engine)
+    if (typeof engine.simplify === "function") {
+      const simplified = engine.simplify(poly) as __esri.Polygon | null
+      if (!simplified || !engine.isSimple(simplified)) {
         return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
       }
-      return { valid: true, simplified: fixed }
+      poly = simplified
+    } else {
+      if (typeof engine.isSimple === "function" && !engine.isSimple(poly)) {
+        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+      }
     }
-    return { valid: true }
+
+    // 2) Structural checks: rings must be closed with >=4 points
+    const rings: any[] = (poly as any).rings || []
+    if (!Array.isArray(rings) || rings.length === 0) {
+      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+    }
+    for (const ring of rings) {
+      if (!Array.isArray(ring) || ring.length < 4) {
+        return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+      }
+      const first = ring[0]
+      const last = ring[ring.length - 1]
+      if (!first || !last || first[0] !== last[0] || first[1] !== last[1]) {
+        return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+      }
+    }
+
+    // 3) Area must be > 0 (use our calcArea helper)
+    const area = calcArea(poly as any, modules)
+    if (!area || area <= 0) {
+      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+    }
+
+    // 4) Validate holes lie within outer ring (best-effort if contains exists)
+    if (rings.length > 1 && typeof engine.contains === "function") {
+      // Build outer polygon from first ring
+      try {
+        const PolygonCtor = (modules && modules.Polygon) || null
+        const outer = PolygonCtor
+          ? PolygonCtor.fromJSON({
+              rings: [rings[0]],
+              spatialReference: (poly as any).spatialReference,
+            })
+          : poly
+        for (let i = 1; i < rings.length; i++) {
+          const hole = PolygonCtor
+            ? PolygonCtor.fromJSON({
+                rings: [rings[i]],
+                spatialReference: (poly as any).spatialReference,
+              })
+            : poly
+          if (!engine.contains(outer, hole)) {
+            return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+          }
+        }
+      } catch {
+        // If anything fails here, fall back to accepting simplified polygon
+      }
+    }
+
+    return { valid: true, simplified: poly }
   } catch {
     return makeGeometryError(
       "geometryValidationFailed",
@@ -630,8 +655,6 @@ export const processFmeResponse = (
     code: "FME_JOB_FAILURE",
   }
 }
-
-// UI helpers (workflow) moved to utils.ts
 
 export {
   // general utils
