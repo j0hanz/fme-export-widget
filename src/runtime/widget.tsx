@@ -481,6 +481,21 @@ const setupSketchEventHandlers = (
         break
     }
   })
+
+  // Re-run the same completion pipeline when a reshape finishes
+  sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
+    if (
+      evt.state === "complete" &&
+      Array.isArray(evt.graphics) &&
+      (evt.graphics[0] as any)?.geometry
+    ) {
+      onDrawComplete({
+        graphic: evt.graphics[0] as any,
+        state: "complete",
+        tool: (evt as any).tool,
+      } as any)
+    }
+  })
 }
 
 // Area formatting is imported from shared/utils
@@ -963,11 +978,20 @@ export default function Widget(
           }
           return
         }
-
-        // Geometry is valid polygon here
-        const geomForUse = geometry as __esri.Polygon
+        const geomForUse =
+          (validation as any).simplified ?? (geometry as __esri.Polygon)
 
         const calculatedArea = calcArea(geomForUse, modules)
+
+        // Zero-area guard: reject invalid or degenerate geometries
+        if (!calculatedArea || calculatedArea <= 0) {
+          dispatchError(
+            translate("invalidGeometry"),
+            ErrorType.VALIDATION,
+            "ZERO_AREA"
+          )
+          return
+        }
 
         // Max area validation
         const maxCheck = checkMaxArea(calculatedArea, config?.maxArea)
@@ -986,11 +1010,7 @@ export default function Widget(
 
         // Update Redux state
         dispatch(
-          fmeActions.setGeometry(
-            geomForUse as any,
-            Math.abs(calculatedArea),
-            widgetId
-          )
+          fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea), widgetId)
         )
         dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
 
