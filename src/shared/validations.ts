@@ -468,22 +468,21 @@ export const calcArea = (
   geometry: __esri.Geometry | undefined,
   modules: any
 ): number => {
-  if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine) {
+  if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine)
     return 0
-  }
-
   try {
-    const areaResult = modules.geometryEngine.planarArea(
-      geometry,
-      "square-meters"
-    )
-    return typeof areaResult === "number" &&
-      Number.isFinite(areaResult) &&
-      areaResult >= 0
-      ? areaResult
-      : 0
-  } catch (error) {
-    console.warn("Failed to calculate polygon area:", error)
+    const wkid =
+      (geometry.spatialReference && (geometry.spatialReference as any).wkid) ||
+      0
+    const engine = modules.geometryEngine
+    if (wkid === 4326 || wkid === 3857 || wkid === 102100) {
+      const a = engine.geodesicArea(geometry as __esri.Polygon, "square-meters")
+      return Number.isFinite(a) && a >= 0 ? a : 0
+    }
+    const a = engine.planarArea(geometry as __esri.Polygon, "square-meters")
+    return Number.isFinite(a) && a >= 0 ? a : 0
+  } catch (e) {
+    console.warn("Failed to calculate polygon area:", e)
     return 0
   }
 }
@@ -491,23 +490,42 @@ export const calcArea = (
 export const validatePolygon = (
   geometry: __esri.Geometry | undefined,
   modules: any
-): { valid: boolean; error?: ErrorState } => {
+): { valid: boolean; error?: ErrorState; simplified?: __esri.Polygon } => {
   // Local helper to construct consistent geometry error objects
   const makeGeometryError = (
-    message: string,
+    messageKey: string,
     code: string
-  ): { valid: false; error: ErrorState } => ({
-    valid: false,
-    error: {
-      message,
-      type: ErrorType.GEOMETRY,
-      code,
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      timestamp: new Date(),
-      timestampMs: Date.now(),
-    },
-  })
+  ): { valid: false; error: ErrorState } => {
+    // Late import to avoid circular deps in tests
+    try {
+      const { buildErrorStateSimple } = require("./utils")
+      return {
+        valid: false,
+        error: buildErrorStateSimple(
+          messageKey,
+          ErrorType.VALIDATION,
+          code,
+          (k: string) => k
+        ),
+      }
+    } catch {
+      // Fallback without utils
+      return {
+        valid: false,
+        error: {
+          message: messageKey,
+          type: ErrorType.VALIDATION,
+          code,
+          severity: ErrorSeverity.ERROR,
+          recoverable: true,
+          timestamp: new Date(),
+          timestampMs: Date.now(),
+          userFriendlyMessage: "",
+          suggestion: "",
+        },
+      }
+    }
+  }
 
   if (!geometry) {
     return makeGeometryError("noGeometryProvided", "NO_GEOMETRY")
@@ -522,9 +540,16 @@ export const validatePolygon = (
   }
 
   try {
-    const isSimple = modules.geometryEngine.isSimple(geometry)
-    if (!isSimple) {
-      return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+    const engine = modules.geometryEngine
+    // If not simple, try to simplify
+    if (!engine.isSimple(geometry)) {
+      const fixed = engine.simplify(
+        geometry as __esri.Polygon
+      ) as __esri.Polygon | null
+      if (!fixed || !engine.isSimple(fixed)) {
+        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+      }
+      return { valid: true, simplified: fixed }
     }
     return { valid: true }
   } catch {

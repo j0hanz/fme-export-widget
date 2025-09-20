@@ -681,25 +681,26 @@ export interface JobResult {
 export type JobResponse = JobResult
 
 export interface EsriModules {
-  readonly SketchViewModel: new (...args: any[]) => __esri.SketchViewModel
-  readonly GraphicsLayer: new (...args: any[]) => __esri.GraphicsLayer
-  readonly geometryEngine: {
-    readonly isSimple: (geometry: __esri.Geometry) => boolean
-    readonly planarArea: (geometry: __esri.Geometry, unit: string) => number
+  SketchViewModel: new (...a: any[]) => __esri.SketchViewModel
+  GraphicsLayer: new (...a: any[]) => __esri.GraphicsLayer
+  geometryEngine: {
+    isSimple: (g: __esri.Geometry) => boolean
+    simplify: (g: __esri.Geometry) => __esri.Geometry
+    planarArea: (g: __esri.Geometry, unit: string) => number
+    geodesicArea?: (g: __esri.Geometry, unit: string) => number
   }
-  readonly webMercatorUtils: {
-    readonly webMercatorToGeographic: (
-      geometry: __esri.Geometry
-    ) => __esri.Geometry
+  geometryEngineAsync?: {
+    simplify: (g: __esri.Geometry) => Promise<__esri.Geometry>
+    planarArea?: (g: __esri.Geometry, unit: string) => Promise<number>
+    geodesicArea?: (g: __esri.Geometry, unit: string) => Promise<number>
   }
-  readonly reactiveUtils: unknown
-  readonly Polyline: {
-    readonly fromJSON: (json: unknown) => __esri.Polyline
+  webMercatorUtils: {
+    webMercatorToGeographic: (g: __esri.Geometry) => __esri.Geometry
   }
-  readonly Polygon: {
-    readonly fromJSON: (json: unknown) => __esri.Polygon
-  }
-  readonly Graphic: new (...args: any[]) => __esri.Graphic
+  Polyline: { fromJSON: (j: unknown) => __esri.Polyline }
+  Polygon: { fromJSON: (j: unknown) => __esri.Polygon }
+  Graphic: new (...a: any[]) => __esri.Graphic
+  reactiveUtils: unknown
 }
 
 export interface ExportResult {

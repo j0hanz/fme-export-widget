@@ -980,6 +980,7 @@ export default function Widget(
 
         // Set visual symbol
         if (evt.graphic) {
+          if (evt.graphic) evt.graphic.geometry = geomForUse
           evt.graphic.symbol = HIGHLIGHT_SYMBOL as any
         }
 
