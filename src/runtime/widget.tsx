@@ -1432,7 +1432,19 @@ export default function Widget(
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
     if (sketchViewModel?.create) {
       try {
-        sketchViewModel.create(arg)
+        const maybePromise = (sketchViewModel as any).create(arg)
+        if (maybePromise && typeof maybePromise.catch === "function") {
+          maybePromise.catch((err: any) => {
+            const name = (err && (err.name || err.code)) || ""
+            const msg = err?.message || ""
+            const isAbort = /abort/i.test(String(name)) || /abort/i.test(String(msg))
+            if (!isAbort) {
+              try {
+                console.warn("EXB-Widget sketch.create promise error", err)
+              } catch {}
+            }
+          })
+        }
       } catch (err: any) {
         // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
         const name = (err && (err.name || err.code)) || ""
@@ -1658,15 +1670,7 @@ export default function Widget(
             })
           } catch {}
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
-
-          // If already in drawing mode, restart drawing with new tool
-          if (
-            reduxState.viewMode === ViewMode.DRAWING &&
-            reduxState.clickCount === 0 &&
-            sketchViewModel
-          ) {
-            handleStartDrawing(tool)
-          }
+          // Rely on the auto-start effect to begin drawing; avoids duplicate create() calls
         }}
         // Drawing props
         isDrawing={reduxState.isDrawing}
