@@ -636,25 +636,24 @@ export default function Widget(
       }
 
       // Decide how to guide the user depending on error type
-      const isGeometryInvalid = (() => {
-        const c = (error.code || "").toUpperCase()
-        return (
-          c === "GEOMETRY_INVALID" ||
-          c === "INVALID_GEOMETRY" ||
-          c === "CONFIG_INCOMPLETE"
-        )
-      })()
+      const codeUpper = (error.code || "").toUpperCase()
+      const isGeometryInvalid =
+        codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
+      const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
+      const suppressSupport = isGeometryInvalid || isConfigIncomplete
 
       // For geometry invalid errors: suppress code and support email; show an explanatory hint
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
-        ? translate("startupConfigErrorHint")
-        : buildSupportHintText(
-            translate,
-            supportEmail,
-            typeof ufm === "string" ? ufm : undefined
-          )
+        ? translate("geometryInvalidHint")
+        : isConfigIncomplete
+          ? translate("startupConfigErrorHint")
+          : buildSupportHintText(
+              translate,
+              supportEmail,
+              typeof ufm === "string" ? ufm : undefined
+            )
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -684,7 +683,7 @@ export default function Widget(
         <StateView
           // Show the base error message only; render support hint separately below
           state={makeErrorView(baseMessage, {
-            code: isGeometryInvalid ? undefined : error.code,
+            code: suppressSupport ? undefined : error.code,
             actions,
           })}
           renderActions={(act, ariaLabel) => (
@@ -695,7 +694,7 @@ export default function Widget(
             >
               {/* Render hint row: for geometry errors show plain text without support email */}
               <div>
-                {isGeometryInvalid ? (
+                {suppressSupport ? (
                   <div css={styles.typography.caption}>{supportHint}</div>
                 ) : (
                   renderSupportHint(
