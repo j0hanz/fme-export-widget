@@ -1172,6 +1172,28 @@ export class FmeFlowApiClient {
         signal: options.signal,
       }
 
+      // BYPASS INTERCEPTOR - Add FME authentication directly
+      try {
+        const serverHost = extractHostFromUrl(
+          this.config.serverUrl
+        )?.toLowerCase()
+        const reqHost = new URL(
+          url,
+          globalThis.location?.origin || "http://d"
+        ).host.toLowerCase()
+        if (serverHost && reqHost === serverHost && this.config.token) {
+          // Add token as query parameter
+          if (!requestOptions.query.fmetoken) {
+            requestOptions.query.fmetoken = this.config.token
+          }
+          // Add Authorization header with correct FME Flow format
+          requestOptions.headers = requestOptions.headers || {}
+          requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+        }
+      } catch (e) {
+        console.warn("FME API - Error adding token directly:", e)
+      }
+
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
         typeof options.timeout === "number"
