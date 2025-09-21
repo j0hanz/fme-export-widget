@@ -910,6 +910,7 @@ export interface StartupValidationOptions {
   readonly config: FmeExportConfig | undefined
   readonly translate: TranslateFn
   readonly signal?: AbortSignal
+  readonly mapConfigured?: boolean
 }
 
 // Store-local global state (immutable) used by reducer implementation

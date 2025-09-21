@@ -294,6 +294,20 @@ describe("config validators", () => {
       requiresSettings: true,
     })
   })
+
+  test("validateRequiredFields considers mapConfigured flag", () => {
+    const cfg = {
+      fmeServerUrl: "https://ex",
+      fmeServerToken: "0123456789abcdef",
+      repository: "repo",
+    } as any
+    const res = validateRequiredFields(cfg, (k) => k, { mapConfigured: false })
+    expect(res).toEqual({
+      isValid: false,
+      canProceed: false,
+      requiresSettings: true,
+    })
+  })
 })
 
 describe("error object factory", () => {

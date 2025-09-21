@@ -644,7 +644,7 @@ function useUpdateConfig(
 
 const useSettingStyles = () => {
   const theme = useTheme()
-  return React.useMemo(() => createSettingStyles(theme), [theme])
+  return createSettingStyles(theme)
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -707,16 +707,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
-  // Values committed on blur (used for side-effects and loading)
-  const [committedServerUrl, setCommittedServerUrl] = React.useState<string>(
-    () => getStringConfig("fmeServerUrl") || ""
-  )
-  const [committedToken, setCommittedToken] = React.useState<string>(
-    () => getStringConfig("fmeServerToken") || ""
-  )
-  const [localRepository, setLocalRepository] = React.useState<string>(
-    () => getStringConfig("repository") || ""
-  )
+  const selectedRepository = getStringConfig("repository") || ""
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
     () => getStringConfig("supportEmail") || ""
   )
@@ -800,6 +791,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const abortRef = React.useRef<AbortController | null>(null)
   // Track in-flight repository listing request for cancellation
   const reposAbortRef = React.useRef<AbortController | null>(null)
+  // Auto-cancel promises on unmount and avoid setState-after-unmount
+  const makeCancelable = hooks.useCancelablePromiseMaker()
+  // Keep latest values handy for async readers
+  const translateRef = hooks.useLatest(translate)
 
   // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
@@ -828,7 +823,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       try {
-        const result = await fetchRepositoriesService(serverUrl, token, signal)
+        const result = await makeCancelable(
+          fetchRepositoriesService(serverUrl, token, signal)
+        )
         if (signal.aborted) return
         const next = result.repositories || []
         setAvailableRepos(next)
@@ -839,7 +836,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           const status = extractHttpStatus(err)
           console.warn("Repositories load error", { status })
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-          setReposHint(translate("errorRepositories"))
+          setReposHint(translateRef.current("errorRepositories"))
         }
       } finally {
         if (reposAbortRef.current === ctrl) reposAbortRef.current = null
@@ -911,7 +908,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const composite = validateConnectionInputs({
         url: localServerUrl,
         token: localToken,
-        repository: localRepository,
+        repository: selectedRepository,
         availableRepos: skipRepoCheck ? null : availableRepos,
       })
 
@@ -957,7 +954,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     (): ConnectionSettings | null => {
       const rawServerUrl = localServerUrl
       const token = localToken
-      const repository = localRepository
+      const repository = selectedRepository
 
       const { cleaned, changed } = sanitizeUrl(rawServerUrl || "")
       // If sanitization changed, update config
@@ -1050,15 +1047,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           version: validationResult.version || "",
         })
 
-        // Set available repositories from validation result
-        if (validationResult.repositories) {
-          // copy readonly array into mutable state
+        if (Array.isArray(validationResult.repositories)) {
           setAvailableRepos([...(validationResult.repositories || [])])
         }
 
-        // Commit sanitized URL/token so repository UI becomes enabled immediately
-        setCommittedServerUrl(settings.serverUrl)
-        setCommittedToken(settings.token)
+        updateConfig("fmeServerUrl", settings.serverUrl)
+        updateConfig("fmeServerToken", settings.token)
 
         // Clear any existing field errors
         clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
@@ -1136,41 +1130,45 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Enhanced repository refresh for better UX - uses client API directly
   const refreshRepositories = hooks.useEventCallback(async () => {
-    const baseUrl = committedServerUrl || localServerUrl
-    const token = committedToken || localToken
-    if (!baseUrl || !token) return
-    const { cleaned } = sanitizeUrl(baseUrl)
-    await loadRepositories(cleaned, token, { indicateLoading: true })
+    const cfgServer = getStringConfig("fmeServerUrl") || ""
+    const cfgToken = getStringConfig("fmeServerToken") || ""
+    if (!cfgServer || !cfgToken) return
+    const { cleaned } = sanitizeUrl(cfgServer)
+    await loadRepositories(cleaned, cfgToken, { indicateLoading: true })
   })
 
-  React.useEffect(() => {
-    if (!committedServerUrl && !committedToken) return
-    clearRepositoryEphemeralState()
-  }, [
-    committedServerUrl,
-    committedToken,
-    clearRepositoryEphemeralState,
-    abortReposRequest,
-  ])
+  // Clear transient repo list when server URL or token in config changes
+  const prevConnRef = React.useRef({
+    server: getStringConfig("fmeServerUrl") || "",
+    token: getStringConfig("fmeServerToken") || "",
+  })
+  hooks.useUpdateEffect(() => {
+    const curr = {
+      server: getStringConfig("fmeServerUrl") || "",
+      token: getStringConfig("fmeServerToken") || "",
+    }
+    if (
+      curr.server !== prevConnRef.current.server ||
+      curr.token !== prevConnRef.current.token
+    ) {
+      clearRepositoryEphemeralState()
+      prevConnRef.current = curr
+    }
+  }, [config])
 
-  // Auto-load repositories when both committed URL and token are valid
-  React.useEffect(() => {
+  // Auto-load repositories when both server URL and token in config are valid
+  hooks.useUpdateEffect(() => {
+    const cfgServer = getStringConfig("fmeServerUrl") || ""
+    const cfgToken = getStringConfig("fmeServerToken") || ""
     const hasValidServer =
-      !!committedServerUrl &&
-      validateServerUrl(committedServerUrl, { requireHttps: true }).ok
-    const hasValidToken = Boolean((committedToken || "").trim())
+      !!cfgServer && validateServerUrl(cfgServer, { requireHttps: true }).ok
+    const hasValidToken = !!cfgToken && validateToken(cfgToken).ok
     if (!hasValidServer || !hasValidToken) return
 
-    const { cleaned } = sanitizeUrl(committedServerUrl)
-    loadRepositories(cleaned, committedToken, { indicateLoading: true })
+    const { cleaned } = sanitizeUrl(cfgServer)
+    loadRepositories(cleaned, cfgToken, { indicateLoading: true })
     return () => abortReposRequest()
-  }, [
-    committedServerUrl,
-    committedToken,
-    sanitizeUrl,
-    abortReposRequest,
-    loadRepositories,
-  ])
+  }, [config])
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
@@ -1205,7 +1203,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const finalUrl = changed ? cleaned : url
     updateConfig("fmeServerUrl", finalUrl)
 
-    // Update local and committed state if sanitized/blurred
+    // Update local state if sanitized/blurred
     if (changed) {
       setLocalServerUrl(cleaned)
       const cleanedValidation = validateServerUrl(cleaned, {
@@ -1218,9 +1216,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           ? translate(cleanedValidation.key || "invalidServerUrl")
           : undefined
       )
-      setCommittedServerUrl(cleaned)
-    } else {
-      setCommittedServerUrl(finalUrl)
     }
 
     // Clear repository data when server changes
@@ -1237,24 +1232,23 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       !validation.ok ? translate(validation.key || "invalidToken") : undefined
     )
 
-    // Save to config and commit
+    // Save to config
     updateConfig("fmeServerToken", token)
-    setCommittedToken(token)
 
     // Clear repository data when token changes
     clearRepositoryEphemeralState()
   })
 
   // Keep repository field error in sync when either the list or selection changes
-  React.useEffect(() => {
-    if (!localRepository) return
+  hooks.useUpdateEffect(() => {
+    if (!selectedRepository) return
     // Validate repository if we have an available list and a selection
     if (
       Array.isArray(availableRepos) &&
       availableRepos.length &&
-      localRepository
+      selectedRepository
     ) {
-      const hasRepo = availableRepos.includes(localRepository)
+      const hasRepo = availableRepos.includes(selectedRepository)
       const errorMessage = hasRepo
         ? undefined
         : translate("errorRepositoryNotFound")
@@ -1262,20 +1256,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     } else if (
       Array.isArray(availableRepos) &&
       availableRepos.length === 0 &&
-      localRepository
+      selectedRepository
     ) {
       // Allow manual entry when list is empty
       clearErrors(setFieldErrors, ["repository"])
     }
-  }, [availableRepos, localRepository, translate])
+  }, [availableRepos, selectedRepository, translate])
 
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
       const previousRepository = currentRepository
-
-      // Update local state
-      setLocalRepository(newRepository)
       updateConfig("repository", newRepository)
 
       // Clear workspace-related state when switching repositories for isolation
@@ -1337,9 +1328,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
         {/* Repository selector */}
         <RepositorySelector
-          localServerUrl={committedServerUrl}
-          localToken={committedToken}
-          localRepository={localRepository}
+          localServerUrl={getStringConfig("fmeServerUrl")}
+          localToken={getStringConfig("fmeServerToken")}
+          localRepository={selectedRepository}
           availableRepos={availableRepos}
           fieldErrors={fieldErrors}
           validateServerUrl={validateServerUrl}

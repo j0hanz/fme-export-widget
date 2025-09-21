@@ -8,7 +8,12 @@ import type {
   StartupValidationResult,
   StartupValidationOptions,
 } from "../config"
-import { ParameterType, FormFieldType, ErrorType } from "../config"
+import {
+  ParameterType,
+  FormFieldType,
+  ErrorType,
+  ErrorSeverity,
+} from "../config"
 import { isEmpty, extractErrorMessage } from "./utils"
 import {
   isInt,
@@ -815,7 +820,7 @@ export async function getRepositories(
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {
-  const { config, translate, signal } = options
+  const { config, translate, signal, mapConfigured } = options
 
   // Step 1: Check if config exists
   if (!config) {
@@ -837,9 +842,44 @@ export async function validateWidgetStartup(
   }
 
   // Step 2: Validate required config fields
-  const requiredFieldsResult = validateRequiredFields(config, translate)
+  const requiredFieldsResult = validateRequiredFields(config, translate, {
+    mapConfigured: mapConfigured ?? true,
+  })
   if (!requiredFieldsResult.isValid) {
-    return requiredFieldsResult
+    // If the util is not available (e.g. during early startup), build a simple error object here
+    try {
+      const { buildErrorStateSimple } = require("./validations").__esModule
+        ? require("./utils")
+        : require("./utils")
+      return {
+        isValid: false,
+        canProceed: false,
+        requiresSettings: true,
+        error: buildErrorStateSimple(
+          "startupConfigError",
+          ErrorType.CONFIG,
+          "CONFIG_INCOMPLETE",
+          translate
+        ),
+      }
+    } catch {
+      return {
+        isValid: false,
+        canProceed: false,
+        requiresSettings: true,
+        error: {
+          message: translate("startupConfigError"),
+          type: ErrorType.CONFIG,
+          code: "CONFIG_INCOMPLETE",
+          severity: ErrorSeverity.ERROR,
+          recoverable: true,
+          timestamp: new Date(),
+          timestampMs: Date.now(),
+          userFriendlyMessage: "",
+          suggestion: "",
+        },
+      }
+    }
   }
 
   // Step 3: Test FME Flow connection

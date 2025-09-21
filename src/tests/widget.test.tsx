@@ -1,5 +1,6 @@
 import React from "react"
-import { waitFor, act } from "@testing-library/react"
+import { waitFor, act, screen } from "@testing-library/react"
+import "@testing-library/jest-dom"
 import {
   wrapWidget,
   initStore,
@@ -10,6 +11,7 @@ import {
 import type { AllWidgetProps } from "jimu-core"
 import Widget from "../runtime/widget"
 import { DrawingTool, ViewMode } from "../config"
+import runtimeMsgs2 from "../runtime/translations/default"
 
 // Mock createFmeFlowClient to avoid network and JSAPI (Security)
 jest.mock("../shared/api", () => ({
@@ -70,7 +72,13 @@ jest.mock("jimu-arcgis", () => ({
           this.layers = this.layers.filter((l: any) => l !== layer)
         }),
       }
-      const fakeJmv = { view: { map: fakeMap } }
+      const fakeJmv = {
+        view: {
+          map: fakeMap,
+          popup: { close: jest.fn() },
+        },
+      }
+      ;(global as any).__LAST_JMV__ = fakeJmv
       onActiveViewChange?.(fakeJmv)
     }, [onActiveViewChange])
     return null
@@ -245,5 +253,120 @@ describe("Widget runtime - module loading and auto-start", () => {
     act(() => {
       unmount()
     })
+  })
+
+  test("closes open map popup when widget opens (issue #19)", async () => {
+    setupEsriTestStub()
+
+    const Wrapped = wrap({})
+    updateStore({
+      "fme-state": {
+        byId: {
+          w3: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
+      },
+    })
+    const cfgAny = {} as any
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="w3"
+        widgetId="w3"
+        useMapWidgetIds={["map_3"] as any}
+        config={cfgAny}
+      />
+    )
+
+    // Wait until SketchViewModel exists (map initialized)
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    // Access fake popup via the JimuMapView mock location
+    // Pull the fake jmv from the onActiveViewChange call by reading the stored object on global
+    const fakeJmv = (global as any).__LAST_JMV__
+    const popup = fakeJmv?.view?.popup
+    expect(popup && typeof popup.close === "function").toBe(true)
+    // The widget effect should have closed it once on open
+    // We need to yield to effects
+    await waitFor(() => {
+      expect(popup.close).toHaveBeenCalled()
+    })
+  })
+})
+
+describe("Widget runtime - startup CONFIG_INCOMPLETE error handling", () => {
+  test("renders simple error without code or support link", async () => {
+    setupEsriTestStub()
+
+    // Render first to let the widget mount and start its validation flow
+
+    const Wrapped = wrap({})
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wCI"
+        widgetId="wCI"
+        // Map configured so validation proceeds to service layer
+        useMapWidgetIds={["map_CI"] as any}
+        // Provide supportEmail to ensure it is NOT rendered for CONFIG_INCOMPLETE
+        config={{ supportEmail: "help@example.com" } as any}
+      />
+    )
+
+    // Ensure modules and map view are initialized
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    // Inject startup validation error after mount to avoid racing the initial validation effect
+    updateStore({
+      "fme-state": {
+        byId: {
+          wCI: {
+            viewMode: ViewMode.STARTUP_VALIDATION,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+            isStartupValidating: false,
+            startupValidationError: {
+              message: "startupConfigError",
+              type: "config",
+              code: "CONFIG_INCOMPLETE",
+              severity: "error",
+              recoverable: true,
+              timestamp: new Date(),
+              timestampMs: Date.now(),
+            },
+          },
+        },
+      },
+    })
+
+    // Error alert should be displayed
+    const alert = await screen.findByRole("alert")
+    expect(alert).toBeInTheDocument()
+    // Title/message present (translated)
+    expect(screen.getByText(runtimeMsgs2.startupConfigError)).toBeTruthy()
+    // Retry action available
+    expect(
+      screen.getByRole("button", { name: runtimeMsgs2.retry })
+    ).toBeTruthy()
+    const links = screen.queryAllByRole("link")
+    expect(
+      links.some((a) => (a as HTMLAnchorElement).href.startsWith("mailto:"))
+    ).toBe(false)
+
+    // Error code must NOT be displayed for CONFIG_INCOMPLETE
+    expect(screen.queryByText(/CONFIG_INCOMPLETE/i)).toBeNull()
   })
 })

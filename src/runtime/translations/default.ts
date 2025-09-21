@@ -10,8 +10,9 @@ export default {
   retryValidation: "Försök igen",
   invalidEmail: "Ogiltig e‑post",
   startupValidationFailed: "Startvalideringen misslyckades.",
-  startupConfigError: "Konfigurationsfel.",
-  startupConfigErrorHint: "Kontrollera och fyll i nödvändiga inställningar.",
+  startupConfigError: "Konfigurera widgeten.",
+  startupConfigErrorHint:
+    "Fyll i nödvändiga inställningar för att använda widgeten.",
   openSettingsPanel: "Öppna inställningspanelen.",
   startupConnectionError: "Anslutningsfel.",
   checkConnectionSettings: "Kontrollera anslutningsinställningarna.",
