@@ -5,7 +5,7 @@ export default {
   testConnection: "Uppdatera och testa",
   testing: "Testar anslutningen …",
   testingConnection: "Uppdaterar och testar …",
-  loadingRepositories: "Hämtar repositories …",
+  loadingRepositories: "Uppdatera listan för att visa.",
   refreshRepositories: "Uppdatera listan",
   fmeVersion: "FME‑version",
   connectionOk: "Anslutningen lyckades.",
