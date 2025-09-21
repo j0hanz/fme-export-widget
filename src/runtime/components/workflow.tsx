@@ -995,27 +995,31 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Render workspace buttons
   const renderWsButtons = () =>
-    workspaceItems.map((workspace) => (
-      <div
-        key={workspace.name}
-        role="listitem"
-        aria-label={workspace.title || workspace.name}
-      >
-        <Button
-          text={workspace.title || workspace.name}
-          icon={exportIcon}
-          size="lg"
-          onClick={() => {
-            const currentRepo = getCurrentRepository()
-            loadWorkspace(workspace.name, currentRepo)
-          }}
-          logging={{
-            enabled: true,
-            prefix: "FME-Export-WorkspaceSelection",
-          }}
-        />
-      </div>
-    ))
+    workspaceItems.map((workspace) => {
+      const handleOpen = () => {
+        const currentRepo = getCurrentRepository()
+        loadWorkspace(workspace.name, currentRepo)
+      }
+      return (
+        <div
+          key={workspace.name}
+          role="listitem"
+          aria-label={workspace.title || workspace.name}
+          onClick={handleOpen}
+        >
+          <Button
+            text={workspace.title || workspace.name}
+            icon={exportIcon}
+            size="lg"
+            // Button onClick is optional since parent handles clicks; keep logging props
+            logging={{
+              enabled: true,
+              prefix: "FME-Export-WorkspaceSelection",
+            }}
+          />
+        </div>
+      )
+    })
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {

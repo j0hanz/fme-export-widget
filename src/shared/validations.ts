@@ -468,34 +468,19 @@ export const validatePolygon = (
     messageKey: string,
     code: string
   ): { valid: false; error: ErrorState } => {
-    // Late import to avoid circular deps in tests
-    try {
-      const { buildErrorStateSimple } = require("./utils")
-      return {
-        valid: false,
-        error: buildErrorStateSimple(
-          messageKey,
-          ErrorType.GEOMETRY,
-          code,
-          (k: string) => k
-        ),
-      }
-    } catch {
-      // Fallback without utils
-      return {
-        valid: false,
-        error: {
-          message: messageKey,
-          type: ErrorType.GEOMETRY,
-          code,
-          severity: ErrorSeverity.ERROR,
-          recoverable: true,
-          timestamp: new Date(),
-          timestampMs: Date.now(),
-          userFriendlyMessage: "",
-          suggestion: "",
-        },
-      }
+    return {
+      valid: false,
+      error: {
+        message: messageKey,
+        type: ErrorType.GEOMETRY,
+        code,
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        timestamp: new Date(),
+        timestampMs: Date.now(),
+        userFriendlyMessage: "",
+        suggestion: "",
+      },
     }
   }
 
