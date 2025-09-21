@@ -133,6 +133,23 @@ export const buildSupportHintText = (
   return ""
 }
 
+export function formatErrorForView(
+  translate: TranslateFn,
+  baseKeyOrMessage: string,
+  code?: string,
+  supportEmail?: string,
+  userFriendly?: string
+): { message: string; code?: string; hint?: string } {
+  let message = ""
+  try {
+    message = resolveMessageOrKey(baseKeyOrMessage, translate)
+  } catch {
+    message = baseKeyOrMessage
+  }
+  const hint = buildSupportHintText(translate, supportEmail, userFriendly)
+  return { message: message || baseKeyOrMessage, code, hint }
+}
+
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
   let out = input.replace(
@@ -796,7 +813,7 @@ export const inputToFmeTime = (v: string): string => {
 
   const nS = Number(ss)
   const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
-
+  // Clamp hours and minutes to valid range
   return `${pad2(nH)}${pad2(nM)}${finalSS}`
 }
 

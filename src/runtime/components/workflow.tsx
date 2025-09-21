@@ -171,6 +171,7 @@ const useWorkspaceLoader = (opts: {
     params: readonly any[],
     item: any
   ) => void
+  onWorkspaceItemsLoaded?: (items: readonly WorkspaceItem[]) => void
 }) => {
   const {
     config,
@@ -179,10 +180,8 @@ const useWorkspaceLoader = (opts: {
     makeCancelable,
     widgetId,
     onWorkspaceSelected,
+    onWorkspaceItemsLoaded,
   } = opts
-  const [workspaces, setWorkspaces] = React.useState<readonly WorkspaceItem[]>(
-    []
-  )
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -283,10 +282,11 @@ const useWorkspaceLoader = (opts: {
         )
 
         if (isMountedRef.current) {
-          setWorkspaces(sorted)
-          // Dispatch workspace items with repository context to store
+          // Dispatch workspace items with repository context to store (single source of truth)
           const dispatch = getAppStore().dispatch as any
           dispatch(fmeActions.setWorkspaceItems(sorted, repoName, widgetId))
+          // Also notify caller (Workflow) so it can render immediately without relying on store subscription timing
+          onWorkspaceItemsLoaded?.(sorted)
         }
       } else {
         console.error("FME Export - Unexpected response format:", response)
@@ -374,7 +374,6 @@ const useWorkspaceLoader = (opts: {
   hooks.useUpdateEffect(() => {
     if (!isMountedRef.current) return
     cancelCurrent()
-    setWorkspaces([])
     setError(null)
     // Important: reset loading state to allow new requests
     setIsLoading(false)
@@ -408,7 +407,7 @@ const useWorkspaceLoader = (opts: {
     }
   }, [isLoading])
 
-  return { workspaces, isLoading, error, loadAll, loadItem, scheduleLoad }
+  return { isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
 const OrderResult: React.FC<OrderResultProps> = ({
@@ -827,6 +826,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   selectedWorkspace,
   workspaceParameters,
   workspaceItem,
+  // Read workspace items from Redux via parent (Widget provides these via state slice if needed in future)
+  // For now, we’ll derive from store at read-time below to avoid changing public API
   // Startup validation props
   isStartupValidating: _isStartupValidating,
   startupValidationStep,
@@ -836,6 +837,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
   const makeCancelable = hooks.useCancelablePromiseMaker()
+  // Ensure a non-empty widgetId for internal Redux interactions
+  const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -926,7 +929,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Load workspaces using custom hook
   const {
-    workspaces,
     isLoading: isLoadingWorkspaces,
     error: workspaceError,
     loadAll: loadWsList,
@@ -937,8 +939,39 @@ export const Workflow: React.FC<WorkflowProps> = ({
     getFmeClient,
     translate,
     makeCancelable,
-    widgetId: widgetId || "",
+    widgetId: effectiveWidgetId,
     onWorkspaceSelected,
+    onWorkspaceItemsLoaded: (items) => {
+      setWorkspaceItems(items)
+    },
+  })
+
+  // Single source of truth: read workspace items from Redux store with subscription
+  const selectWorkspaceItems = hooks.useEventCallback(
+    (): readonly WorkspaceItem[] => {
+      try {
+        const store = getAppStore().getState() as any
+        const wid = effectiveWidgetId
+        const sub = store?.["fme-state"]?.byId?.[wid]
+        return (sub?.workspaceItems as readonly WorkspaceItem[]) || []
+      } catch {
+        return []
+      }
+    }
+  )
+
+  const [workspaceItems, setWorkspaceItems] = React.useState<
+    readonly WorkspaceItem[]
+  >(() => selectWorkspaceItems())
+
+  // Subscribe to store updates so UI re-renders when workspaceItems change
+  hooks.useEffectOnce(() => {
+    const unsubscribe = getAppStore().subscribe(() => {
+      setWorkspaceItems(selectWorkspaceItems())
+    })
+    return () => {
+      unsubscribe?.()
+    }
   })
 
   // Helper: are we in a workspace selection context?
@@ -947,35 +980,44 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Render workspace buttons
   const renderWsButtons = () =>
-    workspaces.map((workspace) => (
-      <Button
+    workspaceItems.map((workspace) => (
+      <div
         key={workspace.name}
-        text={workspace.title || workspace.name}
-        icon={exportIcon}
-        size="lg"
         role="listitem"
+        aria-label={workspace.title || workspace.name}
         onClick={() => {
           const repoForItem =
             (workspace as any)?.repository || config?.repository
           loadWorkspace(workspace.name, repoForItem)
         }}
-        logging={{
-          enabled: true,
-          prefix: "FME-Export-WorkspaceSelection",
-        }}
-      />
+      >
+        <Button
+          text={workspace.title || workspace.name}
+          icon={exportIcon}
+          size="lg"
+          onClick={() => {
+            const repoForItem =
+              (workspace as any)?.repository || config?.repository
+            loadWorkspace(workspace.name, repoForItem)
+          }}
+          logging={{
+            enabled: true,
+            prefix: "FME-Export-WorkspaceSelection",
+          }}
+        />
+      </div>
     ))
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
     if (isWorkspaceSelectionContext) {
-      if (!workspaces.length && !isLoadingWorkspaces && !workspaceError) {
+      if (!workspaceItems.length && !isLoadingWorkspaces && !workspaceError) {
         scheduleWsLoad()
       }
     }
   }, [
     isWorkspaceSelectionContext,
-    workspaces.length,
+    workspaceItems.length,
     isLoadingWorkspaces,
     workspaceError,
     scheduleWsLoad,
@@ -986,7 +1028,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (config?.repository) {
       const dispatch = getAppStore().dispatch as any
       dispatch(
-        fmeActions.clearWorkspaceState(config.repository, widgetId || "")
+        fmeActions.clearWorkspaceState(config.repository, effectiveWidgetId)
       )
       // Force reload of workspaces for new repository
       if (isWorkspaceSelectionContext) {
@@ -1050,12 +1092,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
       isLoadingWorkspaces,
-      workspaces,
+      workspaceItems,
       state,
       Boolean(workspaceError)
     )
     if (shouldShowLoading) {
-      const message = workspaces.length
+      const message = workspaceItems.length
         ? translate("loadingWorkspaceDetails")
         : translate("loadingWorkspaces")
       return renderLoading(message)
@@ -1065,7 +1107,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return renderError(workspaceError, onBack, loadWsList)
     }
 
-    if (!workspaces.length) {
+    if (!workspaceItems.length) {
       const actions = [
         { label: translate("retry"), onClick: loadWsList },
         { label: translate("back"), onClick: onBack },
@@ -1095,7 +1137,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     return (
       <ExportForm
-        widgetId={widgetId || ""}
+        widgetId={effectiveWidgetId}
         workspaceParameters={workspaceParameters}
         workspaceName={selectedWorkspace}
         workspaceItem={workspaceItem}
