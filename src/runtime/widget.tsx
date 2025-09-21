@@ -1258,10 +1258,7 @@ export default function Widget(
     try {
       // Best-effort: close any open popups as soon as the widget takes focus on the map
       try {
-        const popup = (jmv as any)?.view?.popup
-        if (popup && typeof popup.close === "function") {
-          popup.close()
-        }
+        ;(jmv as any)?.view?.closePopup?.()
       } catch {}
 
       const layer = createLayers(jmv, modules, setGraphicsLayer)
@@ -1465,10 +1462,7 @@ export default function Widget(
       runtimeState !== WidgetState.Closed
     ) {
       try {
-        const popup = (jimuMapView as any)?.view?.popup
-        if (popup && typeof popup.close === "function") {
-          popup.close()
-        }
+        ;(jimuMapView as any)?.view?.closePopup?.()
       } catch (_) {
         // Best-effort: ignore popup close errors
       }
