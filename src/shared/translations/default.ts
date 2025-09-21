@@ -33,7 +33,8 @@ export default {
   fmeServerToken: "API‑nyckel",
   fmeRepository: "Repository",
   startupConfigError: "Konfigurera widgeten.",
-  startupConfigErrorHint: "Fyll i nödvändiga inställningar för att använda widgeten.",
+  startupConfigErrorHint:
+    "Fyll i nödvändiga inställningar för att använda widgeten.",
   openSettingsPanel: "Öppna inställningspanelen.",
   startupConnectionError: "Anslutningsfel.",
   checkConnectionSettings: "Kontrollera anslutningsinställningarna.",

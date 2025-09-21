@@ -820,7 +820,7 @@ export async function getRepositories(
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {
-  const { config, translate, signal } = options
+  const { config, translate, signal, mapConfigured } = options
 
   // Step 1: Check if config exists
   if (!config) {
@@ -842,7 +842,9 @@ export async function validateWidgetStartup(
   }
 
   // Step 2: Validate required config fields
-  const requiredFieldsResult = validateRequiredFields(config, translate)
+  const requiredFieldsResult = validateRequiredFields(config, translate, {
+    mapConfigured: mapConfigured ?? true,
+  })
   if (!requiredFieldsResult.isValid) {
     // If the util is not available (e.g. during early startup), build a simple error object here
     try {

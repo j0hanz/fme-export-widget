@@ -795,15 +795,6 @@ export default function Widget(
       setValidationStep(translate("validatingMapConfiguration"))
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
-      if (!hasMapConfigured) {
-        const mapConfigError = createStartupError(
-          "mapNotConfigured",
-          "MapNotConfigured",
-          runStartupValidation
-        )
-        setValidationError(mapConfigError)
-        return
-      }
 
       // Step 2: validate widget configuration and FME connection using shared service
       setValidationStep(translate("validatingConnection"))
@@ -811,6 +802,7 @@ export default function Widget(
         config,
         translate,
         signal: controller.signal,
+        mapConfigured: hasMapConfigured,
       })
 
       if (!validationResult.isValid) {

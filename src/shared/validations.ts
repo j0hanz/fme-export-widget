@@ -348,11 +348,13 @@ export function validateConnectionInputs(args: {
 
 export const validateRequiredFields = (
   config: FmeExportConfig,
-  _translate: TranslateFn
+  _translate: TranslateFn,
+  opts?: { mapConfigured?: boolean }
 ): StartupValidationResult => {
   const missing = getMissingConfigFields(config)
+  const mapConfigured = opts?.mapConfigured ?? true
 
-  if (missing.length > 0) {
+  if (missing.length > 0 || !mapConfigured) {
     return {
       isValid: false,
       canProceed: false,
