@@ -909,20 +909,24 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
-  // FME client - compute on demand via stable getter
+  // FME client - always create fresh instance
   const clientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
     null
   )
+
   const getFmeClient = hooks.useEventCallback(() => {
     try {
       if (!config) return null
-      if (!clientRef.current) clientRef.current = createFmeFlowClient(config)
+      // Always create a fresh client for each operation to avoid stale connections
+      clientRef.current = createFmeFlowClient(config)
       return clientRef.current
     } catch (e) {
-      console.warn("FME Export - invalid FME config; deferring client init", e)
+      console.warn("FME Export - Failed to create FME client:", e)
       return null
     }
   })
+
+  // Clear client when config changes
   hooks.useUpdateEffect(() => {
     clientRef.current = null
   }, [config])
@@ -960,6 +964,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
+  const getCurrentRepository = hooks.useEventCallback((): string | null => {
+    try {
+      const store = getAppStore().getState() as any
+      const wid = effectiveWidgetId
+      const sub = store?.["fme-state"]?.byId?.[wid]
+      return sub?.currentRepository || config?.repository || null
+    } catch {
+      return config?.repository || null
+    }
+  })
+
   const [workspaceItems, setWorkspaceItems] = React.useState<
     readonly WorkspaceItem[]
   >(() => selectWorkspaceItems())
@@ -985,20 +1000,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
         key={workspace.name}
         role="listitem"
         aria-label={workspace.title || workspace.name}
-        onClick={() => {
-          const repoForItem =
-            (workspace as any)?.repository || config?.repository
-          loadWorkspace(workspace.name, repoForItem)
-        }}
       >
         <Button
           text={workspace.title || workspace.name}
           icon={exportIcon}
           size="lg"
           onClick={() => {
-            const repoForItem =
-              (workspace as any)?.repository || config?.repository
-            loadWorkspace(workspace.name, repoForItem)
+            const currentRepo = getCurrentRepository()
+            loadWorkspace(workspace.name, currentRepo)
           }}
           logging={{
             enabled: true,
