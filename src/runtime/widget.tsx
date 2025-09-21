@@ -638,14 +638,18 @@ export default function Widget(
       // Decide how to guide the user depending on error type
       const isGeometryInvalid = (() => {
         const c = (error.code || "").toUpperCase()
-        return c === "GEOMETRY_INVALID" || c === "INVALID_GEOMETRY"
+        return (
+          c === "GEOMETRY_INVALID" ||
+          c === "INVALID_GEOMETRY" ||
+          c === "CONFIG_INCOMPLETE"
+        )
       })()
 
       // For geometry invalid errors: suppress code and support email; show an explanatory hint
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
-        ? translate("geometryInvalidHint")
+        ? translate("startupConfigErrorHint")
         : buildSupportHintText(
             translate,
             supportEmail,
