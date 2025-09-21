@@ -5,6 +5,8 @@ import {
   type FmeExportConfig,
   type StartupValidationResult,
   type TranslateFn,
+  type FmeResponse,
+  type NormalizedServiceInfo,
 } from "../config"
 import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
 
@@ -392,6 +394,7 @@ export const createError = (
     suggestion:
       options?.suggestion || translate("checkConnectionSettings") || "",
     retry: options?.retry,
+    kind: "runtime",
   }
 }
 
@@ -480,6 +483,7 @@ export const validatePolygon = (
         timestampMs: Date.now(),
         userFriendlyMessage: "",
         suggestion: "",
+        kind: "runtime",
       },
     }
   }
@@ -616,11 +620,11 @@ export const processFmeResponse = (
     }
   }
 
-  // Handle service response
-  const serviceInfo = data.serviceResponse || data
-  const directUrl = serviceInfo?.url
-  const status = serviceInfo?.statusInfo?.status || serviceInfo?.status
-  const jobId = serviceInfo?.jobID || serviceInfo?.id
+  // Handle service response via normalization
+  const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
+  const directUrl = serviceInfo.url
+  const status = serviceInfo.status
+  const jobId = serviceInfo.jobId
 
   if (status === "success" || (directUrl && /^https?:\/\//.test(directUrl))) {
     return {
@@ -635,12 +639,19 @@ export const processFmeResponse = (
 
   return {
     success: false,
-    message:
-      serviceInfo?.statusInfo?.message ||
-      serviceInfo?.message ||
-      translateFn("fmeJobSubmissionFailed"),
+    message: serviceInfo.message || translateFn("fmeJobSubmissionFailed"),
     code: "FME_JOB_FAILURE",
   }
+}
+
+export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
+  const r: any = resp || {}
+  const raw = r?.data?.serviceResponse || r?.data || r
+  const status = raw?.statusInfo?.status || raw?.status
+  const message = raw?.statusInfo?.message || raw?.message
+  const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id
+  const url = raw?.url
+  return { status, message, jobId, url }
 }
 
 export {

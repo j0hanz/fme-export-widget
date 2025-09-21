@@ -602,7 +602,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   }, [workspaceName, workspaceParameters, formState.resetForm])
 
   const setField = hooks.useEventCallback(
-    (field: string, value: FormPrimitive) => {
+    (field: string, value: FormPrimitive | File | null) => {
       if (value instanceof File) {
         // Handle file input specifically
         setFileMap((prev) => ({ ...prev, [field]: value }))
@@ -633,6 +633,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
         recoverable: true,
         timestamp: new Date(),
         timestampMs: Date.now(),
+        kind: "runtime",
       }
       // Dispatch error to the store
       const dispatch = getAppStore().dispatch as any
@@ -640,7 +641,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       return
     }
     // Merge file inputs with other values
-    const merged: FormValues = { ...formState.values }
+    const merged: { [key: string]: unknown } = { ...formState.values }
     Object.keys(fileMap).forEach((k) => {
       const f = fileMap[k]
       if (f) merged[k] = f

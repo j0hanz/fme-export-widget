@@ -3,6 +3,7 @@ import type {
   EsriModules,
   FmeExportConfig,
   ErrorState,
+  SerializableErrorState,
   PrimitiveParams,
 } from "../config"
 import { ErrorType, ErrorSeverity } from "../config"
@@ -888,7 +889,22 @@ export const toSerializable = (error: any): any => {
         ? error.timestamp.getTime()
         : 0
   const { retry, timestamp, ...rest } = error
-  return { ...rest, timestampMs: ts }
+  return { ...rest, timestampMs: ts, kind: "serializable" as const }
+}
+
+export const isRuntimeError = (e: any): e is ErrorState =>
+  !!e && (e.kind === "runtime" || e.timestamp instanceof Date)
+
+export const isSerializableError = (e: any): e is SerializableErrorState =>
+  !!e && e.kind === "serializable" && typeof e.timestampMs === "number"
+
+export const ensureSerializableError = (
+  e: ErrorState | SerializableErrorState | null | undefined
+): SerializableErrorState | null => {
+  if (!e) return null
+  return isSerializableError(e)
+    ? e
+    : (toSerializable(e) as SerializableErrorState)
 }
 
 export const isFileObject = (value: unknown): value is File => {

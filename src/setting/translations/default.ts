@@ -77,7 +77,7 @@ export default {
   errorMaxAreaTooLarge: "Värdet är för stort.",
   ok: "OK",
   failed: "Misslyckades",
-  skipped: "Hoppar över",
+  skipped: "Välj repository",
   checking: "Kontrollerar …",
   error: "Fel",
   colon: ":",
