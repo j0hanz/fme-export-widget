@@ -143,6 +143,9 @@ export const LAYER_CONFIG = {
   elevationInfo: { mode: "on-the-ground" },
 } as const
 
+// Default drawing color (ESRI brand blue) used when no user selection exists
+export const DEFAULT_DRAWING_HEX = "#0079C1"
+
 export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
   [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
   [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
@@ -573,6 +576,8 @@ export interface FmeExportConfig {
   // Optional additional AOI output formats
   readonly aoiGeoJsonParamName?: string
   readonly aoiWktParamName?: string
+  // Drawing color for Sketch and highlight symbols (hex #RRGGBB)
+  readonly drawingColor?: string
 }
 
 export interface RequestConfig {

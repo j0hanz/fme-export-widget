@@ -38,6 +38,7 @@ import {
   ErrorSeverity,
   LAYER_CONFIG,
   VIEW_ROUTES,
+  DEFAULT_DRAWING_HEX,
 } from "../config"
 import { validateWidgetStartup } from "../shared/services"
 import {
@@ -86,37 +87,45 @@ const loadEsriModules = async (
   return loaded.map((m: any) => m?.default ?? m)
 }
 
-// Styling and symbols
-const DRAWING_COLOR = [0, 121, 193] as const
+// Styling and symbols derived from config
 
-const HIGHLIGHT_SYMBOL = {
-  type: "simple-fill" as const,
-  color: [...DRAWING_COLOR, 0.2] as [number, number, number, number],
-  outline: {
-    color: DRAWING_COLOR,
-    width: 2,
-    style: "solid" as const,
-  },
+const hexToRgbArray = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+  const n = m ? parseInt(m[1], 16) : parseInt(DEFAULT_DRAWING_HEX.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
 }
 
-const DRAWING_SYMBOLS = {
-  polygon: HIGHLIGHT_SYMBOL,
-  polyline: {
-    type: "simple-line",
-    color: DRAWING_COLOR,
-    width: 2,
-    style: "solid",
-  },
-  point: {
-    type: "simple-marker",
-    style: "circle",
-    size: 8,
-    color: DRAWING_COLOR,
+const buildSymbols = (rgb: readonly [number, number, number]) => {
+  const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
+  const highlight = {
+    type: "simple-fill" as const,
+    color: [...base, 0.2] as [number, number, number, number],
     outline: {
-      color: [255, 255, 255],
-      width: 1,
+      color: base,
+      width: 2,
+      style: "solid" as const,
     },
-  },
+  }
+  const symbols = {
+    polygon: highlight,
+    polyline: {
+      type: "simple-line",
+      color: base,
+      width: 2,
+      style: "solid",
+    },
+    point: {
+      type: "simple-marker",
+      style: "circle",
+      size: 8,
+      color: base,
+      outline: {
+        color: [255, 255, 255],
+        width: 1,
+      },
+    },
+  } as const
+  return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
 }
 
 // ArcGIS JS API modules
@@ -354,6 +363,7 @@ const createSketchVM = ({
   onDrawComplete,
   dispatch,
   widgetId,
+  symbols,
 }: {
   jmv: JimuMapView
   modules: EsriModules
@@ -361,13 +371,18 @@ const createSketchVM = ({
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void
   dispatch: (action: unknown) => void
   widgetId: string
+  symbols: {
+    polygon: any
+    polyline: any
+    point: any
+  }
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
     layer,
-    polygonSymbol: DRAWING_SYMBOLS.polygon as any,
-    polylineSymbol: DRAWING_SYMBOLS.polyline as any,
-    pointSymbol: DRAWING_SYMBOLS.point as any,
+    polygonSymbol: symbols.polygon,
+    polylineSymbol: symbols.polyline,
+    pointSymbol: symbols.point,
     defaultCreateOptions: {
       hasZ: false,
       mode: "click",
@@ -556,6 +571,18 @@ export default function Widget(
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionController = useAbortController()
+
+  // Compute symbols from configured color (single source of truth = config)
+  const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
+  const symbolsRef = React.useRef<{
+    HIGHLIGHT_SYMBOL: any
+    DRAWING_SYMBOLS: any
+  } | null>(null)
+  const { HIGHLIGHT_SYMBOL } = React.useMemo(() => {
+    const built = buildSymbols(hexToRgbArray(currentHex))
+    symbolsRef.current = built
+    return built
+  }, [currentHex])
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
@@ -1276,6 +1303,7 @@ export default function Widget(
         onDrawComplete,
         dispatch,
         widgetId,
+        symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
       })
       setSketchViewModel(svm)
     } catch (error) {
@@ -1292,6 +1320,27 @@ export default function Widget(
       handleMapViewReady(jimuMapView)
     }
   }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
+
+  // Update symbols on color change
+  hooks.useUpdateEffect(() => {
+    const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
+    if (sketchViewModel && syms) {
+      try {
+        ;(sketchViewModel as any).polygonSymbol = syms.polygon
+        ;(sketchViewModel as any).polylineSymbol = syms.polyline
+        ;(sketchViewModel as any).pointSymbol = syms.point
+      } catch {}
+    }
+    if (graphicsLayer && syms) {
+      try {
+        graphicsLayer.graphics.forEach((g: any) => {
+          if (g?.geometry?.type === "polygon") {
+            g.symbol = syms.polygon
+          }
+        })
+      } catch {}
+    }
+  }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
   // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
   hooks.useUpdateEffect(() => {

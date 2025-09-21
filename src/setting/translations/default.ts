@@ -110,4 +110,5 @@ export default {
   serviceTypeStream: "Data Streaming",
   serviceTypeHelper:
     "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
+  drawingColorLabel: "Ritningsfärg",
 }

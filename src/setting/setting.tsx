@@ -25,6 +25,7 @@ import {
   Tooltip,
   config as uiConfig,
   useStyles,
+  ColorPickerWrapper,
 } from "../runtime/components/ui"
 import defaultMessages from "./translations/default"
 import {
@@ -57,7 +58,7 @@ import type {
   RepositorySelectorProps,
   JobDirectivesSectionProps,
 } from "../config"
-import { FmeFlowApiError } from "../config"
+import { FmeFlowApiError, DEFAULT_DRAWING_HEX } from "../config"
 import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
 
 // Constants
@@ -648,6 +649,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     service: "setting-service",
     aoiGeoJsonParamName: "setting-aoi-geojson-param-name",
     aoiWktParamName: "setting-aoi-wkt-param-name",
+    drawingColor: "setting-drawing-color",
   } as const
 
   // Consolidated test state
@@ -745,6 +747,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = (config as any)?.service
     return v === "stream" ? "stream" : "download"
   })
+  // Drawing color (hex) with default ArcGIS brand blue
+  const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
+    () => {
+      const v = (config as any)?.drawingColor
+      return typeof v === "string" && v ? v : DEFAULT_DRAWING_HEX
+    }
+  )
   // Server-provided repository list (null = not loaded yet)
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
     null
@@ -1496,6 +1505,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }
             }}
             placeholder={translate("requestTimeoutPlaceholder")}
+          />
+        </SettingRow>
+      </SettingSection>
+      <SettingSection>
+        {/* Drawing color */}
+        <SettingRow
+          flow="wrap"
+          label={<span>{translate("drawingColorLabel")}</span>}
+          level={1}
+          tag="label"
+        >
+          <ColorPickerWrapper
+            value={localDrawingColor}
+            onChange={(hex: string) => {
+              const val = (hex || "").trim()
+              const cleaned = /^#?[0-9a-f]{6}$/i.test(val)
+                ? val.startsWith("#")
+                  ? val
+                  : `#${val}`
+                : DEFAULT_DRAWING_HEX
+              setLocalDrawingColor(cleaned)
+              updateConfig("drawingColor", cleaned as any)
+            }}
+            aria-label={translate("drawingColorLabel")}
           />
         </SettingRow>
       </SettingSection>
