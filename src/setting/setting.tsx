@@ -644,7 +644,7 @@ function useUpdateConfig(
 
 const useSettingStyles = () => {
   const theme = useTheme()
-  return React.useMemo(() => createSettingStyles(theme), [theme])
+  return createSettingStyles(theme)
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -800,6 +800,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const abortRef = React.useRef<AbortController | null>(null)
   // Track in-flight repository listing request for cancellation
   const reposAbortRef = React.useRef<AbortController | null>(null)
+  // Auto-cancel promises on unmount and avoid setState-after-unmount
+  const makeCancelable = hooks.useCancelablePromiseMaker()
+  // Keep latest values handy for async readers
+  const serverUrlRef = hooks.useLatest(localServerUrl)
+  const tokenRef = hooks.useLatest(localToken)
+  const committedServerUrlRef = hooks.useLatest(committedServerUrl)
+  const committedTokenRef = hooks.useLatest(committedToken)
+  const translateRef = hooks.useLatest(translate)
 
   // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
@@ -828,7 +836,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       try {
-        const result = await fetchRepositoriesService(serverUrl, token, signal)
+        const result = await makeCancelable(
+          fetchRepositoriesService(serverUrl, token, signal)
+        )
         if (signal.aborted) return
         const next = result.repositories || []
         setAvailableRepos(next)
@@ -839,7 +849,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           const status = extractHttpStatus(err)
           console.warn("Repositories load error", { status })
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-          setReposHint(translate("errorRepositories"))
+          setReposHint(translateRef.current("errorRepositories"))
         }
       } finally {
         if (reposAbortRef.current === ctrl) reposAbortRef.current = null
@@ -1136,41 +1146,29 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Enhanced repository refresh for better UX - uses client API directly
   const refreshRepositories = hooks.useEventCallback(async () => {
-    const baseUrl = committedServerUrl || localServerUrl
-    const token = committedToken || localToken
+    const baseUrl = committedServerUrlRef.current || serverUrlRef.current
+    const token = committedTokenRef.current || tokenRef.current
     if (!baseUrl || !token) return
     const { cleaned } = sanitizeUrl(baseUrl)
     await loadRepositories(cleaned, token, { indicateLoading: true })
   })
 
-  React.useEffect(() => {
-    if (!committedServerUrl && !committedToken) return
+  hooks.useUpdateEffect(() => {
     clearRepositoryEphemeralState()
-  }, [
-    committedServerUrl,
-    committedToken,
-    clearRepositoryEphemeralState,
-    abortReposRequest,
-  ])
+  }, [committedServerUrl, committedToken])
 
   // Auto-load repositories when both committed URL and token are valid
-  React.useEffect(() => {
+  hooks.useUpdateEffect(() => {
     const hasValidServer =
       !!committedServerUrl &&
       validateServerUrl(committedServerUrl, { requireHttps: true }).ok
-    const hasValidToken = Boolean((committedToken || "").trim())
+    const hasValidToken = !!committedToken && validateToken(committedToken).ok
     if (!hasValidServer || !hasValidToken) return
 
     const { cleaned } = sanitizeUrl(committedServerUrl)
     loadRepositories(cleaned, committedToken, { indicateLoading: true })
     return () => abortReposRequest()
-  }, [
-    committedServerUrl,
-    committedToken,
-    sanitizeUrl,
-    abortReposRequest,
-    loadRepositories,
-  ])
+  }, [committedServerUrl, committedToken])
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
@@ -1246,7 +1244,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   // Keep repository field error in sync when either the list or selection changes
-  React.useEffect(() => {
+  hooks.useUpdateEffect(() => {
     if (!localRepository) return
     // Validate repository if we have an available list and a selection
     if (

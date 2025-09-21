@@ -549,6 +549,7 @@ export default function Widget(
   })
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
+  const configRef = hooks.useLatest(config)
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
@@ -642,7 +643,7 @@ export default function Widget(
 
       // For geometry invalid errors: suppress code and support email; show an explanatory hint
       const ufm = error.userFriendlyMessage
-      const supportEmail = getSupportEmail(config?.supportEmail)
+      const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
         ? translate("geometryInvalidHint")
         : buildSupportHintText(
@@ -870,12 +871,8 @@ export default function Widget(
     }
   })
 
-  // Track if this is the initial load
-  const isInitialLoadRef = React.useRef(true)
-
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
-    isInitialLoadRef.current = false
     runStartupValidation()
   })
 
@@ -903,59 +900,47 @@ export default function Widget(
   )
 
   // Track previous key connection settings to detect what changed
-  const prevConnRef = React.useRef<{
-    url?: string
-    token?: string
-    repo?: string
-  }>({
-    url: config?.fmeServerUrl,
-    token: config?.fmeServerToken,
-    repo: config?.repository,
-  })
+  hooks.useEffectWithPreviousValues(
+    (prevValues) => {
+      const prevConfig = prevValues[0] as FmeExportConfig | undefined
+      // Skip on first render to preserve initial load behavior
+      if (!prevConfig) return
+      const nextConfig = config
 
-  // React to config changes with scoped behavior
-  React.useEffect(() => {
-    if (isInitialLoadRef.current) return
+      const serverChanged =
+        prevConfig?.fmeServerUrl !== nextConfig?.fmeServerUrl
+      const tokenChanged =
+        prevConfig?.fmeServerToken !== nextConfig?.fmeServerToken
+      const repoChanged = prevConfig?.repository !== nextConfig?.repository
 
-    const prev = prevConnRef.current
-    const next = {
-      url: config?.fmeServerUrl,
-      token: config?.fmeServerToken,
-      repo: config?.repository,
-    }
-
-    const serverChanged = prev.url !== next.url
-    const tokenChanged = prev.token !== next.token
-    const repoChanged = prev.repo !== next.repo
-
-    // Update prev snapshot early to avoid races
-    prevConnRef.current = next
-
-    try {
-      if (serverChanged || tokenChanged) {
-        // Full revalidation required when connection credentials change
-        resetForRevalidation(false)
-        runStartupValidation()
-      } else if (repoChanged) {
-        // Repository change: clear workspace-related state and revalidate
-        if (startupAbortRef.current) {
-          abortAndClear(startupAbortRef)
+      try {
+        if (serverChanged || tokenChanged) {
+          // Full revalidation required when connection credentials change
+          resetForRevalidation(false)
+          runStartupValidation()
+        } else if (repoChanged) {
+          // Repository change: clear workspace-related state and revalidate
+          if (startupAbortRef.current) {
+            abortAndClear(startupAbortRef)
+          }
+          try {
+            dispatch(
+              fmeActions.clearWorkspaceState(config?.repository, widgetId)
+            )
+          } catch {}
+          // Lightweight reset (keep map resources) then re-run validation
+          resetForRevalidation(false)
+          runStartupValidation()
         }
-        try {
-          dispatch(fmeActions.clearWorkspaceState(config?.repository, widgetId))
-        } catch {}
-        // Lightweight reset (keep map resources) then re-run validation
-        resetForRevalidation(false)
-        runStartupValidation()
+      } catch (error) {
+        console.warn("Error handling config change:", error)
       }
-    } catch (error) {
-      console.warn("Error handling config change:", error)
-    }
-  }, [config, resetForRevalidation, runStartupValidation, dispatch, widgetId])
+    },
+    [config]
+  )
 
   // React to map selection changes by re-running startup validation
-  React.useEffect(() => {
-    if (isInitialLoadRef.current) return
+  hooks.useUpdateEffect(() => {
     try {
       // If no map is configured, also cleanup map resources
       const hasMapConfigured =
@@ -970,7 +955,7 @@ export default function Widget(
 
     // Re-run validation with new map selection
     runStartupValidation()
-  }, [useMapWidgetIds, resetForRevalidation, runStartupValidation])
+  }, [useMapWidgetIds])
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
@@ -1097,7 +1082,7 @@ export default function Widget(
       localizedErr = translate("unknownErrorOccurred")
     }
     // Build localized failure message and append contact support hint
-    const configured = getSupportEmail(config?.supportEmail)
+    const configured = getSupportEmail(configRef.current?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("orderFailed")
     const resultMessage =
@@ -1121,11 +1106,16 @@ export default function Widget(
     try {
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
-      const earlyMode = determineServiceMode({ data: rawDataEarly }, config)
+      const earlyMode = determineServiceMode(
+        { data: rawDataEarly },
+        configRef.current
+      )
       // Fetch email only for async mode
       const [userEmail, fmeClient] = await Promise.all([
-        earlyMode === "async" ? getEmail(config) : Promise.resolve(""),
-        Promise.resolve(createFmeFlowClient(config)),
+        earlyMode === "async"
+          ? getEmail(configRef.current)
+          : Promise.resolve(""),
+        Promise.resolve(createFmeFlowClient(configRef.current as any)),
       ])
 
       const workspace = reduxState.selectedWorkspace
@@ -1169,7 +1159,7 @@ export default function Widget(
       const remoteUrlRaw = rawData.__remote_dataset_url__ as string | undefined
       const remoteUrl =
         typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
-      const urlFeatureOn = Boolean(config?.allowRemoteUrlDataset)
+      const urlFeatureOn = Boolean(configRef.current?.allowRemoteUrlDataset)
 
       // First pass: set opt_geturl only if URL is valid
       if (
@@ -1182,7 +1172,7 @@ export default function Widget(
 
       // Second pass: if no opt_geturl set, consider upload fallback
       const wantsUpload =
-        config?.allowRemoteDataset && uploadFile instanceof File
+        configRef.current?.allowRemoteDataset && uploadFile instanceof File
       if (typeof finalParams.opt_geturl === "undefined" && wantsUpload) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
@@ -1195,7 +1185,8 @@ export default function Widget(
 
         // Find a suitable workspace parameter to assign the uploaded path
         const params = reduxState.workspaceParameters || []
-        const explicitNameRaw = (config as any)?.uploadTargetParamName
+        const explicitNameRaw = (configRef.current as any)
+          ?.uploadTargetParamName
         const explicitName =
           typeof explicitNameRaw === "string" && explicitNameRaw.trim()
             ? explicitNameRaw.trim()
@@ -1227,7 +1218,10 @@ export default function Widget(
       }
 
       // Apply admin defaults and record for testing
-      finalParams = applyDirectiveDefaults(finalParams, config)
+      finalParams = applyDirectiveDefaults(
+        finalParams,
+        configRef.current as any
+      )
       // Ensure hidden error marker isn't leaked
       try {
         delete (finalParams as any).__aoi_error__
@@ -1239,7 +1233,7 @@ export default function Widget(
       }
 
       // Submit to FME Flow
-      const serviceType = config?.service || "download"
+      const serviceType = configRef.current?.service || "download"
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
@@ -1497,7 +1491,7 @@ export default function Widget(
       dispatch(
         fmeActions.setSelectedWorkspace(
           workspaceName,
-          config?.repository,
+          configRef.current?.repository,
           widgetId
         )
       )
@@ -1505,12 +1499,16 @@ export default function Widget(
         fmeActions.setWorkspaceParameters(
           parameters,
           workspaceName,
-          config?.repository,
+          configRef.current?.repository,
           widgetId
         )
       )
       dispatch(
-        fmeActions.setWorkspaceItem(workspaceItem, config?.repository, widgetId)
+        fmeActions.setWorkspaceItem(
+          workspaceItem,
+          configRef.current?.repository,
+          widgetId
+        )
       )
       dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM, widgetId))
     }

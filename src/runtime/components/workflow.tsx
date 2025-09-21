@@ -230,12 +230,12 @@ const useWorkspaceLoader = (opts: {
     }
   )
 
-  const cancelCurrent = React.useCallback(() => {
+  const cancelCurrent = hooks.useEventCallback(() => {
     if (loadAbortRef.current) {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
     }
-  }, [])
+  })
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
@@ -425,23 +425,35 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   // Compute download URL if available
   const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
-  // Create/revoke object URL only in effects to avoid side-effects during render
-  React.useEffect(() => {
-    let objectUrl: string | null = null
+  // Manage object URL lifecycle safely
+  const objectUrlRef = React.useRef<string | null>(null)
+  hooks.useEffectWithPreviousValues(() => {
+    // Revoke any previous object URL before creating a new one
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+
     if (orderResult.downloadUrl) {
       setDownloadUrl(orderResult.downloadUrl)
-    } else if (orderResult.blob instanceof Blob) {
-      objectUrl = URL.createObjectURL(orderResult.blob)
-      setDownloadUrl(objectUrl)
-    } else {
-      setDownloadUrl(null)
+      return
     }
-    return () => {
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl)
-      }
+
+    if (orderResult.blob instanceof Blob) {
+      const url = URL.createObjectURL(orderResult.blob)
+      objectUrlRef.current = url
+      setDownloadUrl(url)
+      return
     }
+
+    setDownloadUrl(null)
   }, [orderResult.downloadUrl, orderResult.blob])
+  hooks.useUnmount(() => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+  })
 
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
