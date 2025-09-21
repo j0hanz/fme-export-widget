@@ -1212,8 +1212,15 @@ export default function Widget(
         delete (finalParams as any).__aoi_error__
       } catch {}
       try {
-        if (typeof process !== "undefined" && process.env && process.env.NODE_ENV !== "production") {
-          ;(global as any).__LAST_FME_CALL__ = { workspace, params: finalParams }
+        if (
+          typeof process !== "undefined" &&
+          process.env &&
+          process.env.NODE_ENV !== "production"
+        ) {
+          ;(global as any).__LAST_FME_CALL__ = {
+            workspace,
+            params: finalParams,
+          }
         }
       } catch {
         // Ignore global write errors in constrained environments
