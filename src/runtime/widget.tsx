@@ -60,6 +60,7 @@ import {
   formatArea,
   isValidEmail,
   getSupportEmail,
+  formatErrorForView,
 } from "../shared/utils"
 
 // Dynamic ESRI module loader with test environment support
@@ -617,23 +618,6 @@ export default function Widget(
 
       // Determine base error message with translation
       const baseMsgKey = error.message
-      let baseMessage = ""
-      if (typeof baseMsgKey === "string" && baseMsgKey) {
-        try {
-          baseMessage = resolveMessageOrKey(baseMsgKey, translate)
-        } catch {
-          baseMessage = String(baseMsgKey)
-        }
-      }
-      if (!baseMessage) {
-        // Try error.suggestion or error.message as fallback
-        if (error.code) {
-          try {
-            baseMessage = resolveMessageOrKey(error.code, translate)
-          } catch {}
-        }
-        if (!baseMessage) baseMessage = translate("unknownErrorOccurred")
-      }
 
       // Decide how to guide the user depending on error type
       const codeUpper = (error.code || "").toUpperCase()
@@ -649,11 +633,13 @@ export default function Widget(
         ? translate("geometryInvalidHint")
         : isConfigIncomplete
           ? translate("startupConfigErrorHint")
-          : buildSupportHintText(
+          : formatErrorForView(
               translate,
+              baseMsgKey,
+              error.code,
               supportEmail,
               typeof ufm === "string" ? ufm : undefined
-            )
+            ).hint
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -682,10 +668,14 @@ export default function Widget(
       return (
         <StateView
           // Show the base error message only; render support hint separately below
-          state={makeErrorView(baseMessage, {
-            code: suppressSupport ? undefined : error.code,
-            actions,
-          })}
+          state={makeErrorView(
+            resolveMessageOrKey(baseMsgKey, translate) ||
+              translate("unknownErrorOccurred"),
+            {
+              code: suppressSupport ? undefined : error.code,
+              actions,
+            }
+          )}
           renderActions={(act, ariaLabel) => (
             <div
               role="group"

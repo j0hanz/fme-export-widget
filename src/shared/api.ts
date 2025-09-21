@@ -1193,6 +1193,7 @@ export class FmeFlowApiClient {
       } catch (e) {
         console.warn("FME API - Error adding token directly:", e)
       }
+
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
         typeof options.timeout === "number"
