@@ -356,6 +356,24 @@ export interface TooltipProps {
   readonly id?: string
 }
 
+export interface SettingStyles {
+  readonly ROW: any
+  readonly ALERT_INLINE: any
+  readonly LABEL_WITH_BUTTON: any
+  readonly STATUS: {
+    readonly CONTAINER: any
+    readonly LIST: any
+    readonly ROW: any
+    readonly LABEL_GROUP: any
+    readonly COLOR: {
+      readonly OK: any
+      readonly FAIL: any
+      readonly SKIP: any
+      readonly PENDING: any
+    }
+  }
+}
+
 // Additional UI component types needed by components
 export type GroupButtonConfig = Omit<ButtonProps, "block">
 
@@ -784,6 +802,57 @@ export type IMFmeGlobalState = ImmutableObject<FmeGlobalState>
 
 export interface IMStateWithFmeExport extends IMState {
   readonly "fme-state": IMFmeGlobalState
+}
+
+export interface ConnectionTestSectionProps {
+  readonly testState: TestState
+  readonly checkSteps: CheckSteps
+  readonly disabled: boolean
+  readonly onTestConnection: () => void
+  readonly translate: TranslateFn
+  readonly styles: SettingStyles
+}
+
+export interface RepositorySelectorProps {
+  readonly localServerUrl: string
+  readonly localToken: string
+  readonly localRepository: string
+  readonly availableRepos: string[] | null
+  readonly fieldErrors: FieldErrors
+  readonly validateServerUrl: (
+    url: string,
+    opts?: { readonly strict?: boolean; readonly requireHttps?: boolean }
+  ) => { readonly ok: boolean; readonly key?: string }
+  readonly validateToken: (token: string) => {
+    readonly ok: boolean
+    readonly key?: string
+  }
+  readonly onRepositoryChange: (repository: string) => void
+  readonly onRefreshRepositories: () => void
+  readonly translate: TranslateFn
+  readonly styles: SettingStyles
+  readonly ID: { readonly repository: string }
+  readonly repoHint?: string | null
+}
+
+export interface JobDirectivesSectionProps {
+  readonly localTmTtc: string
+  readonly localTmTtl: string
+  readonly localTmTag: string
+  readonly onTmTtcChange: (value: string) => void
+  readonly onTmTtlChange: (value: string) => void
+  readonly onTmTagChange: (value: string) => void
+  readonly onTmTtcBlur: (value: string) => void
+  readonly onTmTtlBlur: (value: string) => void
+  readonly onTmTagBlur: (value: string) => void
+  readonly fieldErrors: FieldErrors
+  readonly translate: TranslateFn
+  readonly styles: SettingStyles
+  readonly ID: {
+    readonly tm_ttc: string
+    readonly tm_ttl: string
+    readonly tm_tag: string
+  }
 }
 
 // Component props interfaces

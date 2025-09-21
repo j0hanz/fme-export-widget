@@ -52,6 +52,10 @@ import type {
   SanitizationResult,
   IMStateWithFmeExport,
   TranslateFn,
+  SettingStyles,
+  ConnectionTestSectionProps,
+  RepositorySelectorProps,
+  JobDirectivesSectionProps,
 } from "../config"
 import { FmeFlowApiError } from "../config"
 import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
@@ -74,26 +78,21 @@ const CONSTANTS = {
   },
 } as const
 
-interface ConnectionTestSectionProps {
-  testState: TestState
-  checkSteps: CheckSteps
-  cannotTest: () => boolean
-  onTestConnection: () => void
-  translate: TranslateFn
-  styles: ReturnType<typeof useSettingStyles>
-}
-
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
   checkSteps,
-  cannotTest,
+  disabled,
   onTestConnection,
   translate,
   styles,
 }) => {
+  const isStepStatus = (v: unknown): v is StepStatus =>
+    typeof v === "object" &&
+    v !== null &&
+    Object.prototype.hasOwnProperty.call(v, "completed")
   // Hoisted helpers for readability and stability
   const getStatusStyle = hooks.useEventCallback(
-    (s: StepStatus | string): unknown => {
+    (s: StepStatus | string): any => {
       switch (s) {
         case "ok":
           return styles.STATUS.COLOR.OK
@@ -105,8 +104,8 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         case "idle":
           return styles.STATUS.COLOR.PENDING
         default:
-          if (typeof s === "object" && s !== null) {
-            return (s as any).completed
+          if (isStepStatus(s)) {
+            return s.completed
               ? styles.STATUS.COLOR.OK
               : styles.STATUS.COLOR.FAIL
           }
@@ -123,8 +122,8 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         if (status === "skip") return translate("skipped")
         return translate("checking")
       }
-      if ((status as any)?.completed) return translate("ok")
-      if ((status as any)?.error) return translate("failed")
+      if (isStepStatus(status) && status.completed) return translate("ok")
+      if (isStepStatus(status) && status.error) return translate("failed")
       return translate("checking")
     }
   )
@@ -146,8 +145,8 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }) => {
       const color = getStatusStyle(status)
       return (
-        <div css={css(styles.STATUS.ROW as any)}>
-          <div css={css(styles.STATUS.LABEL_GROUP as any)}>
+        <div css={css(styles.STATUS.ROW)}>
+          <div css={css(styles.STATUS.LABEL_GROUP)}>
             <>
               {label}
               <span aria-hidden="true">{translate("colon")}</span>
@@ -158,13 +157,13 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       )
     }
     // Determine if version string is present on checkSteps
-    const hasVersion: boolean =
-      typeof (checkSteps as any)?.version === "string" &&
-      ((checkSteps as any).version as string).length > 0
+    const versionText =
+      typeof checkSteps.version === "string" ? checkSteps.version : ""
+    const hasVersion: boolean = versionText.length > 0
 
     return (
       <div
-        css={css(styles.STATUS.CONTAINER as any)}
+        css={css(styles.STATUS.CONTAINER)}
         role="status"
         aria-live="polite"
         aria-atomic={true}
@@ -177,17 +176,17 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           />
         )}
 
-        <div css={css(styles.STATUS.LIST as any)}>
+        <div css={css(styles.STATUS.LIST)}>
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
           {hasVersion && (
-            <div css={css(styles.STATUS.ROW as any)}>
-              <div css={css(styles.STATUS.LABEL_GROUP as any)}>
+            <div css={css(styles.STATUS.ROW)}>
+              <div css={css(styles.STATUS.LABEL_GROUP)}>
                 {translate("fmeVersion")}
                 <span aria-hidden="true">{translate("colon")}</span>
               </div>
-              <div>{(checkSteps as any).version}</div>
+              <div>{versionText}</div>
             </div>
           )}
         </div>
@@ -200,7 +199,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       {/* Test connection */}
       <SettingRow flow="wrap" level={2}>
         <Button
-          disabled={cannotTest()}
+          disabled={disabled}
           alignText="center"
           text={
             testState.isTesting
@@ -217,25 +216,6 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       )}
     </>
   )
-}
-
-interface RepositorySelectorProps {
-  localServerUrl: string
-  localToken: string
-  localRepository: string
-  availableRepos: string[] | null
-  fieldErrors: FieldErrors
-  validateServerUrl: (
-    url: string,
-    opts?: { strict?: boolean; requireHttps?: boolean }
-  ) => { ok: boolean; key?: string }
-  validateToken: (token: string) => { ok: boolean; key?: string }
-  onRepositoryChange: (repository: string) => void
-  onRefreshRepositories: () => void
-  translate: TranslateFn
-  styles: ReturnType<typeof useSettingStyles>
-  ID: { repository: string }
-  repoHint?: string | null
 }
 
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
@@ -256,14 +236,14 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const canRefresh =
     validateServerUrl(localServerUrl, { requireHttps: true }).ok &&
-    Boolean((localToken || "").trim())
+    validateToken(localToken).ok
 
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
       const hasValidServer =
         !!localServerUrl &&
         validateServerUrl(localServerUrl, { requireHttps: true }).ok
-      const hasValidToken = Boolean((localToken || "").trim())
+      const hasValidToken = validateToken(localToken).ok
       if (!hasValidServer || !hasValidToken) return []
       if (availableRepos === null) return []
 
@@ -325,7 +305,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         }}
         disabled={
           !localServerUrl ||
-          !(localToken || "").trim() ||
+          !validateToken(localToken).ok ||
           !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
           availableRepos === null
         }
@@ -337,7 +317,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           const serverOk = validateServerUrl(localServerUrl, {
             requireHttps: true,
           }).ok
-          const tokenOk = Boolean((localToken || "").trim())
+          const tokenOk = validateToken(localToken).ok
           if (!serverOk || !tokenOk) {
             return translate("testConnectionFirst")
           }
@@ -358,7 +338,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           <Alert
             id={`${ID.repository}-error`}
             fullWidth
-            css={css(styles.ALERT_INLINE as any)}
+            css={css(styles.ALERT_INLINE)}
             text={fieldErrors.repository}
             type="error"
             closable={false}
@@ -369,7 +349,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         <SettingRow flow="wrap" level={3}>
           <Alert
             fullWidth
-            css={css(styles.ALERT_INLINE as any)}
+            css={css(styles.ALERT_INLINE)}
             text={repoHint}
             type="warning"
             closable={false}
@@ -378,22 +358,6 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       )}
     </SettingRow>
   )
-}
-
-interface JobDirectivesSectionProps {
-  localTmTtc: string
-  localTmTtl: string
-  localTmTag: string
-  onTmTtcChange: (value: string) => void
-  onTmTtlChange: (value: string) => void
-  onTmTagChange: (value: string) => void
-  onTmTtcBlur: (value: string) => void
-  onTmTtlBlur: (value: string) => void
-  onTmTagBlur: (value: string) => void
-  fieldErrors: FieldErrors
-  translate: TranslateFn
-  styles: ReturnType<typeof useSettingStyles>
-  ID: { tm_ttc: string; tm_ttl: string; tm_tag: string }
 }
 
 // Reusable field row to ensure consistent markup and error rendering
@@ -407,7 +371,7 @@ const FieldRow: React.FC<{
   type?: "text" | "email" | "password"
   required?: boolean
   errorText?: string
-  styles: ReturnType<typeof useSettingStyles>
+  styles: SettingStyles
 }> = ({
   id,
   label,
@@ -434,11 +398,11 @@ const FieldRow: React.FC<{
       aria-describedby={errorText ? `${id}-error` : undefined}
     />
     {errorText && (
-      <SettingRow flow="wrap" level={3} css={css(styles.ROW as any)}>
+      <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
         <Alert
           id={`${id}-error`}
           fullWidth
-          css={css(styles.ALERT_INLINE as any)}
+          css={css(styles.ALERT_INLINE)}
           text={errorText}
           type="error"
           closable={false}
@@ -651,7 +615,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
-  const sstyles = useSettingStyles()
+  const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
 
   // Get current repository from global state to detect external changes
@@ -690,7 +654,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [testState, setTestState] = React.useState<TestState>({
     status: "idle",
     isTesting: false,
-    message: null,
+    message: undefined,
     type: "info",
   })
   // Fine-grained step status for the connection test UI
@@ -1301,7 +1265,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           placeholder={translate("serverUrlPlaceholder")}
           required
           errorText={fieldErrors.serverUrl}
-          styles={sstyles}
+          styles={settingStyles}
         />
         {/* FME Server Token */}
         <FieldRow
@@ -1314,16 +1278,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           type="password"
           required
           errorText={fieldErrors.token}
-          styles={sstyles}
+          styles={settingStyles}
         />
         {/* Test connection section */}
         <ConnectionTestSection
           testState={testState}
           checkSteps={checkSteps}
-          cannotTest={() => isTestDisabled}
+          disabled={isTestDisabled}
           onTestConnection={() => testConnection(false)}
           translate={translate}
-          styles={sstyles}
+          styles={settingStyles}
         />
 
         {/* Repository selector */}
@@ -1338,7 +1302,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           onRepositoryChange={handleRepositoryChange}
           onRefreshRepositories={refreshRepositories}
           translate={translate}
-          styles={sstyles}
+          styles={settingStyles}
           ID={ID}
           repoHint={reposHint}
         />
@@ -1555,7 +1519,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             setLocalAoiParamName(finalValue)
           }}
           placeholder={translate("aoiParamNamePlaceholder")}
-          styles={sstyles}
+          styles={settingStyles}
         />
 
         {/* AOI GeoJSON parameter name (optional) */}
@@ -1584,7 +1548,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }
           }}
           placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
-          styles={sstyles}
+          styles={settingStyles}
         />
 
         {/* AOI WKT parameter name (optional) */}
@@ -1613,7 +1577,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }
           }}
           placeholder={translate("aoiWktParamNamePlaceholder")}
-          styles={sstyles}
+          styles={settingStyles}
         />
 
         {/* Upload Target Parameter Name (optional) */}
@@ -1643,7 +1607,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }
           }}
           placeholder={translate("uploadTargetParamNamePlaceholder")}
-          styles={sstyles}
+          styles={settingStyles}
         />
 
         {/* Max AOI area (m²) */}
@@ -1693,7 +1657,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           }}
           placeholder={translate("maxAreaPlaceholder")}
           errorText={fieldErrors.maxArea}
-          styles={sstyles}
+          styles={settingStyles}
         />
         {/* Support email (optional) */}
         <FieldRow
@@ -1731,7 +1695,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           }}
           placeholder={translate("supportEmailPlaceholder")}
           errorText={fieldErrors.supportEmail}
-          styles={sstyles}
+          styles={settingStyles}
         />
         {/** Helper moved to label tooltip */}
       </SettingSection>
@@ -1791,7 +1755,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }}
         fieldErrors={fieldErrors}
         translate={translate}
-        styles={sstyles}
+        styles={settingStyles}
         ID={ID}
       />
     </>
