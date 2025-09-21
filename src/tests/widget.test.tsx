@@ -77,7 +77,9 @@ jest.mock("jimu-arcgis", () => ({
           map: fakeMap,
           popup: { close: jest.fn() },
         },
-      }
+      } as any
+      // Align with runtime which calls view.closePopup()
+      fakeJmv.view.closePopup = jest.fn(() => fakeJmv.view.popup.close())
       ;(global as any).__LAST_JMV__ = fakeJmv
       onActiveViewChange?.(fakeJmv)
     }, [onActiveViewChange])

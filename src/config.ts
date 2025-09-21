@@ -160,7 +160,6 @@ export type FormValue =
   | boolean
   | ReadonlyArray<string | number>
   | readonly string[]
-  | File
   | null
   | undefined
 export type FormPrimitive = Exclude<FormValue, undefined>
@@ -244,11 +243,24 @@ export interface ErrorState {
   readonly timestampMs: number
   readonly userFriendlyMessage?: string
   readonly suggestion?: string
+  readonly kind?: "runtime"
 }
 
-export type SerializableErrorState = Omit<ErrorState, "timestamp" | "retry"> & {
+// Serializable error shape for Redux (with optional discriminant)
+export interface SerializableErrorState {
+  readonly message: string
+  readonly type: ErrorType
+  readonly code: string
+  readonly severity: ErrorSeverity
+  readonly details?: { [key: string]: unknown }
+  readonly recoverable: boolean
   readonly timestampMs: number
+  readonly userFriendlyMessage?: string
+  readonly suggestion?: string
+  readonly kind?: "serializable"
 }
+
+export type AnyErrorState = ErrorState | SerializableErrorState
 
 // UI component interfaces
 export interface BaseProps {
@@ -412,12 +424,7 @@ export interface IconProps extends BaseProps {
 }
 
 // Setting panel types
-export interface ConnectionSettings {
-  readonly serverUrl: string
-  readonly token: string
-  readonly repository: string
-  readonly timeout?: number
-}
+export type ConnectionSettings = FmeFlowConfig
 
 export interface TestState {
   readonly status: "idle" | "running" | "success" | "error"
@@ -448,7 +455,6 @@ export interface SanitizationResult {
 
 // Workflow component types
 export interface OrderResultProps {
-  readonly result?: ExportResult
   readonly onDownload?: () => void
   readonly onClose?: () => void
   readonly orderResult?: ExportResult
@@ -462,7 +468,10 @@ export interface ExportFormProps {
   readonly parameters?: WorkspaceParameter[]
   readonly values?: FormValues
   readonly onChange?: (values: FormValues) => void
-  readonly onSubmit?: (payload: { type: string; data: FormValues }) => void
+  readonly onSubmit?: (payload: {
+    type: string
+    data: { [key: string]: unknown }
+  }) => void
   readonly workspaceParameters?: readonly WorkspaceParameter[]
   readonly workspaceName?: string
   readonly workspaceItem?: WorkspaceItemDetail
@@ -526,7 +535,8 @@ export interface DynamicFieldConfig {
 export interface DynamicFieldProps {
   readonly field: DynamicFieldConfig
   readonly value?: FormPrimitive
-  readonly onChange: (value: FormPrimitive) => void
+  // Accept transient File locally; never stored in Redux
+  readonly onChange: (value: FormPrimitive | File | null) => void
   readonly translate: TranslateFn
 }
 
@@ -573,19 +583,13 @@ export interface RequestConfig {
   readonly signal?: AbortSignal
   readonly timeout?: number
   readonly cacheHint?: boolean
-  readonly repositoryContext?: string // Added to scope caches properly by repository
+  readonly repositoryContext?: string
 }
 
 export interface ApiResponse<T = unknown> {
   readonly data: T
   readonly status: number
   readonly statusText: string
-}
-
-export interface FmeFlowError {
-  readonly message: string
-  readonly details?: { [key: string]: unknown }
-  readonly code?: string
 }
 
 export class FmeFlowApiError extends Error {
@@ -616,6 +620,14 @@ export interface FmeServiceInfo {
 
 export interface FmeResponse {
   readonly data?: { serviceResponse?: FmeServiceInfo } | FmeServiceInfo
+}
+
+// Normalized projection of FME service info regardless of response nesting
+export interface NormalizedServiceInfo {
+  readonly status?: string
+  readonly message?: string
+  readonly jobId?: number
+  readonly url?: string
 }
 
 export interface WorkspaceItem {
@@ -697,6 +709,9 @@ export interface JobResult {
 
 // JobResponse is same as JobResult for simplicity
 export type JobResponse = JobResult
+
+// Naming clarity for identifiers used across UI and API
+export type JobId = number
 
 export interface EsriModules {
   SketchViewModel: new (...a: any[]) => __esri.SketchViewModel
@@ -874,7 +889,7 @@ export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig
   readonly state: ViewMode
-  readonly error?: ErrorState | SerializableErrorState | null
+  readonly error?: AnyErrorState | null
   readonly instructionText?: string
   readonly isModulesLoading?: boolean
   readonly modules?: EsriModules | null
@@ -910,29 +925,7 @@ export interface WorkflowProps extends BaseProps {
 }
 
 // Widget configuration
-export interface WidgetConfig {
-  readonly fmeServerUrl: string
-  readonly fmeServerToken: string
-  readonly repository: string
-  readonly workspace?: string
-  readonly maxArea?: number
-  readonly requestTimeout?: number
-  readonly syncMode?: boolean
-  readonly maskEmailOnSuccess?: boolean
-  readonly supportEmail?: string
-  readonly tm_ttc?: number | string
-  readonly tm_ttl?: number | string
-  readonly tm_tag?: string
-  readonly aoiParamName?: string
-  readonly uploadTargetParamName?: string
-  readonly allowScheduleMode?: boolean
-  readonly allowRemoteDataset?: boolean
-  readonly allowRemoteUrlDataset?: boolean
-  readonly service?: "download" | "stream"
-  // Optional additional AOI output formats
-  readonly aoiGeoJsonParamName?: string
-  readonly aoiWktParamName?: string
-}
+export type WidgetConfig = FmeExportConfig
 
 export type IMWidgetConfig = ImmutableObject<WidgetConfig>
 

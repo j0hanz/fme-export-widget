@@ -309,6 +309,7 @@ const useErrorDispatcher = (
       recoverable: true,
       timestamp: new Date(),
       timestampMs: Date.now(),
+      kind: "runtime",
     }
     dispatch(fmeActions.setError(error, widgetId))
   })
@@ -763,6 +764,7 @@ export default function Widget(
         : "",
       suggestion: translate("retryValidation"),
       retry,
+      kind: "runtime",
     })
   )
 

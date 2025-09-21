@@ -304,11 +304,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             type="file"
             onFileChange={(evt) => {
               const files = evt.target.files
-              onChange(
-                files
-                  ? (files[0] as unknown as FormPrimitive)
-                  : (null as FormPrimitive)
-              )
+              onChange(files ? files[0] : null)
             }}
             disabled={field.readOnly}
             aria-label={field.label}
