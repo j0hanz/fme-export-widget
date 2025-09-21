@@ -1268,6 +1268,14 @@ export default function Widget(
       return
     }
     try {
+      // Best-effort: close any open popups as soon as the widget takes focus on the map
+      try {
+        const popup = (jmv as any)?.view?.popup
+        if (popup && typeof popup.close === "function") {
+          popup.close()
+        }
+      } catch {}
+
       const layer = createLayers(jmv, modules, setGraphicsLayer)
       try {
         // Localize drawing layer title
@@ -1460,6 +1468,24 @@ export default function Widget(
       handleReset()
     }
   }, [runtimeState, prevRuntimeState, handleReset])
+
+  // Close any open popups when widget is opened
+  hooks.useUpdateEffect(() => {
+    if (
+      jimuMapView &&
+      prevRuntimeState === WidgetState.Closed &&
+      runtimeState !== WidgetState.Closed
+    ) {
+      try {
+        const popup = (jimuMapView as any)?.view?.popup
+        if (popup && typeof popup.close === "function") {
+          popup.close()
+        }
+      } catch (_) {
+        // Best-effort: ignore popup close errors
+      }
+    }
+  }, [runtimeState, prevRuntimeState, jimuMapView])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(

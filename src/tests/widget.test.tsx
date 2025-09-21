@@ -70,7 +70,13 @@ jest.mock("jimu-arcgis", () => ({
           this.layers = this.layers.filter((l: any) => l !== layer)
         }),
       }
-      const fakeJmv = { view: { map: fakeMap } }
+      const fakeJmv = {
+        view: {
+          map: fakeMap,
+          popup: { close: jest.fn() },
+        },
+      }
+      ;(global as any).__LAST_JMV__ = fakeJmv
       onActiveViewChange?.(fakeJmv)
     }, [onActiveViewChange])
     return null
@@ -244,6 +250,52 @@ describe("Widget runtime - module loading and auto-start", () => {
     // Unmount triggers cleanup useEffectOnce teardown
     act(() => {
       unmount()
+    })
+  })
+
+  test("closes open map popup when widget opens (issue #19)", async () => {
+    setupEsriTestStub()
+
+    const Wrapped = wrap({})
+    updateStore({
+      "fme-state": {
+        byId: {
+          w3: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
+      },
+    })
+    const cfgAny = {} as any
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="w3"
+        widgetId="w3"
+        useMapWidgetIds={["map_3"] as any}
+        config={cfgAny}
+      />
+    )
+
+    // Wait until SketchViewModel exists (map initialized)
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    // Access fake popup via the JimuMapView mock location
+    // Pull the fake jmv from the onActiveViewChange call by reading the stored object on global
+    const fakeJmv = (global as any).__LAST_JMV__
+    const popup = fakeJmv?.view?.popup
+    expect(popup && typeof popup.close === "function").toBe(true)
+    // The widget effect should have closed it once on open
+    // We need to yield to effects
+    await waitFor(() => {
+      expect(popup.close).toHaveBeenCalled()
     })
   })
 })
