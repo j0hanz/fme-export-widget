@@ -372,3 +372,93 @@ describe("Widget runtime - startup CONFIG_INCOMPLETE error handling", () => {
     expect(screen.queryByText(/CONFIG_INCOMPLETE/i)).toBeNull()
   })
 })
+
+describe("Widget runtime - geometry error prevents drawing until retry", () => {
+  test("does not auto-start drawing when GEOMETRY_INVALID error active; resumes after retry", async () => {
+    const { createSpy } = setupEsriTestStub()
+
+    const Wrapped = wrap({})
+    // Start in INITIAL without error so map and SVM can initialize
+    updateStore({
+      "fme-state": {
+        byId: {
+          wG: {
+            viewMode: ViewMode.INITIAL,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
+      },
+    })
+    const cfgAny = {} as any
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wG"
+        widgetId="wG"
+        useMapWidgetIds={["map_G"] as any}
+        config={cfgAny}
+      />
+    )
+
+    // Wait until SketchViewModel is created
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    // Inject geometry error and switch to DRAWING simultaneously
+    updateStore({
+      "fme-state": {
+        byId: {
+          wG: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+            error: {
+              message: runtimeMsgs2.GEOMETRY_INVALID,
+              type: "validation",
+              code: "GEOMETRY_INVALID",
+              severity: "error",
+              recoverable: true,
+              timestamp: new Date(),
+              timestampMs: Date.now(),
+            },
+          },
+        },
+      },
+    })
+
+    // Ensure no auto-start draw occurs while error is active
+    expect(createSpy).not.toHaveBeenCalled()
+
+    // Verify that the SketchViewModel is disabled (view should be null)
+    await waitFor(() => {
+      const svm = (global as any).__SVM_INST__
+      expect(svm.view).toBeNull()
+    })
+
+    // Also verify that navigation would be disabled (we can't easily test the container style in jsdom)
+    // but we can verify the SketchViewModel state
+
+    // Click Retry button in error view
+    const retryBtn = await screen.findByRole("button", {
+      name: runtimeMsgs2.retry,
+    })
+    expect(retryBtn).toBeInTheDocument()
+    act(() => {
+      retryBtn.click()
+    })
+
+    // After retry, SketchViewModel should be re-enabled and drawing should auto-start
+    await waitFor(() => {
+      const svm = (global as any).__SVM_INST__
+      expect(svm.view).toBeTruthy()
+      expect(createSpy).toHaveBeenCalled()
+    })
+  })
+})
