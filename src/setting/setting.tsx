@@ -294,46 +294,62 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       level={1}
       tag="label"
     >
-      <Select
-        options={buildRepoOptions()}
-        value={localRepository || undefined}
-        onChange={(val) => {
-          const next =
-            typeof val === "string" || typeof val === "number"
-              ? String(val)
-              : ""
-          onRepositoryChange(next)
-        }}
-        disabled={
-          !localServerUrl ||
-          !validateToken(localToken).ok ||
-          !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
-          availableRepos === null
-        }
-        aria-describedby={
-          fieldErrors.repository ? `${ID.repository}-error` : undefined
-        }
-        aria-invalid={fieldErrors.repository ? true : undefined}
-        placeholder={(() => {
-          const serverOk = validateServerUrl(localServerUrl, {
-            requireHttps: true,
-          }).ok
-          const tokenOk = validateToken(localToken).ok
-          if (!serverOk || !tokenOk) {
-            return translate("testConnectionFirst")
+      {Array.isArray(availableRepos) && availableRepos.length === 0 ? (
+        // No repositories found - show text input to allow manual entry
+        <Input
+          id={ID.repository}
+          value={localRepository}
+          onChange={(val: string) => {
+            onRepositoryChange(val)
+          }}
+          placeholder={translate("repoPlaceholder")}
+          aria-describedby={
+            fieldErrors.repository ? `${ID.repository}-error` : undefined
           }
-
-          if (availableRepos === null) {
-            return translate("loadingRepositories")
+          aria-invalid={fieldErrors.repository ? true : undefined}
+        />
+      ) : (
+        <Select
+          options={buildRepoOptions()}
+          value={localRepository || undefined}
+          onChange={(val) => {
+            const next =
+              typeof val === "string" || typeof val === "number"
+                ? String(val)
+                : ""
+            onRepositoryChange(next)
+          }}
+          disabled={
+            !localServerUrl ||
+            !validateToken(localToken).ok ||
+            !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
+            availableRepos === null
           }
-
-          if (Array.isArray(availableRepos) && availableRepos.length === 0) {
-            return translate("noRepositoriesFound")
+          aria-describedby={
+            fieldErrors.repository ? `${ID.repository}-error` : undefined
           }
+          aria-invalid={fieldErrors.repository ? true : undefined}
+          placeholder={(() => {
+            const serverOk = validateServerUrl(localServerUrl, {
+              requireHttps: true,
+            }).ok
+            const tokenOk = validateToken(localToken).ok
+            if (!serverOk || !tokenOk) {
+              return translate("testConnectionFirst")
+            }
 
-          return translate("repoPlaceholder")
-        })()}
-      />
+            if (availableRepos === null) {
+              return translate("loadingRepositories")
+            }
+
+            if (Array.isArray(availableRepos) && availableRepos.length === 0) {
+              return translate("noRepositoriesFound")
+            }
+
+            return translate("repoPlaceholder")
+          })()}
+        />
+      )}
       {fieldErrors.repository && (
         <SettingRow flow="wrap" level={3}>
           <Alert

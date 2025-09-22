@@ -889,35 +889,75 @@ export class FmeFlowApiClient {
           API.WEBHOOK_LOG_WHITELIST
         )
 
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params.toString(),
-          signal,
-        })
-
-        // Non-2xx -> surface as error for consistent handling
-        if (!response.ok) {
-          throw makeError("DATA_STREAMING_ERROR", response.status)
+        // Honor client timeout by composing a timeout-aware AbortSignal for fetch
+        const controller = new AbortController()
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
+        let didTimeout = false
+        const onAbort = () => {
+          controller.abort()
         }
+        try {
+          if (signal) {
+            if (signal.aborted) controller.abort()
+            else signal.addEventListener("abort", onAbort)
+          }
 
-        // Always read as Blob; callers can decode based on content-type
-        const blob = await response.blob()
-        const contentType = response.headers.get("content-type")
+          const timeoutMs =
+            typeof this.config.timeout === "number" && this.config.timeout > 0
+              ? this.config.timeout
+              : undefined
+          if (timeoutMs) {
+            timeoutId = setTimeout(() => {
+              didTimeout = true
+              try {
+                controller.abort()
+              } catch {}
+            }, timeoutMs)
+          }
 
-        // Attempt to extract filename from Content-Disposition header
-        const cd = response.headers.get("content-disposition") || ""
-        let fileName: string | undefined
-        const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
-        if (m) {
-          const raw = decodeURIComponent(m[1] || m[2] || "").trim()
-          fileName = raw || undefined
-        }
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+            signal: controller.signal,
+          })
 
-        return {
-          data: { blob, fileName, contentType },
-          status: response.status,
-          statusText: response.statusText,
+          // Non-2xx status is an error
+          if (!response.ok) {
+            throw makeError("DATA_STREAMING_ERROR", response.status)
+          }
+
+          // Always read as Blob; callers can decode based on content-type
+          const blob = await response.blob()
+          const contentType = response.headers.get("content-type")
+
+          // Attempt to extract filename from Content-Disposition header
+          const cd = response.headers.get("content-disposition") || ""
+          let fileName: string | undefined
+          const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
+          if (m) {
+            const raw = decodeURIComponent(m[1] || m[2] || "").trim()
+            fileName = raw || undefined
+          }
+
+          return {
+            data: { blob, fileName, contentType },
+            status: response.status,
+            statusText: response.statusText,
+          }
+        } catch (e: any) {
+          if (FmeFlowApiClient.isAbortError(e)) {
+            if (didTimeout) {
+              // Map timeout to HTTP 408 for user-friendly translation
+              throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+            }
+          }
+          throw e instanceof Error ? e : new Error(String(e))
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId)
+          try {
+            if (signal) signal.removeEventListener("abort", onAbort)
+          } catch {}
         }
       },
       "DATA_STREAMING_ERROR",
@@ -1009,12 +1049,51 @@ export class FmeFlowApiClient {
         API.WEBHOOK_LOG_WHITELIST
       )
 
-      const response = await fetch(fullUrl, {
-        method: "GET",
-        signal,
-      })
+      // Honor client timeout by composing a timeout-aware AbortSignal for fetch
+      const controller = new AbortController()
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
+      let didTimeout = false
+      const onAbort = () => {
+        controller.abort()
+      }
+      try {
+        if (signal) {
+          if (signal.aborted) controller.abort()
+          else signal.addEventListener("abort", onAbort)
+        }
 
-      return this.parseWebhookResponse(response)
+        const timeoutMs =
+          typeof this.config.timeout === "number" && this.config.timeout > 0
+            ? this.config.timeout
+            : undefined
+        if (timeoutMs) {
+          timeoutId = setTimeout(() => {
+            didTimeout = true
+            try {
+              controller.abort()
+            } catch {}
+          }, timeoutMs)
+        }
+
+        const response = await fetch(fullUrl, {
+          method: "GET",
+          signal: controller.signal,
+        })
+
+        return this.parseWebhookResponse(response)
+      } catch (e: any) {
+        if (FmeFlowApiClient.isAbortError(e)) {
+          if (didTimeout) {
+            throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+          }
+        }
+        throw e instanceof Error ? e : new Error(String(e))
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
+        try {
+          if (signal) signal.removeEventListener("abort", onAbort)
+        } catch {}
+      }
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
       const status = extractHttpStatus(err)
@@ -1072,6 +1151,11 @@ export class FmeFlowApiClient {
 
     this.abortController = new AbortController()
     return this.abortController
+  }
+
+  // Check if error is an AbortError (fetch or esriRequest)
+  private static isAbortError(e: any): boolean {
+    return Boolean(e && (e.name === "AbortError" || e.code === "AbortError"))
   }
 
   private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
