@@ -259,6 +259,38 @@ const useMapResources = () => {
     }
   )
 
+  // Teardown drawing resources
+  const teardownDrawingResources = hooks.useEventCallback(() => {
+    const { sketchViewModel, graphicsLayer, jimuMapView } = state
+
+    if (sketchViewModel) {
+      try {
+        safeCancelSketch(sketchViewModel)
+        if (typeof sketchViewModel.destroy === "function") {
+          sketchViewModel.destroy()
+        }
+      } catch (error) {
+        console.warn("Widget - Error tearing down SketchViewModel:", error)
+      }
+    }
+
+    if (graphicsLayer) {
+      try {
+        removeLayerFromMap(jimuMapView, graphicsLayer)
+        safeClearLayer(graphicsLayer)
+      } catch (error) {
+        console.warn("Widget - Error tearing down GraphicsLayer:", error)
+      }
+    }
+
+    setState((prev) => ({
+      ...prev,
+      sketchViewModel: null,
+      graphicsLayer: null,
+      currentGeometry: null,
+    }))
+  })
+
   const cleanupResources = hooks.useEventCallback(() => {
     const { sketchViewModel, graphicsLayer, jimuMapView } = state
 
@@ -300,6 +332,7 @@ const useMapResources = () => {
       updateResource("graphicsLayer", layer),
     setCurrentGeometry: (geom: __esri.Geometry | null) =>
       updateResource("currentGeometry", geom),
+    teardownDrawingResources,
     cleanupResources,
   }
 }
@@ -567,6 +600,8 @@ export default function Widget(
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
   const configRef = hooks.useLatest(config)
+  // When true, after reinitializing SketchViewModel we will immediately start drawing
+  const shouldAutoStartRef = React.useRef(false)
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
@@ -674,7 +709,19 @@ export default function Widget(
       const retryHandler =
         onRetry ??
         (() => {
+          // Clear error and return to drawing mode if applicable
           dispatch(fmeActions.setError(null, widgetId))
+          if (isGeometryInvalid) {
+            // Mark that we should auto-start once tools are re-initialized
+            shouldAutoStartRef.current = true
+            dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+            // If drawing resources were torn down, re-initialize them now
+            try {
+              if (!sketchViewModel && modules && jimuMapView) {
+                handleMapViewReady(jimuMapView)
+              }
+            } catch {}
+          }
         })
       actions.push({ label: translate("retry"), onClick: retryHandler })
 
@@ -754,6 +801,7 @@ export default function Widget(
     setGraphicsLayer,
     currentGeometry,
     setCurrentGeometry,
+    teardownDrawingResources,
     cleanupResources,
   } = mapResources
 
@@ -990,9 +1038,12 @@ export default function Widget(
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
+          // Tear down drawing resources to reset state
+          teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
           dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-          dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+          // Set view mode back to initial drawing state
+          dispatch(fmeActions.setViewMode(ViewMode.INITIAL, widgetId))
           if (validation.error)
             dispatch(fmeActions.setError(validation.error, widgetId))
           return
@@ -1306,6 +1357,16 @@ export default function Widget(
         symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
       })
       setSketchViewModel(svm)
+      try {
+        // If we're returning from a geometry error, immediately start drawing using the current tool
+        if (shouldAutoStartRef.current) {
+          shouldAutoStartRef.current = false
+          const tool = props.state?.drawingTool || reduxState.drawingTool
+          const arg: "rectangle" | "polygon" =
+            tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+          ;(svm as any).create?.(arg)
+        }
+      } catch {}
     } catch (error) {
       dispatchError(
         translate("mapInitFailed"),
@@ -1462,7 +1523,8 @@ export default function Widget(
     reduxState.viewMode === ViewMode.DRAWING &&
     reduxState.clickCount === 0 &&
     sketchViewModel &&
-    !reduxState.isSubmittingOrder
+    !reduxState.isSubmittingOrder &&
+    !(reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR)
 
   hooks.useUpdateEffect(() => {
     // Only auto-start if not already started and widget is not closed
@@ -1519,6 +1581,13 @@ export default function Widget(
       }
     }
   }, [runtimeState, prevRuntimeState, jimuMapView])
+
+  // Teardown drawing resources on critical errors
+  hooks.useUpdateEffect(() => {
+    if (reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR) {
+      teardownDrawingResources()
+    }
+  }, [reduxState.error, teardownDrawingResources])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(

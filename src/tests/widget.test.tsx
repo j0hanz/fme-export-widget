@@ -372,3 +372,88 @@ describe("Widget runtime - startup CONFIG_INCOMPLETE error handling", () => {
     expect(screen.queryByText(/CONFIG_INCOMPLETE/i)).toBeNull()
   })
 })
+
+describe("Widget runtime - geometry error prevents drawing until retry", () => {
+  test("does not auto-start drawing when GEOMETRY_INVALID error active; resumes after retry", async () => {
+    const { createSpy } = setupEsriTestStub()
+
+    const Wrapped = wrap({})
+    // Start in INITIAL without error so map and SVM can initialize
+    updateStore({
+      "fme-state": {
+        byId: {
+          wG: {
+            viewMode: ViewMode.INITIAL,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+          },
+        },
+      },
+    })
+    const cfgAny = {} as any
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wG"
+        widgetId="wG"
+        useMapWidgetIds={["map_G"] as any}
+        config={cfgAny}
+      />
+    )
+
+    // Wait until SketchViewModel is created
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    // Inject geometry error and set view to INITIAL (as real flow does on invalid geometry)
+    updateStore({
+      "fme-state": {
+        byId: {
+          wG: {
+            viewMode: ViewMode.INITIAL,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+            error: {
+              message: runtimeMsgs2.GEOMETRY_INVALID,
+              type: "validation",
+              code: "GEOMETRY_INVALID",
+              severity: "error",
+              recoverable: true,
+              timestamp: new Date(),
+              timestampMs: Date.now(),
+            },
+          },
+        },
+      },
+    })
+
+    // Ensure no auto-start draw occurs while error is active
+    expect(createSpy).not.toHaveBeenCalled()
+    // Error view should be rendered with retry button visible
+    const alert = await screen.findByRole("alert")
+    expect(alert).toBeInTheDocument()
+
+    // Click Retry button in error view
+    const retryBtn = await screen.findByRole("button", {
+      name: runtimeMsgs2.retry,
+    })
+    expect(retryBtn).toBeInTheDocument()
+    act(() => {
+      retryBtn.click()
+    })
+
+    // After retry, drawing should auto-start (create should be invoked)
+    await waitFor(
+      () => {
+        expect(createSpy).toHaveBeenCalled()
+      },
+      { timeout: 3000 }
+    )
+  })
+})
