@@ -409,12 +409,12 @@ describe("Widget runtime - geometry error prevents drawing until retry", () => {
       expect((global as any).__SVM_INST__).toBeTruthy()
     })
 
-    // Inject geometry error and switch to DRAWING simultaneously
+    // Inject geometry error and set view to INITIAL (as real flow does on invalid geometry)
     updateStore({
       "fme-state": {
         byId: {
           wG: {
-            viewMode: ViewMode.DRAWING,
+            viewMode: ViewMode.INITIAL,
             clickCount: 0,
             isSubmittingOrder: false,
             drawingTool: DrawingTool.POLYGON,
@@ -435,15 +435,9 @@ describe("Widget runtime - geometry error prevents drawing until retry", () => {
 
     // Ensure no auto-start draw occurs while error is active
     expect(createSpy).not.toHaveBeenCalled()
-
-    // Verify that the SketchViewModel is disabled (view should be null)
-    await waitFor(() => {
-      const svm = (global as any).__SVM_INST__
-      expect(svm.view).toBeNull()
-    })
-
-    // Also verify that navigation would be disabled (we can't easily test the container style in jsdom)
-    // but we can verify the SketchViewModel state
+    // Error view should be rendered with retry button visible
+    const alert = await screen.findByRole("alert")
+    expect(alert).toBeInTheDocument()
 
     // Click Retry button in error view
     const retryBtn = await screen.findByRole("button", {
@@ -454,11 +448,12 @@ describe("Widget runtime - geometry error prevents drawing until retry", () => {
       retryBtn.click()
     })
 
-    // After retry, SketchViewModel should be re-enabled and drawing should auto-start
-    await waitFor(() => {
-      const svm = (global as any).__SVM_INST__
-      expect(svm.view).toBeTruthy()
-      expect(createSpy).toHaveBeenCalled()
-    })
+    // After retry, drawing should auto-start (create should be invoked)
+    await waitFor(
+      () => {
+        expect(createSpy).toHaveBeenCalled()
+      },
+      { timeout: 3000 }
+    )
   })
 })

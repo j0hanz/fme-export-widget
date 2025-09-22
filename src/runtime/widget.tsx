@@ -600,6 +600,8 @@ export default function Widget(
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
   const configRef = hooks.useLatest(config)
+  // When true, after reinitializing SketchViewModel we will immediately start drawing
+  const shouldAutoStartRef = React.useRef(false)
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
@@ -710,7 +712,15 @@ export default function Widget(
           // Clear error and return to drawing mode if applicable
           dispatch(fmeActions.setError(null, widgetId))
           if (isGeometryInvalid) {
+            // Mark that we should auto-start once tools are re-initialized
+            shouldAutoStartRef.current = true
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+            // If drawing resources were torn down, re-initialize them now
+            try {
+              if (!sketchViewModel && modules && jimuMapView) {
+                handleMapViewReady(jimuMapView)
+              }
+            } catch {}
           }
         })
       actions.push({ label: translate("retry"), onClick: retryHandler })
@@ -1347,6 +1357,16 @@ export default function Widget(
         symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
       })
       setSketchViewModel(svm)
+      try {
+        // If we're returning from a geometry error, immediately start drawing using the current tool
+        if (shouldAutoStartRef.current) {
+          shouldAutoStartRef.current = false
+          const tool = props.state?.drawingTool || reduxState.drawingTool
+          const arg: "rectangle" | "polygon" =
+            tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+          ;(svm as any).create?.(arg)
+        }
+      } catch {}
     } catch (error) {
       dispatchError(
         translate("mapInitFailed"),
