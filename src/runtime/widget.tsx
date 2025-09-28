@@ -111,8 +111,10 @@ const MODULES = [
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
   "esri/geometry/geometryEngine",
+  "esri/geometry/geometryEngineAsync",
   "esri/geometry/support/webMercatorUtils",
-  "esri/core/reactiveUtils",
+  "esri/geometry/projection",
+  "esri/geometry/SpatialReference",
   "esri/geometry/Polyline",
   "esri/geometry/Polygon",
   "esri/Graphic",
@@ -177,20 +179,33 @@ const useEsriModules = (): {
           SketchViewModel,
           GraphicsLayer,
           geometryEngine,
+          geometryEngineAsync,
           webMercatorUtils,
-          reactiveUtils,
+          projection,
+          SpatialReference,
           Polyline,
           Polygon,
           Graphic,
         ] = loaded
+
+        try {
+          const proj = projection as any
+          if (proj?.load && typeof proj.load === "function") {
+            await proj.load()
+          }
+        } catch (error) {
+          logWarn("Failed to pre-load projection module", error)
+        }
 
         setState({
           modules: {
             SketchViewModel,
             GraphicsLayer,
             geometryEngine,
+            geometryEngineAsync,
             webMercatorUtils,
-            reactiveUtils,
+            projection,
+            SpatialReference,
             Polyline,
             Polygon,
             Graphic,
@@ -976,13 +991,13 @@ export default function Widget(
 
   // Drawing complete with enhanced Graphic functionality
   const onDrawComplete = hooks.useEventCallback(
-    (evt: __esri.SketchCreateEvent) => {
+    async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
       if (!geometry) return
 
       try {
         // Validate
-        const validation = validatePolygon(geometry, modules)
+        const validation = await validatePolygon(geometry, modules)
         if (!validation.valid) {
           // Remove erroneous graphic and reset drawing state
           try {
@@ -1001,7 +1016,7 @@ export default function Widget(
         const geomForUse =
           (validation as any).simplified ?? (geometry as __esri.Polygon)
 
-        const calculatedArea = calcArea(geomForUse, modules)
+        const calculatedArea = await calcArea(geomForUse, modules)
 
         // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
@@ -1242,12 +1257,8 @@ export default function Widget(
         delete (finalParams as any).__aoi_error__
       } catch {}
       try {
-        if (
-          typeof process !== "undefined" &&
-          process.env &&
-          process.env.NODE_ENV !== "production"
-        ) {
-          ;(global as any).__LAST_FME_CALL__ = {
+        if (typeof globalThis !== "undefined") {
+          ;(globalThis as any).__LAST_FME_CALL__ = {
             workspace,
             params: finalParams,
           }
