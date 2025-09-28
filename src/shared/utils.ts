@@ -9,6 +9,7 @@ import type {
 import { ErrorType, ErrorSeverity } from "../config"
 import { SessionManager, css } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
+import { logDebug } from "./logging"
 
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
@@ -655,7 +656,10 @@ export const safeLogParams = (
     const sanitizedUrl = u
       ? `${u.origin}${u.pathname}`
       : url.split("?")[0] || url
-    console.log(label, sanitizedUrl, `params=${safeParams.toString()}`)
+    logDebug(label, {
+      url: sanitizedUrl,
+      params: safeParams.toString(),
+    })
   } catch {}
 }
 

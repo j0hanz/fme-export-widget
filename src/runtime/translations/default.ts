@@ -20,6 +20,7 @@ export default {
   checkTokenSettings: "Kontrollera API‑nyckeln.",
   startupServerError: "Serverfel vid anslutning.",
   checkServerSettings: "Kontrollera serverinställningarna.",
+  checkServerUrlSettings: "Kontrollera server-URL-inställningarna.",
   repositoryNotAccessible: "Repository går inte att nå.",
   startupRepositoryError: "Fel med repository.",
   checkRepositorySettings: "Kontrollera repository‑inställningen.",

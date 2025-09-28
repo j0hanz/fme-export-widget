@@ -39,6 +39,7 @@ import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
 import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
 import exportIcon from "jimu-icons/svg/outlined/editor/export.svg"
 import { createFmeFlowClient } from "../../shared/api"
+import { logError, logWarn } from "../../shared/logging"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
@@ -289,11 +290,11 @@ const useWorkspaceLoader = (opts: {
           onWorkspaceItemsLoaded?.(sorted)
         }
       } else {
-        console.error("FME Export - Unexpected response format:", response)
+        logError("Unexpected workspace response format", response)
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
-      console.error("FME Export - Workspace loading failed:", err)
+      logError("Workspace loading failed", err)
       const msg = formatError(err, "failedToLoadWorkspaces")
       if (msg && isMountedRef.current) setError(msg)
     } finally {
@@ -395,7 +396,7 @@ const useWorkspaceLoader = (opts: {
     if (isLoading && isMountedRef.current) {
       const timeoutId = setTimeout(() => {
         if (isMountedRef.current && isLoading) {
-          console.warn("FME Export - Loading timeout, resetting loading state")
+          logWarn("Workspace loading timeout reached")
           setIsLoading(false)
           setError(translate("loadingTimeout"))
         }
@@ -922,7 +923,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       clientRef.current = createFmeFlowClient(config)
       return clientRef.current
     } catch (e) {
-      console.warn("FME Export - Failed to create FME client:", e)
+      logWarn("Failed to create FME client", e)
       return null
     }
   })

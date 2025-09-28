@@ -66,6 +66,7 @@ import {
   canResetButton,
   shouldShowWorkspaceLoading,
 } from "../shared/utils"
+import * as logging from "../shared/logging"
 
 // Mock jimu-core: SessionManager and css helper
 let mockUserEmail: any = null
@@ -522,14 +523,16 @@ describe("shared/utils", () => {
     })
 
     test("safeLogParams only logs whitelisted and sanitized URL", () => {
-      const spy = jest.spyOn(console, "log").mockImplementation(jest.fn())
+      const spy = jest.spyOn(logging, "logDebug").mockImplementation(jest.fn())
       const url = "https://host/path?token=secret"
       const params = new URLSearchParams({ token: "x", opt_showresult: "true" })
       safeLogParams("label", url, params, ["opt_showresult"])
       expect(spy).toHaveBeenCalled()
-      const args = spy.mock.calls[0]
-      expect(args[1]).toBe("https://host/path")
-      expect(String(args[2])).toContain("opt_showresult=true")
+      const [message, details] = spy.mock.calls[0]
+      expect(message).toBe("label")
+      const payload = (details || {}) as { url?: string; params?: string }
+      expect(payload.url).toBe("https://host/path")
+      expect(String(payload.params)).toContain("opt_showresult=true")
       spy.mockRestore()
     })
 

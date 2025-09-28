@@ -85,7 +85,7 @@ function withInflight<T>(
 
 // Parameter service
 export class ParameterFormService {
-  private readonly skipParams = [
+  private readonly skipParams = new Set<string>([
     "MAXX",
     "MINX",
     "MAXY",
@@ -94,14 +94,14 @@ export class ParameterFormService {
     "tm_ttc",
     "tm_ttl",
     "tm_tag",
-  ]
+  ])
 
   // Determine if a parameter should be rendered as a form field
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
     if (!p || typeof p.name !== "string") return false
-    if (this.skipParams.includes(p.name)) return false
+    if (this.skipParams.has(p.name)) return false
     if (
       p.type === ParameterType.NOVALUE ||
       p.type === ParameterType.GEOMETRY ||

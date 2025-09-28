@@ -42,6 +42,7 @@ import {
   getBtnAria,
   ariaDesc,
 } from "../../shared/utils"
+import { logWarn } from "../../shared/logging"
 import type {
   ViewAction,
   ButtonProps,
@@ -1478,9 +1479,10 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   const styles = useStyles()
 
   if (!leftButton && !rightButton) {
-    console.warn(
-      "ButtonGroup requires at least one button (leftButton or rightButton)"
-    )
+    logWarn("ButtonGroup missing configuration", {
+      leftButtonDefined: !!leftButton,
+      rightButtonDefined: !!rightButton,
+    })
     return null
   }
 

@@ -63,29 +63,7 @@ import {
   getSupportEmail,
   formatErrorForView,
 } from "../shared/utils"
-
-// Dynamic ESRI module loader with test environment support
-const loadEsriModules = async (
-  modules: readonly string[]
-): Promise<unknown[]> => {
-  // Check for test environment first for better performance
-  if (process.env.NODE_ENV === "test") {
-    const testStub = (global as any).__ESRI_TEST_STUB__
-    if (typeof testStub === "function") {
-      try {
-        const stubbed = testStub(modules)
-        if (Array.isArray(stubbed)) return stubbed
-      } catch (_) {
-        // fall through to real loader
-      }
-    }
-  }
-
-  // Use jimu-arcgis loader in production - EXB best practice
-  const { loadArcGISJSAPIModules } = await import("jimu-arcgis")
-  const loaded = await loadArcGISJSAPIModules(modules as string[])
-  return loaded.map((m: any) => m?.default ?? m)
-}
+import { loadArcgisModules, logError, logWarn } from "../shared/logging"
 
 // Styling and symbols derived from config
 
@@ -192,7 +170,7 @@ const useEsriModules = (): {
 
     const loadModules = async () => {
       try {
-        const loaded = await loadEsriModules(MODULES)
+        const loaded = await loadArcgisModules(MODULES)
         if (cancelled) return
 
         const [
@@ -221,10 +199,7 @@ const useEsriModules = (): {
         })
       } catch (error) {
         if (!cancelled) {
-          console.error(
-            "FME Export Widget - Failed to load ArcGIS modules",
-            error
-          )
+          logError("Failed to load ArcGIS modules", error)
           setState({ modules: null, loading: false })
         }
       }
@@ -259,67 +234,47 @@ const useMapResources = () => {
     }
   )
 
+  const releaseDrawingResources = hooks.useEventCallback(
+    (logSuffix: string, resetMapView: boolean) => {
+      const { sketchViewModel, graphicsLayer, jimuMapView } = state
+
+      if (sketchViewModel) {
+        try {
+          safeCancelSketch(sketchViewModel)
+          if (typeof sketchViewModel.destroy === "function") {
+            sketchViewModel.destroy()
+          }
+        } catch (error) {
+          logWarn(`Error ${logSuffix} SketchViewModel`, error)
+        }
+      }
+
+      if (graphicsLayer) {
+        try {
+          removeLayerFromMap(jimuMapView, graphicsLayer)
+          safeClearLayer(graphicsLayer)
+        } catch (error) {
+          logWarn(`Error ${logSuffix} GraphicsLayer`, error)
+        }
+      }
+
+      setState((prev) => ({
+        ...prev,
+        jimuMapView: resetMapView ? null : prev.jimuMapView,
+        sketchViewModel: null,
+        graphicsLayer: null,
+        currentGeometry: null,
+      }))
+    }
+  )
+
   // Teardown drawing resources
   const teardownDrawingResources = hooks.useEventCallback(() => {
-    const { sketchViewModel, graphicsLayer, jimuMapView } = state
-
-    if (sketchViewModel) {
-      try {
-        safeCancelSketch(sketchViewModel)
-        if (typeof sketchViewModel.destroy === "function") {
-          sketchViewModel.destroy()
-        }
-      } catch (error) {
-        console.warn("Widget - Error tearing down SketchViewModel:", error)
-      }
-    }
-
-    if (graphicsLayer) {
-      try {
-        removeLayerFromMap(jimuMapView, graphicsLayer)
-        safeClearLayer(graphicsLayer)
-      } catch (error) {
-        console.warn("Widget - Error tearing down GraphicsLayer:", error)
-      }
-    }
-
-    setState((prev) => ({
-      ...prev,
-      sketchViewModel: null,
-      graphicsLayer: null,
-      currentGeometry: null,
-    }))
+    releaseDrawingResources("tearing down", false)
   })
 
   const cleanupResources = hooks.useEventCallback(() => {
-    const { sketchViewModel, graphicsLayer, jimuMapView } = state
-
-    if (sketchViewModel) {
-      try {
-        safeCancelSketch(sketchViewModel)
-        if (typeof sketchViewModel.destroy === "function") {
-          sketchViewModel.destroy()
-        }
-      } catch (error) {
-        console.warn("Widget - Error cleaning up SketchViewModel:", error)
-      }
-    }
-
-    if (graphicsLayer) {
-      try {
-        removeLayerFromMap(jimuMapView, graphicsLayer)
-        safeClearLayer(graphicsLayer)
-      } catch (error) {
-        console.warn("Widget - Error cleaning up GraphicsLayer:", error)
-      }
-    }
-
-    setState({
-      jimuMapView: null,
-      sketchViewModel: null,
-      graphicsLayer: null,
-      currentGeometry: null,
-    })
+    releaseDrawingResources("cleaning up", true)
   })
 
   return {
@@ -531,7 +486,7 @@ const setupSketchEventHandlers = (
             /abort/i.test(String(name)) || /abort/i.test(String(msg))
           if (!isAbort) {
             try {
-              console.warn("EXB-Widget onDrawComplete error", err)
+              logWarn("onDrawComplete error", err)
             } catch {}
           }
         }
@@ -564,7 +519,7 @@ const setupSketchEventHandlers = (
           /abort/i.test(String(name)) || /abort/i.test(String(msg))
         if (!isAbort) {
           try {
-            console.warn("EXB-Widget onDrawComplete(update) error", err)
+            logWarn("onDrawComplete update error", err)
           } catch {}
         }
       }
@@ -613,11 +568,9 @@ export default function Widget(
     HIGHLIGHT_SYMBOL: any
     DRAWING_SYMBOLS: any
   } | null>(null)
-  const { HIGHLIGHT_SYMBOL } = React.useMemo(() => {
-    const built = buildSymbols(hexToRgbArray(currentHex))
-    symbolsRef.current = built
-    return built
-  }, [currentHex])
+  const builtSymbols = buildSymbols(hexToRgbArray(currentHex))
+  symbolsRef.current = builtSymbols
+  const { HIGHLIGHT_SYMBOL } = builtSymbols
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
@@ -917,7 +870,7 @@ export default function Widget(
       // All validation passed
       setValidationSuccess()
     } catch (err: unknown) {
-      console.error("FME Export - Startup validation failed:", err)
+      logError("Startup validation failed", err)
       const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
       const errorCode =
         typeof err === "object" && err !== null && "code" in err
@@ -995,7 +948,7 @@ export default function Widget(
           runStartupValidation()
         }
       } catch (error) {
-        console.warn("Error handling config change:", error)
+        logWarn("Error handling config change", error)
       }
     },
     [config]
@@ -1009,10 +962,7 @@ export default function Widget(
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
       resetForRevalidation(!hasMapConfigured)
     } catch (error) {
-      console.warn(
-        "Error resetting widget state on map selection change:",
-        error
-      )
+      logWarn("Error resetting widget state on map selection change", error)
     }
 
     // Re-run validation with new map selection
@@ -1490,7 +1440,7 @@ export default function Widget(
               /abort/i.test(String(name)) || /abort/i.test(String(msg))
             if (!isAbort) {
               try {
-                console.warn("EXB-Widget sketch.create promise error", err)
+                logWarn("Sketch create promise error", err)
               } catch {}
             }
           })
@@ -1503,7 +1453,7 @@ export default function Widget(
           /abort/i.test(String(name)) || /abort/i.test(String(msg))
         if (!isAbort) {
           try {
-            console.warn("EXB-Widget sketch.create error", err)
+            logWarn("Sketch create error", err)
           } catch {}
         }
       }

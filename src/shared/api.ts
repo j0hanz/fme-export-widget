@@ -17,6 +17,13 @@ import {
   mapErrorToKey,
 } from "./validations"
 import {
+  logDebug,
+  logError,
+  logWarn,
+  loadArcgisModules,
+  isTestEnv,
+} from "./logging"
+import {
   buildUrl,
   resolveRequestUrl,
   buildParams,
@@ -34,35 +41,6 @@ import {
 // Construct a typed FME Flow API error with identical message and code.
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
-
-/**
- * Dynamically loads ArcGIS JSAPI modules within EXB with test-mode short circuit.
- * Throws a code-only error (ARCGIS_MODULE_ERROR) for consistent upstream handling.
- */
-async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
-  // Check test environment first for better performance
-  if (process.env.NODE_ENV === "test") {
-    const stub = (global as any).__ESRI_TEST_STUB__
-    if (typeof stub === "function") return stub(modules)
-  }
-
-  // Use dynamic import for better EXB integration
-  try {
-    const mod = await import("jimu-arcgis")
-    const loader = mod.loadArcGISJSAPIModules
-    if (typeof loader !== "function") {
-      // Use key only (no fallback English)
-      throw new Error("ARCGIS_MODULE_ERROR")
-    }
-    const loaded = await loader(modules as string[])
-    const unwrap = (m: any) => m?.default ?? m
-    return (loaded || []).map(unwrap)
-  } catch (error) {
-    console.error("Failed to load ArcGIS modules:", error)
-    // Throw a code that downstream can localize
-    throw new Error("ARCGIS_MODULE_ERROR")
-  }
-}
 
 // ArcGIS module references
 let _esriRequest: unknown
@@ -86,12 +64,6 @@ export function resetEsriCache(): void {
   _loadPromise = null
   _cachedMaxUrlLength = null
 }
-
-const isTestEnv = (): boolean =>
-  typeof process !== "undefined" &&
-  !!(process as any).env &&
-  (!!(process as any).env.JEST_WORKER_ID ||
-    (process as any).env.NODE_ENV === "test")
 
 /**
  * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
@@ -124,7 +96,7 @@ async function ensureEsri(): Promise<void> {
         globalAny.webMercatorUtils ||
         globalAny.SpatialReference
       ) {
-        console.warn("FME API - Using global mocks in test environment")
+        logWarn("Using global ArcGIS mocks in test environment")
         _esriRequest =
           globalAny.esriRequest || (() => Promise.resolve({ data: null }))
         _esriConfig = globalAny.esriConfig || {
@@ -148,7 +120,7 @@ async function ensureEsri(): Promise<void> {
         projectionMod,
         webMercatorMod,
         spatialRefMod,
-      ] = await loadEsriModules([
+      ] = await loadArcgisModules([
         "esri/request",
         "esri/config",
         "esri/geometry/projection",
@@ -170,7 +142,7 @@ async function ensureEsri(): Promise<void> {
       }
     } catch (error) {
       // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
-      console.error("ARCGIS_MODULE_ERROR", { error })
+      logError("ARCGIS_MODULE_ERROR", { error })
       throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
@@ -276,12 +248,10 @@ async function addFmeInterceptor(
         ro.headers.Authorization = `fmetoken token=${currentToken}`
       } else {
         // Debug: log when token is missing
-        console.warn(
-          "FME API - No token found for host:",
-          host.toLowerCase(),
-          "Available hosts:",
-          Object.keys(_fmeTokensByHost)
-        )
+        logWarn("Missing token for host", {
+          host: host.toLowerCase(),
+          availableHosts: Object.keys(_fmeTokensByHost),
+        })
       }
     },
     _fmeInterceptor: true,
@@ -367,7 +337,7 @@ const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
 
     return geometry // Fallback to original
   } catch (error) {
-    console.warn("FME API - Coordinate transformation failed:", error)
+    logWarn("Coordinate transformation failed", error)
     return geometry
   }
 }
@@ -1133,7 +1103,7 @@ export class FmeFlowApiClient {
       try {
         this.abortController.abort()
       } catch (error) {
-        console.warn("FME API - Error aborting controller:", error)
+        logWarn("Error aborting active controller", error)
       }
     }
     this.abortController = null
@@ -1145,7 +1115,7 @@ export class FmeFlowApiClient {
       try {
         this.abortController.abort()
       } catch (error) {
-        console.warn("FME API - Error aborting previous controller:", error)
+        logWarn("Error aborting previous controller", error)
       }
     }
 
@@ -1169,7 +1139,7 @@ export class FmeFlowApiClient {
     try {
       responseData = await response.json()
     } catch {
-      console.warn("FME API - Failed to parse webhook JSON response")
+      logWarn("Failed to parse webhook JSON response")
       throw makeError("WEBHOOK_AUTH_ERROR", response.status)
     }
 
@@ -1275,7 +1245,7 @@ export class FmeFlowApiClient {
           requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
         }
       } catch (e) {
-        console.warn("FME API - Error adding token directly:", e)
+        logWarn("Error adding token directly", e)
       }
 
       // Prefer explicit timeout from options, else fall back to client config
@@ -1329,7 +1299,7 @@ export class FmeFlowApiClient {
 
       // Debug logging to help identify error structure
       if (process.env.NODE_ENV !== "production") {
-        console.debug("FME API - error structure debug", {
+        logDebug("Request error structure", {
           errorType: typeof err,
           errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
           extractedStatus: httpStatus,
@@ -1337,7 +1307,7 @@ export class FmeFlowApiClient {
         })
       }
 
-      console.error("FME API - request error", {
+      logError("Request error", {
         url,
         token: maskToken(this.config.token),
         message: extractErrorMessage(err),

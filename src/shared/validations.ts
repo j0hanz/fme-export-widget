@@ -9,6 +9,7 @@ import {
   type NormalizedServiceInfo,
 } from "../config"
 import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
+import { logWarn } from "./logging"
 
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
@@ -457,7 +458,7 @@ export const calcArea = (
 
     return Number.isFinite(area) && area > 0 ? area : 0
   } catch (e) {
-    console.warn("Failed to calculate polygon area:", e)
+    logWarn("Failed to calculate polygon area", e)
     return 0
   }
 }
