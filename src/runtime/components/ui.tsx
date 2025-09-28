@@ -1145,7 +1145,7 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Extract aria-label without useMemo for simplicity
+  // Extract aria-label
   const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
@@ -1155,7 +1155,7 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Safely type the color prop without useMemo
+  // Safely type the color prop
   const safeColor: "default" | "inherit" | "primary" | "secondary" =
     color === "default" ||
     color === "inherit" ||
