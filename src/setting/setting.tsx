@@ -60,7 +60,7 @@ import type {
   JobDirectivesSectionProps,
 } from "../config"
 import { FmeFlowApiError, DEFAULT_DRAWING_HEX } from "../config"
-import resetIcon from "jimu-icons/svg/outlined/editor/refresh.svg"
+import resetIcon from "../assets/icons/refresh.svg"
 
 // Constants
 const CONSTANTS = {

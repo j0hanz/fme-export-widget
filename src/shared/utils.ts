@@ -3,7 +3,6 @@ import type {
   EsriModules,
   FmeExportConfig,
   ErrorState,
-  SerializableErrorState,
   PrimitiveParams,
 } from "../config"
 import { ErrorType, ErrorSeverity } from "../config"
@@ -211,25 +210,62 @@ export const getBtnAria = (
   return (typeof tooltip === "string" && tooltip) || fallbackLabel
 }
 
+const DEFAULT_ERROR_ICON = "error"
+
+const ICON_BY_EXACT_CODE = Object.freeze<{ [code: string]: string }>({
+  GEOMETRY_SERIALIZATION_FAILED: "polygon",
+  MAP_MODULES_LOAD_FAILED: "map",
+  FORM_INVALID: "warning",
+})
+
+const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
+  Object.freeze([
+    { token: "GEOMETRY", icon: "polygon" },
+    { token: "AREA", icon: "polygon" },
+    { token: "MAP", icon: "map" },
+    { token: "MODULE", icon: "map" },
+    { token: "FORM", icon: "warning" },
+    { token: "TOKEN", icon: "person-lock" },
+    { token: "AUTH", icon: "person-lock" },
+    { token: "REPOSITORY", icon: "folder" },
+    { token: "REPO", icon: "folder" },
+    { token: "DATA", icon: "data" },
+    { token: "NETWORK", icon: "shared-no" },
+    { token: "OFFLINE", icon: "shared-no" },
+    { token: "CONNECTION", icon: "shared-no" },
+    { token: "REQUEST", icon: "shared-no" },
+    { token: "SERVER", icon: "feature-service" },
+    { token: "GATEWAY", icon: "feature-service" },
+    { token: "URL", icon: "link-tilted" },
+    { token: "TIMEOUT", icon: "time" },
+    { token: "CONFIG", icon: "setting" },
+    { token: "EMAIL", icon: "email" },
+  ])
+
+const normalizeCodeForMatching = (raw: string): string =>
+  raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
+
 export const getErrorIconSrc = (code?: string): string => {
-  if (!code) return "error"
+  if (typeof code !== "string") return DEFAULT_ERROR_ICON
 
-  const k = code.trim().toUpperCase()
+  const trimmed = code.trim()
+  if (!trimmed) return DEFAULT_ERROR_ICON
 
-  if (k.includes("TOKEN") || k.includes("AUTH")) return "user-x"
+  const normalized = normalizeCodeForMatching(trimmed)
 
-  if (k.includes("SERVER") || k.includes("GATEWAY")) return "server"
+  const exact = ICON_BY_EXACT_CODE[normalized]
+  if (exact) return exact
 
-  if (k.includes("REPOSITORY") || k.includes("REPO")) return "folder-x"
+  const tokens = normalized.split(/[^A-Z0-9]+/).filter(Boolean)
+  const tokenSet = new Set(tokens)
 
-  if (k.includes("NETWORK") || k.includes("OFFLINE")) return "wifi-off"
+  for (const { token, icon } of TOKEN_ICON_PRIORITY) {
+    if (tokenSet.has(token) || normalized.includes(token)) {
+      return icon
+    }
+  }
 
-  if (k.includes("URL")) return "link-off"
-  if (k.includes("TIMEOUT")) return "timer-off"
-  if (k.includes("CONFIG")) return "settings"
-  if (k.includes("EMAIL")) return "mail-x"
-
-  return "error"
+  return DEFAULT_ERROR_ICON
 }
 
 export const MS_LOADING = 500
@@ -327,64 +363,283 @@ export const buildFmeParams = (
   return base
 }
 
-export const polygonJsonToGeoJson = (poly: any): any => {
-  const rings = Array.isArray(poly?.rings) ? poly.rings : []
-  const coords = rings.map((ring: any[]) =>
-    (Array.isArray(ring) ? ring : []).map((pt: any) => [pt[0], pt[1]])
+type CoordinateTuple = readonly number[]
+
+const normalizeCoordinate = (vertex: unknown): number[] | null => {
+  if (!Array.isArray(vertex) || vertex.length < 2) return null
+  const values = vertex.map((part) =>
+    typeof part === "string" ? Number(part) : (part as number)
   )
-  return { type: "Polygon", coordinates: coords }
+  const x = values[0]
+  const y = values[1]
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+
+  const result: number[] = [x, y]
+  const z = values[2]
+  const m = values[3]
+  if (Number.isFinite(z)) result.push(z)
+  if (Number.isFinite(m)) result.push(m)
+  return result
+}
+
+const coordinatesEqual = (a: CoordinateTuple, b: CoordinateTuple): boolean => {
+  if (!a || !b) return false
+  const len = Math.min(a.length, b.length, 2)
+  for (let i = 0; i < len; i++) {
+    const av = a[i]
+    const bv = b[i]
+    if (!Number.isFinite(av) || !Number.isFinite(bv)) return false
+    if (Math.abs(av - bv) > 1e-9) return false
+  }
+  return true
+}
+
+const normalizeRing = (ring: unknown): number[][] => {
+  if (!Array.isArray(ring)) return []
+  const coords: number[][] = []
+  for (const vertex of ring) {
+    const tuple = normalizeCoordinate(vertex)
+    if (tuple) coords.push(tuple)
+  }
+  if (coords.length < 3) return []
+
+  const first = coords[0]
+  const last = coords[coords.length - 1]
+  if (!coordinatesEqual(first, last)) {
+    coords.push([...first])
+  }
+  return coords
+}
+
+const extractRings = (poly: any): any[] => {
+  if (!poly || typeof poly !== "object") return []
+
+  if (Array.isArray(poly.rings)) return poly.rings
+  if (Array.isArray(poly.geometry?.rings)) return poly.geometry.rings
+
+  if (typeof poly.toJSON === "function") {
+    try {
+      const json = poly.toJSON()
+      if (json && Array.isArray(json.rings)) return json.rings
+    } catch {}
+  }
+
+  return []
+}
+
+const formatNumberForWkt = (value: number): string => {
+  if (!Number.isFinite(value)) return "0"
+  const str = value.toString()
+  if (!/[eE]/.test(str)) {
+    return str.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
+  }
+  const fixed = value
+    .toFixed(12)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*?)0+$/, "$1")
+  return fixed || "0"
+}
+
+export const polygonJsonToGeoJson = (poly: any): any => {
+  if (!poly) return null
+
+  try {
+    const rings = extractRings(poly)
+    if (!rings.length) return null
+
+    const normalized = rings
+      .map((ring) => normalizeRing(ring))
+      .filter((ring) => ring.length >= 4)
+
+    return normalized.length
+      ? {
+          type: "Polygon",
+          coordinates: normalized,
+        }
+      : null
+  } catch (error) {
+    logDebug("polygonJsonToGeoJson conversion failed", error)
+    return null
+  }
 }
 
 export const polygonJsonToWkt = (poly: any): string => {
-  const rings = Array.isArray(poly?.rings) ? poly.rings : []
+  const geojson = polygonJsonToGeoJson(poly)
+  if (!geojson) return "POLYGON EMPTY"
+
+  const rings = Array.isArray(geojson?.coordinates)
+    ? (geojson.coordinates as number[][][])
+    : []
+
   if (!rings.length) return "POLYGON EMPTY"
 
-  const ringToText = (ring: any[]): string => {
-    const arr = Array.isArray(ring) ? ring.slice() : []
-    if (arr.length > 0) {
-      const first = arr[0]
-      const last = arr[arr.length - 1]
-      const same =
-        Array.isArray(first) &&
-        Array.isArray(last) &&
-        first.length >= 2 &&
-        last.length >= 2 &&
-        first[0] === last[0] &&
-        first[1] === last[1]
-      if (!same) arr.push(first)
-    }
-    const coords = arr.map((pt: any) => `${pt[0]} ${pt[1]}`).join(", ")
-    return `(${coords})`
-  }
+  const ringStrings = rings
+    .map((ring) => {
+      if (!Array.isArray(ring)) return []
+      const parts: string[] = []
+      for (const coords of ring) {
+        if (!Array.isArray(coords) || coords.length < 2) continue
+        const serializedValues: string[] = []
+        for (const raw of coords) {
+          const num = typeof raw === "number" ? raw : Number(raw)
+          if (!Number.isFinite(num)) {
+            serializedValues.length = 0
+            break
+          }
+          serializedValues.push(formatNumberForWkt(num))
+        }
+        if (serializedValues.length >= 2) {
+          parts.push(serializedValues.join(" "))
+        }
+      }
+      return parts
+    })
+    .filter((parts) => parts.length >= 4)
+    .map((parts) => `(${parts.join(", ")})`)
 
-  const wktRings = rings.map(ringToText).join(", ")
-  return `POLYGON(${wktRings})`
+  const serialized = ringStrings.filter(
+    (ring) => ring !== "()" && ring !== "( )"
+  )
+  if (!serialized.length) return "POLYGON EMPTY"
+
+  return `POLYGON(${serialized.join(", ")})`
 }
 
 export const toWgs84PolygonJson = (
   polyJson: any,
   modules: EsriModules | null | undefined
 ): any => {
+  if (!modules?.Polygon) return polyJson
+
   try {
-    const Polygon = modules?.Polygon
-    const wmUtils = modules?.webMercatorUtils
-    if (!Polygon) return polyJson
+    const poly = modules.Polygon.fromJSON(polyJson)
+    if (!poly) return polyJson
 
-    const poly = Polygon.fromJSON(polyJson)
-    const wkid = poly?.spatialReference?.wkid
-
-    if (wkid === 4326) return poly.toJSON()
-
-    if (
-      (wkid === 3857 || wkid === 102100) &&
-      wmUtils?.webMercatorToGeographic
-    ) {
-      const g = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
-      return g?.toJSON?.() ?? poly.toJSON()
+    const sr = (poly as any).spatialReference as
+      | (__esri.SpatialReference & { isWGS84?: boolean })
+      | undefined
+    if (sr?.isWGS84 || sr?.wkid === 4326) {
+      return poly.toJSON()
     }
+
+    const projection = modules.projection
+    const SpatialReferenceCtor = modules.SpatialReference as any
+    if (projection?.project && SpatialReferenceCtor) {
+      const target =
+        SpatialReferenceCtor.WGS84 ||
+        (typeof SpatialReferenceCtor === "function"
+          ? new SpatialReferenceCtor({ wkid: 4326 })
+          : { wkid: 4326 })
+      const projected = projection.project(poly, target) as
+        | __esri.Polygon
+        | readonly __esri.Geometry[]
+        | null
+        | undefined
+
+      if (projected && Array.isArray(projected) && projected[0]) {
+        const first = projected[0] as __esri.Polygon
+        if (first?.toJSON) return first.toJSON()
+      } else if (projected && (projected as __esri.Polygon).toJSON) {
+        return (projected as __esri.Polygon).toJSON()
+      }
+    }
+
+    const wmUtils = modules.webMercatorUtils
+    if (wmUtils?.webMercatorToGeographic) {
+      const geographic = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
+      if (geographic?.toJSON) {
+        return geographic.toJSON()
+      }
+    }
+
     return poly.toJSON()
-  } catch {
+  } catch (error) {
+    logDebug("Failed to convert polygon to WGS84", error)
     return polyJson
+  }
+}
+
+const createAoiSerializationError = (): ErrorState => ({
+  message: "GEOMETRY_SERIALIZATION_FAILED",
+  type: ErrorType.GEOMETRY,
+  code: "GEOMETRY_SERIALIZATION_FAILED",
+  severity: ErrorSeverity.ERROR,
+  recoverable: true,
+  timestamp: new Date(),
+  timestampMs: Date.now(),
+})
+
+interface DerivedParamNames {
+  geoJsonName?: string
+  wktName?: string
+}
+
+const sanitizeOptionalParamName = (name: unknown): string | undefined => {
+  const sanitized = sanitizeParamKey(name, "")
+  return sanitized || undefined
+}
+
+const resolveDerivedParamNames = (
+  config?: FmeExportConfig
+): DerivedParamNames => ({
+  geoJsonName: sanitizeOptionalParamName(config?.aoiGeoJsonParamName),
+  wktName: sanitizeOptionalParamName(config?.aoiWktParamName),
+})
+
+const extractPolygonJson = (
+  geometryJson: unknown,
+  currentGeometry: __esri.Geometry | undefined
+): unknown => {
+  if (isPolygonGeometry(geometryJson)) {
+    return "geometry" in (geometryJson as any)
+      ? (geometryJson as any).geometry
+      : geometryJson
+  }
+
+  const geometryToUse = currentGeometry?.toJSON()
+  return isPolygonGeometry(geometryToUse) ? geometryToUse : null
+}
+
+const safeStringify = (value: unknown): string | null => {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return null
+  }
+}
+
+const maybeProjectPolygonToWgs84 = (
+  aoiJson: unknown,
+  modules: EsriModules | null | undefined
+): any => {
+  try {
+    return toWgs84PolygonJson(aoiJson, modules)
+  } catch {
+    return null
+  }
+}
+
+const appendDerivedAoiOutputs = (
+  target: { [key: string]: unknown },
+  wgs84Polygon: any,
+  names: DerivedParamNames
+) => {
+  if (!wgs84Polygon) return
+  const { geoJsonName, wktName } = names
+
+  if (geoJsonName) {
+    try {
+      const geojson = polygonJsonToGeoJson(wgs84Polygon)
+      if (geojson) {
+        target[geoJsonName] = JSON.stringify(geojson)
+      }
+    } catch {}
+  }
+
+  if (wktName) {
+    try {
+      target[wktName] = polygonJsonToWkt(wgs84Polygon)
+    } catch {}
   }
 }
 
@@ -396,68 +651,30 @@ export const attachAoi = (
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   const paramName = sanitizeParamKey(config?.aoiParamName, "AreaOfInterest")
-  let aoiJson: unknown = null
-
-  if (isPolygonGeometry(geometryJson)) {
-    aoiJson =
-      "geometry" in (geometryJson as any)
-        ? (geometryJson as any).geometry
-        : geometryJson
-  } else {
-    const geometryToUse = currentGeometry?.toJSON()
-    if (isPolygonGeometry(geometryToUse)) {
-      aoiJson = geometryToUse
-    }
+  const aoiJson = extractPolygonJson(geometryJson, currentGeometry)
+  if (!aoiJson) {
+    return base
   }
 
-  if (aoiJson) {
-    try {
-      const serialized = JSON.stringify(aoiJson)
-      const out: { [key: string]: unknown } = {
-        ...base,
-        [paramName]: serialized,
-      }
-
-      const gjNameRaw = sanitizeParamKey(config?.aoiGeoJsonParamName, "")
-      const wktNameRaw = sanitizeParamKey(config?.aoiWktParamName, "")
-      const needsDerived = Boolean(gjNameRaw || wktNameRaw)
-      let wgs84Poly: any = null
-      if (needsDerived) {
-        try {
-          wgs84Poly = toWgs84PolygonJson(aoiJson, modules)
-        } catch {
-          wgs84Poly = null
-        }
-      }
-      if (gjNameRaw && wgs84Poly) {
-        try {
-          const geojson = polygonJsonToGeoJson(wgs84Poly)
-          out[gjNameRaw] = JSON.stringify(geojson)
-        } catch {}
-      }
-      if (wktNameRaw && wgs84Poly) {
-        try {
-          const wkt = polygonJsonToWkt(wgs84Poly)
-          out[wktNameRaw] = wkt
-        } catch {}
-      }
-
-      return out
-    } catch (_) {
-      const err: ErrorState = {
-        message: "GEOMETRY_SERIALIZATION_FAILED",
-        type: ErrorType.GEOMETRY,
-        code: "GEOMETRY_SERIALIZATION_FAILED",
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-      }
-      return { ...base, __aoi_error__: err }
-    }
+  const serialized = safeStringify(aoiJson)
+  if (!serialized) {
+    return { ...base, __aoi_error__: createAoiSerializationError() }
   }
 
-  return base
+  const result: { [key: string]: unknown } = {
+    ...base,
+    [paramName]: serialized,
+  }
+
+  const derivedNames = resolveDerivedParamNames(config)
+  if (!derivedNames.geoJsonName && !derivedNames.wktName) {
+    return result
+  }
+
+  const wgs84Polygon = maybeProjectPolygonToWgs84(aoiJson, modules)
+  appendDerivedAoiOutputs(result, wgs84Polygon, derivedNames)
+
+  return result
 }
 
 export const applyDirectiveDefaults = (
@@ -700,12 +917,39 @@ export function makeScopeId(
   return n.toString(36)
 }
 
-export const makeGeoJson = (polygon: __esri.Polygon) => ({
-  type: "Polygon" as const,
-  coordinates: (polygon.rings || []).map((ring: any[]) =>
-    ring.map((pt: any) => [pt[0], pt[1]] as [number, number])
-  ),
-})
+export const makeGeoJson = (polygon: __esri.Polygon) => {
+  if (!polygon) {
+    return { type: "Polygon" as const, coordinates: [] as const }
+  }
+
+  try {
+    const polyJson =
+      typeof (polygon as any)?.toJSON === "function"
+        ? (polygon as any).toJSON()
+        : { rings: (polygon as any)?.rings }
+    const geo = polygonJsonToGeoJson(polyJson)
+    if (geo) return geo
+  } catch (error) {
+    logDebug("makeGeoJson conversion failed", error)
+  }
+
+  const rings = Array.isArray((polygon as any)?.rings)
+    ? (polygon as any).rings
+    : []
+
+  const normalized: number[][][] = rings
+    .map((ring: any) => normalizeRing(ring))
+    .filter((ring) => ring.length >= 4)
+
+  if (!normalized.length) {
+    return { type: "Polygon" as const, coordinates: [] as number[][][] }
+  }
+
+  return {
+    type: "Polygon" as const,
+    coordinates: normalized,
+  }
+}
 
 export const isJson = (contentType: string | null): boolean =>
   (contentType ?? "").toLowerCase().includes("application/json")
@@ -894,21 +1138,6 @@ export const toSerializable = (error: any): any => {
         : 0
   const { retry, timestamp, ...rest } = error
   return { ...rest, timestampMs: ts, kind: "serializable" as const }
-}
-
-export const isRuntimeError = (e: any): e is ErrorState =>
-  !!e && (e.kind === "runtime" || e.timestamp instanceof Date)
-
-export const isSerializableError = (e: any): e is SerializableErrorState =>
-  !!e && e.kind === "serializable" && typeof e.timestampMs === "number"
-
-export const ensureSerializableError = (
-  e: ErrorState | SerializableErrorState | null | undefined
-): SerializableErrorState | null => {
-  if (!e) return null
-  return isSerializableError(e)
-    ? e
-    : (toSerializable(e) as SerializableErrorState)
 }
 
 export const isFileObject = (value: unknown): value is File => {

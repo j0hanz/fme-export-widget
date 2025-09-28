@@ -15,6 +15,7 @@ import {
   validateRequiredConfig,
   isAuthError,
   mapErrorToKey,
+  calcArea,
 } from "./validations"
 import {
   logDebug,
@@ -42,6 +43,9 @@ import {
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
 
+const unwrapModule = (module: unknown): any =>
+  (module as any)?.default ?? module
+
 // ArcGIS module references
 let _esriRequest: unknown
 let _esriConfig: unknown
@@ -49,6 +53,8 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
+let _geometryEngine: unknown
+let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
@@ -63,6 +69,34 @@ export function resetEsriCache(): void {
   _SpatialReference = undefined
   _loadPromise = null
   _cachedMaxUrlLength = null
+  _geometryEngine = undefined
+  _geometryEngineAsync = undefined
+}
+
+async function ensureGeometryEngines(): Promise<void> {
+  if (!_geometryEngine) {
+    try {
+      const [engineMod] = await loadArcgisModules([
+        "esri/geometry/geometryEngine",
+      ])
+      _geometryEngine = unwrapModule(engineMod)
+    } catch (error) {
+      logError("Failed to load geometryEngine", error)
+      throw new Error("ARCGIS_MODULE_ERROR")
+    }
+  }
+
+  if (_geometryEngineAsync === undefined) {
+    try {
+      const [engineAsyncMod] = await loadArcgisModules([
+        "esri/geometry/geometryEngineAsync",
+      ])
+      _geometryEngineAsync = unwrapModule(engineAsyncMod)
+    } catch (error) {
+      logWarn("geometryEngineAsync unavailable", error)
+      _geometryEngineAsync = null
+    }
+  }
 }
 
 /**
@@ -128,12 +162,11 @@ async function ensureEsri(): Promise<void> {
         "esri/geometry/SpatialReference",
       ])
 
-      const unwrap = (m: any) => m?.default ?? m
-      _esriRequest = unwrap(requestMod)
-      _esriConfig = unwrap(configMod)
-      _projection = unwrap(projectionMod)
-      _webMercatorUtils = unwrap(webMercatorMod)
-      _SpatialReference = unwrap(spatialRefMod)
+      _esriRequest = unwrapModule(requestMod)
+      _esriConfig = unwrapModule(configMod)
+      _projection = unwrapModule(projectionMod)
+      _webMercatorUtils = unwrapModule(webMercatorMod)
+      _SpatialReference = unwrapModule(spatialRefMod)
 
       // Load projection dependencies for client-side transformation
       const projection = asProjection(_projection)
@@ -148,6 +181,37 @@ async function ensureEsri(): Promise<void> {
   })()
 
   return _loadPromise
+}
+
+interface EsriRequestConfig {
+  request: { maxUrlLength: number; interceptors: any[] }
+}
+
+async function getEsriConfig(): Promise<EsriRequestConfig | null> {
+  await ensureEsri()
+  return asEsriConfig(_esriConfig)
+}
+
+function removeMatchingInterceptors(
+  interceptors: any[] | undefined,
+  pattern: RegExp
+): void {
+  if (!interceptors?.length) return
+
+  for (let i = interceptors.length - 1; i >= 0; i--) {
+    const candidate = interceptors[i]
+    if (!candidate?._fmeInterceptor) continue
+
+    const urls = candidate.urls
+    const matches =
+      urls instanceof RegExp
+        ? urls.source === pattern.source && urls.flags === pattern.flags
+        : pattern.test(typeof urls === "string" ? urls : String(urls ?? ""))
+
+    if (matches) {
+      interceptors.splice(i, 1)
+    }
+  }
 }
 
 // ArcGIS module validation helpers
@@ -168,8 +232,9 @@ const asEsriConfig = (
 const asProjection = (
   v: unknown
 ): {
-  project?: (geometries: any[], spatialReference: any) => Promise<any[]>
+  project?: (geometry: any, spatialReference: any) => any
   load?: () => Promise<void>
+  isLoaded?: () => boolean
 } | null => {
   if (!v || typeof v !== "object") return null
   return v as any
@@ -188,6 +253,12 @@ const asWebMercatorUtils = (
 const asSpatialReference = (v: unknown): new (props: any) => any => {
   return typeof v === "function" ? (v as any) : ((() => ({})) as any)
 }
+
+const asGeometryEngine = (v: unknown): any =>
+  v && typeof v === "object" ? (v as any) : null
+
+const asGeometryEngineAsync = (v: unknown): any =>
+  v && typeof v === "object" ? (v as any) : null
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
@@ -203,31 +274,68 @@ const API = {
   ],
 } as const
 
-// Add interceptor to append fmetoken to requests to the specified server URL
-
-// helper moved to utils.ts: createHostPattern, interceptorExists
-
+// // Add interceptor to append fmetoken to requests to the specified server URL
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
 ): Promise<void> {
-  if (!serverUrl || !token) return
+  if (!serverUrl) return
   const host = extractHostFromUrl(serverUrl)
   if (!host) return
 
-  // Always record the latest token for this host
-  _fmeTokensByHost[host.toLowerCase()] = token
-
-  await ensureEsri()
-  const esriConfig = asEsriConfig(_esriConfig)
-  if (!esriConfig) return
-
+  const hostKey = host.toLowerCase()
   const pattern = createHostPattern(host)
-  if (interceptorExists(esriConfig.request.interceptors, pattern)) {
+
+  if (!token) {
+    const hadCachedToken = Object.prototype.hasOwnProperty.call(
+      _fmeTokensByHost,
+      hostKey
+    )
+    delete _fmeTokensByHost[hostKey]
+
+    if (!hadCachedToken) {
+      return
+    }
+
+    let esriConfig: EsriRequestConfig | null
+    try {
+      esriConfig = await getEsriConfig()
+    } catch (error) {
+      logWarn("Failed to load ArcGIS modules while removing interceptor", {
+        host: hostKey,
+        error,
+      })
+      return
+    }
+
+    removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern)
+
     return
   }
 
-  esriConfig.request.interceptors?.push({
+  // Always record the latest token for this host
+  _fmeTokensByHost[hostKey] = token
+
+  let esriConfig: EsriRequestConfig | null
+  try {
+    esriConfig = await getEsriConfig()
+  } catch (error) {
+    logWarn("Failed to load ArcGIS modules while adding interceptor", {
+      host: hostKey,
+      error,
+    })
+    throw error instanceof Error ? error : new Error(String(error))
+  }
+  if (!esriConfig) return
+
+  const interceptors = esriConfig.request.interceptors
+  if (!interceptors) return
+
+  if (interceptorExists(interceptors, pattern)) {
+    return
+  }
+
+  interceptors.push({
     urls: pattern,
     before(params: any) {
       if (!params || !params.requestOptions) {
@@ -238,7 +346,7 @@ async function addFmeInterceptor(
       ro.headers = ro.headers || {}
 
       // Always use the token stored for this host pattern
-      const currentToken = _fmeTokensByHost[host.toLowerCase()]
+      const currentToken = _fmeTokensByHost[hostKey]
       if (currentToken) {
         // Add token as query parameter if not already present
         if (!ro.query.fmetoken) {
@@ -249,7 +357,7 @@ async function addFmeInterceptor(
       } else {
         // Debug: log when token is missing
         logWarn("Missing token for host", {
-          host: host.toLowerCase(),
+          host: hostKey,
           availableHosts: Object.keys(_fmeTokensByHost),
         })
       }
@@ -257,8 +365,8 @@ async function addFmeInterceptor(
     _fmeInterceptor: true,
   })
 }
-// Get max URL length from esriConfig if available; otherwise use default
-// Cache the result to avoid repeated config lookups
+
+// Determine maximum URL length from Esri config or use default
 let _cachedMaxUrlLength: number | null = null
 const getMaxUrlLength = (): number => {
   if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength
@@ -269,17 +377,7 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// helper moved to utils.ts: toStr
-
-// helpers moved to utils.ts: buildUrl
-
-// Create a stable scope ID from server URL, token, and repository for caching purposes
-// helper moved to utils.ts: makeScopeId
-
-/**
- * Computes whether a webhook URL would exceed the max supported URL length.
- * Includes default opt_* params and token if supplied.
- */
+// Check if a constructed webhook URL would exceed the maximum length
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
@@ -313,40 +411,54 @@ export function isWebhookUrlTooLong(
 
 // Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
-  if (geometry.spatialReference?.wkid === 4326) return geometry
+  const spatialRef = geometry?.spatialReference as
+    | (__esri.SpatialReference & { isWGS84?: boolean })
+    | undefined
+
+  if (!spatialRef || spatialRef.isWGS84 || spatialRef.wkid === 4326) {
+    return geometry
+  }
 
   try {
     await ensureEsri()
+    const projection = asProjection(_projection)
+    const SpatialReference = asSpatialReference(_SpatialReference) as any
 
-    // Use webMercatorUtils for Web Mercator (most common case)
-    if (geometry.spatialReference?.wkid === 3857) {
-      const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-      if (webMercatorUtils?.webMercatorToGeographic) {
-        return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
+    if (projection?.project && SpatialReference) {
+      const target =
+        SpatialReference?.WGS84 ||
+        (typeof SpatialReference === "function"
+          ? new SpatialReference({ wkid: 4326 })
+          : { wkid: 4326 })
+
+      const projected = projection.project(geometry, target)
+      if (projected) {
+        if (Array.isArray(projected) && projected[0]) {
+          return (projected[0] as __esri.Geometry) || geometry
+        }
+        if ((projected as __esri.Geometry).type) {
+          return (projected as __esri.Geometry) || geometry
+        }
       }
     }
 
-    // Use projection engine for other coordinate systems
-    const projection = asProjection(_projection)
-    const SpatialReference = asSpatialReference(_SpatialReference)
-    if (projection?.project && SpatialReference) {
-      const wgs84SR = new SpatialReference({ wkid: 4326 })
-      const projected = await projection.project([geometry], wgs84SR)
-      return projected?.[0] || geometry
+    const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
+    if (webMercatorUtils?.webMercatorToGeographic) {
+      const converted =
+        webMercatorUtils.webMercatorToGeographic(geometry) || geometry
+      return converted
     }
-
-    return geometry // Fallback to original
   } catch (error) {
     logWarn("Coordinate transformation failed", error)
-    return geometry
   }
+
+  return geometry
 }
 
 // helper moved to utils.ts: makeGeoJson
 
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
-  await ensureEsri()
-  const esriConfig = asEsriConfig(_esriConfig)
+  const esriConfig = await getEsriConfig()
   if (!esriConfig) return
 
   // Preserve existing platform value; ensure it is at least our safe default.
@@ -1173,19 +1285,35 @@ export class FmeFlowApiClient {
     }
 
     // Reproject to WGS84
-    const projectedGeometry = await toWgs84(geometry)
+    const projectedGeometry = (await toWgs84(geometry)) as __esri.Polygon
 
-    const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
+    const geoJsonPolygon = makeGeoJson(projectedGeometry)
 
     // Convert to Esri JSON for FME
-    const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
+    const esriJson = projectedGeometry.toJSON()
+
+    let polygonArea = 0
+    try {
+      await ensureGeometryEngines()
+      const areaModules = {
+        geometryEngine: asGeometryEngine(_geometryEngine),
+        geometryEngineAsync: asGeometryEngineAsync(_geometryEngineAsync),
+      }
+      polygonArea = await calcArea(projectedGeometry, areaModules)
+    } catch (error) {
+      logWarn("Failed to calculate AOI area for FME params", error)
+    }
+
+    const fallbackArea = Math.abs(extent.width * extent.height)
+    const resolvedArea =
+      polygonArea && polygonArea > 0 ? polygonArea : fallbackArea
 
     return {
       MAXX: extent.xmax,
       MAXY: extent.ymax,
       MINX: extent.xmin,
       MINY: extent.ymin,
-      AREA: Math.abs(extent.width * extent.height),
+      AREA: resolvedArea,
       AreaOfInterest: JSON.stringify(esriJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
@@ -1228,14 +1356,18 @@ export class FmeFlowApiClient {
 
       // BYPASS INTERCEPTOR - Add FME authentication directly
       try {
-        const serverHost = extractHostFromUrl(
+        const serverHostKey = extractHostFromUrl(
           this.config.serverUrl
         )?.toLowerCase()
-        const reqHost = new URL(
+        const requestHostKey = new URL(
           url,
           globalThis.location?.origin || "http://d"
         ).host.toLowerCase()
-        if (serverHost && reqHost === serverHost && this.config.token) {
+        if (
+          serverHostKey &&
+          requestHostKey === serverHostKey &&
+          this.config.token
+        ) {
           // Add token as query parameter
           if (!requestOptions.query.fmetoken) {
             requestOptions.query.fmetoken = this.config.token
@@ -1298,14 +1430,12 @@ export class FmeFlowApiClient {
       const translationKey = mapErrorToKey(err, httpStatus)
 
       // Debug logging to help identify error structure
-      if (process.env.NODE_ENV !== "production") {
-        logDebug("Request error structure", {
-          errorType: typeof err,
-          errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
-          extractedStatus: httpStatus,
-          rawError: err,
-        })
-      }
+      logDebug("Request error structure", {
+        errorType: typeof err,
+        errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
+        extractedStatus: httpStatus,
+        rawError: err,
+      })
 
       logError("Request error", {
         url,

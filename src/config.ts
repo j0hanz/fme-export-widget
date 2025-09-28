@@ -722,15 +722,29 @@ export interface EsriModules {
   SketchViewModel: new (...a: any[]) => __esri.SketchViewModel
   GraphicsLayer: new (...a: any[]) => __esri.GraphicsLayer
   geometryEngine: {
-    isSimple: (g: __esri.Geometry) => boolean
-    simplify: (g: __esri.Geometry) => __esri.Geometry
-    planarArea: (g: __esri.Geometry, unit: string) => number
+    isSimple?: (g: __esri.Geometry) => boolean
+    simplify?: (g: __esri.Geometry) => __esri.Geometry | null
+    planarArea?: (g: __esri.Geometry, unit: string) => number
     geodesicArea?: (g: __esri.Geometry, unit: string) => number
   }
-  geometryEngineAsync?: {
-    simplify: (g: __esri.Geometry) => Promise<__esri.Geometry>
+  geometryEngineAsync: {
+    simplify?: (g: __esri.Geometry) => Promise<__esri.Geometry | null>
+    isSimple?: (g: __esri.Geometry) => Promise<boolean>
     planarArea?: (g: __esri.Geometry, unit: string) => Promise<number>
     geodesicArea?: (g: __esri.Geometry, unit: string) => Promise<number>
+  }
+  projection: {
+    project?: (
+      geometry: __esri.Geometry | readonly __esri.Geometry[],
+      spatialReference: __esri.SpatialReference
+    ) => __esri.Geometry | readonly __esri.Geometry[] | null | undefined
+    load?: () => Promise<void>
+    isLoaded?: () => boolean
+  }
+  SpatialReference: {
+    WGS84?: __esri.SpatialReference
+    new (...args: any[]): __esri.SpatialReference
+    fromJSON?: (json: any) => __esri.SpatialReference
   }
   webMercatorUtils: {
     webMercatorToGeographic: (g: __esri.Geometry) => __esri.Geometry
@@ -738,7 +752,12 @@ export interface EsriModules {
   Polyline: { fromJSON: (j: unknown) => __esri.Polyline }
   Polygon: { fromJSON: (j: unknown) => __esri.Polygon }
   Graphic: new (...a: any[]) => __esri.Graphic
-  reactiveUtils: unknown
+  intl?: {
+    formatNumber?: (
+      value: number,
+      options?: Intl.NumberFormatOptions
+    ) => string | number
+  }
 }
 
 export interface ExportResult {

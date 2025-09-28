@@ -19,6 +19,8 @@ import defaultMessages from "./translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
+  type WorkspaceItemDetail,
+  type WorkspaceParameter,
   type FormPrimitive,
   type FormValues,
   type OrderResultProps,
@@ -34,10 +36,10 @@ import {
   ErrorSeverity,
   makeErrorView,
 } from "../../config"
-import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
-import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
-import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
-import exportIcon from "jimu-icons/svg/outlined/editor/export.svg"
+import polygonIcon from "../../assets/icons/polygon.svg"
+import rectangleIcon from "../../assets/icons/rectangle.svg"
+import resetIcon from "../../assets/icons/close-circle.svg"
+import exportIcon from "../../assets/icons/export.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { logError, logWarn } from "../../shared/logging"
 import { fmeActions } from "../../extensions/store"
@@ -169,8 +171,8 @@ const useWorkspaceLoader = (opts: {
   widgetId: string
   onWorkspaceSelected?: (
     workspaceName: string,
-    params: readonly any[],
-    item: any
+    params: readonly WorkspaceParameter[],
+    item: WorkspaceItemDetail
   ) => void
   onWorkspaceItemsLoaded?: (items: readonly WorkspaceItem[]) => void
 }) => {
@@ -191,6 +193,15 @@ const useWorkspaceLoader = (opts: {
     null
   )
   const isMountedRef = React.useRef(true)
+  const workspaceCacheRef = React.useRef(
+    new Map<
+      string,
+      {
+        item: WorkspaceItemDetail
+        parameters: readonly WorkspaceParameter[]
+      }
+    >()
+  )
 
   // Cleanup on unmount
   hooks.useEffectOnce(() => {
@@ -236,6 +247,28 @@ const useWorkspaceLoader = (opts: {
       loadAbortRef.current = null
     }
   })
+
+  const finalizeSelection = hooks.useEventCallback(
+    (
+      repoName: string,
+      workspaceName: string,
+      workspaceItem: WorkspaceItemDetail,
+      parameters: readonly WorkspaceParameter[]
+    ) => {
+      if (!isMountedRef.current) return
+      onWorkspaceSelected?.(workspaceName, parameters, workspaceItem)
+      const dispatch = getAppStore().dispatch as any
+      dispatch(fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId))
+      dispatch(
+        fmeActions.setWorkspaceParameters(
+          parameters,
+          workspaceName,
+          repoName,
+          widgetId
+        )
+      )
+    }
+  )
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
@@ -310,14 +343,31 @@ const useWorkspaceLoader = (opts: {
       const fmeClient = getFmeClient()
       if (!fmeClient || !(repositoryName || config?.repository)) return
 
-      cancelCurrent()
-      const controller = new AbortController()
-      loadAbortRef.current = controller
-      setIsLoading(true)
-      setError(null)
-
+      let controller: AbortController | null = null
       try {
         const repoToUse = String(repositoryName || config?.repository || "")
+        const cacheKey = `${repoToUse}::${workspaceName}`
+        const cached = workspaceCacheRef.current.get(cacheKey)
+        if (cached) {
+          cancelCurrent()
+          if (isMountedRef.current) {
+            setError(null)
+            setIsLoading(false)
+            finalizeSelection(
+              repoToUse,
+              workspaceName,
+              cached.item,
+              cached.parameters
+            )
+          }
+          return
+        }
+
+        cancelCurrent()
+        controller = new AbortController()
+        loadAbortRef.current = controller
+        setIsLoading(true)
+        setError(null)
 
         // Call both endpoints: workspace item details and parameters separately
         const [itemResponse, parametersResponse] = await Promise.all([
@@ -338,24 +388,16 @@ const useWorkspaceLoader = (opts: {
         ])
 
         if (itemResponse.status === 200 && parametersResponse.status === 200) {
-          const workspaceItem = itemResponse.data
-          const parameters = parametersResponse.data || []
-
-          onWorkspaceSelected?.(workspaceName, parameters, workspaceItem)
-          // Dispatch workspace item and parameters with repository context
-          const dispatch = getAppStore().dispatch as any
+          const workspaceItem = itemResponse.data as WorkspaceItemDetail
+          const parameters = (parametersResponse.data ||
+            []) as readonly WorkspaceParameter[]
           const repoName = String(repoToUse)
-          dispatch(
-            fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
-          )
-          dispatch(
-            fmeActions.setWorkspaceParameters(
-              parameters,
-              workspaceName,
-              repoName,
-              widgetId
-            )
-          )
+
+          workspaceCacheRef.current.set(cacheKey, {
+            item: workspaceItem,
+            parameters,
+          })
+          finalizeSelection(repoName, workspaceName, workspaceItem, parameters)
         } else {
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
@@ -364,7 +406,7 @@ const useWorkspaceLoader = (opts: {
         if (msg && isMountedRef.current) setError(msg)
       } finally {
         if (isMountedRef.current) setIsLoading(false)
-        if (loadAbortRef.current === controller) {
+        if (controller && loadAbortRef.current === controller) {
           loadAbortRef.current = null
         }
       }
@@ -378,7 +420,12 @@ const useWorkspaceLoader = (opts: {
     setError(null)
     // Important: reset loading state to allow new requests
     setIsLoading(false)
+    workspaceCacheRef.current.clear()
   }, [config?.repository])
+
+  hooks.useUpdateEffect(() => {
+    workspaceCacheRef.current.clear()
+  }, [config?.fmeServerUrl, config?.fmeServerToken])
 
   const scheduleLoad = hooks.useEventCallback(() => {
     if (loadTimeoutRef.current) {
@@ -900,11 +947,36 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return (
         <StateView
           state={makeErrorView(localizedMessage, { code, actions })}
-          renderActions={(_act, ariaLabel) => (
-            <div role="group" aria-label={ariaLabel}>
-              {renderSupportHint(rawEmail, translate, styles, hintText)}
-            </div>
-          )}
+          renderActions={(viewActions, ariaLabel) => {
+            const supportHint = renderSupportHint(
+              rawEmail,
+              translate,
+              styles,
+              hintText
+            )
+            const hasActions = Boolean(viewActions?.length)
+            if (!hasActions && !supportHint) return null
+
+            return (
+              <div role="group" aria-label={ariaLabel}>
+                {hasActions && (
+                  <div css={styles.button.group}>
+                    {(viewActions || []).map((action, index) => (
+                      <Button
+                        key={`${action.label}-${index}`}
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        variant={action.variant}
+                        text={action.label}
+                        block
+                      />
+                    ))}
+                  </div>
+                )}
+                {supportHint}
+              </div>
+            )
+          }}
           center={false}
         />
       )

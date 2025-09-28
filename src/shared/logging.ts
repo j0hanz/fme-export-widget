@@ -44,11 +44,36 @@ export const logError = (message: string, details?: unknown): void => {
   log("error", message, details)
 }
 
-export const isTestEnv = (): boolean =>
-  typeof process !== "undefined" &&
-  !!(process as any).env &&
-  (!!(process as any).env.JEST_WORKER_ID ||
-    (process as any).env.NODE_ENV === "test")
+export const isTestEnv = (): boolean => {
+  if (typeof globalThis === "undefined") {
+    return false
+  }
+
+  const globalScope = globalThis as any
+
+  if (typeof globalScope.__ESRI_TEST_STUB__ === "function") {
+    return true
+  }
+
+  const jestGlobal = globalScope.jest
+  if (typeof jestGlobal === "function" || typeof jestGlobal === "object") {
+    return true
+  }
+
+  const navigatorUa = globalScope.navigator?.userAgent
+  if (
+    typeof navigatorUa === "string" &&
+    navigatorUa.toLowerCase().includes("jsdom")
+  ) {
+    return true
+  }
+
+  const hasTestPrimitives =
+    typeof globalScope.expect === "function" &&
+    typeof globalScope.it === "function"
+
+  return Boolean(hasTestPrimitives)
+}
 
 const unwrapModule = (module: unknown) => (module as any)?.default ?? module
 

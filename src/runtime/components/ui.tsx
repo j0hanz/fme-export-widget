@@ -43,6 +43,19 @@ import {
   ariaDesc,
 } from "../../shared/utils"
 import { logWarn } from "../../shared/logging"
+import dataIcon from "../../assets/icons/data.svg"
+import emailIcon from "../../assets/icons/email.svg"
+import errorIcon from "../../assets/icons/error.svg"
+import featureServiceIcon from "../../assets/icons/feature-service.svg"
+import folderIcon from "../../assets/icons/folder.svg"
+import linkTiltedIcon from "../../assets/icons/link-tilted.svg"
+import mapIcon from "../../assets/icons/map.svg"
+import personLockIcon from "../../assets/icons/person-lock.svg"
+import polygonIcon from "../../assets/icons/polygon.svg"
+import settingIcon from "../../assets/icons/setting.svg"
+import sharedNoIcon from "../../assets/icons/shared-no.svg"
+import timeIcon from "../../assets/icons/time.svg"
+import warningIcon from "../../assets/icons/warning.svg"
 import type {
   ViewAction,
   ButtonProps,
@@ -88,6 +101,22 @@ export const config = {
   loading: { width: 200, height: 200, delay: 1000 },
   required: "*",
 } as const
+
+const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
+  error: errorIcon,
+  map: mapIcon,
+  polygon: polygonIcon,
+  warning: warningIcon,
+  "person-lock": personLockIcon,
+  folder: folderIcon,
+  data: dataIcon,
+  "shared-no": sharedNoIcon,
+  "feature-service": featureServiceIcon,
+  "link-tilted": linkTiltedIcon,
+  time: timeIcon,
+  setting: settingIcon,
+  email: emailIcon,
+}
 
 // Theme-aware styles
 const getTypographyStyle = (
@@ -462,9 +491,11 @@ export const Icon: React.FC<IconProps> = ({
   ariaLabel,
   style,
 }) => {
+  const resolved =
+    typeof src === "string" ? (LOCAL_ICON_SOURCES[src] ?? src) : src
   return (
     <SVG
-      src={src}
+      src={resolved}
       size={size}
       className={className}
       role="img"

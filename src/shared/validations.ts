@@ -427,21 +427,22 @@ export const sanitizeFormValues = (
 }
 
 // Geometry helpers
-export const calcArea = (
+export const calcArea = async (
   geometry: __esri.Geometry | undefined,
   modules: any
-): number => {
-  if (!geometry || geometry.type !== "polygon" || !modules?.geometryEngine)
-    return 0
+): Promise<number> => {
+  if (!geometry || geometry.type !== "polygon") return 0
 
-  const engine = modules.geometryEngine
+  const polygon = geometry as __esri.Polygon
+  const engineAsync = modules?.geometryEngineAsync
+  const engine = modules?.geometryEngine
 
   const isGeographic = (): boolean => {
     try {
-      const sr: any = (geometry as any).spatialReference || {}
+      const sr: any = polygon.spatialReference || {}
       if (sr && (sr.isGeographic || sr.isWGS84)) return true
       if (typeof sr.wkid === "number" && sr.wkid === 4326) return true
-      const json = (geometry as any).toJSON?.()
+      const json = polygon.toJSON?.()
       const jsr = json?.spatialReference || {}
       return Boolean(jsr.isGeographic) || jsr.wkid === 4326
     } catch {
@@ -449,24 +450,47 @@ export const calcArea = (
     }
   }
 
-  try {
-    const area = isGeographic()
-      ? engine.geodesicArea
-        ? engine.geodesicArea(geometry as __esri.Polygon, "square-meters")
-        : engine.planarArea(geometry as __esri.Polygon, "square-meters")
-      : engine.planarArea(geometry as __esri.Polygon, "square-meters")
+  const geographic = isGeographic()
 
-    return Number.isFinite(area) && area > 0 ? area : 0
+  try {
+    if (engineAsync) {
+      if (geographic && typeof engineAsync.geodesicArea === "function") {
+        const area = await engineAsync.geodesicArea(polygon, "square-meters")
+        if (Number.isFinite(area) && area > 0) return area
+      }
+
+      if (typeof engineAsync.planarArea === "function") {
+        const area = await engineAsync.planarArea(polygon, "square-meters")
+        if (Number.isFinite(area) && area > 0) return area
+      }
+    }
+
+    if (engine) {
+      if (geographic && typeof engine.geodesicArea === "function") {
+        const area = engine.geodesicArea(polygon, "square-meters")
+        if (Number.isFinite(area) && area > 0) return area
+      }
+
+      if (typeof engine.planarArea === "function") {
+        const area = engine.planarArea(polygon, "square-meters")
+        if (Number.isFinite(area) && area > 0) return area
+      }
+    }
   } catch (e) {
     logWarn("Failed to calculate polygon area", e)
-    return 0
   }
+
+  return 0
 }
 
-export const validatePolygon = (
+export const validatePolygon = async (
   geometry: __esri.Geometry | undefined,
   modules: any
-): { valid: boolean; error?: ErrorState; simplified?: __esri.Polygon } => {
+): Promise<{
+  valid: boolean
+  error?: ErrorState
+  simplified?: __esri.Polygon
+}> => {
   // Local helper to construct consistent geometry error objects
   const makeGeometryError = (
     messageKey: string,
@@ -498,23 +522,49 @@ export const validatePolygon = (
   }
 
   // If geometry engine is not available, skip detailed validation
-  if (!modules?.geometryEngine) {
+  if (!modules?.geometryEngine && !modules?.geometryEngineAsync) {
     return { valid: true }
   }
 
   try {
     const engine: any = modules.geometryEngine
+    const engineAsync: any = modules.geometryEngineAsync
     let poly = geometry as __esri.Polygon
 
     // 1) Simplify and/or check if simple (if supported by engine)
-    if (typeof engine.simplify === "function") {
-      const simplified = engine.simplify(poly) as __esri.Polygon | null
-      if (!simplified || !engine.isSimple(simplified)) {
+    if (engineAsync && typeof engineAsync.simplify === "function") {
+      const simplified = (await engineAsync.simplify(
+        poly
+      )) as __esri.Polygon | null
+      if (!simplified) {
         return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
       }
       poly = simplified
-    } else {
-      if (typeof engine.isSimple === "function" && !engine.isSimple(poly)) {
+
+      if (typeof engineAsync.isSimple === "function") {
+        const simple = await engineAsync.isSimple(poly)
+        if (!simple) {
+          return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+        }
+      } else if (typeof engine?.isSimple === "function") {
+        if (!engine.isSimple(poly)) {
+          return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+        }
+      }
+    } else if (typeof engine?.simplify === "function") {
+      const simplified = engine.simplify(poly) as __esri.Polygon | null
+      if (!simplified) {
+        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+      }
+      if (
+        typeof engine.isSimple === "function" &&
+        !engine.isSimple(simplified)
+      ) {
+        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+      }
+      poly = simplified
+    } else if (typeof engine?.isSimple === "function") {
+      if (!engine.isSimple(poly)) {
         return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
       }
     }
@@ -536,13 +586,13 @@ export const validatePolygon = (
     }
 
     // 3) Area must be > 0 (use our calcArea helper)
-    const area = calcArea(poly as any, modules)
+    const area = await calcArea(poly as any, modules)
     if (!area || area <= 0) {
       return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
 
     // 4) Validate holes lie within outer ring (best-effort if contains exists)
-    if (rings.length > 1 && typeof engine.contains === "function") {
+    if (rings.length > 1 && typeof engine?.contains === "function") {
       // Build outer polygon from first ring
       try {
         const PolygonCtor = (modules && modules.Polygon) || null

@@ -358,18 +358,20 @@ describe("form values sanitization", () => {
 })
 
 describe("geometry helpers (no JSAPI)", () => {
-  test("calcArea handles missing modules/geometry", () => {
-    expect(calcArea(undefined as any, {})).toBe(0)
-    expect(calcArea({ type: "point" } as any, { geometryEngine: {} })).toBe(0)
+  test("calcArea handles missing modules/geometry", async () => {
+    expect(await calcArea(undefined as any, {})).toBe(0)
+    expect(
+      await calcArea({ type: "point" } as any, { geometryEngine: {} })
+    ).toBe(0)
   })
 
-  test("calcArea returns finite non-negative or 0 on bad result/exception", () => {
+  test("calcArea returns finite non-negative or 0 on bad result/exception", async () => {
     const polygon = { type: "polygon" } as any
     const modules1 = { geometryEngine: { planarArea: () => 1234.56 } }
-    expect(calcArea(polygon, modules1)).toBe(1234.56)
+    expect(await calcArea(polygon, modules1)).toBe(1234.56)
 
     const modules2 = { geometryEngine: { planarArea: () => -10 } }
-    expect(calcArea(polygon, modules2)).toBe(0)
+    expect(await calcArea(polygon, modules2)).toBe(0)
 
     const modules3 = {
       geometryEngine: {
@@ -378,23 +380,23 @@ describe("geometry helpers (no JSAPI)", () => {
         },
       },
     }
-    expect(calcArea(polygon, modules3)).toBe(0)
+    expect(await calcArea(polygon, modules3)).toBe(0)
   })
 
-  test("validatePolygon covers cases", () => {
-    const res1 = validatePolygon(undefined as any, {})
+  test("validatePolygon covers cases", async () => {
+    const res1 = await validatePolygon(undefined as any, {})
     expect(res1.valid).toBe(false)
     expect(res1.error?.code).toBe("NO_GEOMETRY")
 
-    const res2 = validatePolygon({ type: "point" } as any, {})
+    const res2 = await validatePolygon({ type: "point" } as any, {})
     expect(res2.valid).toBe(false)
     expect(res2.error?.code).toBe("INVALID_GEOMETRY_TYPE")
 
-    const res3 = validatePolygon({ type: "polygon" } as any, {})
+    const res3 = await validatePolygon({ type: "polygon" } as any, {})
     expect(res3.valid).toBe(true) // no geometryEngine implies skip validation
 
     const modules = { geometryEngine: { isSimple: () => false } }
-    const res4 = validatePolygon({ type: "polygon" } as any, modules)
+    const res4 = await validatePolygon({ type: "polygon" } as any, modules)
     expect(res4.valid).toBe(false)
     expect(res4.error?.code).toBe("INVALID_GEOMETRY")
 
@@ -405,7 +407,7 @@ describe("geometry helpers (no JSAPI)", () => {
         },
       },
     }
-    const res5 = validatePolygon({ type: "polygon" } as any, modulesThrow)
+    const res5 = await validatePolygon({ type: "polygon" } as any, modulesThrow)
     expect(res5.valid).toBe(false)
     expect(res5.error?.code).toBe("GEOMETRY_VALIDATION_ERROR")
   })

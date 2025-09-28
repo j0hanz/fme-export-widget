@@ -129,9 +129,27 @@ const setupEsriTestStub = (options?: {
     planarArea: jest.fn(() => options?.planarArea ?? 789.12),
     isSimple: jest.fn(() => options?.isSimple ?? true),
   }
+  const geometryEngineAsync = {
+    simplify: jest.fn((poly: any) => Promise.resolve(poly)),
+    geodesicArea: jest.fn(() =>
+      Promise.resolve(options?.geodesicArea ?? 1234.56)
+    ),
+    planarArea: jest.fn(() => Promise.resolve(options?.planarArea ?? 789.12)),
+    isSimple: jest.fn(() => Promise.resolve(options?.isSimple ?? true)),
+  }
 
   const webMercatorUtils = {}
-  const reactiveUtils = {}
+  const projection = {
+    load: jest.fn(() => Promise.resolve()),
+    project: jest.fn((geom: any) => geom),
+  }
+  class SpatialReference {
+    static WGS84 = { wkid: 4326 }
+    wkid: number
+    constructor(props: { wkid: number }) {
+      this.wkid = props.wkid
+    }
+  }
   class Polyline {
     __ = 1
   }
@@ -154,8 +172,10 @@ const setupEsriTestStub = (options?: {
     SketchViewModel,
     GraphicsLayer,
     geometryEngine,
+    geometryEngineAsync,
     webMercatorUtils,
-    reactiveUtils,
+    projection,
+    SpatialReference,
     Polyline,
     Polygon,
     Graphic,

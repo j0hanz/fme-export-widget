@@ -159,8 +159,24 @@ beforeAll(() => {
     planarArea: jest.fn(() => 789.12),
     isSimple: jest.fn(() => true),
   }
+  const geometryEngineAsync = {
+    simplify: jest.fn((poly: any) => Promise.resolve(poly)),
+    geodesicArea: jest.fn(() => Promise.resolve(1234.56)),
+    planarArea: jest.fn(() => Promise.resolve(789.12)),
+    isSimple: jest.fn(() => Promise.resolve(true)),
+  }
   const webMercatorUtils = {}
-  const reactiveUtils = {}
+  const projection = {
+    load: jest.fn(() => Promise.resolve()),
+    project: jest.fn((geom: any) => geom),
+  }
+  class SpatialReference {
+    static WGS84 = { wkid: 4326 }
+    wkid: number
+    constructor(props: { wkid: number }) {
+      this.wkid = props.wkid
+    }
+  }
   class Polyline {
     __ = 1
   }
@@ -182,8 +198,10 @@ beforeAll(() => {
     SketchViewModel,
     GraphicsLayer,
     geometryEngine,
+    geometryEngineAsync,
     webMercatorUtils,
-    reactiveUtils,
+    projection,
+    SpatialReference,
     Polyline,
     Polygon,
     Graphic,
@@ -649,13 +667,13 @@ describe("FME workspace discovery in Workflow", () => {
 })
 
 describe("FME geometry helpers", () => {
-  test("calcArea returns 0 for non-polygon or missing engine", () => {
+  test("calcArea returns 0 for non-polygon or missing engine", async () => {
     const modules = { geometryEngine: undefined } as unknown as EsriModules
-    expect(calcArea(undefined, modules)).toBe(0)
-    expect(calcArea({ type: "point" } as any, modules)).toBe(0)
+    expect(await calcArea(undefined, modules)).toBe(0)
+    expect(await calcArea({ type: "point" } as any, modules)).toBe(0)
   })
 
-  test("calcArea uses planar area and clamps to non-negative", () => {
+  test("calcArea uses planar area and clamps to non-negative", async () => {
     // Mock geometryEngine with geodesic area calculation
     const geometryEngine = {
       planarArea: jest.fn(() => 1000000),
@@ -675,21 +693,21 @@ describe("FME geometry helpers", () => {
       toJSON: () => ({ spatialReference: { isGeographic: true } }),
     } as any
 
-    expect(calcArea(geom, modules)).toBe(1000000)
+    expect(await calcArea(geom, modules)).toBe(1000000)
   })
 
-  test("validatePolygon detects missing and wrong types", () => {
+  test("validatePolygon detects missing and wrong types", async () => {
     const modules = {} as EsriModules
-    const missing = validatePolygon(undefined, modules)
+    const missing = await validatePolygon(undefined, modules)
     expect(missing.valid).toBe(false)
     expect(missing.error?.type).toBe(ErrorType.GEOMETRY)
 
-    const wrong = validatePolygon({ type: "point" } as any, modules)
+    const wrong = await validatePolygon({ type: "point" } as any, modules)
     expect(wrong.valid).toBe(false)
     expect(wrong.error?.code).toBe("INVALID_GEOMETRY_TYPE")
   })
 
-  test("validatePolygon uses geometryEngine.isSimple", () => {
+  test("validatePolygon uses geometryEngine.isSimple", async () => {
     const geometryEngine = {
       isSimple: jest.fn(() => false),
     }
@@ -706,7 +724,7 @@ describe("FME geometry helpers", () => {
       toJSON: () => ({ spatialReference: { isGeographic: true } }),
     } as any
 
-    const result = validatePolygon(geometry, modules)
+    const result = await validatePolygon(geometry, modules)
     expect(result.valid).toBe(false)
     expect(result.error?.code).toBe("INVALID_GEOMETRY")
     expect(geometryEngine.isSimple).toHaveBeenCalled()

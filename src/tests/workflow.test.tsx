@@ -6,14 +6,17 @@ import {
   ViewMode,
   DrawingTool,
   ErrorSeverity,
+  ParameterType,
   type ErrorState,
 } from "../config"
+import { MS_LOADING, WORKSPACE_ITEM_TYPE } from "../shared/utils"
 import { Workflow } from "../runtime/components/workflow"
 
 // Security: Mock the FME client to avoid real network calls
 const mockClient = {
   getRepositoryItems: jest.fn(),
   getWorkspaceItem: jest.fn(),
+  getWorkspaceParameters: jest.fn(),
 }
 
 jest.mock("../shared/api", () => ({
@@ -63,7 +66,7 @@ describe("Workflow component", () => {
         state={ViewMode.STARTUP_VALIDATION}
         instructionText=""
         isModulesLoading={false}
-        startupValidationError={startupError}
+        startupValidationError={startupError as any}
         onRetryValidation={onRetryValidation}
         config={{ supportEmail: "help@example.com" } as any}
         showHeaderActions={false}
@@ -181,6 +184,107 @@ describe("Workflow component", () => {
     const resetBtn = screen.getByRole("button", { name: /Avbryt/i })
     resetBtn.click()
     expect(onReset).toHaveBeenCalled()
+  })
+
+  test("reuses cached workspace details on repeated selection", async () => {
+    jest.useFakeTimers()
+
+    mockClient.getRepositoryItems.mockResolvedValue({
+      status: 200,
+      data: {
+        items: [
+          {
+            name: "ws1",
+            title: "Workspace 1",
+            type: WORKSPACE_ITEM_TYPE,
+          },
+        ],
+      },
+    })
+    mockClient.getWorkspaceItem.mockResolvedValue({
+      status: 200,
+      data: {
+        name: "ws1",
+        title: "Workspace 1",
+      },
+    })
+    mockClient.getWorkspaceParameters.mockResolvedValue({
+      status: 200,
+      data: [
+        {
+          name: "input",
+          type: ParameterType.TEXT,
+          optional: true,
+        },
+      ],
+    })
+
+    try {
+      const utils = renderWithProviders(
+        <Workflow
+          widgetId="widget-1"
+          state={ViewMode.INITIAL}
+          instructionText=""
+          isModulesLoading={false}
+          showHeaderActions={false}
+          config={
+            {
+              repository: "RepoA",
+              fmeServerUrl: "https://example.com",
+              fmeServerToken: "token",
+            } as any
+          }
+        />
+      )
+
+      utils.rerender(
+        <Workflow
+          widgetId="widget-1"
+          state={ViewMode.WORKSPACE_SELECTION}
+          instructionText=""
+          isModulesLoading={false}
+          showHeaderActions={false}
+          config={
+            {
+              repository: "RepoA",
+              fmeServerUrl: "https://example.com",
+              fmeServerToken: "token",
+            } as any
+          }
+        />
+      )
+
+      jest.advanceTimersByTime(MS_LOADING)
+
+      await waitFor(() => {
+        expect(mockClient.getRepositoryItems).toHaveBeenCalledTimes(1)
+      })
+
+      const workspaceButton = await screen.findByRole("button", {
+        name: /Workspace 1/i,
+      })
+
+      workspaceButton.click()
+
+      await waitFor(() => {
+        expect(mockClient.getWorkspaceItem).toHaveBeenCalledTimes(1)
+      })
+      await waitFor(() => {
+        expect(mockClient.getWorkspaceParameters).toHaveBeenCalledTimes(1)
+      })
+
+      mockClient.getWorkspaceItem.mockClear()
+      mockClient.getWorkspaceParameters.mockClear()
+
+      workspaceButton.click()
+
+      await waitFor(() => {
+        expect(mockClient.getWorkspaceItem).not.toHaveBeenCalled()
+        expect(mockClient.getWorkspaceParameters).not.toHaveBeenCalled()
+      })
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 
