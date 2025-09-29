@@ -256,7 +256,10 @@ const useWorkspaceLoader = (opts: {
       parameters: readonly WorkspaceParameter[]
     ) => {
       if (!isMountedRef.current) return
-      onWorkspaceSelected?.(workspaceName, parameters, workspaceItem)
+      if (onWorkspaceSelected) {
+        onWorkspaceSelected(workspaceName, parameters, workspaceItem)
+        return
+      }
       const dispatch = getAppStore().dispatch as any
       dispatch(fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId))
       dispatch(

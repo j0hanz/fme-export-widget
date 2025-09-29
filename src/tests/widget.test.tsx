@@ -8,6 +8,7 @@ import {
   updateStore,
   widgetRender,
 } from "jimu-for-test"
+import { getAppStore } from "jimu-core"
 import type { AllWidgetProps } from "jimu-core"
 import Widget from "../runtime/widget"
 import { DrawingTool, ViewMode } from "../config"
@@ -58,6 +59,21 @@ jest.mock("../shared/services", () => {
     }),
   }
 })
+
+jest.mock("../shared/logging", () => {
+  const actual = jest.requireActual("../shared/logging")
+  return {
+    ...actual,
+    logWarn: jest.fn(),
+  }
+})
+
+const { validateWidgetStartup } = require("../shared/services") as {
+  validateWidgetStartup: jest.Mock
+}
+const { logWarn } = require("../shared/logging") as {
+  logWarn: jest.Mock
+}
 
 // Mock JimuMapViewComponent to immediately invoke onActiveViewChange with a fake map view
 jest.mock("jimu-arcgis", () => ({
@@ -475,5 +491,84 @@ describe("Widget runtime - geometry error prevents drawing until retry", () => {
       },
       { timeout: 3000 }
     )
+  })
+})
+
+describe("Widget runtime - startup validation guard", () => {
+  test("late startup validation completion does not revert advanced view", async () => {
+    setupEsriTestStub()
+    initStore()
+
+    let resolveValidation: (() => void) | null = null
+    validateWidgetStartup.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveValidation = () => {
+            resolve({
+              isValid: true,
+              canProceed: true,
+              requiresSettings: false,
+            })
+          }
+        })
+    )
+
+    const Wrapped = wrap({})
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wGuard"
+        widgetId="wGuard"
+        useMapWidgetIds={["map_guard"] as any}
+        config={{} as any}
+      />
+    )
+
+    await waitFor(() => {
+      expect(resolveValidation).toBeTruthy()
+    })
+
+    updateStore({
+      "fme-state": {
+        byId: {
+          wGuard: {
+            viewMode: ViewMode.WORKSPACE_SELECTION,
+            previousViewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 2048,
+          },
+        },
+      },
+    })
+
+    act(() => {
+      resolveValidation?.()
+    })
+
+    await waitFor(() => {
+      const state = getAppStore().getState() as any
+      expect(state["fme-state"].byId.wGuard.viewMode).toBe(
+        ViewMode.WORKSPACE_SELECTION
+      )
+    })
+
+    await waitFor(() => {
+      expect(logWarn).toHaveBeenCalledWith(
+        "Startup validation completed outside startup views",
+        expect.objectContaining({
+          currentViewMode: ViewMode.WORKSPACE_SELECTION,
+        })
+      )
+    })
+
+    validateWidgetStartup.mockReset()
+    validateWidgetStartup.mockResolvedValue({
+      isValid: true,
+      canProceed: true,
+      requiresSettings: false,
+    })
   })
 })

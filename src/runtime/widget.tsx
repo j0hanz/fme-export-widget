@@ -570,6 +570,16 @@ export default function Widget(
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
   const configRef = hooks.useLatest(config)
+  const viewModeRef = hooks.useLatest(reduxState.viewMode)
+  const startupTelemetryRef = hooks.useLatest<{
+    previousViewMode: ViewMode | null
+    isDrawing: boolean
+    drawnArea: number
+  }>({
+    previousViewMode: reduxState.previousViewMode,
+    isDrawing: reduxState.isDrawing,
+    drawnArea: reduxState.drawnArea,
+  })
   // When true, after reinitializing SketchViewModel we will immediately start drawing
   const shouldAutoStartRef = React.useRef(false)
 
@@ -782,8 +792,23 @@ export default function Widget(
     dispatch(
       fmeActions.setStartupValidationState(false, undefined, null, widgetId)
     )
-    // Reset any existing error state
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+    const currentViewMode = viewModeRef.current
+    const isUnset =
+      currentViewMode === null || typeof currentViewMode === "undefined"
+    const isStartupPhase =
+      currentViewMode === ViewMode.STARTUP_VALIDATION ||
+      currentViewMode === ViewMode.INITIAL
+    if (isUnset || isStartupPhase) {
+      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+    } else {
+      const latest = startupTelemetryRef.current
+      logWarn("Startup validation completed outside startup views", {
+        currentViewMode,
+        previousViewMode: latest?.previousViewMode ?? null,
+        isDrawing: latest?.isDrawing ?? false,
+        drawnArea: latest?.drawnArea ?? 0,
+      })
+    }
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
