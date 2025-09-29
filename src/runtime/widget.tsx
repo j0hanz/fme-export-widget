@@ -493,7 +493,6 @@ const setupSketchEventHandlers = (
 
       case "complete":
         clickCount = 0
-        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
         try {
           onDrawComplete(evt)
         } catch (err: any) {
@@ -791,6 +790,29 @@ export default function Widget(
     cleanupResources,
   } = mapResources
 
+  const endSketchSession = hooks.useEventCallback(
+    (options?: { clearLocalGeometry?: boolean }) => {
+      shouldAutoStartRef.current = false
+      if (options?.clearLocalGeometry) {
+        setCurrentGeometry(null)
+      }
+      if (sketchViewModel) {
+        safeCancelSketch(
+          sketchViewModel,
+          "Error cancelling SketchViewModel while exiting drawing mode"
+        )
+      }
+    }
+  )
+
+  const exitDrawingMode = hooks.useEventCallback(
+    (nextViewMode: ViewMode, options?: { clearLocalGeometry?: boolean }) => {
+      endSketchSession(options)
+      dispatch(fmeActions.setViewMode(nextViewMode, widgetId))
+      dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+    }
+  )
+
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
     dispatch(fmeActions.setStartupValidationState(true, step, null, widgetId))
@@ -1032,9 +1054,7 @@ export default function Widget(
           // Tear down drawing resources to reset state
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-          // Set view mode back to initial drawing state
-          dispatch(fmeActions.setViewMode(ViewMode.INITIAL, widgetId))
+          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error)
             dispatch(fmeActions.setError(validation.error, widgetId))
           return
@@ -1072,16 +1092,19 @@ export default function Widget(
           }
         }
 
-        // Update Redux state
+        // Update Redux state atomically
+        endSketchSession()
         dispatch(
-          fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea), widgetId)
+          fmeActions.completeDrawing(
+            geomForUse,
+            Math.abs(calculatedArea),
+            ViewMode.WORKSPACE_SELECTION,
+            widgetId
+          )
         )
-        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
 
         // Store current geometry in local state (not Redux - following golden rule)
         setCurrentGeometry(geomForUse)
-
-        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {
         dispatchError(
           translate("drawingCompleteFailed"),

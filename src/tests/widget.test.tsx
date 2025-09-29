@@ -274,6 +274,108 @@ describe("Widget runtime - module loading and auto-start", () => {
     })
   })
 
+  test("completing draw preserves geometry and cancels sketch", async () => {
+    const { createSpy } = setupEsriTestStub()
+
+    const Wrapped = wrap({})
+    updateStore({
+      "fme-state": {
+        byId: {
+          wPersist: {
+            viewMode: ViewMode.DRAWING,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 0,
+            geometryJson: null,
+          },
+        },
+      },
+    })
+    const cfgAny = {} as any
+    const renderWithProviders = widgetRender(true)
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wPersist"
+        widgetId="wPersist"
+        useMapWidgetIds={["map_persist"] as any}
+        config={cfgAny}
+      />
+    )
+
+    await waitFor(() => {
+      expect((global as any).__SVM_INST__).toBeTruthy()
+    })
+
+    const svm = (global as any).__SVM_INST__
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledTimes(1)
+    })
+    const cancelCallsBefore = svm.cancel.mock.calls.length
+
+    const polygon = {
+      type: "polygon",
+      rings: [
+        [
+          [0, 0],
+          [0, 1],
+          [1, 1],
+          [0, 0],
+        ],
+      ],
+      spatialReference: { wkid: 4326 },
+      toJSON: jest.fn(() => ({
+        rings: [
+          [
+            [0, 0],
+            [0, 1],
+            [1, 1],
+            [0, 0],
+          ],
+        ],
+        spatialReference: { wkid: 4326 },
+      })),
+    }
+
+    await waitFor(() => {
+      expect(screen.getByRole("tablist")).toBeInTheDocument()
+    })
+
+    act(() => {
+      svm.__emitCreate({
+        state: "start",
+        tool: "polygon",
+        graphic: { geometry: polygon, symbol: {} },
+      })
+      svm.__emitCreate({
+        state: "complete",
+        tool: "polygon",
+        graphic: { geometry: polygon, symbol: {} },
+      })
+    })
+
+    await waitFor(() => {
+      const state = getAppStore().getState() as any
+      const widgetState = state["fme-state"].byId.wPersist
+      expect(widgetState.viewMode).toBe(ViewMode.WORKSPACE_SELECTION)
+      expect(widgetState.geometryJson).not.toBeNull()
+      expect(widgetState.drawnArea).toBeGreaterThan(0)
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole("tablist")).not.toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledTimes(1)
+    })
+
+    await waitFor(() => {
+      expect(svm.cancel).toHaveBeenCalledTimes(cancelCallsBefore + 1)
+    })
+  })
+
   test("useEsriModules re-attempts load when retry signal changes", async () => {
     const { modules } = setupEsriTestStub()
     const loadSpy = jest

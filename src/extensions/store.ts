@@ -67,6 +67,18 @@ export const fmeActions = {
     drawingTool,
     widgetId,
   }),
+  completeDrawing: (
+    geometry: __esri.Geometry,
+    drawnArea: number,
+    nextViewMode: ViewMode,
+    widgetId: string
+  ) => ({
+    type: FmeActionType.COMPLETE_DRAWING,
+    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+    drawnArea,
+    nextViewMode,
+    widgetId,
+  }),
   setClickCount: (clickCount: number, widgetId: string) => ({
     type: FmeActionType.SET_CLICK_COUNT,
     clickCount,
@@ -244,6 +256,17 @@ const reduceOne = (
         .set("isDrawing", action.isDrawing)
         .set("clickCount", action.clickCount ?? state.clickCount)
         .set("drawingTool", action.drawingTool ?? state.drawingTool)
+
+    case FmeActionType.COMPLETE_DRAWING: {
+      const nextView = action.nextViewMode ?? state.viewMode
+      return state
+        .set("geometryJson", action.geometryJson)
+        .set("drawnArea", action.drawnArea ?? 0)
+        .set("previousViewMode", state.viewMode)
+        .set("viewMode", nextView)
+        .set("isDrawing", false)
+        .set("clickCount", 0)
+    }
 
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)

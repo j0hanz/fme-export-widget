@@ -143,6 +143,38 @@ describe("FME Redux store extension", () => {
     expect(sub(g4).clickCount).toBe(9)
   })
 
+  test("completeDrawing stores geometry and advances view in one step", () => {
+    const r = new StoreExtension().getReducer()
+    const base = makeGlobal({
+      viewMode: ViewMode.DRAWING,
+      isDrawing: true,
+      clickCount: 3,
+    })
+    const geom = {
+      toJSON: () => ({ rings: [[[1, 2]]], spatialReference: { wkid: 4326 } }),
+    }
+    const next = r(
+      base,
+      fmeActions.completeDrawing(
+        geom as any,
+        456.78,
+        ViewMode.WORKSPACE_SELECTION,
+        WID
+      ) as any
+    )
+
+    const snapshot = sub(next)
+    expect(snapshot.geometryJson).toEqual({
+      rings: [[[1, 2]]],
+      spatialReference: { wkid: 4326 },
+    })
+    expect(snapshot.drawnArea).toBe(456.78)
+    expect(snapshot.viewMode).toBe(ViewMode.WORKSPACE_SELECTION)
+    expect(snapshot.previousViewMode).toBe(ViewMode.DRAWING)
+    expect(snapshot.isDrawing).toBe(false)
+    expect(snapshot.clickCount).toBe(0)
+  })
+
   test("form and order: setFormValues, setOrderResult toggles isSubmittingOrder=false", () => {
     const r = new StoreExtension().getReducer()
     const g0 = makeGlobal({ isSubmittingOrder: true })
