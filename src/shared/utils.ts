@@ -325,6 +325,56 @@ const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
 ] as const
 const SCHEDULE_TRIGGER_DEFAULT = "runonce"
 
+const sanitizeScheduleMetadata = (
+  data: { [key: string]: unknown },
+  mode: ServiceMode
+): { [key: string]: unknown } => {
+  const trimmedString = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+
+  const cleaned: { [key: string]: unknown } = {}
+  for (const [key, value] of Object.entries(data)) {
+    switch (key) {
+      case "start":
+      case "name":
+      case "category":
+      case "description":
+        if (mode !== "schedule") {
+          break
+        }
+        {
+          const trimmed = trimmedString(value)
+          if (trimmed) cleaned[key] = trimmed
+        }
+        break
+      case "trigger":
+        if (mode !== "schedule") {
+          break
+        }
+        {
+          const trimmed = trimmedString(value)
+          cleaned.trigger = trimmed || SCHEDULE_TRIGGER_DEFAULT
+        }
+        break
+      default:
+        cleaned[key] = value
+    }
+  }
+
+  if (mode !== "schedule") {
+    return cleaned
+  }
+
+  if (cleaned.trigger === undefined) {
+    cleaned.trigger = SCHEDULE_TRIGGER_DEFAULT
+  }
+
+  return cleaned
+}
+
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   let raw: string
   if (typeof name === "string") raw = name
@@ -368,9 +418,15 @@ export const determineServiceMode = (
   const hasStart =
     typeof startValRaw === "string" && startValRaw.trim().length > 0
   if (config?.allowScheduleMode && hasStart) return "schedule"
-  const override = data._serviceMode as string
-  if (override === "sync" || override === "async" || override === "schedule") {
+  const override =
+    typeof data._serviceMode === "string"
+      ? data._serviceMode.trim().toLowerCase()
+      : ""
+  if (override === "sync" || override === "async") {
     return override as ServiceMode
+  }
+  if (override === "schedule" && config?.allowScheduleMode) {
+    return "schedule"
   }
   return config?.syncMode ? "sync" : "async"
 }
@@ -392,8 +448,9 @@ export const buildFmeParams = (
     opt_responseformat: "json",
     opt_showresult: "true",
   } as { [key: string]: unknown }
-  if (mode === "async" && typeof userEmail === "string" && userEmail.trim()) {
-    base.opt_requesteremail = userEmail
+  const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
+  if (mode === "async" && trimmedEmail) {
+    base.opt_requesteremail = trimmedEmail
   }
   return base
 }
@@ -749,14 +806,25 @@ export const prepFmeParams = (
   modules: EsriModules | null | undefined,
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  const original = (formData as any)?.data || {}
+  const original = ((formData as any)?.data || {}) as {
+    [key: string]: unknown
+  }
   const chosen = determineServiceMode({ data: original }, config)
-  const data =
+  const withTrigger: { [key: string]: unknown } =
     chosen === "schedule" && !original.trigger
       ? { ...original, trigger: SCHEDULE_TRIGGER_DEFAULT }
-      : original
+      : { ...original }
 
-  const base = buildFmeParams({ data }, userEmail, chosen)
+  const {
+    _serviceMode: _ignoredServiceMode,
+    __upload_file__: _ignoredUpload,
+    __remote_dataset_url__: _ignoredRemote,
+    ...publicFields
+  } = withTrigger
+
+  const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
+
+  const base = buildFmeParams({ data: sanitized }, userEmail, chosen)
   const withAoi = attachAoi(
     base,
     geometryJson,

@@ -1142,20 +1142,24 @@ export default function Widget(
       controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
-      const rawData = (formData as any)?.data || {}
+      const rawData = ((formData as any)?.data || {}) as {
+        [key: string]: unknown
+      }
+      const {
+        __upload_file__: _ignoredUploadField,
+        __remote_dataset_url__: _ignoredRemoteField,
+        opt_geturl: _ignoredOptGetUrl,
+        ...sanitizedFormData
+      } = rawData
 
       // Identify a file uploaded via our explicit upload field
-      const uploadFile: File | null = rawData.__upload_file__ || null
+      const uploadFile: File | null =
+        _ignoredUploadField instanceof File ? _ignoredUploadField : null
 
       // Build baseline params first (without opt_geturl)
       const baseParams = prepFmeParams(
         {
-          data: {
-            ...rawData,
-            opt_geturl: undefined,
-            __upload_file__: undefined,
-            __remote_dataset_url__: undefined,
-          },
+          data: sanitizedFormData,
         },
         userEmail,
         reduxState.geometryJson,
@@ -1174,7 +1178,16 @@ export default function Widget(
 
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
-      const remoteUrlRaw = rawData.__remote_dataset_url__ as string | undefined
+
+      if (
+        !finalParams.opt_geturl ||
+        typeof finalParams.opt_geturl !== "string" ||
+        !finalParams.opt_geturl.trim()
+      ) {
+        delete finalParams.opt_geturl
+      }
+
+      const remoteUrlRaw = _ignoredRemoteField as string | undefined
       const remoteUrl =
         typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
       const urlFeatureOn = Boolean(configRef.current?.allowRemoteUrlDataset)

@@ -447,13 +447,17 @@ describe("FME internal helper functions", () => {
         ],
       },
       undefined as any,
-      { aoiParamName: "AreaOfInterest" } as any
+      null,
+      { aoiParamName: "AreaOfInterest", allowScheduleMode: true } as any
     ) as any
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
     expect(out.trigger).toBe("runonce")
     // requester email is only added for async mode now
     expect(out.opt_requesteremail).toBeUndefined()
+    expect(Object.prototype.hasOwnProperty.call(out, "_serviceMode")).toBe(
+      false
+    )
   })
 
   test("prepFmeParams passes schedule metadata (name/category/description)", () => {
@@ -461,9 +465,9 @@ describe("FME internal helper functions", () => {
       data: {
         _serviceMode: "schedule",
         start: "2025-09-20 09:30:00",
-        name: "Night run",
-        category: "One-offs",
-        description: "Export AOI for project X",
+        name: " Night run ",
+        category: "One-offs ",
+        description: " Export AOI for project X ",
       },
     }
     const out = prepFmeParams(
@@ -481,6 +485,7 @@ describe("FME internal helper functions", () => {
         ],
       },
       undefined as any,
+      null,
       { allowScheduleMode: true } as any
     ) as any
     expect(out.opt_servicemode).toBe("schedule")

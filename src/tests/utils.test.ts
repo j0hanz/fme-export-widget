@@ -259,10 +259,15 @@ describe("shared/utils", () => {
       expect(
         determineServiceMode({ data: {} }, { syncMode: true } as any)
       ).toBe("sync")
+      expect(
+        determineServiceMode({ data: { _serviceMode: "schedule" } }, {
+          allowScheduleMode: false,
+        } as any)
+      ).toBe("async")
     })
 
     test("buildFmeParams includes async defaults and requester email", () => {
-      const params = buildFmeParams({ data: { a: 1 } }, "user@x.com", "async")
+      const params = buildFmeParams({ data: { a: 1 } }, " user@x.com ", "async")
       expect(params.opt_servicemode).toBe("async")
       expect(params.opt_responseformat).toBe("json")
       expect(params.opt_showresult).toBe("true")
@@ -420,6 +425,36 @@ describe("shared/utils", () => {
       expect((p as any).opt_requesteremail).toBeUndefined()
       expect(p.tm_ttc).toBe(10)
       expect(p.AreaOfInterest).toBeTruthy()
+      expect(Object.prototype.hasOwnProperty.call(p, "_serviceMode")).toBe(
+        false
+      )
+      expect(p.start).toBe("2024-01-01")
+    })
+
+    test("prepFmeParams removes schedule metadata when mode is sync", () => {
+      const result = prepFmeParams(
+        {
+          data: {
+            _serviceMode: "sync",
+            start: " 2024-01-01 ",
+            name: " report ",
+            trigger: " custom ",
+          },
+        },
+        "user@x.com",
+        null,
+        undefined as any,
+        null,
+        { syncMode: true } as any
+      ) as any
+
+      expect(result.opt_servicemode).toBe("sync")
+      expect(result.start).toBeUndefined()
+      expect(result.name).toBeUndefined()
+      expect(result.trigger).toBeUndefined()
+      expect(Object.prototype.hasOwnProperty.call(result, "_serviceMode")).toBe(
+        false
+      )
     })
   })
 
