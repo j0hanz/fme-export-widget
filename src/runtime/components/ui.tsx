@@ -872,7 +872,6 @@ export const ColorPickerWrapper: React.FC<{
   const styles = useStyles()
   return (
     <JimuColorPicker
-      outline
       color={value || defaultValue || "#000000"}
       onChange={(color) => {
         onChange?.(color)
