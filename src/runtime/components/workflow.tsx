@@ -80,6 +80,8 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
+const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
+
 // Form validation helpers
 const createFormValidator = (
   parameterService: ParameterFormService,
@@ -175,7 +177,6 @@ const useWorkspaceLoader = (opts: {
     params: readonly WorkspaceParameter[],
     item: WorkspaceItemDetail
   ) => void
-  onWorkspaceItemsLoaded?: (items: readonly WorkspaceItem[]) => void
   dispatch: (action: unknown) => void
 }) => {
   const {
@@ -185,7 +186,6 @@ const useWorkspaceLoader = (opts: {
     makeCancelable,
     widgetId,
     onWorkspaceSelected,
-    onWorkspaceItemsLoaded,
     dispatch: reduxDispatch,
   } = opts
   const [isLoading, setIsLoading] = React.useState(false)
@@ -308,7 +308,18 @@ const useWorkspaceLoader = (opts: {
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) {
+    if (!fmeClient) {
+      return
+    }
+
+    const targetRepository =
+      typeof config?.repository === "string"
+        ? config.repository.trim()
+        : undefined
+    if (!targetRepository) {
+      logWarn("Workspace loading skipped - repository not configured")
+      setError(translate("failedToLoadWorkspaces"))
+      dispatchAction(fmeActions.clearWorkspaceState(undefined, widgetId))
       return
     }
 
@@ -322,7 +333,7 @@ const useWorkspaceLoader = (opts: {
     try {
       const response = await makeCancelable(
         fmeClient.getRepositoryItems(
-          config.repository,
+          targetRepository,
           WORKSPACE_ITEM_TYPE,
           undefined,
           undefined,
@@ -337,10 +348,10 @@ const useWorkspaceLoader = (opts: {
           ) as readonly WorkspaceItem[]
 
           // Scope to repository if specified in config
-          const repoName = String(config.repository)
+          const repoName = targetRepository
           const scoped = items.filter((i: any) => {
-            const r = i?.repository
-            return r === undefined || r === repoName
+            const r = typeof i?.repository === "string" ? i.repository : ""
+            return !r || r === repoName
           })
 
           const sorted = scoped.slice().sort((a, b) =>
@@ -353,7 +364,6 @@ const useWorkspaceLoader = (opts: {
             dispatchAction(
               fmeActions.setWorkspaceItems(sorted, repoName, widgetId)
             )
-            onWorkspaceItemsLoaded?.(sorted)
           }
         } else {
           logError("Unexpected workspace response format", response)
@@ -376,11 +386,23 @@ const useWorkspaceLoader = (opts: {
   const loadItem = hooks.useEventCallback(
     async (workspaceName: string, repositoryName?: string) => {
       const fmeClient = getFmeClient()
-      if (!fmeClient || !(repositoryName || config?.repository)) return
+      const repoCandidate =
+        typeof repositoryName === "string" && repositoryName.trim()
+          ? repositoryName.trim()
+          : typeof config?.repository === "string"
+            ? config.repository.trim()
+            : undefined
+
+      if (!fmeClient || !repoCandidate) {
+        if (!repoCandidate) {
+          logWarn("Workspace item load skipped - repository not resolved")
+        }
+        return
+      }
 
       let controller: AbortController | null = null
       try {
-        const repoToUse = String(repositoryName || config?.repository || "")
+        const repoToUse = repoCandidate
         const cacheKey = `${repoToUse}::${workspaceName}`
         const cached = workspaceCacheRef.current.get(cacheKey)
         if (cached) {
@@ -1047,10 +1069,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     clientRef.current = null
   }, [config])
 
-  // Load workspaces using custom hook
-  const [localWorkspaceItems, setLocalWorkspaceItems] = React.useState<
-    readonly WorkspaceItem[]
-  >([])
+  const configuredRepository =
+    typeof config?.repository === "string"
+      ? config.repository.trim()
+      : undefined
 
   const {
     isLoading: isLoadingWorkspaces,
@@ -1065,9 +1087,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     makeCancelable,
     widgetId: effectiveWidgetId,
     onWorkspaceSelected,
-    onWorkspaceItemsLoaded: (items) => {
-      setLocalWorkspaceItems(items)
-    },
     dispatch: reduxDispatch,
   })
 
@@ -1086,7 +1105,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       ) {
         return items as readonly WorkspaceItem[]
       }
-      return []
+      return EMPTY_WORKSPACES
     }
   ) as readonly WorkspaceItem[]
 
@@ -1098,11 +1117,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
-  const workspaceItems = storeWorkspaceItems.length
-    ? storeWorkspaceItems
-    : localWorkspaceItems
+  const workspaceItems = storeWorkspaceItems
 
-  const currentRepository = repositoryFromStore || config?.repository || null
+  const currentRepository = repositoryFromStore || configuredRepository || null
 
   // Helper: are we in a workspace selection context?
   const isWorkspaceSelectionContext =
@@ -1112,7 +1129,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderWsButtons = () =>
     workspaceItems.map((workspace) => {
       const handleOpen = () => {
-        const repoToUse = currentRepository ?? undefined
+        const repoToUse =
+          (typeof (workspace as any)?.repository === "string"
+            ? (workspace as any).repository.trim()
+            : undefined) ||
+          currentRepository ||
+          undefined
         loadWorkspace(workspace.name, repoToUse)
       }
       return (
@@ -1120,13 +1142,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
           key={workspace.name}
           role="listitem"
           aria-label={workspace.title || workspace.name}
-          onClick={handleOpen}
         >
           <Button
             text={workspace.title || workspace.name}
             icon={exportIcon}
             size="lg"
-            // Button onClick is optional since parent handles clicks; keep logging props
+            onClick={handleOpen}
+            // Keep explicit onClick for keyboard users while still logging interactions
             logging={{
               enabled: true,
               prefix: "FME-Export-WorkspaceSelection",
@@ -1153,18 +1175,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Clear workspace state when repository changes
   hooks.useUpdateEffect(() => {
-    if (config?.repository) {
-      reduxDispatch(
-        fmeActions.clearWorkspaceState(config.repository, effectiveWidgetId)
-      )
-      // Force reload of workspaces for new repository
-      if (isWorkspaceSelectionContext) {
-        scheduleWsLoad()
-      }
-      setLocalWorkspaceItems([])
+    reduxDispatch(
+      fmeActions.clearWorkspaceState(configuredRepository, effectiveWidgetId)
+    )
+
+    if (configuredRepository && isWorkspaceSelectionContext) {
+      scheduleWsLoad()
     }
   }, [
-    config?.repository,
+    configuredRepository,
     reduxDispatch,
     effectiveWidgetId,
     isWorkspaceSelectionContext,

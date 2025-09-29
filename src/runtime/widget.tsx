@@ -944,8 +944,9 @@ export default function Widget(
       setValidationError(
         createStartupError(errorKey, errorCode, runStartupValidation)
       )
+    } finally {
+      startupAbort.finalize(controller)
     }
-    startupAbort.finalize(controller)
   })
 
   const retryModulesAndValidation = hooks.useEventCallback(() => {
@@ -1212,15 +1213,20 @@ export default function Widget(
         [key: string]: unknown
       }
       const {
-        __upload_file__: _ignoredUploadField,
-        __remote_dataset_url__: _ignoredRemoteField,
-        opt_geturl: _ignoredOptGetUrl,
-        ...sanitizedFormData
+        __upload_file__: uploadField,
+        __remote_dataset_url__: remoteDatasetField,
+        opt_geturl: rawOptGetUrl,
+        ...restFormData
       } = rawData
+
+      const sanitizedFormData = {
+        ...restFormData,
+        ...(rawOptGetUrl !== undefined ? { opt_geturl: rawOptGetUrl } : {}),
+      }
 
       // Identify a file uploaded via our explicit upload field
       const uploadFile: File | null =
-        _ignoredUploadField instanceof File ? _ignoredUploadField : null
+        uploadField instanceof File ? uploadField : null
 
       // Build baseline params first (without opt_geturl)
       const baseParams = prepFmeParams(
@@ -1253,7 +1259,7 @@ export default function Widget(
         delete finalParams.opt_geturl
       }
 
-      const remoteUrlRaw = _ignoredRemoteField as string | undefined
+      const remoteUrlRaw = remoteDatasetField as string | undefined
       const remoteUrl =
         typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
       const urlFeatureOn = Boolean(configRef.current?.allowRemoteUrlDataset)
