@@ -107,6 +107,108 @@ const buildSymbols = (rgb: readonly [number, number, number]) => {
   return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
 }
 
+const UPLOAD_PARAM_TYPES = [
+  "FILENAME",
+  "FILENAME_MUSTEXIST",
+  "DIRNAME",
+  "DIRNAME_MUSTEXIST",
+  "DIRNAME_SRC",
+  "LOOKUP_FILE",
+  "REPROJECTION_FILE",
+] as const
+
+const sanitizeOptGetUrl = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+const resolveUploadTargetParam = (
+  config: FmeExportConfig | null | undefined
+): string | null => {
+  const raw = config?.uploadTargetParamName
+  if (typeof raw !== "string") return null
+  const trimmed = raw.trim()
+  return trimmed || null
+}
+
+const isAbortError = (error: unknown): boolean => {
+  const matcher = /abort/i
+  if (typeof error === "string") {
+    return matcher.test(error)
+  }
+  if (!error || typeof error !== "object") return false
+  const maybeAny = error as { name?: unknown; code?: unknown; message?: unknown }
+  const name = String(maybeAny.name ?? maybeAny.code ?? "")
+  const message = String(maybeAny.message ?? "")
+  return matcher.test(name) || matcher.test(message)
+}
+
+const logIfNotAbort = (context: string, error: unknown): void => {
+  if (isAbortError(error)) return
+  try {
+    logWarn(context, error)
+  } catch {}
+}
+
+const parseSubmissionFormData = (
+  rawData: Record<string, unknown>
+): {
+  sanitizedFormData: Record<string, unknown>
+  uploadFile: File | null
+  remoteUrl: string
+} => {
+  const {
+    __upload_file__: uploadField,
+    __remote_dataset_url__: remoteDatasetField,
+    opt_geturl: optGetUrlField,
+    ...restFormData
+  } = rawData
+
+  const sanitizedOptGetUrl = sanitizeOptGetUrl(optGetUrlField)
+  const sanitizedFormData = sanitizedOptGetUrl
+    ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
+    : { ...restFormData }
+
+  const uploadFile = uploadField instanceof File ? uploadField : null
+  const remoteUrl = sanitizeOptGetUrl(remoteDatasetField) ?? ""
+
+  return { sanitizedFormData, uploadFile, remoteUrl }
+}
+
+const applyUploadedDatasetParam = ({
+  finalParams,
+  uploadedPath,
+  parameters,
+  explicitTarget,
+}: {
+  finalParams: Record<string, unknown>
+  uploadedPath?: string
+  parameters?: readonly WorkspaceParameter[] | null
+  explicitTarget: string | null
+}): void => {
+  if (!uploadedPath) return
+
+  if (explicitTarget) {
+    finalParams[explicitTarget] = uploadedPath
+    return
+  }
+
+  const candidate = (parameters ?? []).find((param) => {
+    const normalizedType = String(param?.type) as (typeof UPLOAD_PARAM_TYPES)[number]
+    return UPLOAD_PARAM_TYPES.includes(normalizedType)
+  })
+
+  if (candidate?.name) {
+    finalParams[candidate.name] = uploadedPath
+    return
+  }
+
+  if (typeof (finalParams as { SourceDataset?: unknown }).SourceDataset === "undefined") {
+    ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
+  }
+}
+
 // ArcGIS JS API modules
 const MODULES = [
   "esri/widgets/Sketch/SketchViewModel",
@@ -494,15 +596,7 @@ const setupSketchEventHandlers = (
         try {
           onDrawComplete(evt)
         } catch (err: any) {
-          const name = (err && (err.name || err.code)) || ""
-          const msg = err?.message || ""
-          const isAbort =
-            /abort/i.test(String(name)) || /abort/i.test(String(msg))
-          if (!isAbort) {
-            try {
-              logWarn("onDrawComplete error", err)
-            } catch {}
-          }
+          logIfNotAbort("onDrawComplete error", err)
         }
         break
 
@@ -1207,24 +1301,13 @@ export default function Widget(
       controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
-      const rawData = ((formData as any)?.data || {}) as {
-        [key: string]: unknown
-      }
-      const {
-        __upload_file__: uploadField,
-        __remote_dataset_url__: remoteDatasetField,
-        opt_geturl: rawOptGetUrl,
-        ...restFormData
-      } = rawData
-
-      const sanitizedFormData = {
-        ...restFormData,
-        ...(rawOptGetUrl !== undefined ? { opt_geturl: rawOptGetUrl } : {}),
-      }
-
-      // Identify a file uploaded via our explicit upload field
-      const uploadFile: File | null =
-        uploadField instanceof File ? uploadField : null
+      const rawFormData = ((formData as any)?.data || {}) as Record<
+        string,
+        unknown
+      >
+      const { sanitizedFormData, uploadFile, remoteUrl } = parseSubmissionFormData(
+        rawFormData
+      )
 
       // Build baseline params first (without opt_geturl)
       const baseParams = prepFmeParams(
@@ -1257,9 +1340,6 @@ export default function Widget(
         delete finalParams.opt_geturl
       }
 
-      const remoteUrlRaw = remoteDatasetField as string | undefined
-      const remoteUrl =
-        typeof remoteUrlRaw === "string" ? remoteUrlRaw.trim() : ""
       const urlFeatureOn = Boolean(configRef.current?.allowRemoteUrlDataset)
 
       // First pass: set opt_geturl only if URL is valid
@@ -1272,9 +1352,10 @@ export default function Widget(
       }
 
       // Second pass: if no opt_geturl set, consider upload fallback
-      const wantsUpload =
-        configRef.current?.allowRemoteDataset && uploadFile instanceof File
-      if (typeof finalParams.opt_geturl === "undefined" && wantsUpload) {
+      const wantsUpload = Boolean(
+        configRef.current?.allowRemoteDataset && uploadFile
+      )
+      if (typeof finalParams.opt_geturl === "undefined" && wantsUpload && uploadFile) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
           fmeClient.uploadToTemp(uploadFile, {
@@ -1283,39 +1364,12 @@ export default function Widget(
           })
         )
         const uploadedPath = (uploadResp?.data as any)?.path
-
-        // Find a suitable workspace parameter to assign the uploaded path
-        const params = reduxState.workspaceParameters || []
-        const explicitNameRaw = (configRef.current as any)
-          ?.uploadTargetParamName
-        const explicitName =
-          typeof explicitNameRaw === "string" && explicitNameRaw.trim()
-            ? explicitNameRaw.trim()
-            : null
-        if (uploadedPath && explicitName) {
-          finalParams[explicitName] = uploadedPath
-        } else {
-          const candidate = params.find((p: any) =>
-            [
-              "FILENAME",
-              "FILENAME_MUSTEXIST",
-              "DIRNAME",
-              "DIRNAME_MUSTEXIST",
-              "DIRNAME_SRC",
-              "LOOKUP_FILE",
-              "REPROJECTION_FILE",
-            ].includes(String(p?.type))
-          )
-
-          if (uploadedPath && candidate?.name) {
-            finalParams[candidate.name] = uploadedPath
-          } else if (uploadedPath) {
-            // Fallback to a common parameter name if present
-            if (typeof (finalParams as any).SourceDataset === "undefined") {
-              ;(finalParams as any).SourceDataset = uploadedPath
-            }
-          }
-        }
+        applyUploadedDatasetParam({
+          finalParams,
+          uploadedPath,
+          parameters: reduxState.workspaceParameters,
+          explicitTarget: resolveUploadTargetParam(configRef.current),
+        })
       }
 
       // Apply admin defaults and record for testing
@@ -1528,28 +1582,12 @@ export default function Widget(
         const maybePromise = (sketchViewModel as any).create(arg)
         if (maybePromise && typeof maybePromise.catch === "function") {
           maybePromise.catch((err: any) => {
-            const name = (err && (err.name || err.code)) || ""
-            const msg = err?.message || ""
-            const isAbort =
-              /abort/i.test(String(name)) || /abort/i.test(String(msg))
-            if (!isAbort) {
-              try {
-                logWarn("Sketch create promise error", err)
-              } catch {}
-            }
+            logIfNotAbort("Sketch create promise error", err)
           })
         }
       } catch (err: any) {
         // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
-        const name = (err && (err.name || err.code)) || ""
-        const msg = err?.message || ""
-        const isAbort =
-          /abort/i.test(String(name)) || /abort/i.test(String(msg))
-        if (!isAbort) {
-          try {
-            logWarn("Sketch create error", err)
-          } catch {}
-        }
+        logIfNotAbort("Sketch create error", err)
       }
     }
   })
