@@ -693,12 +693,6 @@ export interface JobDirectives {
   readonly failureTopics?: readonly string[]
 }
 
-export interface JobRequest {
-  readonly publishedParameters?: ReadonlyArray<{ name: string; value: unknown }>
-  readonly TMDirectives?: JobDirectives
-  readonly NMDirectives?: JobDirectives
-}
-
 export interface JobResult {
   readonly id: number
   readonly status: JobStatus
@@ -715,9 +709,6 @@ export interface JobResult {
 
 // JobResponse is same as JobResult for simplicity
 export type JobResponse = JobResult
-
-// Naming clarity for identifiers used across UI and API
-export type JobId = number
 
 export interface EsriModules {
   SketchViewModel: new (...a: any[]) => __esri.SketchViewModel
@@ -771,21 +762,6 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
-}
-
-export interface EsriGeometryJson {
-  readonly rings?: ReadonlyArray<
-    ReadonlyArray<
-      | Readonly<[number, number]>
-      | Readonly<[number, number, number]>
-      | Readonly<[number, number, number, number]>
-    >
-  >
-  readonly spatialReference?: {
-    readonly wkid?: number
-    readonly latestWkid?: number
-  }
-  readonly [key: string]: unknown
 }
 
 // Redux state
@@ -895,20 +871,6 @@ export interface JobDirectivesSectionProps {
   }
 }
 
-// Component props interfaces
-export interface ComponentProps extends BaseProps {
-  readonly orderResult?: ExportResult
-  readonly translate: (key: string) => string
-  readonly onReuseGeography?: () => void
-  readonly onBack?: () => void
-  readonly config?: FmeExportConfig
-  readonly workspaceParameters?: readonly WorkspaceParameter[]
-  readonly workspaceName?: string
-  readonly workspaceItem?: WorkspaceItemDetail
-  readonly onSubmit?: (data: unknown) => void
-  readonly isSubmitting?: boolean
-}
-
 // Workflow props
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
@@ -999,8 +961,3 @@ export interface StartupValidationOptions {
   readonly signal?: AbortSignal
   readonly mapConfigured?: boolean
 }
-
-// Store-local global state (immutable) used by reducer implementation
-export type FmeStoreGlobalState = ImmutableObject<{
-  readonly byId: { readonly [id: string]: ImmutableObject<FmeWidgetState> }
-}>
