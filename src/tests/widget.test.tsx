@@ -44,6 +44,7 @@ jest.mock("../shared/api", () => ({
         },
       },
     }),
+    dispose: jest.fn(),
   }),
 }))
 

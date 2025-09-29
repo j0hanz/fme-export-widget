@@ -82,6 +82,7 @@ jest.mock("../shared/api", () => {
     validateRepository: jest
       .fn()
       .mockResolvedValue({ status: 200, data: { exists: true } }),
+    dispose: jest.fn(),
   }
 
   // Default export: class constructor used by shared/services
@@ -540,6 +541,7 @@ describe("FME workspace discovery in Workflow", () => {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
       getWorkspaceParameters: jest.fn(),
+      dispose: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
 
@@ -624,6 +626,7 @@ describe("FME workspace discovery in Workflow", () => {
       getRepositoryItems: jest.fn(),
       getWorkspaceItem: jest.fn(),
       getWorkspaceParameters: jest.fn(),
+      dispose: jest.fn(),
     }
     createFmeFlowClient.mockImplementation(() => mockClient)
     mockClient.getRepositoryItems.mockRejectedValueOnce(new Error("boom"))

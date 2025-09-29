@@ -532,6 +532,7 @@ export class FmeFlowApiClient {
   private readonly basePath = API.BASE_PATH
   private abortController: AbortController | null = null
   private setupPromise: Promise<void>
+  private disposed = false
 
   constructor(config: FmeFlowConfig) {
     this.config = config
@@ -555,6 +556,36 @@ export class FmeFlowApiClient {
         })
         throw normalizedError
       })
+  }
+
+  private queueTeardown(serverUrl: string): void {
+    this.setupPromise = (this.setupPromise || Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        await addFmeInterceptor(serverUrl, "")
+      })
+      .catch((error) => {
+        logWarn("Failed to remove FME interceptor", {
+          host: extractHostFromUrl(serverUrl),
+          error,
+        })
+      })
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch (error) {
+        logWarn("Error aborting controller during dispose", error)
+      }
+    }
+    this.abortController = null
+
+    this.queueTeardown(this.config.serverUrl)
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -1389,6 +1420,10 @@ export class FmeFlowApiClient {
     endpoint: string,
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
+    if (this.disposed) {
+      throw makeError("CLIENT_DISPOSED")
+    }
+
     try {
       await this.setupPromise
     } catch (error) {
