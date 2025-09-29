@@ -1047,10 +1047,22 @@ export const Workflow: React.FC<WorkflowProps> = ({
     null
   )
 
+  const disposeClient = hooks.useEventCallback(() => {
+    if (clientRef.current?.dispose) {
+      try {
+        clientRef.current.dispose()
+      } catch (error) {
+        logWarn("Error disposing workflow FME client", error)
+      }
+    }
+    clientRef.current = null
+  })
+
   const getFmeClient = hooks.useEventCallback(() => {
     try {
       if (!config) return null
       // Always create a fresh client for each operation to avoid stale connections
+      disposeClient()
       clientRef.current = createFmeFlowClient(config)
       return clientRef.current
     } catch (e) {
@@ -1061,8 +1073,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Clear client when config changes
   hooks.useUpdateEffect(() => {
-    clientRef.current = null
-  }, [config])
+    disposeClient()
+  }, [config, disposeClient])
+
+  React.useEffect(() => () => disposeClient(), [disposeClient])
 
   const configuredRepository = toTrimmedString(config?.repository)
 

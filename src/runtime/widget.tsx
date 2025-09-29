@@ -681,6 +681,10 @@ export default function Widget(
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(reduxState.viewMode)
   const drawingToolRef = hooks.useLatest(reduxState.drawingTool)
+  const fmeClientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
+    null
+  )
+  const fmeClientKeyRef = React.useRef<string | null>(null)
   const startupTelemetryRef = hooks.useLatest<{
     previousViewMode: ViewMode | null
     isDrawing: boolean
@@ -704,6 +708,56 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
   }, [currentHex])
+
+  const disposeFmeClient = hooks.useEventCallback(() => {
+    if (fmeClientRef.current?.dispose) {
+      try {
+        fmeClientRef.current.dispose()
+      } catch (error) {
+        logWarn("Error disposing FME client", error)
+      }
+    }
+    fmeClientRef.current = null
+    fmeClientKeyRef.current = null
+  })
+
+  const getOrCreateFmeClient = hooks.useEventCallback(() => {
+    const latestConfig = configRef.current
+    if (!latestConfig) {
+      throw new Error("FME client configuration unavailable")
+    }
+
+    const keyParts = [
+      latestConfig.fmeServerUrl ?? (latestConfig as any).fme_server_url ?? "",
+      latestConfig.fmeServerToken ??
+        (latestConfig as any).fme_server_token ??
+        (latestConfig as any).fmw_server_token ??
+        "",
+      latestConfig.repository ?? "",
+      latestConfig.requestTimeout ?? "",
+    ].map((part) => (part ?? part === 0 ? String(part) : ""))
+    const key = keyParts.join("|")
+
+    if (!fmeClientRef.current || fmeClientKeyRef.current !== key) {
+      disposeFmeClient()
+      fmeClientRef.current = createFmeFlowClient(latestConfig as any)
+      fmeClientKeyRef.current = key
+    }
+
+    if (!fmeClientRef.current) {
+      throw new Error("Failed to initialize FME client")
+    }
+
+    return fmeClientRef.current
+  })
+
+  hooks.useUpdateEffect(() => {
+    if (!config) {
+      disposeFmeClient()
+    }
+  }, [config, disposeFmeClient])
+
+  React.useEffect(() => () => disposeFmeClient(), [disposeFmeClient])
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
@@ -1304,12 +1358,11 @@ export default function Widget(
         configRef.current
       )
       // Fetch email only for async mode
-      const [userEmail, fmeClient] = await Promise.all([
+      const fmeClient = getOrCreateFmeClient()
+      const userEmail =
         earlyMode === "async"
-          ? getEmail(configRef.current)
-          : Promise.resolve(""),
-        Promise.resolve(createFmeFlowClient(configRef.current as any)),
-      ])
+          ? await getEmail(configRef.current)
+          : ""
 
       const workspace = reduxState.selectedWorkspace
 

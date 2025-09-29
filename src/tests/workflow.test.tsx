@@ -17,6 +17,7 @@ const mockClient = {
   getRepositoryItems: jest.fn(),
   getWorkspaceItem: jest.fn(),
   getWorkspaceParameters: jest.fn(),
+  dispose: jest.fn(),
 }
 
 jest.mock("../shared/api", () => ({

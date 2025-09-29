@@ -149,6 +149,31 @@ describe("shared/api FmeFlowApiClient", () => {
     expect(absUrl).toBe("https://example.com/path")
   })
 
+  test("dispose removes FME interceptor and prevents future requests", async () => {
+    const client = makeClient()
+
+    await client.testConnection()
+    const interceptorsBefore =
+      (global as any).esriConfig.request.interceptors || []
+    expect(
+      interceptorsBefore.some((i: any) => i && i._fmeInterceptor)
+    ).toBe(true)
+
+    client.dispose()
+    await (client as any).setupPromise
+
+    const interceptorsAfter =
+      (global as any).esriConfig.request.interceptors || []
+    expect(
+      interceptorsAfter.some((i: any) => i && i._fmeInterceptor)
+    ).toBe(false)
+
+    await expect(client.testConnection()).rejects.toMatchObject({
+      code: "CLIENT_DISPOSED",
+      message: "CLIENT_DISPOSED",
+    })
+  })
+
   test("setApiSettings sets esriConfig.request.maxUrlLength to at least 4000", async () => {
     const client = makeClient()
     // Trigger an async path to ensure settings applied
