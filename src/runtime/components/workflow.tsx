@@ -318,8 +318,9 @@ const useWorkspaceLoader = (opts: {
         : undefined
     if (!targetRepository) {
       logWarn("Workspace loading skipped - repository not configured")
-      setError(translate("failedToLoadWorkspaces"))
-      dispatchAction(fmeActions.clearWorkspaceState(undefined, widgetId))
+      if (isMountedRef.current) {
+        setError(null)
+      }
       return
     }
 

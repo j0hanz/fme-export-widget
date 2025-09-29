@@ -78,7 +78,7 @@ import type {
 
 // Configuration
 export const config = {
-  icon: { small: 14, medium: 16, large: 20 },
+  icon: { small: 14, medium: 16, large: 24 },
   tooltip: {
     delay: { enter: 100, next: 0, leave: 0, touch: 700 },
     position: {
@@ -1285,6 +1285,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
                 : `tab-${i}-${item.label}`
             }
             icon={item.icon}
+            size="lg"
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
