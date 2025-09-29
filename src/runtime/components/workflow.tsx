@@ -1074,6 +1074,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
       ? config.repository.trim()
       : undefined
 
+  const previousConfiguredRepositoryRef = React.useRef<string | undefined>(
+    configuredRepository
+  )
+
   const {
     isLoading: isLoadingWorkspaces,
     error: workspaceError,
@@ -1175,6 +1179,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Clear workspace state when repository changes
   hooks.useUpdateEffect(() => {
+    const previousRepository = previousConfiguredRepositoryRef.current
+    if (previousRepository === configuredRepository) {
+      return
+    }
+
+    previousConfiguredRepositoryRef.current = configuredRepository
+
     reduxDispatch(
       fmeActions.clearWorkspaceState(configuredRepository, effectiveWidgetId)
     )

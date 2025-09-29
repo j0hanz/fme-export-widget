@@ -58,6 +58,57 @@ let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
+const ESRI_GLOBAL_MOCK_KEYS = [
+  "esriRequest",
+  "esriConfig",
+  "projection",
+  "webMercatorUtils",
+  "SpatialReference",
+] as const
+
+type EsriMockKey = (typeof ESRI_GLOBAL_MOCK_KEYS)[number]
+
+const getEsriMockFallback = (key: EsriMockKey): unknown => {
+  switch (key) {
+    case "esriRequest":
+      return () => Promise.resolve({ data: null })
+    case "esriConfig":
+      return {
+        request: { maxUrlLength: 4000, interceptors: [] },
+      }
+    case "projection":
+    case "webMercatorUtils":
+      return {}
+    case "SpatialReference":
+      return function spatialReferenceMock() {
+        return {}
+      }
+  }
+}
+
+const applyGlobalEsriMocks = (source: any): void => {
+  for (const key of ESRI_GLOBAL_MOCK_KEYS) {
+    const value = source?.[key] ?? getEsriMockFallback(key)
+    switch (key) {
+      case "esriRequest":
+        _esriRequest = value
+        break
+      case "esriConfig":
+        _esriConfig = value
+        break
+      case "projection":
+        _projection = value
+        break
+      case "webMercatorUtils":
+        _webMercatorUtils = value
+        break
+      case "SpatialReference":
+        _SpatialReference = value
+        break
+    }
+  }
+}
+
 /**
  * Reset loaded ArcGIS modules cache and computed limits (used in tests).
  */
@@ -123,27 +174,12 @@ async function ensureEsri(): Promise<void> {
       const globalAny =
         typeof globalThis !== "undefined" ? (globalThis as any) : undefined
 
-      // If we have global mocks set up, use them directly
       if (
-        globalAny?.esriRequest ||
-        globalAny?.esriConfig ||
-        globalAny?.projection ||
-        globalAny?.webMercatorUtils ||
-        globalAny?.SpatialReference
+        globalAny &&
+        ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
       ) {
         logWarn("Using global ArcGIS mocks in test environment")
-        _esriRequest =
-          globalAny?.esriRequest || (() => Promise.resolve({ data: null }))
-        _esriConfig = globalAny?.esriConfig || {
-          request: { maxUrlLength: 4000, interceptors: [] },
-        }
-        _projection = globalAny?.projection || {}
-        _webMercatorUtils = globalAny?.webMercatorUtils || {}
-        _SpatialReference =
-          globalAny?.SpatialReference ||
-          function () {
-            return {}
-          }
+        applyGlobalEsriMocks(globalAny)
         return
       }
     }

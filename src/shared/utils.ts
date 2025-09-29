@@ -324,6 +324,14 @@ const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "schedule",
 ] as const
 const SCHEDULE_TRIGGER_DEFAULT = "runonce"
+const SCHEDULE_METADATA_FIELDS = [
+  "start",
+  "name",
+  "category",
+  "description",
+  "trigger",
+] as const
+const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
 
 const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
@@ -335,44 +343,40 @@ const sanitizeScheduleMetadata = (
     return trimmed.length > 0 ? trimmed : undefined
   }
 
-  const cleaned: { [key: string]: unknown } = {}
+  if (mode !== "schedule") {
+    const pruned: { [key: string]: unknown } = {}
+    for (const [key, value] of Object.entries(data)) {
+      if (!SCHEDULE_METADATA_KEYS.has(key)) {
+        pruned[key] = value
+      }
+    }
+    return pruned
+  }
+
+  const sanitized: { [key: string]: unknown } = {}
   for (const [key, value] of Object.entries(data)) {
-    switch (key) {
-      case "start":
-      case "name":
-      case "category":
-      case "description":
-        if (mode !== "schedule") {
-          break
-        }
-        {
-          const trimmed = trimmedString(value)
-          if (trimmed) cleaned[key] = trimmed
-        }
-        break
-      case "trigger":
-        if (mode !== "schedule") {
-          break
-        }
-        {
-          const trimmed = trimmedString(value)
-          cleaned.trigger = trimmed || SCHEDULE_TRIGGER_DEFAULT
-        }
-        break
-      default:
-        cleaned[key] = value
+    if (!SCHEDULE_METADATA_KEYS.has(key)) {
+      sanitized[key] = value
+      continue
+    }
+
+    if (key === "trigger") {
+      const trimmedTrigger = trimmedString(value)
+      sanitized.trigger = trimmedTrigger ?? SCHEDULE_TRIGGER_DEFAULT
+      continue
+    }
+
+    const trimmedValue = trimmedString(value)
+    if (trimmedValue) {
+      sanitized[key] = trimmedValue
     }
   }
 
-  if (mode !== "schedule") {
-    return cleaned
+  if (sanitized.trigger === undefined) {
+    sanitized.trigger = SCHEDULE_TRIGGER_DEFAULT
   }
 
-  if (cleaned.trigger === undefined) {
-    cleaned.trigger = SCHEDULE_TRIGGER_DEFAULT
-  }
-
-  return cleaned
+  return sanitized
 }
 
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
@@ -810,17 +814,12 @@ export const prepFmeParams = (
     [key: string]: unknown
   }
   const chosen = determineServiceMode({ data: original }, config)
-  const withTrigger: { [key: string]: unknown } =
-    chosen === "schedule" && !original.trigger
-      ? { ...original, trigger: SCHEDULE_TRIGGER_DEFAULT }
-      : { ...original }
-
   const {
     _serviceMode: _ignoredServiceMode,
     __upload_file__: _ignoredUpload,
     __remote_dataset_url__: _ignoredRemote,
     ...publicFields
-  } = withTrigger
+  } = original
 
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 

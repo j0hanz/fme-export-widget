@@ -122,12 +122,14 @@ const MODULES = [
 ] as const
 
 // Safe operation helpers
-const runSafely = (
-  operation: () => void,
-  context = "ArcGIS safe operation failed"
+const safely = <T,>(
+  resource: T | null | undefined,
+  context = "ArcGIS safe operation failed",
+  operation: (value: T) => void
 ): void => {
+  if (!resource) return
   try {
-    operation()
+    operation(resource)
   } catch (error) {
     logWarn(context, error)
   }
@@ -137,20 +139,18 @@ const safeCancelSketch = (
   vm?: __esri.SketchViewModel | null,
   context = "Failed to cancel SketchViewModel"
 ): void => {
-  if (!vm) return
-  runSafely(() => {
-    vm.cancel()
-  }, context)
+  safely(vm, context, (model) => {
+    model.cancel()
+  })
 }
 
 const safeClearLayer = (
   layer?: __esri.GraphicsLayer | null,
   context = "Failed to clear GraphicsLayer"
 ): void => {
-  if (!layer) return
-  runSafely(() => {
-    layer.removeAll()
-  }, context)
+  safely(layer, context, (graphics) => {
+    graphics.removeAll()
+  })
 }
 
 const removeLayerFromMap = (
@@ -158,12 +158,12 @@ const removeLayerFromMap = (
   layer?: __esri.GraphicsLayer | null,
   context = "Failed to remove GraphicsLayer from map"
 ): void => {
-  if (!jmv || !layer) return
-  runSafely(() => {
-    if (jmv.view?.map && layer.parent) {
-      jmv.view.map.remove(layer)
+  if (!jmv?.view?.map) return
+  safely(layer, context, (graphicsLayer) => {
+    if (graphicsLayer.parent) {
+      jmv.view.map.remove(graphicsLayer)
     }
-  }, context)
+  })
 }
 
 // Consolidated module and resource management
@@ -269,29 +269,27 @@ const useMapResources = () => {
     (logSuffix: string, resetMapView: boolean) => {
       const { sketchViewModel, graphicsLayer, jimuMapView } = state
 
-      if (sketchViewModel) {
-        safeCancelSketch(
-          sketchViewModel,
-          `Error ${logSuffix} SketchViewModel (cancel)`
-        )
-        if (typeof sketchViewModel.destroy === "function") {
-          runSafely(() => {
-            sketchViewModel.destroy()
-          }, `Error ${logSuffix} SketchViewModel (destroy)`)
-        }
-      }
+      safeCancelSketch(
+        sketchViewModel,
+        `Error ${logSuffix} SketchViewModel (cancel)`
+      )
 
-      if (graphicsLayer) {
-        removeLayerFromMap(
-          jimuMapView,
-          graphicsLayer,
-          `Error ${logSuffix} GraphicsLayer (remove)`
-        )
-        safeClearLayer(
-          graphicsLayer,
-          `Error ${logSuffix} GraphicsLayer (clear)`
-        )
-      }
+      safely(
+        sketchViewModel,
+        `Error ${logSuffix} SketchViewModel (destroy)`,
+        (model) => {
+          if (typeof model.destroy === "function") {
+            model.destroy()
+          }
+        }
+      )
+
+      removeLayerFromMap(
+        jimuMapView,
+        graphicsLayer,
+        `Error ${logSuffix} GraphicsLayer (remove)`
+      )
+      safeClearLayer(graphicsLayer, `Error ${logSuffix} GraphicsLayer (clear)`)
 
       setState((prev) => ({
         ...prev,
@@ -1419,21 +1417,27 @@ export default function Widget(
   // Update symbols on color change
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
-    if (sketchViewModel && syms) {
-      runSafely(() => {
-        ;(sketchViewModel as any).polygonSymbol = syms.polygon
-        ;(sketchViewModel as any).polylineSymbol = syms.polyline
-        ;(sketchViewModel as any).pointSymbol = syms.point
-      }, "Error applying drawing symbols to SketchViewModel")
-    }
-    if (graphicsLayer && syms) {
-      runSafely(() => {
-        graphicsLayer.graphics.forEach((g: any) => {
-          if (g?.geometry?.type === "polygon") {
-            g.symbol = syms.polygon
-          }
-        })
-      }, "Error updating drawing symbols on GraphicsLayer")
+    if (syms) {
+      safely(
+        sketchViewModel,
+        "Error applying drawing symbols to SketchViewModel",
+        (model) => {
+          ;(model as any).polygonSymbol = syms.polygon
+          ;(model as any).polylineSymbol = syms.polyline
+          ;(model as any).pointSymbol = syms.point
+        }
+      )
+      safely(
+        graphicsLayer,
+        "Error updating drawing symbols on GraphicsLayer",
+        (layer) => {
+          layer.graphics.forEach((g: any) => {
+            if (g?.geometry?.type === "polygon") {
+              g.symbol = syms.polygon
+            }
+          })
+        }
+      )
     }
   }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
