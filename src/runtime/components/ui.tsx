@@ -76,6 +76,9 @@ import type {
   TranslateFn,
 } from "../../config"
 
+// -----------------------------------------------------------------------------
+// Configuration & constants
+
 // Configuration
 export const config = {
   icon: { small: 14, medium: 16, large: 24 },
@@ -118,6 +121,7 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   email: emailIcon,
 }
 
+// -----------------------------------------------------------------------------
 // Theme-aware styles
 const getTypographyStyle = (
   typographyVariant: ImmutableObject<TypographyStyle>
@@ -279,21 +283,16 @@ const createStyles = (theme: IMThemeVariables) => {
   } as const
 }
 
-// Theme-aware styles hook with stable reference caching
-export const useStyles = () => {
+type Styles = ReturnType<typeof createStyles>
+
+// Theme-aware styles hook with memoization to avoid stale style references
+export const useStyles = (): Styles => {
   const theme = useTheme()
-  const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
-  const themeRef = React.useRef(theme)
-
-  if (!stylesRef.current || themeRef.current !== theme) {
-    stylesRef.current = createStyles(theme)
-    themeRef.current = theme
-  }
-
-  return stylesRef.current || createStyles(theme)
+  return React.useMemo(() => createStyles(theme), [theme])
 }
 
-// Utility functions
+// -----------------------------------------------------------------------------
+// Hooks & utility helpers
 let idSeq = 0
 
 const useId = (): string => {
@@ -344,9 +343,12 @@ const withId = (
 const applyComponentStyles = (
   base: Array<ReturnType<typeof css> | undefined>,
   customStyle?: React.CSSProperties
-) => {
-  return [...base, styleCss(customStyle)].filter(Boolean)
-}
+) => [...base, styleCss(customStyle)].filter(Boolean)
+
+const applyFullWidthStyles = (
+  styles: Styles,
+  customStyle?: React.CSSProperties
+) => applyComponentStyles([styles.fullWidth], customStyle)
 
 // Build common ARIA attributes for form inputs/areas
 const getFormAria = (opts: {
@@ -403,6 +405,34 @@ const wrapWithTooltip = (
   )
 }
 
+const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
+  (placement as any) === "auto"
+    ? config.tooltip.position.top
+    : placement
+
+const createTooltipAnchor = (
+  child: React.ReactElement,
+  tooltipContent: React.ReactNode
+) => {
+  const childProps = (child as any)?.props || {}
+  const isChildDisabled = Boolean(
+    childProps.disabled || childProps["aria-disabled"]
+  )
+
+  if (!isChildDisabled) {
+    return child
+  }
+
+  const ariaLabel =
+    typeof tooltipContent === "string" ? tooltipContent : undefined
+
+  return (
+    <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>
+      {child}
+    </span>
+  )
+}
+
 // Render the required mark with tooltip and proper aria
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
@@ -419,6 +449,9 @@ const getRequiredMark = (
     </span>
   </Tooltip>
 )
+
+// -----------------------------------------------------------------------------
+// Primitive UI elements
 
 // Button content component extracted from Button
 const BtnContent: React.FC<BtnContentProps> = ({
@@ -519,37 +552,23 @@ export const Tooltip: React.FC<TooltipProps> = ({
   if (!React.isValidElement(children) || !tooltipContent || disabled) {
     return <>{children}</>
   }
-  const isChildDisabled = Boolean(
-    (children as any)?.props?.disabled ||
-      (children as any)?.props?.["aria-disabled"]
-  )
-  const anchor = isChildDisabled ? (
-    <span
-      aria-disabled="true"
-      tabIndex={0}
-      aria-label={
-        typeof tooltipContent === "string" ? tooltipContent : undefined
-      }
-    >
-      {children}
-    </span>
-  ) : (
-    children
-  )
-  const placementProp = (placement as any) === "auto" ? "top" : placement
+  const anchor = createTooltipAnchor(children, tooltipContent)
+  const placementProp = sanitizeTooltipPlacement(placement)
 
   return (
     <JimuTooltip
       title={tooltipContent as any}
       showArrow={showArrow}
       placement={placementProp as any}
-      disabled={false}
       {...otherProps}
     >
       {anchor}
     </JimuTooltip>
   )
 }
+
+// -----------------------------------------------------------------------------
+// Form controls
 
 // Checkbox component
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
@@ -608,7 +627,7 @@ export const Input: React.FC<InputProps> = ({
       maxLength={maxLength}
       title={errorText}
       {...aria}
-      css={applyComponentStyles([styles.fullWidth], (props as any).style)}
+      css={applyFullWidthStyles(styles, (props as any).style)}
     />
   )
 }
@@ -671,7 +690,7 @@ export const UrlInput: React.FC<{
         const sanitized = raw
         onChange?.(sanitized)
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -703,7 +722,7 @@ export const Radio: React.FC<{
   const isControlled = value !== undefined
   return (
     <div
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -764,7 +783,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -812,7 +831,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -834,7 +853,7 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -855,7 +874,7 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -894,7 +913,7 @@ export const DatePickerWrapper: React.FC<{
         // also try opening on mouse/touch down for convenience
         openPicker()
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+        css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -1063,7 +1082,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     >
       {(options || [])
         .map((option) => {
@@ -1150,6 +1169,9 @@ export const MultiSelectControl: React.FC<{
     </div>
   )
 }
+
+// -----------------------------------------------------------------------------
+// Composite controls
 
 // Button component
 export const Button: React.FC<ButtonProps> = ({
@@ -1375,6 +1397,9 @@ const useLoadingLatch = (
   }
 }
 
+// -----------------------------------------------------------------------------
+// View components
+
 // StateView component
 const StateView: React.FC<StateViewProps> = ({
   state,
@@ -1386,24 +1411,26 @@ const StateView: React.FC<StateViewProps> = ({
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
-  const DefaultActions = hooks.useEventCallback(
+
+  const defaultActionsRenderer = hooks.useEventCallback(
     ({
       actions,
       ariaLabel,
     }: {
       actions?: readonly ViewAction[]
       ariaLabel: string
-    }): JSX.Element | null => {
+    }): React.ReactNode => {
       if (!actions?.length) return null
+
       return (
         <div role="group" aria-label={ariaLabel}>
-          {actions.map((a, i) => (
+          {actions.map((action, index) => (
             <Button
-              key={i}
-              onClick={a.onClick}
-              disabled={a.disabled}
-              variant={a.variant}
-              text={a.label}
+              key={index}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              variant={action.variant}
+              text={action.label}
               block
             />
           ))}
@@ -1412,7 +1439,13 @@ const StateView: React.FC<StateViewProps> = ({
     }
   )
 
-  const Actions = renderActions
+  const renderActionsFn: ({
+    actions,
+    ariaLabel,
+  }: {
+    actions?: readonly ViewAction[]
+    ariaLabel: string
+  }) => React.ReactNode = renderActions
     ? ({
         actions,
         ariaLabel,
@@ -1420,43 +1453,35 @@ const StateView: React.FC<StateViewProps> = ({
         actions?: readonly ViewAction[]
         ariaLabel: string
       }) => renderActions(actions, ariaLabel)
-    : DefaultActions
+    : defaultActionsRenderer
 
-  const content = (() => {
-    const renderLoadingView = () => {
-      const message = snapshot?.message
-      const detail = snapshot?.detail
+  const renderLoadingState = () => {
+    const message = snapshot?.message
+    const detail = snapshot?.detail
 
-      return (
-        <div css={styles.centered} role="status" aria-live="polite">
-          {showLoading && (
-            <Loading
-              type={LoadingType.Donut}
-              width={config.loading.width}
-              height={config.loading.height}
-            />
-          )}
-          {(message || detail) && (
-            <div
-              css={styles.overlay}
-              aria-label={translate("ariaLoadingDetails")}
-            >
-              {message && <div>{message}</div>}
-              {detail && <div css={styles.typography.caption}>{detail}</div>}
-            </div>
-          )}
-        </div>
-      )
-    }
+    return (
+      <div css={styles.centered} role="status" aria-live="polite">
+        {showLoading && (
+          <Loading
+            type={LoadingType.Donut}
+            width={config.loading.width}
+            height={config.loading.height}
+          />
+        )}
+        {(message || detail) && (
+          <div
+            css={styles.overlay}
+            aria-label={translate("ariaLoadingDetails")}
+          >
+            {message && <div>{message}</div>}
+            {detail && <div css={styles.typography.caption}>{detail}</div>}
+          </div>
+        )}
+      </div>
+    )
+  }
 
-    if (state.kind === "loading") {
-      return renderLoadingView()
-    }
-
-    if (showLoading) {
-      return renderLoadingView()
-    }
-
+  const renderStateByKind = (): React.ReactNode => {
     switch (state.kind) {
       case "error":
         return (
@@ -1473,20 +1498,20 @@ const StateView: React.FC<StateViewProps> = ({
                 {translate("errorCode")}: {state.code}
               </div>
             )}
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaErrorActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaErrorActions"),
+            })}
           </div>
         )
       case "empty":
         return (
           <div role="status" aria-live="polite">
             <div>{state.message}</div>
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaEmptyActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaEmptyActions"),
+            })}
           </div>
         )
       case "success":
@@ -1498,16 +1523,24 @@ const StateView: React.FC<StateViewProps> = ({
             {state.message && (
               <div css={styles.typography.caption}>{state.message}</div>
             )}
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaSuccessActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaSuccessActions"),
+            })}
           </div>
         )
       case "content":
         return <>{state.node}</>
+      case "loading":
+      default:
+        return renderLoadingState()
     }
-  })()
+  }
+
+  const content =
+    state.kind === "loading" || showLoading
+      ? renderLoadingState()
+      : renderStateByKind()
 
   const shouldCenter = typeof center === "boolean" ? center : showLoading
 
@@ -1565,6 +1598,9 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     </div>
   )
 }
+
+// -----------------------------------------------------------------------------
+// Form layout components
 
 // Form component
 export const Form: React.FC<FormProps> = (props) => {
