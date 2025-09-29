@@ -222,6 +222,9 @@ const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
 
+const toOptionalString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined
+
 // Reducer for a single widget instance
 const withRepositoryContext = (
   state: ImmutableObject<FmeWidgetState>,
@@ -233,7 +236,7 @@ const withRepositoryContext = (
   }
 
   const fallbackValue =
-    fallback !== undefined ? fallback : state.currentRepository ?? null
+    fallback !== undefined ? fallback : (state.currentRepository ?? null)
   const nextRepository = repository ?? fallbackValue
 
   return nextRepository === state.currentRepository
@@ -303,32 +306,40 @@ const reduceOne = (
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    case FmeActionType.SET_WORKSPACE_ITEMS:
+    case FmeActionType.SET_WORKSPACE_ITEMS: {
+      const workspaceRepo = toOptionalString(action.repository)
       return withRepositoryContext(
         state.set("workspaceItems", action.workspaceItems),
-        action.repository,
+        workspaceRepo,
         null
       )
+    }
 
-    case FmeActionType.SET_WORKSPACE_PARAMETERS:
+    case FmeActionType.SET_WORKSPACE_PARAMETERS: {
+      const parametersRepo = toOptionalString(action.repository)
       return withRepositoryContext(
         state
           .set("workspaceParameters", action.workspaceParameters)
           .set("selectedWorkspace", action.workspaceName),
-        action.repository
+        parametersRepo
       )
+    }
 
-    case FmeActionType.SET_SELECTED_WORKSPACE:
+    case FmeActionType.SET_SELECTED_WORKSPACE: {
+      const selectedRepo = toOptionalString(action.repository)
       return withRepositoryContext(
         state.set("selectedWorkspace", action.workspaceName),
-        action.repository
+        selectedRepo
       )
+    }
 
-    case FmeActionType.SET_WORKSPACE_ITEM:
+    case FmeActionType.SET_WORKSPACE_ITEM: {
+      const itemRepo = toOptionalString(action.repository)
       return withRepositoryContext(
         state.set("workspaceItem", action.workspaceItem),
-        action.repository
+        itemRepo
       )
+    }
 
     case FmeActionType.SET_LOADING_FLAGS: {
       let newState = state
@@ -353,7 +364,8 @@ const reduceOne = (
       return newState
     }
 
-    case FmeActionType.CLEAR_WORKSPACE_STATE:
+    case FmeActionType.CLEAR_WORKSPACE_STATE: {
+      const nextRepo = toOptionalString(action.newRepository)
       return withRepositoryContext(
         state
           .set("workspaceItems", [])
@@ -363,9 +375,10 @@ const reduceOne = (
           .set("formValues", {})
           .set("isLoadingWorkspaces", false)
           .set("isLoadingParameters", false),
-        action.newRepository,
+        nextRepo,
         null
       )
+    }
 
     case FmeActionType.SET_ERROR:
       return state.set("error", action.error)
@@ -375,9 +388,8 @@ const reduceOne = (
 
     case FmeActionType.SET_EXPORT_ERROR:
       return state.set("exportError", action.error)
-    default:
-      return state
   }
+  return state
 }
 
 // Global reducer managing per-widget sub-states

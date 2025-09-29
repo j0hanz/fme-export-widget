@@ -203,7 +203,11 @@ export const isAbortError = (error: unknown): boolean => {
     return /abort/i.test(error)
   }
   if (typeof error !== "object") return false
-  const candidate = error as { name?: unknown; code?: unknown; message?: unknown }
+  const candidate = error as {
+    name?: unknown
+    code?: unknown
+    message?: unknown
+  }
   const toStringSafe = (v: unknown): string => {
     if (v === null || v === undefined) return ""
     if (typeof v === "string") return v
@@ -246,8 +250,10 @@ export const collectTrimmedStrings = (
   values: Iterable<unknown> | null | undefined
 ): string[] => mapDefined(values, (value) => toTrimmedString(value))
 
-const toRecord = (value: unknown): Record<string, unknown> | null =>
-  value && typeof value === "object" ? (value as Record<string, unknown>) : null
+const toRecord = (value: unknown): { [key: string]: unknown } | null =>
+  value && typeof value === "object"
+    ? (value as { [key: string]: unknown })
+    : null
 
 const collectStringsFromProp = (
   values: Iterable<unknown> | null | undefined,

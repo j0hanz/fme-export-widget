@@ -29,6 +29,7 @@ import type {
   WorkspaceParameter,
   WorkspaceItemDetail,
   ErrorState,
+  ApiResponse,
 } from "../config"
 import {
   makeErrorView,
@@ -602,7 +603,7 @@ const setupSketchEventHandlers = (
       }
     }
   })
-  }
+}
 
 // Area formatting is imported from shared/utils
 
@@ -634,9 +635,9 @@ export default function Widget(
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(reduxState.viewMode)
   const drawingToolRef = hooks.useLatest(reduxState.drawingTool)
-  const fmeClientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
-    null
-  )
+  const fmeClientRef = React.useRef<ReturnType<
+    typeof createFmeFlowClient
+  > | null>(null)
   const fmeClientKeyRef = React.useRef<string | null>(null)
   const startupTelemetryRef = hooks.useLatest<{
     previousViewMode: ViewMode | null
@@ -688,7 +689,7 @@ export default function Widget(
         "",
       latestConfig.repository ?? "",
       latestConfig.requestTimeout ?? "",
-    ].map((part) => (part ?? part === 0 ? String(part) : ""))
+    ].map((part) => ((part ?? part === 0) ? String(part) : ""))
     const key = keyParts.join("|")
 
     if (!fmeClientRef.current || fmeClientKeyRef.current !== key) {
@@ -1313,9 +1314,7 @@ export default function Widget(
       // Fetch email only for async mode
       const fmeClient = getOrCreateFmeClient()
       const userEmail =
-        earlyMode === "async"
-          ? await getEmail(configRef.current)
-          : ""
+        earlyMode === "async" ? await getEmail(configRef.current) : ""
 
       const workspace = reduxState.selectedWorkspace
 
@@ -1381,13 +1380,13 @@ export default function Widget(
         uploadFile
       ) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
-        const uploadResp = await makeCancelable(
+        const uploadResp = await makeCancelable<ApiResponse<{ path: string }>>(
           fmeClient.uploadToTemp(uploadFile, {
             subfolder,
             signal: controller.signal,
           })
         )
-        const uploadedPath = (uploadResp?.data as any)?.path
+        const uploadedPath = uploadResp.data?.path
         applyUploadedDatasetParam({
           finalParams,
           uploadedPath,

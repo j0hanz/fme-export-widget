@@ -257,10 +257,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         : []
 
       const local = toTrimmedString(localRepository)
-      const names = uniqueStrings([
-        ...(local ? [local] : []),
-        ...available,
-      ])
+      const names = uniqueStrings([...(local ? [local] : []), ...available])
 
       return names.map((name) => ({ label: name, value: name }))
     }

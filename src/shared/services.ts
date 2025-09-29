@@ -60,9 +60,9 @@ const MULTI_SELECT_TYPES = new Set<ParameterType>([
   ParameterType.ATTRIBUTE_LIST,
 ])
 
-const PARAMETER_FIELD_TYPE_MAP: Readonly<
-  Partial<Record<ParameterType, FormFieldType>>
-> = Object.freeze({
+const PARAMETER_FIELD_TYPE_MAP: Readonly<{
+  [K in ParameterType]?: FormFieldType
+}> = Object.freeze({
   [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
   [ParameterType.INTEGER]: FormFieldType.NUMBER,
   [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
@@ -307,11 +307,7 @@ export class ParameterFormService {
 
     if (MULTI_SELECT_TYPES.has(param.type)) {
       const values = Array.isArray(value) ? value : [value]
-      if (
-        values.some(
-          (v) => !validChoices.has(normalizeParameterValue(v))
-        )
-      ) {
+      if (values.some((v) => !validChoices.has(normalizeParameterValue(v)))) {
         return `${param.name}:choice`
       }
     } else if (!validChoices.has(normalizeParameterValue(value))) {
@@ -326,29 +322,28 @@ export class ParameterFormService {
   ): readonly DynamicFieldConfig[] {
     if (!parameters?.length) return []
 
-    return this.getRenderableParameters(parameters)
-      .map((param) => {
-        const type = this.getFieldType(param)
-        const options = this.mapListOptions(param.listOptions)
-        const { min, max, step } = this.getSliderMeta(param)
-        const field: DynamicFieldConfig = {
-          name: param.name,
-          label: param.description || param.name,
-          type,
-          required: !param.optional,
-          readOnly: type === FormFieldType.MESSAGE,
-          description: param.description,
-          defaultValue: param.defaultValue as FormPrimitive,
-          placeholder: param.description || "",
-          // Only include options if non-empty
-          ...(options?.length ? { options: [...options] } : {}),
-          ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
-          ...(min !== undefined || max !== undefined || step !== undefined
-            ? { min, max, step }
-            : {}),
-        }
-        return field
-      }) as readonly DynamicFieldConfig[]
+    return this.getRenderableParameters(parameters).map((param) => {
+      const type = this.getFieldType(param)
+      const options = this.mapListOptions(param.listOptions)
+      const { min, max, step } = this.getSliderMeta(param)
+      const field: DynamicFieldConfig = {
+        name: param.name,
+        label: param.description || param.name,
+        type,
+        required: !param.optional,
+        readOnly: type === FormFieldType.MESSAGE,
+        description: param.description,
+        defaultValue: param.defaultValue as FormPrimitive,
+        placeholder: param.description || "",
+        // Only include options if non-empty
+        ...(options?.length ? { options: [...options] } : {}),
+        ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
+        ...(min !== undefined || max !== undefined || step !== undefined
+          ? { min, max, step }
+          : {}),
+      }
+      return field
+    }) as readonly DynamicFieldConfig[]
   }
 
   /** Map parameter type to a UI field type. */

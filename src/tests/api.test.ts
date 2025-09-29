@@ -155,18 +155,18 @@ describe("shared/api FmeFlowApiClient", () => {
     await client.testConnection()
     const interceptorsBefore =
       (global as any).esriConfig.request.interceptors || []
-    expect(
-      interceptorsBefore.some((i: any) => i && i._fmeInterceptor)
-    ).toBe(true)
+    expect(interceptorsBefore.some((i: any) => i && i._fmeInterceptor)).toBe(
+      true
+    )
 
     client.dispose()
     await (client as any).setupPromise
 
     const interceptorsAfter =
       (global as any).esriConfig.request.interceptors || []
-    expect(
-      interceptorsAfter.some((i: any) => i && i._fmeInterceptor)
-    ).toBe(false)
+    expect(interceptorsAfter.some((i: any) => i && i._fmeInterceptor)).toBe(
+      false
+    )
 
     await expect(client.testConnection()).rejects.toMatchObject({
       code: "CLIENT_DISPOSED",

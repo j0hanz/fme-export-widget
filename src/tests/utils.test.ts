@@ -154,11 +154,7 @@ describe("shared/utils", () => {
     })
 
     test("uniqueStrings preserves order and removes duplicates", () => {
-      expect(uniqueStrings(["a", "b", "a", "a", "c"])).toEqual([
-        "a",
-        "b",
-        "c",
-      ])
+      expect(uniqueStrings(["a", "b", "a", "a", "c"])).toEqual(["a", "b", "c"])
     })
 
     test("extractRepositoryNames handles arrays and nested collections", () => {
