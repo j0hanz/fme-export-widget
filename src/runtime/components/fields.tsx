@@ -260,7 +260,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <DateTimePickerWrapper
             value={val}
             onChange={(v) => {
-              const out = inputToFmeDateTime(v)
+              const original =
+                typeof fieldValue === "string" ? fieldValue : undefined
+              const out = inputToFmeDateTime(v, original)
               onChange(out as FormPrimitive)
             }}
             disabled={field.readOnly}
@@ -498,6 +500,58 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
+      case FormFieldType.GEOMETRY: {
+        const trimmed = asString(fieldValue).trim()
+        if (!trimmed) {
+          return (
+            <React.Fragment data-testid="geometry-field">
+              {translate("geometryFieldMissing")}
+            </React.Fragment>
+          )
+        }
+
+        let rings = 0
+        let vertices = 0
+        let preview = trimmed
+
+        try {
+          const parsed = JSON.parse(trimmed)
+          const parsedRings = Array.isArray(parsed?.rings)
+            ? (parsed.rings as unknown[])
+            : []
+          rings = parsedRings.length
+          for (const ring of parsedRings) {
+            if (!Array.isArray(ring)) continue
+            for (const vertex of ring as unknown[]) {
+              if (Array.isArray(vertex)) {
+                vertices += 1
+              }
+            }
+          }
+          preview = JSON.stringify(parsed, null, 2)
+        } catch {
+          // Keep fallback preview and zero counts when parsing fails
+        }
+
+        const truncated =
+          preview.length > 1500 ? `${preview.slice(0, 1500)}…` : preview
+
+        return (
+          <React.Fragment data-testid="geometry-field">
+            <>
+              {translate("geometryFieldReady", {
+                rings,
+                vertices,
+              })}
+            </>
+            {truncated ? (
+              <pre aria-label={translate("geometryFieldPreviewLabel")}>
+                {truncated}
+              </pre>
+            ) : null}
+          </React.Fragment>
+        )
+      }
       case FormFieldType.SLIDER: {
         const val = typeof fieldValue === "number" ? fieldValue : 0
         return (
@@ -618,7 +672,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             type="time"
             value={val}
             onChange={(value) => {
-              const out = inputToFmeTime(value as string)
+              const original =
+                typeof fieldValue === "string" ? fieldValue : undefined
+              const out = inputToFmeTime(value as string, original)
               onChange(out as FormPrimitive)
             }}
             disabled={field.readOnly}

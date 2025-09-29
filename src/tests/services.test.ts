@@ -173,6 +173,18 @@ describe("ParameterFormService", () => {
       expect(result.errors).toEqual([])
     })
 
+    test("skips validation for geometry parameters", () => {
+      const parameters = [
+        createMockParameter({ name: "geom", type: ParameterType.GEOMETRY }),
+      ]
+      const data = {}
+
+      const result = service.validateParameters(data, parameters)
+
+      expect(result.isValid).toBe(true)
+      expect(result.errors).toEqual([])
+    })
+
     test("handles empty parameter arrays", () => {
       expect(service.validateParameters({}, []).isValid).toBe(true)
     })
@@ -327,6 +339,10 @@ describe("ParameterFormService", () => {
           paramType: ParameterType.SCRIPTED,
           expectedFieldType: FormFieldType.SCRIPTED,
         },
+        {
+          paramType: ParameterType.GEOMETRY,
+          expectedFieldType: FormFieldType.GEOMETRY,
+        },
       ]
 
       testCases.forEach(({ paramType, expectedFieldType }) => {
@@ -404,7 +420,7 @@ describe("ParameterFormService", () => {
       expect(fields[0].step).toBe(1)
     })
 
-    test("skips non-input types: GEOMETRY, SCRIPTED, NOVALUE (MESSAGE is rendered as read-only)", () => {
+    test("includes geometry/message/scripted fields while skipping novalue placeholders", () => {
       const params: WorkspaceParameter[] = [
         makeParam({ name: "g", type: ParameterType.GEOMETRY }),
         makeParam({ name: "m", type: ParameterType.MESSAGE }),
@@ -412,11 +428,15 @@ describe("ParameterFormService", () => {
         makeParam({ name: "n", type: ParameterType.NOVALUE }),
       ]
       const fields = service.convertParametersToFields(params)
-      // MESSAGE should be included as an informational field
-      expect(fields).toHaveLength(1)
-      expect(fields[0].name).toBe("m")
-      expect(fields[0].type).toBe(FormFieldType.MESSAGE)
+
+      expect(fields).toHaveLength(3)
+      expect(fields.map((f) => f.name)).toEqual(["g", "m", "s"])
+      expect(fields[0].type).toBe(FormFieldType.GEOMETRY)
       expect(fields[0].readOnly).toBe(true)
+      expect(fields[1].type).toBe(FormFieldType.MESSAGE)
+      expect(fields[1].readOnly).toBe(true)
+      expect(fields[2].type).toBe(FormFieldType.SCRIPTED)
+      expect(fields[2].readOnly).toBe(true)
     })
 
     test("conditional: DB/WEB connection render only with options", () => {
@@ -486,6 +506,17 @@ describe("ParameterFormService", () => {
       expect(fields[0].type).toBe(FormFieldType.SCRIPTED)
       expect(fields[0].readOnly).toBe(true)
     })
+
+    test("geometry parameter yields read-only geometry field with empty default", () => {
+      const fields = service.convertParametersToFields([
+        makeParam({ name: "geom", type: ParameterType.GEOMETRY }),
+      ])
+
+      expect(fields).toHaveLength(1)
+      expect(fields[0].type).toBe(FormFieldType.GEOMETRY)
+      expect(fields[0].readOnly).toBe(true)
+      expect(fields[0].defaultValue).toBe("")
+    })
   })
 
   describe("validateFormValues", () => {
@@ -534,6 +565,23 @@ describe("ParameterFormService", () => {
     test("handles invalid inputs gracefully", () => {
       expect(service.validateFormValues(null as any, []).isValid).toBe(true)
       expect(service.validateFormValues({}, null as any).isValid).toBe(true)
+    })
+
+    test("ignores geometry fields during validation", () => {
+      const fields: DynamicFieldConfig[] = [
+        {
+          name: "geom",
+          label: "Geometry",
+          type: FormFieldType.GEOMETRY,
+          required: true,
+          readOnly: true,
+        },
+      ]
+
+      const result = service.validateFormValues({}, fields)
+
+      expect(result.isValid).toBe(true)
+      expect(result.errors).toEqual({})
     })
 
     test("validates text-or-file required fields", () => {

@@ -49,6 +49,7 @@ export const enum FormFieldType {
   TEXT_OR_FILE = "text-or-file",
   REPROJECTION_FILE = "reprojection-file",
   SCRIPTED = "scripted",
+  GEOMETRY = "geometry",
   HIDDEN = "hidden",
 }
 

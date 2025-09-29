@@ -43,10 +43,7 @@ const SKIPPED_PARAMETER_NAMES = new Set([
   "tm_tag",
 ])
 
-const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([
-  ParameterType.NOVALUE,
-  ParameterType.GEOMETRY,
-])
+const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([ParameterType.NOVALUE])
 
 const LIST_REQUIRED_TYPES = new Set<ParameterType>([
   ParameterType.DB_CONNECTION,
@@ -96,6 +93,7 @@ const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
   [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
   [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
+  [ParameterType.GEOMETRY]: FormFieldType.GEOMETRY,
   [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
 })
 
@@ -265,6 +263,9 @@ export class ParameterFormService {
     const validParams = this.getRenderableParameters(parameters)
 
     for (const param of validParams) {
+      if (param.type === ParameterType.GEOMETRY) {
+        continue
+      }
       const value = data[param.name]
       const isMissingRequired = !param.optional && isEmpty(value)
       if (isMissingRequired) {
@@ -339,9 +340,14 @@ export class ParameterFormService {
         type,
         required: !param.optional,
         readOnly:
-          type === FormFieldType.MESSAGE || type === FormFieldType.SCRIPTED,
+          type === FormFieldType.MESSAGE ||
+          type === FormFieldType.SCRIPTED ||
+          type === FormFieldType.GEOMETRY,
         description: param.description,
-        defaultValue: param.defaultValue as FormPrimitive,
+        defaultValue:
+          param.type === ParameterType.GEOMETRY
+            ? ("" as FormPrimitive)
+            : (param.defaultValue as FormPrimitive),
         placeholder: param.description || "",
         // Only include options if non-empty
         ...(options?.length ? { options: [...options] } : {}),
@@ -380,6 +386,10 @@ export class ParameterFormService {
     for (const field of fields) {
       const value = values[field.name]
       const hasValue = !isEmpty(value)
+
+      if (field.type === FormFieldType.GEOMETRY) {
+        continue
+      }
 
       if (field.type === FormFieldType.TEXT_OR_FILE) {
         const tf = value as TextOrFileValue | undefined

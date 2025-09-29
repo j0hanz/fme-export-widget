@@ -449,7 +449,12 @@ describe("FME internal helper functions", () => {
       },
       undefined as any,
       null,
-      { aoiParamName: "AreaOfInterest", allowScheduleMode: true } as any
+      {
+        config: {
+          aoiParamName: "AreaOfInterest",
+          allowScheduleMode: true,
+        } as any,
+      }
     ) as any
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
@@ -487,7 +492,9 @@ describe("FME internal helper functions", () => {
       },
       undefined as any,
       null,
-      { allowScheduleMode: true } as any
+      {
+        config: { allowScheduleMode: true } as any,
+      }
     ) as any
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
@@ -1098,6 +1105,9 @@ describe("FME translations coverage", () => {
       "remoteDatasetUrlLabel",
       "remoteDatasetUrlHelper",
       "remoteDatasetUploadLabel",
+      "geometryFieldMissing",
+      "geometryFieldReady",
+      "geometryFieldPreviewLabel",
     ]
     for (const k of keys) {
       expect(runtimeMsgs[k as keyof typeof runtimeMsgs]).toBeTruthy()

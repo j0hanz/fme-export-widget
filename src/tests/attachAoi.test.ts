@@ -120,4 +120,34 @@ describe("attachAoi AOI exports (GeoJSON/WKT)", () => {
     expect(gj.coordinates).toEqual(aoi4326.rings)
     expect((out as any).WKT).toBe("POLYGON((1 2, 3 2, 3 4, 1 4, 1 2))")
   })
+
+  test("duplicates serialized AOI under geometry workspace parameter names", () => {
+    const modules = makeModules()
+    const cfg = {
+      fmeServerUrl: "https://example.com",
+      fmeServerToken: "tkn",
+      repository: "repo",
+    } as any
+    const rings = [
+      [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+        [0, 0],
+      ],
+    ]
+    const out = attachAoi(
+      baseParams,
+      { rings, spatialReference: { wkid: 4326 } },
+      undefined as any,
+      modules,
+      cfg,
+      ["Custom Geometry", "AreaOfInterest"]
+    ) as any
+
+    expect(out.AreaOfInterest).toBeDefined()
+    expect(out.CustomGeometry).toBeDefined()
+    expect(out.CustomGeometry).toBe(out.AreaOfInterest)
+  })
 })

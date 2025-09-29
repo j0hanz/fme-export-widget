@@ -5,8 +5,9 @@ import type {
   ErrorState,
   PrimitiveParams,
   TextOrFileValue,
+  WorkspaceParameter,
 } from "../config"
-import { ErrorType, ErrorSeverity } from "../config"
+import { ErrorType, ErrorSeverity, ParameterType } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 import { logDebug, logWarn } from "./logging"
@@ -777,6 +778,23 @@ const sanitizeOptionalParamName = (name: unknown): string | undefined => {
   return sanitized || undefined
 }
 
+const collectGeometryParamNames = (
+  params?: readonly WorkspaceParameter[] | null
+): readonly string[] => {
+  if (!params?.length) return []
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const param of params) {
+    if (!param || param.type !== ParameterType.GEOMETRY) continue
+    if (typeof param.name !== "string") continue
+    const trimmed = param.name.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    names.push(trimmed)
+  }
+  return names
+}
+
 const resolveDerivedParamNames = (
   config?: FmeExportConfig
 ): DerivedParamNames => ({
@@ -846,7 +864,8 @@ export const attachAoi = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
   modules: EsriModules | null | undefined,
-  config?: FmeExportConfig
+  config?: FmeExportConfig,
+  geometryParamNames?: readonly string[]
 ): { [key: string]: unknown } => {
   const paramName = sanitizeParamKey(config?.aoiParamName, "AreaOfInterest")
   const aoiJson = extractPolygonJson(geometryJson, currentGeometry)
@@ -862,6 +881,18 @@ export const attachAoi = (
   const result: { [key: string]: unknown } = {
     ...base,
     [paramName]: serialized,
+  }
+
+  if (geometryParamNames && geometryParamNames.length) {
+    const extras = new Set<string>()
+    for (const name of geometryParamNames) {
+      const sanitized = sanitizeParamKey(name, "")
+      if (!sanitized || sanitized === paramName) continue
+      extras.add(sanitized)
+    }
+    for (const extra of extras) {
+      result[extra] = serialized
+    }
   }
 
   const derivedNames = resolveDerivedParamNames(config)
@@ -910,8 +941,12 @@ export const prepFmeParams = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
   modules: EsriModules | null | undefined,
-  config?: FmeExportConfig
+  options?: {
+    config?: FmeExportConfig
+    workspaceParameters?: readonly WorkspaceParameter[] | null
+  }
 ): { [key: string]: unknown } => {
+  const { config, workspaceParameters } = options || {}
   const original = ((formData as any)?.data || {}) as {
     [key: string]: unknown
   }
@@ -926,12 +961,14 @@ export const prepFmeParams = (
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 
   const base = buildFmeParams({ data: sanitized }, userEmail, chosen)
+  const geometryParamNames = collectGeometryParamNames(workspaceParameters)
   const withAoi = attachAoi(
     base,
     geometryJson,
     currentGeometry,
     modules,
-    config
+    config,
+    geometryParamNames
   )
   return applyDirectiveDefaults(withAoi, config)
 }
@@ -1211,28 +1248,95 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
 
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
-export const fmeDateTimeToInput = (v: string): string => {
+export const fmeDateToInput = (v: string): string => {
   const s = (v || "").replace(/\D/g, "")
-  if (s.length < 12) return ""
-  const y = s.slice(0, 4)
-  const m = s.slice(4, 6)
-  const d = s.slice(6, 8)
-  const hh = s.slice(8, 10)
-  const mm = s.slice(10, 12)
-  const ss = s.length >= 14 ? s.slice(12, 14) : ""
+  if (s.length !== 8) return ""
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+}
+
+export const inputToFmeDate = (v: string): string =>
+  v ? v.replace(/-/g, "") : ""
+
+const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i
+const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/
+
+const extractTemporalParts = (
+  raw: string
+): { base: string; fraction: string; offset: string } => {
+  const trimmed = (raw || "").trim()
+  if (!trimmed) return { base: "", fraction: "", offset: "" }
+
+  let base = trimmed
+  let offset = ""
+  const offsetMatch = OFFSET_SUFFIX_RE.exec(trimmed)
+  if (offsetMatch && offsetMatch[1]) {
+    offset = offsetMatch[1]
+    base = trimmed.slice(0, -offset.length)
+  }
+
+  let fraction = ""
+  const fractionMatch = FRACTION_SUFFIX_RE.exec(base)
+  if (fractionMatch && fractionMatch[0]) {
+    fraction = fractionMatch[0]
+    base = base.slice(0, -fraction.length)
+  }
+
+  return { base, fraction, offset }
+}
+
+const normalizeIsoTimeParts = (
+  time: string
+): {
+  time: string
+  fraction: string
+  offset: string
+} => {
+  let working = time
+  let offset = ""
+  const isoOffsetMatch = OFFSET_SUFFIX_RE.exec(working)
+  if (isoOffsetMatch && isoOffsetMatch[1]) {
+    offset = isoOffsetMatch[1]
+    working = working.slice(0, -offset.length)
+  }
+
+  let fraction = ""
+  const isoFractionMatch = FRACTION_SUFFIX_RE.exec(working)
+  if (isoFractionMatch && isoFractionMatch[0]) {
+    fraction = isoFractionMatch[0]
+    working = working.slice(0, -isoFractionMatch[0].length)
+  }
+
+  return { time: working, fraction, offset }
+}
+
+export const fmeDateTimeToInput = (v: string): string => {
+  const { base } = extractTemporalParts(v)
+  const digits = base.replace(/\D/g, "")
+  if (digits.length < 12) return ""
+  const y = digits.slice(0, 4)
+  const m = digits.slice(4, 6)
+  const d = digits.slice(6, 8)
+  const hh = digits.slice(8, 10)
+  const mm = digits.slice(10, 12)
+  const ss = digits.length >= 14 ? digits.slice(12, 14) : ""
   return `${y}-${m}-${d}T${hh}:${mm}${ss ? `:${ss}` : ""}`
 }
 
-export const inputToFmeDateTime = (v: string): string => {
+export const inputToFmeDateTime = (v: string, original?: string): string => {
   if (!v) return ""
   const s = v.trim()
   const [date, time] = s.split("T")
   if (!date || !time) return ""
 
   const [y, m, d] = date.split("-")
-  const [hh, mi, ssRaw] = time.split(":")
+  const {
+    time: timePart,
+    fraction: isoFraction,
+    offset: isoOffset,
+  } = normalizeIsoTimeParts(time)
+  const [hh, mi, ssRaw] = timePart.split(":")
 
-  if (!y || y.length !== 4 || !/^[0-9]{4}$/.test(y)) return ""
+  if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) return ""
 
   const safePad2 = (part?: string): string | null => {
     if (!part) return null
@@ -1249,28 +1353,30 @@ export const inputToFmeDateTime = (v: string): string => {
   const ss2 = ssRaw ? safePad2(ssRaw) : "00"
   if (ss2 === null) return ""
 
-  return `${y}${m2}${d2}${hh2}${mi2}${ss2}`
-}
+  const base = `${y}${m2}${d2}${hh2}${mi2}${ss2}`
+  const originalExtras = original ? extractTemporalParts(original) : null
+  const fraction = isoFraction || originalExtras?.fraction || ""
+  const offset = isoOffset || originalExtras?.offset || ""
 
-export const fmeDateToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  return `${base}${fraction}${offset}`
 }
-
-export const inputToFmeDate = (v: string): string =>
-  v ? v.replace(/-/g, "") : ""
 
 export const fmeTimeToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
+  const { base } = extractTemporalParts(v)
+  const s = base.replace(/\D/g, "")
   if (s.length === 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`
   if (s.length >= 6) return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
   return ""
 }
 
-export const inputToFmeTime = (v: string): string => {
+export const inputToFmeTime = (v: string, original?: string): string => {
   if (!v) return ""
-  const parts = v.split(":").map((x) => x || "")
+  const {
+    time: timePart,
+    fraction: isoFraction,
+    offset: isoOffset,
+  } = normalizeIsoTimeParts(v)
+  const parts = timePart.split(":").map((x) => x || "")
   const hh = parts[0] || ""
   const mm = parts[1] || ""
   const ss = parts[2] || ""
@@ -1281,8 +1387,13 @@ export const inputToFmeTime = (v: string): string => {
 
   const nS = Number(ss)
   const finalSS = Number.isFinite(nS) ? pad2(nS) : "00"
-  // Clamp hours and minutes to valid range
-  return `${pad2(nH)}${pad2(nM)}${finalSS}`
+  const base = `${pad2(nH)}${pad2(nM)}${finalSS}`
+
+  const originalExtras = original ? extractTemporalParts(original) : null
+  const fraction = isoFraction || originalExtras?.fraction || ""
+  const offset = isoOffset || originalExtras?.offset || ""
+
+  return `${base}${fraction}${offset}`
 }
 
 export const normalizedRgbToHex = (v: string): string | null => {

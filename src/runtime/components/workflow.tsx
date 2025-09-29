@@ -30,6 +30,7 @@ import {
   ViewMode,
   DrawingTool,
   FormFieldType,
+  ParameterType,
   makeLoadingView,
   makeEmptyView,
   ErrorType,
@@ -86,6 +87,32 @@ const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== ""
+
+const safeStringifyGeometry = (geometry: unknown): string => {
+  if (!geometry) return ""
+  try {
+    return JSON.stringify(geometry)
+  } catch {
+    return ""
+  }
+}
+
+const extractGeometryFieldNames = (
+  workspaceParameters?: readonly WorkspaceParameter[]
+): string[] => {
+  if (!workspaceParameters?.length) return []
+  const seen = new Set<string>()
+  const names: string[] = []
+  workspaceParameters.forEach((param) => {
+    if (!param || param.type !== ParameterType.GEOMETRY) return
+    if (typeof param.name !== "string") return
+    const trimmed = param.name.trim()
+    if (!trimmed || seen.has(trimmed)) return
+    seen.add(trimmed)
+    names.push(trimmed)
+  })
+  return names
+}
 
 interface WorkspaceLoaderOptions {
   config?: FmeExportConfig
@@ -150,7 +177,7 @@ const useFormStateManager = (
   const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
   const valuesRef = React.useRef(values)
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     valuesRef.current = values
   }, [values])
 
@@ -664,6 +691,40 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     [key: string]: File | null
   }>({})
 
+  const geometryJsonFromStore = ReactRedux.useSelector(
+    (state: IMStateWithFmeExport) => {
+      const global = (state as any)?.["fme-state"]
+      const sub = global?.byId?.[widgetId]
+      return sub?.geometryJson ?? null
+    }
+  )
+
+  const [geometryString, setGeometryString] = React.useState<string>(() =>
+    safeStringifyGeometry(geometryJsonFromStore)
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const next = safeStringifyGeometry(geometryJsonFromStore)
+    setGeometryString((prev) => (prev === next ? prev : next))
+  }, [geometryJsonFromStore])
+
+  const [geometryFieldNames, setGeometryFieldNames] = React.useState<string[]>(
+    () => extractGeometryFieldNames(workspaceParameters)
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const next = extractGeometryFieldNames(workspaceParameters)
+    setGeometryFieldNames((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((value, index) => value === next[index])
+      ) {
+        return prev
+      }
+      return next
+    })
+  }, [workspaceParameters])
+
   // Local validation message builder using current translate
   const errorMsg = hooks.useEventCallback((count: number): string =>
     count === 1
@@ -719,6 +780,26 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
       formState.updateField(field, value)
     }
   )
+
+  const formValues = formState.values
+  const setFormValues = formState.setValues
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (!geometryFieldNames.length) return
+    const nextValue = geometryString || ""
+    const shouldUpdate = geometryFieldNames.some((name) => {
+      const current = formValues?.[name]
+      const currentStr = typeof current === "string" ? current : ""
+      return currentStr !== nextValue
+    })
+    if (!shouldUpdate) return
+
+    const updated = { ...formValues }
+    geometryFieldNames.forEach((name) => {
+      updated[name] = nextValue
+    })
+    setFormValues(updated)
+  }, [geometryFieldNames, geometryString, formValues, setFormValues])
 
   const handleSubmit = hooks.useEventCallback(() => {
     const validation = formState.validateForm()
@@ -1069,7 +1150,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
     disposeClient()
   }, [config, disposeClient])
 
-  React.useEffect(() => () => disposeClient(), [disposeClient])
+  hooks.useEffectOnce(() => {
+    return () => {
+      disposeClient()
+    }
+  })
 
   const configuredRepository = toTrimmedString(config?.repository)
 

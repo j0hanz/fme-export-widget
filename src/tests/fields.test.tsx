@@ -269,6 +269,13 @@ describe("Fields module", () => {
       testField: "Test Field",
       textInput: "Text",
       fileInput: "File",
+      geometryFieldMissing: "No geometry provided",
+      geometryFieldPreviewLabel: "Geometry preview",
+    }
+    if (key === "geometryFieldReady") {
+      return `Geometry ready (${params?.rings ?? 0} rings, ${
+        params?.vertices ?? 0
+      } vertices)`
     }
     return translations[key] || key
   })
@@ -1281,6 +1288,58 @@ describe("Fields module", () => {
 
       const rich = screen.getByTestId("rich-text")
       expect(rich).toHaveTextContent("Value")
+    })
+
+    test("renders GEOMETRY field placeholder when value missing", () => {
+      const field = createField({
+        type: FormFieldType.GEOMETRY,
+        readOnly: true,
+      })
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value=""
+          onChange={jest.fn()}
+          translate={mockTranslate}
+        />
+      )
+
+      const geometry = screen.getByTestId("geometry-field")
+      expect(geometry).toHaveTextContent("No geometry provided")
+    })
+
+    test("renders GEOMETRY field summary and JSON preview", () => {
+      const field = createField({
+        type: FormFieldType.GEOMETRY,
+        readOnly: true,
+      })
+      const geometryJson = JSON.stringify({
+        rings: [
+          [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+            [0, 1],
+          ],
+        ],
+      })
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={geometryJson}
+          onChange={jest.fn()}
+          translate={mockTranslate}
+        />
+      )
+
+      expect(
+        screen.getByText("Geometry ready (1 rings, 4 vertices)")
+      ).toBeInTheDocument()
+      const preview = screen.getByLabelText("Geometry preview")
+      expect(preview.tagName).toBe("PRE")
+      expect(preview).toHaveTextContent('\n  "rings":')
     })
   })
 })

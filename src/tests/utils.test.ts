@@ -70,6 +70,7 @@ import {
   canResetButton,
   shouldShowWorkspaceLoading,
 } from "../shared/utils"
+import { ParameterType } from "../config"
 import * as logging from "../shared/logging"
 
 // Mock jimu-core: SessionManager and css helper
@@ -396,6 +397,41 @@ describe("shared/utils", () => {
       expect(out.AOI_WKT).toMatch(/^POLYGON/)
     })
 
+    test("attachAoi duplicates serialized AOI for geometry workspace parameters", () => {
+      const geometry = {
+        rings: [
+          [
+            [0, 0],
+            [1, 1],
+            [2, 2],
+          ],
+        ],
+        spatialReference: { wkid: 4326 },
+      }
+      const modules: any = {
+        Polygon: { fromJSON: (j: any) => ({ ...j, toJSON: () => j }) },
+      }
+      const params = prepFmeParams(
+        { data: {} },
+        "user@x.com",
+        geometry,
+        undefined as any,
+        modules,
+        {
+          workspaceParameters: [
+            { name: "User AOI", type: ParameterType.GEOMETRY } as any,
+            { name: "AreaOfInterest", type: ParameterType.GEOMETRY } as any,
+            { name: "User AOI", type: ParameterType.GEOMETRY } as any,
+          ],
+        }
+      )
+
+      expect(params.AreaOfInterest).toBeDefined()
+      expect(params.UserAOI).toBeDefined()
+      expect(params.UserAOI).toBe(params.AreaOfInterest)
+      expect(Object.keys(params).filter((k) => k === "UserAOI")).toHaveLength(1)
+    })
+
     test("attachAoi returns error on serialization failure", () => {
       const base = {}
       const bad: any = {
@@ -448,7 +484,9 @@ describe("shared/utils", () => {
         },
         undefined as any,
         modules,
-        { allowScheduleMode: true, tm_ttc: 10 } as any
+        {
+          config: { allowScheduleMode: true, tm_ttc: 10 } as any,
+        }
       )
       expect(p.opt_servicemode).toBe("schedule")
       // requester email is only set for async mode
@@ -475,7 +513,9 @@ describe("shared/utils", () => {
         null,
         undefined as any,
         null,
-        { syncMode: true } as any
+        {
+          config: { syncMode: true } as any,
+        }
       ) as any
 
       expect(result.opt_servicemode).toBe("sync")
@@ -522,10 +562,22 @@ describe("shared/utils", () => {
     test("date/time conversions", () => {
       expect(fmeDateTimeToInput("20240102131415")).toBe("2024-01-02T13:14:15")
       expect(fmeDateTimeToInput("202401021314")).toBe("2024-01-02T13:14")
+      expect(fmeDateTimeToInput("20240102131415.25-08:00")).toBe(
+        "2024-01-02T13:14:15"
+      )
       expect(fmeDateTimeToInput("bad")).toBe("")
 
       expect(inputToFmeDateTime("2024-01-02T13:14:15")).toBe("20240102131415")
       expect(inputToFmeDateTime("2024-01-02T13:14")).toBe("20240102131400")
+      expect(
+        inputToFmeDateTime("2024-01-02T13:14:15", "20240102131415-08:00")
+      ).toBe("20240102131415-08:00")
+      expect(
+        inputToFmeDateTime("2024-01-02T13:14:15", "20240102131415.25+0530")
+      ).toBe("20240102131415.25+0530")
+      expect(inputToFmeDateTime("2024-01-02T13:14:15.500Z")).toBe(
+        "20240102131415.500Z"
+      )
       expect(inputToFmeDateTime("bad")).toBe("")
 
       expect(fmeDateToInput("20240102")).toBe("2024-01-02")
@@ -533,8 +585,11 @@ describe("shared/utils", () => {
 
       expect(fmeTimeToInput("1314")).toBe("13:14")
       expect(fmeTimeToInput("131415")).toBe("13:14:15")
+      expect(fmeTimeToInput("131415.5-08:00")).toBe("13:14:15")
       expect(inputToFmeTime("13:14:15")).toBe("131415")
       expect(inputToFmeTime("13:14")).toBe("131400")
+      expect(inputToFmeTime("13:14", "131400-08:00")).toBe("131400-08:00")
+      expect(inputToFmeTime("13:14:00.75+05:30")).toBe("131400.75+05:30")
     })
 
     test("color conversions", () => {

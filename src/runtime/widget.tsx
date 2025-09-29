@@ -1343,7 +1343,10 @@ export default function Widget(
         reduxState.geometryJson,
         currentGeometry,
         modules,
-        config
+        {
+          config: configRef.current,
+          workspaceParameters: reduxState.workspaceParameters,
+        }
       )
 
       // Detect AOI serialization failure injected by attachAoi
