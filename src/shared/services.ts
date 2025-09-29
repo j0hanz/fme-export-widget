@@ -9,7 +9,12 @@ import type {
   StartupValidationOptions,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
-import { isEmpty, extractErrorMessage } from "./utils"
+import {
+  isEmpty,
+  extractErrorMessage,
+  isAbortError,
+  extractRepositoryNames,
+} from "./utils"
 import {
   isInt,
   isNum,
@@ -351,10 +356,7 @@ export class ParameterFormService {
  * Parse repository names from API response
  */
 function parseRepositoryNames(data: unknown): string[] {
-  if (!Array.isArray(data)) return []
-  return (data as Array<{ name?: unknown }>)
-    .map((r) => r?.name)
-    .filter((n): n is string => typeof n === "string" && n.length > 0)
+  return extractRepositoryNames(data)
 }
 
 function deriveFmeVersionString(info: unknown): string {
@@ -552,7 +554,7 @@ export async function validateConnection(
           steps.token = "ok"
           steps.version = deriveFmeVersionString(serverInfo)
         } catch (error) {
-          if ((error as Error)?.name === "AbortError") {
+          if (isAbortError(error)) {
             return {
               success: false,
               steps,
@@ -690,7 +692,7 @@ export async function validateConnection(
           steps,
         }
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
+        if (isAbortError(error)) {
           return {
             success: false,
             steps,
@@ -794,7 +796,7 @@ export async function getRepositories(
         repositories,
       }
     } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
+      if (isAbortError(error)) {
         // Re-throw as a proper Error-derived object to satisfy lint rules
         const abortErr = new DOMException(
           (error as Error).message || "Operation was aborted",
@@ -907,7 +909,7 @@ export async function validateWidgetStartup(
       requiresSettings: false,
     }
   } catch (error) {
-    if ((error as Error)?.name === "AbortError") {
+    if (isAbortError(error)) {
       // Don't treat abort as an error - just return neutral state
       return {
         isValid: false,

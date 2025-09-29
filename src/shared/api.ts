@@ -37,6 +37,8 @@ import {
   maskToken,
   extractHostFromUrl,
   extractErrorMessage,
+  isAbortError,
+  extractRepositoryNames,
 } from "./utils"
 
 // Construct a typed FME Flow API error with identical message and code.
@@ -796,22 +798,7 @@ export class FmeFlowApiClient {
         })
 
         const data = raw?.data
-        let items: Array<{ name: string }>
-        if (Array.isArray(data)) {
-          items = data
-            .map((r: any) => ({ name: String(r?.name ?? "") }))
-            .filter((r) => r.name.length > 0)
-        } else if (
-          data &&
-          Array.isArray((data as unknown as { items?: unknown[] }).items)
-        ) {
-          const arr = (data as unknown as { items?: unknown[] }).items || []
-          items = arr
-            .map((r: any) => ({ name: String(r?.name ?? "") }))
-            .filter((r) => r.name.length > 0)
-        } else {
-          items = []
-        }
+        const items = extractRepositoryNames(data).map((name) => ({ name }))
 
         return {
           data: items,
@@ -1125,7 +1112,7 @@ export class FmeFlowApiClient {
             statusText: response.statusText,
           }
         } catch (e: any) {
-          if (FmeFlowApiClient.isAbortError(e)) {
+          if (isAbortError(e)) {
             if (didTimeout) {
               // Map timeout to HTTP 408 for user-friendly translation
               throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
@@ -1261,7 +1248,7 @@ export class FmeFlowApiClient {
 
         return this.parseWebhookResponse(response)
       } catch (e: any) {
-        if (FmeFlowApiClient.isAbortError(e)) {
+        if (isAbortError(e)) {
           if (didTimeout) {
             throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
           }
@@ -1330,11 +1317,6 @@ export class FmeFlowApiClient {
 
     this.abortController = new AbortController()
     return this.abortController
-  }
-
-  // Check if error is an AbortError (fetch or esriRequest)
-  private static isAbortError(e: any): boolean {
-    return Boolean(e && (e.name === "AbortError" || e.code === "AbortError"))
   }
 
   private async parseWebhookResponse(response: Response): Promise<ApiResponse> {

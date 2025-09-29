@@ -63,6 +63,8 @@ import {
   getSupportEmail,
   formatErrorForView,
   useLatestAbortController,
+  toTrimmedString,
+  logIfNotAbort,
 } from "../shared/utils"
 import { loadArcgisModules, logError, logWarn } from "../shared/logging"
 
@@ -117,50 +119,9 @@ const UPLOAD_PARAM_TYPES = [
   "REPROJECTION_FILE",
 ] as const
 
-const sanitizeOptGetUrl = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  return trimmed || undefined
-}
-
 const resolveUploadTargetParam = (
   config: FmeExportConfig | null | undefined
-): string | null => {
-  const raw = config?.uploadTargetParamName
-  if (typeof raw !== "string") return null
-  const trimmed = raw.trim()
-  return trimmed || null
-}
-
-const isAbortError = (error: unknown): boolean => {
-  const matcher = /abort/i
-  if (typeof error === "string") {
-    return matcher.test(error)
-  }
-  if (!error || typeof error !== "object") return false
-  const maybeAny = error as {
-    name?: unknown
-    code?: unknown
-    message?: unknown
-  }
-  const stringifySafe = (v: unknown): string => {
-    if (v === null || v === undefined) return ""
-    if (typeof v === "string") return v
-    if (typeof v === "number" || typeof v === "boolean") return String(v)
-    // avoid default object stringification like "[object Object]"
-    return ""
-  }
-  const name = stringifySafe(maybeAny.name ?? maybeAny.code)
-  const message = stringifySafe(maybeAny.message)
-  return matcher.test(name) || matcher.test(message)
-}
-
-const logIfNotAbort = (context: string, error: unknown): void => {
-  if (isAbortError(error)) return
-  try {
-    logWarn(context, error)
-  } catch {}
-}
+): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
 
 const parseSubmissionFormData = (rawData: {
   [key: string]: unknown
@@ -176,13 +137,13 @@ const parseSubmissionFormData = (rawData: {
     ...restFormData
   } = rawData
 
-  const sanitizedOptGetUrl = sanitizeOptGetUrl(optGetUrlField)
+  const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
   const sanitizedFormData = sanitizedOptGetUrl
     ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
     : { ...restFormData }
 
   const uploadFile = uploadField instanceof File ? uploadField : null
-  const remoteUrl = sanitizeOptGetUrl(remoteDatasetField) ?? ""
+  const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
 
   return { sanitizedFormData, uploadFile, remoteUrl }
 }
@@ -637,19 +598,11 @@ const setupSketchEventHandlers = (
           tool: (evt as any).tool,
         } as any)
       } catch (err: any) {
-        const name = (err && (err.name || err.code)) || ""
-        const msg = err?.message || ""
-        const isAbort =
-          /abort/i.test(String(name)) || /abort/i.test(String(msg))
-        if (!isAbort) {
-          try {
-            logWarn("onDrawComplete update error", err)
-          } catch {}
-        }
+        logIfNotAbort("onDrawComplete update error", err)
       }
     }
   })
-}
+  }
 
 // Area formatting is imported from shared/utils
 

@@ -8,7 +8,7 @@ import type {
 import { ErrorType, ErrorSeverity } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
-import { logDebug } from "./logging"
+import { logDebug, logWarn } from "./logging"
 
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
@@ -189,6 +189,101 @@ export const safeAbort = (ctrl: AbortController | null) => {
       ctrl.abort()
     } catch {}
   }
+}
+
+export const toTrimmedString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+export const isAbortError = (error: unknown): boolean => {
+  if (!error) return false
+  if (typeof error === "string") {
+    return /abort/i.test(error)
+  }
+  if (typeof error !== "object") return false
+  const candidate = error as { name?: unknown; code?: unknown; message?: unknown }
+  const toStringSafe = (v: unknown): string => {
+    if (v === null || v === undefined) return ""
+    if (typeof v === "string") return v
+    if (typeof v === "number" || typeof v === "boolean") return String(v)
+    return ""
+  }
+  const name = toStringSafe(candidate.name ?? candidate.code)
+  const message = toStringSafe(candidate.message)
+  return /abort/i.test(name) || /abort/i.test(message)
+}
+
+export const logIfNotAbort = (context: string, error: unknown): void => {
+  if (isAbortError(error)) return
+  try {
+    logWarn(context, error)
+  } catch {}
+}
+
+const isIterable = (value: unknown): value is Iterable<unknown> =>
+  typeof value !== "string" &&
+  typeof (value as any)?.[Symbol.iterator] === "function"
+
+const mapDefined = <T, R>(
+  values: Iterable<T> | null | undefined,
+  mapper: (value: T, index: number) => R | null | undefined
+): R[] => {
+  if (!values || !isIterable(values)) return []
+  const result: R[] = []
+  let index = 0
+  for (const value of values) {
+    const mapped = mapper(value, index++)
+    if (mapped !== undefined && mapped !== null) {
+      result.push(mapped)
+    }
+  }
+  return result
+}
+
+export const collectTrimmedStrings = (
+  values: Iterable<unknown> | null | undefined
+): string[] => mapDefined(values, (value) => toTrimmedString(value))
+
+const toRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : null
+
+const collectStringsFromProp = (
+  values: Iterable<unknown> | null | undefined,
+  prop: string
+): string[] =>
+  mapDefined(values, (value) => {
+    const record = toRecord(value)
+    if (!record) return undefined
+    return toTrimmedString(record[prop])
+  })
+
+export const uniqueStrings = (values: Iterable<string>): string[] => {
+  if (!values || !isIterable(values)) return []
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const value of values) {
+    if (!seen.has(value)) {
+      seen.add(value)
+      result.push(value)
+    }
+  }
+  return result
+}
+
+export const extractRepositoryNames = (source: unknown): string[] => {
+  const names: string[] = []
+  if (Array.isArray(source)) {
+    names.push(...collectStringsFromProp(source, "name"))
+  } else {
+    const record = toRecord(source)
+    const items = record?.items
+    if (Array.isArray(items)) {
+      names.push(...collectStringsFromProp(items, "name"))
+    }
+  }
+  return uniqueStrings(names)
 }
 
 export const useLatestAbortController = () => {
