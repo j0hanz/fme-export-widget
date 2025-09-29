@@ -76,7 +76,6 @@ import type {
   TranslateFn,
 } from "../../config"
 
-// -----------------------------------------------------------------------------
 // Configuration & constants
 
 // Configuration
@@ -121,7 +120,6 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   email: emailIcon,
 }
 
-// -----------------------------------------------------------------------------
 // Theme-aware styles
 const getTypographyStyle = (
   typographyVariant: ImmutableObject<TypographyStyle>
@@ -285,13 +283,12 @@ const createStyles = (theme: IMThemeVariables) => {
 
 type Styles = ReturnType<typeof createStyles>
 
-// Theme-aware styles hook with memoization to avoid stale style references
+// Theme-aware styles hook
 export const useStyles = (): Styles => {
   const theme = useTheme()
-  return React.useMemo(() => createStyles(theme), [theme])
+  return createStyles(theme)
 }
 
-// -----------------------------------------------------------------------------
 // Hooks & utility helpers
 let idSeq = 0
 
@@ -406,9 +403,7 @@ const wrapWithTooltip = (
 }
 
 const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
-  (placement as any) === "auto"
-    ? config.tooltip.position.top
-    : placement
+  (placement as any) === "auto" ? config.tooltip.position.top : placement
 
 const createTooltipAnchor = (
   child: React.ReactElement,
@@ -450,7 +445,6 @@ const getRequiredMark = (
   </Tooltip>
 )
 
-// -----------------------------------------------------------------------------
 // Primitive UI elements
 
 // Button content component extracted from Button
@@ -567,7 +561,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
   )
 }
 
-// -----------------------------------------------------------------------------
 // Form controls
 
 // Checkbox component
@@ -913,7 +906,7 @@ export const DatePickerWrapper: React.FC<{
         // also try opening on mouse/touch down for convenience
         openPicker()
       }}
-        css={applyFullWidthStyles(styles, style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -1170,7 +1163,6 @@ export const MultiSelectControl: React.FC<{
   )
 }
 
-// -----------------------------------------------------------------------------
 // Composite controls
 
 // Button component
@@ -1397,7 +1389,6 @@ const useLoadingLatch = (
   }
 }
 
-// -----------------------------------------------------------------------------
 // View components
 
 // StateView component
@@ -1532,7 +1523,6 @@ const StateView: React.FC<StateViewProps> = ({
       case "content":
         return <>{state.node}</>
       case "loading":
-      default:
         return renderLoadingState()
     }
   }
@@ -1599,7 +1589,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   )
 }
 
-// -----------------------------------------------------------------------------
 // Form layout components
 
 // Form component

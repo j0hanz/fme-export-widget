@@ -138,9 +138,20 @@ const isAbortError = (error: unknown): boolean => {
     return matcher.test(error)
   }
   if (!error || typeof error !== "object") return false
-  const maybeAny = error as { name?: unknown; code?: unknown; message?: unknown }
-  const name = String(maybeAny.name ?? maybeAny.code ?? "")
-  const message = String(maybeAny.message ?? "")
+  const maybeAny = error as {
+    name?: unknown
+    code?: unknown
+    message?: unknown
+  }
+  const stringifySafe = (v: unknown): string => {
+    if (v === null || v === undefined) return ""
+    if (typeof v === "string") return v
+    if (typeof v === "number" || typeof v === "boolean") return String(v)
+    // avoid default object stringification like "[object Object]"
+    return ""
+  }
+  const name = stringifySafe(maybeAny.name ?? maybeAny.code)
+  const message = stringifySafe(maybeAny.message)
   return matcher.test(name) || matcher.test(message)
 }
 
@@ -151,10 +162,10 @@ const logIfNotAbort = (context: string, error: unknown): void => {
   } catch {}
 }
 
-const parseSubmissionFormData = (
-  rawData: Record<string, unknown>
-): {
-  sanitizedFormData: Record<string, unknown>
+const parseSubmissionFormData = (rawData: {
+  [key: string]: unknown
+}): {
+  sanitizedFormData: { [key: string]: unknown }
   uploadFile: File | null
   remoteUrl: string
 } => {
@@ -182,7 +193,7 @@ const applyUploadedDatasetParam = ({
   parameters,
   explicitTarget,
 }: {
-  finalParams: Record<string, unknown>
+  finalParams: { [key: string]: unknown }
   uploadedPath?: string
   parameters?: readonly WorkspaceParameter[] | null
   explicitTarget: string | null
@@ -195,7 +206,9 @@ const applyUploadedDatasetParam = ({
   }
 
   const candidate = (parameters ?? []).find((param) => {
-    const normalizedType = String(param?.type) as (typeof UPLOAD_PARAM_TYPES)[number]
+    const normalizedType = String(
+      param?.type
+    ) as (typeof UPLOAD_PARAM_TYPES)[number]
     return UPLOAD_PARAM_TYPES.includes(normalizedType)
   })
 
@@ -204,7 +217,10 @@ const applyUploadedDatasetParam = ({
     return
   }
 
-  if (typeof (finalParams as { SourceDataset?: unknown }).SourceDataset === "undefined") {
+  if (
+    typeof (finalParams as { SourceDataset?: unknown }).SourceDataset ===
+    "undefined"
+  ) {
     ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
   }
 }
@@ -1301,13 +1317,11 @@ export default function Widget(
       controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
-      const rawFormData = ((formData as any)?.data || {}) as Record<
-        string,
-        unknown
-      >
-      const { sanitizedFormData, uploadFile, remoteUrl } = parseSubmissionFormData(
-        rawFormData
-      )
+      const rawFormData = ((formData as any)?.data || {}) as {
+        [key: string]: unknown
+      }
+      const { sanitizedFormData, uploadFile, remoteUrl } =
+        parseSubmissionFormData(rawFormData)
 
       // Build baseline params first (without opt_geturl)
       const baseParams = prepFmeParams(
@@ -1355,7 +1369,11 @@ export default function Widget(
       const wantsUpload = Boolean(
         configRef.current?.allowRemoteDataset && uploadFile
       )
-      if (typeof finalParams.opt_geturl === "undefined" && wantsUpload && uploadFile) {
+      if (
+        typeof finalParams.opt_geturl === "undefined" &&
+        wantsUpload &&
+        uploadFile
+      ) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable(
           fmeClient.uploadToTemp(uploadFile, {
