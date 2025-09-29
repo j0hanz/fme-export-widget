@@ -1,5 +1,5 @@
 import React from "react"
-import { waitFor, act, screen } from "@testing-library/react"
+import { waitFor, act, screen, renderHook } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import {
   wrapWidget,
@@ -10,7 +10,7 @@ import {
 } from "jimu-for-test"
 import { getAppStore } from "jimu-core"
 import type { AllWidgetProps } from "jimu-core"
-import Widget from "../runtime/widget"
+import Widget, { useEsriModules } from "../runtime/widget"
 import { DrawingTool, ViewMode } from "../config"
 import runtimeMsgs2 from "../runtime/translations/default"
 
@@ -184,7 +184,7 @@ const setupEsriTestStub = (options?: {
     __ = 1
   }
 
-  ;(global as any).__ESRI_TEST_STUB__ = (_modules: readonly string[]) => [
+  const modules = [
     SketchViewModel,
     GraphicsLayer,
     geometryEngine,
@@ -197,7 +197,9 @@ const setupEsriTestStub = (options?: {
     Graphic,
   ]
 
-  return { createSpy }
+  ;(global as any).__ESRI_TEST_STUB__ = (_modules: readonly string[]) => modules
+
+  return { createSpy, modules }
 }
 
 const wrap = (props?: Partial<AllWidgetProps<any>>) =>
@@ -270,6 +272,33 @@ describe("Widget runtime - module loading and auto-start", () => {
     await waitFor(() => {
       expect(createSpy).toHaveBeenCalledWith("polygon")
     })
+  })
+
+  test("useEsriModules re-attempts load when retry signal changes", async () => {
+    const { modules } = setupEsriTestStub()
+    const loadSpy = jest
+      .spyOn(require("../shared/logging"), "loadArcgisModules")
+      .mockImplementationOnce(() => Promise.reject(new Error("fail")))
+      .mockImplementation(() => Promise.resolve(modules))
+
+    const { result, rerender } = renderHook(
+      ({ retry }) => useEsriModules(retry),
+      { initialProps: { retry: 0 } }
+    )
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+    expect(result.current.modules).toBeNull()
+
+    rerender({ retry: 1 })
+
+    await waitFor(() => {
+      expect(result.current.modules).not.toBeNull()
+    })
+    expect(loadSpy).toHaveBeenCalledTimes(2)
+
+    loadSpy.mockRestore()
   })
 
   test("cleanup on unmount cancels and clears resources without errors", () => {

@@ -295,6 +295,18 @@ const reduceOne = (
       if (action.isSubmittingOrder !== undefined) {
         newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
       }
+      if (action.isLoadingWorkspaces !== undefined) {
+        newState = newState.set(
+          "isLoadingWorkspaces",
+          action.isLoadingWorkspaces
+        )
+      }
+      if (action.isLoadingParameters !== undefined) {
+        newState = newState.set(
+          "isLoadingParameters",
+          action.isLoadingParameters
+        )
+      }
       return newState
     }
 

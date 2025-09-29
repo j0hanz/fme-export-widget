@@ -122,34 +122,54 @@ const MODULES = [
 ] as const
 
 // Safe operation helpers
-const safeCancelSketch = (vm?: __esri.SketchViewModel | null): void => {
-  if (!vm) return
+const runSafely = (
+  operation: () => void,
+  context = "ArcGIS safe operation failed"
+): void => {
   try {
-    vm.cancel()
-  } catch {}
+    operation()
+  } catch (error) {
+    logWarn(context, error)
+  }
 }
 
-const safeClearLayer = (layer?: __esri.GraphicsLayer | null): void => {
+const safeCancelSketch = (
+  vm?: __esri.SketchViewModel | null,
+  context = "Failed to cancel SketchViewModel"
+): void => {
+  if (!vm) return
+  runSafely(() => {
+    vm.cancel()
+  }, context)
+}
+
+const safeClearLayer = (
+  layer?: __esri.GraphicsLayer | null,
+  context = "Failed to clear GraphicsLayer"
+): void => {
   if (!layer) return
-  try {
+  runSafely(() => {
     layer.removeAll()
-  } catch {}
+  }, context)
 }
 
 const removeLayerFromMap = (
   jmv?: JimuMapView | null,
-  layer?: __esri.GraphicsLayer | null
+  layer?: __esri.GraphicsLayer | null,
+  context = "Failed to remove GraphicsLayer from map"
 ): void => {
   if (!jmv || !layer) return
-  try {
+  runSafely(() => {
     if (jmv.view?.map && layer.parent) {
       jmv.view.map.remove(layer)
     }
-  } catch {}
+  }, context)
 }
 
 // Consolidated module and resource management
-const useEsriModules = (): {
+const useEsriModules = (
+  reloadSignal: number
+): {
   modules: EsriModules | null
   loading: boolean
 } => {
@@ -158,8 +178,13 @@ const useEsriModules = (): {
     loading: boolean
   }>({ modules: null, loading: true })
 
-  hooks.useEffectOnce(() => {
+  React.useEffect(() => {
     let cancelled = false
+
+    setState((prev) => ({
+      modules: reloadSignal === 0 ? prev.modules : null,
+      loading: true,
+    }))
 
     const loadModules = async () => {
       try {
@@ -215,7 +240,7 @@ const useEsriModules = (): {
     return () => {
       cancelled = true
     }
-  })
+  }, [reloadSignal])
 
   return state
 }
@@ -245,23 +270,27 @@ const useMapResources = () => {
       const { sketchViewModel, graphicsLayer, jimuMapView } = state
 
       if (sketchViewModel) {
-        try {
-          safeCancelSketch(sketchViewModel)
-          if (typeof sketchViewModel.destroy === "function") {
+        safeCancelSketch(
+          sketchViewModel,
+          `Error ${logSuffix} SketchViewModel (cancel)`
+        )
+        if (typeof sketchViewModel.destroy === "function") {
+          runSafely(() => {
             sketchViewModel.destroy()
-          }
-        } catch (error) {
-          logWarn(`Error ${logSuffix} SketchViewModel`, error)
+          }, `Error ${logSuffix} SketchViewModel (destroy)`)
         }
       }
 
       if (graphicsLayer) {
-        try {
-          removeLayerFromMap(jimuMapView, graphicsLayer)
-          safeClearLayer(graphicsLayer)
-        } catch (error) {
-          logWarn(`Error ${logSuffix} GraphicsLayer`, error)
-        }
+        removeLayerFromMap(
+          jimuMapView,
+          graphicsLayer,
+          `Error ${logSuffix} GraphicsLayer (remove)`
+        )
+        safeClearLayer(
+          graphicsLayer,
+          `Error ${logSuffix} GraphicsLayer (clear)`
+        )
       }
 
       setState((prev) => ({
@@ -613,6 +642,12 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
   })
 
+  const [moduleRetryKey, setModuleRetryKey] = React.useState(0)
+
+  const requestModuleReload = hooks.useEventCallback(() => {
+    setModuleRetryKey((prev) => prev + 1)
+  })
+
   // Render error view with translation and support hints
   const renderWidgetError = hooks.useEventCallback(
     (
@@ -736,7 +771,7 @@ export default function Widget(
     }
   )
 
-  const { modules, loading: modulesLoading } = useEsriModules()
+  const { modules, loading: modulesLoading } = useEsriModules(moduleRetryKey)
   const mapResources = useMapResources()
 
   // Redux state selector and dispatcher
@@ -891,6 +926,11 @@ export default function Widget(
     startupAbort.finalize(controller)
   })
 
+  const retryModulesAndValidation = hooks.useEventCallback(() => {
+    requestModuleReload()
+    runStartupValidation()
+  })
+
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     runStartupValidation()
@@ -969,7 +1009,10 @@ export default function Widget(
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    safeClearLayer(graphicsLayer)
+    safeClearLayer(
+      graphicsLayer,
+      "Error clearing graphics during measurement reset"
+    )
   })
 
   // Drawing complete with enhanced Graphic functionality
@@ -1348,27 +1391,30 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (sketchViewModel && syms) {
-      try {
+      runSafely(() => {
         ;(sketchViewModel as any).polygonSymbol = syms.polygon
         ;(sketchViewModel as any).polylineSymbol = syms.polyline
         ;(sketchViewModel as any).pointSymbol = syms.point
-      } catch {}
+      }, "Error applying drawing symbols to SketchViewModel")
     }
     if (graphicsLayer && syms) {
-      try {
+      runSafely(() => {
         graphicsLayer.graphics.forEach((g: any) => {
           if (g?.geometry?.type === "polygon") {
             g.symbol = syms.polygon
           }
         })
-      } catch {}
+      }, "Error updating drawing symbols on GraphicsLayer")
     }
   }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
   // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
   hooks.useUpdateEffect(() => {
     if (!isActive && sketchViewModel) {
-      safeCancelSketch(sketchViewModel)
+      safeCancelSketch(
+        sketchViewModel,
+        "Error cancelling drawing when widget deactivates"
+      )
     }
   }, [isActive, sketchViewModel])
 
@@ -1428,11 +1474,17 @@ export default function Widget(
       const anyVm = sketchViewModel as any
       const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
       if (isActive) {
-        safeCancelSketch(sketchViewModel)
+        safeCancelSketch(
+          sketchViewModel,
+          "Error cancelling active SketchViewModel before starting new drawing"
+        )
       }
     } catch {
       // fallback best-effort cancel
-      safeCancelSketch(sketchViewModel)
+      safeCancelSketch(
+        sketchViewModel,
+        "Error cancelling SketchViewModel after exception in handleStartDrawing"
+      )
     }
 
     // Start drawing immediately; prior cancel avoids overlap
@@ -1510,7 +1562,10 @@ export default function Widget(
 
     // Cancel any in-progress drawing
     if (sketchViewModel) {
-      safeCancelSketch(sketchViewModel)
+      safeCancelSketch(
+        sketchViewModel,
+        "Error cancelling drawing during handleReset"
+      )
     }
 
     // Reset Redux state
@@ -1623,7 +1678,7 @@ export default function Widget(
             timestamp: new Date(),
             timestampMs: Date.now(),
           },
-          runStartupValidation
+          retryModulesAndValidation
         )}
       </div>
     )
@@ -1743,4 +1798,5 @@ export {
   calcArea,
   validatePolygon,
   processFmeResponse,
+  useEsriModules,
 }

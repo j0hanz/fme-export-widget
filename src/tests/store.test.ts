@@ -213,15 +213,23 @@ describe("FME Redux store extension", () => {
     expect(sub(g4).currentRepository).toBe("RepoC")
   })
 
-  test("loading flags: isModulesLoading and isSubmittingOrder only", () => {
+  test("loading flags mirror module, submission, and workspace status", () => {
     const r = new StoreExtension().getReducer()
-    const g0 = makeGlobal({ isSubmittingOrder: false, isModulesLoading: false })
+    const g0 = makeGlobal({
+      isSubmittingOrder: false,
+      isModulesLoading: false,
+      isLoadingWorkspaces: false,
+      isLoadingParameters: false,
+    })
+
     const g1 = r(
       g0,
       fmeActions.setLoadingFlags({ isModulesLoading: true }, WID) as any
     )
     expect(sub(g1).isModulesLoading).toBe(true)
     expect(sub(g1).isSubmittingOrder).toBe(false)
+    expect(sub(g1).isLoadingWorkspaces).toBe(false)
+    expect(sub(g1).isLoadingParameters).toBe(false)
 
     const g2 = r(
       g1,
@@ -229,6 +237,28 @@ describe("FME Redux store extension", () => {
     )
     expect(sub(g2).isModulesLoading).toBe(true)
     expect(sub(g2).isSubmittingOrder).toBe(true)
+
+    const g3 = r(
+      g2,
+      fmeActions.setLoadingFlags({ isLoadingWorkspaces: true }, WID) as any
+    )
+    expect(sub(g3).isLoadingWorkspaces).toBe(true)
+
+    const g4 = r(
+      g3,
+      fmeActions.setLoadingFlags({ isLoadingParameters: true }, WID) as any
+    )
+    expect(sub(g4).isLoadingParameters).toBe(true)
+
+    const g5 = r(
+      g4,
+      fmeActions.setLoadingFlags(
+        { isLoadingWorkspaces: false, isLoadingParameters: false },
+        WID
+      ) as any
+    )
+    expect(sub(g5).isLoadingWorkspaces).toBe(false)
+    expect(sub(g5).isLoadingParameters).toBe(false)
   })
 
   test("clearWorkspaceState resets related fields and repository", () => {
