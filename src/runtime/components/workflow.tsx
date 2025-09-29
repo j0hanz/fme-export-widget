@@ -1145,12 +1145,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
           key={workspace.name}
           role="listitem"
           aria-label={workspace.title || workspace.name}
+          onClick={handleOpen}
         >
           <Button
             text={workspace.title || workspace.name}
             icon={exportIcon}
             size="lg"
-            onClick={handleOpen}
             logging={{
               enabled: true,
               prefix: "FME-Export-WorkspaceSelection",
@@ -1223,6 +1223,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={onReset}
+        type="tertiary"
         variant="text"
         alignText="start"
         text={translate("cancel")}

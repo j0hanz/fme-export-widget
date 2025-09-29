@@ -76,5 +76,7 @@ export default {
   addRow: "Lägg till rad",
   deleteRow: "Ta bort",
   tableEmpty: "Inga rader tillagda",
+  textInput: "Textinmatning",
+  fileInput: "Filuppladdning",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
 }

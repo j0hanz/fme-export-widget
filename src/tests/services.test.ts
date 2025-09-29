@@ -295,6 +295,38 @@ describe("ParameterFormService", () => {
           paramType: ParameterType.FILENAME,
           expectedFieldType: FormFieldType.FILE,
         },
+        {
+          paramType: ParameterType.TEXT_OR_FILE,
+          expectedFieldType: FormFieldType.TEXT_OR_FILE,
+        },
+        {
+          paramType: ParameterType.REPROJECTION_FILE,
+          expectedFieldType: FormFieldType.REPROJECTION_FILE,
+        },
+        {
+          paramType: ParameterType.COORDSYS,
+          expectedFieldType: FormFieldType.COORDSYS,
+        },
+        {
+          paramType: ParameterType.ATTRIBUTE_NAME,
+          expectedFieldType: FormFieldType.ATTRIBUTE_NAME,
+        },
+        {
+          paramType: ParameterType.ATTRIBUTE_LIST,
+          expectedFieldType: FormFieldType.ATTRIBUTE_LIST,
+        },
+        {
+          paramType: ParameterType.DB_CONNECTION,
+          expectedFieldType: FormFieldType.DB_CONNECTION,
+        },
+        {
+          paramType: ParameterType.WEB_CONNECTION,
+          expectedFieldType: FormFieldType.WEB_CONNECTION,
+        },
+        {
+          paramType: ParameterType.SCRIPTED,
+          expectedFieldType: FormFieldType.SCRIPTED,
+        },
       ]
 
       testCases.forEach(({ paramType, expectedFieldType }) => {
@@ -411,8 +443,8 @@ describe("ParameterFormService", () => {
       const fieldsWith = service.convertParametersToFields(withOpts)
       const fieldsWithout = service.convertParametersToFields(withoutOpts)
       expect(fieldsWith.map((f) => f.type)).toEqual([
-        FormFieldType.SELECT,
-        FormFieldType.SELECT,
+        FormFieldType.DB_CONNECTION,
+        FormFieldType.WEB_CONNECTION,
       ])
       expect(fieldsWithout).toHaveLength(0)
     })
@@ -434,16 +466,25 @@ describe("ParameterFormService", () => {
       const fields = service.convertParametersToFields(params)
       expect(fields).toHaveLength(2)
       const [listField, nameField] = fields
-      expect(listField.type).toBe(FormFieldType.MULTI_SELECT)
-      expect(nameField.type).toBe(FormFieldType.SELECT)
+      expect(listField.type).toBe(FormFieldType.ATTRIBUTE_LIST)
+      expect(nameField.type).toBe(FormFieldType.ATTRIBUTE_NAME)
     })
 
-    test("reprojection file maps to FILE", () => {
+    test("reprojection file maps to dedicated field", () => {
       const fields = service.convertParametersToFields([
         makeParam({ name: "rf", type: ParameterType.REPROJECTION_FILE }),
       ])
       expect(fields).toHaveLength(1)
-      expect(fields[0].type).toBe(FormFieldType.FILE)
+      expect(fields[0].type).toBe(FormFieldType.REPROJECTION_FILE)
+    })
+
+    test("scripted parameter yields read-only scripted field", () => {
+      const fields = service.convertParametersToFields([
+        makeParam({ name: "script", type: ParameterType.SCRIPTED }),
+      ])
+      expect(fields).toHaveLength(1)
+      expect(fields[0].type).toBe(FormFieldType.SCRIPTED)
+      expect(fields[0].readOnly).toBe(true)
     })
   })
 
@@ -493,6 +534,38 @@ describe("ParameterFormService", () => {
     test("handles invalid inputs gracefully", () => {
       expect(service.validateFormValues(null as any, []).isValid).toBe(true)
       expect(service.validateFormValues({}, null as any).isValid).toBe(true)
+    })
+
+    test("validates text-or-file required fields", () => {
+      const field: DynamicFieldConfig = {
+        ...mockField,
+        name: "tof",
+        type: FormFieldType.TEXT_OR_FILE,
+      }
+
+      const missing = service.validateFormValues(
+        { tof: { mode: "text", text: "" } },
+        [field]
+      )
+      expect(missing.isValid).toBe(false)
+      expect(missing.errors.tof).toBe("")
+
+      const withText = service.validateFormValues(
+        { tof: { mode: "text", text: "abc" } },
+        [field]
+      )
+      expect(withText.isValid).toBe(true)
+
+      const withFile = service.validateFormValues(
+        {
+          tof: {
+            mode: "file",
+            file: { name: "doc.txt", size: 1, type: "text/plain" },
+          },
+        },
+        [field]
+      )
+      expect(withFile.isValid).toBe(true)
     })
   })
 })

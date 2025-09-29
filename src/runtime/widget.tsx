@@ -65,6 +65,7 @@ import {
   formatErrorForView,
   useLatestAbortController,
   toTrimmedString,
+  coerceFormValueForSubmission,
   logIfNotAbort,
 } from "../shared/utils"
 import { loadArcgisModules, logError, logWarn } from "../shared/logging"
@@ -143,10 +144,15 @@ const parseSubmissionFormData = (rawData: {
     ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
     : { ...restFormData }
 
+  const normalizedFormData: { [key: string]: unknown } = {}
+  for (const [key, val] of Object.entries(sanitizedFormData)) {
+    normalizedFormData[key] = coerceFormValueForSubmission(val)
+  }
+
   const uploadFile = uploadField instanceof File ? uploadField : null
   const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
 
-  return { sanitizedFormData, uploadFile, remoteUrl }
+  return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
 }
 
 const applyUploadedDatasetParam = ({

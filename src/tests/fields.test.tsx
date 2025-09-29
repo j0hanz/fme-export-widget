@@ -207,20 +207,17 @@ jest.mock("../runtime/components/ui", () => ({
       data-testid="tag-input"
     />
   ),
+  Table: ({ children, "aria-label": ariaLabel }: any) => (
+    <table aria-label={ariaLabel} data-testid="table">
+      {children}
+    </table>
+  ),
   ColorPickerWrapper: ({ value, onChange }) => (
     <input
       type="color"
       value={value || "#000000"}
       onChange={(e) => onChange(e.target.value)}
       data-testid="color-picker"
-    />
-  ),
-  DatePickerWrapper: ({ value, onChange }) => (
-    <input
-      type="date"
-      value={value || ""}
-      onChange={(e) => onChange(e.target.value)}
-      data-testid="date-picker"
     />
   ),
   DateTimePickerWrapper: ({ value, onChange }) => (
@@ -241,6 +238,20 @@ jest.mock("../runtime/components/ui", () => ({
       {text}
     </button>
   ),
+  ButtonTabs: ({ items, value, onChange, ariaLabel }) => (
+    <div data-testid="button-tabs" aria-label={ariaLabel}>
+      {items?.map((item) => (
+        <button
+          key={String(item.value)}
+          type="button"
+          data-active={value === item.value}
+          onClick={() => onChange(item.value)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  ),
 }))
 
 describe("Fields module", () => {
@@ -256,6 +267,8 @@ describe("Fields module", () => {
       placeholderPhone: "Enter phone number",
       placeholderTags: "Enter tags separated by commas",
       testField: "Test Field",
+      textInput: "Text",
+      fileInput: "File",
     }
     return translations[key] || key
   })
@@ -850,9 +863,9 @@ describe("Fields module", () => {
         />
       )
 
-      const datePicker = screen.getByTestId("date-picker")
-      expect(datePicker).toHaveValue("2023-12-25")
-      expect(datePicker).toHaveAttribute("type", "date")
+      const datePicker = screen.getByTestId("input")
+      expect(datePicker).toHaveValue("2023-12-25T00:00:00")
+      expect(datePicker).toHaveAttribute("type", "datetime-local")
     })
 
     test("renders MONTH field", () => {
@@ -921,8 +934,10 @@ describe("Fields module", () => {
         />
       )
 
-      const datePicker = screen.getByTestId("date-picker")
-      fireEvent.change(datePicker, { target: { value: "2024-01-07" } })
+      const datePicker = screen.getByTestId("input")
+      fireEvent.change(datePicker, {
+        target: { value: "2024-01-07T16:30:45" },
+      })
       expect(onChange).toHaveBeenCalledWith("20240107")
     })
 
@@ -1146,7 +1161,7 @@ describe("Fields module", () => {
       })
       const onChange = jest.fn()
 
-      renderWithProviders(
+      const { rerender } = renderWithProviders(
         <DynamicField
           field={field}
           value={[]}
@@ -1157,6 +1172,7 @@ describe("Fields module", () => {
 
       // Initially empty state
       expect(screen.getByText("Inga rader tillagda")).toBeInTheDocument()
+      expect(screen.queryByRole("table")).not.toBeInTheDocument()
 
       // Add a row
       fireEvent.click(screen.getByRole("button", { name: "Lägg till rad" }))
@@ -1164,7 +1180,7 @@ describe("Fields module", () => {
 
       // Re-render with one empty row
       onChange.mockClear()
-      renderWithProviders(
+      rerender(
         <DynamicField
           field={field}
           value={[""]}
@@ -1172,6 +1188,7 @@ describe("Fields module", () => {
           translate={mockTranslate}
         />
       )
+      expect(screen.getByRole("table")).toBeInTheDocument()
       const input = screen.getByTestId("input")
       fireEvent.change(input, { target: { value: "abc" } })
       expect(onChange).toHaveBeenLastCalledWith(["abc"])
@@ -1180,6 +1197,90 @@ describe("Fields module", () => {
       onChange.mockClear()
       fireEvent.click(screen.getByRole("button", { name: "Ta bort" }))
       expect(onChange).toHaveBeenLastCalledWith([])
+    })
+
+    test("renders TEXT_OR_FILE field with text mode by default", () => {
+      const field = createField({ type: FormFieldType.TEXT_OR_FILE })
+      const onChange = jest.fn()
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={undefined}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      expect(screen.getByTestId("button-tabs")).toBeInTheDocument()
+      const textarea = screen.getByTestId("textarea")
+      expect(textarea).toBeInTheDocument()
+      expect(textarea).toHaveAttribute("placeholder", "Enter Test Field")
+    })
+
+    test("TEXT_OR_FILE toggles to file mode and surfaces file name", () => {
+      const field = createField({ type: FormFieldType.TEXT_OR_FILE })
+      const onChange = jest.fn()
+
+      const { rerender } = renderWithProviders(
+        <DynamicField
+          field={field}
+          value={{ mode: "text", text: "hello" } as any}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const switchButtons = screen
+        .getByTestId("button-tabs")
+        .querySelectorAll("button")
+      expect(switchButtons).toHaveLength(2)
+
+      fireEvent.click(switchButtons[1])
+      expect(onChange).toHaveBeenCalledWith({
+        mode: "file",
+        file: null,
+        fileName: undefined,
+      })
+
+      const fileValue = {
+        mode: "file",
+        file: { name: "data.csv", size: 1, type: "text/csv" },
+        fileName: "data.csv",
+      }
+      rerender(
+        <DynamicField
+          field={field}
+          value={fileValue as any}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const fileInput = screen.getByTestId("file-input")
+      expect(fileInput).toBeInTheDocument()
+      expect(screen.getByTestId("text-or-file-name")).toHaveTextContent(
+        "data.csv"
+      )
+    })
+
+    test("renders SCRIPTED field as read-only rich text", () => {
+      const field = createField({
+        type: FormFieldType.SCRIPTED,
+        description: "<b>Generated value</b>",
+      })
+
+      renderWithProviders(
+        <DynamicField
+          field={field}
+          value={"<script>alert('x')</script>Value"}
+          onChange={jest.fn()}
+          translate={mockTranslate}
+        />
+      )
+
+      const rich = screen.getByTestId("rich-text")
+      expect(rich).toHaveTextContent("Value")
     })
   })
 })

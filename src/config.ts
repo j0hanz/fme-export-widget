@@ -41,6 +41,14 @@ export const enum FormFieldType {
   TABLE = "table",
   MONTH = "month",
   WEEK = "week",
+  COORDSYS = "coord-sys",
+  ATTRIBUTE_NAME = "attribute-name",
+  ATTRIBUTE_LIST = "attribute-list",
+  DB_CONNECTION = "db-connection",
+  WEB_CONNECTION = "web-connection",
+  TEXT_OR_FILE = "text-or-file",
+  REPROJECTION_FILE = "reprojection-file",
+  SCRIPTED = "scripted",
   HIDDEN = "hidden",
 }
 
@@ -158,12 +166,20 @@ export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
 }
 
 // Base types and interfaces
+export interface TextOrFileValue {
+  readonly mode: "text" | "file"
+  readonly text?: string
+  readonly file?: unknown
+  readonly fileName?: string
+}
+
 export type FormValue =
   | string
   | number
   | boolean
   | ReadonlyArray<string | number>
   | readonly string[]
+  | Readonly<TextOrFileValue>
   | null
   | undefined
 export type FormPrimitive = Exclude<FormValue, undefined>
@@ -316,6 +332,7 @@ export interface ButtonProps extends BaseProps {
   readonly alignText?: string
   readonly tooltipDisabled?: boolean
   readonly children?: React.ReactNode
+  readonly type?: "default" | "primary" | "secondary" | "tertiary" | "danger"
   readonly block?: boolean
   readonly color?: string
   readonly htmlType?: "submit" | "button" | "reset"
@@ -418,13 +435,6 @@ export interface BtnContentProps {
   readonly loading?: boolean
   readonly children?: React.ReactNode
   readonly alignText?: string
-}
-
-export interface IconProps extends BaseProps {
-  readonly icon?: string
-  readonly src?: string
-  readonly size?: number
-  readonly ariaLabel?: string
 }
 
 // Setting panel types

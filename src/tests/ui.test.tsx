@@ -41,7 +41,7 @@ describe("UI components", () => {
   test("Icon renders SVG and Tooltip behavior", () => {
     // Icon renders inline SVG
     const { container } = renderWithProviders(
-      <Icon src="/mock.svg" ariaLabel="Map" />
+      <Icon src="/mock.svg" aria-label="Map" />
     )
     expect(container.querySelector("svg")).toBeTruthy()
 

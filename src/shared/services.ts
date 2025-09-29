@@ -8,6 +8,7 @@ import type {
   StartupValidationResult,
   StartupValidationOptions,
   FmeFlowConfig,
+  TextOrFileValue,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
 import {
@@ -15,6 +16,7 @@ import {
   extractErrorMessage,
   isAbortError,
   extractRepositoryNames,
+  isFileObject,
 } from "./utils"
 import {
   isInt,
@@ -44,7 +46,6 @@ const SKIPPED_PARAMETER_NAMES = new Set([
 const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([
   ParameterType.NOVALUE,
   ParameterType.GEOMETRY,
-  ParameterType.SCRIPTED,
 ])
 
 const LIST_REQUIRED_TYPES = new Set<ParameterType>([
@@ -52,6 +53,8 @@ const LIST_REQUIRED_TYPES = new Set<ParameterType>([
   ParameterType.WEB_CONNECTION,
   ParameterType.ATTRIBUTE_NAME,
   ParameterType.ATTRIBUTE_LIST,
+  ParameterType.COORDSYS,
+  ParameterType.REPROJECTION_FILE,
 ])
 
 const MULTI_SELECT_TYPES = new Set<ParameterType>([
@@ -85,10 +88,14 @@ const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.COLOR]: FormFieldType.COLOR,
   [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
   [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
-  [ParameterType.REPROJECTION_FILE]: FormFieldType.FILE,
-  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
-  [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
-  [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
+  [ParameterType.TEXT_OR_FILE]: FormFieldType.TEXT_OR_FILE,
+  [ParameterType.REPROJECTION_FILE]: FormFieldType.REPROJECTION_FILE,
+  [ParameterType.COORDSYS]: FormFieldType.COORDSYS,
+  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.ATTRIBUTE_NAME,
+  [ParameterType.ATTRIBUTE_LIST]: FormFieldType.ATTRIBUTE_LIST,
+  [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
+  [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
+  [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
   [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
 })
 
@@ -331,7 +338,8 @@ export class ParameterFormService {
         label: param.description || param.name,
         type,
         required: !param.optional,
-        readOnly: type === FormFieldType.MESSAGE,
+        readOnly:
+          type === FormFieldType.MESSAGE || type === FormFieldType.SCRIPTED,
         description: param.description,
         defaultValue: param.defaultValue as FormPrimitive,
         placeholder: param.description || "",
@@ -348,6 +356,9 @@ export class ParameterFormService {
 
   /** Map parameter type to a UI field type. */
   private getFieldType(param: WorkspaceParameter): FormFieldType {
+    const override = PARAMETER_FIELD_TYPE_MAP[param.type]
+    if (override) return override
+
     const hasOptions = param.listOptions?.length > 0
     if (hasOptions) {
       return MULTI_SELECT_TYPES.has(param.type)
@@ -355,7 +366,7 @@ export class ParameterFormService {
         : FormFieldType.SELECT
     }
 
-    return PARAMETER_FIELD_TYPE_MAP[param.type] ?? FormFieldType.TEXT
+    return FormFieldType.TEXT
   }
 
   validateFormValues(
@@ -369,6 +380,17 @@ export class ParameterFormService {
     for (const field of fields) {
       const value = values[field.name]
       const hasValue = !isEmpty(value)
+
+      if (field.type === FormFieldType.TEXT_OR_FILE) {
+        const tf = value as TextOrFileValue | undefined
+        const hasText =
+          typeof tf?.text === "string" && tf.text.trim().length > 0
+        const hasFile = isFileObject(tf?.file)
+        if (field.required && !hasText && !hasFile) {
+          errors[field.name] = ""
+        }
+        continue
+      }
 
       if (field.required && !hasValue) {
         errors[field.name] = ""

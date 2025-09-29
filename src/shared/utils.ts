@@ -4,6 +4,7 @@ import type {
   FmeExportConfig,
   ErrorState,
   PrimitiveParams,
+  TextOrFileValue,
 } from "../config"
 import { ErrorType, ErrorSeverity } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
@@ -1051,12 +1052,15 @@ export const buildParams = (
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || excludeSet.has(key)) continue
 
-    if (isFileObject(value)) {
-      urlParams.append(key, getFileDisplayName(value))
+    const normalized = coerceFormValueForSubmission(value)
+    if (normalized === undefined || normalized === null) continue
+
+    if (isFileObject(normalized)) {
+      urlParams.append(key, getFileDisplayName(normalized))
       continue
     }
 
-    urlParams.append(key, toStr(value))
+    urlParams.append(key, toStr(normalized))
   }
 
   if (webhookDefaults) {
@@ -1373,6 +1377,31 @@ export const isFileObject = (value: unknown): value is File => {
 export const getFileDisplayName = (file: File): string => {
   const name = (file as any).name
   return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
+}
+
+export const coerceFormValueForSubmission = (value: unknown): unknown => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value
+  }
+
+  if ("mode" in (value as { [key: string]: unknown })) {
+    const composite = value as TextOrFileValue
+    const mode = composite?.mode
+
+    if (mode === "file") {
+      if (isFileObject(composite.file)) {
+        return composite.file
+      }
+      const fallback = asString(composite.fileName).trim()
+      return fallback
+    }
+
+    if (mode === "text") {
+      return asString(composite.text)
+    }
+  }
+
+  return value
 }
 
 export const stripErrorLabel = (errorText?: string): string | undefined => {

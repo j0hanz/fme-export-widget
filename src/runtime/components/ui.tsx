@@ -30,8 +30,11 @@ import {
   TagInput as JimuTagInput,
   MultiSelect,
   SVG,
+  Table as JimuTable,
 } from "jimu-ui"
+import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
+import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import {
@@ -41,6 +44,7 @@ import {
   getErrorIconSrc,
   getBtnAria,
   ariaDesc,
+  pad2,
 } from "../../shared/utils"
 import { logWarn } from "../../shared/logging"
 import dataIcon from "../../assets/icons/data.svg"
@@ -71,12 +75,9 @@ import type {
   FormProps,
   FieldProps,
   BtnContentProps,
-  IconProps,
   StateViewProps,
   TranslateFn,
 } from "../../config"
-
-// Configuration & constants
 
 // Configuration
 export const config = {
@@ -511,23 +512,28 @@ const BtnContent: React.FC<BtnContentProps> = ({
 }
 
 // Icon component
-export const Icon: React.FC<IconProps> = ({
+export const Icon: React.FC<SVGProps> = ({
   src,
   size = config.icon.medium,
   className,
-  ariaLabel,
   style,
+  role = "img",
+  "aria-label": ariaLabel,
+  "aria-hidden": ariaHidden,
+  ...props
 }) => {
-  const resolved =
-    typeof src === "string" ? (LOCAL_ICON_SOURCES[src] ?? src) : src
+  const resolved = LOCAL_ICON_SOURCES[src] ?? src
+  const computedHidden = ariaHidden ?? !ariaLabel
+
   return (
     <SVG
+      {...props}
       src={resolved}
       size={size}
       className={className}
-      role="img"
-      aria-hidden={!ariaLabel}
+      role={role}
       aria-label={ariaLabel}
+      aria-hidden={computedHidden}
       css={applyComponentStyles([], style as any)}
     />
   )
@@ -851,6 +857,10 @@ export const TagInput: React.FC<{
   )
 }
 
+export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
+  props
+) => <JimuTable {...props} />
+
 // ColorPicker component
 export const ColorPickerWrapper: React.FC<{
   value?: string
@@ -862,141 +872,144 @@ export const ColorPickerWrapper: React.FC<{
   const styles = useStyles()
   return (
     <JimuColorPicker
+      outline
       color={value || defaultValue || "#000000"}
       onChange={(color) => {
         onChange?.(color)
       }}
       aria-label={ariaLabel}
       css={applyFullWidthStyles(styles, style)}
+      showArrow
     />
   )
 }
 
-// DatePicker component
-export const DatePickerWrapper: React.FC<{
-  value?: string
-  defaultValue?: string
-  onChange?: (date: string) => void
-  style?: React.CSSProperties
-}> = ({ value, defaultValue, onChange, style }) => {
-  const styles = useStyles()
-  const inputRef = React.useRef<HTMLInputElement | null>(null)
+const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
+const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
 
-  const openPicker = hooks.useEventCallback(() => {
-    const el = inputRef.current as any
-    if (el && typeof el.showPicker === "function") {
-      try {
-        el.showPicker()
-      } catch {
-        // ignore if browser blocks showPicker
-      }
-    }
-  })
+const parseIsoLocalDateTime = (value?: string): Date | null => {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const [datePart, timePart] = trimmed.split("T")
+  if (!datePart || !timePart) return null
 
-  return (
-    <input
-      type="date"
-      ref={inputRef}
-      value={value || defaultValue || ""}
-      onChange={(e) => {
-        onChange?.(e.target.value)
-      }}
-      onFocus={openPicker}
-      onMouseDown={() => {
-        // also try opening on mouse/touch down for convenience
-        openPicker()
-      }}
-      css={applyFullWidthStyles(styles, style)}
-    />
-  )
+  const dateMatch = ISO_LOCAL_DATE.exec(datePart)
+  const timeMatch = ISO_LOCAL_TIME.exec(timePart)
+  if (!dateMatch || !timeMatch) return null
+
+  const year = Number(dateMatch[1])
+  const month = Number(dateMatch[2])
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+  const second = timeMatch[3] ? Number(timeMatch[3]) : 0
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null
+  }
+
+  const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-// DateTimePicker component (date + time inputs)
+const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
+  if (!value) return ""
+  const timestamp = value.getTime()
+  if (Number.isNaN(timestamp)) return ""
+  const yyyy = value.getFullYear()
+  const mm = pad2(value.getMonth() + 1)
+  const dd = pad2(value.getDate())
+  const hh = pad2(value.getHours())
+  const mi = pad2(value.getMinutes())
+  const ss = pad2(value.getSeconds())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
+}
+
+// DateTimePicker component
 export const DateTimePickerWrapper: React.FC<{
   value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
   defaultValue?: string
   onChange?: (dateTime: string) => void
   style?: React.CSSProperties
   disabled?: boolean
-}> = ({ value, defaultValue, onChange, style, disabled }) => {
+  "aria-label"?: string
+}> = ({
+  value,
+  defaultValue,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+}) => {
   const styles = useStyles()
-  const dateRef = React.useRef<HTMLInputElement | null>(null)
-  const timeRef = React.useRef<HTMLInputElement | null>(null)
+  const [currentValue, setCurrentValue] = useValue(
+    value,
+    defaultValue,
+    onChange
+  )
 
-  // Local split state for better typing UX
-  const [datePart, setDatePart] = React.useState<string>("")
-  const [timePart, setTimePart] = React.useState<string>("")
+  const fallbackDateRef = React.useRef<Date>(new Date())
+  const fallbackDate = fallbackDateRef.current
 
-  // Sync from controlled props
-  React.useEffect(() => {
-    const src = value ?? defaultValue ?? ""
-    if (typeof src === "string" && src) {
-      const [d, t] = src.split("T")
-      setDatePart(d || "")
-      setTimePart(t || "")
-    } else {
-      setDatePart("")
-      setTimePart("")
-    }
-  }, [value, defaultValue])
+  const selectedDate =
+    parseIsoLocalDateTime(currentValue) ||
+    parseIsoLocalDateTime(defaultValue) ||
+    fallbackDate
 
-  const emitChange = hooks.useEventCallback((d: string, t: string) => {
-    const hasDate = !!d
-    const hasTime = !!t
-    const normalizedTime = t // allow HH:mm or HH:mm:ss
-    const combined = hasDate && hasTime ? `${d}T${normalizedTime}` : ""
-    onChange?.(combined)
-  })
+  const sharedCss = applyFullWidthStyles(styles, style)
 
-  const openPicker = hooks.useEventCallback((el: HTMLInputElement | null) => {
-    const anyEl = el as any
-    if (anyEl && typeof anyEl.showPicker === "function") {
-      try {
-        anyEl.showPicker()
-      } catch {
-        // ignore if not permitted
+  const handleChange = hooks.useEventCallback(
+    (rawValue: any, _label: string) => {
+      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+        setCurrentValue(formatIsoLocalDateTime(new Date(rawValue)))
+        return
+      }
+
+      if (rawValue instanceof Date) {
+        setCurrentValue(formatIsoLocalDateTime(rawValue))
+        return
+      }
+
+      if (rawValue == null) {
+        setCurrentValue("")
       }
     }
-  })
-
-  return (
-    <div
-      css={[
-        ...applyComponentStyles(
-          [styles.row, styles.fullWidth, css({ flexWrap: "wrap", gap: 4 })],
-          style
-        ),
-      ]}
-    >
-      <input
-        type="date"
-        ref={dateRef}
-        value={datePart}
-        onChange={(e) => {
-          const d = e.target.value
-          setDatePart(d)
-          emitChange(d, timePart)
-        }}
-        onFocus={() => openPicker(dateRef.current)}
-        onMouseDown={() => openPicker(dateRef.current)}
-        disabled={disabled}
-      />
-      <input
-        type="time"
-        step={1}
-        ref={timeRef}
-        value={timePart}
-        onChange={(e) => {
-          const t = e.target.value
-          setTimePart(t)
-          emitChange(datePart, t)
-        }}
-        onFocus={() => openPicker(timeRef.current)}
-        onMouseDown={() => openPicker(timeRef.current)}
-        disabled={disabled}
-      />
-    </div>
   )
+
+  const picker = (
+    <JimuDatePicker
+      selectedDate={selectedDate}
+      runtime={false}
+      showTimeInput
+      isLongTime
+      supportVirtualDateList={false}
+      onChange={handleChange}
+      aria-label={ariaLabel}
+      css={sharedCss}
+    />
+  )
+
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        css={sharedCss}
+        style={{ pointerEvents: "none", display: "block" }}
+      >
+        {picker}
+      </span>
+    )
+  }
+
+  return picker
 }
 
 export const RichText: React.FC<{
@@ -1171,15 +1184,16 @@ export const Button: React.FC<ButtonProps> = ({
   icon,
   alignText = "start",
   tooltip,
+  type,
   tooltipDisabled = false,
   tooltipPlacement = config.button.defaults.tooltipPosition,
   loading = false,
   onClick,
   children,
   block = config.button.defaults.block,
-  size = "default",
+  size,
   variant = "contained",
-  color = "default",
+  color,
   htmlType = "button",
   ...jimuProps
 }) => {
@@ -1201,15 +1215,6 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Safely type the color prop
-  const safeColor: "default" | "inherit" | "primary" | "secondary" =
-    color === "default" ||
-    color === "inherit" ||
-    color === "primary" ||
-    color === "secondary"
-      ? color
-      : "default"
-
   // Absorb potential style/css from incoming props so no inline style attribute is forwarded
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
@@ -1218,7 +1223,8 @@ export const Button: React.FC<ButtonProps> = ({
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
-      color={safeColor}
+      type={type as any}
+      color={color}
       variant={variant}
       size={size}
       htmlType={htmlType}
@@ -1303,8 +1309,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
-            variant={active ? "contained" : "outlined"}
-            color={active ? "primary" : "default"}
+            type={active ? "primary" : "tertiary"}
             role="tab"
             aria-selected={active}
             tooltip={item.tooltip}
@@ -1570,9 +1575,8 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   ) => {
     const btnConfig = {
       ...buttonConfig,
-      variant:
-        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
-      color: buttonConfig.color || (side === "left" ? "default" : "primary"),
+      // Force visual type per side; do not guard with existing values
+      type: side === "left" ? ("default" as const) : ("primary" as const),
       key: side,
     }
     return <Button {...btnConfig} block={true} css={styles.btnFlex} />

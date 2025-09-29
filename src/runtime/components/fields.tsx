@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, css } from "jimu-core"
+import { React, hooks, jsx } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -14,16 +14,18 @@ import {
   NumericInput,
   TagInput,
   ColorPickerWrapper,
-  DatePickerWrapper,
   DateTimePickerWrapper,
   Button,
+  ButtonTabs,
   RichText,
+  Table,
 } from "./ui"
 import {
   FormFieldType,
   type DynamicFieldProps,
   type FormPrimitive,
   type SelectValue,
+  type TextOrFileValue,
 } from "../../config"
 import defaultMessages from "./translations/default"
 import {
@@ -41,9 +43,37 @@ import {
   normalizedRgbToHex,
   hexToNormalizedRgb,
   normalizeFormValue,
+  isFileObject,
+  getFileDisplayName,
 } from "../../shared/utils"
 
 // makePlaceholders is now imported from shared/utils
+
+const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  FormFieldType.SELECT,
+  FormFieldType.COORDSYS,
+  FormFieldType.ATTRIBUTE_NAME,
+  FormFieldType.DB_CONNECTION,
+  FormFieldType.WEB_CONNECTION,
+  FormFieldType.REPROJECTION_FILE,
+])
+
+const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  FormFieldType.MULTI_SELECT,
+  FormFieldType.ATTRIBUTE_LIST,
+])
+
+const TEXT_OR_FILE_MODES = {
+  TEXT: "text",
+  FILE: "file",
+} as const
+
+type TextOrFileMode =
+  (typeof TEXT_OR_FILE_MODES)[keyof typeof TEXT_OR_FILE_MODES]
+
+type NormalizedTextOrFile = TextOrFileValue & {
+  readonly file?: unknown
+}
 
 // Input rendering helper
 export const renderInputField = (
@@ -90,14 +120,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   onChange,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
-  const isMulti = field.type === FormFieldType.MULTI_SELECT
-  const fieldValue = normalizeFormValue(value, isMulti)
+  const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type)
+  const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE
+  const fieldValue = bypassNormalization
+    ? value
+    : normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
 
   // Determine if the field is a select type
   const isSelectType =
-    field.type === FormFieldType.SELECT ||
-    field.type === FormFieldType.MULTI_SELECT
+    SELECT_FIELD_TYPES.has(field.type) ||
+    MULTI_VALUE_FIELD_TYPES.has(field.type)
   const selectOptions = (field.options || []) as ReadonlyArray<{
     readonly value?: unknown
   }>
@@ -149,46 +182,55 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         return (
           <div data-testid="table-field">
-            {rows.length === 0 && <>{translate("tableEmpty")}</>}
-            <div role="table" aria-label={field.label}>
-              {rows.map((r, i) => (
-                <div key={i} role="row">
-                  <div role="cell">
-                    <Input
-                      type="text"
-                      value={r}
-                      placeholder={field.placeholder || placeholders.enter}
-                      onChange={(val) => {
-                        const s = typeof val === "string" ? val : ""
-                        updateRow(i, s)
-                      }}
-                      disabled={field.readOnly}
-                    />
-                  </div>
-                  <div role="cell">
-                    <Button
-                      text={translate("deleteRow")}
-                      variant="text"
-                      onClick={() => {
-                        removeRow(i)
-                      }}
-                      aria-label={translate("deleteRow")}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <>
-              <Button
-                text={translate("addRow")}
-                variant="outlined"
-                onClick={addRow}
-                aria-label={translate("addRow")}
-              />
-            </>
+            {rows.length === 0 ? (
+              <div>{translate("tableEmpty")}</div>
+            ) : (
+              <Table responsive hover aria-label={field.label}>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td>
+                        <Input
+                          type="text"
+                          value={r}
+                          placeholder={field.placeholder || placeholders.enter}
+                          onChange={(val) => {
+                            const s = typeof val === "string" ? val : ""
+                            updateRow(i, s)
+                          }}
+                          disabled={field.readOnly}
+                        />
+                      </td>
+                      <td>
+                        <Button
+                          text={translate("deleteRow")}
+                          variant="text"
+                          type="tertiary"
+                          onClick={() => {
+                            removeRow(i)
+                          }}
+                          aria-label={translate("deleteRow")}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+            <Button
+              text={translate("addRow")}
+              variant="outlined"
+              onClick={addRow}
+              aria-label={translate("addRow")}
+            />
           </div>
         )
       }
+      case FormFieldType.COORDSYS:
+      case FormFieldType.ATTRIBUTE_NAME:
+      case FormFieldType.DB_CONNECTION:
+      case FormFieldType.WEB_CONNECTION:
+      case FormFieldType.REPROJECTION_FILE:
       case FormFieldType.SELECT: {
         const options = field.options || []
 
@@ -237,6 +279,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
+      case FormFieldType.ATTRIBUTE_LIST:
       case FormFieldType.MULTI_SELECT: {
         const options = field.options || []
         const values = Array.isArray(fieldValue)
@@ -310,9 +353,123 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             aria-label={field.label}
           />
         )
+      case FormFieldType.TEXT_OR_FILE: {
+        const rawValue = fieldValue
+        const currentValue: NormalizedTextOrFile = (() => {
+          if (
+            rawValue &&
+            typeof rawValue === "object" &&
+            !Array.isArray(rawValue) &&
+            "mode" in rawValue
+          ) {
+            return rawValue as NormalizedTextOrFile
+          }
+          if (isFileObject(rawValue)) {
+            return {
+              mode: TEXT_OR_FILE_MODES.FILE,
+              file: rawValue,
+              fileName: getFileDisplayName(rawValue),
+            }
+          }
+          return {
+            mode: TEXT_OR_FILE_MODES.TEXT,
+            text: asString(rawValue),
+          }
+        })()
+
+        const resolvedMode: TextOrFileMode =
+          currentValue.mode === TEXT_OR_FILE_MODES.FILE
+            ? TEXT_OR_FILE_MODES.FILE
+            : TEXT_OR_FILE_MODES.TEXT
+
+        const handleModeChange = (nextMode: TextOrFileMode) => {
+          if (nextMode === TEXT_OR_FILE_MODES.FILE) {
+            onChange({
+              mode: TEXT_OR_FILE_MODES.FILE,
+              file: isFileObject(currentValue.file) ? currentValue.file : null,
+              fileName: currentValue.fileName,
+            } as unknown as FormPrimitive)
+          } else {
+            onChange({
+              mode: TEXT_OR_FILE_MODES.TEXT,
+              text: asString(currentValue.text),
+            } as unknown as FormPrimitive)
+          }
+        }
+
+        const handleTextChange = (val: string) => {
+          onChange({
+            mode: TEXT_OR_FILE_MODES.TEXT,
+            text: val,
+          } as unknown as FormPrimitive)
+        }
+
+        const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+          const files = evt.target.files
+          const file = files && files.length > 0 ? files[0] : null
+          onChange({
+            mode: TEXT_OR_FILE_MODES.FILE,
+            file,
+            fileName: file ? getFileDisplayName(file) : undefined,
+          } as unknown as FormPrimitive)
+        }
+
+        return (
+          <>
+            <ButtonTabs
+              items={[
+                {
+                  value: TEXT_OR_FILE_MODES.TEXT,
+                  label: translate("textInput"),
+                },
+                {
+                  value: TEXT_OR_FILE_MODES.FILE,
+                  label: translate("fileInput"),
+                },
+              ]}
+              value={resolvedMode}
+              onChange={(val) => {
+                handleModeChange(val as TextOrFileMode)
+              }}
+              ariaLabel={field.label}
+            />
+            {resolvedMode === TEXT_OR_FILE_MODES.TEXT ? (
+              <TextArea
+                value={asString(currentValue.text)}
+                placeholder={field.placeholder || placeholders.enter}
+                onChange={handleTextChange}
+                disabled={field.readOnly}
+                rows={field.rows}
+              />
+            ) : (
+              <div>
+                <Input
+                  type="file"
+                  onFileChange={handleFileChange}
+                  disabled={field.readOnly}
+                  aria-label={field.label}
+                />
+                {isFileObject(currentValue.file) ? (
+                  <div data-testid="text-or-file-name">
+                    {currentValue.fileName ||
+                      getFileDisplayName(currentValue.file)}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </>
+        )
+      }
+      case FormFieldType.SCRIPTED: {
+        const content =
+          typeof fieldValue === "string" && fieldValue.trim().length > 0
+            ? fieldValue
+            : asString(field.defaultValue) || field.description || field.label
+        return <RichText html={content || ""} />
+      }
       case FormFieldType.SWITCH:
         return (
-          <div css={css({ margin: "4px 0" })}>
+          <>
             <Switch
               checked={Boolean(fieldValue)}
               onChange={(_evt, checked) => {
@@ -321,7 +478,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               disabled={field.readOnly}
               aria-label={field.label}
             />
-          </div>
+          </>
         )
       case FormFieldType.RADIO: {
         const options = field.options || []
@@ -410,13 +567,18 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.DATE: {
         const val =
           typeof fieldValue === "string" ? fmeDateToInput(fieldValue) : ""
+        const isoValue = val ? `${val}T00:00:00` : ""
         return (
-          <DatePickerWrapper
-            value={val}
-            onChange={(date) => {
-              const out = inputToFmeDate(date)
+          <DateTimePickerWrapper
+            value={isoValue}
+            onChange={(dateTime) => {
+              const raw = typeof dateTime === "string" ? dateTime : ""
+              const datePart = raw.split("T")[0] || ""
+              const out = inputToFmeDate(datePart)
               onChange(out as FormPrimitive)
             }}
+            aria-label={field.label}
+            disabled={field.readOnly}
           />
         )
       }

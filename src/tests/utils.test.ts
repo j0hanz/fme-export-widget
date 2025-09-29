@@ -39,6 +39,7 @@ import {
   buildUrl,
   resolveRequestUrl,
   buildParams,
+  coerceFormValueForSubmission,
   safeLogParams,
   createHostPattern,
   interceptorExists,
@@ -595,6 +596,39 @@ describe("shared/utils", () => {
       expect(str).toContain("opt_responseformat=json")
       expect(str).toContain("opt_showresult=true")
       expect(str).toContain("opt_servicemode=sync")
+    })
+
+    test("coerceFormValueForSubmission normalizes composite text or file values", () => {
+      const file = new File(["abc"], "doc.txt", { type: "text/plain" })
+      const textComposite = { mode: "text", text: "line" } as const
+      const fileComposite = { mode: "file", file } as const
+      const fallbackComposite = {
+        mode: "file",
+        file: null,
+        fileName: "fallback.txt",
+      } as const
+
+      expect(coerceFormValueForSubmission(textComposite)).toBe("line")
+      expect(coerceFormValueForSubmission(fileComposite)).toBe(file)
+      expect(coerceFormValueForSubmission(fallbackComposite)).toBe(
+        "fallback.txt"
+      )
+    })
+
+    test("buildParams normalizes text-or-file composites before appending", () => {
+      const file = new File(["content"], "payload.zip", {
+        type: "application/zip",
+      })
+      const params = buildParams(
+        {
+          note: { mode: "text", text: "ready" },
+          attachment: { mode: "file", file },
+        } as any,
+        []
+      )
+
+      expect(params.get("note")).toBe("ready")
+      expect(params.get("attachment")).toBe("payload.zip")
     })
 
     test("safeLogParams only logs whitelisted and sanitized URL", () => {
