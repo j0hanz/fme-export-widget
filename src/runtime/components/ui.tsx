@@ -1308,6 +1308,73 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   )
 }
 
+type LoadingSnapshot = {
+  readonly message?: React.ReactNode
+  readonly detail?: React.ReactNode
+} | null
+
+const useLoadingLatch = (
+  state: StateViewProps["state"],
+  delay: number
+): { showLoading: boolean; snapshot: LoadingSnapshot } => {
+  const [latched, setLatched] = React.useState(state.kind === "loading")
+  const startRef = React.useRef<number | null>(
+    state.kind === "loading" ? Date.now() : null
+  )
+  const snapshotRef = React.useRef<LoadingSnapshot>(
+    state.kind === "loading"
+      ? { message: (state as any).message, detail: (state as any).detail }
+      : null
+  )
+
+  React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    if (state.kind === "loading") {
+      snapshotRef.current = {
+        message: (state as any).message,
+        detail: (state as any).detail,
+      }
+      if (startRef.current == null) {
+        startRef.current = Date.now()
+      }
+      setLatched(true)
+    } else if (startRef.current != null) {
+      const elapsed = Date.now() - startRef.current
+      const remaining = Math.max(0, delay - elapsed)
+
+      if (remaining > 0) {
+        timer = setTimeout(() => {
+          setLatched(false)
+          startRef.current = null
+          snapshotRef.current = null
+        }, remaining)
+      } else {
+        setLatched(false)
+        startRef.current = null
+        snapshotRef.current = null
+      }
+    } else {
+      setLatched(false)
+      snapshotRef.current = null
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [state, delay])
+
+  const isLoading = state.kind === "loading"
+  const snapshot = isLoading
+    ? { message: (state as any).message, detail: (state as any).detail }
+    : snapshotRef.current
+
+  return {
+    showLoading: isLoading || latched,
+    snapshot,
+  }
+}
+
 // StateView component
 const StateView: React.FC<StateViewProps> = ({
   state,
@@ -1318,51 +1385,7 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
-  const [showLoading, setShowLoading] = React.useState(state.kind === "loading")
-  const loadingStartedAtRef = React.useRef<number | null>(null)
-  // Persist last loading messages to show while holding the loader after a state change
-  const lastLoadingRef = React.useRef<{
-    message?: React.ReactNode
-    detail?: React.ReactNode
-  } | null>(
-    state.kind === "loading"
-      ? { message: (state as any).message, detail: (state as any).detail }
-      : null
-  )
-  React.useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    if (state.kind === "loading") {
-      setShowLoading(true)
-      if (loadingStartedAtRef.current == null) {
-        loadingStartedAtRef.current = Date.now()
-      }
-      lastLoadingRef.current = {
-        message: (state as any).message,
-        detail: (state as any).detail,
-      }
-    } else if (loadingStartedAtRef.current != null) {
-      const elapsed = Date.now() - loadingStartedAtRef.current
-      const remaining = Math.max(0, config.loading.delay - elapsed)
-
-      if (remaining > 0) {
-        timer = setTimeout(() => {
-          setShowLoading(false)
-          loadingStartedAtRef.current = null
-        }, remaining)
-      } else {
-        setShowLoading(false)
-        loadingStartedAtRef.current = null
-      }
-    } else {
-      setShowLoading(false)
-      loadingStartedAtRef.current = null
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state])
+  const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
   const DefaultActions = hooks.useEventCallback(
     ({
       actions,
@@ -1399,18 +1422,10 @@ const StateView: React.FC<StateViewProps> = ({
       }) => renderActions(actions, ariaLabel)
     : DefaultActions
 
-  const isLoadingView = state.kind === "loading" || showLoading
-
   const content = (() => {
-    if (isLoadingView) {
-      const message =
-        state.kind === "loading"
-          ? (state as any).message
-          : lastLoadingRef.current?.message
-      const detail =
-        state.kind === "loading"
-          ? (state as any).detail
-          : lastLoadingRef.current?.detail
+    const renderLoadingView = () => {
+      const message = snapshot?.message
+      const detail = snapshot?.detail
 
       return (
         <div css={styles.centered} role="status" aria-live="polite">
@@ -1432,6 +1447,14 @@ const StateView: React.FC<StateViewProps> = ({
           )}
         </div>
       )
+    }
+
+    if (state.kind === "loading") {
+      return renderLoadingView()
+    }
+
+    if (showLoading) {
+      return renderLoadingView()
     }
 
     switch (state.kind) {
@@ -1486,7 +1509,7 @@ const StateView: React.FC<StateViewProps> = ({
     }
   })()
 
-  const shouldCenter = typeof center === "boolean" ? center : isLoadingView
+  const shouldCenter = typeof center === "boolean" ? center : showLoading
 
   return (
     <div
