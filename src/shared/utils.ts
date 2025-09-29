@@ -6,7 +6,7 @@ import type {
   PrimitiveParams,
 } from "../config"
 import { ErrorType, ErrorSeverity } from "../config"
-import { SessionManager, css } from "jimu-core"
+import { SessionManager, css, hooks } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 import { logDebug } from "./logging"
 
@@ -188,6 +188,41 @@ export const safeAbort = (ctrl: AbortController | null) => {
     try {
       ctrl.abort()
     } catch {}
+  }
+}
+
+export const useLatestAbortController = () => {
+  const controllerRef = hooks.useLatest<AbortController | null>(null)
+
+  const cancel = hooks.useEventCallback(() => {
+    const controller = controllerRef.current
+    if (controller) {
+      safeAbort(controller)
+    }
+    controllerRef.current = null
+  })
+
+  const abortAndCreate = hooks.useEventCallback(() => {
+    cancel()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    return controller
+  })
+
+  const finalize = hooks.useEventCallback(
+    (controller?: AbortController | null) => {
+      if (!controller) return
+      if (controllerRef.current === controller) {
+        controllerRef.current = null
+      }
+    }
+  )
+
+  return {
+    controllerRef,
+    abortAndCreate,
+    cancel,
+    finalize,
   }
 }
 

@@ -62,6 +62,7 @@ import {
   isValidEmail,
   getSupportEmail,
   formatErrorForView,
+  useLatestAbortController,
 } from "../shared/utils"
 import { loadArcgisModules, logError, logWarn } from "../shared/logging"
 
@@ -145,16 +146,6 @@ const removeLayerFromMap = (
       jmv.view.map.remove(layer)
     }
   } catch {}
-}
-
-const abortAndClear = (
-  ref: React.MutableRefObject<AbortController | null>
-): void => {
-  if (!ref?.current) return
-  try {
-    ref.current.abort()
-  } catch {}
-  ref.current = null
 }
 
 // Consolidated module and resource management
@@ -325,24 +316,6 @@ const useErrorDispatcher = (
     }
     dispatch(fmeActions.setError(error, widgetId))
   })
-
-// Abort controller
-const useAbortController = () => {
-  const ref = React.useRef<AbortController | null>(null)
-
-  const cancel = hooks.useEventCallback(() => {
-    ref.current?.abort()
-    ref.current = null
-  })
-
-  const create = hooks.useEventCallback(() => {
-    cancel()
-    ref.current = new AbortController()
-    return ref.current
-  })
-
-  return { ref, cancel, create }
-}
 
 // Initialize graphics layers for drawing
 const createLayers = (
@@ -571,6 +544,7 @@ export default function Widget(
   const makeCancelable = hooks.useCancelablePromiseMaker()
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(reduxState.viewMode)
+  const drawingToolRef = hooks.useLatest(reduxState.drawingTool)
   const startupTelemetryRef = hooks.useLatest<{
     previousViewMode: ViewMode | null
     isDrawing: boolean
@@ -585,33 +559,32 @@ export default function Widget(
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
-  const submissionController = useAbortController()
+  const submissionAbort = useLatestAbortController()
 
   // Compute symbols from configured color (single source of truth = config)
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
-  const symbolsRef = React.useRef<{
-    HIGHLIGHT_SYMBOL: any
-    DRAWING_SYMBOLS: any
-  } | null>(null)
-  const builtSymbols = buildSymbols(hexToRgbArray(currentHex))
-  symbolsRef.current = builtSymbols
-  const { HIGHLIGHT_SYMBOL } = builtSymbols
+  const symbolsRef = React.useRef(buildSymbols(hexToRgbArray(currentHex)))
+
+  hooks.useUpdateEffect(() => {
+    symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
+  }, [currentHex])
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setViewMode(ViewMode.STARTUP_VALIDATION, widgetId))
-    dispatch(fmeActions.setGeometry(null, 0, widgetId))
-    dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-    dispatch(fmeActions.setError(null, widgetId))
-    dispatch(
-      fmeActions.setSelectedWorkspace(null, config?.repository, widgetId)
-    )
-    dispatch(
-      fmeActions.setWorkspaceParameters([], "", config?.repository, widgetId)
-    )
-    dispatch(fmeActions.setWorkspaceItem(null, config?.repository, widgetId))
-    dispatch(fmeActions.setFormValues({}, widgetId))
-    dispatch(fmeActions.setOrderResult(null, widgetId))
+    const activeTool = drawingToolRef.current
+    const latestConfig = configRef.current
+
+    dispatch(fmeActions.resetState(widgetId))
+
+    if (latestConfig?.repository) {
+      dispatch(
+        fmeActions.clearWorkspaceState(latestConfig.repository, widgetId)
+      )
+    }
+
+    if (activeTool) {
+      dispatch(fmeActions.setDrawingTool(activeTool, widgetId))
+    }
   })
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
@@ -837,16 +810,11 @@ export default function Widget(
   )
 
   // Keep track of ongoing startup validation to allow aborting
-  const startupAbortRef = React.useRef<AbortController | null>(null)
+  const startupAbort = useLatestAbortController()
 
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
-    // Skip if widget is not active
-    if (startupAbortRef.current) {
-      abortAndClear(startupAbortRef)
-    }
-    const controller = new AbortController()
-    startupAbortRef.current = controller
+    const controller = startupAbort.abortAndCreate()
     setValidationStep(translate("validatingConfiguration"))
 
     try {
@@ -920,36 +888,34 @@ export default function Widget(
         createStartupError(errorKey, errorCode, runStartupValidation)
       )
     }
-    // Clear abort ref if it is still the current controller
-    if (startupAbortRef.current === controller) {
-      startupAbortRef.current = null
-    }
+    startupAbort.finalize(controller)
   })
 
   // Run startup validation when widget first loads
   hooks.useEffectOnce(() => {
     runStartupValidation()
+    return () => {
+      startupAbort.cancel()
+    }
   })
 
   // Reset widget state for re-validation
   const resetForRevalidation = hooks.useEventCallback(
     (alsoCleanupMapResources = false) => {
-      // Cancel any ongoing submission
-      submissionController.cancel()
-      if (sketchViewModel) {
-        safeCancelSketch(sketchViewModel)
-      }
-      if (graphicsLayer) {
-        safeClearLayer(graphicsLayer)
-      }
-      // Reset local state
+      submissionAbort.cancel()
+      startupAbort.cancel()
       setCurrentGeometry(null)
-      if (alsoCleanupMapResources) {
-        try {
+
+      try {
+        if (alsoCleanupMapResources) {
           cleanupResources()
-        } catch (_) {}
+        } else {
+          teardownDrawingResources()
+        }
+      } catch (error) {
+        logWarn("Error tearing down drawing resources", error)
       }
-      // Reset redux state
+
       resetReduxForRevalidation()
     }
   )
@@ -975,14 +941,6 @@ export default function Widget(
           runStartupValidation()
         } else if (repoChanged) {
           // Repository change: clear workspace-related state and revalidate
-          if (startupAbortRef.current) {
-            abortAndClear(startupAbortRef)
-          }
-          try {
-            dispatch(
-              fmeActions.clearWorkspaceState(config?.repository, widgetId)
-            )
-          } catch {}
           // Lightweight reset (keep map resources) then re-run validation
           resetForRevalidation(false)
           runStartupValidation()
@@ -1065,7 +1023,10 @@ export default function Widget(
         // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
           evt.graphic.geometry = geomForUse
-          evt.graphic.symbol = HIGHLIGHT_SYMBOL as any
+          const highlightSymbol = symbolsRef.current?.HIGHLIGHT_SYMBOL
+          if (highlightSymbol) {
+            evt.graphic.symbol = highlightSymbol as any
+          }
         }
 
         // Update Redux state
@@ -1158,6 +1119,8 @@ export default function Widget(
 
     dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
 
+    let controller: AbortController | null = null
+
     try {
       // Determine mode early from form data for email requirement
       const rawDataEarly = (formData as any)?.data || {}
@@ -1176,7 +1139,7 @@ export default function Widget(
       const workspace = reduxState.selectedWorkspace
 
       // Create abort controller for this request (used for optional upload and run)
-      const controller = submissionController.create()
+      controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
       const rawData = (formData as any)?.data || {}
@@ -1310,7 +1273,7 @@ export default function Widget(
       dispatch(
         fmeActions.setLoadingFlags({ isSubmittingOrder: false }, widgetId)
       )
-      submissionController.cancel()
+      submissionAbort.finalize(controller)
     }
   })
 
@@ -1409,11 +1372,8 @@ export default function Widget(
   hooks.useEffectOnce(() => {
     return () => {
       // Cleanup resources on unmount
-      submissionController.cancel()
-      // Abort any in-flight startup validation
-      if (startupAbortRef.current) {
-        abortAndClear(startupAbortRef)
-      }
+      submissionAbort.cancel()
+      startupAbort.cancel()
       cleanupResources()
     }
   })
@@ -1533,7 +1493,7 @@ export default function Widget(
     resetGraphicsAndMeasurements()
 
     // Abort any ongoing submission
-    submissionController.cancel()
+    submissionAbort.cancel()
 
     // Cancel any in-progress drawing
     if (sketchViewModel) {
