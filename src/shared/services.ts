@@ -121,22 +121,31 @@ export class ParameterFormService {
     return true
   }
 
+  private normalizeOptionValue(value: unknown): string | number {
+    if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof value === "string") return value
+    if (typeof value === "boolean") return value ? "true" : "false"
+    return JSON.stringify(value ?? null)
+  }
+
   // Map list options to {label,value} pairs for select/multiselect fields
   private mapListOptions(
     list: WorkspaceParameter["listOptions"]
   ): ReadonlyArray<{ label: string; value: string | number }> | undefined {
     if (!list || !list.length) return undefined
     return list.map((o) => {
-      const valueStr =
-        typeof o.value === "string" || typeof o.value === "number"
-          ? String(o.value)
-          : JSON.stringify(o.value)
+      const normalizedValue = this.normalizeOptionValue(o.value)
+      const fallbackLabel =
+        typeof normalizedValue === "number"
+          ? String(normalizedValue)
+          : normalizedValue
+      const label =
+        typeof o.caption === "string" && o.caption.trim().length
+          ? o.caption
+          : fallbackLabel
       return {
-        label: o.caption || valueStr,
-        value:
-          typeof o.value === "string" || typeof o.value === "number"
-            ? o.value
-            : valueStr,
+        label,
+        value: normalizedValue,
       }
     })
   }
@@ -216,17 +225,21 @@ export class ParameterFormService {
   ): string | null {
     if (!param.listOptions?.length) return null
 
-    const validChoices = param.listOptions.map((opt) => opt.value)
+    const validChoices = param.listOptions.map((opt) =>
+      this.normalizeOptionValue(opt.value)
+    )
     const isMulti =
       param.type === ParameterType.LISTBOX ||
       param.type === ParameterType.LOOKUP_LISTBOX
 
     if (isMulti) {
       const values = Array.isArray(value) ? value : [value]
-      if (values.some((v) => !validChoices.includes(v))) {
+      if (
+        values.some((v) => !validChoices.includes(this.normalizeOptionValue(v)))
+      ) {
         return `${param.name}:choice`
       }
-    } else if (!validChoices.includes(value)) {
+    } else if (!validChoices.includes(this.normalizeOptionValue(value))) {
       return `${param.name}:choice`
     }
 

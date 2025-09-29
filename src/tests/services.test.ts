@@ -5,13 +5,11 @@ import {
   getRepositories,
   healthCheck,
   validateWidgetStartup,
-  type ConnectionValidationOptions,
 } from "../shared/services"
 import {
   validateConfigFields,
   validateConnectionInputs,
   mapErrorToKey,
-  type StartupValidationOptions,
 } from "../shared/validations"
 import {
   ParameterType,
@@ -19,6 +17,8 @@ import {
   type WorkspaceParameter,
   type DynamicFieldConfig,
   type FmeExportConfig,
+  type ConnectionValidationOptions,
+  type StartupValidationOptions,
 } from "../config"
 import FmeFlowApiClient from "../shared/api"
 
@@ -136,6 +136,30 @@ describe("ParameterFormService", () => {
       )
     })
 
+    test("validates choice parameters with object-valued options", () => {
+      const parameters = [
+        createMockParameter({
+          name: "choiceParam",
+          type: ParameterType.CHOICE,
+          listOptions: [
+            { value: { id: 1, label: "A" }, caption: "Option A" },
+            { value: { id: 2 }, caption: "Option B" },
+          ],
+        }),
+      ]
+      const validData = {
+        choiceParam: JSON.stringify({ id: 1, label: "A" }),
+      }
+      const invalidData = { choiceParam: JSON.stringify({ id: 3 }) }
+
+      expect(service.validateParameters(validData, parameters).isValid).toBe(
+        true
+      )
+      expect(service.validateParameters(invalidData, parameters).isValid).toBe(
+        false
+      )
+    })
+
     test("skips validation for excluded parameters", () => {
       const parameters = [
         createMockParameter({ name: "MAXX", optional: false }),
@@ -217,6 +241,27 @@ describe("ParameterFormService", () => {
       expect(fields[0].options).toEqual([
         { label: "Option 1", value: "opt1" },
         { label: "Option 2", value: "opt2" },
+      ])
+    })
+
+    test("serializes object list options consistently", () => {
+      const parameters = [
+        {
+          name: "objectParam",
+          type: ParameterType.CHOICE,
+          description: "Object choice",
+          optional: false,
+          listOptions: [
+            { value: { id: 1 }, caption: "One" },
+            { value: { id: 2, nested: true }, caption: "Two" },
+          ],
+        } as WorkspaceParameter,
+      ]
+
+      const fields = service.convertParametersToFields(parameters)
+      expect(fields[0].options).toEqual([
+        { label: "One", value: JSON.stringify({ id: 1 }) },
+        { label: "Two", value: JSON.stringify({ id: 2, nested: true }) },
       ])
     })
 

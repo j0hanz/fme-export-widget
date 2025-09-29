@@ -5,6 +5,7 @@ import FmeFlowApiClient, {
   isWebhookUrlTooLong,
 } from "../shared/api"
 import { HttpMethod, FmeFlowApiError } from "../config"
+import * as logging from "../shared/logging"
 
 // Secure JSAPI mocks: never import @arcgis/core; provide globals used by ensureEsri()
 const setupEsriGlobals = () => {
@@ -215,6 +216,7 @@ describe("shared/api FmeFlowApiClient", () => {
     ).length
     // Rotate token
     client.updateConfig({ token: "secondToken9999" })
+    await (client as any).setupPromise
     const afterCount = interceptors.filter(
       (i: any) => i && i._fmeInterceptor
     ).length
@@ -420,11 +422,10 @@ describe("shared/api FmeFlowApiClient", () => {
   })
 
   test("runDataDownload enforces URL length guard", async () => {
-    // shrink max URL length to force error
-    ;(global as any).esriConfig.request.maxUrlLength = 16
     const client = makeClient()
+    const giantValue = "x".repeat(6000)
     await expect(
-      client.runDataDownload("x", { a: "b" }, "r")
+      client.runDataDownload("x", { huge: giantValue }, "r")
     ).rejects.toMatchObject({
       name: "FmeFlowApiError",
       code: "URL_TOO_LONG",
@@ -563,10 +564,58 @@ describe("shared/api FmeFlowApiClient", () => {
       },
     ]
     const client = makeClient()
-    await expect(client.testConnection()).rejects.toMatchObject({
-      code: "ARCGIS_MODULE_ERROR",
-    })
+    await expect(client.testConnection()).rejects.toHaveProperty(
+      "code",
+      "ARCGIS_MODULE_ERROR"
+    )
     delete (global as any).__ESRI_TEST_STUB__
+  })
+
+  test("loader rejection clears cache so retry can succeed", async () => {
+    const loadSpy = jest.spyOn(logging, "loadArcgisModules")
+    loadSpy.mockImplementationOnce(() =>
+      Promise.reject(new Error("load failure"))
+    )
+    loadSpy.mockImplementationOnce(() => {
+      const requestStub = jest.fn().mockResolvedValue({
+        data: { version: "2024.1", build: "777" },
+        httpStatus: 200,
+        statusText: "OK",
+      })
+      const configStub = { request: { maxUrlLength: 4000, interceptors: [] } }
+      const projectionStub = { load: jest.fn().mockResolvedValue(undefined) }
+      const webMercatorStub = {}
+      function SpatialReferenceStub(this: any, props: any) {
+        Object.assign(this, props)
+      }
+      return Promise.resolve([
+        requestStub,
+        configStub,
+        projectionStub,
+        webMercatorStub,
+        SpatialReferenceStub as any,
+      ])
+    })
+
+    resetEsriCache()
+    delete (global as any).esriRequest
+    delete (global as any).esriConfig
+    delete (global as any).projection
+    delete (global as any).webMercatorUtils
+    delete (global as any).SpatialReference
+
+    const client = makeClient()
+
+    const res = await client.testConnection()
+    expect(res.status).toBe(200)
+    expect(res.data.version).toBe("2024.1")
+    expect(loadSpy).toHaveBeenCalledTimes(2)
+
+    const second = await client.testConnection()
+    expect(second.status).toBe(200)
+    expect(loadSpy).toHaveBeenCalledTimes(2)
+
+    loadSpy.mockRestore()
   })
 
   test("isWebhookUrlTooLong computes length including defaults and token", () => {

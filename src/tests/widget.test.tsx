@@ -365,6 +365,12 @@ describe("Widget runtime - startup CONFIG_INCOMPLETE error handling", () => {
       expect((global as any).__SVM_INST__).toBeTruthy()
     })
 
+    await waitFor(() => {
+      expect(
+        screen.queryByText(runtimeMsgs2.preparingMapTools)
+      ).not.toBeInTheDocument()
+    })
+
     // Inject startup validation error after mount to avoid racing the initial validation effect
     updateStore({
       "fme-state": {
@@ -375,6 +381,7 @@ describe("Widget runtime - startup CONFIG_INCOMPLETE error handling", () => {
             isSubmittingOrder: false,
             drawingTool: DrawingTool.POLYGON,
             drawnArea: 0,
+            isModulesLoading: false,
             isStartupValidating: false,
             startupValidationError: {
               message: "startupConfigError",

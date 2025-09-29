@@ -117,29 +117,30 @@ async function ensureEsri(): Promise<void> {
   // Return existing promise if loading is in progress
   if (_loadPromise) return _loadPromise
 
-  _loadPromise = (async () => {
+  const loadPromise = (async () => {
     // In test environment, check for global mocks first before trying to load modules
     if (isTestEnv()) {
-      const globalAny = global as any
+      const globalAny =
+        typeof globalThis !== "undefined" ? (globalThis as any) : undefined
 
       // If we have global mocks set up, use them directly
       if (
-        globalAny.esriRequest ||
-        globalAny.esriConfig ||
-        globalAny.projection ||
-        globalAny.webMercatorUtils ||
-        globalAny.SpatialReference
+        globalAny?.esriRequest ||
+        globalAny?.esriConfig ||
+        globalAny?.projection ||
+        globalAny?.webMercatorUtils ||
+        globalAny?.SpatialReference
       ) {
         logWarn("Using global ArcGIS mocks in test environment")
         _esriRequest =
-          globalAny.esriRequest || (() => Promise.resolve({ data: null }))
-        _esriConfig = globalAny.esriConfig || {
+          globalAny?.esriRequest || (() => Promise.resolve({ data: null }))
+        _esriConfig = globalAny?.esriConfig || {
           request: { maxUrlLength: 4000, interceptors: [] },
         }
-        _projection = globalAny.projection || {}
-        _webMercatorUtils = globalAny.webMercatorUtils || {}
+        _projection = globalAny?.projection || {}
+        _webMercatorUtils = globalAny?.webMercatorUtils || {}
         _SpatialReference =
-          globalAny.SpatialReference ||
+          globalAny?.SpatialReference ||
           function () {
             return {}
           }
@@ -180,7 +181,18 @@ async function ensureEsri(): Promise<void> {
     }
   })()
 
-  return _loadPromise
+  _loadPromise = loadPromise
+
+  try {
+    await loadPromise
+  } catch (error) {
+    const normalizedError =
+      error instanceof Error ? error : new Error(String(error))
+    resetEsriCache()
+    throw normalizedError
+  }
+
+  return loadPromise
 }
 
 interface EsriRequestConfig {
@@ -483,11 +495,30 @@ export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
   private abortController: AbortController | null = null
+  private setupPromise: Promise<void>
 
   constructor(config: FmeFlowConfig) {
     this.config = config
-    void setApiSettings(config)
-    void addFmeInterceptor(config.serverUrl, config.token)
+    this.setupPromise = Promise.resolve()
+    this.queueSetup(config)
+  }
+
+  private queueSetup(config: FmeFlowConfig): void {
+    this.setupPromise = (this.setupPromise || Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        await setApiSettings(config)
+        await addFmeInterceptor(config.serverUrl, config.token)
+      })
+      .catch((error) => {
+        const normalizedError =
+          error instanceof Error ? error : new Error(String(error))
+        logError("FME API client setup failed", {
+          host: extractHostFromUrl(config.serverUrl),
+          message: normalizedError.message,
+        })
+        throw normalizedError
+      })
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -659,8 +690,7 @@ export class FmeFlowApiClient {
 
   updateConfig(config: Partial<FmeFlowConfig>): void {
     this.config = { ...this.config, ...config }
-    void setApiSettings(this.config)
-    void addFmeInterceptor(this.config.serverUrl, this.config.token)
+    this.queueSetup(this.config)
   }
 
   /**
@@ -1323,6 +1353,19 @@ export class FmeFlowApiClient {
     endpoint: string,
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
+    try {
+      await this.setupPromise
+    } catch (error) {
+      logWarn("Retrying FME API client setup after failure", {
+        message: extractErrorMessage(error),
+      })
+      this.queueSetup(this.config)
+      try {
+        await this.setupPromise
+      } catch {
+        throw makeError("ARCGIS_MODULE_ERROR")
+      }
+    }
     await ensureEsri()
     const url = resolveRequestUrl(
       endpoint,
