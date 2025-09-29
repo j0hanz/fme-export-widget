@@ -7,6 +7,7 @@ import type {
   ConnectionValidationResult,
   StartupValidationResult,
   StartupValidationOptions,
+  FmeFlowConfig,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
 import {
@@ -25,6 +26,106 @@ import {
   mapErrorToKey,
 } from "./validations"
 import FmeFlowApiClient from "./api"
+
+// Shared constants to keep parameter handling consistent
+const DEFAULT_REPOSITORY = "_"
+
+const SKIPPED_PARAMETER_NAMES = new Set([
+  "MAXX",
+  "MINX",
+  "MAXY",
+  "MINY",
+  "AreaOfInterest",
+  "tm_ttc",
+  "tm_ttl",
+  "tm_tag",
+])
+
+const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([
+  ParameterType.NOVALUE,
+  ParameterType.GEOMETRY,
+  ParameterType.SCRIPTED,
+])
+
+const LIST_REQUIRED_TYPES = new Set<ParameterType>([
+  ParameterType.DB_CONNECTION,
+  ParameterType.WEB_CONNECTION,
+  ParameterType.ATTRIBUTE_NAME,
+  ParameterType.ATTRIBUTE_LIST,
+])
+
+const MULTI_SELECT_TYPES = new Set<ParameterType>([
+  ParameterType.LISTBOX,
+  ParameterType.LOOKUP_LISTBOX,
+  ParameterType.ATTRIBUTE_LIST,
+])
+
+const PARAMETER_FIELD_TYPE_MAP: Readonly<
+  Partial<Record<ParameterType, FormFieldType>>
+> = Object.freeze({
+  [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
+  [ParameterType.INTEGER]: FormFieldType.NUMBER,
+  [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
+  [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
+  [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
+  [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
+  [ParameterType.CHOICE]: FormFieldType.RADIO,
+  [ParameterType.FILENAME]: FormFieldType.FILE,
+  [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
+  [ParameterType.DIRNAME]: FormFieldType.FILE,
+  [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
+  [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
+  [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
+  [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
+  [ParameterType.URL]: FormFieldType.URL,
+  [ParameterType.LOOKUP_URL]: FormFieldType.URL,
+  [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
+  [ParameterType.DATE]: FormFieldType.DATE,
+  [ParameterType.TIME]: FormFieldType.TIME,
+  [ParameterType.COLOR]: FormFieldType.COLOR,
+  [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
+  [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
+  [ParameterType.REPROJECTION_FILE]: FormFieldType.FILE,
+  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
+  [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
+  [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
+  [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
+})
+
+const normalizeParameterValue = (value: unknown): string | number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") return value
+  if (typeof value === "boolean") return value ? "true" : "false"
+  return JSON.stringify(value ?? null)
+}
+
+const buildChoiceSet = (
+  list: WorkspaceParameter["listOptions"]
+): Set<string | number> | null => {
+  if (!list?.length) return null
+  return new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+}
+
+const createAbortError = (message = "Operation was aborted"): DOMException => {
+  const abortErr = new DOMException(message, "AbortError")
+  ;(abortErr as any).name = "AbortError"
+  return abortErr
+}
+
+const createFmeClient = (
+  serverUrl: string,
+  token: string,
+  overrides: Partial<Pick<FmeFlowConfig, "repository" | "timeout">> = {}
+): FmeFlowApiClient => {
+  const config: FmeFlowConfig = {
+    serverUrl,
+    token,
+    repository: overrides.repository ?? DEFAULT_REPOSITORY,
+    ...(overrides.timeout !== undefined ? { timeout: overrides.timeout } : {}),
+  }
+
+  return new FmeFlowApiClient(config)
+}
 
 // In-flight request deduplication caches
 const inFlight = {
@@ -90,47 +191,20 @@ function withInflight<T>(
 
 // Parameter service
 export class ParameterFormService {
-  private readonly skipParams = new Set<string>([
-    "MAXX",
-    "MINX",
-    "MAXY",
-    "MINY",
-    "AreaOfInterest",
-    "tm_ttc",
-    "tm_ttl",
-    "tm_tag",
-  ])
-
   // Determine if a parameter should be rendered as a form field
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
     if (!p || typeof p.name !== "string") return false
-    if (this.skipParams.has(p.name)) return false
-    if (
-      p.type === ParameterType.NOVALUE ||
-      p.type === ParameterType.GEOMETRY ||
-      p.type === ParameterType.SCRIPTED
-    ) {
+    if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
+    if (ALWAYS_SKIPPED_TYPES.has(p.type)) {
       return false
     }
-    if (
-      p.type === ParameterType.DB_CONNECTION ||
-      p.type === ParameterType.WEB_CONNECTION ||
-      p.type === ParameterType.ATTRIBUTE_NAME ||
-      p.type === ParameterType.ATTRIBUTE_LIST
-    ) {
+    if (LIST_REQUIRED_TYPES.has(p.type)) {
       return Array.isArray(p.listOptions) && p.listOptions.length > 0
     }
 
     return true
-  }
-
-  private normalizeOptionValue(value: unknown): string | number {
-    if (typeof value === "number" && Number.isFinite(value)) return value
-    if (typeof value === "string") return value
-    if (typeof value === "boolean") return value ? "true" : "false"
-    return JSON.stringify(value ?? null)
   }
 
   // Map list options to {label,value} pairs for select/multiselect fields
@@ -139,7 +213,7 @@ export class ParameterFormService {
   ): ReadonlyArray<{ label: string; value: string | number }> | undefined {
     if (!list || !list.length) return undefined
     return list.map((o) => {
-      const normalizedValue = this.normalizeOptionValue(o.value)
+      const normalizedValue = normalizeParameterValue(o.value)
       const fallbackLabel =
         typeof normalizedValue === "number"
           ? String(normalizedValue)
@@ -212,15 +286,14 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (param.type === ParameterType.INTEGER && !isInt(value)) {
-      return `${param.name}:integer`
+    switch (param.type) {
+      case ParameterType.INTEGER:
+        return isInt(value) ? null : `${param.name}:integer`
+      case ParameterType.FLOAT:
+        return isNum(value) ? null : `${param.name}:number`
+      default:
+        return null
     }
-
-    if (param.type === ParameterType.FLOAT && !isNum(value)) {
-      return `${param.name}:number`
-    }
-
-    return null
   }
 
   /** Validate enum/choice membership for select and multi-select parameters. */
@@ -228,23 +301,19 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (!param.listOptions?.length) return null
+    const validChoices = buildChoiceSet(param.listOptions)
+    if (!validChoices) return null
 
-    const validChoices = param.listOptions.map((opt) =>
-      this.normalizeOptionValue(opt.value)
-    )
-    const isMulti =
-      param.type === ParameterType.LISTBOX ||
-      param.type === ParameterType.LOOKUP_LISTBOX
-
-    if (isMulti) {
+    if (MULTI_SELECT_TYPES.has(param.type)) {
       const values = Array.isArray(value) ? value : [value]
       if (
-        values.some((v) => !validChoices.includes(this.normalizeOptionValue(v)))
+        values.some(
+          (v) => !validChoices.has(normalizeParameterValue(v))
+        )
       ) {
         return `${param.name}:choice`
       }
-    } else if (!validChoices.includes(this.normalizeOptionValue(value))) {
+    } else if (!validChoices.has(normalizeParameterValue(value))) {
       return `${param.name}:choice`
     }
 
@@ -286,43 +355,12 @@ export class ParameterFormService {
   private getFieldType(param: WorkspaceParameter): FormFieldType {
     const hasOptions = param.listOptions?.length > 0
     if (hasOptions) {
-      const isMulti =
-        param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX ||
-        param.type === ParameterType.ATTRIBUTE_LIST
-      return isMulti ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
+      return MULTI_SELECT_TYPES.has(param.type)
+        ? FormFieldType.MULTI_SELECT
+        : FormFieldType.SELECT
     }
 
-    const typeMap: { [key in ParameterType]?: FormFieldType } = {
-      [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
-      [ParameterType.INTEGER]: FormFieldType.NUMBER,
-      [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
-      [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
-      [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
-      [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
-      [ParameterType.CHOICE]: FormFieldType.RADIO,
-      [ParameterType.FILENAME]: FormFieldType.FILE,
-      [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
-      [ParameterType.DIRNAME]: FormFieldType.FILE,
-      [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
-      [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
-      [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
-      [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
-      [ParameterType.URL]: FormFieldType.URL,
-      [ParameterType.LOOKUP_URL]: FormFieldType.URL,
-      [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
-      [ParameterType.DATE]: FormFieldType.DATE,
-      [ParameterType.TIME]: FormFieldType.TIME,
-      [ParameterType.COLOR]: FormFieldType.COLOR,
-      [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
-      [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
-      [ParameterType.REPROJECTION_FILE]: FormFieldType.FILE,
-      [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
-      [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
-      [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
-      [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
-    }
-    return typeMap[param.type] || FormFieldType.TEXT
+    return PARAMETER_FIELD_TYPE_MAP[param.type] ?? FormFieldType.TEXT
   }
 
   validateFormValues(
@@ -458,11 +496,7 @@ export async function healthCheck(
     const startTime = Date.now()
     try {
       // Instantiate API client directly so Jest class mocks are honored in tests
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
+      const client = createFmeClient(serverUrl, token)
 
       const response = await client.testConnection(signal)
       const responseTime = Date.now() - startTime
@@ -540,11 +574,11 @@ export async function validateConnection(
     key,
     async (): Promise<ConnectionValidationResult> => {
       try {
-        const client = new FmeFlowApiClient({
+        const client = createFmeClient(
           serverUrl,
           token,
-          repository: repository || "_",
-        })
+          repository ? { repository } : {}
+        )
 
         // Step 1: Test connection and get server info
         let serverInfo: any
@@ -734,11 +768,7 @@ export async function testBasicConnection(
   const key = `${serverUrl}|${token}`
   return withInflight(inFlight.testBasicConnection, key, async () => {
     try {
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
+      const client = createFmeClient(serverUrl, token)
 
       const info = await client.testConnection(signal)
       return {
@@ -764,20 +794,14 @@ export async function getRepositories(
 ): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
   // If already aborted, throw to allow callers to ignore gracefully
   if (signal?.aborted) {
-    const abortErr = new DOMException("Operation was aborted", "AbortError")
-    ;(abortErr as any).name = "AbortError"
-    throw abortErr
+    throw createAbortError()
   }
 
   // When a signal is provided (typical for settings UI), bypass dedup
   // to avoid race conditions where a newly-triggered request reuses an aborted promise.
   const execute = async () => {
     try {
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
+      const client = createFmeClient(serverUrl, token)
 
       const resp = await client.getRepositories(signal)
       // If the underlying API returned a synthetic aborted response, surface it as an AbortError
@@ -785,9 +809,7 @@ export async function getRepositories(
         (resp as any)?.status === 0 ||
         (resp as any)?.statusText === "requestAborted"
       ) {
-        const abortErr = new DOMException("Operation was aborted", "AbortError")
-        ;(abortErr as any).name = "AbortError"
-        throw abortErr
+        throw createAbortError()
       }
       const repositories = parseRepositoryNames(resp?.data)
 
@@ -798,12 +820,7 @@ export async function getRepositories(
     } catch (error) {
       if (isAbortError(error)) {
         // Re-throw as a proper Error-derived object to satisfy lint rules
-        const abortErr = new DOMException(
-          (error as Error).message || "Operation was aborted",
-          "AbortError"
-        )
-        ;(abortErr as any).name = "AbortError"
-        throw abortErr
+        throw createAbortError((error as Error).message || undefined)
       }
       return {
         success: false,
