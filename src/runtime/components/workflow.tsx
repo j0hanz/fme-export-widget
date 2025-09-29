@@ -26,6 +26,7 @@ import {
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
+  type FmeExportConfig,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -82,10 +83,40 @@ const DRAWING_MODE_TABS = [
 
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
 
+const toTrimmedString = (value?: string | null): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined
+  }
+  const trimmed = value.trim()
+  return trimmed ? trimmed : undefined
+}
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== ""
+
+type WorkspaceLoaderOptions = {
+  config?: FmeExportConfig
+  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
+  translate: (k: string) => string
+  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
+  widgetId: string
+  onWorkspaceSelected?: (
+    workspaceName: string,
+    params: readonly WorkspaceParameter[],
+    item: WorkspaceItemDetail
+  ) => void
+  dispatch: (action: unknown) => void
+}
+
+type WorkspaceCacheEntry = {
+  readonly item: WorkspaceItemDetail
+  readonly parameters: readonly WorkspaceParameter[]
+}
+
 // Form validation helpers
 const createFormValidator = (
   parameterService: ParameterFormService,
-  workspaceParameters: readonly any[]
+  workspaceParameters: readonly WorkspaceParameter[]
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
@@ -101,8 +132,8 @@ const createFormValidator = (
     const errors = { ...baseValidation.errors }
 
     // Optional schedule start field: validate format only when provided
-    const startRaw = values.start as unknown
-    if (typeof startRaw === "string" && startRaw.trim() !== "") {
+    const startRaw = values.start
+    if (isNonEmptyString(startRaw)) {
       const startTrimmed = startRaw.trim()
       if (!validateDateTimeFormat(startTrimmed)) {
         // Use a translation key so UI can localize
@@ -124,22 +155,36 @@ const useFormStateManager = (
   validator: ReturnType<typeof createFormValidator>,
   onValuesChange: (values: FormValues) => void
 ) => {
-  const [values, setValues] = React.useState<FormValues>(() =>
+  const [values, setValuesState] = React.useState<FormValues>(() =>
     validator.initializeValues()
   )
   const [isValid, setIsValid] = React.useState(true)
-  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
+  const [errors, setErrors] = React.useState<Record<string, string>>({})
+  const valuesRef = React.useRef(values)
+
+  React.useEffect(() => {
+    valuesRef.current = values
+  }, [values])
+
+  const syncValues = hooks.useEventCallback((next: FormValues) => {
+    valuesRef.current = next
+    setValuesState(next)
+    onValuesChange(next)
+  })
 
   const updateField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
-      const newValues = { ...values, [field]: value }
-      setValues(newValues)
-      onValuesChange(newValues)
+      setValuesState((previous) => {
+        const next = { ...previous, [field]: value }
+        valuesRef.current = next
+        onValuesChange(next)
+        return next
+      })
     }
   )
 
   const validateForm = hooks.useEventCallback(() => {
-    const validation = validator.validateValues(values)
+    const validation = validator.validateValues(valuesRef.current)
     setIsValid(validation.isValid)
     setErrors(validation.errors)
     return validation
@@ -147,9 +192,9 @@ const useFormStateManager = (
 
   const resetForm = hooks.useEventCallback(() => {
     const nextValues = validator.initializeValues()
-    setValues(nextValues)
     setErrors({})
-    onValuesChange(nextValues)
+    setIsValid(true)
+    syncValues(nextValues)
   })
 
   return {
@@ -159,26 +204,14 @@ const useFormStateManager = (
     updateField,
     validateForm,
     resetForm,
-    setValues,
+    setValues: syncValues,
     setIsValid,
     setErrors,
   }
 }
 
 // Workspace loader hook
-const useWorkspaceLoader = (opts: {
-  config: any
-  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
-  translate: (k: string) => string
-  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
-  widgetId: string
-  onWorkspaceSelected?: (
-    workspaceName: string,
-    params: readonly WorkspaceParameter[],
-    item: WorkspaceItemDetail
-  ) => void
-  dispatch: (action: unknown) => void
-}) => {
+const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const {
     config,
     getFmeClient,
@@ -196,14 +229,8 @@ const useWorkspaceLoader = (opts: {
     null
   )
   const isMountedRef = React.useRef(true)
-  const workspaceCacheRef = React.useRef(
-    new Map<
-      string,
-      {
-        item: WorkspaceItemDetail
-        parameters: readonly WorkspaceParameter[]
-      }
-    >()
+  const workspaceCacheRef = React.useRef<Map<string, WorkspaceCacheEntry>>(
+    new Map()
   )
 
   const dispatchAction = hooks.useEventCallback((action: unknown) => {
@@ -215,10 +242,7 @@ const useWorkspaceLoader = (opts: {
   })
 
   const updateLoadingFlags = hooks.useEventCallback(
-    (flags: {
-      isLoadingWorkspaces?: boolean
-      isLoadingParameters?: boolean
-    }) => {
+    (flags: { isLoadingWorkspaces?: boolean; isLoadingParameters?: boolean }) => {
       const payload: { [key: string]: boolean } = {}
       if (flags.isLoadingWorkspaces !== undefined) {
         payload.isLoadingWorkspaces = flags.isLoadingWorkspaces
@@ -270,14 +294,16 @@ const useWorkspaceLoader = (opts: {
   )
 
   const cancelCurrent = hooks.useEventCallback(() => {
-    if (loadAbortRef.current) {
-      loadAbortRef.current.abort()
-      loadAbortRef.current = null
-      updateLoadingFlags({
-        isLoadingWorkspaces: false,
-        isLoadingParameters: false,
-      })
+    if (!loadAbortRef.current) {
+      return
     }
+    loadAbortRef.current.abort()
+    loadAbortRef.current = null
+    setIsLoading(false)
+    updateLoadingFlags({
+      isLoadingWorkspaces: false,
+      isLoadingParameters: false,
+    })
   })
 
   const finalizeSelection = hooks.useEventCallback(
@@ -312,10 +338,7 @@ const useWorkspaceLoader = (opts: {
       return
     }
 
-    const targetRepository =
-      typeof config?.repository === "string"
-        ? config.repository.trim()
-        : undefined
+    const targetRepository = toTrimmedString(config?.repository)
     if (!targetRepository) {
       logWarn("Workspace loading skipped - repository not configured")
       if (isMountedRef.current) {
@@ -342,34 +365,34 @@ const useWorkspaceLoader = (opts: {
         )
       )
 
-      if (!controller.signal.aborted) {
-        if (response.status === 200 && response.data.items) {
-          const items = (response.data.items as readonly any[]).filter(
-            (i: any) => i.type === WORKSPACE_ITEM_TYPE
-          ) as readonly WorkspaceItem[]
+      if (controller.signal.aborted) {
+        return
+      }
 
-          // Scope to repository if specified in config
-          const repoName = targetRepository
-          const scoped = items.filter((i: any) => {
-            const r = typeof i?.repository === "string" ? i.repository : ""
-            return !r || r === repoName
+      if (response.status === 200 && response.data.items) {
+        const items = (response.data.items as readonly WorkspaceItem[]).filter(
+          (item) => item.type === WORKSPACE_ITEM_TYPE
+        )
+
+        const scoped = items.filter((item) => {
+          const repoName = toTrimmedString((item as { repository?: string })?.repository)
+          return !repoName || repoName === targetRepository
+        })
+
+        const sorted = scoped.slice().sort((a, b) =>
+          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+            sensitivity: "base",
           })
+        )
 
-          const sorted = scoped.slice().sort((a, b) =>
-            (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-              sensitivity: "base",
-            })
+        if (isMountedRef.current) {
+          dispatchAction(
+            fmeActions.setWorkspaceItems(sorted, targetRepository, widgetId)
           )
-
-          if (isMountedRef.current) {
-            dispatchAction(
-              fmeActions.setWorkspaceItems(sorted, repoName, widgetId)
-            )
-          }
-        } else {
-          logError("Unexpected workspace response format", response)
-          throw new Error(translate("failedToLoadWorkspaces"))
         }
+      } else {
+        logError("Unexpected workspace response format", response)
+        throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
       logError("Workspace loading failed", err)
@@ -387,15 +410,11 @@ const useWorkspaceLoader = (opts: {
   const loadItem = hooks.useEventCallback(
     async (workspaceName: string, repositoryName?: string) => {
       const fmeClient = getFmeClient()
-      const repoCandidate =
-        typeof repositoryName === "string" && repositoryName.trim()
-          ? repositoryName.trim()
-          : typeof config?.repository === "string"
-            ? config.repository.trim()
-            : undefined
+      const repoToUse =
+        toTrimmedString(repositoryName) ?? toTrimmedString(config?.repository)
 
-      if (!fmeClient || !repoCandidate) {
-        if (!repoCandidate) {
+      if (!fmeClient || !repoToUse) {
+        if (!repoToUse) {
           logWarn("Workspace item load skipped - repository not resolved")
         }
         return
@@ -403,7 +422,6 @@ const useWorkspaceLoader = (opts: {
 
       let controller: AbortController | null = null
       try {
-        const repoToUse = repoCandidate
         const cacheKey = `${repoToUse}::${workspaceName}`
         const cached = workspaceCacheRef.current.get(cacheKey)
         if (cached) {
@@ -429,7 +447,6 @@ const useWorkspaceLoader = (opts: {
         updateLoadingFlags({ isLoadingParameters: true })
         setError(null)
 
-        // Call both endpoints: workspace item details and parameters separately
         const [itemResponse, parametersResponse] = await Promise.all([
           makeCancelable(
             fmeClient.getWorkspaceItem(
@@ -447,20 +464,22 @@ const useWorkspaceLoader = (opts: {
           ),
         ])
 
-        if (itemResponse.status === 200 && parametersResponse.status === 200) {
-          const workspaceItem = itemResponse.data as WorkspaceItemDetail
-          const parameters = (parametersResponse.data ||
-            []) as readonly WorkspaceParameter[]
-          const repoName = String(repoToUse)
+        if (controller.signal.aborted) {
+          return
+        }
 
-          workspaceCacheRef.current.set(cacheKey, {
-            item: workspaceItem,
-            parameters,
-          })
-          finalizeSelection(repoName, workspaceName, workspaceItem, parameters)
-        } else {
+        if (itemResponse.status !== 200 || parametersResponse.status !== 200) {
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
+
+        const workspaceItem = itemResponse.data as WorkspaceItemDetail
+        const parameters = (parametersResponse.data || []) as readonly WorkspaceParameter[]
+
+        workspaceCacheRef.current.set(cacheKey, {
+          item: workspaceItem,
+          parameters,
+        })
+        finalizeSelection(repoToUse, workspaceName, workspaceItem, parameters)
       } catch (err) {
         const msg = formatError(err, "failedToLoadWorkspaceDetails")
         if (msg && isMountedRef.current) setError(msg)
@@ -507,6 +526,10 @@ const useWorkspaceLoader = (opts: {
           logWarn("Workspace loading timeout reached")
           setIsLoading(false)
           setError(translate("loadingTimeout"))
+          updateLoadingFlags({
+            isLoadingParameters: false,
+            isLoadingWorkspaces: false,
+          })
         }
       }, 30000) // 30 second timeout
 
@@ -1070,10 +1093,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     clientRef.current = null
   }, [config])
 
-  const configuredRepository =
-    typeof config?.repository === "string"
-      ? config.repository.trim()
-      : undefined
+  const configuredRepository = toTrimmedString(config?.repository)
 
   const previousConfiguredRepositoryRef = React.useRef<string | undefined>(
     configuredRepository
@@ -1118,7 +1138,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     (state: IMStateWithFmeExport) => {
       const global = (state as any)?.["fme-state"]
       const sub = global?.byId?.[effectiveWidgetId]
-      return (sub?.currentRepository as string | null | undefined) || null
+      const repo = sub?.currentRepository as string | null | undefined
+      return toTrimmedString(repo) ?? null
     }
   )
 
@@ -1131,37 +1152,38 @@ export const Workflow: React.FC<WorkflowProps> = ({
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
 
   // Render workspace buttons
-  const renderWsButtons = () =>
-    workspaceItems.map((workspace) => {
-      const handleOpen = () => {
-        const repoToUse =
-          (typeof (workspace as any)?.repository === "string"
-            ? (workspace as any).repository.trim()
-            : undefined) ||
-          currentRepository ||
-          undefined
-        loadWorkspace(workspace.name, repoToUse)
-      }
-      return (
-        <div
-          key={workspace.name}
-          role="listitem"
-          aria-label={workspace.title || workspace.name}
-        >
-          <Button
-            text={workspace.title || workspace.name}
-            icon={exportIcon}
-            size="lg"
-            onClick={handleOpen}
-            // Keep explicit onClick for keyboard users while still logging interactions
-            logging={{
-              enabled: true,
-              prefix: "FME-Export-WorkspaceSelection",
-            }}
-          />
-        </div>
-      )
-    })
+  const workspaceButtons = React.useMemo(
+    () =>
+      workspaceItems.map((workspace) => {
+        const handleOpen = () => {
+          const repoToUse =
+            toTrimmedString((workspace as { repository?: string })?.repository) ??
+            currentRepository ??
+            undefined
+          loadWorkspace(workspace.name, repoToUse)
+        }
+
+        return (
+          <div
+            key={workspace.name}
+            role="listitem"
+            aria-label={workspace.title || workspace.name}
+          >
+            <Button
+              text={workspace.title || workspace.name}
+              icon={exportIcon}
+              size="lg"
+              onClick={handleOpen}
+              logging={{
+                enabled: true,
+                prefix: "FME-Export-WorkspaceSelection",
+              }}
+            />
+          </div>
+        )
+      }),
+    [workspaceItems, currentRepository, loadWorkspace]
+  )
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
@@ -1286,7 +1308,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     return (
       <div css={styles.button.default} role="list">
-        {renderWsButtons()}
+        {workspaceButtons}
       </div>
     )
   }
