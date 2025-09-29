@@ -223,6 +223,24 @@ const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
 ) => any
 
 // Reducer for a single widget instance
+const withRepositoryContext = (
+  state: ImmutableObject<FmeWidgetState>,
+  repository: string | undefined,
+  fallback?: string | null
+): ImmutableObject<FmeWidgetState> => {
+  if (repository === undefined && fallback === undefined) {
+    return state
+  }
+
+  const fallbackValue =
+    fallback !== undefined ? fallback : state.currentRepository ?? null
+  const nextRepository = repository ?? fallbackValue
+
+  return nextRepository === state.currentRepository
+    ? state
+    : state.set("currentRepository", nextRepository)
+}
+
 const reduceOne = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeActions
@@ -285,30 +303,32 @@ const reduceOne = (
         .set("orderResult", action.orderResult)
         .set("isSubmittingOrder", false)
 
-    case FmeActionType.SET_WORKSPACE_ITEMS: {
-      let newState = state.set("workspaceItems", action.workspaceItems)
-      // Update current repository context if provided
-      if (action.repository !== undefined) {
-        newState = newState.set("currentRepository", action.repository)
-      }
-      return newState
-    }
+    case FmeActionType.SET_WORKSPACE_ITEMS:
+      return withRepositoryContext(
+        state.set("workspaceItems", action.workspaceItems),
+        action.repository,
+        null
+      )
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS:
-      return state
-        .set("workspaceParameters", action.workspaceParameters)
-        .set("selectedWorkspace", action.workspaceName)
-        .set("currentRepository", action.repository || state.currentRepository)
+      return withRepositoryContext(
+        state
+          .set("workspaceParameters", action.workspaceParameters)
+          .set("selectedWorkspace", action.workspaceName),
+        action.repository
+      )
 
     case FmeActionType.SET_SELECTED_WORKSPACE:
-      return state
-        .set("selectedWorkspace", action.workspaceName)
-        .set("currentRepository", action.repository || state.currentRepository)
+      return withRepositoryContext(
+        state.set("selectedWorkspace", action.workspaceName),
+        action.repository
+      )
 
     case FmeActionType.SET_WORKSPACE_ITEM:
-      return state
-        .set("workspaceItem", action.workspaceItem)
-        .set("currentRepository", action.repository || state.currentRepository)
+      return withRepositoryContext(
+        state.set("workspaceItem", action.workspaceItem),
+        action.repository
+      )
 
     case FmeActionType.SET_LOADING_FLAGS: {
       let newState = state
@@ -334,15 +354,18 @@ const reduceOne = (
     }
 
     case FmeActionType.CLEAR_WORKSPACE_STATE:
-      return state
-        .set("workspaceItems", [])
-        .set("selectedWorkspace", null)
-        .set("workspaceParameters", [])
-        .set("workspaceItem", null)
-        .set("formValues", {})
-        .set("currentRepository", action.newRepository || null)
-        .set("isLoadingWorkspaces", false)
-        .set("isLoadingParameters", false)
+      return withRepositoryContext(
+        state
+          .set("workspaceItems", [])
+          .set("selectedWorkspace", null)
+          .set("workspaceParameters", [])
+          .set("workspaceItem", null)
+          .set("formValues", {})
+          .set("isLoadingWorkspaces", false)
+          .set("isLoadingParameters", false),
+        action.newRepository,
+        null
+      )
 
     case FmeActionType.SET_ERROR:
       return state.set("error", action.error)
@@ -352,6 +375,8 @@ const reduceOne = (
 
     case FmeActionType.SET_EXPORT_ERROR:
       return state.set("exportError", action.error)
+    default:
+      return state
   }
 }
 
@@ -384,7 +409,12 @@ const setSubState = (
 }
 
 // Root reducer that delegates to per-widget reducer
-const fmeReducer = (state: GlobalState, action: any): GlobalState => {
+const initialGlobalState = Immutable({ byId: {} }) as unknown as GlobalState
+
+const fmeReducer = (
+  state: GlobalState = initialGlobalState,
+  action: any
+): GlobalState => {
   // Special: remove entire widget state
   if (action?.type === "fme/REMOVE_WIDGET_STATE" && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
