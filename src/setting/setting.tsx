@@ -7,6 +7,9 @@ import {
   safeAbort,
   parseNonNegativeInt,
   isValidEmail,
+  toTrimmedString,
+  collectTrimmedStrings,
+  uniqueStrings,
 } from "../shared/utils"
 import { logWarn } from "../shared/logging"
 import { useTheme } from "jimu-theme"
@@ -249,28 +252,17 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       if (!hasValidServer || !hasValidToken) return []
       if (availableRepos === null) return []
 
-      const src =
-        Array.isArray(availableRepos) && availableRepos.length > 0
-          ? availableRepos
-          : []
+      const available = Array.isArray(availableRepos)
+        ? collectTrimmedStrings(availableRepos)
+        : []
 
-      const seen = new Set<string>()
-      const opts: Array<{ label: string; value: string }> = []
-      if (
-        localRepository &&
-        typeof localRepository === "string" &&
-        localRepository.trim()
-      ) {
-        seen.add(localRepository)
-        opts.push({ label: localRepository, value: localRepository })
-      }
-      for (const name of src) {
-        if (!seen.has(name) && typeof name === "string" && name.trim()) {
-          seen.add(name)
-          opts.push({ label: name, value: name })
-        }
-      }
-      return opts
+      const local = toTrimmedString(localRepository)
+      const names = uniqueStrings([
+        ...(local ? [local] : []),
+        ...available,
+      ])
+
+      return names.map((name) => ({ label: name, value: name }))
     }
   )
 

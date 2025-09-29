@@ -62,6 +62,7 @@ import {
   shouldShowWorkspaceLoading,
   toIsoLocal,
   fromIsoLocal,
+  toTrimmedString,
 } from "../../shared/utils"
 
 const DRAWING_MODE_TABS = [
@@ -82,14 +83,6 @@ const DRAWING_MODE_TABS = [
 ] as const
 
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
-
-const toTrimmedString = (value?: string | null): string | undefined => {
-  if (typeof value !== "string") {
-    return undefined
-  }
-  const trimmed = value.trim()
-  return trimmed || undefined
-}
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== ""

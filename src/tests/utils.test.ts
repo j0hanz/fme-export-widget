@@ -21,6 +21,9 @@ import {
   getBtnAria,
   getErrorIconSrc,
   sanitizeParamKey,
+  collectTrimmedStrings,
+  uniqueStrings,
+  extractRepositoryNames,
   isPolygonGeometry,
   determineServiceMode,
   buildFmeParams,
@@ -142,6 +145,36 @@ describe("shared/utils", () => {
       expect(parseTableRows("[1,2,'x']")).toEqual(["[1,2,'x']"])
       expect(parseTableRows("plain")).toEqual(["plain"])
       expect(parseTableRows(123 as any)).toEqual([])
+    })
+
+    test("collectTrimmedStrings removes blanks and non-strings", () => {
+      expect(collectTrimmedStrings([" a ", "", null, 42, undefined])).toEqual([
+        "a",
+      ])
+    })
+
+    test("uniqueStrings preserves order and removes duplicates", () => {
+      expect(uniqueStrings(["a", "b", "a", "a", "c"])).toEqual([
+        "a",
+        "b",
+        "c",
+      ])
+    })
+
+    test("extractRepositoryNames handles arrays and nested collections", () => {
+      expect(
+        extractRepositoryNames([
+          { name: " RepoA " },
+          { name: "" },
+          { name: null },
+        ])
+      ).toEqual(["RepoA"])
+
+      expect(
+        extractRepositoryNames({
+          items: [{ name: "RepoB" }, { name: "RepoA" }],
+        })
+      ).toEqual(["RepoB", "RepoA"])
     })
 
     test("resolveMessageOrKey exact and camel-case", () => {
