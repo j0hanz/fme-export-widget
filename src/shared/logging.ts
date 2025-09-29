@@ -32,10 +32,6 @@ export const logDebug = (message: string, details?: unknown): void => {
   log("debug", message, details)
 }
 
-export const logInfo = (message: string, details?: unknown): void => {
-  log("info", message, details)
-}
-
 export const logWarn = (message: string, details?: unknown): void => {
   log("warn", message, details)
 }
