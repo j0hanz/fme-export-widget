@@ -197,14 +197,18 @@ export class ParameterFormService {
   ): p is WorkspaceParameter {
     if (!p || typeof p.name !== "string") return false
     if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
-    if (ALWAYS_SKIPPED_TYPES.has(p.type)) {
-      return false
-    }
+    if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false
     if (LIST_REQUIRED_TYPES.has(p.type)) {
       return Array.isArray(p.listOptions) && p.listOptions.length > 0
     }
 
     return true
+  }
+
+  private getRenderableParameters(
+    parameters: readonly WorkspaceParameter[]
+  ): WorkspaceParameter[] {
+    return parameters.filter((parameter) => this.isRenderableParam(parameter))
   }
 
   // Map list options to {label,value} pairs for select/multiselect fields
@@ -251,26 +255,23 @@ export class ParameterFormService {
     parameters: readonly WorkspaceParameter[]
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
-    const validParams = parameters.filter((p) => this.isRenderableParam(p))
+    const validParams = this.getRenderableParameters(parameters)
 
     for (const param of validParams) {
       const value = data[param.name]
-
-      // Check required fields
-      if (!param.optional && isEmpty(value)) {
+      const isMissingRequired = !param.optional && isEmpty(value)
+      if (isMissingRequired) {
         errors.push(`${param.name}:required`)
         continue
       }
 
       if (!isEmpty(value)) {
-        // Validate types
         const typeError = this.validateParameterType(param, value)
         if (typeError) {
           errors.push(typeError)
           continue
         }
 
-        // Validate choices
         const choiceError = this.validateParameterChoices(param, value)
         if (choiceError) {
           errors.push(choiceError)
@@ -325,8 +326,7 @@ export class ParameterFormService {
   ): readonly DynamicFieldConfig[] {
     if (!parameters?.length) return []
 
-    return parameters
-      .filter((p) => this.isRenderableParam(p))
+    return this.getRenderableParameters(parameters)
       .map((param) => {
         const type = this.getFieldType(param)
         const options = this.mapListOptions(param.listOptions)
