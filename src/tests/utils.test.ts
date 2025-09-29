@@ -571,6 +571,9 @@ describe("shared/utils", () => {
       expect(resolveRequestUrl("/v3/jobs", "https://h", "/fmerest")).toBe(
         "https://h/fmerest/v3/jobs"
       )
+      expect(resolveRequestUrl("jobs", "https://h", "/fmerest/v3")).toBe(
+        "https://h/fmerest/v3/jobs"
+      )
     })
 
     test("buildParams handles primitives, files, and defaults", () => {

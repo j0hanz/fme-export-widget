@@ -1017,8 +1017,20 @@ export const resolveRequestUrl = (
   basePath: string
 ): string => {
   if (endpoint.startsWith("http")) return endpoint
-  if (endpoint.startsWith("/fme")) return buildUrl(serverUrl, endpoint.slice(1))
-  return buildUrl(serverUrl, basePath.slice(1), endpoint.slice(1))
+
+  const stripLeadingSlash = (value: string): string =>
+    value.startsWith("/") ? value.slice(1) : value
+
+  if (endpoint.startsWith("/fme")) {
+    return buildUrl(serverUrl, stripLeadingSlash(endpoint))
+  }
+
+  const normalizedBase = stripLeadingSlash(basePath || "")
+  const normalizedEndpoint = stripLeadingSlash(endpoint)
+
+  return normalizedEndpoint
+    ? buildUrl(serverUrl, normalizedBase, normalizedEndpoint)
+    : buildUrl(serverUrl, normalizedBase)
 }
 
 export const buildParams = (
