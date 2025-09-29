@@ -364,8 +364,13 @@ describe("shared/api FmeFlowApiClient", () => {
     const esriRequest = (global as any).esriRequest as jest.Mock
     const client = makeClient()
 
+    await client.customRequest<any>("jobs", HttpMethod.GET)
+    let [url, opt] = esriRequest.mock.calls[0]
+    expect(url).toBe("https://fme.example.com/fmerest/v3/jobs")
+    expect(opt.method).toBe("get")
+
     await client.customRequest<any>("/custom", HttpMethod.GET, { x: 1 })
-    let [, opt] = esriRequest.mock.calls[0]
+    ;[, opt] = esriRequest.mock.calls[1]
     expect(opt.method).toBe("get")
     expect(opt.query.x).toBe(1)
 
@@ -375,7 +380,7 @@ describe("shared/api FmeFlowApiClient", () => {
       { a: "b" },
       "application/x-www-form-urlencoded"
     )
-    ;[, opt] = esriRequest.mock.calls[1]
+    ;[, opt] = esriRequest.mock.calls[2]
     expect(opt.method).toBe("post")
     expect(opt.body).toBe("a=b")
 
@@ -385,7 +390,7 @@ describe("shared/api FmeFlowApiClient", () => {
       { a: 1 },
       "application/json"
     )
-    ;[, opt] = esriRequest.mock.calls[2]
+    ;[, opt] = esriRequest.mock.calls[3]
     expect(opt.headers["Content-Type"]).toBe("application/json")
     expect(JSON.parse(opt.body)).toEqual({ a: 1 })
   })
