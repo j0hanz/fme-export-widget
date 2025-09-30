@@ -19,6 +19,15 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
+export const toTrimmedString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+const hasOwn = (target: { [key: string]: unknown }, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(target, key)
+
 export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
   if (/no-?reply/i.test(email)) return false
@@ -28,9 +37,8 @@ export const isValidEmail = (email: unknown): boolean => {
 export const getSupportEmail = (
   configuredEmailRaw: unknown
 ): string | undefined => {
-  const cfg =
-    typeof configuredEmailRaw === "string" ? configuredEmailRaw.trim() : ""
-  return isValidEmail(cfg) ? cfg : undefined
+  const cfg = toTrimmedString(configuredEmailRaw)
+  return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
 export const asString = (v: unknown): string =>
@@ -105,8 +113,8 @@ export function resolveMessageOrKey(
 }
 
 export const maskEmailForDisplay = (email: unknown): string => {
-  if (typeof email !== "string") return ""
-  const trimmed = email.trim()
+  const trimmed = toTrimmedString(email)
+  if (!trimmed) return ""
   if (!isValidEmail(trimmed)) return trimmed
   const atIdx = trimmed.indexOf("@")
   if (atIdx <= 1) return `**${trimmed.slice(atIdx)}`
@@ -124,15 +132,15 @@ export const buildSupportHintText = (
   supportEmail?: string,
   userFriendly?: string
 ): string => {
-  if (supportEmail) {
-    return translate("contactSupportWithEmail").replace(
-      EMAIL_PLACEHOLDER,
-      supportEmail
-    )
+  const sanitizedSupportEmail = toTrimmedString(supportEmail)
+  if (sanitizedSupportEmail) {
+    const template = translate("contactSupportWithEmail")
+    return template.replace(EMAIL_PLACEHOLDER, sanitizedSupportEmail)
   }
-  if (typeof userFriendly === "string" && userFriendly.trim()) {
-    return userFriendly
-  }
+
+  const friendlyMessage = toTrimmedString(userFriendly)
+  if (friendlyMessage) return friendlyMessage
+
   return ""
 }
 
@@ -191,12 +199,6 @@ export const safeAbort = (ctrl: AbortController | null) => {
       ctrl.abort()
     } catch {}
   }
-}
-
-export const toTrimmedString = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  return trimmed || undefined
 }
 
 export const isAbortError = (error: unknown): boolean => {
@@ -440,12 +442,6 @@ const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
   mode: ServiceMode
 ): { [key: string]: unknown } => {
-  const trimmedString = (value: unknown): string | undefined => {
-    if (typeof value !== "string") return undefined
-    const trimmed = value.trim()
-    return trimmed.length > 0 ? trimmed : undefined
-  }
-
   if (mode !== "schedule") {
     const pruned: { [key: string]: unknown } = {}
     for (const [key, value] of Object.entries(data)) {
@@ -464,12 +460,12 @@ const sanitizeScheduleMetadata = (
     }
 
     if (key === "trigger") {
-      const trimmedTrigger = trimmedString(value)
+      const trimmedTrigger = toTrimmedString(value)
       sanitized.trigger = trimmedTrigger ?? SCHEDULE_TRIGGER_DEFAULT
       continue
     }
 
-    const trimmedValue = trimmedString(value)
+    const trimmedValue = toTrimmedString(value)
     if (trimmedValue) {
       sanitized[key] = trimmedValue
     }
@@ -513,16 +509,21 @@ export const sanitizeEngineDirectiveValue = (
 ): string | undefined => {
   if (value === undefined) return undefined
   if (value === null) return ""
-  let str: string
-  if (typeof value === "string") str = value.trim()
-  else if (typeof value === "number" && Number.isFinite(value))
-    str = String(value)
-  else if (typeof value === "boolean") str = value ? "true" : "false"
-  else return undefined
-  if (str.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH) {
-    return str.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
+  if (typeof value === "boolean") return value ? "true" : "false"
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return undefined
+    const str = String(value)
+    return str.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH
+      ? str.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
+      : str
   }
-  return str
+  if (typeof value === "string") {
+    const trimmed = toTrimmedString(value) ?? ""
+    return trimmed.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH
+      ? trimmed.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
+      : trimmed
+  }
+  return undefined
 }
 
 export const isPolygonGeometry = (
@@ -824,8 +825,7 @@ const collectGeometryParamNames = (
   const names: string[] = []
   for (const param of params) {
     if (!param || param.type !== ParameterType.GEOMETRY) continue
-    if (typeof param.name !== "string") continue
-    const trimmed = param.name.trim()
+    const trimmed = toTrimmedString(param.name)
     if (!trimmed || seen.has(trimmed)) continue
     seen.add(trimmed)
     names.push(trimmed)
@@ -885,14 +885,20 @@ const appendDerivedAoiOutputs = (
     try {
       const geojson = polygonJsonToGeoJson(wgs84Polygon)
       if (geojson) {
-        target[geoJsonName] = JSON.stringify(geojson)
+        const serialized = safeStringify(geojson)
+        if (serialized) {
+          target[geoJsonName] = serialized
+        }
       }
     } catch {}
   }
 
   if (wktName) {
     try {
-      target[wktName] = polygonJsonToWkt(wgs84Polygon)
+      const wkt = polygonJsonToWkt(wgs84Polygon)
+      if (wkt) {
+        target[wktName] = wkt
+      }
     } catch {}
   }
 }
@@ -950,7 +956,7 @@ export const applyDirectiveDefaults = (
 ): { [key: string]: unknown } => {
   if (!config) return params
   const out: { [key: string]: unknown } = { ...params }
-  const has = (k: string) => Object.prototype.hasOwnProperty.call(out, k)
+  const has = (k: string) => hasOwn(out, k)
 
   const toPosInt = (v: unknown): number | undefined => {
     const n = typeof v === "string" ? Number(v) : (v as number)
@@ -966,12 +972,12 @@ export const applyDirectiveDefaults = (
     if (v !== undefined) out.tm_ttl = v
   }
   if (!has("tm_tag")) {
-    const v = typeof config.tm_tag === "string" ? config.tm_tag.trim() : ""
-    if (v) out.tm_tag = v.substring(0, 128)
+    const tag = toTrimmedString(config.tm_tag)
+    if (tag) out.tm_tag = tag.substring(0, 128)
   }
   if (!has("tm_queue")) {
-    const v = typeof config.tm_queue === "string" ? config.tm_queue.trim() : ""
-    if (v) out.tm_queue = v.substring(0, 128)
+    const queue = toTrimmedString(config.tm_queue)
+    if (queue) out.tm_queue = queue.substring(0, 128)
   }
   if (!has("tm_priority")) {
     const v = toPosInt(config.tm_priority)
@@ -981,11 +987,8 @@ export const applyDirectiveDefaults = (
     out.tm_rtc = config.tm_rtc
   }
   if (!has("tm_description")) {
-    const desc =
-      typeof config.tm_description === "string"
-        ? config.tm_description.trim()
-        : ""
-    if (desc) out.tm_description = desc.substring(0, 512)
+    const description = toTrimmedString(config.tm_description)
+    if (description) out.tm_description = description.substring(0, 512)
   }
 
   return out
@@ -999,7 +1002,7 @@ export const applyEngineDirectives = (
   const out: { [key: string]: unknown } = { ...params }
   for (const [rawKey, rawValue] of Object.entries(config.engineDirectives)) {
     const key = sanitizeEngineDirectiveKey(rawKey)
-    if (!key || Object.prototype.hasOwnProperty.call(out, key)) continue
+    if (!key || hasOwn(out, key)) continue
     const value = sanitizeEngineDirectiveValue(rawValue)
     if (value === undefined) continue
     out[key] = value
@@ -1561,8 +1564,8 @@ export const isFileObject = (value: unknown): value is File => {
 }
 
 export const getFileDisplayName = (file: File): string => {
-  const name = (file as any).name
-  return typeof name === "string" && name.trim() ? name.trim() : "unnamed-file"
+  const name = toTrimmedString((file as any)?.name)
+  return name || "unnamed-file"
 }
 
 export const coerceFormValueForSubmission = (value: unknown): unknown => {
@@ -1578,7 +1581,8 @@ export const coerceFormValueForSubmission = (value: unknown): unknown => {
       if (isFileObject(composite.file)) {
         return composite.file
       }
-      const fallback = asString(composite.fileName).trim()
+      const fallback =
+        toTrimmedString(composite.fileName) ?? asString(composite.fileName)
       return fallback
     }
 

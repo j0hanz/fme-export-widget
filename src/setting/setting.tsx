@@ -245,16 +245,14 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   repoHint,
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
-  const canRefresh =
-    validateServerUrl(localServerUrl, { requireHttps: true }).ok &&
-    validateToken(localToken).ok
+  const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
+  const tokenCheck = validateToken(localToken)
+  const hasValidServer = !!localServerUrl && serverCheck.ok
+  const hasValidToken = tokenCheck.ok
+  const canRefresh = hasValidServer && hasValidToken
 
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
-      const hasValidServer =
-        !!localServerUrl &&
-        validateServerUrl(localServerUrl, { requireHttps: true }).ok
-      const hasValidToken = validateToken(localToken).ok
       if (!hasValidServer || !hasValidToken) return []
       if (availableRepos === null) return []
 
@@ -268,6 +266,24 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       return names.map((name) => ({ label: name, value: name }))
     }
   )
+
+  const isSelectDisabled =
+    !hasValidServer || !hasValidToken || availableRepos === null
+  const repositoryPlaceholder = (() => {
+    if (!hasValidServer || !hasValidToken) {
+      return translate("testConnectionFirst")
+    }
+
+    if (availableRepos === null) {
+      return translate("loadingRepositories")
+    }
+
+    if (Array.isArray(availableRepos) && availableRepos.length === 0) {
+      return translate("noRepositoriesFound")
+    }
+
+    return translate("repoPlaceholder")
+  })()
 
   return (
     <SettingRow
@@ -315,35 +331,12 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
                 : ""
             onRepositoryChange(next)
           }}
-          disabled={
-            !localServerUrl ||
-            !validateToken(localToken).ok ||
-            !validateServerUrl(localServerUrl, { requireHttps: true }).ok ||
-            availableRepos === null
-          }
+          disabled={isSelectDisabled}
           aria-describedby={
             fieldErrors.repository ? `${ID.repository}-error` : undefined
           }
           aria-invalid={fieldErrors.repository ? true : undefined}
-          placeholder={(() => {
-            const serverOk = validateServerUrl(localServerUrl, {
-              requireHttps: true,
-            }).ok
-            const tokenOk = validateToken(localToken).ok
-            if (!serverOk || !tokenOk) {
-              return translate("testConnectionFirst")
-            }
-
-            if (availableRepos === null) {
-              return translate("loadingRepositories")
-            }
-
-            if (Array.isArray(availableRepos) && availableRepos.length === 0) {
-              return translate("noRepositoriesFound")
-            }
-
-            return translate("repoPlaceholder")
-          })()}
+          placeholder={repositoryPlaceholder}
         />
       )}
       {fieldErrors.repository && (
@@ -1307,12 +1300,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  const canRunConnectionTest = React.useMemo(() => {
-    const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
-    const tokenCheck = validateToken(localToken)
-
-    return serverCheck.ok && tokenCheck.ok
-  }, [localServerUrl, localToken])
+  const serverValidation = validateServerUrl(localServerUrl, {
+    requireHttps: true,
+  })
+  const tokenValidation = validateToken(localToken)
+  const canRunConnectionTest = serverValidation.ok && tokenValidation.ok
 
   // Handle "Test Connection" button click
   const isTestDisabled = !!testState.isTesting || !canRunConnectionTest

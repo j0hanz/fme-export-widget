@@ -198,6 +198,49 @@ const applyUploadedDatasetParam = ({
   }
 }
 
+const isNavigatorOffline = (): boolean => {
+  try {
+    const nav = (globalThis as any)?.navigator
+    return Boolean(nav && nav.onLine === false)
+  } catch {
+    return false
+  }
+}
+
+interface MutableParams {
+  [key: string]: unknown
+  opt_geturl?: unknown
+  __aoi_error__?: unknown
+}
+
+const sanitizeOptGetUrlParam = (params: MutableParams): void => {
+  const value = params.opt_geturl
+  if (typeof value !== "string" || !value.trim()) {
+    delete params.opt_geturl
+  }
+}
+
+const shouldApplyRemoteDatasetUrl = (
+  remoteUrl: string,
+  config: FmeExportConfig | null | undefined
+): boolean =>
+  Boolean(
+    config?.allowRemoteUrlDataset &&
+      remoteUrl &&
+      isValidExternalUrlForOptGetUrl(remoteUrl)
+  )
+
+const shouldUploadRemoteDataset = (
+  config: FmeExportConfig | null | undefined,
+  uploadFile: File | null
+): uploadFile is File => Boolean(config?.allowRemoteDataset && uploadFile)
+
+const removeAoiErrorMarker = (params: MutableParams): void => {
+  if (typeof params.__aoi_error__ !== "undefined") {
+    delete params.__aoi_error__
+  }
+}
+
 // ArcGIS JS API modules
 const MODULES = [
   "esri/widgets/Sketch/SketchViewModel",
@@ -824,6 +867,9 @@ export default function Widget(
 
       // Determine base error message with translation
       const baseMsgKey = error.message
+      const resolvedMessage =
+        resolveMessageOrKey(baseMsgKey, translate) ||
+        translate("unknownErrorOccurred")
 
       // Decide how to guide the user depending on error type
       const codeUpper = (error.code || "").toUpperCase()
@@ -869,31 +915,24 @@ export default function Widget(
       actions.push({ label: translate("retry"), onClick: retryHandler })
 
       // If offline, offer a reload action for convenience
-      try {
-        const nav = (globalThis as any)?.navigator
-        if (nav && nav.onLine === false) {
-          actions.push({
-            label: translate("reload"),
-            onClick: () => {
-              try {
-                ;(globalThis as any).location?.reload()
-              } catch {}
-            },
-          })
-        }
-      } catch {}
+      if (isNavigatorOffline()) {
+        actions.push({
+          label: translate("reload"),
+          onClick: () => {
+            try {
+              ;(globalThis as any).location?.reload()
+            } catch {}
+          },
+        })
+      }
 
       return (
         <StateView
           // Show the base error message only; render support hint separately below
-          state={makeErrorView(
-            resolveMessageOrKey(baseMsgKey, translate) ||
-              translate("unknownErrorOccurred"),
-            {
-              code: suppressSupport ? undefined : error.code,
-              actions,
-            }
-          )}
+          state={makeErrorView(resolvedMessage, {
+            code: suppressSupport ? undefined : error.code,
+            actions,
+          })}
           renderActions={(act, ariaLabel) => (
             <div
               role="group"
@@ -1396,28 +1435,30 @@ export default function Widget(
     let controller: AbortController | null = null
 
     try {
+      const latestConfig = configRef.current
+      const rawDataEarly = ((formData as any)?.data || {}) as {
+        [key: string]: unknown
+      }
       // Determine mode early from form data for email requirement
-      const rawDataEarly = (formData as any)?.data || {}
       const earlyMode = determineServiceMode(
         { data: rawDataEarly },
-        configRef.current
+        latestConfig
       )
-      // Fetch email only for async mode
       const fmeClient = getOrCreateFmeClient()
       const userEmail =
-        earlyMode === "async" ? await getEmail(configRef.current) : ""
+        earlyMode === "async" ? await getEmail(latestConfig) : ""
 
       const workspace = reduxState.selectedWorkspace
+      if (!workspace) {
+        return
+      }
 
       // Create abort controller for this request (used for optional upload and run)
       controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
-      const rawFormData = ((formData as any)?.data || {}) as {
-        [key: string]: unknown
-      }
       const { sanitizedFormData, uploadFile, remoteUrl } =
-        parseSubmissionFormData(rawFormData)
+        parseSubmissionFormData(rawDataEarly)
 
       // Build baseline params first (without opt_geturl)
       const baseParams = prepFmeParams(
@@ -1429,7 +1470,7 @@ export default function Widget(
         currentGeometry,
         modules,
         {
-          config: configRef.current,
+          config: latestConfig,
           workspaceParameters: reduxState.workspaceParameters,
         }
       )
@@ -1445,34 +1486,11 @@ export default function Widget(
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
 
-      if (
-        !finalParams.opt_geturl ||
-        typeof finalParams.opt_geturl !== "string" ||
-        !finalParams.opt_geturl.trim()
-      ) {
-        delete finalParams.opt_geturl
-      }
+      sanitizeOptGetUrlParam(finalParams)
 
-      const urlFeatureOn = Boolean(configRef.current?.allowRemoteUrlDataset)
-
-      // First pass: set opt_geturl only if URL is valid
-      if (
-        urlFeatureOn &&
-        remoteUrl &&
-        isValidExternalUrlForOptGetUrl(remoteUrl)
-      ) {
+      if (shouldApplyRemoteDatasetUrl(remoteUrl, latestConfig)) {
         finalParams.opt_geturl = remoteUrl
-      }
-
-      // Second pass: if no opt_geturl set, consider upload fallback
-      const wantsUpload = Boolean(
-        configRef.current?.allowRemoteDataset && uploadFile
-      )
-      if (
-        typeof finalParams.opt_geturl === "undefined" &&
-        wantsUpload &&
-        uploadFile
-      ) {
+      } else if (shouldUploadRemoteDataset(latestConfig, uploadFile)) {
         const subfolder = `widget_${(props as any)?.id || "fme"}`
         const uploadResp = await makeCancelable<ApiResponse<{ path: string }>>(
           fmeClient.uploadToTemp(uploadFile, {
@@ -1485,19 +1503,14 @@ export default function Widget(
           finalParams,
           uploadedPath,
           parameters: reduxState.workspaceParameters,
-          explicitTarget: resolveUploadTargetParam(configRef.current),
+          explicitTarget: resolveUploadTargetParam(latestConfig),
         })
       }
 
       // Apply admin defaults and record for testing
-      finalParams = applyDirectiveDefaults(
-        finalParams,
-        configRef.current as any
-      )
+      finalParams = applyDirectiveDefaults(finalParams, latestConfig as any)
       // Ensure hidden error marker isn't leaked
-      try {
-        delete (finalParams as any).__aoi_error__
-      } catch {}
+      removeAoiErrorMarker(finalParams)
       try {
         if (typeof globalThis !== "undefined") {
           ;(globalThis as any).__LAST_FME_CALL__ = {
@@ -1510,7 +1523,7 @@ export default function Widget(
       }
 
       // Submit to FME Flow
-      const serviceType = configRef.current?.service || "download"
+      const serviceType = latestConfig?.service || "download"
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
