@@ -1307,8 +1307,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
+  const canRunConnectionTest = React.useMemo(() => {
+    const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
+    const tokenCheck = validateToken(localToken)
+
+    return serverCheck.ok && tokenCheck.ok
+  }, [localServerUrl, localToken])
+
   // Handle "Test Connection" button click
-  const isTestDisabled = !!testState.isTesting || !localServerUrl || !localToken
+  const isTestDisabled = !!testState.isTesting || !canRunConnectionTest
 
   // OPTIMIZED connection testing - single efficient flow with minimal API calls
   const testConnection = hooks.useEventCallback(async (silent = false) => {
@@ -1316,25 +1323,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (abortRef.current) {
       abortRef.current.abort()
     }
-    abortRef.current = new AbortController()
-    const signal = abortRef.current.signal
 
-    // Run lightweight check: require URL and token presence only
-    if (!localServerUrl || !localToken) {
-      if (!silent)
-        setTestState({
-          status: "error",
-          isTesting: false,
-          message: translate("fixErrorsAbove"),
-          type: "error",
-        })
-      return
-    }
-
-    // Populate field errors for the UI (non-blocking) and sanitize URL
-    validateAllInputs(true)
+    const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
-    if (!settings) {
+    if (hasErrors || !settings) {
+      abortRef.current = null
       if (!silent) {
         setTestState({
           status: "error",
@@ -1345,6 +1338,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
       return
     }
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    const signal = controller.signal
 
     // Reset state for new test
     setTestState({
