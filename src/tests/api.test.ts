@@ -1,4 +1,3 @@
-import fetchMock from "jest-fetch-mock"
 import FmeFlowApiClient, {
   createFmeFlowClient,
   resetEsriCache,
@@ -81,7 +80,6 @@ describe("shared/api FmeFlowApiClient", () => {
   let consoleWarnSpy: jest.SpyInstance
 
   beforeEach(() => {
-    fetchMock.resetMocks()
     jest.clearAllMocks()
     resetEsriCache()
     setupEsriGlobals()
@@ -432,10 +430,15 @@ describe("shared/api FmeFlowApiClient", () => {
   })
 
   test("runDataDownload builds webhook URL with token and handles JSON response", async () => {
-    fetchMock.mockResponseOnce(JSON.stringify({ ok: true }), {
-      headers: { "content-type": "application/json" },
-      status: 200,
+    const esriRequest = (global as any).esriRequest as jest.Mock
+    esriRequest.mockResolvedValueOnce({
+      data: { ok: true },
+      httpStatus: 200,
       statusText: "OK",
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
     })
     const client = makeClient({ url: "https://fme.acme.com" })
     const res = await client.runDataDownload(
@@ -444,7 +447,7 @@ describe("shared/api FmeFlowApiClient", () => {
       "repo1"
     )
     expect(res.status).toBe(200)
-    const calledUrl = fetchMock.mock.calls[0][0] as string
+    const [calledUrl] = esriRequest.mock.calls[0]
     // Ensure token present on webhook
     expect(calledUrl).toMatch(/token=superSecretToken1234/)
     // Ensure tm_tag included
@@ -465,10 +468,15 @@ describe("shared/api FmeFlowApiClient", () => {
 
   test("Webhook coercion: opt_servicemode 'schedule' becomes 'async'", async () => {
     // Mock JSON response to avoid network failure
-    fetchMock.mockResponseOnce(JSON.stringify({ ok: true }), {
-      headers: { "content-type": "application/json" },
-      status: 200,
+    const esriRequest = (global as any).esriRequest as jest.Mock
+    esriRequest.mockResolvedValueOnce({
+      data: { ok: true },
+      httpStatus: 200,
       statusText: "OK",
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
     })
     const client = makeClient({ url: "https://fme.acme.com" })
     await client.runDataDownload(
@@ -476,34 +484,41 @@ describe("shared/api FmeFlowApiClient", () => {
       { p: "1", opt_servicemode: "schedule" },
       "repo1"
     )
-    const calledUrl = fetchMock.mock.calls[0][0] as string
+    const [calledUrl] = esriRequest.mock.calls[0]
     // Ensure webhooks never send schedule; coerced to async
     expect(calledUrl).toMatch(/opt_servicemode=async/)
     expect(calledUrl).not.toMatch(/opt_servicemode=schedule/)
   })
 
   test("runDataStreaming posts parameters with token and returns Blob", async () => {
-    // Mock streaming response as plain text with filename
-    fetchMock.mockResponseOnce("hello world", {
-      headers: {
-        "content-type": "text/plain",
-        "content-disposition": 'attachment; filename="out.txt"',
+    const esriRequest = (global as any).esriRequest as jest.Mock
+    const headers = {
+      get: (name: string) => {
+        const lower = name.toLowerCase()
+        if (lower === "content-type") return "text/plain"
+        if (lower === "content-disposition")
+          return 'attachment; filename="out.txt"'
+        return null
       },
-      status: 200,
+    }
+    esriRequest.mockResolvedValueOnce({
+      data: new Blob(["hello world"], { type: "text/plain" }),
+      httpStatus: 200,
       statusText: "OK",
+      headers,
     })
 
     const client = makeClient()
     const res = await client.runDataStreaming("stream.fmw", { a: "1" }, "repoX")
 
     // Validate fetch call
-    const [calledUrl, init] = fetchMock.mock.calls[0]
+    const [calledUrl, options] = esriRequest.mock.calls[0]
     expect(typeof calledUrl).toBe("string")
     expect(calledUrl).toBe(
       "https://fme.example.com/fmedatastreaming/repoX/stream.fmw?token=superSecretToken1234"
     )
-    expect((init as any)?.method).toBe("POST")
-    const body = ((init as any)?.body || "") as string
+    expect((options || {}).method).toBe("post")
+    const body = String((options || {}).body ?? "")
     expect(body).toContain("opt_showresult=true")
     expect(body).toContain("a=1")
 
@@ -532,32 +547,45 @@ describe("shared/api FmeFlowApiClient", () => {
 
   test("runDataDownload throws for non-JSON or malformed JSON and for auth errors", async () => {
     const client = makeClient()
+    const esriRequest = (global as any).esriRequest as jest.Mock
 
     // Non-JSON content-type
-    fetchMock.mockResponseOnce("<html></html>", {
-      headers: { "content-type": "text/html" },
-      status: 200,
+    esriRequest.mockResolvedValueOnce({
+      data: { html: true },
+      httpStatus: 200,
       statusText: "OK",
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "text/html" : null,
+      },
     })
     await expect(client.runDataDownload("w", {}, "r")).rejects.toMatchObject({
       code: "WEBHOOK_AUTH_ERROR",
     })
 
     // Malformed JSON
-    fetchMock.mockResponseOnce("not json", {
-      headers: { "content-type": "application/json" },
-      status: 200,
+    esriRequest.mockResolvedValueOnce({
+      data: "not json",
+      httpStatus: 200,
       statusText: "OK",
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
     })
     await expect(client.runDataDownload("w", {}, "r")).rejects.toMatchObject({
       code: "WEBHOOK_AUTH_ERROR",
     })
 
     // Auth error
-    fetchMock.mockResponseOnce(JSON.stringify({ err: true }), {
-      headers: { "content-type": "application/json" },
-      status: 401,
+    esriRequest.mockResolvedValueOnce({
+      data: { err: true },
+      httpStatus: 401,
       statusText: "Unauthorized",
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
     })
     await expect(client.runDataDownload("w", {}, "r")).rejects.toMatchObject({
       code: "WEBHOOK_AUTH_ERROR",

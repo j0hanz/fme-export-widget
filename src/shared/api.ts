@@ -1055,7 +1055,13 @@ export class FmeFlowApiClient {
           API.WEBHOOK_LOG_WHITELIST
         )
 
-        // Honor client timeout by composing a timeout-aware AbortSignal for fetch
+        await ensureEsri()
+        const esriRequestFn = asEsriRequest(_esriRequest)
+        if (!esriRequestFn) {
+          throw makeError("ARCGIS_MODULE_ERROR")
+        }
+
+        // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
         const controller = new AbortController()
         let timeoutId: ReturnType<typeof setTimeout> | null = null
         let didTimeout = false
@@ -1081,24 +1087,39 @@ export class FmeFlowApiClient {
             }, timeoutMs)
           }
 
-          const response = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          const response = await esriRequestFn(url, {
+            method: "post",
+            responseType: "blob",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
             body: params.toString(),
             signal: controller.signal,
+            timeout: timeoutMs,
           })
 
-          // Non-2xx status is an error
-          if (!response.ok) {
-            throw makeError("DATA_STREAMING_ERROR", response.status)
+          const status =
+            typeof response?.httpStatus === "number"
+              ? response.httpStatus
+              : typeof response?.status === "number"
+                ? response.status
+                : 200
+          if (status < 200 || status >= 300) {
+            throw makeError("DATA_STREAMING_ERROR", status)
           }
 
-          // Always read as Blob; callers can decode based on content-type
-          const blob = await response.blob()
-          const contentType = response.headers.get("content-type")
+          const blob = response?.data as Blob
+          const headers = response?.headers
+          const contentType =
+            typeof headers?.get === "function"
+              ? headers.get("content-type")
+              : null
 
           // Attempt to extract filename from Content-Disposition header
-          const cd = response.headers.get("content-disposition") || ""
+          const cd =
+            typeof headers?.get === "function"
+              ? headers.get("content-disposition") || ""
+              : ""
           let fileName: string | undefined
           const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
           if (m) {
@@ -1108,8 +1129,8 @@ export class FmeFlowApiClient {
 
           return {
             data: { blob, fileName, contentType },
-            status: response.status,
-            statusText: response.statusText,
+            status,
+            statusText: response?.statusText,
           }
         } catch (e: any) {
           if (isAbortError(e)) {
@@ -1215,7 +1236,13 @@ export class FmeFlowApiClient {
         API.WEBHOOK_LOG_WHITELIST
       )
 
-      // Honor client timeout by composing a timeout-aware AbortSignal for fetch
+      await ensureEsri()
+      const esriRequestFn = asEsriRequest(_esriRequest)
+      if (!esriRequestFn) {
+        throw makeError("ARCGIS_MODULE_ERROR")
+      }
+
+      // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
       const controller = new AbortController()
       let timeoutId: ReturnType<typeof setTimeout> | null = null
       let didTimeout = false
@@ -1241,9 +1268,11 @@ export class FmeFlowApiClient {
           }, timeoutMs)
         }
 
-        const response = await fetch(fullUrl, {
-          method: "GET",
+        const response = await esriRequestFn(fullUrl, {
+          method: "get",
+          responseType: "json",
           signal: controller.signal,
+          timeout: timeoutMs,
         })
 
         return this.parseWebhookResponse(response)
@@ -1252,6 +1281,15 @@ export class FmeFlowApiClient {
           if (didTimeout) {
             throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
           }
+        }
+        if (
+          e &&
+          typeof e.message === "string" &&
+          /unexpected token|json/i.test(e.message)
+        ) {
+          logWarn("Failed to parse webhook JSON response", e)
+          const status = extractHttpStatus(e) || 0
+          throw makeError("WEBHOOK_AUTH_ERROR", status)
         }
         throw e instanceof Error ? e : new Error(String(e))
       } finally {
@@ -1319,29 +1357,91 @@ export class FmeFlowApiClient {
     return this.abortController
   }
 
-  private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
-    const contentType = response.headers.get("content-type")
+  private async parseWebhookResponse(
+    response:
+      | Response
+      | {
+          data?: any
+          headers?: { get: (name: string) => string | null }
+          status?: number
+          statusText?: string
+          httpStatus?: number
+        }
+  ): Promise<ApiResponse> {
+    const isFetchResponse =
+      typeof (response as any)?.json === "function" &&
+      typeof (response as any)?.headers?.get === "function"
 
-    if (!isJson(contentType)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    if (isFetchResponse) {
+      const fetchResponse = response as Response
+      const contentType = fetchResponse.headers.get("content-type")
+
+      if (!isJson(contentType)) {
+        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+      }
+
+      try {
+        const responseData = await fetchResponse.json()
+        if (isAuthError(fetchResponse.status)) {
+          throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+        }
+
+        return {
+          data: responseData,
+          status: fetchResponse.status,
+          statusText: fetchResponse.statusText,
+        }
+      } catch (error) {
+        if (error instanceof FmeFlowApiError) throw error
+        logWarn("Failed to parse webhook JSON response")
+        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+      }
     }
 
-    let responseData: any
-    try {
-      responseData = await response.json()
-    } catch {
-      logWarn("Failed to parse webhook JSON response")
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    const esriResponse = response as {
+      data?: any
+      headers?: { get: (name: string) => string | null }
+      status?: number
+      statusText?: string
+      httpStatus?: number
     }
 
-    if (isAuthError(response.status)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    const status =
+      typeof esriResponse.httpStatus === "number"
+        ? esriResponse.httpStatus
+        : typeof esriResponse.status === "number"
+          ? esriResponse.status
+          : 200
+
+    const headers = esriResponse.headers
+    const contentType =
+      typeof headers?.get === "function" ? headers.get("content-type") : ""
+    if (headers && !isJson(contentType)) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    if (esriResponse.data === undefined) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    let payload = esriResponse.data
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload)
+      } catch (error) {
+        logWarn("Failed to parse webhook JSON response", error)
+        throw makeError("WEBHOOK_AUTH_ERROR", status)
+      }
+    }
+
+    if (isAuthError(status)) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
     }
 
     return {
-      data: responseData,
-      status: response.status,
-      statusText: response.statusText,
+      data: payload,
+      status,
+      statusText: esriResponse.statusText,
     }
   }
 
