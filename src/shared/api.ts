@@ -18,13 +18,6 @@ import {
   calcArea,
 } from "./validations"
 import {
-  logDebug,
-  logError,
-  logWarn,
-  loadArcgisModules,
-  isTestEnv,
-} from "./logging"
-import {
   buildUrl,
   resolveRequestUrl,
   buildParams,
@@ -34,11 +27,11 @@ import {
   makeScopeId,
   makeGeoJson,
   isJson,
-  maskToken,
   extractHostFromUrl,
   extractErrorMessage,
   isAbortError,
   extractRepositoryNames,
+  loadArcgisModules,
 } from "./utils"
 
 // Construct a typed FME Flow API error with identical message and code.
@@ -133,8 +126,7 @@ async function ensureGeometryEngines(): Promise<void> {
         "esri/geometry/geometryEngine",
       ])
       _geometryEngine = unwrapModule(engineMod)
-    } catch (error) {
-      logError("Failed to load geometryEngine", error)
+    } catch {
       throw new Error("ARCGIS_MODULE_ERROR")
     }
   }
@@ -145,8 +137,7 @@ async function ensureGeometryEngines(): Promise<void> {
         "esri/geometry/geometryEngineAsync",
       ])
       _geometryEngineAsync = unwrapModule(engineAsyncMod)
-    } catch (error) {
-      logWarn("geometryEngineAsync unavailable", error)
+    } catch {
       _geometryEngineAsync = null
     }
   }
@@ -172,18 +163,15 @@ async function ensureEsri(): Promise<void> {
 
   const loadPromise = (async () => {
     // In test environment, check for global mocks first before trying to load modules
-    if (isTestEnv()) {
-      const globalAny =
-        typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+    const globalAny =
+      typeof globalThis !== "undefined" ? (globalThis as any) : undefined
 
-      if (
-        globalAny &&
-        ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
-      ) {
-        logWarn("Using global ArcGIS mocks in test environment")
-        applyGlobalEsriMocks(globalAny)
-        return
-      }
+    if (
+      globalAny &&
+      ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
+    ) {
+      applyGlobalEsriMocks(globalAny)
+      return
     }
 
     try {
@@ -214,7 +202,6 @@ async function ensureEsri(): Promise<void> {
       }
     } catch (error) {
       // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
-      logError("ARCGIS_MODULE_ERROR", { error })
       throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
@@ -350,11 +337,7 @@ async function addFmeInterceptor(
     let esriConfig: EsriRequestConfig | null
     try {
       esriConfig = await getEsriConfig()
-    } catch (error) {
-      logWarn("Failed to load ArcGIS modules while removing interceptor", {
-        host: hostKey,
-        error,
-      })
+    } catch {
       return
     }
 
@@ -370,10 +353,6 @@ async function addFmeInterceptor(
   try {
     esriConfig = await getEsriConfig()
   } catch (error) {
-    logWarn("Failed to load ArcGIS modules while adding interceptor", {
-      host: hostKey,
-      error,
-    })
     throw error instanceof Error ? error : new Error(String(error))
   }
   if (!esriConfig) return
@@ -404,12 +383,6 @@ async function addFmeInterceptor(
         }
         // Always set Authorization header with correct FME Flow format
         ro.headers.Authorization = `fmetoken token=${currentToken}`
-      } else {
-        // Debug: log when token is missing
-        logWarn("Missing token for host", {
-          host: hostKey,
-          availableHosts: Object.keys(_fmeTokensByHost),
-        })
       }
     },
     _fmeInterceptor: true,
@@ -498,9 +471,7 @@ const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
         webMercatorUtils.webMercatorToGeographic(geometry) || geometry
       return converted
     }
-  } catch (error) {
-    logWarn("Coordinate transformation failed", error)
-  }
+  } catch {}
 
   return geometry
 }
@@ -552,10 +523,6 @@ export class FmeFlowApiClient {
       .catch((error) => {
         const normalizedError =
           error instanceof Error ? error : new Error(String(error))
-        logError("FME API client setup failed", {
-          host: extractHostFromUrl(config.serverUrl),
-          message: normalizedError.message,
-        })
         throw normalizedError
       })
   }
@@ -566,12 +533,7 @@ export class FmeFlowApiClient {
       .then(async () => {
         await addFmeInterceptor(serverUrl, "")
       })
-      .catch((error) => {
-        logWarn("Failed to remove FME interceptor", {
-          host: extractHostFromUrl(serverUrl),
-          error,
-        })
-      })
+      .catch(() => undefined)
   }
 
   dispose(): void {
@@ -581,9 +543,7 @@ export class FmeFlowApiClient {
     if (this.abortController && !this.abortController.signal.aborted) {
       try {
         this.abortController.abort()
-      } catch (error) {
-        logWarn("Error aborting controller during dispose", error)
-      }
+      } catch {}
     }
     this.abortController = null
 
@@ -1293,7 +1253,6 @@ export class FmeFlowApiClient {
           typeof e.message === "string" &&
           /unexpected token|json/i.test(e.message)
         ) {
-          logWarn("Failed to parse webhook JSON response", e)
           const status = extractHttpStatus(e) || 0
           throw makeError("WEBHOOK_AUTH_ERROR", status)
         }
@@ -1342,9 +1301,7 @@ export class FmeFlowApiClient {
     if (this.abortController && !this.abortController.signal.aborted) {
       try {
         this.abortController.abort()
-      } catch (error) {
-        logWarn("Error aborting active controller", error)
-      }
+      } catch {}
     }
     this.abortController = null
   }
@@ -1354,9 +1311,7 @@ export class FmeFlowApiClient {
     if (this.abortController && !this.abortController.signal.aborted) {
       try {
         this.abortController.abort()
-      } catch (error) {
-        logWarn("Error aborting previous controller", error)
-      }
+      } catch {}
     }
 
     this.abortController = new AbortController()
@@ -1399,7 +1354,6 @@ export class FmeFlowApiClient {
         }
       } catch (error) {
         if (error instanceof FmeFlowApiError) throw error
-        logWarn("Failed to parse webhook JSON response")
         throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
       }
     }
@@ -1435,7 +1389,6 @@ export class FmeFlowApiClient {
       try {
         payload = JSON.parse(payload)
       } catch (error) {
-        logWarn("Failed to parse webhook JSON response", error)
         throw makeError("WEBHOOK_AUTH_ERROR", status)
       }
     }
@@ -1485,9 +1438,7 @@ export class FmeFlowApiClient {
         geometryEngineAsync: asGeometryEngineAsync(_geometryEngineAsync),
       }
       polygonArea = await calcArea(projectedGeometry, areaModules)
-    } catch (error) {
-      logWarn("Failed to calculate AOI area for FME params", error)
-    }
+    } catch {}
 
     const fallbackArea = Math.abs(extent.width * extent.height)
     const resolvedArea =
@@ -1515,9 +1466,6 @@ export class FmeFlowApiClient {
     try {
       await this.setupPromise
     } catch (error) {
-      logWarn("Retrying FME API client setup after failure", {
-        message: extractErrorMessage(error),
-      })
       this.queueSetup(this.config)
       try {
         await this.setupPromise
@@ -1578,9 +1526,7 @@ export class FmeFlowApiClient {
           requestOptions.headers = requestOptions.headers || {}
           requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
         }
-      } catch (e) {
-        logWarn("Error adding token directly", e)
-      }
+      } catch {}
 
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
@@ -1630,21 +1576,6 @@ export class FmeFlowApiClient {
 
       // Get user-friendly translation key using centralized error mapping
       const translationKey = mapErrorToKey(err, httpStatus)
-
-      // Debug logging to help identify error structure
-      logDebug("Request error structure", {
-        errorType: typeof err,
-        errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
-        extractedStatus: httpStatus,
-        rawError: err,
-      })
-
-      logError("Request error", {
-        url,
-        token: maskToken(this.config.token),
-        message: extractErrorMessage(err),
-        status: httpStatus,
-      })
 
       throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
     }

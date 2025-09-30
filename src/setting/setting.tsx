@@ -13,7 +13,6 @@ import {
   sanitizeEngineDirectiveKey,
   sanitizeEngineDirectiveValue,
 } from "../shared/utils"
-import { logWarn } from "../shared/logging"
 import { useTheme } from "jimu-theme"
 import { useSelector, useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -1086,8 +1085,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setReposHint(null)
       } catch (err) {
         if ((err as Error)?.name !== "AbortError") {
-          const status = extractHttpStatus(err)
-          logWarn("Repositories load error", { status })
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
           setReposHint(translateRef.current("errorRepositories"))
         }

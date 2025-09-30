@@ -10,7 +10,6 @@ import type {
 import { ErrorType, ErrorSeverity, ParameterType } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
-import { logDebug, logWarn } from "./logging"
 
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
@@ -223,11 +222,10 @@ export const isAbortError = (error: unknown): boolean => {
   return /abort/i.test(name) || /abort/i.test(message)
 }
 
-export const logIfNotAbort = (context: string, error: unknown): void => {
-  if (isAbortError(error)) return
-  try {
-    logWarn(context, error)
-  } catch {}
+export const logIfNotAbort = (_context: string, error: unknown): void => {
+  if (!isAbortError(error)) {
+    // Logging removed intentionally
+  }
 }
 
 const isIterable = (value: unknown): value is Iterable<unknown> =>
@@ -696,7 +694,7 @@ export const polygonJsonToGeoJson = (poly: any): any => {
         }
       : null
   } catch (error) {
-    logDebug("polygonJsonToGeoJson conversion failed", error)
+    void error
     return null
   }
 }
@@ -792,7 +790,7 @@ export const toWgs84PolygonJson = (
 
     return poly.toJSON()
   } catch (error) {
-    logDebug("Failed to convert polygon to WGS84", error)
+    void error
     return polyJson
   }
 }
@@ -1191,27 +1189,13 @@ export const buildParams = (
 }
 
 export const safeLogParams = (
-  label: string,
-  url: string,
-  params: URLSearchParams,
-  whitelist: readonly string[]
+  _label: string,
+  _url: string,
+  _params: URLSearchParams,
+  _whitelist: readonly string[]
 ): void => {
-  try {
-    const safeParams = new URLSearchParams()
-    for (const k of whitelist) {
-      const v = params.get(k)
-      if (v !== null) safeParams.set(k, v)
-    }
-    // Avoid logging full URLs with sensitive query strings (e.g., token).
-    const u = safeParseUrl(url)
-    const sanitizedUrl = u
-      ? `${u.origin}${u.pathname}`
-      : url.split("?")[0] || url
-    logDebug(label, {
-      url: sanitizedUrl,
-      params: safeParams.toString(),
-    })
-  } catch {}
+  // Intentionally a no-op to avoid logging sensitive data; reference params to prevent unused-var lint errors
+  void (_label, _url, _params, _whitelist)
 }
 
 export const createHostPattern = (host: string): RegExp => {
@@ -1264,7 +1248,7 @@ export const makeGeoJson = (polygon: __esri.Polygon) => {
     const geo = polygonJsonToGeoJson(polyJson)
     if (geo) return geo
   } catch (error) {
-    logDebug("makeGeoJson conversion failed", error)
+    void error
   }
 
   const rings = Array.isArray((polygon as any)?.rings)
@@ -1640,4 +1624,34 @@ export const shouldShowWorkspaceLoading = (
   const needsLoading =
     state === "workspace-selection" || state === "export-options"
   return isLoading || (!workspaces.length && needsLoading)
+}
+
+const unwrapDynamicModule = (module: unknown) =>
+  (module as any)?.default ?? module
+
+export async function loadArcgisModules(
+  modules: readonly string[]
+): Promise<unknown[]> {
+  if (!Array.isArray(modules) || !modules.length) {
+    return []
+  }
+
+  const globalScope =
+    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+  const stub = globalScope?.__ESRI_TEST_STUB__
+  if (typeof stub === "function") {
+    return stub(modules)
+  }
+
+  try {
+    const mod = await import("jimu-arcgis")
+    const loader = (mod as any)?.loadArcGISJSAPIModules
+    if (typeof loader !== "function") {
+      throw new Error("ARCGIS_MODULE_ERROR")
+    }
+    const loaded = await loader(modules as string[])
+    return (loaded || []).map(unwrapDynamicModule)
+  } catch {
+    throw new Error("ARCGIS_MODULE_ERROR")
+  }
 }

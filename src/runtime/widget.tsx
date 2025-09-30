@@ -67,13 +67,8 @@ import {
   toTrimmedString,
   coerceFormValueForSubmission,
   logIfNotAbort,
-} from "../shared/utils"
-import {
   loadArcgisModules,
-  logDebug,
-  logError,
-  logWarn,
-} from "../shared/logging"
+} from "../shared/utils"
 
 // Styling and symbols derived from config
 
@@ -258,15 +253,13 @@ const MODULES = [
 // Safe operation helpers
 const safely = <T,>(
   resource: T | null | undefined,
-  context = "ArcGIS safe operation failed",
+  _context = "ArcGIS safe operation failed",
   operation: (value: T) => void
 ): void => {
   if (!resource) return
   try {
     operation(resource)
-  } catch (error) {
-    logWarn(context, error)
-  }
+  } catch {}
 }
 
 const safeCancelSketch = (
@@ -343,9 +336,7 @@ const useEsriModules = (
           if (proj?.load && typeof proj.load === "function") {
             await proj.load()
           }
-        } catch (error) {
-          logWarn("Failed to pre-load projection module", error)
-        }
+        } catch {}
 
         setState({
           modules: {
@@ -364,7 +355,6 @@ const useEsriModules = (
         })
       } catch (error) {
         if (!cancelled) {
-          logError("Failed to load ArcGIS modules", error)
           setState({ modules: null, loading: false })
         }
       }
@@ -590,12 +580,6 @@ const setupSketchEventHandlers = (
   let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    logDebug("Sketch create event", {
-      widgetId,
-      state: evt.state,
-      tool: evt.tool,
-      hasGeometry: Boolean(evt.graphic?.geometry),
-    })
     switch (evt.state) {
       case "start":
         clickCount = 0
@@ -609,10 +593,6 @@ const setupSketchEventHandlers = (
             widgetId
           )
         )
-        logDebug("Sketch drawing started", {
-          widgetId,
-          tool: evt.tool,
-        })
         break
 
       case "active":
@@ -626,30 +606,15 @@ const setupSketchEventHandlers = (
             if (actualClicks === 1) {
               dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             }
-            logDebug("Sketch active (polygon)", {
-              widgetId,
-              clickCount: actualClicks,
-              ringCount: Array.isArray(geometry.rings)
-                ? geometry.rings.length
-                : 0,
-              spatialReference:
-                (geometry as any)?.spatialReference?.wkid ?? "unknown",
-            })
           }
         } else if (evt.tool === "rectangle" && clickCount !== 1) {
           clickCount = 1
           dispatch(fmeActions.setClickCount(1, widgetId))
-          logDebug("Sketch active (rectangle)", { widgetId })
         }
         break
 
       case "complete":
         clickCount = 0
-        logDebug("Sketch drawing completed", {
-          widgetId,
-          tool: evt.tool,
-          hasGeometry: Boolean(evt.graphic?.geometry),
-        })
         try {
           onDrawComplete(evt)
         } catch (err: any) {
@@ -660,18 +625,12 @@ const setupSketchEventHandlers = (
       case "cancel":
         clickCount = 0
         dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
-        logDebug("Sketch drawing cancelled", { widgetId, tool: evt.tool })
         break
     }
   })
 
   // Re-run the same completion pipeline when a reshape finishes
   sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
-    logDebug("Sketch update event", {
-      widgetId,
-      state: evt.state,
-      graphics: Array.isArray(evt.graphics) ? evt.graphics.length : 0,
-    })
     if (
       evt.state === "complete" &&
       Array.isArray(evt.graphics) &&
@@ -724,15 +683,6 @@ export default function Widget(
     typeof createFmeFlowClient
   > | null>(null)
   const fmeClientKeyRef = React.useRef<string | null>(null)
-  const startupTelemetryRef = hooks.useLatest<{
-    previousViewMode: ViewMode | null
-    isDrawing: boolean
-    drawnArea: number
-  }>({
-    previousViewMode: reduxState.previousViewMode,
-    isDrawing: reduxState.isDrawing,
-    drawnArea: reduxState.drawnArea,
-  })
   // When true, after reinitializing SketchViewModel we will immediately start drawing
   const shouldAutoStartRef = React.useRef(false)
 
@@ -752,9 +702,7 @@ export default function Widget(
     if (fmeClientRef.current?.dispose) {
       try {
         fmeClientRef.current.dispose()
-      } catch (error) {
-        logWarn("Error disposing FME client", error)
-      }
+      } catch {}
     }
     fmeClientRef.current = null
     fmeClientKeyRef.current = null
@@ -1027,14 +975,6 @@ export default function Widget(
       currentViewMode === ViewMode.INITIAL
     if (isUnset || isStartupPhase) {
       dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-    } else {
-      const latest = startupTelemetryRef.current
-      logWarn("Startup validation completed outside startup views", {
-        currentViewMode,
-        previousViewMode: latest?.previousViewMode ?? null,
-        isDrawing: latest?.isDrawing ?? false,
-        drawnArea: latest?.drawnArea ?? 0,
-      })
     }
   })
 
@@ -1132,7 +1072,6 @@ export default function Widget(
       // All validation passed
       setValidationSuccess()
     } catch (err: unknown) {
-      logError("Startup validation failed", err)
       const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
       const errorCode =
         typeof err === "object" && err !== null && "code" in err
@@ -1166,14 +1105,10 @@ export default function Widget(
       startupAbort.cancel()
       setCurrentGeometry(null)
 
-      try {
-        if (alsoCleanupMapResources) {
-          cleanupResources()
-        } else {
-          teardownDrawingResources()
-        }
-      } catch (error) {
-        logWarn("Error tearing down drawing resources", error)
+      if (alsoCleanupMapResources) {
+        cleanupResources()
+      } else {
+        teardownDrawingResources()
       }
 
       resetReduxForRevalidation()
@@ -1205,9 +1140,7 @@ export default function Widget(
           resetForRevalidation(false)
           runStartupValidation()
         }
-      } catch (error) {
-        logWarn("Error handling config change", error)
-      }
+      } catch {}
     },
     [config]
   )
@@ -1219,9 +1152,7 @@ export default function Widget(
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
       resetForRevalidation(!hasMapConfigured)
-    } catch (error) {
-      logWarn("Error resetting widget state on map selection change", error)
-    }
+    } catch {}
 
     // Re-run validation with new map selection
     runStartupValidation()
@@ -1239,22 +1170,11 @@ export default function Widget(
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
-      logDebug("onDrawComplete invoked", {
-        widgetId,
-        tool: evt.tool,
-        hasGeometry: Boolean(geometry),
-      })
       if (!geometry) return
 
       try {
         // Validate
         const validation = await validatePolygon(geometry, modules)
-        logDebug("Polygon validation result", {
-          widgetId,
-          valid: validation.valid,
-          hasSimplified: Boolean(validation.simplified),
-          errorCode: validation.error?.code,
-        })
         if (!validation.valid) {
           // Remove erroneous graphic and reset drawing state
           try {
@@ -1265,10 +1185,6 @@ export default function Widget(
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error) {
-            logWarn("Polygon validation failed", {
-              widgetId,
-              code: validation.error.code,
-            })
             dispatch(fmeActions.setError(validation.error, widgetId))
           }
           return
@@ -1278,21 +1194,9 @@ export default function Widget(
           (geometry as __esri.Polygon)
 
         const calculatedArea = await calcArea(geomForUse, modules)
-        logDebug("Polygon area calculated", {
-          widgetId,
-          area: calculatedArea,
-          ringCount: Array.isArray(geomForUse?.rings)
-            ? geomForUse.rings.length
-            : 0,
-          spatialReference: geomForUse?.spatialReference?.wkid ?? "unknown",
-        })
 
         // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
-          logWarn("Calculated area is non-positive", {
-            widgetId,
-            area: calculatedArea,
-          })
           dispatchError(
             translate("invalidGeometry"),
             ErrorType.VALIDATION,
@@ -1305,11 +1209,6 @@ export default function Widget(
         const maxCheck = checkMaxArea(calculatedArea, config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
-            logWarn("Polygon exceeds configured max area", {
-              widgetId,
-              area: calculatedArea,
-              maxArea: config?.maxArea ?? null,
-            })
             dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
           }
           return
@@ -1326,11 +1225,6 @@ export default function Widget(
 
         // Update Redux state atomically
         endSketchSession()
-        logDebug("Dispatching completeDrawing", {
-          widgetId,
-          area: Math.abs(calculatedArea),
-          nextView: ViewMode.WORKSPACE_SELECTION,
-        })
         dispatch(
           fmeActions.completeDrawing(
             geomForUse,
@@ -1342,17 +1236,7 @@ export default function Widget(
 
         // Store current geometry in local state (not Redux - following golden rule)
         setCurrentGeometry(geomForUse)
-        logDebug("Geometry stored locally after completion", {
-          widgetId,
-          ringCount: Array.isArray(geomForUse?.rings)
-            ? geomForUse.rings.length
-            : 0,
-        })
       } catch (error) {
-        logWarn("Unexpected error while completing drawing", {
-          widgetId,
-          message: (error as Error)?.message ?? "unknown",
-        })
         dispatchError(
           translate("drawingCompleteFailed"),
           ErrorType.VALIDATION,

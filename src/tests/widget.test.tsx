@@ -61,19 +61,8 @@ jest.mock("../shared/services", () => {
   }
 })
 
-jest.mock("../shared/logging", () => {
-  const actual = jest.requireActual("../shared/logging")
-  return {
-    ...actual,
-    logWarn: jest.fn(),
-  }
-})
-
 const { validateWidgetStartup } = require("../shared/services") as {
   validateWidgetStartup: jest.Mock
-}
-const { logWarn } = require("../shared/logging") as {
-  logWarn: jest.Mock
 }
 
 // Mock JimuMapViewComponent to immediately invoke onActiveViewChange with a fake map view
@@ -380,7 +369,7 @@ describe("Widget runtime - module loading and auto-start", () => {
   test("useEsriModules re-attempts load when retry signal changes", async () => {
     const { modules } = setupEsriTestStub()
     const loadSpy = jest
-      .spyOn(require("../shared/logging"), "loadArcgisModules")
+      .spyOn(require("../shared/utils"), "loadArcgisModules")
       .mockImplementationOnce(() => Promise.reject(new Error("fail")))
       .mockImplementation(() => Promise.resolve(modules))
 
@@ -691,15 +680,6 @@ describe("Widget runtime - startup validation guard", () => {
       const state = getAppStore().getState() as any
       expect(state["fme-state"].byId.wGuard.viewMode).toBe(
         ViewMode.WORKSPACE_SELECTION
-      )
-    })
-
-    await waitFor(() => {
-      expect(logWarn).toHaveBeenCalledWith(
-        "Startup validation completed outside startup views",
-        expect.objectContaining({
-          currentViewMode: ViewMode.WORKSPACE_SELECTION,
-        })
       )
     })
 

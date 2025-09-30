@@ -46,7 +46,6 @@ import {
   ariaDesc,
   pad2,
 } from "../../shared/utils"
-import { logWarn } from "../../shared/logging"
 import dataIcon from "../../assets/icons/data.svg"
 import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
@@ -1569,10 +1568,6 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   const styles = useStyles()
 
   if (!leftButton && !rightButton) {
-    logWarn("ButtonGroup missing configuration", {
-      leftButtonDefined: !!leftButton,
-      rightButtonDefined: !!rightButton,
-    })
     return null
   }
 

@@ -44,7 +44,6 @@ import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/close-circle.svg"
 import exportIcon from "../../assets/icons/export.svg"
 import { createFmeFlowClient } from "../../shared/api"
-import { logError, logWarn } from "../../shared/logging"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
@@ -246,11 +245,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const isMountedRef = React.useRef(true)
 
   const dispatchAction = hooks.useEventCallback((action: unknown) => {
-    try {
-      reduxDispatch(action)
-    } catch (error) {
-      logWarn("Failed to dispatch workspace action", error)
-    }
+    reduxDispatch(action)
   })
 
   const updateLoadingFlags = hooks.useEventCallback(
@@ -355,7 +350,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
 
     const targetRepository = toTrimmedString(config?.repository)
     if (!targetRepository) {
-      logWarn("Workspace loading skipped - repository not configured")
       if (isMountedRef.current) {
         setError(null)
       }
@@ -408,11 +402,9 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
           )
         }
       } else {
-        logError("Unexpected workspace response format", response)
         throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
-      logError("Workspace loading failed", err)
       const msg = formatError(err, "failedToLoadWorkspaces")
       if (msg && isMountedRef.current) setError(msg)
     } finally {
@@ -431,9 +423,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         toTrimmedString(repositoryName) ?? toTrimmedString(config?.repository)
 
       if (!fmeClient || !repoToUse) {
-        if (!repoToUse) {
-          logWarn("Workspace item load skipped - repository not resolved")
-        }
         return
       }
 
@@ -514,7 +503,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     if (isLoading && isMountedRef.current) {
       const timeoutId = setTimeout(() => {
         if (isMountedRef.current && isLoading) {
-          logWarn("Workspace loading timeout reached")
           setIsLoading(false)
           setError(translate("loadingTimeout"))
           updateLoadingFlags({
@@ -1125,9 +1113,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (clientRef.current?.dispose) {
       try {
         clientRef.current.dispose()
-      } catch (error) {
-        logWarn("Error disposing workflow FME client", error)
-      }
+      } catch {}
     }
     clientRef.current = null
   })
@@ -1139,8 +1125,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       disposeClient()
       clientRef.current = createFmeFlowClient(config)
       return clientRef.current
-    } catch (e) {
-      logWarn("Failed to create FME client", e)
+    } catch {
       return null
     }
   })

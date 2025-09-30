@@ -4,7 +4,6 @@ import FmeFlowApiClient, {
   isWebhookUrlTooLong,
 } from "../shared/api"
 import { HttpMethod, FmeFlowApiError } from "../config"
-import * as logging from "../shared/logging"
 
 // Secure JSAPI mocks: never import @arcgis/core; provide globals used by ensureEsri()
 const setupEsriGlobals = () => {
@@ -636,7 +635,7 @@ describe("shared/api FmeFlowApiClient", () => {
   })
 
   test("loader rejection clears cache so retry can succeed", async () => {
-    const loadSpy = jest.spyOn(logging, "loadArcgisModules")
+    const loadSpy = jest.spyOn(require("../shared/utils"), "loadArcgisModules")
     loadSpy.mockImplementationOnce(() =>
       Promise.reject(new Error("load failure"))
     )

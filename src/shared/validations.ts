@@ -9,7 +9,6 @@ import {
   type NormalizedServiceInfo,
 } from "../config"
 import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
-import { logWarn } from "./logging"
 
 export const isInt = (value: unknown): boolean => {
   if (typeof value === "number") return Number.isInteger(value)
@@ -476,9 +475,7 @@ export const calcArea = async (
         if (Number.isFinite(area) && area > 0) return area
       }
     }
-  } catch (e) {
-    logWarn("Failed to calculate polygon area", e)
-  }
+  } catch {}
 
   return 0
 }
