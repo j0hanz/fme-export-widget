@@ -165,7 +165,7 @@ const createStyles = (theme: IMThemeVariables) => {
     // Main layout styles
     parent: css({
       display: "flex",
-      flexDirection: "column",
+      flexFlow: "column",
       overflowY: "auto",
       height: "100%",
       position: "relative",
@@ -189,16 +189,15 @@ const createStyles = (theme: IMThemeVariables) => {
     // State patterns
     centered: css({
       display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
+      flexFlow: "column",
+      placeContent: "center",
       gap: spacing?.(1),
       height: "100%",
     }),
 
     overlay: css({
       position: "absolute",
-      top: "50%",
-      left: "50%",
+      inset: "50% auto auto 50%",
       transform: "translate(-50%, -50%)",
       textAlign: "center",
       zIndex: config.zIndex.overlay,
@@ -222,13 +221,15 @@ const createStyles = (theme: IMThemeVariables) => {
       title: css({
         ...getTypographyStyle(typography?.title2),
         color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(1)} 0`,
+        marginBlock: spacing?.(1),
+        marginInline: 0,
       }),
 
       instruction: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(3)} 0`,
+        marginBlock: spacing?.(3),
+        marginInline: 0,
         textAlign: "center",
       }),
 
@@ -244,7 +245,7 @@ const createStyles = (theme: IMThemeVariables) => {
       }),
 
       required: css({
-        marginLeft: "0.25rem",
+        marginInlineStart: "0.25rem",
         color: colors?.error.main,
       }),
     },
@@ -379,16 +380,14 @@ const wrapWithTooltip = (
   const wrapperCss = [
     jimuCss,
     styleCss(jimuStyle),
-    css(
-      block
-        ? { display: "block", width: "100%", minWidth: 0 }
-        : { display: "inline-flex", minWidth: 0 }
-    ),
+    block
+      ? css({ display: "block", width: "100%", minWidth: 0 })
+      : css({ display: "inline-flex", minWidth: 0 }),
   ]
 
   const anchorCss = css({
     display: "flex",
-    width: "100%",
+    flex: "1 1 auto",
     minWidth: 0,
     "& > *": { flex: 1, minWidth: 0 },
   })
