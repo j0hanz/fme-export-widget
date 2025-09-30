@@ -108,6 +108,34 @@ describe("Setting panel", () => {
     expect(testBtn).not.toBeDisabled()
   })
 
+  test("requires valid connection inputs before enabling Test", async () => {
+    const props = makeProps()
+    renderSetting(<WrappedSetting {...props} />)
+
+    const urlInput = screen.getByPlaceholderText("https://fme.server.com")
+    const tokenInput = screen.getByPlaceholderText(/Din API.?nyckel/i)
+    const testBtn = screen.getByRole("button", { name: /uppdatera och testa/i })
+
+    fireEvent.change(urlInput, { target: { value: "not-a-valid-url" } })
+    fireEvent.change(tokenInput, { target: { value: "short" } })
+
+    await waitFor(() => {
+      expect(testBtn).toBeDisabled()
+    })
+
+    fireEvent.change(urlInput, { target: { value: "https://example.com" } })
+
+    await waitFor(() => {
+      expect(testBtn).toBeDisabled()
+    })
+
+    fireEvent.change(tokenInput, { target: { value: "validtokennn" } })
+
+    await waitFor(() => {
+      expect(testBtn).not.toBeDisabled()
+    })
+  })
+
   test("validates and sanitizes server URL on blur (strips /fmerest)", async () => {
     const onSettingChange = jest.fn()
     const props = makeProps({ onSettingChange })
