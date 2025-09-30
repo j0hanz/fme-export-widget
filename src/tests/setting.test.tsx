@@ -445,6 +445,10 @@ describe("Setting panel", () => {
     fireEvent.change(tagInput, { target: { value: "prio" } })
     fireEvent.blur(tagInput)
 
+    const queueInput = screen.getByPlaceholderText(/t\.ex\.?\s*priority/i)
+    fireEvent.change(queueInput, { target: { value: "  highQueue  " } })
+    fireEvent.blur(queueInput)
+
     // Verify onSettingChange captured coerced values
     await waitFor(() => {
       const calls = onSettingChange.mock.calls.map((c) => c[0])
@@ -461,6 +465,7 @@ describe("Setting panel", () => {
       ).toBe(true)
       const latestCfg = calls[calls.length - 1]?.config
       expect(getVal(latestCfg, "tm_tag")).toBe("prio")
+      expect(getVal(latestCfg, "tm_queue")).toBe("highQueue")
     })
   })
 

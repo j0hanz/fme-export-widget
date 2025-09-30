@@ -68,7 +68,12 @@ import {
   coerceFormValueForSubmission,
   logIfNotAbort,
 } from "../shared/utils"
-import { loadArcgisModules, logDebug, logError, logWarn } from "../shared/logging"
+import {
+  loadArcgisModules,
+  logDebug,
+  logError,
+  logWarn,
+} from "../shared/logging"
 
 // Styling and symbols derived from config
 

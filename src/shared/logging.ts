@@ -76,8 +76,8 @@ const log = (level: LogLevel, message: string, details?: unknown): void => {
   const prefix = forced
     ? `${LOG_PREFIX} [debug]`
     : outputLevel === "debug"
-    ? `${LOG_PREFIX} [debug]`
-    : LOG_PREFIX
+      ? `${LOG_PREFIX} [debug]`
+      : LOG_PREFIX
   if (details === undefined) {
     logger(prefix, message)
   } else {

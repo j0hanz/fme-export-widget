@@ -1,3 +1,5 @@
+import type { FmeExportConfig } from "../config"
+
 import {
   isEmpty,
   isValidEmail,
@@ -32,6 +34,7 @@ import {
   toWgs84PolygonJson,
   attachAoi,
   applyDirectiveDefaults,
+  applyEngineDirectives,
   prepFmeParams,
   formatArea,
   getEmail,
@@ -305,6 +308,19 @@ describe("shared/utils", () => {
       expect(params.opt_requesteremail).toBe("user@x.com")
     })
 
+    test("buildFmeParams respects config overrides", () => {
+      const params = buildFmeParams({ data: {} }, "user@x.com", "sync", {
+        config: {
+          optResponseFormat: "xml",
+          optShowResult: false,
+        } as unknown as FmeExportConfig,
+      })
+      expect(params.opt_servicemode).toBe("sync")
+      expect(params.opt_responseformat).toBe("xml")
+      expect(params.opt_showresult).toBe("false")
+      expect(params.opt_requesteremail).toBeUndefined()
+    })
+
     test("polygon conversions: GeoJSON and WKT", () => {
       const poly = {
         rings: [
@@ -459,12 +475,20 @@ describe("shared/utils", () => {
         tm_ttc: "30",
         tm_ttl: 60,
         tm_tag: " tag ",
+        tm_queue: " queue ",
+        tm_priority: "8",
+        tm_rtc: true,
+        tm_description: " detail ",
         syncMode: false,
       }
       const params = applyDirectiveDefaults({ a: 1 }, cfg)
       expect(params.tm_ttc).toBe(30)
       expect(params.tm_ttl).toBe(60)
       expect(params.tm_tag).toBe("tag")
+      expect(params.tm_queue).toBe("queue")
+      expect(params.tm_priority).toBe(8)
+      expect(params.tm_rtc).toBe(true)
+      expect(params.tm_description).toBe("detail")
 
       const modules: any = {
         Polygon: { fromJSON: (j: any) => ({ ...j, toJSON: () => j }) },
@@ -485,18 +509,42 @@ describe("shared/utils", () => {
         undefined as any,
         modules,
         {
-          config: { allowScheduleMode: true, tm_ttc: 10 } as any,
+          config: {
+            allowScheduleMode: true,
+            tm_ttc: 10,
+            tm_queue: "Q1",
+          } as any,
         }
       )
       expect(p.opt_servicemode).toBe("schedule")
       // requester email is only set for async mode
       expect((p as any).opt_requesteremail).toBeUndefined()
       expect(p.tm_ttc).toBe(10)
+      expect(p.tm_queue).toBe("Q1")
       expect(p.AreaOfInterest).toBeTruthy()
       expect(Object.prototype.hasOwnProperty.call(p, "_serviceMode")).toBe(
         false
       )
       expect(p.start).toBe("2024-01-01")
+    })
+
+    test("applyEngineDirectives sanitizes keys and preserves existing values", () => {
+      const base = { existing: 1, fme_QUEUE: "keep" }
+      const params = applyEngineDirectives(base, {
+        engineDirectives: {
+          " fme_queue ": " override ",
+          fme_long: "x".repeat(1105),
+          fme_bool: false,
+          other: "ignored",
+        },
+      } as unknown as FmeExportConfig)
+
+      expect(params.existing).toBe(1)
+      expect(params.fme_QUEUE).toBe("keep")
+      expect(params.fme_LONG).toBeDefined()
+      expect((params.fme_LONG as string).length).toBe(1024)
+      expect(params.fme_BOOL).toBe("false")
+      expect(params).not.toHaveProperty("other")
     })
 
     test("prepFmeParams removes schedule metadata when mode is sync", () => {

@@ -276,7 +276,7 @@ describe("shared/api FmeFlowApiClient", () => {
     const client = makeClient()
     await client.submitJob(
       "roads.fmw",
-      { a: 1, tm_ttc: "30", tm_ttl: 45, tm_tag: "alpha" },
+      { a: 1, tm_ttc: "30", tm_ttl: 45, tm_tag: "alpha", tm_queue: "queue-1" },
       "r1"
     )
     const [url, options] = esriRequest.mock.calls[0]
@@ -288,7 +288,12 @@ describe("shared/api FmeFlowApiClient", () => {
     expect(payload.publishedParameters).toEqual(
       expect.arrayContaining([{ name: "a", value: 1 }])
     )
-    expect(payload.TMDirectives).toEqual({ ttc: 30, ttl: 45, tag: "alpha" })
+    expect(payload.TMDirectives).toEqual({
+      ttc: 30,
+      ttl: 45,
+      tag: "alpha",
+      queue: "queue-1",
+    })
   })
 
   test("submitSyncJob posts to transact endpoint", async () => {
@@ -443,15 +448,16 @@ describe("shared/api FmeFlowApiClient", () => {
     const client = makeClient({ url: "https://fme.acme.com" })
     const res = await client.runDataDownload(
       "export.fmw",
-      { p: "1", tm_tag: "session-1" },
+      { p: "1", tm_tag: "session-1", tm_queue: "high-priority" },
       "repo1"
     )
     expect(res.status).toBe(200)
     const [calledUrl] = esriRequest.mock.calls[0]
     // Ensure token present on webhook
     expect(calledUrl).toMatch(/token=superSecretToken1234/)
-    // Ensure tm_tag included
+    // Ensure tm_* directives included
     expect(calledUrl).toMatch(/tm_tag=session-1/)
+    expect(calledUrl).toMatch(/tm_queue=high-priority/)
   })
 
   test("runDataDownload enforces URL length guard", async () => {

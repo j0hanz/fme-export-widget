@@ -422,6 +422,7 @@ export interface ButtonGroupProps extends BaseProps {
 export interface TextAreaProps extends BaseProps {
   readonly value?: string
   readonly onChange?: (value: string) => void
+  readonly onBlur?: (value: string) => void
   readonly placeholder?: string
   readonly rows?: number
   readonly defaultValue?: string
@@ -579,17 +580,22 @@ export interface FmeExportConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
+  readonly tm_queue?: string
+  readonly tm_priority?: number | string
+  readonly tm_rtc?: boolean
+  readonly tm_description?: string
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly service?: "download" | "stream"
-  // Optional additional AOI output formats
   readonly aoiGeoJsonParamName?: string
   readonly aoiWktParamName?: string
-  // Drawing color for Sketch and highlight symbols (hex #RRGGBB)
   readonly drawingColor?: string
+  readonly optResponseFormat?: "json" | "xml"
+  readonly optShowResult?: boolean
+  readonly engineDirectives?: { readonly [key: string]: string }
 }
 
 export interface RequestConfig {
@@ -866,12 +872,30 @@ export interface JobDirectivesSectionProps {
   readonly localTmTtc: string
   readonly localTmTtl: string
   readonly localTmTag: string
+  readonly localTmQueue: string
+  readonly localTmPriority: string
+  readonly localTmDescription: string
+  readonly localTmRtc: boolean
+  readonly localOptResponseFormat: "json" | "xml"
+  readonly localOptShowResult: boolean
+  readonly localEngineDirectives: string
   readonly onTmTtcChange: (value: string) => void
   readonly onTmTtlChange: (value: string) => void
   readonly onTmTagChange: (value: string) => void
+  readonly onTmQueueChange: (value: string) => void
+  readonly onTmPriorityChange: (value: string) => void
+  readonly onTmDescriptionChange: (value: string) => void
+  readonly onTmRtcChange: (value: boolean) => void
+  readonly onOptResponseFormatChange: (value: "json" | "xml") => void
+  readonly onOptShowResultChange: (value: boolean) => void
+  readonly onEngineDirectivesChange: (value: string) => void
   readonly onTmTtcBlur: (value: string) => void
   readonly onTmTtlBlur: (value: string) => void
   readonly onTmTagBlur: (value: string) => void
+  readonly onTmQueueBlur: (value: string) => void
+  readonly onTmPriorityBlur: (value: string) => void
+  readonly onTmDescriptionBlur: (value: string) => void
+  readonly onEngineDirectivesBlur: (value: string) => void
   readonly fieldErrors: FieldErrors
   readonly translate: TranslateFn
   readonly styles: SettingStyles
@@ -879,6 +903,13 @@ export interface JobDirectivesSectionProps {
     readonly tm_ttc: string
     readonly tm_ttl: string
     readonly tm_tag: string
+    readonly tm_queue: string
+    readonly tm_priority: string
+    readonly tm_description: string
+    readonly tm_rtc: string
+    readonly optResponseFormat: string
+    readonly optShowResult: string
+    readonly engineDirectives: string
   }
 }
 

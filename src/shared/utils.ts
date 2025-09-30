@@ -491,6 +491,40 @@ export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   return safe || fallback
 }
 
+const ENGINE_DIRECTIVE_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/
+const ENGINE_DIRECTIVE_VALUE_MAX_LENGTH = 1024
+
+export const sanitizeEngineDirectiveKey = (
+  key: unknown
+): string | undefined => {
+  if (typeof key !== "string") return undefined
+  const trimmed = key.trim()
+  if (!trimmed) return undefined
+  if (!ENGINE_DIRECTIVE_KEY_PATTERN.test(trimmed)) return undefined
+  const lower = trimmed.toLowerCase()
+  if (!lower.startsWith("fme_")) return undefined
+  const suffix = trimmed.slice(4)
+  if (!suffix) return undefined
+  return `fme_${suffix.replace(/[^A-Za-z0-9_]/g, "").toUpperCase()}`
+}
+
+export const sanitizeEngineDirectiveValue = (
+  value: unknown
+): string | undefined => {
+  if (value === undefined) return undefined
+  if (value === null) return ""
+  let str: string
+  if (typeof value === "string") str = value.trim()
+  else if (typeof value === "number" && Number.isFinite(value))
+    str = String(value)
+  else if (typeof value === "boolean") str = value ? "true" : "false"
+  else return undefined
+  if (str.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH) {
+    return str.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
+  }
+  return str
+}
+
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
@@ -541,7 +575,8 @@ export const determineServiceMode = (
 export const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: ServiceMode = "async"
+  serviceMode: ServiceMode = "async",
+  options?: { config?: FmeExportConfig }
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   const mode = (ALLOWED_SERVICE_MODES as readonly string[]).includes(
@@ -549,11 +584,14 @@ export const buildFmeParams = (
   )
     ? serviceMode
     : "async"
+  const config = options?.config
+  const responseFormat = config?.optResponseFormat === "xml" ? "xml" : "json"
+  const showResult = (config?.optShowResult ?? true) ? "true" : "false"
   const base = {
     ...data,
     opt_servicemode: mode,
-    opt_responseformat: "json",
-    opt_showresult: "true",
+    opt_responseformat: responseFormat,
+    opt_showresult: showResult,
   } as { [key: string]: unknown }
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
   if (mode === "async" && trimmedEmail) {
@@ -931,7 +969,41 @@ export const applyDirectiveDefaults = (
     const v = typeof config.tm_tag === "string" ? config.tm_tag.trim() : ""
     if (v) out.tm_tag = v.substring(0, 128)
   }
+  if (!has("tm_queue")) {
+    const v = typeof config.tm_queue === "string" ? config.tm_queue.trim() : ""
+    if (v) out.tm_queue = v.substring(0, 128)
+  }
+  if (!has("tm_priority")) {
+    const v = toPosInt(config.tm_priority)
+    if (v !== undefined) out.tm_priority = v
+  }
+  if (!has("tm_rtc") && typeof config.tm_rtc === "boolean") {
+    out.tm_rtc = config.tm_rtc
+  }
+  if (!has("tm_description")) {
+    const desc =
+      typeof config.tm_description === "string"
+        ? config.tm_description.trim()
+        : ""
+    if (desc) out.tm_description = desc.substring(0, 512)
+  }
 
+  return out
+}
+
+export const applyEngineDirectives = (
+  params: { [key: string]: unknown },
+  config?: FmeExportConfig
+): { [key: string]: unknown } => {
+  if (!config?.engineDirectives) return params
+  const out: { [key: string]: unknown } = { ...params }
+  for (const [rawKey, rawValue] of Object.entries(config.engineDirectives)) {
+    const key = sanitizeEngineDirectiveKey(rawKey)
+    if (!key || Object.prototype.hasOwnProperty.call(out, key)) continue
+    const value = sanitizeEngineDirectiveValue(rawValue)
+    if (value === undefined) continue
+    out[key] = value
+  }
   return out
 }
 
@@ -960,7 +1032,9 @@ export const prepFmeParams = (
 
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 
-  const base = buildFmeParams({ data: sanitized }, userEmail, chosen)
+  const base = buildFmeParams({ data: sanitized }, userEmail, chosen, {
+    config,
+  })
   const geometryParamNames = collectGeometryParamNames(workspaceParameters)
   const withAoi = attachAoi(
     base,
@@ -970,7 +1044,8 @@ export const prepFmeParams = (
     config,
     geometryParamNames
   )
-  return applyDirectiveDefaults(withAoi, config)
+  const withDirectives = applyDirectiveDefaults(withAoi, config)
+  return applyEngineDirectives(withDirectives, config)
 }
 
 export function formatArea(area: number, modules: EsriModules): string {

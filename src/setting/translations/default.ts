@@ -56,10 +56,20 @@ export default {
   jobDirectivesHelper2: "Lämna tomt för standardvärdet.",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
-  tm_tagLabel: "Könamn (valfritt)",
+  tm_tagLabel: "Tagg (valfritt)",
   tm_tagPlaceholder: "t.ex. high",
   tm_ttcPlaceholder: "Lämna tomt (0 s)",
   tm_ttlPlaceholder: "Lämna tomt (0 s)",
+  tm_queueLabel: "Könamn (valfritt)",
+  tm_queuePlaceholder: "t.ex. default",
+  tm_priorityLabel: "Prioritet (valfritt)",
+  tm_priorityPlaceholder: "t.ex. 5",
+  tm_priorityInvalid: "Ange ett heltal större eller lika med 0.",
+  tm_descriptionLabel: "Jobbeskrivning (valfritt)",
+  tm_descriptionPlaceholder: "Kort beskrivning av körningen",
+  tm_descriptionHelper: "Sparas som tm_description (max 512 tecken).",
+  tm_rtcLabel: "Run till completion (tm_rtc)",
+  tm_rtcHelper: "Aktiverar FME:s run-till-completion-flagga.",
   serviceModeSync: "Direktnedladdning (synkront)",
   serviceModeSyncHelper:
     "På: nedladdning via direktlänk i webbläsaren. Av: länk skickas med e‑post.",
@@ -102,13 +112,36 @@ export default {
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
     "Tillåt att användaren laddar upp en fil direkt till FME Flows TEMP‑resurs som indata.",
+  remoteDatasetNotAvailableStreaming:
+    "Filuppladdning stöds inte när Streaming är aktiverat.",
   allowRemoteUrlDatasetLabel: "Tillåt fjärr‑URL (HTTPS)",
   allowRemoteUrlDatasetHelper:
     "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
+  remoteUrlDatasetNotAvailableStreaming:
+    "Fjärr-URL-indata stöds inte när Streaming är aktiverat.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",
   serviceTypeHelper:
     "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
+  scheduleNotAvailableStreaming: "Stöds inte när Streaming är aktiverat.",
   drawingColorLabel: "Ritningsfärg",
+  maskEmailDisabledSync: "Stöds inte när synkront är aktiverat.",
+  optResponseFormatLabel: "Svarformat (opt_responseformat)",
+  optResponseFormatHelper: "Välj format för serverns svar. Standard är JSON.",
+  optResponseFormatJson: "JSON",
+  optResponseFormatXml: "XML",
+  optShowResultLabel: "Visa resultatlänk (opt_showresult)",
+  optShowResultHelper:
+    "Styr om FME ska inkludera resultatlänken direkt i svaret.",
+  engineDirectivesLabel: "Motor-direktiv (fme_*)",
+  engineDirectivesPlaceholder: "fme_QUEUE=HIGH_PRIORITY",
+  engineDirectivesHelper:
+    "En rad per direktiv i formatet fme_NAMN=värde. Endast nycklar som börjar med fme_.",
+  engineDirectivesErrorInvalid:
+    "Ogiltigt format på rad {line}. Använd fme_namn=värde.",
+  engineDirectivesErrorInvalidKey:
+    "Ogiltigt direktivnamn på rad {line}. Nyckeln måste börja med fme_.",
+  engineDirectivesErrorInvalidValue: "Ogiltigt värde på rad {line}.",
+  engineDirectivesErrorDuplicate: "Direktivet {key} anges flera gånger.",
 }

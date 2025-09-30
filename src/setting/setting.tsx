@@ -10,6 +10,8 @@ import {
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
+  sanitizeEngineDirectiveKey,
+  sanitizeEngineDirectiveValue,
 } from "../shared/utils"
 import { logWarn } from "../shared/logging"
 import { useTheme } from "jimu-theme"
@@ -25,6 +27,7 @@ import {
   Button,
   Icon,
   Input,
+  TextArea,
   Select,
   Tooltip,
   config as uiConfig,
@@ -77,6 +80,9 @@ const CONSTANTS = {
   },
   DEFAULTS: {
     MAX_M2: 100_000_000,
+  },
+  DIRECTIVES: {
+    DESCRIPTION_MAX: 512,
   },
   COLORS: {
     BACKGROUND_DARK: "#181818",
@@ -423,12 +429,30 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
   localTmTag,
+  localTmQueue,
+  localTmPriority,
+  localTmDescription,
+  localTmRtc,
+  localOptResponseFormat,
+  localOptShowResult,
+  localEngineDirectives,
   onTmTtcChange,
   onTmTtlChange,
   onTmTagChange,
+  onTmQueueChange,
+  onTmPriorityChange,
+  onTmDescriptionChange,
+  onTmRtcChange,
+  onOptResponseFormatChange,
+  onOptShowResultChange,
+  onEngineDirectivesChange,
   onTmTtcBlur,
   onTmTtlBlur,
   onTmTagBlur,
+  onTmQueueBlur,
+  onTmPriorityBlur,
+  onTmDescriptionBlur,
+  onEngineDirectivesBlur,
   fieldErrors,
   translate,
   styles,
@@ -479,6 +503,164 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         errorText={fieldErrors.tm_tag}
         styles={styles}
       />
+      <FieldRow
+        id={ID.tm_queue}
+        label={
+          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+            <span>{translate("tm_queueLabel")}</span>
+          </Tooltip>
+        }
+        value={localTmQueue}
+        onChange={onTmQueueChange}
+        onBlur={onTmQueueBlur}
+        placeholder={translate("tm_queuePlaceholder")}
+        errorText={fieldErrors.tm_queue}
+        styles={styles}
+      />
+      <FieldRow
+        id={ID.tm_priority}
+        label={
+          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+            <span>{translate("tm_priorityLabel")}</span>
+          </Tooltip>
+        }
+        value={localTmPriority}
+        onChange={onTmPriorityChange}
+        onBlur={onTmPriorityBlur}
+        placeholder={translate("tm_priorityPlaceholder")}
+        errorText={fieldErrors.tm_priority}
+        styles={styles}
+      />
+      <SettingRow
+        flow="wrap"
+        label={
+          <Tooltip content={translate("tm_descriptionHelper")} placement="top">
+            <span>{translate("tm_descriptionLabel")}</span>
+          </Tooltip>
+        }
+        level={1}
+        tag="label"
+      >
+        <TextArea
+          id={ID.tm_description}
+          value={localTmDescription}
+          rows={3}
+          onChange={onTmDescriptionChange}
+          onBlur={onTmDescriptionBlur}
+          placeholder={translate("tm_descriptionPlaceholder")}
+          errorText={fieldErrors.tm_description}
+        />
+      </SettingRow>
+      {fieldErrors.tm_description && (
+        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+          <Alert
+            id={`${ID.tm_description}-error`}
+            fullWidth
+            css={css(styles.ALERT_INLINE)}
+            text={fieldErrors.tm_description}
+            type="error"
+            closable={false}
+          />
+        </SettingRow>
+      )}
+      <SettingRow
+        flow="no-wrap"
+        label={
+          <Tooltip content={translate("tm_rtcHelper")} placement="top">
+            <span>{translate("tm_rtcLabel")}</span>
+          </Tooltip>
+        }
+        level={1}
+      >
+        <Switch
+          id={ID.tm_rtc}
+          checked={localTmRtc}
+          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+            const checked = evt?.target?.checked ?? !localTmRtc
+            onTmRtcChange(checked)
+          }}
+          aria-label={translate("tm_rtcLabel")}
+        />
+      </SettingRow>
+      <SettingRow
+        flow="wrap"
+        label={
+          <Tooltip
+            content={translate("optResponseFormatHelper")}
+            placement="top"
+          >
+            <span>{translate("optResponseFormatLabel")}</span>
+          </Tooltip>
+        }
+        level={1}
+        tag="label"
+      >
+        <Select
+          options={[
+            { label: translate("optResponseFormatJson"), value: "json" },
+            { label: translate("optResponseFormatXml"), value: "xml" },
+          ]}
+          value={localOptResponseFormat}
+          onChange={(val) => {
+            const next = val === "xml" ? "xml" : "json"
+            onOptResponseFormatChange(next)
+          }}
+        />
+      </SettingRow>
+      <SettingRow
+        flow="no-wrap"
+        label={
+          <Tooltip content={translate("optShowResultHelper")} placement="top">
+            <span>{translate("optShowResultLabel")}</span>
+          </Tooltip>
+        }
+        level={1}
+      >
+        <Switch
+          id={ID.optShowResult}
+          checked={localOptShowResult}
+          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+            const checked = evt?.target?.checked ?? !localOptShowResult
+            onOptShowResultChange(checked)
+          }}
+          aria-label={translate("optShowResultLabel")}
+        />
+      </SettingRow>
+      <SettingRow
+        flow="wrap"
+        label={
+          <Tooltip
+            content={translate("engineDirectivesHelper")}
+            placement="top"
+          >
+            <span>{translate("engineDirectivesLabel")}</span>
+          </Tooltip>
+        }
+        level={1}
+        tag="label"
+      >
+        <TextArea
+          id={ID.engineDirectives}
+          value={localEngineDirectives}
+          rows={4}
+          onChange={onEngineDirectivesChange}
+          onBlur={onEngineDirectivesBlur}
+          placeholder={translate("engineDirectivesPlaceholder")}
+          errorText={fieldErrors.engineDirectives}
+        />
+      </SettingRow>
+      {fieldErrors.engineDirectives && (
+        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+          <Alert
+            id={`${ID.engineDirectives}-error`}
+            fullWidth
+            css={css(styles.ALERT_INLINE)}
+            text={fieldErrors.engineDirectives}
+            type="error"
+            closable={false}
+          />
+        </SettingRow>
+      )}
       {/** Helper moved to label tooltips */}
     </SettingSection>
   )
@@ -647,6 +829,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
+    tm_queue: "setting-tm-queue",
+    tm_priority: "setting-tm-priority",
+    tm_description: "setting-tm-description",
+    tm_rtc: "setting-tm-rtc",
+    optResponseFormat: "setting-opt-response-format",
+    optShowResult: "setting-opt-show-result",
+    engineDirectives: "setting-engine-directives",
     aoiParamName: "setting-aoi-param-name",
     uploadTargetParamName: "setting-upload-target-param-name",
     allowScheduleMode: "setting-allow-schedule-mode",
@@ -720,6 +909,54 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = (config as any)?.tm_tag
     return typeof v === "string" ? v : ""
   })
+  const [localTmQueue, setLocalTmQueue] = React.useState<string>(() => {
+    const v = (config as any)?.tm_queue
+    return typeof v === "string" ? v : ""
+  })
+  const [localTmPriority, setLocalTmPriority] = React.useState<string>(() => {
+    const v = (config as any)?.tm_priority
+    if (typeof v === "number" && Number.isFinite(v)) return String(v)
+    if (typeof v === "string") return v
+    return ""
+  })
+  const [localTmDescription, setLocalTmDescription] = React.useState<string>(
+    () => {
+      const v = (config as any)?.tm_description
+      return typeof v === "string" ? v : ""
+    }
+  )
+  const [localTmRtc, setLocalTmRtc] = React.useState<boolean>(() => {
+    const v = (config as any)?.tm_rtc
+    return typeof v === "boolean" ? v : false
+  })
+  const [localOptResponseFormat, setLocalOptResponseFormat] = React.useState<
+    "json" | "xml"
+  >(() => ((config as any)?.optResponseFormat === "xml" ? "xml" : "json"))
+  const [localOptShowResult, setLocalOptShowResult] = React.useState<boolean>(
+    () => {
+      const v = (config as any)?.optShowResult
+      return v !== false
+    }
+  )
+  const [localEngineDirectives, setLocalEngineDirectives] =
+    React.useState<string>(() => {
+      const directives = (config as any)?.engineDirectives
+      if (!directives || typeof directives !== "object") return ""
+      return Object.entries(directives)
+        .filter(([key]) => typeof key === "string")
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => {
+          let val = ""
+          if (typeof value === "string") val = value
+          else if (typeof value === "number" && Number.isFinite(value)) {
+            val = String(value)
+          } else if (typeof value === "boolean") {
+            val = value ? "true" : "false"
+          }
+          return `${key}=${val}`
+        })
+        .join("\n")
+    })
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
     () => {
       const v = (config as any)?.aoiParamName
@@ -753,6 +990,50 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = (config as any)?.service
     return v === "stream" ? "stream" : "download"
   })
+  const isStreamingService = localService === "stream"
+  const isDownloadService = !isStreamingService
+  const isMaskEmailEffective = isDownloadService && !localSyncMode
+  const showUploadTargetField = isDownloadService && localAllowRemoteDataset
+  React.useEffect(() => {
+    if (!isStreamingService) return
+    if (localAllowScheduleMode) {
+      setLocalAllowScheduleMode(false)
+      updateConfig("allowScheduleMode", false as any)
+    }
+    if (localAllowRemoteDataset) {
+      setLocalAllowRemoteDataset(false)
+      updateConfig("allowRemoteDataset", false as any)
+    }
+    if (localAllowRemoteUrlDataset) {
+      setLocalAllowRemoteUrlDataset(false)
+      updateConfig("allowRemoteUrlDataset", false as any)
+    }
+    if (localMaskEmailOnSuccess) {
+      setLocalMaskEmailOnSuccess(false)
+      updateConfig("maskEmailOnSuccess", false as any)
+    }
+  }, [
+    isStreamingService,
+    localAllowScheduleMode,
+    localAllowRemoteDataset,
+    localAllowRemoteUrlDataset,
+    localMaskEmailOnSuccess,
+    updateConfig,
+  ])
+
+  React.useEffect(() => {
+    if (isMaskEmailEffective) return
+    if (!localMaskEmailOnSuccess) return
+    setLocalMaskEmailOnSuccess(false)
+    updateConfig("maskEmailOnSuccess", false as any)
+  }, [isMaskEmailEffective, localMaskEmailOnSuccess, updateConfig])
+
+  React.useEffect(() => {
+    if (showUploadTargetField) return
+    if (!localUploadTargetParamName) return
+    updateConfig("uploadTargetParamName", undefined as any)
+    setLocalUploadTargetParamName("")
+  }, [showUploadTargetField, localUploadTargetParamName, updateConfig])
   // Drawing color (hex) with default ArcGIS brand blue
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
     () => {
@@ -827,6 +1108,85 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+  })
+
+  const handleEngineDirectivesBlur = hooks.useEventCallback((value: string) => {
+    const lines = (value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+
+    if (lines.length === 0) {
+      updateConfig("engineDirectives", undefined as any)
+      setLocalEngineDirectives("")
+      setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
+      return
+    }
+
+    const seen = new Set<string>()
+    const entries: Array<[string, string]> = []
+    let errorMessage: string | undefined
+
+    for (let i = 0; i < lines.length; i++) {
+      const lineNumber = i + 1
+      const line = lines[i]
+      const eqIndex = line.indexOf("=")
+      if (eqIndex === -1) {
+        errorMessage = translate("engineDirectivesErrorInvalid", {
+          line: lineNumber,
+        })
+        break
+      }
+      const rawKey = line.slice(0, eqIndex).trim()
+      const rawValue = line.slice(eqIndex + 1).trim()
+      const key = sanitizeEngineDirectiveKey(rawKey)
+      if (!key) {
+        errorMessage = translate("engineDirectivesErrorInvalidKey", {
+          line: lineNumber,
+        })
+        break
+      }
+      if (seen.has(key)) {
+        errorMessage = translate("engineDirectivesErrorDuplicate", { key })
+        break
+      }
+      const sanitizedValue = sanitizeEngineDirectiveValue(rawValue)
+      if (sanitizedValue === undefined) {
+        errorMessage = translate("engineDirectivesErrorInvalidValue", {
+          line: lineNumber,
+        })
+        break
+      }
+      seen.add(key)
+      entries.push([key, sanitizedValue])
+    }
+
+    if (errorMessage) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        engineDirectives: errorMessage,
+      }))
+      return
+    }
+
+    if (!entries.length) {
+      updateConfig("engineDirectives", undefined as any)
+      setLocalEngineDirectives("")
+      setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
+      return
+    }
+
+    const directiveObject: { [key: string]: string } = {}
+    for (const [key, val] of entries) {
+      directiveObject[key] = val
+    }
+
+    updateConfig("engineDirectives", directiveObject as any)
+    const normalized = entries
+      .map(([key, val]) => (val ? `${key}=${val}` : `${key}=`))
+      .join("\n")
+    setLocalEngineDirectives(normalized)
+    setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
   })
 
   // Cleanup on unmount
@@ -1389,15 +1749,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Switch
             id={ID.allowScheduleMode}
             checked={localAllowScheduleMode}
+            disabled={isStreamingService}
             onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
               const checked = evt?.target?.checked ?? !localAllowScheduleMode
               setLocalAllowScheduleMode(checked)
               updateConfig("allowScheduleMode", checked)
             }}
             aria-label={translate("allowScheduleModeLabel")}
-            // helper via label tooltip
+            aria-describedby={
+              isStreamingService ? `${ID.allowScheduleMode}-hint` : undefined
+            }
           />
         </SettingRow>
+        {isStreamingService && (
+          <SettingRow flow="wrap" level={3}>
+            <Alert
+              id={`${ID.allowScheduleMode}-hint`}
+              fullWidth
+              css={css(settingStyles.ALERT_INLINE)}
+              text={translate("scheduleNotAvailableStreaming")}
+              type="warning"
+              closable={false}
+            />
+          </SettingRow>
+        )}
 
         {/* Allow Remote Dataset */}
         <SettingRow
@@ -1415,15 +1790,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Switch
             id={ID.allowRemoteDataset}
             checked={localAllowRemoteDataset}
+            disabled={isStreamingService}
             onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
               const checked = evt?.target?.checked ?? !localAllowRemoteDataset
               setLocalAllowRemoteDataset(checked)
               updateConfig("allowRemoteDataset", checked)
             }}
             aria-label={translate("allowRemoteDatasetLabel")}
-            // helper via label tooltip
+            aria-describedby={
+              isStreamingService ? `${ID.allowRemoteDataset}-hint` : undefined
+            }
           />
         </SettingRow>
+        {isStreamingService && (
+          <SettingRow flow="wrap" level={3}>
+            <Alert
+              id={`${ID.allowRemoteDataset}-hint`}
+              fullWidth
+              css={css(settingStyles.ALERT_INLINE)}
+              text={translate("remoteDatasetNotAvailableStreaming")}
+              type="warning"
+              closable={false}
+            />
+          </SettingRow>
+        )}
 
         {/* Allow Remote Dataset URL (opt_geturl) */}
         <SettingRow
@@ -1441,6 +1831,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Switch
             id={ID.allowRemoteUrlDataset}
             checked={localAllowRemoteUrlDataset}
+            disabled={isStreamingService}
             onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
               const checked =
                 evt?.target?.checked ?? !localAllowRemoteUrlDataset
@@ -1448,9 +1839,25 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("allowRemoteUrlDataset", checked)
             }}
             aria-label={translate("allowRemoteUrlDatasetLabel")}
-            // helper via label tooltip
+            aria-describedby={
+              isStreamingService
+                ? `${ID.allowRemoteUrlDataset}-hint`
+                : undefined
+            }
           />
         </SettingRow>
+        {isStreamingService && (
+          <SettingRow flow="wrap" level={3}>
+            <Alert
+              id={`${ID.allowRemoteUrlDataset}-hint`}
+              fullWidth
+              css={css(settingStyles.ALERT_INLINE)}
+              text={translate("remoteUrlDatasetNotAvailableStreaming")}
+              type="warning"
+              closable={false}
+            />
+          </SettingRow>
+        )}
         {/* Mask email on success toggle */}
         <SettingRow
           flow="no-wrap"
@@ -1467,14 +1874,32 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Switch
             id={ID.maskEmailOnSuccess}
             checked={localMaskEmailOnSuccess}
+            disabled={!isMaskEmailEffective}
             onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
               const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
               setLocalMaskEmailOnSuccess(checked)
               updateConfig("maskEmailOnSuccess", checked)
             }}
             aria-label={translate("maskEmailOnSuccess")}
+            aria-describedby={
+              !isMaskEmailEffective
+                ? `${ID.maskEmailOnSuccess}-hint`
+                : undefined
+            }
           />
         </SettingRow>
+        {!isMaskEmailEffective && (
+          <SettingRow flow="wrap" level={3}>
+            <Alert
+              id={`${ID.maskEmailOnSuccess}-hint`}
+              fullWidth
+              css={css(settingStyles.ALERT_INLINE)}
+              text={translate("maskEmailDisabledSync")}
+              type="warning"
+              closable={false}
+            />
+          </SettingRow>
+        )}
         {/* Request timeout (ms) */}
         <SettingRow
           flow="wrap"
@@ -1620,34 +2045,36 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         />
 
         {/* Upload Target Parameter Name (optional) */}
-        <FieldRow
-          id={ID.uploadTargetParamName}
-          label={
-            <Tooltip
-              content={translate("uploadTargetParamNameHelper")}
-              placement="top"
-            >
-              <span>{translate("uploadTargetParamNameLabel")}</span>
-            </Tooltip>
-          }
-          value={localUploadTargetParamName}
-          onChange={(val: string) => {
-            setLocalUploadTargetParamName(val)
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            // Empty clears the config (auto-detect will be used)
-            if (!trimmed) {
-              updateConfig("uploadTargetParamName", undefined as any)
-              setLocalUploadTargetParamName("")
-            } else {
-              updateConfig("uploadTargetParamName", trimmed as any)
-              setLocalUploadTargetParamName(trimmed)
+        {showUploadTargetField && (
+          <FieldRow
+            id={ID.uploadTargetParamName}
+            label={
+              <Tooltip
+                content={translate("uploadTargetParamNameHelper")}
+                placement="top"
+              >
+                <span>{translate("uploadTargetParamNameLabel")}</span>
+              </Tooltip>
             }
-          }}
-          placeholder={translate("uploadTargetParamNamePlaceholder")}
-          styles={settingStyles}
-        />
+            value={localUploadTargetParamName}
+            onChange={(val: string) => {
+              setLocalUploadTargetParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              // Empty clears the config (auto-detect will be used)
+              if (!trimmed) {
+                updateConfig("uploadTargetParamName", undefined as any)
+                setLocalUploadTargetParamName("")
+              } else {
+                updateConfig("uploadTargetParamName", trimmed as any)
+                setLocalUploadTargetParamName(trimmed)
+              }
+            }}
+            placeholder={translate("uploadTargetParamNamePlaceholder")}
+            styles={settingStyles}
+          />
+        )}
 
         {/* Max AOI area (m²) */}
         <FieldRow
@@ -1744,6 +2171,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         localTmTtc={localTmTtc}
         localTmTtl={localTmTtl}
         localTmTag={localTmTag}
+        localTmQueue={localTmQueue}
+        localTmPriority={localTmPriority}
+        localTmDescription={localTmDescription}
+        localTmRtc={localTmRtc}
+        localOptResponseFormat={localOptResponseFormat}
+        localOptShowResult={localOptShowResult}
+        localEngineDirectives={localEngineDirectives}
         onTmTtcChange={(val: string) => {
           setLocalTmTtc(val)
           // Don't update config on every keystroke
@@ -1755,6 +2189,37 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         onTmTagChange={(val: string) => {
           setLocalTmTag(val)
           // Don't update config on every keystroke
+        }}
+        onTmQueueChange={(val: string) => {
+          setLocalTmQueue(val)
+        }}
+        onTmPriorityChange={(val: string) => {
+          setLocalTmPriority(val)
+          setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
+        }}
+        onTmDescriptionChange={(val: string) => {
+          setLocalTmDescription(val)
+          setFieldErrors((prev) => ({ ...prev, tm_description: undefined }))
+        }}
+        onTmRtcChange={(checked: boolean) => {
+          setLocalTmRtc(checked)
+          updateConfig("tm_rtc", checked as any)
+        }}
+        onOptResponseFormatChange={(value) => {
+          const next = value === "xml" ? "xml" : "json"
+          setLocalOptResponseFormat(next)
+          updateConfig("optResponseFormat", next as any)
+        }}
+        onOptShowResultChange={(checked: boolean) => {
+          setLocalOptShowResult(checked)
+          updateConfig("optShowResult", checked as any)
+        }}
+        onEngineDirectivesChange={(val: string) => {
+          setLocalEngineDirectives(val)
+          setFieldErrors((prev) => ({
+            ...prev,
+            engineDirectives: undefined,
+          }))
         }}
         onTmTtcBlur={(val: string) => {
           const trimmed = (val ?? "").trim()
@@ -1792,6 +2257,57 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)
         }}
+        onTmQueueBlur={(val: string) => {
+          const trimmed = (val ?? "").trim()
+          if (!trimmed) {
+            updateConfig("tm_queue", undefined as any)
+            setLocalTmQueue("")
+            return
+          }
+          const limited = trimmed.slice(0, 128)
+          updateConfig("tm_queue", limited as any)
+          setLocalTmQueue(limited)
+        }}
+        onTmPriorityBlur={(val: string) => {
+          const trimmed = (val ?? "").trim()
+          if (!trimmed) {
+            updateConfig("tm_priority", undefined as any)
+            setLocalTmPriority("")
+            setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
+            return
+          }
+          const coerced = parseNonNegativeInt(trimmed)
+          if (coerced === undefined) {
+            setFieldErrors((prev) => ({
+              ...prev,
+              tm_priority: translate("tm_priorityInvalid"),
+            }))
+            return
+          }
+          setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
+          updateConfig("tm_priority", coerced as any)
+          setLocalTmPriority(String(coerced))
+        }}
+        onTmDescriptionBlur={(val: string) => {
+          const trimmed = (val ?? "").trim()
+          if (!trimmed) {
+            updateConfig("tm_description", undefined as any)
+            setLocalTmDescription("")
+            setFieldErrors((prev) => ({
+              ...prev,
+              tm_description: undefined,
+            }))
+            return
+          }
+          const limited = trimmed.slice(0, CONSTANTS.DIRECTIVES.DESCRIPTION_MAX)
+          updateConfig("tm_description", limited as any)
+          setLocalTmDescription(limited)
+          setFieldErrors((prev) => ({
+            ...prev,
+            tm_description: undefined,
+          }))
+        }}
+        onEngineDirectivesBlur={handleEngineDirectivesBlur}
         fieldErrors={fieldErrors}
         translate={translate}
         styles={settingStyles}

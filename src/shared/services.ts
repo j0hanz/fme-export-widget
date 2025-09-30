@@ -41,6 +41,7 @@ const SKIPPED_PARAMETER_NAMES = new Set([
   "tm_ttc",
   "tm_ttl",
   "tm_tag",
+  "tm_queue",
 ])
 
 const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([ParameterType.NOVALUE])

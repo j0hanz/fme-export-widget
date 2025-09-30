@@ -444,7 +444,7 @@ export function isWebhookUrlTooLong(
   )
   const params = buildParams(
     parameters,
-    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
     true
   )
   // Add tm_* values if present
@@ -705,10 +705,15 @@ export class FmeFlowApiClient {
       typeof params.tm_tag === "string" && params.tm_tag.trim()
         ? params.tm_tag.trim()
         : undefined
+    const queue =
+      typeof params.tm_queue === "string" && params.tm_queue.trim()
+        ? params.tm_queue.trim().slice(0, 128)
+        : undefined
 
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
     if (tag !== undefined) tmDirectives.tag = tag
+    if (queue !== undefined) tmDirectives.queue = queue
 
     if (Object.keys(tmDirectives).length > 0) {
       job.TMDirectives = tmDirectives
@@ -1033,7 +1038,7 @@ export class FmeFlowApiClient {
         // Prepare URLSearchParams body, excluding TM directives which are control-plane only
         const params = buildParams(
           parameters,
-          ["tm_ttc", "tm_ttl", "tm_tag"],
+          ["tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
           false
         )
         // Show result inline (lets FME stream the generated content)
@@ -1191,7 +1196,7 @@ export class FmeFlowApiClient {
       )
       const params = buildParams(
         parameters,
-        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
+        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
         true
       )
 
@@ -1210,6 +1215,7 @@ export class FmeFlowApiClient {
       maybeAppend("tm_ttc")
       maybeAppend("tm_ttl")
       maybeAppend("tm_tag")
+      maybeAppend("tm_queue")
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`

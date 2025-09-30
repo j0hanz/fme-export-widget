@@ -636,6 +636,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   value: controlled,
   defaultValue,
   onChange,
+  onBlur,
   ...props
 }) => {
   const styles = useStyles()
@@ -646,6 +647,12 @@ export const TextArea: React.FC<TextAreaProps> = ({
       const newValue = event.target.value
       handleValueChange(newValue)
       onChange?.(newValue)
+    }
+  )
+
+  const handleBlur = hooks.useEventCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      onBlur?.(event.target.value)
     }
   )
 
@@ -663,6 +670,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
+      onBlur={handleBlur}
       css={applyComponentStyles([styles.textareaResize], props.style as any)}
       {...aria}
     />
