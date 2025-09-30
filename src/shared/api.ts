@@ -420,6 +420,7 @@ export function isWebhookUrlTooLong(
     [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
     true
   )
+  appendWebhookTmParams(params, parameters)
   // Add tm_* values if present
   if (token) {
     params.set("token", token)
@@ -491,6 +492,34 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 }
 
 // Request Processing Utilities
+
+const appendWebhookTmParams = (
+  params: URLSearchParams,
+  source: PrimitiveParams = {}
+): void => {
+  const toPosInt = (v: unknown): number | undefined => {
+    const n = typeof v === "string" ? Number(v) : (v as number)
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+  }
+
+  const numericKeys: Array<"tm_ttc" | "tm_ttl"> = ["tm_ttc", "tm_ttl"]
+  for (const key of numericKeys) {
+    const value = toPosInt((source as any)[key])
+    if (value !== undefined) params.set(key, String(value))
+  }
+
+  const normalizeText = (value: unknown, limit: number): string | undefined => {
+    if (typeof value !== "string") return undefined
+    const trimmed = value.trim()
+    return trimmed ? trimmed.slice(0, limit) : undefined
+  }
+
+  const tag = normalizeText((source as any).tm_tag, 128)
+  if (tag) params.set("tm_tag", tag)
+
+  const queue = normalizeText((source as any).tm_queue, 128)
+  if (queue) params.set("tm_queue", queue)
+}
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
@@ -669,11 +698,27 @@ export class FmeFlowApiClient {
       typeof params.tm_queue === "string" && params.tm_queue.trim()
         ? params.tm_queue.trim().slice(0, 128)
         : undefined
+    const priority = toPosInt(params.tm_priority)
+    let rtc: boolean | undefined
+    if (typeof params.tm_rtc === "boolean") {
+      rtc = params.tm_rtc
+    } else if (typeof params.tm_rtc === "string") {
+      const normalizedRtc = params.tm_rtc.trim().toLowerCase()
+      if (normalizedRtc === "true" || normalizedRtc === "1") rtc = true
+      else if (normalizedRtc === "false" || normalizedRtc === "0") rtc = false
+    }
+    const description =
+      typeof params.tm_description === "string" && params.tm_description.trim()
+        ? params.tm_description.trim().slice(0, 512)
+        : undefined
 
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
     if (tag !== undefined) tmDirectives.tag = tag
     if (queue !== undefined) tmDirectives.queue = queue
+    if (priority !== undefined) tmDirectives.priority = priority
+    if (typeof rtc === "boolean") tmDirectives.rtc = rtc
+    if (description !== undefined) tmDirectives.description = description
 
     if (Object.keys(tmDirectives).length > 0) {
       job.TMDirectives = tmDirectives
@@ -1003,6 +1048,7 @@ export class FmeFlowApiClient {
         )
         // Show result inline (lets FME stream the generated content)
         params.set("opt_showresult", "true")
+        appendWebhookTmParams(params, parameters)
 
         // Append token as query param (consistent with webhook auth model)
         let url = serviceUrl
@@ -1166,16 +1212,7 @@ export class FmeFlowApiClient {
       }
 
       // Ensure tm_* values are present if provided
-      const maybeAppend = (k: string) => {
-        const v = (parameters as any)[k]
-        if (v !== undefined && v !== null && String(v).length > 0) {
-          params.set(k, String(v))
-        }
-      }
-      maybeAppend("tm_ttc")
-      maybeAppend("tm_ttl")
-      maybeAppend("tm_tag")
-      maybeAppend("tm_queue")
+      appendWebhookTmParams(params, parameters)
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`

@@ -275,7 +275,16 @@ describe("shared/api FmeFlowApiClient", () => {
     const client = makeClient()
     await client.submitJob(
       "roads.fmw",
-      { a: 1, tm_ttc: "30", tm_ttl: 45, tm_tag: "alpha", tm_queue: "queue-1" },
+      {
+        a: 1,
+        tm_ttc: "30",
+        tm_ttl: 45,
+        tm_tag: "alpha",
+        tm_queue: "queue-1",
+        tm_priority: "9",
+        tm_rtc: "true",
+        tm_description: " urgent job ",
+      },
       "r1"
     )
     const [url, options] = esriRequest.mock.calls[0]
@@ -292,6 +301,9 @@ describe("shared/api FmeFlowApiClient", () => {
       ttl: 45,
       tag: "alpha",
       queue: "queue-1",
+      priority: 9,
+      rtc: true,
+      description: "urgent job",
     })
   })
 
@@ -514,7 +526,17 @@ describe("shared/api FmeFlowApiClient", () => {
     })
 
     const client = makeClient()
-    const res = await client.runDataStreaming("stream.fmw", { a: "1" }, "repoX")
+    const res = await client.runDataStreaming(
+      "stream.fmw",
+      {
+        a: "1",
+        tm_ttc: 30,
+        tm_ttl: "45",
+        tm_tag: "beta",
+        tm_queue: "queue-main",
+      },
+      "repoX"
+    )
 
     // Validate fetch call
     const [calledUrl, options] = esriRequest.mock.calls[0]
@@ -526,6 +548,10 @@ describe("shared/api FmeFlowApiClient", () => {
     const body = String((options || {}).body ?? "")
     expect(body).toContain("opt_showresult=true")
     expect(body).toContain("a=1")
+    expect(body).toContain("tm_ttc=30")
+    expect(body).toContain("tm_ttl=45")
+    expect(body).toContain("tm_tag=beta")
+    expect(body).toContain("tm_queue=queue-main")
 
     // Validate response shape
     expect(res.status).toBe(200)

@@ -970,8 +970,6 @@ export const DateTimePickerWrapper: React.FC<{
     parseIsoLocalDateTime(defaultValue) ||
     fallbackDate
 
-  const sharedCss = applyFullWidthStyles(styles, style)
-
   const handleChange = hooks.useEventCallback(
     (rawValue: any, _label: string) => {
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
@@ -999,7 +997,7 @@ export const DateTimePickerWrapper: React.FC<{
       supportVirtualDateList={false}
       onChange={handleChange}
       aria-label={ariaLabel}
-      css={sharedCss}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 
@@ -1007,7 +1005,6 @@ export const DateTimePickerWrapper: React.FC<{
     return (
       <span
         aria-disabled="true"
-        css={sharedCss}
         style={{ pointerEvents: "none", display: "block" }}
       >
         {picker}
