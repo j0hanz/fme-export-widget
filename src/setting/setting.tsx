@@ -1720,171 +1720,132 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         )}
 
         {/* Allow Schedule Mode */}
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("allowScheduleModeHelper")}
-              placement="top"
-            >
-              <span>{translate("allowScheduleModeLabel")}</span>
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.allowScheduleMode}
-            checked={localAllowScheduleMode}
-            disabled={isStreamingService}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localAllowScheduleMode
-              setLocalAllowScheduleMode(checked)
-              updateConfig("allowScheduleMode", checked)
-            }}
-            aria-label={translate("allowScheduleModeLabel")}
-            aria-describedby={
-              isStreamingService ? `${ID.allowScheduleMode}-hint` : undefined
+        {!isStreamingService && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("allowScheduleModeHelper")}
+                placement="top"
+              >
+                <span>{translate("allowScheduleModeLabel")}</span>
+              </Tooltip>
             }
-          />
-        </SettingRow>
-        {isStreamingService && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              id={`${ID.allowScheduleMode}-hint`}
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("scheduleNotAvailableStreaming")}
-              type="warning"
-              closable={false}
+            level={1}
+          >
+            <Switch
+              id={ID.allowScheduleMode}
+              checked={localAllowScheduleMode}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localAllowScheduleMode
+                setLocalAllowScheduleMode(checked)
+                updateConfig("allowScheduleMode", checked)
+              }}
+              aria-label={translate("allowScheduleModeLabel")}
             />
           </SettingRow>
         )}
 
         {/* Allow Remote Dataset */}
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("allowRemoteDatasetHelper")}
-              placement="top"
-            >
-              <span>{translate("allowRemoteDatasetLabel")}</span>
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.allowRemoteDataset}
-            checked={localAllowRemoteDataset}
-            disabled={isStreamingService}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localAllowRemoteDataset
-              setLocalAllowRemoteDataset(checked)
-              updateConfig("allowRemoteDataset", checked)
-            }}
-            aria-label={translate("allowRemoteDatasetLabel")}
-            aria-describedby={
-              isStreamingService ? `${ID.allowRemoteDataset}-hint` : undefined
+        {!isStreamingService && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("allowRemoteDatasetHelper")}
+                placement="top"
+              >
+                <span>{translate("allowRemoteDatasetLabel")}</span>
+              </Tooltip>
             }
-          />
-        </SettingRow>
-        {isStreamingService && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              id={`${ID.allowRemoteDataset}-hint`}
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("remoteDatasetNotAvailableStreaming")}
-              type="warning"
-              closable={false}
+            level={1}
+          >
+            <Switch
+              id={ID.allowRemoteDataset}
+              checked={localAllowRemoteDataset}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localAllowRemoteDataset
+                setLocalAllowRemoteDataset(checked)
+                updateConfig("allowRemoteDataset", checked)
+              }}
+              aria-label={translate("allowRemoteDatasetLabel")}
             />
           </SettingRow>
         )}
 
         {/* Allow Remote Dataset URL (opt_geturl) */}
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("allowRemoteUrlDatasetHelper")}
-              placement="top"
-            >
-              <span>{translate("allowRemoteUrlDatasetLabel")}</span>
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.allowRemoteUrlDataset}
-            checked={localAllowRemoteUrlDataset}
-            disabled={isStreamingService}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked =
-                evt?.target?.checked ?? !localAllowRemoteUrlDataset
-              setLocalAllowRemoteUrlDataset(checked)
-              updateConfig("allowRemoteUrlDataset", checked)
-            }}
-            aria-label={translate("allowRemoteUrlDatasetLabel")}
-            aria-describedby={
-              isStreamingService
-                ? `${ID.allowRemoteUrlDataset}-hint`
-                : undefined
+        {!isStreamingService && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("allowRemoteUrlDatasetHelper")}
+                placement="top"
+              >
+                <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+              </Tooltip>
             }
-          />
-        </SettingRow>
-        {isStreamingService && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              id={`${ID.allowRemoteUrlDataset}-hint`}
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("remoteUrlDatasetNotAvailableStreaming")}
-              type="warning"
-              closable={false}
+            level={1}
+          >
+            <Switch
+              id={ID.allowRemoteUrlDataset}
+              checked={localAllowRemoteUrlDataset}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked =
+                  evt?.target?.checked ?? !localAllowRemoteUrlDataset
+                setLocalAllowRemoteUrlDataset(checked)
+                updateConfig("allowRemoteUrlDataset", checked)
+              }}
+              aria-label={translate("allowRemoteUrlDatasetLabel")}
             />
           </SettingRow>
         )}
         {/* Mask email on success toggle */}
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("maskEmailOnSuccessHelper")}
-              placement="top"
+        {isDownloadService && (
+          <>
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("maskEmailOnSuccessHelper")}
+                  placement="top"
+                >
+                  <span>{translate("maskEmailOnSuccess")}</span>
+                </Tooltip>
+              }
+              level={1}
             >
-              <span>{translate("maskEmailOnSuccess")}</span>
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.maskEmailOnSuccess}
-            checked={localMaskEmailOnSuccess}
-            disabled={!isMaskEmailEffective}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
-              setLocalMaskEmailOnSuccess(checked)
-              updateConfig("maskEmailOnSuccess", checked)
-            }}
-            aria-label={translate("maskEmailOnSuccess")}
-            aria-describedby={
-              !isMaskEmailEffective
-                ? `${ID.maskEmailOnSuccess}-hint`
-                : undefined
-            }
-          />
-        </SettingRow>
-        {!isMaskEmailEffective && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              id={`${ID.maskEmailOnSuccess}-hint`}
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("maskEmailDisabledSync")}
-              type="warning"
-              closable={false}
-            />
-          </SettingRow>
+              <Switch
+                id={ID.maskEmailOnSuccess}
+                checked={localMaskEmailOnSuccess}
+                disabled={!isMaskEmailEffective}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localMaskEmailOnSuccess
+                  setLocalMaskEmailOnSuccess(checked)
+                  updateConfig("maskEmailOnSuccess", checked)
+                }}
+                aria-label={translate("maskEmailOnSuccess")}
+                aria-describedby={
+                  !isMaskEmailEffective
+                    ? `${ID.maskEmailOnSuccess}-hint`
+                    : undefined
+                }
+              />
+            </SettingRow>
+            {!isMaskEmailEffective && (
+              <SettingRow flow="wrap" level={3}>
+                <Alert
+                  id={`${ID.maskEmailOnSuccess}-hint`}
+                  fullWidth
+                  css={css(settingStyles.ALERT_INLINE)}
+                  text={translate("maskEmailDisabledSync")}
+                  type="warning"
+                  closable={false}
+                />
+              </SettingRow>
+            )}
+          </>
         )}
         {/* Request timeout (ms) */}
         <SettingRow

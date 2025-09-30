@@ -112,19 +112,14 @@ export default {
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
     "Tillåt att användaren laddar upp en fil direkt till FME Flows TEMP‑resurs som indata.",
-  remoteDatasetNotAvailableStreaming:
-    "Filuppladdning stöds inte när Streaming är aktiverat.",
   allowRemoteUrlDatasetLabel: "Tillåt fjärr‑URL (HTTPS)",
   allowRemoteUrlDatasetHelper:
     "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
-  remoteUrlDatasetNotAvailableStreaming:
-    "Fjärr-URL-indata stöds inte när Streaming är aktiverat.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Data Download",
   serviceTypeStream: "Data Streaming",
   serviceTypeHelper:
     "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
-  scheduleNotAvailableStreaming: "Stöds inte när Streaming är aktiverat.",
   drawingColorLabel: "Ritningsfärg",
   maskEmailDisabledSync: "Stöds inte när synkront är aktiverat.",
   optResponseFormatLabel: "Svarformat (opt_responseformat)",
