@@ -68,7 +68,7 @@ import {
   coerceFormValueForSubmission,
   logIfNotAbort,
 } from "../shared/utils"
-import { loadArcgisModules, logError, logWarn } from "../shared/logging"
+import { loadArcgisModules, logDebug, logError, logWarn } from "../shared/logging"
 
 // Styling and symbols derived from config
 
@@ -542,6 +542,12 @@ const setupSketchEventHandlers = (
   let clickCount = 0
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
+    logDebug("Sketch create event", {
+      widgetId,
+      state: evt.state,
+      tool: evt.tool,
+      hasGeometry: Boolean(evt.graphic?.geometry),
+    })
     switch (evt.state) {
       case "start":
         clickCount = 0
@@ -555,6 +561,10 @@ const setupSketchEventHandlers = (
             widgetId
           )
         )
+        logDebug("Sketch drawing started", {
+          widgetId,
+          tool: evt.tool,
+        })
         break
 
       case "active":
@@ -568,15 +578,30 @@ const setupSketchEventHandlers = (
             if (actualClicks === 1) {
               dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             }
+            logDebug("Sketch active (polygon)", {
+              widgetId,
+              clickCount: actualClicks,
+              ringCount: Array.isArray(geometry.rings)
+                ? geometry.rings.length
+                : 0,
+              spatialReference:
+                (geometry as any)?.spatialReference?.wkid ?? "unknown",
+            })
           }
         } else if (evt.tool === "rectangle" && clickCount !== 1) {
           clickCount = 1
           dispatch(fmeActions.setClickCount(1, widgetId))
+          logDebug("Sketch active (rectangle)", { widgetId })
         }
         break
 
       case "complete":
         clickCount = 0
+        logDebug("Sketch drawing completed", {
+          widgetId,
+          tool: evt.tool,
+          hasGeometry: Boolean(evt.graphic?.geometry),
+        })
         try {
           onDrawComplete(evt)
         } catch (err: any) {
@@ -587,12 +612,18 @@ const setupSketchEventHandlers = (
       case "cancel":
         clickCount = 0
         dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+        logDebug("Sketch drawing cancelled", { widgetId, tool: evt.tool })
         break
     }
   })
 
   // Re-run the same completion pipeline when a reshape finishes
   sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
+    logDebug("Sketch update event", {
+      widgetId,
+      state: evt.state,
+      graphics: Array.isArray(evt.graphics) ? evt.graphics.length : 0,
+    })
     if (
       evt.state === "complete" &&
       Array.isArray(evt.graphics) &&
@@ -1164,11 +1195,22 @@ export default function Widget(
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
+      logDebug("onDrawComplete invoked", {
+        widgetId,
+        tool: evt.tool,
+        hasGeometry: Boolean(geometry),
+      })
       if (!geometry) return
 
       try {
         // Validate
         const validation = await validatePolygon(geometry, modules)
+        logDebug("Polygon validation result", {
+          widgetId,
+          valid: validation.valid,
+          hasSimplified: Boolean(validation.simplified),
+          errorCode: validation.error?.code,
+        })
         if (!validation.valid) {
           // Remove erroneous graphic and reset drawing state
           try {
@@ -1178,17 +1220,35 @@ export default function Widget(
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
-          if (validation.error)
+          if (validation.error) {
+            logWarn("Polygon validation failed", {
+              widgetId,
+              code: validation.error.code,
+            })
             dispatch(fmeActions.setError(validation.error, widgetId))
+          }
           return
         }
         const geomForUse =
-          (validation as any).simplified ?? (geometry as __esri.Polygon)
+          (validation as { simplified?: __esri.Polygon | null }).simplified ??
+          (geometry as __esri.Polygon)
 
         const calculatedArea = await calcArea(geomForUse, modules)
+        logDebug("Polygon area calculated", {
+          widgetId,
+          area: calculatedArea,
+          ringCount: Array.isArray(geomForUse?.rings)
+            ? geomForUse.rings.length
+            : 0,
+          spatialReference: geomForUse?.spatialReference?.wkid ?? "unknown",
+        })
 
         // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
+          logWarn("Calculated area is non-positive", {
+            widgetId,
+            area: calculatedArea,
+          })
           dispatchError(
             translate("invalidGeometry"),
             ErrorType.VALIDATION,
@@ -1201,6 +1261,11 @@ export default function Widget(
         const maxCheck = checkMaxArea(calculatedArea, config?.maxArea)
         if (!maxCheck.ok) {
           if (maxCheck.message) {
+            logWarn("Polygon exceeds configured max area", {
+              widgetId,
+              area: calculatedArea,
+              maxArea: config?.maxArea ?? null,
+            })
             dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
           }
           return
@@ -1217,6 +1282,11 @@ export default function Widget(
 
         // Update Redux state atomically
         endSketchSession()
+        logDebug("Dispatching completeDrawing", {
+          widgetId,
+          area: Math.abs(calculatedArea),
+          nextView: ViewMode.WORKSPACE_SELECTION,
+        })
         dispatch(
           fmeActions.completeDrawing(
             geomForUse,
@@ -1228,7 +1298,17 @@ export default function Widget(
 
         // Store current geometry in local state (not Redux - following golden rule)
         setCurrentGeometry(geomForUse)
+        logDebug("Geometry stored locally after completion", {
+          widgetId,
+          ringCount: Array.isArray(geomForUse?.rings)
+            ? geomForUse.rings.length
+            : 0,
+        })
       } catch (error) {
+        logWarn("Unexpected error while completing drawing", {
+          widgetId,
+          message: (error as Error)?.message ?? "unknown",
+        })
         dispatchError(
           translate("drawingCompleteFailed"),
           ErrorType.VALIDATION,
