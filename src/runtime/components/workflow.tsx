@@ -656,9 +656,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
           text={buttonText}
           onClick={buttonHandler}
           logging={{ enabled: true, prefix: "FME-Export" }}
-          tooltip={
-            isSuccess ? translate("tooltipReuseGeography") : undefined
-          }
+          tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
           tooltipPlacement="bottom"
         />
       </div>

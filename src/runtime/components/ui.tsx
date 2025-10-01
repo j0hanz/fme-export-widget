@@ -146,41 +146,33 @@ const createStyles = (theme: IMThemeVariables) => {
   const gapMedium = spacing?.(2) ?? gapSmall
   const flexAuto = "1 1 auto"
 
+  const flexRow = (styles: { [key: string]: any } = {}) =>
+    css({ display: "flex", flexFlow: "row wrap", ...styles })
+
+  const flexColumn = (styles: { [key: string]: any } = {}) =>
+    css({ display: "flex", flexFlow: "column nowrap", ...styles })
+
+  const inlineFlexRow = (styles: { [key: string]: any } = {}) =>
+    css({ display: "inline-flex", flexFlow: "row wrap", ...styles })
+
   return {
     // Layout utilities with better performance
-    row: css({ display: "flex", flexFlow: "row wrap", gap: gapMedium }),
+    row: flexRow({ gap: gapMedium }),
     btnFlex: css({ flex: flexAuto, marginBlockStart: gapMedium }),
-    fullWidth: css({
-      display: "flex",
-      flexFlow: "column nowrap",
+    fullWidth: flexColumn({
       inlineSize: "100%",
       flex: flexAuto,
       minInlineSize: 0,
     }),
     relative: css({ position: "relative" }),
-    marginTop: (value: number | string) =>
-      css({
-        marginBlockStart: typeof value === "number" ? `${value}px` : value,
-      }),
     rowAlignCenter: css({ alignItems: "center" }),
 
     // Interactive utilities
-    disabledCursor: css({
-      display: "inline-flex",
-      flexFlow: "row wrap",
-      cursor: "not-allowed",
-    }),
-    disabledPicker: css({
-      pointerEvents: "none",
-      display: "flex",
-      flexFlow: "row wrap",
-    }),
+    disabledPicker: flexRow({ pointerEvents: "none" }),
     textareaResize: css({ resize: "vertical" }),
 
     // Main layout styles
-    parent: css({
-      display: "flex",
-      flexFlow: "column nowrap",
+    parent: flexColumn({
       overflowY: "auto",
       blockSize: "100%",
       position: "relative",
@@ -188,23 +180,10 @@ const createStyles = (theme: IMThemeVariables) => {
       backgroundColor: colors?.surface?.paper,
     }),
 
-    header: css({
-      display: "flex",
-      flexFlow: "row wrap",
-      placeContent: "end",
-      flex: "0 0 auto",
-    }),
+    header: flexRow({ placeContent: "end", flex: "0 0 auto" }),
 
-    content: css({
-      display: "flex",
-      flexFlow: "column nowrap",
-      flex: flexAuto,
-      minBlockSize: 0,
-      gap: gapSmall,
-    }),
-    contentCentered: css({
-      display: "flex",
-      flexFlow: "column nowrap",
+    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap: gapSmall }),
+    contentCentered: flexColumn({
       placeContent: "center",
       alignItems: "center",
       textAlign: "center",
@@ -214,9 +193,7 @@ const createStyles = (theme: IMThemeVariables) => {
     }),
 
     // State patterns
-    centered: css({
-      display: "flex",
-      flexFlow: "column nowrap",
+    centered: flexColumn({
       placeContent: "center",
       gap: gapSmall,
       blockSize: "100%",
@@ -238,9 +215,7 @@ const createStyles = (theme: IMThemeVariables) => {
         marginBlockEnd: spacing?.(3),
       }),
 
-      label: css({
-        display: "flex",
-        flexFlow: "row wrap",
+      label: flexRow({
         ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
         marginBlockEnd: 0,
@@ -277,13 +252,8 @@ const createStyles = (theme: IMThemeVariables) => {
     },
 
     // Button styles
-  button: {
-      default: css({
-        display: "flex",
-        flexFlow: "column nowrap",
-        inlineSize: "100%",
-        gap: gapSmall,
-      }),
+    button: {
+      default: flexColumn({ inlineSize: "100%", gap: gapSmall }),
 
       text: (align: BtnContentProps["alignText"]) =>
         css({
@@ -302,19 +272,11 @@ const createStyles = (theme: IMThemeVariables) => {
     },
 
     form: {
-      layout: css({
-        display: "flex",
-        flexFlow: "column nowrap",
-        flex: flexAuto,
-        minBlockSize: 0,
-        gap: gapSmall,
-      }),
+      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap: gapSmall }),
       header: css({
         flex: "0 0 auto",
       }),
-      content: css({
-        display: "flex",
-        flexFlow: "column nowrap",
+      content: flexColumn({
         flex: flexAuto,
         minBlockSize: 0,
         gap: gapSmall,
@@ -324,41 +286,23 @@ const createStyles = (theme: IMThemeVariables) => {
     },
 
     actions: {
-      sticky: css({
-        display: "flex",
-        flexFlow: "column nowrap",
-        gap: gapSmall,
-        marginBlockStart: "auto",
-      }),
+      sticky: flexColumn({ gap: gapSmall, marginBlockStart: "auto" }),
     },
 
     fieldGroup: css({
       marginBlockEnd: spacing?.(2),
     }),
 
-    checkLabel: css({
-      display: "flex",
-      flexFlow: "row wrap",
+    checkLabel: flexRow({
       alignItems: "center",
       justifyContent: "space-between",
       inlineSize: "100%",
     }),
 
     tooltipWrap: {
-      block: css({
-        display: "flex",
-        flexFlow: "row wrap",
-        inlineSize: "100%",
-        minInlineSize: 0,
-      }),
-      inline: css({
-        display: "inline-flex",
-        flexFlow: "row wrap",
-        minInlineSize: 0,
-      }),
-      anchor: css({
-        display: "flex",
-        flexFlow: "row wrap",
+      block: flexRow({ inlineSize: "100%", minInlineSize: 0 }),
+      inline: inlineFlexRow({ minInlineSize: 0 }),
+      anchor: flexRow({
         flex: flexAuto,
         minInlineSize: 0,
         "& > *": { flex: flexAuto, minInlineSize: 0 },
@@ -1662,7 +1606,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   return (
     <div
       css={applyComponentStyles(
-        [css({ display: "flex", flexFlow: "row wrap", gap: gapSmall })],
+        [styles.row, css({ gap: gapSmall })],
         style as any
       )}
       className={className}
