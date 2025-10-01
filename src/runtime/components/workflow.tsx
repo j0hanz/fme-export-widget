@@ -630,34 +630,39 @@ const OrderResult: React.FC<OrderResultProps> = ({
       })()
 
   return (
-    <>
-      <div css={styles.typography.title}>{titleText}</div>
-      {rows}
-      {showDownloadLink && (
-        <div css={styles.typography.caption}>
-          <a
-            href={downloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            css={styles.typography.link}
-            download={orderResult.downloadFilename}
-          >
-            {translate("clickToDownload")}
-          </a>
-        </div>
-      )}
-      {showMessage && messageText && (
-        <div css={styles.typography.caption}>{messageText}</div>
-      )}
-      <Button
-        text={buttonText}
-        onClick={buttonHandler}
-        css={styles.marginTop(12)}
-        logging={{ enabled: true, prefix: "FME-Export" }}
-        tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
-        tooltipPlacement="bottom"
-      />
-    </>
+    <div css={styles.form.layout}>
+      <div css={styles.form.content}>
+        <div css={styles.typography.title}>{titleText}</div>
+        {rows}
+        {showDownloadLink && (
+          <div css={styles.typography.caption}>
+            <a
+              href={downloadUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              css={styles.typography.link}
+              download={orderResult.downloadFilename}
+            >
+              {translate("clickToDownload")}
+            </a>
+          </div>
+        )}
+        {showMessage && messageText && (
+          <div css={styles.typography.caption}>{messageText}</div>
+        )}
+      </div>
+      <div css={styles.actions.sticky}>
+        <Button
+          text={buttonText}
+          onClick={buttonHandler}
+          logging={{ enabled: true, prefix: "FME-Export" }}
+          tooltip={
+            isSuccess ? translate("tooltipReuseGeography") : undefined
+          }
+          tooltipPlacement="bottom"
+        />
+      </div>
+    </div>
   )
 }
 
@@ -1024,18 +1029,36 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Render drawing mode tabs
-  const renderDrawingModeTabs = hooks.useEventCallback(() => (
-    <div css={styles.centered}>
-      <ButtonTabs
-        items={getDrawingModeItems()}
-        value={drawingMode}
-        onChange={(val) => {
-          onDrawingModeChange?.(val as DrawingTool)
-        }}
-        aria-label={translate("drawingModeTooltip")}
-      />
-    </div>
-  ))
+  const renderDrawingModeTabs = hooks.useEventCallback(() => {
+    const helperText = isNonEmptyString(instructionText)
+      ? instructionText
+      : translate("drawingModeTooltip")
+
+    return (
+      <div css={styles.form.layout}>
+        <div css={styles.contentCentered}>
+          <div
+            css={styles.typography.instruction}
+            role="status"
+            aria-live="polite"
+            aria-atomic={true}
+          >
+            {helperText}
+          </div>
+        </div>
+        <div css={styles.actions.sticky}>
+          <ButtonTabs
+            items={getDrawingModeItems()}
+            value={drawingMode}
+            onChange={(val) => {
+              onDrawingModeChange?.(val as DrawingTool)
+            }}
+            aria-label={translate("drawingModeTooltip")}
+          />
+        </div>
+      </div>
+    )
+  })
 
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
@@ -1317,13 +1340,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div
-      css={styles.typography.instruction}
-      role="status"
-      aria-live="polite"
-      aria-atomic={true}
-    >
-      {instructionText}
+    <div css={styles.contentCentered}>
+      <div
+        css={styles.typography.instruction}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
+        {instructionText}
+      </div>
     </div>
   )
 
