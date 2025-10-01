@@ -1194,6 +1194,8 @@ export default function Widget(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
       if (!geometry) return
+      endSketchSession()
+      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
 
       try {
         // Validate
@@ -1246,16 +1248,15 @@ export default function Widget(
           }
         }
 
-        // Update Redux state atomically
-        endSketchSession()
+        // Persist geometry and area to Redux
         dispatch(
-          fmeActions.completeDrawing(
+          fmeActions.setGeometry(
             geomForUse,
             Math.abs(calculatedArea),
-            ViewMode.WORKSPACE_SELECTION,
             widgetId
           )
         )
+        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {
         dispatchError(
           translate("drawingCompleteFailed"),
