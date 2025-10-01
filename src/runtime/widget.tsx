@@ -1250,11 +1250,7 @@ export default function Widget(
 
         // Persist geometry and area to Redux
         dispatch(
-          fmeActions.setGeometry(
-            geomForUse,
-            Math.abs(calculatedArea),
-            widgetId
-          )
+          fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea), widgetId)
         )
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {

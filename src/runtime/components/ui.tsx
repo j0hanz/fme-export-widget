@@ -208,7 +208,7 @@ const createStyles = (theme: IMThemeVariables) => {
       caption: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        marginBottom: spacing?.(2),
+        marginBottom: spacing?.(3),
       }),
 
       label: css({
@@ -278,6 +278,13 @@ const createStyles = (theme: IMThemeVariables) => {
 
     fieldGroup: css({
       marginBottom: spacing?.(2),
+    }),
+
+    checkLabel: css({
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      width: "100%",
     }),
   } as const
 }
@@ -1036,11 +1043,7 @@ export const RichText: React.FC<{
   }
 
   return (
-    <RichDisplayer
-      className={className}
-      css={styleCss(style)}
-      value={html}
-    />
+    <RichDisplayer className={className} css={styleCss(style)} value={html} />
   )
 }
 
@@ -1701,12 +1704,12 @@ export const Field: React.FC<FieldProps> = ({
       css={applyComponentStyles([styles.fieldGroup], style)}
     >
       {check ? (
-        <Label
-          css={[styles.typography.label]}
-          check={true}
-        >
-          {label}
-          {required && getRequiredMark(translate, styles)}
+        <Label css={[styles.typography.label, styles.checkLabel]} check={true}>
+          {" "}
+          <span>
+            {label}
+            {required && getRequiredMark(translate, styles)}
+          </span>
           {!readOnly && renderedChild}
         </Label>
       ) : (
