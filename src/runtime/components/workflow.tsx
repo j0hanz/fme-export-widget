@@ -42,7 +42,7 @@ import {
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/close-circle.svg"
-import exportIcon from "../../assets/icons/export.svg"
+import itemIcon from "../../assets/icons/item.svg"
 import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
@@ -1247,7 +1247,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
         >
           <Button
             text={workspace.title || workspace.name}
-            icon={exportIcon}
+            icon={itemIcon}
+            size="lg"
             type="tertiary"
             logging={{
               enabled: true,
@@ -1321,8 +1322,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         tooltip={translate("tooltipCancel")}
         tooltipPlacement="bottom"
         onClick={onReset}
-        type="tertiary"
-        variant="text"
+        color="inherit"
+        type="default"
+        variant="contained"
         alignText="start"
         text={translate("cancel")}
         size="sm"
