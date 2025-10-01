@@ -802,6 +802,8 @@ describe("shared/utils", () => {
       expect(normalizeFormValue("x", false)).toBe("x")
       expect(normalizeFormValue(1, false)).toBe(1)
       expect(normalizeFormValue("x", true)).toEqual(["x"])
+      expect(normalizeFormValue(true, false)).toBe(true)
+      expect(normalizeFormValue(false, false)).toBe(false)
     })
 
     test("toSerializable removes retry and normalizes timestampMs", () => {

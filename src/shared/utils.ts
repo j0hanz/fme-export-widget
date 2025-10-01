@@ -1517,7 +1517,9 @@ export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
   if (isMultiSelect) {
     return Array.isArray(value) ? value : [value]
   }
-  return typeof value === "string" || typeof value === "number" ? value : ""
+  if (typeof value === "string" || typeof value === "number") return value
+  if (typeof value === "boolean") return value
+  return ""
 }
 
 export const toSerializable = (error: any): any => {

@@ -312,9 +312,12 @@ describe("Fields module", () => {
       expect(normalizeFormValue(42, true)).toEqual([42])
     })
 
-    test("converts invalid types to empty string for single select", () => {
-      expect(normalizeFormValue(true, false)).toBe("")
-      expect(normalizeFormValue(false, false)).toBe("")
+    test("preserves boolean values for single select", () => {
+      expect(normalizeFormValue(true, false)).toBe(true)
+      expect(normalizeFormValue(false, false)).toBe(false)
+    })
+
+    test("converts unsupported types to empty string for single select", () => {
       expect(normalizeFormValue({} as any, false)).toBe("")
       expect(normalizeFormValue([] as any, false)).toBe("")
     })
@@ -666,15 +669,14 @@ describe("Fields module", () => {
       )
 
       const switchEl = screen.getByTestId("switch")
-      // normalizeFormValue converts boolean true to "", and Boolean("") is false
-      expect(switchEl).not.toBeChecked()
+      expect(switchEl).toBeChecked()
     })
 
     test("handles SWITCH changes", () => {
       const field = createField({ type: FormFieldType.SWITCH })
       const onChange = jest.fn()
 
-      renderWithProviders(
+      const { rerender } = renderWithProviders(
         <DynamicField
           field={field}
           value={false}
@@ -686,6 +688,20 @@ describe("Fields module", () => {
       const switchEl = screen.getByTestId("switch")
       fireEvent.click(switchEl)
       expect(onChange).toHaveBeenCalledWith(true)
+
+      rerender(
+        <DynamicField
+          field={field}
+          value={true}
+          onChange={onChange}
+          translate={mockTranslate}
+        />
+      )
+
+      const switchElAfter = screen.getByTestId("switch")
+      expect(switchElAfter).toBeChecked()
+      fireEvent.click(switchElAfter)
+      expect(onChange).toHaveBeenLastCalledWith(false)
     })
 
     test("renders RADIO field", () => {
