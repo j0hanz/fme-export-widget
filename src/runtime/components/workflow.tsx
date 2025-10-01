@@ -656,6 +656,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
           <Button
             text={buttonText}
             onClick={buttonHandler}
+            type="primary"
             logging={{ enabled: true, prefix: "FME-Export" }}
             tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
             tooltipPlacement="bottom"
@@ -1046,8 +1047,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
             >
               {helperText}
             </div>
-          </div>
-          <div css={styles.form.footer}>
             <ButtonTabs
               items={getDrawingModeItems()}
               value={drawingMode}
@@ -1249,7 +1248,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           <Button
             text={workspace.title || workspace.name}
             icon={exportIcon}
-            size="lg"
+            type="tertiary"
             logging={{
               enabled: true,
               prefix: "FME-Export-WorkspaceSelection",

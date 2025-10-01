@@ -146,7 +146,7 @@ const createStyles = (theme: IMThemeVariables) => {
   const flexAuto = "1 1 auto"
 
   const flexRow = (styles: { [key: string]: any } = {}) =>
-    css({ display: "flex", flexFlow: "row wrap", ...styles })
+    css({ display: "flex", ...styles })
 
   const flexColumn = (styles: { [key: string]: any } = {}) =>
     css({ display: "flex", flexFlow: "column nowrap", ...styles })
@@ -176,6 +176,7 @@ const createStyles = (theme: IMThemeVariables) => {
       overflowY: "auto",
       blockSize: "100%",
       position: "relative",
+      gap,
       padding: spacing?.(1),
       backgroundColor: colors?.surface?.paper,
     }),
@@ -1332,13 +1333,13 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             role="tab"
             aria-selected={active}
             tooltip={item.tooltip}
-            tooltipPlacement="top"
+            tooltipPlacement="bottom"
             disabled={item.disabled}
             onClick={() => {
               if (active) return
               handleChange(item.value)
             }}
-            block={true}
+            block={false}
           />
         )
       })}
