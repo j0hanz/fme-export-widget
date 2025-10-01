@@ -987,17 +987,24 @@ export const DateTimePickerWrapper: React.FC<{
     }
   )
 
+  const containerStyles = applyComponentStyles(
+    [styles.fullWidth, styles.relative],
+    style
+  )
+
   const picker = (
-    <JimuDatePicker
-      selectedDate={selectedDate}
-      runtime={false}
-      showTimeInput
-      isLongTime
-      supportVirtualDateList={false}
-      onChange={handleChange}
-      aria-label={ariaLabel}
-      css={applyFullWidthStyles(styles, style)}
-    />
+    <div css={containerStyles}>
+      <JimuDatePicker
+        selectedDate={selectedDate}
+        runtime={false}
+        showTimeInput
+        isLongTime
+        supportVirtualDateList={false}
+        disablePortal
+        onChange={handleChange}
+        aria-label={ariaLabel}
+      />
+    </div>
   )
 
   if (disabled) {
@@ -1677,6 +1684,7 @@ export const Field: React.FC<FieldProps> = ({
     readOnly,
     autoId
   )
+
   return (
     <FormGroup
       className={className}

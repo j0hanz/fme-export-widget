@@ -23,6 +23,7 @@ import Button, {
   ButtonTabs,
   Field,
   Form,
+  Switch,
 } from "../runtime/components/ui"
 import { makeErrorView } from "../config"
 
@@ -380,6 +381,18 @@ describe("UI components", () => {
     )
     const alert = screen.getByRole("alert")
     expect(alert).toHaveTextContent(/Oops/i)
+
+    // Switch fields render inline with label association preserved
+    rerender(
+      <Field label="Toggle" required>
+        <Switch defaultChecked />
+      </Field>
+    )
+    const switchControl = screen.getByLabelText(/Toggle/i)
+    const label = screen.getByText(/Toggle/i)
+    const row = label.closest("div")
+    expect(row).toBeTruthy()
+    expect(row?.contains(switchControl)).toBe(true)
   })
 
   test("Form (layout variant): renders header, children, and action buttons with disabled/enabled logic", async () => {
