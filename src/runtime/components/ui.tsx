@@ -142,8 +142,7 @@ const createStyles = (theme: IMThemeVariables) => {
   const spacing = theme.sys.spacing
   const colors = theme.sys.color
   const typography = theme.sys.typography
-  const gapSmall = spacing?.(1) ?? "1rem"
-  const gapMedium = spacing?.(2) ?? gapSmall
+  const gap = spacing?.(2)
   const flexAuto = "1 1 auto"
 
   const flexRow = (styles: { [key: string]: any } = {}) =>
@@ -157,9 +156,9 @@ const createStyles = (theme: IMThemeVariables) => {
 
   return {
     // Layout utilities with better performance
-    row: flexRow({ gap: gapMedium }),
+    row: flexRow({ gap }),
     btnFlex: css({ flex: flexAuto }),
-    buttonGroup: flexColumn({ inlineSize: "100%", gap: gapSmall }),
+    buttonGroup: flexColumn({ inlineSize: "100%", gap }),
     fullWidth: flexColumn({
       inlineSize: "100%",
       flex: flexAuto,
@@ -183,20 +182,20 @@ const createStyles = (theme: IMThemeVariables) => {
 
     header: flexRow({ placeContent: "end", flex: "0 0 auto" }),
 
-    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap: gapSmall }),
+    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
     contentCentered: flexColumn({
       placeContent: "center",
       alignItems: "center",
       textAlign: "center",
       flex: flexAuto,
       minBlockSize: 0,
-      gap: gapSmall,
+      gap,
     }),
 
     // State patterns
     centered: flexColumn({
       placeContent: "center",
-      gap: gapSmall,
+      gap,
       blockSize: "100%",
     }),
 
@@ -247,14 +246,14 @@ const createStyles = (theme: IMThemeVariables) => {
       }),
 
       required: css({
-        marginInlineStart: "0.25rem",
+        marginInlineStart: spacing?.(1),
         color: colors?.error.main,
       }),
     },
 
     // Button styles
     button: {
-      default: flexColumn({ inlineSize: "100%", gap: gapSmall }),
+      default: flexColumn({ inlineSize: "100%", gap }),
 
       text: (align: BtnContentProps["alignText"]) =>
         css({
@@ -273,20 +272,18 @@ const createStyles = (theme: IMThemeVariables) => {
     },
 
     form: {
-      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap: gapSmall }),
+      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),
       content: flexColumn({
         flex: flexAuto,
-        minBlockSize: 0,
-        gap: gapSmall,
+        gap,
       }),
       body: flexColumn({
         flex: flexAuto,
-        minBlockSize: 0,
-        gap: gapSmall,
+        gap,
         overflowY: "auto",
       }),
-      footer: flexColumn({ flex: "0 0 auto", gap: gapSmall }),
+      footer: flexColumn({ flex: "0 0 auto", gap }),
     },
 
     fieldGroup: css({
@@ -1751,7 +1748,6 @@ export const Field: React.FC<FieldProps> = ({
     >
       {check ? (
         <Label css={[styles.typography.label, styles.checkLabel]} check={true}>
-          {" "}
           <span>
             {label}
             {required && getRequiredMark(translate, styles)}
@@ -1760,11 +1756,7 @@ export const Field: React.FC<FieldProps> = ({
         </Label>
       ) : (
         <>
-          <Label
-            css={[styles.row, styles.typography.label]}
-            check={false}
-            for={fieldId}
-          >
+          <Label css={styles.typography.label} check={false} for={fieldId}>
             {label}
             {required && getRequiredMark(translate, styles)}
           </Label>
