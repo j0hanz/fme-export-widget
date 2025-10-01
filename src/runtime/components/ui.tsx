@@ -198,8 +198,19 @@ const createStyles = (theme: IMThemeVariables) => {
     content: css({
       display: "flex",
       flexFlow: "column nowrap",
-      placeContent: "center",
       flex: flexAuto,
+      minBlockSize: 0,
+      gap: gapSmall,
+    }),
+    contentCentered: css({
+      display: "flex",
+      flexFlow: "column nowrap",
+      placeContent: "center",
+      alignItems: "center",
+      textAlign: "center",
+      flex: flexAuto,
+      minBlockSize: 0,
+      gap: gapSmall,
     }),
 
     // State patterns
@@ -266,7 +277,7 @@ const createStyles = (theme: IMThemeVariables) => {
     },
 
     // Button styles
-    button: {
+  button: {
       default: css({
         display: "flex",
         flexFlow: "column nowrap",
@@ -287,6 +298,37 @@ const createStyles = (theme: IMThemeVariables) => {
         insetBlockStart: "50%",
         insetInlineEnd: config.button.offset,
         transform: "translateY(-50%)",
+      }),
+    },
+
+    form: {
+      layout: css({
+        display: "flex",
+        flexFlow: "column nowrap",
+        flex: flexAuto,
+        minBlockSize: 0,
+        gap: gapSmall,
+      }),
+      header: css({
+        flex: "0 0 auto",
+      }),
+      content: css({
+        display: "flex",
+        flexFlow: "column nowrap",
+        flex: flexAuto,
+        minBlockSize: 0,
+        gap: gapSmall,
+        overflowY: "auto",
+        paddingBlockEnd: gapSmall,
+      }),
+    },
+
+    actions: {
+      sticky: css({
+        display: "flex",
+        flexFlow: "column nowrap",
+        gap: gapSmall,
+        marginBlockStart: "auto",
       }),
     },
 
@@ -1650,31 +1692,33 @@ export const Form: React.FC<FormProps> = (props) => {
     } = props
 
     return (
-      <>
-        {/* Header */}
-        <div>
+      <div
+        className={className}
+        css={applyComponentStyles([styles.form.layout], style)}
+      >
+        <div css={styles.form.header}>
           {title && <div css={styles.typography.title}>{title}</div>}
           {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
         </div>
-        {/* Form contents */}
-        {children}
-        {/* Action buttons */}
-        <ButtonGroup
-          leftButton={{
-            text: translate("back"),
-            onClick: onBack,
-            disabled: loading,
-            tooltip: translate("tooltipBackToOptions"),
-          }}
-          rightButton={{
-            text: translate("submit"),
-            onClick: onSubmit,
-            disabled: !isValid || loading,
-            loading: loading,
-            tooltip: translate("tooltipSubmitOrder"),
-          }}
-        />
-      </>
+        <div css={styles.form.content}>{children}</div>
+        <div css={styles.actions.sticky}>
+          <ButtonGroup
+            leftButton={{
+              text: translate("back"),
+              onClick: onBack,
+              disabled: loading,
+              tooltip: translate("tooltipBackToOptions"),
+            }}
+            rightButton={{
+              text: translate("submit"),
+              onClick: onSubmit,
+              disabled: !isValid || loading,
+              loading: loading,
+              tooltip: translate("tooltipSubmitOrder"),
+            }}
+          />
+        </div>
+      </div>
     )
   }
 
