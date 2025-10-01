@@ -413,8 +413,8 @@ export interface ButtonGroupProps extends BaseProps {
   readonly buttons?: readonly GroupButtonConfig[]
   readonly activeIndex?: number
   readonly onChange?: (index: number) => void
-  readonly leftButton?: GroupButtonConfig
-  readonly rightButton?: GroupButtonConfig
+  readonly secondaryButton?: GroupButtonConfig
+  readonly primaryButton?: GroupButtonConfig
 }
 
 export interface TextAreaProps extends BaseProps {

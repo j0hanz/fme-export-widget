@@ -632,33 +632,35 @@ const OrderResult: React.FC<OrderResultProps> = ({
   return (
     <div css={styles.form.layout}>
       <div css={styles.form.content}>
-        <div css={styles.typography.title}>{titleText}</div>
-        {rows}
-        {showDownloadLink && (
-          <div css={styles.typography.caption}>
-            <a
-              href={downloadUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              css={styles.typography.link}
-              download={orderResult.downloadFilename}
-            >
-              {translate("clickToDownload")}
-            </a>
-          </div>
-        )}
-        {showMessage && messageText && (
-          <div css={styles.typography.caption}>{messageText}</div>
-        )}
-      </div>
-      <div css={styles.actions.sticky}>
-        <Button
-          text={buttonText}
-          onClick={buttonHandler}
-          logging={{ enabled: true, prefix: "FME-Export" }}
-          tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
-          tooltipPlacement="bottom"
-        />
+        <div css={styles.form.body}>
+          <div css={styles.typography.title}>{titleText}</div>
+          {rows}
+          {showDownloadLink && (
+            <div css={styles.typography.caption}>
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                css={styles.typography.link}
+                download={orderResult.downloadFilename}
+              >
+                {translate("clickToDownload")}
+              </a>
+            </div>
+          )}
+          {showMessage && messageText && (
+            <div css={styles.typography.caption}>{messageText}</div>
+          )}
+        </div>
+        <div css={styles.form.footer}>
+          <Button
+            text={buttonText}
+            onClick={buttonHandler}
+            logging={{ enabled: true, prefix: "FME-Export" }}
+            tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
+            tooltipPlacement="bottom"
+          />
+        </div>
       </div>
     </div>
   )
@@ -1034,25 +1036,27 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     return (
       <div css={styles.form.layout}>
-        <div css={styles.contentCentered}>
-          <div
-            css={styles.typography.instruction}
-            role="status"
-            aria-live="polite"
-            aria-atomic={true}
-          >
-            {helperText}
+        <div css={styles.form.content}>
+          <div css={[styles.form.body, styles.contentCentered]}>
+            <div
+              css={styles.typography.instruction}
+              role="status"
+              aria-live="polite"
+              aria-atomic={true}
+            >
+              {helperText}
+            </div>
           </div>
-        </div>
-        <div css={styles.actions.sticky}>
-          <ButtonTabs
-            items={getDrawingModeItems()}
-            value={drawingMode}
-            onChange={(val) => {
-              onDrawingModeChange?.(val as DrawingTool)
-            }}
-            aria-label={translate("drawingModeTooltip")}
-          />
+          <div css={styles.form.footer}>
+            <ButtonTabs
+              items={getDrawingModeItems()}
+              value={drawingMode}
+              onChange={(val) => {
+                onDrawingModeChange?.(val as DrawingTool)
+              }}
+              aria-label={translate("drawingModeTooltip")}
+            />
+          </div>
         </div>
       </div>
     )

@@ -158,7 +158,8 @@ const createStyles = (theme: IMThemeVariables) => {
   return {
     // Layout utilities with better performance
     row: flexRow({ gap: gapMedium }),
-    btnFlex: css({ flex: flexAuto, marginBlockStart: gapMedium }),
+    btnFlex: css({ flex: flexAuto }),
+    buttonGroup: flexColumn({ inlineSize: "100%", gap: gapSmall }),
     fullWidth: flexColumn({
       inlineSize: "100%",
       flex: flexAuto,
@@ -273,20 +274,16 @@ const createStyles = (theme: IMThemeVariables) => {
 
     form: {
       layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap: gapSmall }),
-      header: css({
-        flex: "0 0 auto",
-      }),
+      header: css({ flex: "0 0 auto" }),
       content: flexColumn({
         flex: flexAuto,
         minBlockSize: 0,
         gap: gapSmall,
         overflowY: "auto",
-        paddingBlockEnd: gapSmall,
+        paddingBlock: `0 ${gapSmall}`,
       }),
-    },
-
-    actions: {
-      sticky: flexColumn({ gap: gapSmall, marginBlockStart: "auto" }),
+      body: flexColumn({ flex: "0 0 auto", minBlockSize: 0, gap: gapSmall }),
+      footer: flexColumn({ flex: "0 0 auto", gap: gapSmall }),
     },
 
     fieldGroup: css({
@@ -1576,43 +1573,74 @@ const StateView: React.FC<StateViewProps> = ({
 
 // ButtonGroup component
 export const ButtonGroup: React.FC<ButtonGroupProps> = ({
-  leftButton,
-  rightButton,
+  buttons,
+  secondaryButton,
+  primaryButton,
   className,
   style,
 }) => {
   const styles = useStyles()
-  const theme = useTheme()
-  const spacing = theme.sys.spacing
-  const gapSmall = spacing?.(1) ?? "1rem"
 
-  if (!leftButton && !rightButton) {
+  const resolvedButtons: Array<{
+    readonly config: GroupButtonConfig
+    readonly role: "secondary" | "primary"
+    readonly key: string
+  }> = buttons?.length
+    ? buttons.map((config, index) => ({
+        config,
+        role: index === buttons.length - 1 ? "primary" : "secondary",
+        key: index.toString(),
+      }))
+    : [
+        secondaryButton
+          ? {
+              config: secondaryButton,
+              role: "secondary" as const,
+              key: "secondary",
+            }
+          : null,
+        primaryButton
+          ? { config: primaryButton, role: "primary" as const, key: "primary" }
+          : null,
+      ].filter(
+        (
+          entry
+        ): entry is {
+          readonly config: GroupButtonConfig
+          readonly role: "secondary" | "primary"
+          readonly key: string
+        } => entry != null
+      )
+
+  if (!resolvedButtons.length) {
     return null
   }
 
-  const createButton = (
-    buttonConfig: GroupButtonConfig,
-    side: "left" | "right"
-  ) => {
+  const createButton = ({
+    config,
+    role,
+    key,
+  }: {
+    readonly config: GroupButtonConfig
+    readonly role: "secondary" | "primary"
+    readonly key: string
+  }) => {
+    const fallbackType =
+      role === "primary" ? ("primary" as const) : ("default" as const)
     const btnConfig = {
-      ...buttonConfig,
-      // Force visual type per side; do not guard with existing values
-      type: side === "left" ? ("default" as const) : ("primary" as const),
-      key: side,
+      ...config,
+      type: config.type ?? fallbackType,
+      key,
     }
     return <Button {...btnConfig} block={true} css={styles.btnFlex} />
   }
 
   return (
     <div
-      css={applyComponentStyles(
-        [styles.row, css({ gap: gapSmall })],
-        style as any
-      )}
+      css={applyComponentStyles([styles.buttonGroup], style as any)}
       className={className}
     >
-      {leftButton && createButton(leftButton, "left")}
-      {rightButton && createButton(rightButton, "right")}
+      {resolvedButtons.map(createButton)}
     </div>
   )
 }
@@ -1644,23 +1672,29 @@ export const Form: React.FC<FormProps> = (props) => {
           {title && <div css={styles.typography.title}>{title}</div>}
           {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
         </div>
-        <div css={styles.form.content}>{children}</div>
-        <div css={styles.actions.sticky}>
-          <ButtonGroup
-            leftButton={{
-              text: translate("back"),
-              onClick: onBack,
-              disabled: loading,
-              tooltip: translate("tooltipBackToOptions"),
-            }}
-            rightButton={{
-              text: translate("submit"),
-              onClick: onSubmit,
-              disabled: !isValid || loading,
-              loading: loading,
-              tooltip: translate("tooltipSubmitOrder"),
-            }}
-          />
+        <div css={styles.form.content}>
+          <div css={styles.form.body}>{children}</div>
+          <div css={styles.form.footer}>
+            <ButtonGroup
+              secondaryButton={
+                onBack
+                  ? {
+                      text: translate("back"),
+                      onClick: onBack,
+                      disabled: loading,
+                      tooltip: translate("tooltipBackToOptions"),
+                    }
+                  : undefined
+              }
+              primaryButton={{
+                text: translate("submit"),
+                onClick: onSubmit,
+                disabled: !isValid || loading,
+                loading,
+                tooltip: translate("tooltipSubmitOrder"),
+              }}
+            />
+          </div>
         </div>
       </div>
     )
