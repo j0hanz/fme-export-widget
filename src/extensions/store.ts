@@ -50,18 +50,6 @@ export const fmeActions = {
     drawnArea,
     widgetId,
   }),
-  setDrawingState: (
-    isDrawing: boolean,
-    clickCount: number | undefined,
-    drawingTool: DrawingTool | undefined,
-    widgetId: string
-  ) => ({
-    type: FmeActionType.SET_DRAWING_STATE,
-    isDrawing,
-    clickCount,
-    drawingTool,
-    widgetId,
-  }),
   setDrawingTool: (drawingTool: DrawingTool, widgetId: string) => ({
     type: FmeActionType.SET_DRAWING_TOOL,
     drawingTool,
@@ -77,11 +65,6 @@ export const fmeActions = {
     geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
     drawnArea,
     nextViewMode,
-    widgetId,
-  }),
-  setClickCount: (clickCount: number, widgetId: string) => ({
-    type: FmeActionType.SET_CLICK_COUNT,
-    clickCount,
     widgetId,
   }),
   setFormValues: (formValues: FormValues, widgetId: string) => ({
@@ -136,7 +119,10 @@ export const fmeActions = {
     repository, // Track repository context for workspace item
     widgetId,
   }),
-  setLoadingFlags: (flags: { [key: string]: boolean }, widgetId: string) => ({
+  setLoadingFlags: (
+    flags: { isModulesLoading?: boolean; isSubmittingOrder?: boolean },
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_LOADING_FLAGS,
     ...flags,
     widgetId,
@@ -190,9 +176,7 @@ export const initialFmeState: FmeWidgetState = {
   startupValidationError: null,
 
   // Drawing
-  isDrawing: false,
   drawingTool: DrawingTool.POLYGON,
-  clickCount: 0,
   geometryJson: null,
   drawnArea: 0,
 
@@ -205,8 +189,6 @@ export const initialFmeState: FmeWidgetState = {
   selectedWorkspace: null,
   workspaceParameters: [],
   workspaceItem: null,
-  isLoadingWorkspaces: false,
-  isLoadingParameters: false,
   currentRepository: null,
 
   // Loading and errors
@@ -272,12 +254,6 @@ const reduceOne = (
         .set("geometryJson", action.geometryJson)
         .set("drawnArea", action.drawnArea ?? 0)
 
-    case FmeActionType.SET_DRAWING_STATE:
-      return state
-        .set("isDrawing", action.isDrawing)
-        .set("clickCount", action.clickCount ?? state.clickCount)
-        .set("drawingTool", action.drawingTool ?? state.drawingTool)
-
     case FmeActionType.COMPLETE_DRAWING: {
       const nextView = action.nextViewMode ?? state.viewMode
       return state
@@ -285,15 +261,10 @@ const reduceOne = (
         .set("drawnArea", action.drawnArea ?? 0)
         .set("previousViewMode", state.viewMode)
         .set("viewMode", nextView)
-        .set("isDrawing", false)
-        .set("clickCount", 0)
     }
 
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)
-
-    case FmeActionType.SET_CLICK_COUNT:
-      return state.set("clickCount", action.clickCount)
 
     case FmeActionType.SET_FORM_VALUES:
       return state.set(
@@ -349,18 +320,6 @@ const reduceOne = (
       if (action.isSubmittingOrder !== undefined) {
         newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
       }
-      if (action.isLoadingWorkspaces !== undefined) {
-        newState = newState.set(
-          "isLoadingWorkspaces",
-          action.isLoadingWorkspaces
-        )
-      }
-      if (action.isLoadingParameters !== undefined) {
-        newState = newState.set(
-          "isLoadingParameters",
-          action.isLoadingParameters
-        )
-      }
       return newState
     }
 
@@ -373,8 +332,7 @@ const reduceOne = (
           .set("workspaceParameters", [])
           .set("workspaceItem", null)
           .set("formValues", {})
-          .set("isLoadingWorkspaces", false)
-          .set("isLoadingParameters", false),
+          .set("isSubmittingOrder", false),
         nextRepo,
         null
       )

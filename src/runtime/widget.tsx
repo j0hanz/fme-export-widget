@@ -13,10 +13,10 @@ import {
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
 import {
-  StateView,
-  useStyles,
-  renderSupportHint,
   Button,
+  StateView,
+  renderSupportHint,
+  useStyles,
 } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
@@ -120,6 +120,11 @@ const UPLOAD_PARAM_TYPES = [
   "LOOKUP_FILE",
   "REPROJECTION_FILE",
 ] as const
+
+interface DrawingSessionState {
+  isActive: boolean
+  clickCount: number
+}
 
 const resolveUploadTargetParam = (
   config: FmeExportConfig | null | undefined
@@ -375,12 +380,10 @@ const useMapResources = () => {
     jimuMapView: JimuMapView | null
     sketchViewModel: __esri.SketchViewModel | null
     graphicsLayer: __esri.GraphicsLayer | null
-    currentGeometry: __esri.Geometry | null
   }>({
     jimuMapView: null,
     sketchViewModel: null,
     graphicsLayer: null,
-    currentGeometry: null,
   })
 
   const updateResource = hooks.useEventCallback(
@@ -420,7 +423,6 @@ const useMapResources = () => {
         jimuMapView: resetMapView ? null : prev.jimuMapView,
         sketchViewModel: null,
         graphicsLayer: null,
-        currentGeometry: null,
       }))
     }
   )
@@ -442,8 +444,6 @@ const useMapResources = () => {
       updateResource("sketchViewModel", vm),
     setGraphicsLayer: (layer: __esri.GraphicsLayer | null) =>
       updateResource("graphicsLayer", layer),
-    setCurrentGeometry: (geom: __esri.Geometry | null) =>
-      updateResource("currentGeometry", geom),
     teardownDrawingResources,
     cleanupResources,
   }
@@ -491,6 +491,7 @@ const createSketchVM = ({
   dispatch,
   widgetId,
   symbols,
+  onDrawingSessionChange,
 }: {
   jmv: JimuMapView
   modules: EsriModules
@@ -503,6 +504,7 @@ const createSketchVM = ({
     polyline: any
     point: any
   }
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
 }) => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
@@ -564,7 +566,8 @@ const createSketchVM = ({
     onDrawComplete,
     dispatch,
     modules,
-    widgetId
+    widgetId,
+    onDrawingSessionChange
   )
   return sketchViewModel
 }
@@ -575,7 +578,8 @@ const setupSketchEventHandlers = (
   onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
   dispatch: (action: unknown) => void,
   modules: EsriModules,
-  widgetId: string
+  widgetId: string,
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
 ) => {
   let clickCount = 0
 
@@ -583,10 +587,9 @@ const setupSketchEventHandlers = (
     switch (evt.state) {
       case "start":
         clickCount = 0
+        onDrawingSessionChange({ isActive: true, clickCount: 0 })
         dispatch(
-          fmeActions.setDrawingState(
-            true,
-            0,
+          fmeActions.setDrawingTool(
             evt.tool === "rectangle"
               ? DrawingTool.RECTANGLE
               : DrawingTool.POLYGON,
@@ -602,19 +605,20 @@ const setupSketchEventHandlers = (
           const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
           if (actualClicks > clickCount) {
             clickCount = actualClicks
-            dispatch(fmeActions.setClickCount(actualClicks, widgetId))
+            onDrawingSessionChange({ clickCount: actualClicks, isActive: true })
             if (actualClicks === 1) {
               dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             }
           }
         } else if (evt.tool === "rectangle" && clickCount !== 1) {
           clickCount = 1
-          dispatch(fmeActions.setClickCount(1, widgetId))
+          onDrawingSessionChange({ clickCount: 1, isActive: true })
         }
         break
 
       case "complete":
         clickCount = 0
+        onDrawingSessionChange({ isActive: false, clickCount: 0 })
         try {
           onDrawComplete(evt)
         } catch (err: any) {
@@ -624,7 +628,7 @@ const setupSketchEventHandlers = (
 
       case "cancel":
         clickCount = 0
-        dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
+        onDrawingSessionChange({ isActive: false, clickCount: 0 })
         break
     }
   })
@@ -685,6 +689,18 @@ export default function Widget(
   const fmeClientKeyRef = React.useRef<string | null>(null)
   // When true, after reinitializing SketchViewModel we will immediately start drawing
   const shouldAutoStartRef = React.useRef(false)
+
+  const [drawingSession, setDrawingSession] =
+    React.useState<DrawingSessionState>(() => ({
+      isActive: false,
+      clickCount: 0,
+    }))
+
+  const updateDrawingSession = hooks.useEventCallback(
+    (updates: Partial<DrawingSessionState>) => {
+      setDrawingSession((prev) => ({ ...prev, ...updates }))
+    }
+  )
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
@@ -766,10 +782,7 @@ export default function Widget(
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
     dispatch(fmeActions.setGeometry(null, 0, widgetId))
-    dispatch(
-      fmeActions.setDrawingState(false, 0, reduxState.drawingTool, widgetId)
-    )
-    dispatch(fmeActions.setClickCount(0, widgetId))
+    updateDrawingSession({ isActive: false, clickCount: 0 })
     dispatch(fmeActions.setError(null, widgetId))
     dispatch(fmeActions.setImportError(null, widgetId))
     dispatch(fmeActions.setExportError(null, widgetId))
@@ -780,10 +793,7 @@ export default function Widget(
     dispatch(fmeActions.setFormValues({}, widgetId))
     dispatch(
       fmeActions.setLoadingFlags(
-        {
-          isModulesLoading: false,
-          isSubmittingOrder: false,
-        } as any,
+        { isModulesLoading: false, isSubmittingOrder: false },
         widgetId
       )
     )
@@ -918,6 +928,21 @@ export default function Widget(
   const { modules, loading: modulesLoading } = useEsriModules(moduleRetryKey)
   const mapResources = useMapResources()
 
+  const getActiveGeometry = hooks.useEventCallback(() => {
+    if (!reduxState.geometryJson || !modules?.Polygon) {
+      return null
+    }
+    const polygonCtor: any = modules.Polygon
+    try {
+      if (typeof polygonCtor?.fromJSON === "function") {
+        return polygonCtor.fromJSON(reduxState.geometryJson as any)
+      }
+    } catch {
+      return null
+    }
+    return null
+  })
+
   // Redux state selector and dispatcher
   const isActive = hooks.useWidgetActived(widgetId)
 
@@ -929,8 +954,6 @@ export default function Widget(
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
-    currentGeometry,
-    setCurrentGeometry,
     teardownDrawingResources,
     cleanupResources,
   } = mapResources
@@ -939,7 +962,7 @@ export default function Widget(
     (options?: { clearLocalGeometry?: boolean }) => {
       shouldAutoStartRef.current = false
       if (options?.clearLocalGeometry) {
-        setCurrentGeometry(null)
+        updateDrawingSession({ clickCount: 0 })
       }
       if (sketchViewModel) {
         safeCancelSketch(
@@ -947,6 +970,7 @@ export default function Widget(
           "Error cancelling SketchViewModel while exiting drawing mode"
         )
       }
+      updateDrawingSession({ isActive: false })
     }
   )
 
@@ -954,7 +978,6 @@ export default function Widget(
     (nextViewMode: ViewMode, options?: { clearLocalGeometry?: boolean }) => {
       endSketchSession(options)
       dispatch(fmeActions.setViewMode(nextViewMode, widgetId))
-      dispatch(fmeActions.setDrawingState(false, 0, undefined, widgetId))
     }
   )
 
@@ -1103,7 +1126,6 @@ export default function Widget(
     (alsoCleanupMapResources = false) => {
       submissionAbort.cancel()
       startupAbort.cancel()
-      setCurrentGeometry(null)
 
       if (alsoCleanupMapResources) {
         cleanupResources()
@@ -1111,6 +1133,7 @@ export default function Widget(
         teardownDrawingResources()
       }
 
+      updateDrawingSession({ isActive: false, clickCount: 0 })
       resetReduxForRevalidation()
     }
   )
@@ -1233,9 +1256,6 @@ export default function Widget(
             widgetId
           )
         )
-
-        // Store current geometry in local state (not Redux - following golden rule)
-        setCurrentGeometry(geomForUse)
       } catch (error) {
         dispatchError(
           translate("drawingCompleteFailed"),
@@ -1248,7 +1268,7 @@ export default function Widget(
 
   // Form submission guard clauses
   const canSubmit = (): boolean => {
-    const hasGeometry = !!reduxState.geometryJson || !!currentGeometry
+    const hasGeometry = Boolean(reduxState.geometryJson)
     if (!hasGeometry || !reduxState.selectedWorkspace) {
       return false
     }
@@ -1351,7 +1371,7 @@ export default function Widget(
         },
         userEmail,
         reduxState.geometryJson,
-        currentGeometry,
+        getActiveGeometry() || undefined,
         modules,
         {
           config: latestConfig,
@@ -1455,6 +1475,7 @@ export default function Widget(
         dispatch,
         widgetId,
         symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
+        onDrawingSessionChange: updateDrawingSession,
       })
       setSketchViewModel(svm)
       try {
@@ -1564,7 +1585,8 @@ export default function Widget(
     if (!sketchViewModel) return
 
     // Set tool
-    dispatch(fmeActions.setDrawingState(true, 0, tool, widgetId))
+    updateDrawingSession({ isActive: true, clickCount: 0 })
+    dispatch(fmeActions.setDrawingTool(tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
 
     // Clear and hide
@@ -1617,7 +1639,7 @@ export default function Widget(
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
     reduxState.viewMode === ViewMode.DRAWING &&
-    reduxState.clickCount === 0 &&
+    drawingSession.clickCount === 0 &&
     sketchViewModel &&
     !reduxState.isSubmittingOrder &&
     !(reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR)
@@ -1629,7 +1651,7 @@ export default function Widget(
     }
   }, [
     reduxState.viewMode,
-    reduxState.clickCount,
+    drawingSession.clickCount,
     reduxState.drawingTool,
     sketchViewModel,
     reduxState.isSubmittingOrder,
@@ -1789,7 +1811,7 @@ export default function Widget(
 
   // derive simple view booleans for readability
   const showHeaderActions =
-    (reduxState.isDrawing || reduxState.drawnArea > 0) &&
+    (drawingSession.isActive || reduxState.drawnArea > 0) &&
     !reduxState.isSubmittingOrder &&
     !modulesLoading
 
@@ -1814,8 +1836,8 @@ export default function Widget(
         error={reduxState.error}
         instructionText={getDrawingInstructions(
           reduxState.drawingTool,
-          reduxState.isDrawing,
-          reduxState.clickCount
+          drawingSession.isActive,
+          drawingSession.clickCount
         )}
         isModulesLoading={modulesLoading}
         modules={modules}
@@ -1834,8 +1856,8 @@ export default function Widget(
           // Rely on the auto-start effect to begin drawing; avoids duplicate create() calls
         }}
         // Drawing props
-        isDrawing={reduxState.isDrawing}
-        clickCount={reduxState.clickCount}
+        isDrawing={drawingSession.isActive}
+        clickCount={drawingSession.clickCount}
         // Header props
         showHeaderActions={
           reduxState.viewMode !== ViewMode.STARTUP_VALIDATION &&

@@ -130,9 +130,7 @@ export enum FmeActionType {
   RESET_STATE = "fme/RESET_STATE",
   SET_STARTUP_VALIDATION_STATE = "fme/SET_STARTUP_VALIDATION_STATE",
   SET_GEOMETRY = "fme/SET_GEOMETRY",
-  SET_DRAWING_STATE = "fme/SET_DRAWING_STATE",
   SET_DRAWING_TOOL = "fme/SET_DRAWING_TOOL",
-  SET_CLICK_COUNT = "fme/SET_CLICK_COUNT",
   COMPLETE_DRAWING = "fme/COMPLETE_DRAWING",
   SET_FORM_VALUES = "fme/SET_FORM_VALUES",
   SET_ORDER_RESULT = "fme/SET_ORDER_RESULT",
@@ -799,9 +797,7 @@ export interface FmeWidgetState {
   readonly startupValidationError: SerializableErrorState | null
 
   // Drawing state
-  readonly isDrawing: boolean
   readonly drawingTool: DrawingTool
-  readonly clickCount: number
   readonly geometryJson: unknown
   readonly drawnArea: number
 
@@ -814,8 +810,6 @@ export interface FmeWidgetState {
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
-  readonly isLoadingWorkspaces: boolean
-  readonly isLoadingParameters: boolean
   readonly currentRepository: string | null // Track current repository for workspace isolation
 
   // Loading and error state
