@@ -289,7 +289,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       flow="wrap"
       label={
         <div css={styles.LABEL_WITH_BUTTON}>
-          <span>{translate("availableRepositories")}</span>
+          {translate("availableRepositories")}
           {canRefresh && (
             <Button
               size="sm"
@@ -451,7 +451,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         id={ID.tm_ttc}
         label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
-            <span>{translate("tm_ttcLabel")}</span>
+            {translate("tm_ttcLabel")}
           </Tooltip>
         }
         value={localTmTtc}
@@ -465,7 +465,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         id={ID.tm_ttl}
         label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
-            <span>{translate("tm_ttlLabel")}</span>
+            {translate("tm_ttlLabel")}
           </Tooltip>
         }
         value={localTmTtl}
@@ -479,7 +479,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         id={ID.tm_tag}
         label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
-            <span>{translate("tm_tagLabel")}</span>
+            {translate("tm_tagLabel")}
           </Tooltip>
         }
         value={localTmTag}
@@ -493,7 +493,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="wrap"
         label={
           <Tooltip content={translate("tm_descriptionHelper")} placement="top">
-            <span>{translate("tm_descriptionLabel")}</span>
+            {translate("tm_descriptionLabel")}
           </Tooltip>
         }
         level={1}
@@ -525,7 +525,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="no-wrap"
         label={
           <Tooltip content={translate("tm_rtcHelper")} placement="top">
-            <span>{translate("tm_rtcLabel")}</span>
+            {translate("tm_rtcLabel")}
           </Tooltip>
         }
         level={1}
@@ -547,7 +547,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             content={translate("optResponseFormatHelper")}
             placement="top"
           >
-            <span>{translate("optResponseFormatLabel")}</span>
+            {translate("optResponseFormatLabel")}
           </Tooltip>
         }
         level={1}
@@ -569,7 +569,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="no-wrap"
         label={
           <Tooltip content={translate("optShowResultHelper")} placement="top">
-            <span>{translate("optShowResultLabel")}</span>
+            {translate("optShowResultLabel")}
           </Tooltip>
         }
         level={1}
@@ -591,7 +591,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             content={translate("engineDirectivesHelper")}
             placement="top"
           >
-            <span>{translate("engineDirectivesLabel")}</span>
+            {translate("engineDirectivesLabel")}
           </Tooltip>
         }
         level={1}
@@ -938,14 +938,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
   const isStreamingService = localService === "stream"
   const isDownloadService = !isStreamingService
-  const isMaskEmailEffective = isDownloadService && !localSyncMode
+  const shouldShowMaskEmailSetting = isDownloadService && !localSyncMode
+  const shouldShowScheduleToggle = isDownloadService && !localSyncMode
   const showUploadTargetField = isDownloadService && localAllowRemoteDataset
   React.useEffect(() => {
     if (!isStreamingService) return
-    if (localAllowScheduleMode) {
-      setLocalAllowScheduleMode(false)
-      updateConfig("allowScheduleMode", false as any)
-    }
     if (localAllowRemoteDataset) {
       setLocalAllowRemoteDataset(false)
       updateConfig("allowRemoteDataset", false as any)
@@ -960,7 +957,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [
     isStreamingService,
-    localAllowScheduleMode,
     localAllowRemoteDataset,
     localAllowRemoteUrlDataset,
     localMaskEmailOnSuccess,
@@ -968,11 +964,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   ])
 
   React.useEffect(() => {
-    if (isMaskEmailEffective) return
+    if (shouldShowScheduleToggle) return
+    if (!localAllowScheduleMode) return
+    setLocalAllowScheduleMode(false)
+    updateConfig("allowScheduleMode", false as any)
+  }, [shouldShowScheduleToggle, localAllowScheduleMode, updateConfig])
+
+  React.useEffect(() => {
+    if (shouldShowMaskEmailSetting) return
     if (!localMaskEmailOnSuccess) return
     setLocalMaskEmailOnSuccess(false)
     updateConfig("maskEmailOnSuccess", false as any)
-  }, [isMaskEmailEffective, localMaskEmailOnSuccess, updateConfig])
+  }, [shouldShowMaskEmailSetting, localMaskEmailOnSuccess, updateConfig])
 
   React.useEffect(() => {
     if (showUploadTargetField) return
@@ -1626,7 +1629,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           flow="wrap"
           label={
             <Tooltip content={translate("serviceTypeHelper")} placement="top">
-              <span>{translate("serviceTypeLabel")}</span>
+              {translate("serviceTypeLabel")}
             </Tooltip>
           }
           level={1}
@@ -1654,7 +1657,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("serviceModeSyncHelper")}
                 placement="top"
               >
-                <span>{translate("serviceModeSync")}</span>
+                {translate("serviceModeSync")}
               </Tooltip>
             }
             level={1}
@@ -1674,7 +1677,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         )}
 
         {/* Allow Schedule Mode */}
-        {!isStreamingService && (
+        {shouldShowScheduleToggle && (
           <SettingRow
             flow="no-wrap"
             label={
@@ -1682,7 +1685,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowScheduleModeHelper")}
                 placement="top"
               >
-                <span>{translate("allowScheduleModeLabel")}</span>
+                {translate("allowScheduleModeLabel")}
               </Tooltip>
             }
             level={1}
@@ -1709,7 +1712,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowRemoteDatasetHelper")}
                 placement="top"
               >
-                <span>{translate("allowRemoteDatasetLabel")}</span>
+                {translate("allowRemoteDatasetLabel")}
               </Tooltip>
             }
             level={1}
@@ -1736,7 +1739,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowRemoteUrlDatasetHelper")}
                 placement="top"
               >
-                <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+                {translate("allowRemoteUrlDatasetLabel")}
               </Tooltip>
             }
             level={1}
@@ -1755,51 +1758,30 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           </SettingRow>
         )}
         {/* Mask email on success toggle */}
-        {isDownloadService && (
-          <>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("maskEmailOnSuccessHelper")}
-                  placement="top"
-                >
-                  <span>{translate("maskEmailOnSuccess")}</span>
-                </Tooltip>
-              }
-              level={1}
-            >
-              <Switch
-                id={ID.maskEmailOnSuccess}
-                checked={localMaskEmailOnSuccess}
-                disabled={!isMaskEmailEffective}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localMaskEmailOnSuccess
-                  setLocalMaskEmailOnSuccess(checked)
-                  updateConfig("maskEmailOnSuccess", checked)
-                }}
-                aria-label={translate("maskEmailOnSuccess")}
-                aria-describedby={
-                  !isMaskEmailEffective
-                    ? `${ID.maskEmailOnSuccess}-hint`
-                    : undefined
-                }
-              />
-            </SettingRow>
-            {!isMaskEmailEffective && (
-              <SettingRow flow="wrap" level={3}>
-                <Alert
-                  id={`${ID.maskEmailOnSuccess}-hint`}
-                  fullWidth
-                  css={css(settingStyles.ALERT_INLINE)}
-                  text={translate("maskEmailDisabledSync")}
-                  type="warning"
-                  closable={false}
-                />
-              </SettingRow>
-            )}
-          </>
+        {shouldShowMaskEmailSetting && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("maskEmailOnSuccessHelper")}
+                placement="top"
+              >
+                {translate("maskEmailOnSuccess")}
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.maskEmailOnSuccess}
+              checked={localMaskEmailOnSuccess}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+                setLocalMaskEmailOnSuccess(checked)
+                updateConfig("maskEmailOnSuccess", checked)
+              }}
+              aria-label={translate("maskEmailOnSuccess")}
+            />
+          </SettingRow>
         )}
         {/* Request timeout (ms) */}
         <SettingRow
@@ -1809,7 +1791,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("requestTimeoutHelper")}
               placement="top"
             >
-              <span>{translate("requestTimeoutLabel")}</span>
+              {translate("requestTimeoutLabel")}
             </Tooltip>
           }
           level={1}
@@ -1844,7 +1826,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* Drawing color */}
         <SettingRow
           flow="wrap"
-          label={<span>{translate("drawingColorLabel")}</span>}
+          label={translate("drawingColorLabel")}
           level={1}
           tag="label"
         >
@@ -1870,7 +1852,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           id={ID.aoiParamName}
           label={
             <Tooltip content={translate("aoiParamNameHelper")} placement="top">
-              <span>{translate("aoiParamNameLabel")}</span>
+              {translate("aoiParamNameLabel")}
             </Tooltip>
           }
           value={localAoiParamName}
@@ -1895,7 +1877,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("aoiGeoJsonParamNameHelper")}
               placement="top"
             >
-              <span>{translate("aoiGeoJsonParamNameLabel")}</span>
+              {translate("aoiGeoJsonParamNameLabel")}
             </Tooltip>
           }
           value={localAoiGeoJsonParamName}
@@ -1924,7 +1906,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("aoiWktParamNameHelper")}
               placement="top"
             >
-              <span>{translate("aoiWktParamNameLabel")}</span>
+              {translate("aoiWktParamNameLabel")}
             </Tooltip>
           }
           value={localAoiWktParamName}
@@ -1954,7 +1936,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("uploadTargetParamNameHelper")}
                 placement="top"
               >
-                <span>{translate("uploadTargetParamNameLabel")}</span>
+                {translate("uploadTargetParamNameLabel")}
               </Tooltip>
             }
             value={localUploadTargetParamName}
@@ -1988,7 +1970,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               })}
               placement="top"
             >
-              <span>{translate("maxAreaLabel")}</span>
+              {translate("maxAreaLabel")}
             </Tooltip>
           }
           value={localMaxAreaM2}
@@ -2031,7 +2013,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           id={ID.supportEmail}
           label={
             <Tooltip content={translate("supportEmailHelper")} placement="top">
-              <span>{translate("supportEmail")}</span>
+              {translate("supportEmail")}
             </Tooltip>
           }
           type="email"

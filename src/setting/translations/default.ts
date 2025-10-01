@@ -116,7 +116,6 @@ export default {
   serviceTypeHelper:
     "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
   drawingColorLabel: "Ritningsfärg",
-  maskEmailDisabledSync: "Stöds inte när synkront är aktiverat.",
   optResponseFormatLabel: "Svarformat (opt_responseformat)",
   optResponseFormatHelper: "Välj format för serverns svar. Standard är JSON.",
   optResponseFormatJson: "JSON",
