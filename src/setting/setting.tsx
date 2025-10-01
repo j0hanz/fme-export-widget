@@ -421,8 +421,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
   localTmTag,
-  localTmQueue,
-  localTmPriority,
   localTmDescription,
   localTmRtc,
   localOptResponseFormat,
@@ -431,8 +429,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   onTmTtcChange,
   onTmTtlChange,
   onTmTagChange,
-  onTmQueueChange,
-  onTmPriorityChange,
   onTmDescriptionChange,
   onTmRtcChange,
   onOptResponseFormatChange,
@@ -441,8 +437,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   onTmTtcBlur,
   onTmTtlBlur,
   onTmTagBlur,
-  onTmQueueBlur,
-  onTmPriorityBlur,
   onTmDescriptionBlur,
   onEngineDirectivesBlur,
   fieldErrors,
@@ -493,34 +487,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         onBlur={onTmTagBlur}
         placeholder={translate("tm_tagPlaceholder")}
         errorText={fieldErrors.tm_tag}
-        styles={styles}
-      />
-      <FieldRow
-        id={ID.tm_queue}
-        label={
-          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
-            <span>{translate("tm_queueLabel")}</span>
-          </Tooltip>
-        }
-        value={localTmQueue}
-        onChange={onTmQueueChange}
-        onBlur={onTmQueueBlur}
-        placeholder={translate("tm_queuePlaceholder")}
-        errorText={fieldErrors.tm_queue}
-        styles={styles}
-      />
-      <FieldRow
-        id={ID.tm_priority}
-        label={
-          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
-            <span>{translate("tm_priorityLabel")}</span>
-          </Tooltip>
-        }
-        value={localTmPriority}
-        onChange={onTmPriorityChange}
-        onBlur={onTmPriorityBlur}
-        placeholder={translate("tm_priorityPlaceholder")}
-        errorText={fieldErrors.tm_priority}
         styles={styles}
       />
       <SettingRow
@@ -821,8 +787,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
-    tm_queue: "setting-tm-queue",
-    tm_priority: "setting-tm-priority",
     tm_description: "setting-tm-description",
     tm_rtc: "setting-tm-rtc",
     optResponseFormat: "setting-opt-response-format",
@@ -900,16 +864,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localTmTag, setLocalTmTag] = React.useState<string>(() => {
     const v = (config as any)?.tm_tag
     return typeof v === "string" ? v : ""
-  })
-  const [localTmQueue, setLocalTmQueue] = React.useState<string>(() => {
-    const v = (config as any)?.tm_queue
-    return typeof v === "string" ? v : ""
-  })
-  const [localTmPriority, setLocalTmPriority] = React.useState<string>(() => {
-    const v = (config as any)?.tm_priority
-    if (typeof v === "number" && Number.isFinite(v)) return String(v)
-    if (typeof v === "string") return v
-    return ""
   })
   const [localTmDescription, setLocalTmDescription] = React.useState<string>(
     () => {
@@ -2118,8 +2072,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         localTmTtc={localTmTtc}
         localTmTtl={localTmTtl}
         localTmTag={localTmTag}
-        localTmQueue={localTmQueue}
-        localTmPriority={localTmPriority}
         localTmDescription={localTmDescription}
         localTmRtc={localTmRtc}
         localOptResponseFormat={localOptResponseFormat}
@@ -2136,13 +2088,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         onTmTagChange={(val: string) => {
           setLocalTmTag(val)
           // Don't update config on every keystroke
-        }}
-        onTmQueueChange={(val: string) => {
-          setLocalTmQueue(val)
-        }}
-        onTmPriorityChange={(val: string) => {
-          setLocalTmPriority(val)
-          setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
         }}
         onTmDescriptionChange={(val: string) => {
           setLocalTmDescription(val)
@@ -2203,37 +2148,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }}
         onTmTagBlur={(val: string) => {
           updateConfig("tm_tag", val)
-        }}
-        onTmQueueBlur={(val: string) => {
-          const trimmed = (val ?? "").trim()
-          if (!trimmed) {
-            updateConfig("tm_queue", undefined as any)
-            setLocalTmQueue("")
-            return
-          }
-          const limited = trimmed.slice(0, 128)
-          updateConfig("tm_queue", limited as any)
-          setLocalTmQueue(limited)
-        }}
-        onTmPriorityBlur={(val: string) => {
-          const trimmed = (val ?? "").trim()
-          if (!trimmed) {
-            updateConfig("tm_priority", undefined as any)
-            setLocalTmPriority("")
-            setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
-            return
-          }
-          const coerced = parseNonNegativeInt(trimmed)
-          if (coerced === undefined) {
-            setFieldErrors((prev) => ({
-              ...prev,
-              tm_priority: translate("tm_priorityInvalid"),
-            }))
-            return
-          }
-          setFieldErrors((prev) => ({ ...prev, tm_priority: undefined }))
-          updateConfig("tm_priority", coerced as any)
-          setLocalTmPriority(String(coerced))
         }}
         onTmDescriptionBlur={(val: string) => {
           const trimmed = (val ?? "").trim()

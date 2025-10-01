@@ -474,8 +474,6 @@ describe("shared/utils", () => {
         tm_ttc: "30",
         tm_ttl: 60,
         tm_tag: " tag ",
-        tm_queue: " queue ",
-        tm_priority: "8",
         tm_rtc: true,
         tm_description: " detail ",
         syncMode: false,
@@ -484,10 +482,10 @@ describe("shared/utils", () => {
       expect(params.tm_ttc).toBe(30)
       expect(params.tm_ttl).toBe(60)
       expect(params.tm_tag).toBe("tag")
-      expect(params.tm_queue).toBe("queue")
-      expect(params.tm_priority).toBe(8)
       expect(params.tm_rtc).toBe(true)
       expect(params.tm_description).toBe("detail")
+      expect(params).not.toHaveProperty("tm_queue")
+      expect(params).not.toHaveProperty("tm_priority")
 
       const modules: any = {
         Polygon: { fromJSON: (j: any) => ({ ...j, toJSON: () => j }) },
@@ -511,7 +509,6 @@ describe("shared/utils", () => {
           config: {
             allowScheduleMode: true,
             tm_ttc: 10,
-            tm_queue: "Q1",
           } as any,
         }
       )
@@ -519,7 +516,7 @@ describe("shared/utils", () => {
       // requester email is only set for async mode
       expect((p as any).opt_requesteremail).toBeUndefined()
       expect(p.tm_ttc).toBe(10)
-      expect(p.tm_queue).toBe("Q1")
+      expect(p).not.toHaveProperty("tm_queue")
       expect(p.AreaOfInterest).toBeTruthy()
       expect(Object.prototype.hasOwnProperty.call(p, "_serviceMode")).toBe(
         false

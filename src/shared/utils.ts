@@ -973,14 +973,6 @@ export const applyDirectiveDefaults = (
     const tag = toTrimmedString(config.tm_tag)
     if (tag) out.tm_tag = tag.substring(0, 128)
   }
-  if (!has("tm_queue")) {
-    const queue = toTrimmedString(config.tm_queue)
-    if (queue) out.tm_queue = queue.substring(0, 128)
-  }
-  if (!has("tm_priority")) {
-    const v = toPosInt(config.tm_priority)
-    if (v !== undefined) out.tm_priority = v
-  }
   if (!has("tm_rtc") && typeof config.tm_rtc === "boolean") {
     out.tm_rtc = config.tm_rtc
   }

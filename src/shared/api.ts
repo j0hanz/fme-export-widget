@@ -417,7 +417,7 @@ export function isWebhookUrlTooLong(
   )
   const params = buildParams(
     parameters,
-    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
+    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
     true
   )
   appendWebhookTmParams(params, parameters)
@@ -516,9 +516,6 @@ const appendWebhookTmParams = (
 
   const tag = normalizeText((source as any).tm_tag, 128)
   if (tag) params.set("tm_tag", tag)
-
-  const queue = normalizeText((source as any).tm_queue, 128)
-  if (queue) params.set("tm_queue", queue)
 }
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
@@ -694,11 +691,6 @@ export class FmeFlowApiClient {
       typeof params.tm_tag === "string" && params.tm_tag.trim()
         ? params.tm_tag.trim()
         : undefined
-    const queue =
-      typeof params.tm_queue === "string" && params.tm_queue.trim()
-        ? params.tm_queue.trim().slice(0, 128)
-        : undefined
-    const priority = toPosInt(params.tm_priority)
     let rtc: boolean | undefined
     if (typeof params.tm_rtc === "boolean") {
       rtc = params.tm_rtc
@@ -715,8 +707,6 @@ export class FmeFlowApiClient {
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
     if (tag !== undefined) tmDirectives.tag = tag
-    if (queue !== undefined) tmDirectives.queue = queue
-    if (priority !== undefined) tmDirectives.priority = priority
     if (typeof rtc === "boolean") tmDirectives.rtc = rtc
     if (description !== undefined) tmDirectives.description = description
 
@@ -1043,7 +1033,7 @@ export class FmeFlowApiClient {
         // Prepare URLSearchParams body, excluding TM directives which are control-plane only
         const params = buildParams(
           parameters,
-          ["tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
+          ["tm_ttc", "tm_ttl", "tm_tag"],
           false
         )
         // Show result inline (lets FME stream the generated content)
@@ -1202,7 +1192,7 @@ export class FmeFlowApiClient {
       )
       const params = buildParams(
         parameters,
-        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag", "tm_queue"],
+        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
         true
       )
 
