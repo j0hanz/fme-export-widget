@@ -517,6 +517,7 @@ export interface FieldProps extends BaseProps {
   readonly children?: React.ReactNode
   readonly helper?: string
   readonly readOnly?: boolean
+  readonly check?: boolean
 }
 
 export interface StateViewProps extends BaseProps {

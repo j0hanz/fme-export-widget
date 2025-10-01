@@ -471,16 +471,14 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.SWITCH:
         return (
-          <>
-            <Switch
-              checked={Boolean(fieldValue)}
-              onChange={(_evt, checked) => {
-                onChange(checked)
-              }}
-              disabled={field.readOnly}
-              aria-label={field.label}
-            />
-          </>
+          <Switch
+            checked={Boolean(fieldValue)}
+            onChange={(_evt, checked) => {
+              onChange(checked)
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
         )
       case FormFieldType.RADIO: {
         const options = field.options || []

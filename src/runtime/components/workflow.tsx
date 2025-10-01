@@ -942,12 +942,16 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
           if (!field || !field.name || !field.type) {
             return null
           }
+          const isInlineField =
+            field.type === FormFieldType.SWITCH ||
+            field.type === FormFieldType.CHECKBOX
           return (
             <Field
               key={field.name}
               label={field.label}
               required={field.required}
               error={resolveError(formState.errors[field.name])}
+              check={isInlineField}
             >
               <DynamicField
                 field={field}

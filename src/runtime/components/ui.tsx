@@ -31,6 +31,7 @@ import {
   MultiSelect,
   SVG,
   Table as JimuTable,
+  RichDisplayer,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
@@ -39,7 +40,6 @@ import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import {
   EMAIL_PLACEHOLDER,
-  stripHtmlToText,
   styleCss,
   getErrorIconSrc,
   getBtnAria,
@@ -1027,11 +1027,20 @@ export const RichText: React.FC<{
   className?: string
   style?: React.CSSProperties
 }> = ({ html, placeholder, className, style }) => {
-  const text = stripHtmlToText(html)
+  if (!html || html.trim().length === 0) {
+    return (
+      <div className={className} css={styleCss(style)}>
+        {placeholder || ""}
+      </div>
+    )
+  }
+
   return (
-    <div className={className} css={styleCss(style)}>
-      {text || placeholder || ""}
-    </div>
+    <RichDisplayer
+      className={className}
+      css={styleCss(style)}
+      value={html}
+    />
   )
 }
 
@@ -1673,6 +1682,7 @@ export const Field: React.FC<FieldProps> = ({
   helper,
   required = false,
   readOnly = false,
+  check = false,
   error,
   children,
 }) => {
@@ -1690,15 +1700,28 @@ export const Field: React.FC<FieldProps> = ({
       className={className}
       css={applyComponentStyles([styles.fieldGroup], style)}
     >
-      <Label
-        css={[styles.block, styles.typography.label]}
-        check={false}
-        for={fieldId}
-      >
-        {label}
-        {required && getRequiredMark(translate, styles)}
-      </Label>
-      {!readOnly && renderedChild}
+      {check ? (
+        <Label
+          css={[styles.typography.label]}
+          check={true}
+        >
+          {label}
+          {required && getRequiredMark(translate, styles)}
+          {!readOnly && renderedChild}
+        </Label>
+      ) : (
+        <>
+          <Label
+            css={[styles.block, styles.typography.label]}
+            check={false}
+            for={fieldId}
+          >
+            {label}
+            {required && getRequiredMark(translate, styles)}
+          </Label>
+          {!readOnly && renderedChild}
+        </>
+      )}
       {helper && !error && (
         <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
       )}
