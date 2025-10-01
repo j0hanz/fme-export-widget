@@ -279,10 +279,13 @@ const createStyles = (theme: IMThemeVariables) => {
         flex: flexAuto,
         minBlockSize: 0,
         gap: gapSmall,
-        overflowY: "auto",
-        paddingBlock: `0 ${gapSmall}`,
       }),
-      body: flexColumn({ flex: "0 0 auto", minBlockSize: 0, gap: gapSmall }),
+      body: flexColumn({
+        flex: flexAuto,
+        minBlockSize: 0,
+        gap: gapSmall,
+        overflowY: "auto",
+      }),
       footer: flexColumn({ flex: "0 0 auto", gap: gapSmall }),
     },
 
