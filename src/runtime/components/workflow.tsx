@@ -1085,7 +1085,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
             return (
               <div role="group" aria-label={ariaLabel}>
                 {hasActions && (
-                  <div css={styles.button.group}>
+                  <div css={styles.button.default}>
                     {(viewActions || []).map((action, index) => (
                       <Button
                         key={`${action.label}-${index}`}

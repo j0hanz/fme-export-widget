@@ -437,7 +437,6 @@ describe("FME dataset submission behavior", () => {
         },
       },
     })
-
     ;(global as any).__WORKFLOW_FORM_DATA__ = {
       type: "demo",
       data: {

@@ -142,32 +142,47 @@ const createStyles = (theme: IMThemeVariables) => {
   const spacing = theme.sys.spacing
   const colors = theme.sys.color
   const typography = theme.sys.typography
+  const gapSmall = spacing?.(1) ?? "1rem"
+  const gapMedium = spacing?.(2) ?? gapSmall
+  const flexAuto = "1 1 auto"
 
   return {
     // Layout utilities with better performance
-    row: css({ display: "flex" }),
-    btnFlex: css({ flex: 1, marginTop: 15 }),
+    row: css({ display: "flex", flexFlow: "row wrap", gap: gapMedium }),
+    btnFlex: css({ flex: flexAuto, marginBlockStart: gapMedium }),
     fullWidth: css({
       display: "flex",
-      width: "100%",
-      flexDirection: "column",
-      minWidth: 0,
+      flexFlow: "column nowrap",
+      inlineSize: "100%",
+      flex: flexAuto,
+      minInlineSize: 0,
     }),
     relative: css({ position: "relative" }),
-    block: css({ display: "block" }),
-    marginTop: (value: number) => css({ marginTop: value }),
-    gapBtnGroup: css({ gap: spacing?.(2) }),
+    marginTop: (value: number | string) =>
+      css({
+        marginBlockStart: typeof value === "number" ? `${value}px` : value,
+      }),
+    rowAlignCenter: css({ alignItems: "center" }),
 
     // Interactive utilities
-    disabledCursor: css({ display: "inline-block", cursor: "not-allowed" }),
+    disabledCursor: css({
+      display: "inline-flex",
+      flexFlow: "row wrap",
+      cursor: "not-allowed",
+    }),
+    disabledPicker: css({
+      pointerEvents: "none",
+      display: "flex",
+      flexFlow: "row wrap",
+    }),
     textareaResize: css({ resize: "vertical" }),
 
     // Main layout styles
     parent: css({
       display: "flex",
-      flexFlow: "column",
+      flexFlow: "column nowrap",
       overflowY: "auto",
-      height: "100%",
+      blockSize: "100%",
       position: "relative",
       padding: spacing?.(1),
       backgroundColor: colors?.surface?.paper,
@@ -175,24 +190,25 @@ const createStyles = (theme: IMThemeVariables) => {
 
     header: css({
       display: "flex",
-      justifyContent: "end",
-      flexShrink: 0,
+      flexFlow: "row wrap",
+      placeContent: "end",
+      flex: "0 0 auto",
     }),
 
     content: css({
       display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      flex: "1 1 auto",
+      flexFlow: "column nowrap",
+      placeContent: "center",
+      flex: flexAuto,
     }),
 
     // State patterns
     centered: css({
       display: "flex",
-      flexFlow: "column",
+      flexFlow: "column nowrap",
       placeContent: "center",
-      gap: spacing?.(1),
-      height: "100%",
+      gap: gapSmall,
+      blockSize: "100%",
     }),
 
     overlay: css({
@@ -208,28 +224,27 @@ const createStyles = (theme: IMThemeVariables) => {
       caption: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        marginBottom: spacing?.(3),
+        marginBlockEnd: spacing?.(3),
       }),
 
       label: css({
-        display: "block",
+        display: "flex",
+        flexFlow: "row wrap",
         ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
-        marginBottom: 0,
+        marginBlockEnd: 0,
       }),
 
       title: css({
         ...getTypographyStyle(typography?.title2),
         color: colors?.surface?.backgroundText,
-        marginBlock: spacing?.(1),
-        marginInline: 0,
+        margin: `${spacing?.(1)} 0`,
       }),
 
       instruction: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        marginBlock: spacing?.(3),
-        marginInline: 0,
+        margin: `${spacing?.(3)} 0`,
         textAlign: "center",
       }),
 
@@ -252,40 +267,61 @@ const createStyles = (theme: IMThemeVariables) => {
 
     // Button styles
     button: {
-      group: css({
-        display: "flex",
-        gap: spacing?.(1),
-      }),
-
       default: css({
         display: "flex",
-        flexFlow: "column",
-        width: "100%",
-        gap: spacing?.(1),
+        flexFlow: "column nowrap",
+        inlineSize: "100%",
+        gap: gapSmall,
       }),
 
-      text: css({
-        flex: 1,
-      }),
+      text: (align: BtnContentProps["alignText"]) =>
+        css({
+          flex: flexAuto,
+          textAlign: (align || "start") as any,
+          paddingInlineEnd: config.button.textPadding,
+        }),
 
       icon: css({
         position: "absolute",
         zIndex: 1,
-        top: "50%",
+        insetBlockStart: "50%",
+        insetInlineEnd: config.button.offset,
         transform: "translateY(-50%)",
       }),
     },
 
     fieldGroup: css({
-      marginBottom: spacing?.(2),
+      marginBlockEnd: spacing?.(2),
     }),
 
     checkLabel: css({
       display: "flex",
+      flexFlow: "row wrap",
       alignItems: "center",
       justifyContent: "space-between",
-      width: "100%",
+      inlineSize: "100%",
     }),
+
+    tooltipWrap: {
+      block: css({
+        display: "flex",
+        flexFlow: "row wrap",
+        inlineSize: "100%",
+        minInlineSize: 0,
+      }),
+      inline: css({
+        display: "inline-flex",
+        flexFlow: "row wrap",
+        minInlineSize: 0,
+      }),
+      anchor: css({
+        display: "flex",
+        flexFlow: "row wrap",
+        flex: flexAuto,
+        minInlineSize: 0,
+        "& > *": { flex: flexAuto, minInlineSize: 0 },
+      }),
+    },
   } as const
 }
 
@@ -379,25 +415,19 @@ const wrapWithTooltip = (
     block?: boolean
     jimuCss?: any
     jimuStyle?: React.CSSProperties
+    styles: Styles
   }
 ) => {
-  const { tooltip, placement, block, jimuCss, jimuStyle } = opts || {}
+  const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts
   if (!tooltip) return element
 
   const wrapperCss = [
     jimuCss,
     styleCss(jimuStyle),
-    block
-      ? css({ display: "block", width: "100%", minWidth: 0 })
-      : css({ display: "inline-flex", minWidth: 0 }),
+    block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
   ]
 
-  const anchorCss = css({
-    display: "flex",
-    flex: "1 1 auto",
-    minWidth: 0,
-    "& > *": { flex: 1, minWidth: 0 },
-  })
+  const anchorCss = styles.tooltipWrap.anchor
 
   return (
     <span css={wrapperCss as any}>
@@ -489,10 +519,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
     )
 
   const iconWithPosition = (
-    <span
-      css={[styles.button.icon, css({ right: config.button.offset })]}
-      aria-hidden="true"
-    >
+    <span css={styles.button.icon} aria-hidden="true">
       {iconEl}
     </span>
   )
@@ -500,17 +527,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {/* left icon not supported */}
-      <div
-        css={[
-          styles.button.text,
-          css({
-            textAlign: alignText as any,
-            paddingRight: config.button.textPadding,
-          }),
-        ]}
-      >
-        {text}
-      </div>
+      <div css={styles.button.text(alignText)}>{text}</div>
       {iconWithPosition}
     </>
   )
@@ -1016,10 +1033,7 @@ export const DateTimePickerWrapper: React.FC<{
 
   if (disabled) {
     return (
-      <span
-        aria-disabled="true"
-        style={{ pointerEvents: "none", display: "block" }}
-      >
+      <span aria-disabled="true" css={styles.disabledPicker}>
         {picker}
       </span>
     )
@@ -1260,7 +1274,7 @@ export const Button: React.FC<ButtonProps> = ({
         styles.relative,
         // When not using tooltip, carry caller styles directly on the button
         !hasTooltip && jimuCss,
-        !hasTooltip && jimuStyle && css(jimuStyle),
+        !hasTooltip && styleCss(jimuStyle),
       ]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
@@ -1282,6 +1296,7 @@ export const Button: React.FC<ButtonProps> = ({
         block,
         jimuCss,
         jimuStyle,
+        styles,
       })
     : buttonElement
 }
@@ -1314,7 +1329,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
     <AdvancedButtonGroup
       role="tablist"
       aria-label={ariaLabel}
-      css={[styles.row, styles.gapBtnGroup]}
+      css={[styles.row]}
     >
       {items.map((item, i) => {
         const active = currentValue === item.value
@@ -1503,7 +1518,7 @@ const StateView: React.FC<StateViewProps> = ({
       case "error":
         return (
           <div role="alert" aria-live="assertive">
-            <div css={css({ display: "flex", alignItems: "center", gap: 6 })}>
+            <div css={[styles.row, styles.rowAlignCenter]}>
               <Icon
                 src={getErrorIconSrc((state as any).code)}
                 size={config.icon.large}
@@ -1581,6 +1596,9 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
   style,
 }) => {
   const styles = useStyles()
+  const theme = useTheme()
+  const spacing = theme.sys.spacing
+  const gapSmall = spacing?.(1) ?? "1rem"
 
   if (!leftButton && !rightButton) {
     return null
@@ -1601,7 +1619,10 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
 
   return (
     <div
-      css={applyComponentStyles([styles.button.group], style as any)}
+      css={applyComponentStyles(
+        [css({ display: "flex", flexFlow: "row wrap", gap: gapSmall })],
+        style as any
+      )}
       className={className}
     >
       {leftButton && createButton(leftButton, "left")}
@@ -1715,7 +1736,7 @@ export const Field: React.FC<FieldProps> = ({
       ) : (
         <>
           <Label
-            css={[styles.block, styles.typography.label]}
+            css={[styles.row, styles.typography.label]}
             check={false}
             for={fieldId}
           >
