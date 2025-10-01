@@ -406,6 +406,88 @@ describe("FME dataset submission behavior", () => {
     const mockClientInstance = createFmeFlowClient.mock.results[0].value
     expect(mockClientInstance.uploadToTemp).toHaveBeenCalled()
   })
+
+  test("removes opt_geturl when remote datasets are disallowed", async () => {
+    const Wrapped = wrap({})
+    const renderWithProviders = widgetRender(true)
+
+    updateStore({
+      "fme-state": {
+        byId: {
+          wZ: {
+            viewMode: ViewMode.EXPORT_FORM,
+            clickCount: 0,
+            isSubmittingOrder: false,
+            drawingTool: DrawingTool.POLYGON,
+            drawnArea: 500,
+            geometryJson: {
+              rings: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+            selectedWorkspace: "demo",
+            workspaceParameters: [],
+          },
+        },
+      },
+    })
+
+    ;(global as any).__WORKFLOW_FORM_DATA__ = {
+      type: "demo",
+      data: {
+        opt_geturl: "https://data.example.com/ignored.zip",
+      },
+    }
+
+    renderWithProviders(
+      <Wrapped
+        theme={mockTheme}
+        id="wZ"
+        widgetId="wZ"
+        useMapWidgetIds={["map_Z"] as any}
+        config={{ repository: "repoA", allowRemoteUrlDataset: false } as any}
+      />
+    )
+
+    updateStore({
+      "fme-state": {
+        byId: {
+          wZ: {
+            viewMode: ViewMode.EXPORT_FORM,
+            selectedWorkspace: "demo",
+            workspaceParameters: [],
+            isSubmittingOrder: false,
+            drawnArea: 500,
+            geometryJson: {
+              rings: [
+                [
+                  [0, 0],
+                  [1, 0],
+                  [1, 1],
+                  [0, 1],
+                  [0, 0],
+                ],
+              ],
+            },
+          },
+        },
+      },
+    })
+
+    await waitFor(() => {
+      expect((global as any).__LAST_FME_CALL__).toBeTruthy()
+    })
+
+    const call = (global as any).__LAST_FME_CALL__
+    expect(call.workspace).toBe("demo")
+    expect(call.params.opt_geturl).toBeUndefined()
+  })
 })
 
 describe("FME internal helper functions", () => {

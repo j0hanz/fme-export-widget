@@ -213,11 +213,27 @@ interface MutableParams {
   __aoi_error__?: unknown
 }
 
-const sanitizeOptGetUrlParam = (params: MutableParams): void => {
+const sanitizeOptGetUrlParam = (
+  params: MutableParams,
+  config: FmeExportConfig | null | undefined
+): void => {
   const value = params.opt_geturl
-  if (typeof value !== "string" || !value.trim()) {
+
+  if (typeof value !== "string") {
     delete params.opt_geturl
+    return
   }
+
+  const trimmed = value.trim()
+  const urlIsAllowed = Boolean(config?.allowRemoteUrlDataset)
+  const urlIsValid = isValidExternalUrlForOptGetUrl(trimmed)
+
+  if (!trimmed || !urlIsAllowed || !urlIsValid) {
+    delete params.opt_geturl
+    return
+  }
+
+  params.opt_geturl = trimmed
 }
 
 const shouldApplyRemoteDatasetUrl = (
@@ -1387,7 +1403,7 @@ export default function Widget(
       // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
       let finalParams: { [key: string]: unknown } = { ...baseParams }
 
-      sanitizeOptGetUrlParam(finalParams)
+      sanitizeOptGetUrlParam(finalParams, latestConfig)
 
       if (shouldApplyRemoteDatasetUrl(remoteUrl, latestConfig)) {
         finalParams.opt_geturl = remoteUrl
