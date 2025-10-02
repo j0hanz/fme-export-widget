@@ -8,6 +8,8 @@ import type {
   JobResponse,
   JobResult,
   PrimitiveParams,
+  EsriRequestConfig,
+  EsriMockKey,
 } from "../config"
 import { FmeFlowApiError, HttpMethod } from "../config"
 import {
@@ -53,15 +55,13 @@ let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
-const ESRI_GLOBAL_MOCK_KEYS = [
+const ESRI_GLOBAL_MOCK_KEYS: readonly EsriMockKey[] = [
   "esriRequest",
   "esriConfig",
   "projection",
   "webMercatorUtils",
   "SpatialReference",
 ] as const
-
-type EsriMockKey = (typeof ESRI_GLOBAL_MOCK_KEYS)[number]
 
 const getEsriMockFallback = (key: EsriMockKey): unknown => {
   switch (key) {
@@ -218,10 +218,6 @@ async function ensureEsri(): Promise<void> {
   }
 
   return loadPromise
-}
-
-interface EsriRequestConfig {
-  request: { maxUrlLength: number; interceptors: any[] }
 }
 
 async function getEsriConfig(): Promise<EsriRequestConfig | null> {

@@ -1,4 +1,5 @@
 import type { IMState, ImmutableObject } from "jimu-core"
+import type FmeFlowApiClient from "./shared/api"
 
 export const enum ViewMode {
   STARTUP_VALIDATION = "startup-validation",
@@ -172,6 +173,12 @@ export interface TextOrFileValue {
   readonly fileName?: string
 }
 
+export type TextOrFileMode = "text" | "file"
+
+export interface NormalizedTextOrFile extends TextOrFileValue {
+  readonly file?: unknown
+}
+
 export type FormValue =
   | string
   | number
@@ -191,6 +198,8 @@ export interface FormValues {
 export interface PrimitiveParams {
   [key: string]: unknown
 }
+
+export type MakeCancelableFn = <T>(promise: Promise<T>) => Promise<T>
 export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
@@ -248,6 +257,22 @@ export const makeErrorView = (
   actions: opts?.actions,
   recoverable: opts?.recoverable,
 })
+
+export type LoadingSnapshot = {
+  readonly message?: React.ReactNode
+  readonly detail?: React.ReactNode
+} | null
+
+export interface DrawingSessionState {
+  isActive: boolean
+  clickCount: number
+}
+
+export interface MutableParams {
+  [key: string]: unknown
+  opt_geturl?: unknown
+  __aoi_error__?: unknown
+}
 
 // Error handling
 export interface ErrorState {
@@ -606,6 +631,17 @@ export interface RequestConfig {
   readonly repositoryContext?: string
 }
 
+export interface EsriRequestConfig {
+  readonly request: { maxUrlLength: number; interceptors: any[] }
+}
+
+export type EsriMockKey =
+  | "esriRequest"
+  | "esriConfig"
+  | "projection"
+  | "webMercatorUtils"
+  | "SpatialReference"
+
 export interface ApiResponse<T = unknown> {
   readonly data: T
   readonly status: number
@@ -766,6 +802,15 @@ export interface EsriModules {
   }
 }
 
+export interface DerivedParamNames {
+  readonly geoJsonName?: string
+  readonly wktName?: string
+}
+
+export type ServiceMode = "sync" | "async" | "schedule"
+
+export type CoordinateTuple = readonly number[]
+
 export interface ExportResult {
   readonly success: boolean
   readonly message: string
@@ -776,6 +821,37 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
+}
+
+export interface RemoteDatasetOptions {
+  params: MutableParams
+  remoteUrl: string
+  uploadFile: File | null
+  config: FmeExportConfig | null | undefined
+  workspaceParameters?: readonly WorkspaceParameter[] | null
+  makeCancelable: MakeCancelableFn
+  fmeClient: FmeFlowApiClient
+  signal: AbortSignal
+  subfolder: string
+}
+
+export interface SubmissionPreparationOptions {
+  rawFormData: { [key: string]: unknown }
+  userEmail: string
+  geometryJson: unknown
+  geometry: __esri.Geometry | null | undefined
+  modules: EsriModules | null
+  config: FmeExportConfig | null | undefined
+  workspaceParameters?: readonly WorkspaceParameter[] | null
+  makeCancelable: MakeCancelableFn
+  fmeClient: FmeFlowApiClient
+  signal: AbortSignal
+  remoteDatasetSubfolder: string
+}
+
+export interface SubmissionPreparationResult {
+  params: { [key: string]: unknown } | null
+  aoiError?: ErrorState
 }
 
 // Redux state
@@ -902,6 +978,20 @@ export interface JobDirectivesSectionProps {
 export type TmTagPreset = "normal" | "fast"
 
 // Workflow props
+export interface WorkspaceLoaderOptions {
+  readonly config?: FmeExportConfig
+  readonly getFmeClient: () => FmeFlowApiClient | null
+  readonly translate: (key: string) => string
+  readonly makeCancelable: MakeCancelableFn
+  readonly widgetId: string
+  readonly onWorkspaceSelected?: (
+    workspaceName: string,
+    params: readonly WorkspaceParameter[],
+    item: WorkspaceItemDetail
+  ) => void
+  readonly dispatch: (action: unknown) => void
+}
+
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig

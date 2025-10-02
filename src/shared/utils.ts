@@ -6,6 +6,9 @@ import type {
   PrimitiveParams,
   TextOrFileValue,
   WorkspaceParameter,
+  DerivedParamNames,
+  ServiceMode,
+  CoordinateTuple,
 } from "../config"
 import { ErrorType, ErrorSeverity, ParameterType } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
@@ -420,7 +423,6 @@ const GEOMETRY_CONSTS = {
   AREA_DECIMALS: 2,
 } as const
 
-type ServiceMode = "sync" | "async" | "schedule"
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "sync",
   "async",
@@ -598,8 +600,6 @@ export const buildFmeParams = (
   }
   return base
 }
-
-type CoordinateTuple = readonly number[]
 
 const normalizeCoordinate = (vertex: unknown): number[] | null => {
   if (!Array.isArray(vertex) || vertex.length < 2) return null
@@ -804,11 +804,6 @@ const createAoiSerializationError = (): ErrorState => ({
   timestamp: new Date(),
   timestampMs: Date.now(),
 })
-
-interface DerivedParamNames {
-  geoJsonName?: string
-  wktName?: string
-}
 
 const sanitizeOptionalParamName = (name: unknown): string | undefined => {
   const sanitized = sanitizeParamKey(name, "")

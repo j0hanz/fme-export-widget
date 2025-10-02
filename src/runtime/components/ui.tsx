@@ -76,6 +76,7 @@ import type {
   BtnContentProps,
   StateViewProps,
   TranslateFn,
+  LoadingSnapshot,
 } from "../../config"
 
 // Configuration
@@ -309,10 +310,8 @@ const createStyles = (theme: IMThemeVariables) => {
   } as const
 }
 
-type Styles = ReturnType<typeof createStyles>
-
 // Theme-aware styles hook
-export const useStyles = (): Styles => {
+export const useStyles = (): ReturnType<typeof createStyles> => {
   const theme = useTheme()
   return createStyles(theme)
 }
@@ -371,7 +370,7 @@ const applyComponentStyles = (
 ) => [...base, styleCss(customStyle)].filter(Boolean)
 
 const applyFullWidthStyles = (
-  styles: Styles,
+  styles: ReturnType<typeof createStyles>,
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle)
 
@@ -399,7 +398,7 @@ const wrapWithTooltip = (
     block?: boolean
     jimuCss?: any
     jimuStyle?: React.CSSProperties
-    styles: Styles
+    styles: ReturnType<typeof createStyles>
   }
 ) => {
   const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts
@@ -1346,11 +1345,6 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
     </AdvancedButtonGroup>
   )
 }
-
-type LoadingSnapshot = {
-  readonly message?: React.ReactNode
-  readonly detail?: React.ReactNode
-} | null
 
 const useLoadingLatch = (
   state: StateViewProps["state"],

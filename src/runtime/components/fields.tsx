@@ -25,7 +25,8 @@ import {
   type DynamicFieldProps,
   type FormPrimitive,
   type SelectValue,
-  type TextOrFileValue,
+  type TextOrFileMode,
+  type NormalizedTextOrFile,
 } from "../../config"
 import defaultMessages from "./translations/default"
 import {
@@ -67,13 +68,6 @@ const TEXT_OR_FILE_MODES = {
   TEXT: "text",
   FILE: "file",
 } as const
-
-type TextOrFileMode =
-  (typeof TEXT_OR_FILE_MODES)[keyof typeof TEXT_OR_FILE_MODES]
-
-type NormalizedTextOrFile = TextOrFileValue & {
-  readonly file?: unknown
-}
 
 // Input rendering helper
 export const renderInputField = (

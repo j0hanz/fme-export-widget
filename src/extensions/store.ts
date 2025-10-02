@@ -13,6 +13,7 @@ import {
   type WorkspaceParameter,
   type ExportResult,
   type FormValues,
+  type IMFmeGlobalState,
 } from "../config"
 import { sanitizeFormValues } from "../shared/validations"
 import { toSerializable } from "../shared/utils"
@@ -350,13 +351,8 @@ const reduceOne = (
   return state
 }
 
-// Global reducer managing per-widget sub-states
-type GlobalState = ImmutableObject<{
-  byId: { [id: string]: ImmutableObject<FmeWidgetState> }
-}>
-
 const ensureSubState = (
-  global: GlobalState,
+  global: IMFmeGlobalState,
   widgetId: string
 ): ImmutableObject<FmeWidgetState> => {
   const current = (global as any).byId?.[widgetId] as
@@ -369,27 +365,29 @@ const ensureSubState = (
 }
 
 const setSubState = (
-  global: GlobalState,
+  global: IMFmeGlobalState,
   widgetId: string,
   next: ImmutableObject<FmeWidgetState>
-): GlobalState => {
+): IMFmeGlobalState => {
   const byId = { ...((global as any).byId || {}) }
   byId[widgetId] = next
-  return Immutable({ byId }) as unknown as GlobalState
+  return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
 
 // Root reducer that delegates to per-widget reducer
-const initialGlobalState = Immutable({ byId: {} }) as unknown as GlobalState
+const initialGlobalState = Immutable({
+  byId: {},
+}) as unknown as IMFmeGlobalState
 
 const fmeReducer = (
-  state: GlobalState = initialGlobalState,
+  state: IMFmeGlobalState = initialGlobalState,
   action: any
-): GlobalState => {
+): IMFmeGlobalState => {
   // Special: remove entire widget state
   if (action?.type === "fme/REMOVE_WIDGET_STATE" && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
     delete byId[action.widgetId]
-    return Immutable({ byId }) as unknown as GlobalState
+    return Immutable({ byId }) as unknown as IMFmeGlobalState
   }
 
   const widgetId: string | undefined = action?.widgetId

@@ -30,6 +30,11 @@ import type {
   WorkspaceItemDetail,
   ErrorState,
   ApiResponse,
+  DrawingSessionState,
+  MutableParams,
+  RemoteDatasetOptions,
+  SubmissionPreparationOptions,
+  SubmissionPreparationResult,
 } from "../config"
 import {
   makeErrorView,
@@ -121,11 +126,6 @@ const UPLOAD_PARAM_TYPES = [
   "REPROJECTION_FILE",
 ] as const
 
-interface DrawingSessionState {
-  isActive: boolean
-  clickCount: number
-}
-
 const resolveUploadTargetParam = (
   config: FmeExportConfig | null | undefined
 ): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
@@ -207,12 +207,6 @@ const isNavigatorOffline = (): boolean => {
   }
 }
 
-interface MutableParams {
-  [key: string]: unknown
-  opt_geturl?: unknown
-  __aoi_error__?: unknown
-}
-
 const sanitizeOptGetUrlParam = (
   params: MutableParams,
   config: FmeExportConfig | null | undefined
@@ -255,6 +249,101 @@ const removeAoiErrorMarker = (params: MutableParams): void => {
   if (typeof params.__aoi_error__ !== "undefined") {
     delete params.__aoi_error__
   }
+}
+
+const resolveRemoteDataset = async ({
+  params,
+  remoteUrl,
+  uploadFile,
+  config,
+  workspaceParameters,
+  makeCancelable,
+  fmeClient,
+  signal,
+  subfolder,
+}: RemoteDatasetOptions): Promise<void> => {
+  sanitizeOptGetUrlParam(params, config)
+
+  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
+    params.opt_geturl = remoteUrl
+    return
+  }
+
+  if (!shouldUploadRemoteDataset(config, uploadFile)) {
+    return
+  }
+
+  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
+    fmeClient.uploadToTemp(uploadFile, {
+      subfolder,
+      signal,
+    })
+  )
+
+  const uploadedPath = uploadResponse.data?.path
+  applyUploadedDatasetParam({
+    finalParams: params,
+    uploadedPath,
+    parameters: workspaceParameters,
+    explicitTarget: resolveUploadTargetParam(config),
+  })
+}
+
+const prepareSubmissionParams = async ({
+  rawFormData,
+  userEmail,
+  geometryJson,
+  geometry,
+  modules,
+  config,
+  workspaceParameters,
+  makeCancelable,
+  fmeClient,
+  signal,
+  remoteDatasetSubfolder,
+}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> => {
+  const { sanitizedFormData, uploadFile, remoteUrl } =
+    parseSubmissionFormData(rawFormData)
+
+  const baseParams = prepFmeParams(
+    {
+      data: sanitizedFormData,
+    },
+    userEmail,
+    geometryJson,
+    geometry || undefined,
+    modules,
+    {
+      config,
+      workspaceParameters,
+    }
+  )
+
+  const aoiError = (baseParams as MutableParams).__aoi_error__ as
+    | ErrorState
+    | undefined
+  if (aoiError) {
+    return { params: null, aoiError }
+  }
+
+  const params: MutableParams = { ...baseParams }
+
+  await resolveRemoteDataset({
+    params,
+    remoteUrl,
+    uploadFile,
+    config,
+    workspaceParameters,
+    makeCancelable,
+    fmeClient,
+    signal,
+    subfolder: remoteDatasetSubfolder,
+  })
+
+  const paramsWithDefaults = applyDirectiveDefaults(params, config as any)
+  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
+
+  return { params: paramsWithDefaults }
 }
 
 // ArcGIS JS API modules
@@ -1374,60 +1463,30 @@ export default function Widget(
       controller = submissionAbort.abortAndCreate()
 
       // Prepare parameters and handle remote URL / direct upload if present
-      const { sanitizedFormData, uploadFile, remoteUrl } =
-        parseSubmissionFormData(rawDataEarly)
-
-      // Build baseline params first (without opt_geturl)
-      const baseParams = prepFmeParams(
-        {
-          data: sanitizedFormData,
-        },
+      const subfolder = `widget_${(props as any)?.id || "fme"}`
+      const preparation = await prepareSubmissionParams({
+        rawFormData: rawDataEarly,
         userEmail,
-        reduxState.geometryJson,
-        getActiveGeometry() || undefined,
+        geometryJson: reduxState.geometryJson,
+        geometry: getActiveGeometry() || undefined,
         modules,
-        {
-          config: latestConfig,
-          workspaceParameters: reduxState.workspaceParameters,
-        }
-      )
+        config: latestConfig,
+        workspaceParameters: reduxState.workspaceParameters,
+        makeCancelable,
+        fmeClient,
+        signal: controller.signal,
+        remoteDatasetSubfolder: subfolder,
+      })
 
-      // Detect AOI serialization failure injected by attachAoi
-      if ((baseParams as any).__aoi_error__) {
-        const aoiErr = (baseParams as any).__aoi_error__ as ErrorState
-        // Surface user-friendly error and stop
-        dispatch(fmeActions.setError(aoiErr, widgetId))
+      if (preparation.aoiError) {
+        dispatch(fmeActions.setError(preparation.aoiError, widgetId))
         return
       }
 
-      // Prefer opt_geturl when a valid URL is provided; otherwise fall back to upload when available
-      let finalParams: { [key: string]: unknown } = { ...baseParams }
-
-      sanitizeOptGetUrlParam(finalParams, latestConfig)
-
-      if (shouldApplyRemoteDatasetUrl(remoteUrl, latestConfig)) {
-        finalParams.opt_geturl = remoteUrl
-      } else if (shouldUploadRemoteDataset(latestConfig, uploadFile)) {
-        const subfolder = `widget_${(props as any)?.id || "fme"}`
-        const uploadResp = await makeCancelable<ApiResponse<{ path: string }>>(
-          fmeClient.uploadToTemp(uploadFile, {
-            subfolder,
-            signal: controller.signal,
-          })
-        )
-        const uploadedPath = uploadResp.data?.path
-        applyUploadedDatasetParam({
-          finalParams,
-          uploadedPath,
-          parameters: reduxState.workspaceParameters,
-          explicitTarget: resolveUploadTargetParam(latestConfig),
-        })
+      const finalParams = preparation.params
+      if (!finalParams) {
+        throw new Error("Submission parameter preparation failed")
       }
-
-      // Apply admin defaults and record for testing
-      finalParams = applyDirectiveDefaults(finalParams, latestConfig as any)
-      // Ensure hidden error marker isn't leaked
-      removeAoiErrorMarker(finalParams)
       try {
         if (typeof globalThis !== "undefined") {
           ;(globalThis as any).__LAST_FME_CALL__ = {

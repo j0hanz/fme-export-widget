@@ -469,7 +469,7 @@ describe("Setting panel", () => {
     fireEvent.blur(ttlInput as Element)
 
     const tagToggle = screen.getByLabelText(/köval/i)
-  expect(tagToggle).not.toBeChecked()
+    expect(tagToggle).not.toBeChecked()
 
     fireEvent.click(tagToggle)
 

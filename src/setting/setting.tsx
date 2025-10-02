@@ -916,8 +916,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localTmTagEnabled, setLocalTmTagEnabled] = React.useState<boolean>(
     () => hasFastTag
   )
-  const [localTmTagPreset, setLocalTmTagPreset] =
-    React.useState<TmTagPreset>(() => initialTmTagPreset)
+  const [localTmTagPreset, setLocalTmTagPreset] = React.useState<TmTagPreset>(
+    () => initialTmTagPreset
+  )
   const [localTmDescription, setLocalTmDescription] = React.useState<string>(
     () => {
       const v = (config as any)?.tm_description

@@ -26,7 +26,7 @@ import {
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
-  type FmeExportConfig,
+  type WorkspaceLoaderOptions,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -111,20 +111,6 @@ const extractGeometryFieldNames = (
     names.push(trimmed)
   })
   return names
-}
-
-interface WorkspaceLoaderOptions {
-  config?: FmeExportConfig
-  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
-  translate: (k: string) => string
-  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
-  widgetId: string
-  onWorkspaceSelected?: (
-    workspaceName: string,
-    params: readonly WorkspaceParameter[],
-    item: WorkspaceItemDetail
-  ) => void
-  dispatch: (action: unknown) => void
 }
 
 // Form validation helpers
