@@ -502,6 +502,11 @@ export const sanitizeEngineDirectiveKey = (
   return `fme_${suffix.replace(/[^A-Za-z0-9_]/g, "").toUpperCase()}`
 }
 
+const truncateDirectiveValue = (value: string): string =>
+  value.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH
+    ? value.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
+    : value
+
 export const sanitizeEngineDirectiveValue = (
   value: unknown
 ): string | undefined => {
@@ -510,16 +515,11 @@ export const sanitizeEngineDirectiveValue = (
   if (typeof value === "boolean") return value ? "true" : "false"
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return undefined
-    const str = String(value)
-    return str.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH
-      ? str.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
-      : str
+    return truncateDirectiveValue(String(value))
   }
   if (typeof value === "string") {
     const trimmed = toTrimmedString(value) ?? ""
-    return trimmed.length > ENGINE_DIRECTIVE_VALUE_MAX_LENGTH
-      ? trimmed.slice(0, ENGINE_DIRECTIVE_VALUE_MAX_LENGTH)
-      : trimmed
+    return truncateDirectiveValue(trimmed)
   }
   return undefined
 }
