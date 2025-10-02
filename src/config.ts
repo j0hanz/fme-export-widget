@@ -864,7 +864,8 @@ export interface RepositorySelectorProps {
 export interface JobDirectivesSectionProps {
   readonly localTmTtc: string
   readonly localTmTtl: string
-  readonly localTmTag: string
+  readonly tmTagEnabled: boolean
+  readonly tmTagPreset: TmTagPreset
   readonly localTmDescription: string
   readonly localTmRtc: boolean
   readonly localOptResponseFormat: "json" | "xml"
@@ -872,7 +873,8 @@ export interface JobDirectivesSectionProps {
   readonly localEngineDirectives: string
   readonly onTmTtcChange: (value: string) => void
   readonly onTmTtlChange: (value: string) => void
-  readonly onTmTagChange: (value: string) => void
+  readonly onTmTagEnabledChange: (value: boolean) => void
+  readonly onTmTagPresetChange: (value: TmTagPreset) => void
   readonly onTmDescriptionChange: (value: string) => void
   readonly onTmRtcChange: (value: boolean) => void
   readonly onOptResponseFormatChange: (value: "json" | "xml") => void
@@ -880,7 +882,6 @@ export interface JobDirectivesSectionProps {
   readonly onEngineDirectivesChange: (value: string) => void
   readonly onTmTtcBlur: (value: string) => void
   readonly onTmTtlBlur: (value: string) => void
-  readonly onTmTagBlur: (value: string) => void
   readonly onTmDescriptionBlur: (value: string) => void
   readonly onEngineDirectivesBlur: (value: string) => void
   readonly fieldErrors: FieldErrors
@@ -897,6 +898,8 @@ export interface JobDirectivesSectionProps {
     readonly engineDirectives: string
   }
 }
+
+export type TmTagPreset = "normal" | "fast"
 
 // Workflow props
 export interface WorkflowProps extends BaseProps {

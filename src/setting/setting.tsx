@@ -63,6 +63,7 @@ import type {
   ConnectionTestSectionProps,
   RepositorySelectorProps,
   JobDirectivesSectionProps,
+  TmTagPreset,
 } from "../config"
 import { FmeFlowApiError, DEFAULT_DRAWING_HEX } from "../config"
 import resetIcon from "../assets/icons/refresh.svg"
@@ -82,11 +83,14 @@ const CONSTANTS = {
   },
   DIRECTIVES: {
     DESCRIPTION_MAX: 512,
+    TAG_MAX: 128,
   },
   COLORS: {
     BACKGROUND_DARK: "#181818",
   },
 } as const
+
+const FAST_TM_TAG = "fast"
 
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
@@ -420,7 +424,8 @@ const FieldRow: React.FC<{
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
-  localTmTag,
+  tmTagEnabled,
+  tmTagPreset,
   localTmDescription,
   localTmRtc,
   localOptResponseFormat,
@@ -428,7 +433,8 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localEngineDirectives,
   onTmTtcChange,
   onTmTtlChange,
-  onTmTagChange,
+  onTmTagEnabledChange,
+  onTmTagPresetChange,
   onTmDescriptionChange,
   onTmRtcChange,
   onOptResponseFormatChange,
@@ -436,7 +442,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   onEngineDirectivesChange,
   onTmTtcBlur,
   onTmTtlBlur,
-  onTmTagBlur,
   onTmDescriptionBlur,
   onEngineDirectivesBlur,
   fieldErrors,
@@ -444,6 +449,20 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   styles,
   ID,
 }) => {
+  const handleTagPresetChange = hooks.useEventCallback((value: unknown) => {
+    if (value === "fast") {
+      onTmTagPresetChange("fast")
+      return
+    }
+    onTmTagPresetChange("normal")
+  })
+
+  const tagOptions = [
+    { label: translate("tm_tagOptionNormal"), value: "normal" },
+    { label: translate("tm_tagOptionFast"), value: "fast" },
+  ]
+  const toggleId = `${ID.tm_tag}-toggle`
+
   return (
     <SettingSection>
       {/* Job directives (admin defaults) */}
@@ -475,20 +494,47 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         errorText={fieldErrors.tm_ttl}
         styles={styles}
       />
-      <FieldRow
-        id={ID.tm_tag}
+      <SettingRow
+        flow="no-wrap"
         label={
           <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
             {translate("tm_tagLabel")}
           </Tooltip>
         }
-        value={localTmTag}
-        onChange={onTmTagChange}
-        onBlur={onTmTagBlur}
-        placeholder={translate("tm_tagPlaceholder")}
-        errorText={fieldErrors.tm_tag}
-        styles={styles}
-      />
+        level={1}
+      >
+        <Switch
+          id={toggleId}
+          checked={tmTagEnabled}
+          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+            const checked = evt?.target?.checked ?? !tmTagEnabled
+            onTmTagEnabledChange(checked)
+          }}
+          aria-label={translate("tm_tagLabel")}
+        />
+      </SettingRow>
+      {tmTagEnabled && (
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip
+              content={translate("jobDirectivesHelper2")}
+              placement="top"
+            >
+              {translate("tm_tagLabel")}
+            </Tooltip>
+          }
+          level={2}
+          tag="label"
+        >
+          <Select
+            value={tmTagPreset}
+            options={tagOptions}
+            onChange={handleTagPresetChange}
+            aria-label={translate("tm_tagLabel")}
+          />
+        </SettingRow>
+      )}
       <SettingRow
         flow="wrap"
         label={
@@ -861,10 +907,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       ? String(v)
       : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
   })
-  const [localTmTag, setLocalTmTag] = React.useState<string>(() => {
-    const v = (config as any)?.tm_tag
-    return typeof v === "string" ? v : ""
-  })
+  const initialTmTagRaw = toTrimmedString((config as any)?.tm_tag) || ""
+  const initialTmTag = initialTmTagRaw
+    ? initialTmTagRaw.slice(0, CONSTANTS.DIRECTIVES.TAG_MAX)
+    : ""
+  const hasFastTag = initialTmTag === FAST_TM_TAG
+  const initialTmTagPreset: TmTagPreset = hasFastTag ? "fast" : "normal"
+  const [localTmTagEnabled, setLocalTmTagEnabled] = React.useState<boolean>(
+    () => hasFastTag
+  )
+  const [localTmTagPreset, setLocalTmTagPreset] =
+    React.useState<TmTagPreset>(() => initialTmTagPreset)
   const [localTmDescription, setLocalTmDescription] = React.useState<string>(
     () => {
       const v = (config as any)?.tm_description
@@ -1056,6 +1109,37 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
   })
+
+  const handleTmTagPresetChange = hooks.useEventCallback(
+    (preset: TmTagPreset) => {
+      setLocalTmTagPreset(preset)
+      setFieldErrors((prev) => ({ ...prev, tm_tag: undefined }))
+      if (!localTmTagEnabled) {
+        return
+      }
+      if (preset === "fast") {
+        updateConfig("tm_tag", FAST_TM_TAG as any)
+        return
+      }
+      updateConfig("tm_tag", undefined as any)
+    }
+  )
+
+  const handleTmTagEnabledChange = hooks.useEventCallback(
+    (enabled: boolean) => {
+      setLocalTmTagEnabled(enabled)
+      setFieldErrors((prev) => ({ ...prev, tm_tag: undefined }))
+      if (!enabled) {
+        updateConfig("tm_tag", undefined as any)
+        return
+      }
+      if (localTmTagPreset === "fast") {
+        updateConfig("tm_tag", FAST_TM_TAG as any)
+        return
+      }
+      updateConfig("tm_tag", undefined as any)
+    }
+  )
 
   const handleEngineDirectivesBlur = hooks.useEventCallback((value: string) => {
     const lines = (value || "")
@@ -2053,7 +2137,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       <JobDirectivesSection
         localTmTtc={localTmTtc}
         localTmTtl={localTmTtl}
-        localTmTag={localTmTag}
+        tmTagEnabled={localTmTagEnabled}
+        tmTagPreset={localTmTagPreset}
         localTmDescription={localTmDescription}
         localTmRtc={localTmRtc}
         localOptResponseFormat={localOptResponseFormat}
@@ -2067,10 +2152,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setLocalTmTtl(val)
           // Don't update config on every keystroke
         }}
-        onTmTagChange={(val: string) => {
-          setLocalTmTag(val)
-          // Don't update config on every keystroke
-        }}
+        onTmTagEnabledChange={handleTmTagEnabledChange}
+        onTmTagPresetChange={handleTmTagPresetChange}
         onTmDescriptionChange={(val: string) => {
           setLocalTmDescription(val)
           setFieldErrors((prev) => ({ ...prev, tm_description: undefined }))
@@ -2127,9 +2210,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           }
           updateConfig("tm_ttl", coerced as any)
           setLocalTmTtl(String(coerced))
-        }}
-        onTmTagBlur={(val: string) => {
-          updateConfig("tm_tag", val)
         }}
         onTmDescriptionBlur={(val: string) => {
           const trimmed = (val ?? "").trim()

@@ -445,7 +445,7 @@ describe("Setting panel", () => {
     expect(true).toBe(true) // Component is properly configured for repository changes
   })
 
-  test("job directives: numeric coerced, blank/invalid clears to default; tag saved as-is", async () => {
+  test("job directives: numeric coerced, blank/invalid clears to default; toggle controls tm_tag presets", async () => {
     const onSettingChange = jest.fn()
     const props = makeProps({ onSettingChange })
     renderSetting(<WrappedSetting {...props} />)
@@ -468,14 +468,45 @@ describe("Setting panel", () => {
     fireEvent.change(ttlInput as Element, { target: { value: "abc" } })
     fireEvent.blur(ttlInput as Element)
 
-    // tm_tag is separate, has its own placeholder
-    const tagInput = screen.getByPlaceholderText(/t\.ex\.?\s*high/i)
-    fireEvent.change(tagInput, { target: { value: "prio" } })
-    fireEvent.blur(tagInput)
+    const tagToggle = screen.getByLabelText(/köval/i)
+  expect(tagToggle).not.toBeChecked()
 
-    const queueInput = screen.getByPlaceholderText(/t\.ex\.?\s*priority/i)
-    fireEvent.change(queueInput, { target: { value: "  highQueue  " } })
-    fireEvent.blur(queueInput)
+    fireEvent.click(tagToggle)
+
+    await waitFor(() => {
+      expect(tagToggle).toBeChecked()
+    })
+
+    const tagSelect = await screen.findByRole("combobox", {
+      name: /köval/i,
+    })
+
+    fireEvent.change(tagSelect, { target: { value: "fast" } })
+
+    await waitFor(() => {
+      const calls = onSettingChange.mock.calls.map((c) => c[0])
+      const getVal = (cfg: any, key: string) =>
+        typeof cfg?.get === "function" ? cfg.get(key) : cfg?.[key]
+      expect(
+        calls.some((arg) => getVal(arg?.config, "tm_tag") === "fast")
+      ).toBe(true)
+    })
+
+    fireEvent.change(tagSelect, { target: { value: "normal" } })
+
+    await waitFor(() => {
+      const calls = onSettingChange.mock.calls.map((c) => c[0])
+      const getVal = (cfg: any, key: string) =>
+        typeof cfg?.get === "function" ? cfg.get(key) : cfg?.[key]
+      const latestCfg = calls[calls.length - 1]?.config
+      expect(getVal(latestCfg, "tm_tag")).toBeUndefined()
+    })
+
+    fireEvent.click(tagToggle)
+
+    await waitFor(() => {
+      expect(tagToggle).not.toBeChecked()
+    })
 
     // Verify onSettingChange captured coerced values
     await waitFor(() => {
@@ -491,9 +522,6 @@ describe("Setting panel", () => {
           (arg) => typeof getVal(arg?.config, "tm_ttl") === "undefined"
         )
       ).toBe(true)
-      const latestCfg = calls[calls.length - 1]?.config
-      expect(getVal(latestCfg, "tm_tag")).toBe("prio")
-      expect(getVal(latestCfg, "tm_queue")).toBe("highQueue")
     })
   })
 
