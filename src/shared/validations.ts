@@ -68,45 +68,38 @@ export const validateServerUrl = (
   opts?: { strict?: boolean; requireHttps?: boolean }
 ): { ok: boolean; key?: string } => {
   const trimmedUrl = url?.trim()
-  if (!trimmedUrl) return { ok: false, key: "errorMissingServerUrl" }
+  const invalid = (key: string) => ({ ok: false as const, key })
+  const invalidBaseUrl = () => invalid("errorInvalidServerUrl")
+
+  if (!trimmedUrl) return invalid("errorMissingServerUrl")
 
   const parsedUrl = safeParseUrl(trimmedUrl)
-  if (!parsedUrl) return { ok: false, key: "errorInvalidServerUrl" }
+  if (!parsedUrl) return invalidBaseUrl()
 
-  if (!/^https?:$/i.test(parsedUrl.protocol)) {
-    return { ok: false, key: "errorInvalidServerUrl" }
-  }
+  if (!/^https?:$/i.test(parsedUrl.protocol)) return invalidBaseUrl()
 
   // Optional HTTPS enforcement
   if (opts?.requireHttps && !/^https:$/i.test(parsedUrl.protocol)) {
-    return { ok: false, key: "errorInvalidServerUrl" }
+    return invalidBaseUrl()
   }
 
-  if (parsedUrl.username || parsedUrl.password) {
-    return { ok: false, key: "errorInvalidServerUrl" }
-  }
+  if (parsedUrl.username || parsedUrl.password) return invalidBaseUrl()
 
   // Disallow query string and fragment in base URL
-  if (parsedUrl.search || parsedUrl.hash) {
-    return { ok: false, key: "errorInvalidServerUrl" }
-  }
+  if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
 
   if (hasForbiddenPaths(parsedUrl.pathname)) {
     return { ok: false, key: "errorBadBaseUrl" }
   }
 
   // Check for hostname ending with dot (invalid)
-  if (parsedUrl.hostname.endsWith(".")) {
-    return { ok: false, key: "errorInvalidServerUrl" }
-  }
+  if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
 
   // Apply hostname heuristic only in strict mode
   if (opts?.strict) {
     const hostname = parsedUrl.hostname || ""
     // In strict mode, reject hostnames that look suspicious (no dots, too short)
-    if (!hostname.includes(".") || hostname.length < 4) {
-      return { ok: false, key: "errorInvalidServerUrl" }
-    }
+    if (!hostname.includes(".") || hostname.length < 4) return invalidBaseUrl()
   }
 
   return { ok: true }
