@@ -1525,6 +1525,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           ID={ID}
           repoHint={reposHint}
         />
+      </SettingSection>
+      <SettingSection>
         {/* Service Type */}
         <SettingRow
           flow="wrap"
@@ -1576,7 +1578,77 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             />
           </SettingRow>
         )}
+      </SettingSection>
+      <SettingSection>
+        {/* Support email (optional) */}
+        <FieldRow
+          id={ID.supportEmail}
+          label={
+            <Tooltip content={translate("supportEmailHelper")} placement="top">
+              {translate("supportEmail")}
+            </Tooltip>
+          }
+          type="email"
+          value={localSupportEmail}
+          onChange={(val: string) => {
+            setLocalSupportEmail(val)
+            // Clear previous error immediately, validate on blur
+            setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            // Empty: clear error and unset config
+            if (!trimmed) {
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+              updateConfig("supportEmail", undefined as any)
+              setLocalSupportEmail("")
+              return
+            }
 
+            // Non-empty: validate format
+            const isValid = isValidEmail(trimmed)
+            const err = !isValid ? translate("invalidEmail") : undefined
+            setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+            if (!err) {
+              updateConfig("supportEmail", trimmed)
+              setLocalSupportEmail(trimmed)
+            }
+          }}
+          placeholder={translate("supportEmailPlaceholder")}
+          errorText={fieldErrors.supportEmail}
+          styles={settingStyles}
+        />
+
+        {/* Mask email on success toggle */}
+        {shouldShowMaskEmailSetting && (
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("maskEmailOnSuccessHelper")}
+                placement="top"
+              >
+                {translate("maskEmailOnSuccess")}
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.maskEmailOnSuccess}
+              checked={localMaskEmailOnSuccess}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
+                setLocalMaskEmailOnSuccess(checked)
+                updateConfig("maskEmailOnSuccess", checked)
+              }}
+              aria-label={translate("maskEmailOnSuccess")}
+            />
+          </SettingRow>
+        )}
+      </SettingSection>
+
+      {/* === SCHEDULING & REMOTE DATA === */}
+      <SettingSection>
         {/* Allow Schedule Mode */}
         {shouldShowScheduleToggle && (
           <SettingRow
@@ -1658,60 +1730,57 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             />
           </SettingRow>
         )}
-        {/* Mask email on success toggle */}
-        {shouldShowMaskEmailSetting && (
-          <SettingRow
-            flow="no-wrap"
-            label={
-              <Tooltip
-                content={translate("maskEmailOnSuccessHelper")}
-                placement="top"
-              >
-                {translate("maskEmailOnSuccess")}
-              </Tooltip>
-            }
-            level={1}
-          >
-            <Switch
-              id={ID.maskEmailOnSuccess}
-              checked={localMaskEmailOnSuccess}
-              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
-                setLocalMaskEmailOnSuccess(checked)
-                updateConfig("maskEmailOnSuccess", checked)
-              }}
-              aria-label={translate("maskEmailOnSuccess")}
-            />
-          </SettingRow>
-        )}
-        {/* Request timeout (ms) */}
-        <SettingRow
-          flow="wrap"
-          label={
-            <Tooltip
-              content={translate("requestTimeoutHelper")}
-              placement="top"
-            >
-              {translate("requestTimeoutLabel")}
-            </Tooltip>
-          }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.requestTimeout}
-            value={localRequestTimeout}
-            onChange={setLocalRequestTimeout}
-            onBlur={createNumericBlurHandler(
-              "requestTimeout",
-              setLocalRequestTimeout,
-              CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
-            )}
-            placeholder={translate("requestTimeoutPlaceholder")}
-          />
-        </SettingRow>
       </SettingSection>
       <SettingSection>
+        {/* Max AOI area (m²) */}
+        <FieldRow
+          id={ID.maxArea}
+          label={
+            <Tooltip
+              content={translate("maxAreaHelper", {
+                defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
+                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+              })}
+              placement="top"
+            >
+              {translate("maxAreaLabel")}
+            </Tooltip>
+          }
+          value={localMaxAreaM2}
+          onChange={(val: string) => {
+            setLocalMaxAreaM2(val)
+            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+          }}
+          onBlur={(val: string) => {
+            const trimmed = (val ?? "").trim()
+            const coerced = parseNonNegativeInt(trimmed)
+            // Blank, zero, or invalid -> unset
+            if (coerced === undefined || coerced === 0) {
+              updateConfig("maxArea", undefined as any)
+              setLocalMaxAreaM2("")
+              return
+            }
+            // Enforce upper cap in m²
+            if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
+              // Do not save; show inline error
+              setFieldErrors((prev) => ({
+                ...prev,
+                maxArea: translate("errorMaxAreaTooLarge", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                }),
+              }))
+              return
+            }
+            const m2 = coerced
+            updateConfig("maxArea", m2 as any)
+            setLocalMaxAreaM2(String(m2))
+            // Clear any lingering error on valid save
+            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+          }}
+          placeholder={translate("maxAreaPlaceholder")}
+          errorText={fieldErrors.maxArea}
+          styles={settingStyles}
+        />
         {/* Drawing color */}
         <SettingRow
           flow="wrap"
@@ -1734,8 +1803,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             aria-label={translate("drawingColorLabel")}
           />
         </SettingRow>
-      </SettingSection>
-      <SettingSection>
         {/* AOI Parameter Name */}
         <FieldRow
           id={ID.aoiParamName}
@@ -1799,6 +1866,34 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           placeholder={translate("aoiWktParamNamePlaceholder")}
           styles={settingStyles}
         />
+      </SettingSection>
+      <SettingSection>
+        {/* Request timeout (ms) */}
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip
+              content={translate("requestTimeoutHelper")}
+              placement="top"
+            >
+              {translate("requestTimeoutLabel")}
+            </Tooltip>
+          }
+          level={1}
+          tag="label"
+        >
+          <Input
+            id={ID.requestTimeout}
+            value={localRequestTimeout}
+            onChange={setLocalRequestTimeout}
+            onBlur={createNumericBlurHandler(
+              "requestTimeout",
+              setLocalRequestTimeout,
+              CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+            )}
+            placeholder={translate("requestTimeoutPlaceholder")}
+          />
+        </SettingRow>
 
         {/* Upload Target Parameter Name (optional) */}
         {showUploadTargetField && (
@@ -1822,97 +1917,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             styles={settingStyles}
           />
         )}
-
-        {/* Max AOI area (m²) */}
-        <FieldRow
-          id={ID.maxArea}
-          label={
-            <Tooltip
-              content={translate("maxAreaHelper", {
-                defaultM2: CONSTANTS.DEFAULTS.MAX_M2,
-                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-              })}
-              placement="top"
-            >
-              {translate("maxAreaLabel")}
-            </Tooltip>
-          }
-          value={localMaxAreaM2}
-          onChange={(val: string) => {
-            setLocalMaxAreaM2(val)
-            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            const coerced = parseNonNegativeInt(trimmed)
-            // Blank, zero, or invalid -> unset
-            if (coerced === undefined || coerced === 0) {
-              updateConfig("maxArea", undefined as any)
-              setLocalMaxAreaM2("")
-              return
-            }
-            // Enforce upper cap in m²
-            if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
-              // Do not save; show inline error
-              setFieldErrors((prev) => ({
-                ...prev,
-                maxArea: translate("errorMaxAreaTooLarge", {
-                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                }),
-              }))
-              return
-            }
-            const m2 = coerced
-            updateConfig("maxArea", m2 as any)
-            setLocalMaxAreaM2(String(m2))
-            // Clear any lingering error on valid save
-            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-          }}
-          placeholder={translate("maxAreaPlaceholder")}
-          errorText={fieldErrors.maxArea}
-          styles={settingStyles}
-        />
-        {/* Support email (optional) */}
-        <FieldRow
-          id={ID.supportEmail}
-          label={
-            <Tooltip content={translate("supportEmailHelper")} placement="top">
-              {translate("supportEmail")}
-            </Tooltip>
-          }
-          type="email"
-          value={localSupportEmail}
-          onChange={(val: string) => {
-            setLocalSupportEmail(val)
-            // Clear previous error immediately, validate on blur
-            setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            // Empty: clear error and unset config
-            if (!trimmed) {
-              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-              updateConfig("supportEmail", undefined as any)
-              setLocalSupportEmail("")
-              return
-            }
-
-            // Non-empty: validate format
-            const isValid = isValidEmail(trimmed)
-            const err = !isValid ? translate("invalidEmail") : undefined
-            setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-            if (!err) {
-              updateConfig("supportEmail", trimmed)
-              setLocalSupportEmail(trimmed)
-            }
-          }}
-          placeholder={translate("supportEmailPlaceholder")}
-          errorText={fieldErrors.supportEmail}
-          styles={settingStyles}
-        />
-        {/** Helper moved to label tooltip */}
       </SettingSection>
-
       {/* Job directives section */}
       <JobDirectivesSection
         localTmTtc={localTmTtc}
