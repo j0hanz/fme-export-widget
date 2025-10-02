@@ -54,7 +54,6 @@ import type {
   StepStatus,
   CheckSteps,
   ValidationResult,
-  SanitizationResult,
   IMStateWithFmeExport,
   TranslateFn,
   SettingStyles,
@@ -63,7 +62,7 @@ import type {
   JobDirectivesSectionProps,
   TmTagPreset,
 } from "../config"
-import { FmeFlowApiError, DEFAULT_DRAWING_HEX } from "../config"
+import { DEFAULT_DRAWING_HEX } from "../config"
 import resetIcon from "../assets/icons/refresh.svg"
 
 // Constants
@@ -625,6 +624,27 @@ function useStringConfigValue(config: IMWidgetConfig) {
   )
 }
 
+// Boolean config getter
+function useBooleanConfigValue(config: IMWidgetConfig) {
+  return hooks.useEventCallback(
+    (prop: keyof WidgetConfig, defaultValue = false): boolean => {
+      const v = config?.[prop]
+      return typeof v === "boolean" ? v : defaultValue
+    }
+  )
+}
+
+// Number config getter
+function useNumberConfigValue(config: IMWidgetConfig) {
+  return hooks.useEventCallback(
+    (prop: keyof WidgetConfig, defaultValue?: number): number | undefined => {
+      const v = config?.[prop]
+      if (typeof v === "number" && Number.isFinite(v)) return v
+      return defaultValue
+    }
+  )
+}
+
 // Create theme-aware styles for the setting UI
 const createSettingStyles = (theme: any) => {
   return {
@@ -706,6 +726,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   const getStringConfig = useStringConfigValue(config)
+  const getBooleanConfig = useBooleanConfigValue(config)
+  const getNumberConfig = useNumberConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
 
   // Stable ID references for form fields
@@ -756,40 +778,33 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const selectedRepository = getStringConfig("repository") || ""
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
-    () => getStringConfig("supportEmail") || ""
+    () => getStringConfig("supportEmail")
   )
   const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
-    Boolean((config as any)?.syncMode)
+    getBooleanConfig("syncMode")
   )
   const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
-    React.useState<boolean>(() => Boolean((config as any)?.maskEmailOnSuccess))
+    React.useState<boolean>(() => getBooleanConfig("maskEmailOnSuccess"))
   // Request timeout (ms)
   const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
     () => {
-      const v = (config as any)?.requestTimeout
-      return typeof v === "number" && Number.isFinite(v) ? String(v) : ""
+      const v = getNumberConfig("requestTimeout")
+      return v !== undefined ? String(v) : ""
     }
   )
   // Max AOI area (m²) – stored and displayed in m²
   const [localMaxAreaM2, setLocalMaxAreaM2] = React.useState<string>(() => {
-    const v = (config as any)?.maxArea
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) {
-      return String(v)
-    }
-    return ""
+    const v = getNumberConfig("maxArea")
+    return v !== undefined && v > 0 ? String(v) : ""
   })
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
-    const v = (config as any)?.tm_ttc
-    return typeof v === "number"
-      ? String(v)
-      : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
+    const v = getNumberConfig("tm_ttc")
+    return v !== undefined ? String(v) : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
   })
   const [localTmTtl, setLocalTmTtl] = React.useState<string>(() => {
-    const v = (config as any)?.tm_ttl
-    return typeof v === "number"
-      ? String(v)
-      : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
+    const v = getNumberConfig("tm_ttl")
+    return v !== undefined ? String(v) : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
   })
   const initialTmTagRaw = toTrimmedString((config as any)?.tm_tag) || ""
   const initialTmTag = initialTmTagRaw
@@ -804,42 +819,25 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     () => initialTmTagPreset
   )
   const [localTmDescription, setLocalTmDescription] = React.useState<string>(
-    () => {
-      const v = (config as any)?.tm_description
-      return typeof v === "string" ? v : ""
-    }
+    () => getStringConfig("tm_description")
   )
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
-    () => {
-      const v = (config as any)?.aoiParamName
-      return typeof v === "string" ? v : "AreaOfInterest"
-    }
+    () => getStringConfig("aoiParamName") || "AreaOfInterest"
   )
   const [localAoiGeoJsonParamName, setLocalAoiGeoJsonParamName] =
-    React.useState<string>(() => {
-      const v = (config as any)?.aoiGeoJsonParamName
-      return typeof v === "string" ? v : ""
-    })
+    React.useState<string>(() => getStringConfig("aoiGeoJsonParamName"))
   const [localAoiWktParamName, setLocalAoiWktParamName] =
-    React.useState<string>(() => {
-      const v = (config as any)?.aoiWktParamName
-      return typeof v === "string" ? v : ""
-    })
+    React.useState<string>(() => getStringConfig("aoiWktParamName"))
   const [localUploadTargetParamName, setLocalUploadTargetParamName] =
-    React.useState<string>(() => {
-      const v = (config as any)?.uploadTargetParamName
-      return typeof v === "string" ? v : ""
-    })
+    React.useState<string>(() => getStringConfig("uploadTargetParamName"))
   const [localAllowScheduleMode, setLocalAllowScheduleMode] =
-    React.useState<boolean>(() => Boolean((config as any)?.allowScheduleMode))
+    React.useState<boolean>(() => getBooleanConfig("allowScheduleMode"))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
-    React.useState<boolean>(() => Boolean((config as any)?.allowRemoteDataset))
+    React.useState<boolean>(() => getBooleanConfig("allowRemoteDataset"))
   const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
-    React.useState<boolean>(() =>
-      Boolean((config as any)?.allowRemoteUrlDataset)
-    )
+    React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
   const [localService, setLocalService] = React.useState<string>(() => {
-    const v = (config as any)?.service
+    const v = getStringConfig("service")
     return v === "stream" ? "stream" : "download"
   })
   const isStreamingService = localService === "stream"
@@ -847,54 +845,58 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const shouldShowMaskEmailSetting = isDownloadService && !localSyncMode
   const shouldShowScheduleToggle = isDownloadService && !localSyncMode
   const showUploadTargetField = isDownloadService && localAllowRemoteDataset
+
+  // Consolidated effect: manage service-type dependent state
   hooks.useEffectWithPreviousValues(() => {
-    if (!isStreamingService) return
-    if (localAllowRemoteDataset) {
-      setLocalAllowRemoteDataset(false)
-      updateConfig("allowRemoteDataset", false as any)
+    // Streaming service: disable incompatible features
+    if (isStreamingService) {
+      if (localAllowRemoteDataset) {
+        setLocalAllowRemoteDataset(false)
+        updateConfig("allowRemoteDataset", false as any)
+      }
+      if (localAllowRemoteUrlDataset) {
+        setLocalAllowRemoteUrlDataset(false)
+        updateConfig("allowRemoteUrlDataset", false as any)
+      }
+      if (localMaskEmailOnSuccess) {
+        setLocalMaskEmailOnSuccess(false)
+        updateConfig("maskEmailOnSuccess", false as any)
+      }
     }
-    if (localAllowRemoteUrlDataset) {
-      setLocalAllowRemoteUrlDataset(false)
-      updateConfig("allowRemoteUrlDataset", false as any)
+
+    // Schedule mode: clear if no longer shown
+    if (!shouldShowScheduleToggle && localAllowScheduleMode) {
+      setLocalAllowScheduleMode(false)
+      updateConfig("allowScheduleMode", false as any)
     }
-    if (localMaskEmailOnSuccess) {
+
+    // Mask email: clear if no longer shown
+    if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false)
       updateConfig("maskEmailOnSuccess", false as any)
     }
+
+    // Upload target param: clear if no longer shown
+    if (!showUploadTargetField && localUploadTargetParamName) {
+      updateConfig("uploadTargetParamName", undefined as any)
+      setLocalUploadTargetParamName("")
+    }
   }, [
     isStreamingService,
+    shouldShowScheduleToggle,
+    shouldShowMaskEmailSetting,
+    showUploadTargetField,
     localAllowRemoteDataset,
     localAllowRemoteUrlDataset,
     localMaskEmailOnSuccess,
+    localAllowScheduleMode,
+    localUploadTargetParamName,
     updateConfig,
   ])
 
-  hooks.useEffectWithPreviousValues(() => {
-    if (shouldShowScheduleToggle) return
-    if (!localAllowScheduleMode) return
-    setLocalAllowScheduleMode(false)
-    updateConfig("allowScheduleMode", false as any)
-  }, [shouldShowScheduleToggle, localAllowScheduleMode, updateConfig])
-
-  hooks.useEffectWithPreviousValues(() => {
-    if (shouldShowMaskEmailSetting) return
-    if (!localMaskEmailOnSuccess) return
-    setLocalMaskEmailOnSuccess(false)
-    updateConfig("maskEmailOnSuccess", false as any)
-  }, [shouldShowMaskEmailSetting, localMaskEmailOnSuccess, updateConfig])
-
-  hooks.useEffectWithPreviousValues(() => {
-    if (showUploadTargetField) return
-    if (!localUploadTargetParamName) return
-    updateConfig("uploadTargetParamName", undefined as any)
-    setLocalUploadTargetParamName("")
-  }, [showUploadTargetField, localUploadTargetParamName, updateConfig])
   // Drawing color (hex) with default ArcGIS brand blue
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
-    () => {
-      const v = (config as any)?.drawingColor
-      return typeof v === "string" && v ? v : DEFAULT_DRAWING_HEX
-    }
+    () => getStringConfig("drawingColor") || DEFAULT_DRAWING_HEX
   )
   // Server-provided repository list (null = not loaded yet)
   const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
@@ -1000,13 +1002,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest()
   })
 
-  // Comprehensive error processor - returns alert message for bottom display
-  const processError = hooks.useEventCallback((err: unknown): string => {
-    const status = err instanceof FmeFlowApiError ? err.status : 0
-    const errorKey = mapErrorToKey(err, status)
-    return translate(errorKey)
-  })
-
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
     onSettingChange({
       id,
@@ -1015,35 +1010,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   }
 
   // Render required label with tooltip
-  const renderRequiredLabel = hooks.useEventCallback(
-    (labelText: string): React.ReactNode => (
-      <>
-        {labelText}
-        <Tooltip content={translate("requiredField")} placement="top">
-          <span
-            css={styles.typography.required}
-            aria-label={translate("ariaRequired")}
-            role="img"
-            aria-hidden={false}
-          >
-            {uiConfig.required}
-          </span>
-        </Tooltip>
-      </>
-    )
-  )
-
-  // Sanitize URL input
-  const sanitizeUrl = hooks.useEventCallback(
-    (rawUrl: string): SanitizationResult => {
-      const normalized = normalizeBaseUrl(rawUrl)
-      return {
-        isValid: true,
-        cleaned: normalized,
-        errors: [],
-        changed: normalized !== rawUrl,
-      }
-    }
+  const RequiredLabel: React.FC<{ text: string }> = ({ text }) => (
+    <>
+      {text}
+      <Tooltip content={translate("requiredField")} placement="top">
+        <span
+          css={styles.typography.required}
+          aria-label={translate("ariaRequired")}
+          role="img"
+          aria-hidden={false}
+        >
+          {uiConfig.required}
+        </span>
+      </Tooltip>
+    </>
   )
 
   // Unified input validation
@@ -1100,7 +1080,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const token = localToken
       const repository = selectedRepository
 
-      const { cleaned, changed } = sanitizeUrl(rawServerUrl || "")
+      const cleaned = normalizeBaseUrl(rawServerUrl || "")
+      const changed = cleaned !== rawServerUrl
       // If sanitization changed, update config
       if (changed) {
         updateConfig("fmeServerUrl", cleaned)
@@ -1121,7 +1102,100 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle "Test Connection" button click
   const isTestDisabled = !!testState.isTesting || !canRunConnectionTest
 
-  // OPTIMIZED connection testing - single efficient flow with minimal API calls
+  // Connection test sub-functions for better organization
+  const handleTestSuccess = hooks.useEventCallback(
+    (validationResult: any, settings: ConnectionSettings, silent: boolean) => {
+      setCheckSteps({
+        serverUrl: validationResult.steps.serverUrl,
+        token: validationResult.steps.token,
+        repository: validationResult.steps.repository,
+        version: validationResult.version || "",
+      })
+
+      if (Array.isArray(validationResult.repositories)) {
+        setAvailableRepos([...(validationResult.repositories || [])])
+      }
+
+      updateConfig("fmeServerUrl", settings.serverUrl)
+      updateConfig("fmeServerToken", settings.token)
+      clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
+
+      if (!silent) {
+        setTestState({
+          status: "success",
+          isTesting: false,
+          message: translate("connectionOk"),
+          type: "success",
+        })
+      } else {
+        setTestState((prev) => ({ ...prev, isTesting: false }))
+      }
+    }
+  )
+
+  const handleTestFailure = hooks.useEventCallback(
+    (validationResult: any, silent: boolean) => {
+      const error = validationResult.error
+      const failureType = (error?.type || "server") as
+        | "server"
+        | "network"
+        | "token"
+        | "repository"
+
+      handleValidationFailure(failureType, {
+        setCheckSteps,
+        setFieldErrors,
+        translate,
+        version: validationResult.version,
+        repositories: Array.isArray(validationResult.repositories)
+          ? [...validationResult.repositories]
+          : undefined,
+        setAvailableRepos,
+      })
+
+      if (!silent) {
+        setTestState({
+          status: "error",
+          isTesting: false,
+          message: error?.message || translate("connectionFailed"),
+          type: "error",
+        })
+      } else {
+        setTestState((prev) => ({ ...prev, isTesting: false }))
+      }
+    }
+  )
+
+  const handleTestError = hooks.useEventCallback((err: unknown, silent: boolean) => {
+    if ((err as Error)?.name === "AbortError") return
+
+    const errorStatus = extractHttpStatus(err)
+    const failureType =
+      !errorStatus || errorStatus === 0 ? "network" : "server"
+    handleValidationFailure(failureType, {
+      setCheckSteps,
+      setFieldErrors,
+      translate,
+      setAvailableRepos,
+      version: "",
+      repositories: null,
+    })
+
+    if (!silent) {
+      const status = err instanceof Error ? 0 : extractHttpStatus(err)
+      const errorKey = mapErrorToKey(err, status)
+      setTestState({
+        status: "error",
+        isTesting: false,
+        message:
+          failureType === "network"
+            ? translate("errorInvalidServerUrl")
+            : translate(errorKey),
+        type: "error",
+      })
+    }
+  })
+
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
     if (abortRef.current) {
@@ -1162,8 +1236,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
 
     try {
-      // Use the existing validateConnection service to avoid code duplication
-      // This ensures consistency with widget startup validation
       if (!silent) {
         setTestState((prev) => ({
           ...prev,
@@ -1179,92 +1251,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       })
 
       if (validationResult.success) {
-        // Update UI state based on validation results
-        setCheckSteps({
-          serverUrl: validationResult.steps.serverUrl,
-          token: validationResult.steps.token,
-          repository: validationResult.steps.repository,
-          version: validationResult.version || "",
-        })
-
-        if (Array.isArray(validationResult.repositories)) {
-          setAvailableRepos([...(validationResult.repositories || [])])
-        }
-
-        updateConfig("fmeServerUrl", settings.serverUrl)
-        updateConfig("fmeServerToken", settings.token)
-
-        // Clear any existing field errors
-        clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
-
-        if (!silent) {
-          setTestState({
-            status: "success",
-            isTesting: false,
-            message: translate("connectionOk"),
-            type: "success",
-          })
-        } else {
-          setTestState((prev) => ({ ...prev, isTesting: false }))
-        }
+        handleTestSuccess(validationResult, settings, silent)
       } else {
-        // Handle validation failure
-        const error = validationResult.error
-
-        // Update step states based on error type via helper
-        const failureType = (error?.type || "server") as
-          | "server"
-          | "network"
-          | "token"
-          | "repository"
-        handleValidationFailure(failureType, {
-          setCheckSteps,
-          setFieldErrors,
-          translate,
-          version: validationResult.version,
-          repositories: Array.isArray(validationResult.repositories)
-            ? [...validationResult.repositories]
-            : undefined,
-          setAvailableRepos,
-        })
-
-        if (!silent) {
-          setTestState({
-            status: "error",
-            isTesting: false,
-            message: error?.message || translate("connectionFailed"),
-            type: "error",
-          })
-        } else {
-          setTestState((prev) => ({ ...prev, isTesting: false }))
-        }
+        handleTestFailure(validationResult, silent)
       }
     } catch (err) {
-      if ((err as Error)?.name === "AbortError") return
-
-      // Handle unexpected errors (network issues, etc.)
-      const errorStatus = extractHttpStatus(err)
-      const failureType =
-        !errorStatus || errorStatus === 0 ? "network" : "server"
-      handleValidationFailure(failureType, {
-        setCheckSteps,
-        setFieldErrors,
-        translate,
-        setAvailableRepos,
-        version: "",
-        repositories: null,
-      })
-      if (!silent) {
-        setTestState({
-          status: "error",
-          isTesting: false,
-          message:
-            failureType === "network"
-              ? translate("errorInvalidServerUrl")
-              : processError(err),
-          type: "error",
-        })
-      }
+      handleTestError(err, silent)
     }
   })
 
@@ -1273,7 +1265,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const cfgServer = getStringConfig("fmeServerUrl") || ""
     const cfgToken = getStringConfig("fmeServerToken") || ""
     if (!cfgServer || !cfgToken) return
-    const { cleaned } = sanitizeUrl(cfgServer)
+    const cleaned = normalizeBaseUrl(cfgServer)
     await loadRepositories(cleaned, cfgToken, { indicateLoading: true })
   })
 
@@ -1305,7 +1297,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const hasValidToken = !!cfgToken && validateToken(cfgToken).ok
     if (!hasValidServer || !hasValidToken) return
 
-    const { cleaned } = sanitizeUrl(cfgServer)
+    const cleaned = normalizeBaseUrl(cfgServer)
     loadRepositories(cleaned, cfgToken, { indicateLoading: true })
     return () => abortReposRequest()
   }, [config])
@@ -1339,7 +1331,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     )
 
     // Sanitize and save to config
-    const { cleaned, changed } = sanitizeUrl(url)
+    const cleaned = normalizeBaseUrl(url)
+    const changed = cleaned !== url
     const finalUrl = changed ? cleaned : url
     updateConfig("fmeServerUrl", finalUrl)
 
@@ -1422,6 +1415,48 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Helper for rendering input fields with error alerts
   // Reuse FieldRow for consistent input rendering
 
+  // Reusable blur handler for optional string fields
+  const createStringBlurHandler = hooks.useEventCallback(
+    (
+      configKey: keyof WidgetConfig,
+      setter: (val: string) => void,
+      defaultValue?: string
+    ) => {
+      return (val: string) => {
+        const trimmed = (val ?? "").trim()
+        if (!trimmed) {
+          updateConfig(configKey, defaultValue ? (defaultValue as any) : (undefined as any))
+          setter(defaultValue || "")
+        } else {
+          updateConfig(configKey, trimmed as any)
+          setter(trimmed)
+        }
+      }
+    }
+  )
+
+  // Reusable blur handler for optional numeric fields
+  const createNumericBlurHandler = hooks.useEventCallback(
+    (
+      configKey: keyof WidgetConfig,
+      setter: (val: string) => void,
+      maxValue?: number
+    ) => {
+      return (val: string) => {
+        const trimmed = (val ?? "").trim()
+        const coerced = parseNonNegativeInt(trimmed)
+        if (coerced === undefined || coerced === 0) {
+          updateConfig(configKey, undefined as any)
+          setter("")
+        } else {
+          const final = maxValue ? Math.min(coerced, maxValue) : coerced
+          updateConfig(configKey, final as any)
+          setter(String(final))
+        }
+      }
+    }
+  )
+
   return (
     <>
       <SettingSection>
@@ -1434,7 +1469,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* FME Server URL */}
         <FieldRow
           id={ID.serverUrl}
-          label={renderRequiredLabel(translate("fmeServerUrl"))}
+          label={<RequiredLabel text={translate("fmeServerUrl")} />}
           value={localServerUrl}
           onChange={handleServerUrlChange}
           onBlur={handleServerUrlBlur}
@@ -1446,7 +1481,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         {/* FME Server Token */}
         <FieldRow
           id={ID.token}
-          label={renderRequiredLabel(translate("fmeServerToken"))}
+          label={<RequiredLabel text={translate("fmeServerToken")} />}
           value={localToken}
           onChange={handleTokenChange}
           onBlur={handleTokenBlur}
@@ -1658,24 +1693,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <Input
             id={ID.requestTimeout}
             value={localRequestTimeout}
-            onChange={(val: string) => {
-              setLocalRequestTimeout(val)
-            }}
-            onBlur={(val: string) => {
-              const sanitized = parseNonNegativeInt((val ?? "").trim())
-              if (sanitized === undefined) {
-                // Clear config when input invalid/empty
-                updateConfig("requestTimeout", undefined as any)
-                setLocalRequestTimeout("")
-              } else {
-                const capped = Math.min(
-                  sanitized,
-                  CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
-                )
-                updateConfig("requestTimeout", capped as any)
-                setLocalRequestTimeout(String(capped))
-              }
-            }}
+            onChange={setLocalRequestTimeout}
+            onBlur={createNumericBlurHandler(
+              "requestTimeout",
+              setLocalRequestTimeout,
+              CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+            )}
             placeholder={translate("requestTimeoutPlaceholder")}
           />
         </SettingRow>
@@ -1739,19 +1762,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </Tooltip>
           }
           value={localAoiGeoJsonParamName}
-          onChange={(val: string) => {
-            setLocalAoiGeoJsonParamName(val)
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            if (!trimmed) {
-              updateConfig("aoiGeoJsonParamName", undefined as any)
-              setLocalAoiGeoJsonParamName("")
-            } else {
-              updateConfig("aoiGeoJsonParamName", trimmed as any)
-              setLocalAoiGeoJsonParamName(trimmed)
-            }
-          }}
+          onChange={setLocalAoiGeoJsonParamName}
+          onBlur={createStringBlurHandler(
+            "aoiGeoJsonParamName",
+            setLocalAoiGeoJsonParamName
+          )}
           placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
           styles={settingStyles}
         />
@@ -1768,19 +1783,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             </Tooltip>
           }
           value={localAoiWktParamName}
-          onChange={(val: string) => {
-            setLocalAoiWktParamName(val)
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            if (!trimmed) {
-              updateConfig("aoiWktParamName", undefined as any)
-              setLocalAoiWktParamName("")
-            } else {
-              updateConfig("aoiWktParamName", trimmed as any)
-              setLocalAoiWktParamName(trimmed)
-            }
-          }}
+          onChange={setLocalAoiWktParamName}
+          onBlur={createStringBlurHandler(
+            "aoiWktParamName",
+            setLocalAoiWktParamName
+          )}
           placeholder={translate("aoiWktParamNamePlaceholder")}
           styles={settingStyles}
         />
@@ -1798,20 +1805,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               </Tooltip>
             }
             value={localUploadTargetParamName}
-            onChange={(val: string) => {
-              setLocalUploadTargetParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              // Empty clears the config (auto-detect will be used)
-              if (!trimmed) {
-                updateConfig("uploadTargetParamName", undefined as any)
-                setLocalUploadTargetParamName("")
-              } else {
-                updateConfig("uploadTargetParamName", trimmed as any)
-                setLocalUploadTargetParamName(trimmed)
-              }
-            }}
+            onChange={setLocalUploadTargetParamName}
+            onBlur={createStringBlurHandler(
+              "uploadTargetParamName",
+              setLocalUploadTargetParamName
+            )}
             placeholder={translate("uploadTargetParamNamePlaceholder")}
             styles={settingStyles}
           />

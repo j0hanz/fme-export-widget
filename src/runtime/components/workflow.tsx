@@ -83,10 +83,13 @@ const DRAWING_MODE_TABS = [
 ] as const
 
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
+const LOADING_TIMEOUT_MS = 30000 // 30 seconds
 
+// Helper: Check if value is non-empty string
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== ""
 
+// Helper: Safely stringify geometry object
 const safeStringifyGeometry = (geometry: unknown): string => {
   if (!geometry) return ""
   try {
@@ -96,24 +99,30 @@ const safeStringifyGeometry = (geometry: unknown): string => {
   }
 }
 
+// Helper: Extract unique geometry field names from workspace parameters
 const extractGeometryFieldNames = (
   workspaceParameters?: readonly WorkspaceParameter[]
 ): string[] => {
   if (!workspaceParameters?.length) return []
-  const seen = new Set<string>()
+  
   const names: string[] = []
-  workspaceParameters.forEach((param) => {
-    if (!param || param.type !== ParameterType.GEOMETRY) return
-    if (typeof param.name !== "string") return
+  const seen = new Set<string>()
+  
+  for (const param of workspaceParameters) {
+    if (!param || param.type !== ParameterType.GEOMETRY) continue
+    if (typeof param.name !== "string") continue
+    
     const trimmed = param.name.trim()
-    if (!trimmed || seen.has(trimmed)) return
-    seen.add(trimmed)
-    names.push(trimmed)
-  })
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed)
+      names.push(trimmed)
+    }
+  }
+  
   return names
 }
 
-// Form validation helpers
+// Form validation: validate workspace parameters and schedule fields
 const createFormValidator = (
   parameterService: ParameterFormService,
   workspaceParameters: readonly WorkspaceParameter[]
@@ -122,23 +131,16 @@ const createFormValidator = (
     parameterService.convertParametersToFields(workspaceParameters)
 
   const validateValues = (values: FormValues) => {
-    // First validate the workspace parameters
     const baseValidation = parameterService.validateFormValues(
       values,
       getFormConfig()
     )
-
-    // Add custom validation for schedule fields
     const errors = { ...baseValidation.errors }
 
-    // Optional schedule start field: validate format only when provided
+    // Validate schedule start field format when provided
     const startRaw = values.start
-    if (isNonEmptyString(startRaw)) {
-      const startTrimmed = startRaw.trim()
-      if (!validateDateTimeFormat(startTrimmed)) {
-        // Use a translation key so UI can localize
-        errors.start = "invalidDateTimeFormat"
-      }
+    if (isNonEmptyString(startRaw) && !validateDateTimeFormat(startRaw.trim())) {
+      errors.start = "invalidDateTimeFormat"
     }
 
     return {
@@ -151,40 +153,31 @@ const createFormValidator = (
   return { getFormConfig, validateValues, initializeValues }
 }
 
+// Form state management hook
 const useFormStateManager = (
   validator: ReturnType<typeof createFormValidator>,
   onValuesChange: (values: FormValues) => void
 ) => {
-  const [values, setValuesState] = React.useState<FormValues>(() =>
+  const [values, setValues] = React.useState<FormValues>(() =>
     validator.initializeValues()
   )
   const [isValid, setIsValid] = React.useState(true)
   const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
-  const valuesRef = React.useRef(values)
-
-  hooks.useEffectWithPreviousValues(() => {
-    valuesRef.current = values
-  }, [values])
 
   const syncValues = hooks.useEventCallback((next: FormValues) => {
-    valuesRef.current = next
-    setValuesState(next)
+    setValues(next)
     onValuesChange(next)
   })
 
   const updateField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
-      setValuesState((previous) => {
-        const next = { ...previous, [field]: value }
-        valuesRef.current = next
-        onValuesChange(next)
-        return next
-      })
+      const updated = { ...values, [field]: value }
+      syncValues(updated)
     }
   )
 
   const validateForm = hooks.useEventCallback(() => {
-    const validation = validator.validateValues(valuesRef.current)
+    const validation = validator.validateValues(values)
     setIsValid(validation.isValid)
     setErrors(validation.errors)
     return validation
@@ -221,13 +214,11 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     onWorkspaceSelected,
     dispatch: reduxDispatch,
   } = opts
+  
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-
   const loadAbortRef = React.useRef<AbortController | null>(null)
-  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
+  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = React.useRef(true)
 
   const dispatchAction = hooks.useEventCallback((action: unknown) => {
@@ -235,10 +226,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   })
 
   const updateLoadingFlags = hooks.useEventCallback(
-    (flags: {
-      isLoadingWorkspaces?: boolean
-      isLoadingParameters?: boolean
-    }) => {
+    (flags: { isLoadingWorkspaces?: boolean; isLoadingParameters?: boolean }) => {
       const payload: { [key: string]: boolean } = {}
       if (flags.isLoadingWorkspaces !== undefined) {
         payload.isLoadingWorkspaces = flags.isLoadingWorkspaces
@@ -246,8 +234,9 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (flags.isLoadingParameters !== undefined) {
         payload.isLoadingParameters = flags.isLoadingParameters
       }
-      if (!Object.keys(payload).length) return
-      dispatchAction(fmeActions.setLoadingFlags(payload, widgetId))
+      if (Object.keys(payload).length) {
+        dispatchAction(fmeActions.setLoadingFlags(payload, widgetId))
+      }
     }
   )
 
@@ -266,7 +255,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     }
   })
 
-  // Error formatting
+  // Format error for display, suppress cancelled/aborted errors
   const formatError = hooks.useEventCallback(
     (err: unknown, baseKey: string): string | null => {
       const errName = (err as { name?: string } | null)?.name
@@ -278,11 +267,8 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         return null
       }
 
-      // Do not surface raw error messages to end users; return a localized base message only
-      // Use resolveMessageOrKey if baseKey is already a message key
       try {
-        const localized = resolveMessageOrKey(baseKey, translate)
-        return localized
+        return resolveMessageOrKey(baseKey, translate)
       } catch {
         return translate(baseKey)
       }
@@ -290,16 +276,15 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   )
 
   const cancelCurrent = hooks.useEventCallback(() => {
-    if (!loadAbortRef.current) {
-      return
+    if (loadAbortRef.current) {
+      loadAbortRef.current.abort()
+      loadAbortRef.current = null
+      setIsLoading(false)
+      updateLoadingFlags({
+        isLoadingWorkspaces: false,
+        isLoadingParameters: false,
+      })
     }
-    loadAbortRef.current.abort()
-    loadAbortRef.current = null
-    setIsLoading(false)
-    updateLoadingFlags({
-      isLoadingWorkspaces: false,
-      isLoadingParameters: false,
-    })
   })
 
   const finalizeSelection = hooks.useEventCallback(
@@ -310,10 +295,12 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       parameters: readonly WorkspaceParameter[]
     ) => {
       if (!isMountedRef.current) return
+      
       if (onWorkspaceSelected) {
         onWorkspaceSelected(workspaceName, parameters, workspaceItem)
         return
       }
+      
       dispatchAction(
         fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
       )
@@ -330,13 +317,10 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    if (!fmeClient) {
-      return
-    }
-
     const targetRepository = toTrimmedString(config?.repository)
-    if (!targetRepository) {
-      if (isMountedRef.current) {
+    
+    if (!fmeClient || !targetRepository) {
+      if (isMountedRef.current && !targetRepository) {
         setError(null)
       }
       return
@@ -360,41 +344,43 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         )
       )
 
-      if (controller.signal.aborted) {
-        return
+      if (controller.signal.aborted) return
+
+      if (response.status !== 200 || !response.data.items) {
+        throw new Error(translate("failedToLoadWorkspaces"))
       }
 
-      if (response.status === 200 && response.data.items) {
-        const items = (response.data.items as readonly WorkspaceItem[]).filter(
-          (item) => item.type === WORKSPACE_ITEM_TYPE
-        )
+      const items = (response.data.items as readonly WorkspaceItem[]).filter(
+        (item) => item.type === WORKSPACE_ITEM_TYPE
+      )
 
-        const scoped = items.filter((item) => {
-          const repoName = toTrimmedString(
-            (item as { repository?: string })?.repository
-          )
-          return !repoName || repoName === targetRepository
+      const scoped = items.filter((item) => {
+        const repoName = toTrimmedString(
+          (item as { repository?: string })?.repository
+        )
+        return !repoName || repoName === targetRepository
+      })
+
+      const sorted = scoped.slice().sort((a, b) =>
+        (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+          sensitivity: "base",
         })
+      )
 
-        const sorted = scoped.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
+      if (isMountedRef.current) {
+        dispatchAction(
+          fmeActions.setWorkspaceItems(sorted, targetRepository, widgetId)
         )
-
-        if (isMountedRef.current) {
-          dispatchAction(
-            fmeActions.setWorkspaceItems(sorted, targetRepository, widgetId)
-          )
-        }
-      } else {
-        throw new Error(translate("failedToLoadWorkspaces"))
       }
     } catch (err) {
       const msg = formatError(err, "failedToLoadWorkspaces")
-      if (msg && isMountedRef.current) setError(msg)
+      if (msg && isMountedRef.current) {
+        setError(msg)
+      }
     } finally {
-      if (isMountedRef.current) setIsLoading(false)
+      if (isMountedRef.current) {
+        setIsLoading(false)
+      }
       updateLoadingFlags({ isLoadingWorkspaces: false })
       if (loadAbortRef.current === controller) {
         loadAbortRef.current = null
@@ -464,13 +450,13 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     }
   )
 
-  // Clear local workspaces immediately when repository changes to prevent stale selections
+  // Clear workspaces when repository changes to prevent stale selections
   hooks.useUpdateEffect(() => {
-    if (!isMountedRef.current) return
-    cancelCurrent()
-    setError(null)
-    // Important: reset loading state to allow new requests
-    setIsLoading(false)
+    if (isMountedRef.current) {
+      cancelCurrent()
+      setError(null)
+      setIsLoading(false)
+    }
   }, [config?.repository])
 
   const scheduleLoad = hooks.useEventCallback(() => {
@@ -484,29 +470,30 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     }, MS_LOADING)
   })
 
-  // Safety mechanism: if loading is stuck for too long, reset it
+  // Safety: reset loading state if stuck for too long
   hooks.useUpdateEffect(() => {
-    if (isLoading && isMountedRef.current) {
-      const timeoutId = setTimeout(() => {
-        if (isMountedRef.current && isLoading) {
-          setIsLoading(false)
-          setError(translate("loadingTimeout"))
-          updateLoadingFlags({
-            isLoadingParameters: false,
-            isLoadingWorkspaces: false,
-          })
-        }
-      }, 30000) // 30 second timeout
+    if (!isLoading || !isMountedRef.current) return
 
-      return () => {
-        clearTimeout(timeoutId)
+    const timeoutId = setTimeout(() => {
+      if (isMountedRef.current && isLoading) {
+        setIsLoading(false)
+        setError(translate("loadingTimeout"))
+        updateLoadingFlags({
+          isLoadingParameters: false,
+          isLoadingWorkspaces: false,
+        })
       }
+    }, LOADING_TIMEOUT_MS)
+
+    return () => {
+      clearTimeout(timeoutId)
     }
   }, [isLoading])
 
   return { isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
+// OrderResult component: displays job submission results
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -519,12 +506,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
 
-  // Compute download URL if available
+  // Manage download URL lifecycle
   const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
-  // Manage object URL lifecycle safely
   const objectUrlRef = React.useRef<string | null>(null)
+  
   hooks.useEffectWithPreviousValues(() => {
-    // Revoke any previous object URL before creating a new one
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
       objectUrlRef.current = null
@@ -544,6 +530,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
     setDownloadUrl(null)
   }, [orderResult.downloadUrl, orderResult.blob])
+  
   hooks.useUnmount(() => {
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
@@ -553,14 +540,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
+    
     const display =
       typeof value === "string" || typeof value === "number"
         ? String(value)
         : JSON.stringify(value)
-    const rowIndex = rows.length
-    const key = label
-      ? `order-row-${label}-${rowIndex}`
-      : `order-row-${rowIndex}`
+    const key = label ? `order-row-${label}-${rows.length}` : `order-row-${rows.length}`
+    
     rows.push(
       <div css={styles.typography.caption} key={key}>
         {label ? `${label}: ${display}` : display}
@@ -570,7 +556,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   addRow(translate("jobId"), orderResult.jobId)
   addRow(translate("workspace"), orderResult.workspaceName)
-  // Only show notification email when sync mode is OFF (async mode)
+  
   if (!isSyncMode) {
     const emailVal = orderResult.email
     const masked =
@@ -579,8 +565,10 @@ const OrderResult: React.FC<OrderResultProps> = ({
         : emailVal
     addRow(translate("notificationEmail"), masked)
   }
-  if (orderResult.code && !isSuccess)
+  
+  if (orderResult.code && !isSuccess) {
     addRow(translate("errorCode"), orderResult.code)
+  }
 
   const titleText = isSuccess
     ? isSyncMode

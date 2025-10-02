@@ -17,7 +17,7 @@ import {
   renderSupportHint,
   config,
 } from "../runtime/components/ui"
-import { renderInputField, DynamicField } from "../runtime/components/fields"
+import { DynamicField } from "../runtime/components/fields"
 import { FormFieldType, type DynamicFieldConfig } from "../config"
 
 jest.mock("jimu-ui", () => {
@@ -514,16 +514,18 @@ describe("Input components", () => {
     expect(handleBlur).toHaveBeenCalledWith("abc")
   })
 
-  it("normalizes numeric values via renderInputField helper", () => {
+  it("normalizes numeric values via DynamicField", () => {
     const handleValue = jest.fn()
-    const rendered = renderInputField(
-      "number",
-      "" as any,
-      "Enter",
-      handleValue,
-      false
+    const field: DynamicFieldConfig = {
+      type: FormFieldType.NUMBER,
+      name: "testNumber",
+      label: "Test Number",
+      required: false,
+      readOnly: false,
+    }
+    renderWithProviders(
+      <DynamicField field={field} value="" onChange={handleValue} translate={undefined} />
     )
-    renderWithProviders(<React.Fragment>{rendered}</React.Fragment>)
     const input = screen.getByTestId("mock-text-input")
     fireEvent.change(input, { target: { value: "1,5" } })
     expect(handleValue).toHaveBeenLastCalledWith(1.5)

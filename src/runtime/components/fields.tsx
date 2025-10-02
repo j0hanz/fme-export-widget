@@ -66,25 +66,25 @@ const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
 ])
 
 const TEXT_OR_FILE_MODES = {
-  TEXT: "text",
-  FILE: "file",
-} as const
+  TEXT: "text" as const,
+  FILE: "file" as const,
+}
 
-// Input rendering helper
-export const renderInputField = (
-  type: "text" | "password" | "number",
-  fieldValue: FormPrimitive,
+// Helper: Render simple text-based input fields
+const renderTextInput = (
+  inputType: "text" | "email" | "tel" | "search" | "password" | "number",
+  value: FormPrimitive,
   placeholder: string,
   onChange: (value: FormPrimitive) => void,
-  readOnly?: boolean
+  readOnly?: boolean,
+  maxLength?: number
 ): JSX.Element => {
   const handleChange = (val: string) => {
-    if (type === "number") {
+    if (inputType === "number") {
       if (val === "") {
         onChange("")
         return
       }
-      // Accept locales with comma decimals by normalizing to dot
       const num = Number(val.replace(/,/g, "."))
       onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
     } else {
@@ -92,26 +92,69 @@ export const renderInputField = (
     }
   }
 
-  const displayValue =
-    typeof fieldValue === "string" || typeof fieldValue === "number"
-      ? String(fieldValue)
-      : ""
+  const stringValue = typeof value === "string" || typeof value === "number" ? String(value) : ""
 
   return (
     <Input
-      type={type === "number" ? "text" : type}
-      value={displayValue}
+      type={inputType === "number" ? "text" : inputType}
+      value={stringValue}
       placeholder={placeholder}
       onChange={handleChange}
       disabled={readOnly}
+      maxLength={maxLength}
     />
   )
 }
 
-// Dynamic field component renders various form fields based on configuration
+// Helper: Render date/time input with HTML5 types
+const renderDateTimeInput = (
+  inputType: "date" | "time" | "month" | "week",
+  value: FormPrimitive,
+  placeholder: string,
+  onChange: (value: FormPrimitive) => void,
+  readOnly?: boolean
+): JSX.Element => (
+  <Input
+    type={inputType}
+    value={asString(value)}
+    placeholder={placeholder}
+    onChange={(val) => {
+      onChange(val as FormPrimitive)
+    }}
+    disabled={readOnly}
+  />
+)
+
+// Helper: Normalize TEXT_OR_FILE value to consistent shape
+const normalizeTextOrFileValue = (
+  rawValue: unknown
+): NormalizedTextOrFile => {
+  if (
+    rawValue &&
+    typeof rawValue === "object" &&
+    !Array.isArray(rawValue) &&
+    "mode" in rawValue
+  ) {
+    return rawValue as NormalizedTextOrFile
+  }
+  if (isFileObject(rawValue)) {
+    return {
+      mode: TEXT_OR_FILE_MODES.FILE,
+      file: rawValue,
+      fileName: getFileDisplayName(rawValue),
+    }
+  }
+  return {
+    mode: TEXT_OR_FILE_MODES.TEXT,
+    text: asString(rawValue),
+  }
+}
+
+// Helper: Check if value is a plain object
 const isPlainObject = (value: unknown): value is { [key: string]: unknown } =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
+// Helper: Normalize table rows from various input formats
 const normalizeTableRows = (
   raw: unknown,
   columns: readonly TableColumnConfig[]
@@ -141,7 +184,6 @@ const normalizeTableRows = (
         return normalizeTableRows(parsed, columns)
       }
     } catch {
-      // fall back to string rows
       return raw
         .split(/\r?\n/)
         .map((entry) => entry.trim())
@@ -153,16 +195,13 @@ const normalizeTableRows = (
   return []
 }
 
+// Helper: Create a new table row with default values
 const prepareNewTableRow = (
   columns: readonly TableColumnConfig[]
 ): { [key: string]: unknown } => {
   const row: { [key: string]: unknown } = {}
   for (const column of columns) {
-    if (column.defaultValue !== undefined) {
-      row[column.key] = column.defaultValue
-    } else {
-      row[column.key] = ""
-    }
+    row[column.key] = column.defaultValue !== undefined ? column.defaultValue : ""
   }
   return row
 }
@@ -603,7 +642,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.NUMBER:
-        return renderInputField(
+        return renderTextInput(
           "number",
           fieldValue as FormPrimitive,
           placeholders.enter,
@@ -622,18 +661,35 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.PASSWORD:
-        return (
-          <Input
-            type="password"
-            value={asString(fieldValue)}
-            placeholder={getTextPlaceholder(field, placeholders, translate)}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            maxLength={field.maxLength}
-          />
+      case FormFieldType.EMAIL:
+      case FormFieldType.PHONE:
+      case FormFieldType.SEARCH:
+      case FormFieldType.TEXT: {
+        const inputTypeMap: { [key: string]: "text" | "email" | "tel" | "search" | "password" } = {
+          [FormFieldType.PASSWORD]: "password",
+          [FormFieldType.EMAIL]: "email",
+          [FormFieldType.PHONE]: "tel",
+          [FormFieldType.SEARCH]: "search",
+          [FormFieldType.TEXT]: "text",
+        }
+        const inputType = inputTypeMap[field.type] || "text"
+        const placeholderType = field.type === FormFieldType.PHONE ? "phone" 
+          : field.type === FormFieldType.EMAIL ? "email"
+          : field.type === FormFieldType.SEARCH ? "search"
+          : undefined
+        const placeholder = field.type === FormFieldType.PASSWORD
+          ? getTextPlaceholder(field, placeholders, translate)
+          : getTextPlaceholder(field, placeholders, translate, placeholderType)
+        
+        return renderTextInput(
+          inputType,
+          fieldValue as FormPrimitive,
+          placeholder,
+          onChange,
+          field.readOnly,
+          field.maxLength
         )
+      }
       case FormFieldType.FILE:
         return (
           <Input
@@ -647,29 +703,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.TEXT_OR_FILE: {
-        const rawValue = fieldValue
-        const currentValue: NormalizedTextOrFile = (() => {
-          if (
-            rawValue &&
-            typeof rawValue === "object" &&
-            !Array.isArray(rawValue) &&
-            "mode" in rawValue
-          ) {
-            return rawValue as NormalizedTextOrFile
-          }
-          if (isFileObject(rawValue)) {
-            return {
-              mode: TEXT_OR_FILE_MODES.FILE,
-              file: rawValue,
-              fileName: getFileDisplayName(rawValue),
-            }
-          }
-          return {
-            mode: TEXT_OR_FILE_MODES.TEXT,
-            text: asString(rawValue),
-          }
-        })()
-
+        const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(fieldValue)
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
@@ -805,21 +839,14 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         try {
           const parsed = JSON.parse(trimmed)
-          const parsedRings = Array.isArray(parsed?.rings)
-            ? (parsed.rings as unknown[])
-            : []
+          const parsedRings = Array.isArray(parsed?.rings) ? parsed.rings : []
           rings = parsedRings.length
-          for (const ring of parsedRings) {
-            if (!Array.isArray(ring)) continue
-            for (const vertex of ring as unknown[]) {
-              if (Array.isArray(vertex)) {
-                vertices += 1
-              }
-            }
-          }
+          vertices = parsedRings.reduce((count, ring) => {
+            return count + (Array.isArray(ring) ? ring.filter(Array.isArray).length : 0)
+          }, 0)
           preview = JSON.stringify(parsed, null, 2)
         } catch {
-          // Keep fallback preview and zero counts when parsing fails
+          // Keep fallback preview and zero counts
         }
 
         const truncated =
@@ -925,32 +952,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
-      case FormFieldType.MONTH: {
-        const val = asString(fieldValue)
-        return (
-          <Input
-            type="month"
-            value={val}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            placeholder={getTextPlaceholder(field, placeholders, translate)}
-          />
-        )
-      }
+      case FormFieldType.MONTH:
       case FormFieldType.WEEK: {
-        const val = asString(fieldValue)
-        return (
-          <Input
-            type="week"
-            value={val}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            placeholder={getTextPlaceholder(field, placeholders, translate)}
-          />
+        const inputType = field.type === FormFieldType.MONTH ? "month" : "week"
+        return renderDateTimeInput(
+          inputType,
+          fieldValue as FormPrimitive,
+          getTextPlaceholder(field, placeholders, translate),
+          onChange,
+          field.readOnly
         )
       }
       case FormFieldType.TIME: {
@@ -970,76 +980,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
-      case FormFieldType.EMAIL: {
-        const val = asString(fieldValue)
-        return (
-          <Input
-            type="email"
-            value={val}
-            placeholder={getTextPlaceholder(
-              field,
-              placeholders,
-              translate,
-              "email"
-            )}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-          />
-        )
-      }
-      case FormFieldType.PHONE: {
-        const val = asString(fieldValue)
-        return (
-          <Input
-            type="tel"
-            value={val}
-            placeholder={getTextPlaceholder(
-              field,
-              placeholders,
-              translate,
-              "phone"
-            )}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-          />
-        )
-      }
-      case FormFieldType.SEARCH: {
-        const val = asString(fieldValue)
-        return (
-          <Input
-            type="search"
-            value={val}
-            placeholder={getTextPlaceholder(
-              field,
-              placeholders,
-              translate,
-              "search"
-            )}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-          />
-        )
-      }
-      case FormFieldType.TEXT:
-        return (
-          <Input
-            type="text"
-            value={asString(fieldValue)}
-            placeholder={getTextPlaceholder(field, placeholders, translate)}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            disabled={field.readOnly}
-            maxLength={field.maxLength}
-          />
-        )
     }
   }
 

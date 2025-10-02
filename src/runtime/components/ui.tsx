@@ -79,7 +79,7 @@ import type {
   LoadingSnapshot,
 } from "../../config"
 
-// Configuration
+// Configuration & Constants
 export const config = {
   icon: { small: 14, medium: 16, large: 24 },
   tooltip: {
@@ -121,22 +121,17 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   email: emailIcon,
 }
 
-// Theme-aware styles
+// Styling Helpers
 const getTypographyStyle = (
   typographyVariant: ImmutableObject<TypographyStyle>
-) => {
-  if (!typographyVariant) {
-    return {}
-  }
-  return {
-    fontFamily: typographyVariant.fontFamily,
-    fontWeight: typographyVariant.fontWeight?.toString(),
-    fontSize: typographyVariant.fontSize,
-    fontStyle: typographyVariant.fontStyle,
-    lineHeight: typographyVariant.lineHeight,
-    color: typographyVariant.color,
-  }
-}
+) => ({
+  fontFamily: typographyVariant?.fontFamily,
+  fontWeight: typographyVariant?.fontWeight?.toString(),
+  fontSize: typographyVariant?.fontSize,
+  fontStyle: typographyVariant?.fontStyle,
+  lineHeight: typographyVariant?.lineHeight,
+  color: typographyVariant?.color,
+})
 
 const createStyles = (theme: IMThemeVariables) => {
   // Cache commonly used spacing and color values
@@ -316,7 +311,7 @@ export const useStyles = (): ReturnType<typeof createStyles> => {
   return createStyles(theme)
 }
 
-// Hooks & utility helpers
+// Hooks & Utility Helpers
 let idSeq = 0
 
 const useId = (): string => {
@@ -351,19 +346,22 @@ const withId = (
   readOnly: boolean,
   fallbackId: string
 ): { id: string | undefined; child: React.ReactNode } => {
-  if (!readOnly && React.isValidElement(child)) {
-    const childProps = (child.props || {}) as { [key: string]: unknown }
-    const id = (childProps.id as string) || fallbackId
-    if (!childProps.id) {
-      const cloned = React.cloneElement(child as React.ReactElement, { id })
-      return { id, child: cloned }
-    }
+  if (readOnly || !React.isValidElement(child)) {
+    return { id: undefined, child }
+  }
+
+  const childProps = (child.props || {}) as { [key: string]: unknown }
+  const id = (childProps.id as string) || fallbackId
+  
+  if (childProps.id) {
     return { id, child }
   }
-  return { id: undefined, child }
+
+  const cloned = React.cloneElement(child as React.ReactElement, { id })
+  return { id, child: cloned }
 }
 
-// Compose common css arrays with optional custom styles
+// Style composition helpers
 const applyComponentStyles = (
   base: Array<ReturnType<typeof css> | undefined>,
   customStyle?: React.CSSProperties
@@ -410,12 +408,10 @@ const wrapWithTooltip = (
     block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
   ]
 
-  const anchorCss = styles.tooltipWrap.anchor
-
   return (
     <span css={wrapperCss as any}>
       <Tooltip content={tooltip} placement={placement}>
-        <span css={anchorCss}>{element}</span>
+        <span css={styles.tooltipWrap.anchor}>{element}</span>
       </Tooltip>
     </span>
   )
@@ -429,16 +425,11 @@ const createTooltipAnchor = (
   tooltipContent: React.ReactNode
 ) => {
   const childProps = (child as any)?.props || {}
-  const isChildDisabled = Boolean(
-    childProps.disabled || childProps["aria-disabled"]
-  )
+  const isDisabled = childProps.disabled || childProps["aria-disabled"]
 
-  if (!isChildDisabled) {
-    return child
-  }
+  if (!isDisabled) return child
 
-  const ariaLabel =
-    typeof tooltipContent === "string" ? tooltipContent : undefined
+  const ariaLabel = typeof tooltipContent === "string" ? tooltipContent : undefined
 
   return (
     <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>
@@ -447,7 +438,6 @@ const createTooltipAnchor = (
   )
 }
 
-// Render the required mark with tooltip and proper aria
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
   styles: ReturnType<typeof useStyles>
@@ -464,9 +454,9 @@ const getRequiredMark = (
   </Tooltip>
 )
 
-// Primitive UI elements
+// Primitive UI Components
 
-// Button content component extracted from Button
+// Button content component
 const BtnContent: React.FC<BtnContentProps> = ({
   loading,
   children,
