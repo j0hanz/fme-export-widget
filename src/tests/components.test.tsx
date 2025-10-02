@@ -524,7 +524,12 @@ describe("Input components", () => {
       readOnly: false,
     }
     renderWithProviders(
-      <DynamicField field={field} value="" onChange={handleValue} translate={undefined} />
+      <DynamicField
+        field={field}
+        value=""
+        onChange={handleValue}
+        translate={undefined}
+      />
     )
     const input = screen.getByTestId("mock-text-input")
     fireEvent.change(input, { target: { value: "1,5" } })

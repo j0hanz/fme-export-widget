@@ -1,4 +1,4 @@
-import type { IMState, ImmutableObject } from "jimu-core"
+import type { IMState, ImmutableObject, SerializedStyles } from "jimu-core"
 import type FmeFlowApiClient from "./shared/api"
 
 export const enum ViewMode {
@@ -126,7 +126,7 @@ export const enum JobStatus {
   ABORTED = "ABORTED",
 }
 
-export enum FmeActionType {
+export const enum FmeActionType {
   SET_VIEW_MODE = "fme/SET_VIEW_MODE",
   RESET_STATE = "fme/RESET_STATE",
   SET_STARTUP_VALIDATION_STATE = "fme/SET_STARTUP_VALIDATION_STATE",
@@ -145,6 +145,26 @@ export enum FmeActionType {
   SET_EXPORT_ERROR = "fme/SET_EXPORT_ERROR",
   CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
 }
+
+export const FME_ACTION_TYPES = [
+  FmeActionType.SET_VIEW_MODE,
+  FmeActionType.RESET_STATE,
+  FmeActionType.SET_STARTUP_VALIDATION_STATE,
+  FmeActionType.SET_GEOMETRY,
+  FmeActionType.SET_DRAWING_TOOL,
+  FmeActionType.COMPLETE_DRAWING,
+  FmeActionType.SET_FORM_VALUES,
+  FmeActionType.SET_ORDER_RESULT,
+  FmeActionType.SET_WORKSPACE_ITEMS,
+  FmeActionType.SET_WORKSPACE_PARAMETERS,
+  FmeActionType.SET_SELECTED_WORKSPACE,
+  FmeActionType.SET_WORKSPACE_ITEM,
+  FmeActionType.SET_LOADING_FLAGS,
+  FmeActionType.SET_ERROR,
+  FmeActionType.SET_IMPORT_ERROR,
+  FmeActionType.SET_EXPORT_ERROR,
+  FmeActionType.CLEAR_WORKSPACE_STATE,
+] as const
 
 export const LAYER_CONFIG = {
   title: "",
@@ -175,9 +195,7 @@ export interface TextOrFileValue {
 
 export type TextOrFileMode = "text" | "file"
 
-export interface NormalizedTextOrFile extends TextOrFileValue {
-  readonly file?: unknown
-}
+export type NormalizedTextOrFile = Readonly<TextOrFileValue>
 
 export type FormValue =
   | string
@@ -264,14 +282,13 @@ export type LoadingSnapshot = {
 } | null
 
 export interface DrawingSessionState {
-  isActive: boolean
-  clickCount: number
+  readonly isActive: boolean
+  readonly clickCount: number
 }
 
-export interface MutableParams {
-  [key: string]: unknown
+export interface MutableParams extends Record<string, unknown> {
   opt_geturl?: unknown
-  __aoi_error__?: unknown
+  __aoi_error__?: ErrorState | null
 }
 
 // Error handling
@@ -508,19 +525,19 @@ export interface TooltipProps {
 }
 
 export interface SettingStyles {
-  readonly ROW: any
-  readonly ALERT_INLINE: any
-  readonly LABEL_WITH_BUTTON: any
+  readonly ROW: SerializedStyles
+  readonly ALERT_INLINE: SerializedStyles
+  readonly LABEL_WITH_BUTTON: SerializedStyles
   readonly STATUS: {
-    readonly CONTAINER: any
-    readonly LIST: any
-    readonly ROW: any
-    readonly LABEL_GROUP: any
+    readonly CONTAINER: SerializedStyles
+    readonly LIST: SerializedStyles
+    readonly ROW: SerializedStyles
+    readonly LABEL_GROUP: SerializedStyles
     readonly COLOR: {
-      readonly OK: any
-      readonly FAIL: any
-      readonly SKIP: any
-      readonly PENDING: any
+      readonly OK: SerializedStyles
+      readonly FAIL: SerializedStyles
+      readonly SKIP: SerializedStyles
+      readonly PENDING: SerializedStyles
     }
   }
 }
@@ -555,9 +572,6 @@ export interface BtnContentProps {
   readonly children?: React.ReactNode
   readonly alignText?: string
 }
-
-// Setting panel types
-export type ConnectionSettings = FmeFlowConfig
 
 export interface TestState {
   readonly status: "idle" | "running" | "success" | "error"
@@ -685,7 +699,9 @@ export interface LoadingFlags {
 }
 // API and configuration
 export interface FmeFlowConfig {
+  /** Base URL for the FME Flow instance. Always sanitize builder input before storing. */
   readonly serverUrl: string
+  /** Sensitive authentication token. Never log or expose this value. */
   readonly token: string
   readonly repository: string
   readonly timeout?: number
@@ -727,7 +743,10 @@ export interface RequestConfig {
 }
 
 export interface EsriRequestConfig {
-  readonly request: { maxUrlLength: number; interceptors: any[] }
+  readonly request: {
+    maxUrlLength: number
+    interceptors: unknown[]
+  }
 }
 
 export type EsriMockKey =
@@ -863,12 +882,9 @@ export interface JobResult {
   }
 }
 
-// JobResponse is same as JobResult for simplicity
-export type JobResponse = JobResult
-
 export interface EsriModules {
-  SketchViewModel: new (...a: any[]) => __esri.SketchViewModel
-  GraphicsLayer: new (...a: any[]) => __esri.GraphicsLayer
+  SketchViewModel: new (...a: readonly unknown[]) => __esri.SketchViewModel
+  GraphicsLayer: new (...a: readonly unknown[]) => __esri.GraphicsLayer
   geometryEngine: {
     isSimple?: (g: __esri.Geometry) => boolean
     simplify?: (g: __esri.Geometry) => __esri.Geometry | null
@@ -891,15 +907,15 @@ export interface EsriModules {
   }
   SpatialReference: {
     WGS84?: __esri.SpatialReference
-    new (...args: any[]): __esri.SpatialReference
-    fromJSON?: (json: any) => __esri.SpatialReference
+    new (...args: readonly unknown[]): __esri.SpatialReference
+    fromJSON?: (json: unknown) => __esri.SpatialReference
   }
   webMercatorUtils: {
     webMercatorToGeographic: (g: __esri.Geometry) => __esri.Geometry
   }
   Polyline: { fromJSON: (j: unknown) => __esri.Polyline }
   Polygon: { fromJSON: (j: unknown) => __esri.Polygon }
-  Graphic: new (...a: any[]) => __esri.Graphic
+  Graphic: new (...a: readonly unknown[]) => __esri.Graphic
   intl?: {
     formatNumber?: (
       value: number,
@@ -1125,9 +1141,7 @@ export interface WorkflowProps extends BaseProps {
 }
 
 // Widget configuration
-export type WidgetConfig = FmeExportConfig
-
-export type IMWidgetConfig = ImmutableObject<WidgetConfig>
+export type IMWidgetConfig = ImmutableObject<FmeExportConfig>
 
 export interface ValidationResult {
   readonly isValid?: boolean

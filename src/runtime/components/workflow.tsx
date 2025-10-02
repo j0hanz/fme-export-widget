@@ -104,21 +104,21 @@ const extractGeometryFieldNames = (
   workspaceParameters?: readonly WorkspaceParameter[]
 ): string[] => {
   if (!workspaceParameters?.length) return []
-  
+
   const names: string[] = []
   const seen = new Set<string>()
-  
+
   for (const param of workspaceParameters) {
     if (!param || param.type !== ParameterType.GEOMETRY) continue
     if (typeof param.name !== "string") continue
-    
+
     const trimmed = param.name.trim()
     if (trimmed && !seen.has(trimmed)) {
       seen.add(trimmed)
       names.push(trimmed)
     }
   }
-  
+
   return names
 }
 
@@ -139,7 +139,10 @@ const createFormValidator = (
 
     // Validate schedule start field format when provided
     const startRaw = values.start
-    if (isNonEmptyString(startRaw) && !validateDateTimeFormat(startRaw.trim())) {
+    if (
+      isNonEmptyString(startRaw) &&
+      !validateDateTimeFormat(startRaw.trim())
+    ) {
       errors.start = "invalidDateTimeFormat"
     }
 
@@ -214,11 +217,13 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     onWorkspaceSelected,
     dispatch: reduxDispatch,
   } = opts
-  
+
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const loadAbortRef = React.useRef<AbortController | null>(null)
-  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
   const isMountedRef = React.useRef(true)
 
   const dispatchAction = hooks.useEventCallback((action: unknown) => {
@@ -226,7 +231,10 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   })
 
   const updateLoadingFlags = hooks.useEventCallback(
-    (flags: { isLoadingWorkspaces?: boolean; isLoadingParameters?: boolean }) => {
+    (flags: {
+      isLoadingWorkspaces?: boolean
+      isLoadingParameters?: boolean
+    }) => {
       const payload: { [key: string]: boolean } = {}
       if (flags.isLoadingWorkspaces !== undefined) {
         payload.isLoadingWorkspaces = flags.isLoadingWorkspaces
@@ -295,12 +303,12 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       parameters: readonly WorkspaceParameter[]
     ) => {
       if (!isMountedRef.current) return
-      
+
       if (onWorkspaceSelected) {
         onWorkspaceSelected(workspaceName, parameters, workspaceItem)
         return
       }
-      
+
       dispatchAction(
         fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
       )
@@ -318,7 +326,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
     const targetRepository = toTrimmedString(config?.repository)
-    
+
     if (!fmeClient || !targetRepository) {
       if (isMountedRef.current && !targetRepository) {
         setError(null)
@@ -509,7 +517,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   // Manage download URL lifecycle
   const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
   const objectUrlRef = React.useRef<string | null>(null)
-  
+
   hooks.useEffectWithPreviousValues(() => {
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
@@ -530,7 +538,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
     setDownloadUrl(null)
   }, [orderResult.downloadUrl, orderResult.blob])
-  
+
   hooks.useUnmount(() => {
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
@@ -540,13 +548,15 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
-    
+
     const display =
       typeof value === "string" || typeof value === "number"
         ? String(value)
         : JSON.stringify(value)
-    const key = label ? `order-row-${label}-${rows.length}` : `order-row-${rows.length}`
-    
+    const key = label
+      ? `order-row-${label}-${rows.length}`
+      : `order-row-${rows.length}`
+
     rows.push(
       <div css={styles.typography.caption} key={key}>
         {label ? `${label}: ${display}` : display}
@@ -556,7 +566,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   addRow(translate("jobId"), orderResult.jobId)
   addRow(translate("workspace"), orderResult.workspaceName)
-  
+
   if (!isSyncMode) {
     const emailVal = orderResult.email
     const masked =
@@ -565,7 +575,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
         : emailVal
     addRow(translate("notificationEmail"), masked)
   }
-  
+
   if (orderResult.code && !isSuccess) {
     addRow(translate("errorCode"), orderResult.code)
   }

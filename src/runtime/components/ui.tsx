@@ -352,7 +352,7 @@ const withId = (
 
   const childProps = (child.props || {}) as { [key: string]: unknown }
   const id = (childProps.id as string) || fallbackId
-  
+
   if (childProps.id) {
     return { id, child }
   }
@@ -429,7 +429,8 @@ const createTooltipAnchor = (
 
   if (!isDisabled) return child
 
-  const ariaLabel = typeof tooltipContent === "string" ? tooltipContent : undefined
+  const ariaLabel =
+    typeof tooltipContent === "string" ? tooltipContent : undefined
 
   return (
     <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>

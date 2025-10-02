@@ -2,7 +2,7 @@ import "@testing-library/jest-dom"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { initGlobal, widgetSettingRender } from "jimu-for-test"
 import { React, Immutable, getAppStore } from "jimu-core"
-import type { WidgetConfig, IMWidgetConfig } from "../config"
+import type { FmeExportConfig, IMWidgetConfig } from "../config"
 import Setting from "../setting/setting"
 
 jest.mock("jimu-ui", () => {
@@ -163,7 +163,9 @@ jest.mock("../runtime/components/ui", () => {
 
 type SettingComponentProps = React.ComponentProps<typeof Setting>
 
-const buildConfig = (overrides: Partial<WidgetConfig> = {}): IMWidgetConfig =>
+const buildConfig = (
+  overrides: Partial<FmeExportConfig> = {}
+): IMWidgetConfig =>
   Immutable({
     fmeServerUrl: "",
     fmeServerToken: "",
@@ -178,7 +180,7 @@ const buildConfig = (overrides: Partial<WidgetConfig> = {}): IMWidgetConfig =>
   }) as IMWidgetConfig
 
 const renderSetting = (
-  configOverrides: Partial<WidgetConfig> = {},
+  configOverrides: Partial<FmeExportConfig> = {},
   propsOverrides: Partial<SettingComponentProps> = {}
 ) => {
   const render = widgetSettingRender(true)
@@ -198,7 +200,7 @@ const renderSetting = (
 
   const result = render(<Setting {...baseProps} />)
 
-  const rerenderWithConfig = (overrides: Partial<WidgetConfig>) => {
+  const rerenderWithConfig = (overrides: Partial<FmeExportConfig>) => {
     currentConfig =
       (currentConfig.merge(overrides) as IMWidgetConfig) || currentConfig
     baseProps.config = currentConfig
@@ -224,7 +226,7 @@ afterEach(() => {
 })
 
 const extractConfigs = (mockFn: jest.Mock) =>
-  mockFn.mock.calls.map((args) => args[0].config as unknown as WidgetConfig)
+  mockFn.mock.calls.map((args) => args[0].config as unknown as FmeExportConfig)
 
 const labelNormalizer = (label: string) => label.replace(/\u2011/g, "-")
 
@@ -282,7 +284,7 @@ describe("Setting builder interactions", () => {
     ).not.toBeInTheDocument()
 
     const configs = extractConfigs(onSettingChange)
-    const hasConfig = (predicate: (cfg: WidgetConfig) => boolean) =>
+    const hasConfig = (predicate: (cfg: FmeExportConfig) => boolean) =>
       configs.some(predicate)
     expect(hasConfig((cfg) => cfg.service === "stream")).toBe(true)
     expect(hasConfig((cfg) => !cfg.allowRemoteDataset)).toBe(true)

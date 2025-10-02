@@ -319,9 +319,7 @@ const prepareSubmissionParams = async ({
     }
   )
 
-  const aoiError = (baseParams as MutableParams).__aoi_error__ as
-    | ErrorState
-    | undefined
+  const aoiError = (baseParams as MutableParams).__aoi_error__
   if (aoiError) {
     return { params: null, aoiError }
   }

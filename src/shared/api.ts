@@ -5,7 +5,6 @@ import type {
   RequestConfig,
   ApiResponse,
   WorkspaceParameter,
-  JobResponse,
   JobResult,
   PrimitiveParams,
   EsriRequestConfig,
@@ -888,13 +887,13 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<JobResponse>> {
+  ): Promise<ApiResponse<JobResult>> {
     const repo = this.resolveRepository(repository)
     const endpoint = this.transformEndpoint("submit", repo, workspace)
     const jobRequest = this.formatJobParams(parameters)
     return this.withApiError(
       () =>
-        this.request<JobResponse>(endpoint, {
+        this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(jobRequest),
@@ -929,7 +928,7 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<JobResponse>> {
+  ): Promise<ApiResponse<JobResult>> {
     const geometryParams = await this.toFmeParams(geometry)
     return this.submitJob(
       workspace,

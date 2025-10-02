@@ -4,6 +4,7 @@ import {
   ViewMode,
   DrawingTool,
   FmeActionType,
+  FME_ACTION_TYPES,
   type FmeWidgetState,
   type FmeActions,
   type ErrorState,
@@ -410,7 +411,7 @@ export default class FmeReduxStoreExtension
 
   getActions(): string[] {
     // Return all action types as string array
-    return Object.values(FmeActionType) as unknown as string[]
+    return [...FME_ACTION_TYPES]
   }
 
   getInitLocalState(): { byId: { [id: string]: FmeWidgetState } } {

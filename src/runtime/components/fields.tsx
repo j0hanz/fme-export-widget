@@ -92,7 +92,8 @@ const renderTextInput = (
     }
   }
 
-  const stringValue = typeof value === "string" || typeof value === "number" ? String(value) : ""
+  const stringValue =
+    typeof value === "string" || typeof value === "number" ? String(value) : ""
 
   return (
     <Input
@@ -126,9 +127,7 @@ const renderDateTimeInput = (
 )
 
 // Helper: Normalize TEXT_OR_FILE value to consistent shape
-const normalizeTextOrFileValue = (
-  rawValue: unknown
-): NormalizedTextOrFile => {
+const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
   if (
     rawValue &&
     typeof rawValue === "object" &&
@@ -201,7 +200,8 @@ const prepareNewTableRow = (
 ): { [key: string]: unknown } => {
   const row: { [key: string]: unknown } = {}
   for (const column of columns) {
-    row[column.key] = column.defaultValue !== undefined ? column.defaultValue : ""
+    row[column.key] =
+      column.defaultValue !== undefined ? column.defaultValue : ""
   }
   return row
 }
@@ -665,7 +665,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.PHONE:
       case FormFieldType.SEARCH:
       case FormFieldType.TEXT: {
-        const inputTypeMap: { [key: string]: "text" | "email" | "tel" | "search" | "password" } = {
+        const inputTypeMap: {
+          [key: string]: "text" | "email" | "tel" | "search" | "password"
+        } = {
           [FormFieldType.PASSWORD]: "password",
           [FormFieldType.EMAIL]: "email",
           [FormFieldType.PHONE]: "tel",
@@ -673,14 +675,24 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           [FormFieldType.TEXT]: "text",
         }
         const inputType = inputTypeMap[field.type] || "text"
-        const placeholderType = field.type === FormFieldType.PHONE ? "phone" 
-          : field.type === FormFieldType.EMAIL ? "email"
-          : field.type === FormFieldType.SEARCH ? "search"
-          : undefined
-        const placeholder = field.type === FormFieldType.PASSWORD
-          ? getTextPlaceholder(field, placeholders, translate)
-          : getTextPlaceholder(field, placeholders, translate, placeholderType)
-        
+        const placeholderType =
+          field.type === FormFieldType.PHONE
+            ? "phone"
+            : field.type === FormFieldType.EMAIL
+              ? "email"
+              : field.type === FormFieldType.SEARCH
+                ? "search"
+                : undefined
+        const placeholder =
+          field.type === FormFieldType.PASSWORD
+            ? getTextPlaceholder(field, placeholders, translate)
+            : getTextPlaceholder(
+                field,
+                placeholders,
+                translate,
+                placeholderType
+              )
+
         return renderTextInput(
           inputType,
           fieldValue as FormPrimitive,
@@ -703,7 +715,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.TEXT_OR_FILE: {
-        const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(fieldValue)
+        const currentValue: NormalizedTextOrFile =
+          normalizeTextOrFileValue(fieldValue)
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
@@ -842,7 +855,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           const parsedRings = Array.isArray(parsed?.rings) ? parsed.rings : []
           rings = parsedRings.length
           vertices = parsedRings.reduce((count, ring) => {
-            return count + (Array.isArray(ring) ? ring.filter(Array.isArray).length : 0)
+            return (
+              count +
+              (Array.isArray(ring) ? ring.filter(Array.isArray).length : 0)
+            )
           }, 0)
           preview = JSON.stringify(parsed, null, 2)
         } catch {

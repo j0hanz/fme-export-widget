@@ -46,9 +46,9 @@ import {
 } from "../shared/services"
 import { fmeActions } from "../extensions/store"
 import type {
-  WidgetConfig,
+  FmeExportConfig,
   IMWidgetConfig,
-  ConnectionSettings,
+  FmeFlowConfig,
   TestState,
   FieldErrors,
   StepStatus,
@@ -617,7 +617,7 @@ const handleValidationFailure = (
 // String-only config getter to avoid repetitive type assertions
 function useStringConfigValue(config: IMWidgetConfig) {
   return hooks.useEventCallback(
-    (prop: keyof WidgetConfig, defaultValue = ""): string => {
+    (prop: keyof FmeExportConfig, defaultValue = ""): string => {
       const v = config?.[prop]
       return typeof v === "string" ? v : defaultValue
     }
@@ -627,7 +627,7 @@ function useStringConfigValue(config: IMWidgetConfig) {
 // Boolean config getter
 function useBooleanConfigValue(config: IMWidgetConfig) {
   return hooks.useEventCallback(
-    (prop: keyof WidgetConfig, defaultValue = false): boolean => {
+    (prop: keyof FmeExportConfig, defaultValue = false): boolean => {
       const v = config?.[prop]
       return typeof v === "boolean" ? v : defaultValue
     }
@@ -637,7 +637,10 @@ function useBooleanConfigValue(config: IMWidgetConfig) {
 // Number config getter
 function useNumberConfigValue(config: IMWidgetConfig) {
   return hooks.useEventCallback(
-    (prop: keyof WidgetConfig, defaultValue?: number): number | undefined => {
+    (
+      prop: keyof FmeExportConfig,
+      defaultValue?: number
+    ): number | undefined => {
       const v = config?.[prop]
       if (typeof v === "number" && Number.isFinite(v)) return v
       return defaultValue
@@ -697,11 +700,11 @@ function useUpdateConfig(
   onSettingChange: AllWidgetSettingProps<IMWidgetConfig>["onSettingChange"]
 ) {
   return hooks.useEventCallback(
-    <K extends keyof WidgetConfig>(key: K, value: WidgetConfig[K]) => {
+    <K extends keyof FmeExportConfig>(key: K, value: FmeExportConfig[K]) => {
       onSettingChange({
         id,
         // Update only the specific key in the config
-        config: config.set(key, value),
+        config: config.set(key as string, value),
       })
     }
   )
@@ -777,8 +780,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     () => getStringConfig("fmeServerToken") || ""
   )
   const selectedRepository = getStringConfig("repository") || ""
-  const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(
-    () => getStringConfig("supportEmail")
+  const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(() =>
+    getStringConfig("supportEmail")
   )
   const [localSyncMode, setLocalSyncMode] = React.useState<boolean>(() =>
     getBooleanConfig("syncMode")
@@ -1075,7 +1078,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Validate connection settings
   const validateConnectionSettings = hooks.useEventCallback(
-    (): ConnectionSettings | null => {
+    (): FmeFlowConfig | null => {
       const rawServerUrl = localServerUrl
       const token = localToken
       const repository = selectedRepository
@@ -1104,7 +1107,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Connection test sub-functions for better organization
   const handleTestSuccess = hooks.useEventCallback(
-    (validationResult: any, settings: ConnectionSettings, silent: boolean) => {
+    (validationResult: any, settings: FmeFlowConfig, silent: boolean) => {
       setCheckSteps({
         serverUrl: validationResult.steps.serverUrl,
         token: validationResult.steps.token,
@@ -1166,35 +1169,37 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  const handleTestError = hooks.useEventCallback((err: unknown, silent: boolean) => {
-    if ((err as Error)?.name === "AbortError") return
+  const handleTestError = hooks.useEventCallback(
+    (err: unknown, silent: boolean) => {
+      if ((err as Error)?.name === "AbortError") return
 
-    const errorStatus = extractHttpStatus(err)
-    const failureType =
-      !errorStatus || errorStatus === 0 ? "network" : "server"
-    handleValidationFailure(failureType, {
-      setCheckSteps,
-      setFieldErrors,
-      translate,
-      setAvailableRepos,
-      version: "",
-      repositories: null,
-    })
-
-    if (!silent) {
-      const status = err instanceof Error ? 0 : extractHttpStatus(err)
-      const errorKey = mapErrorToKey(err, status)
-      setTestState({
-        status: "error",
-        isTesting: false,
-        message:
-          failureType === "network"
-            ? translate("errorInvalidServerUrl")
-            : translate(errorKey),
-        type: "error",
+      const errorStatus = extractHttpStatus(err)
+      const failureType =
+        !errorStatus || errorStatus === 0 ? "network" : "server"
+      handleValidationFailure(failureType, {
+        setCheckSteps,
+        setFieldErrors,
+        translate,
+        setAvailableRepos,
+        version: "",
+        repositories: null,
       })
+
+      if (!silent) {
+        const status = err instanceof Error ? 0 : extractHttpStatus(err)
+        const errorKey = mapErrorToKey(err, status)
+        setTestState({
+          status: "error",
+          isTesting: false,
+          message:
+            failureType === "network"
+              ? translate("errorInvalidServerUrl")
+              : translate(errorKey),
+          type: "error",
+        })
+      }
     }
-  })
+  )
 
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
@@ -1418,14 +1423,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Reusable blur handler for optional string fields
   const createStringBlurHandler = hooks.useEventCallback(
     (
-      configKey: keyof WidgetConfig,
+      configKey: keyof FmeExportConfig,
       setter: (val: string) => void,
       defaultValue?: string
     ) => {
       return (val: string) => {
         const trimmed = (val ?? "").trim()
         if (!trimmed) {
-          updateConfig(configKey, defaultValue ? (defaultValue as any) : (undefined as any))
+          updateConfig(
+            configKey,
+            defaultValue ? (defaultValue as any) : (undefined as any)
+          )
           setter(defaultValue || "")
         } else {
           updateConfig(configKey, trimmed as any)
@@ -1438,7 +1446,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Reusable blur handler for optional numeric fields
   const createNumericBlurHandler = hooks.useEventCallback(
     (
-      configKey: keyof WidgetConfig,
+      configKey: keyof FmeExportConfig,
       setter: (val: string) => void,
       maxValue?: number
     ) => {
