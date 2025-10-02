@@ -483,7 +483,7 @@ describe("shared/api FmeFlowApiClient", () => {
     })
   })
 
-  test("Webhook coercion: opt_servicemode 'schedule' becomes 'async'", async () => {
+  test("runDataDownload preserves opt_servicemode schedule", async () => {
     // Mock JSON response to avoid network failure
     const esriRequest = (global as any).esriRequest as jest.Mock
     esriRequest.mockResolvedValueOnce({
@@ -502,9 +502,8 @@ describe("shared/api FmeFlowApiClient", () => {
       "repo1"
     )
     const [calledUrl] = esriRequest.mock.calls[0]
-    // Ensure webhooks never send schedule; coerced to async
-    expect(calledUrl).toMatch(/opt_servicemode=async/)
-    expect(calledUrl).not.toMatch(/opt_servicemode=schedule/)
+    expect(calledUrl).toMatch(/opt_servicemode=schedule/)
+    expect(calledUrl).not.toMatch(/opt_servicemode=async/)
   })
 
   test("runDataStreaming posts parameters with token and returns Blob", async () => {

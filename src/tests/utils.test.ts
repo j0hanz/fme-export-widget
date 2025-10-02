@@ -307,6 +307,17 @@ describe("shared/utils", () => {
       expect(params.opt_requesteremail).toBe("user@x.com")
     })
 
+    test("buildFmeParams includes requester email for schedule mode", () => {
+      const params = buildFmeParams(
+        { data: { _serviceMode: "schedule" } },
+        "notify@example.com",
+        "schedule",
+        { config: { allowScheduleMode: true } as unknown as FmeExportConfig }
+      )
+      expect(params.opt_servicemode).toBe("schedule")
+      expect(params.opt_requesteremail).toBe("notify@example.com")
+    })
+
     test("buildFmeParams respects config overrides", () => {
       const params = buildFmeParams({ data: {} }, "user@x.com", "sync", {
         config: {
@@ -513,8 +524,7 @@ describe("shared/utils", () => {
         }
       )
       expect(p.opt_servicemode).toBe("schedule")
-      // requester email is only set for async mode
-      expect((p as any).opt_requesteremail).toBeUndefined()
+      expect((p as any).opt_requesteremail).toBe("user@x.com")
       expect(p.tm_ttc).toBe(10)
       expect(p).not.toHaveProperty("tm_queue")
       expect(p.AreaOfInterest).toBeTruthy()
@@ -695,6 +705,23 @@ describe("shared/utils", () => {
       expect(str).toContain("opt_responseformat=json")
       expect(str).toContain("opt_showresult=true")
       expect(str).toContain("opt_servicemode=sync")
+    })
+
+    test("buildParams preserves schedule mode and showresult flag", () => {
+      const params = buildParams(
+        {
+          opt_servicemode: "schedule",
+          opt_showresult: "false",
+          opt_responseformat: "xml",
+          start: "2024-05-01 10:00:00",
+        } as any,
+        [],
+        true
+      )
+      expect(params.get("opt_servicemode")).toBe("schedule")
+      expect(params.get("opt_showresult")).toBe("false")
+      expect(params.get("opt_responseformat")).toBe("xml")
+      expect(params.get("start")).toBe("2024-05-01 10:00:00")
     })
 
     test("coerceFormValueForSubmission normalizes composite text or file values", () => {

@@ -595,7 +595,7 @@ export const buildFmeParams = (
     opt_showresult: showResult,
   } as { [key: string]: unknown }
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
-  if (mode === "async" && trimmedEmail) {
+  if ((mode === "async" || mode === "schedule") && trimmedEmail) {
     base.opt_requesteremail = trimmedEmail
   }
   return base
@@ -1164,12 +1164,31 @@ export const buildParams = (
   }
 
   if (webhookDefaults) {
-    urlParams.append("opt_responseformat", "json")
-    urlParams.append("opt_showresult", "true")
-    const raw = (params as any)?.opt_servicemode
-    const requested = typeof raw === "string" ? raw.trim().toLowerCase() : ""
-    const mode = requested === "sync" ? "sync" : "async"
-    urlParams.append("opt_servicemode", mode)
+    const getRaw = (key: string): string => {
+      const existing = urlParams.get(key)
+      if (existing !== null) {
+        return existing
+      }
+      const raw = (params as any)?.[key]
+      return typeof raw === "string" ? raw : ""
+    }
+
+    const formatRaw = getRaw("opt_responseformat").trim().toLowerCase()
+    const normalizedFormat = formatRaw === "xml" ? "xml" : "json"
+    urlParams.set("opt_responseformat", normalizedFormat)
+
+    const showRaw = getRaw("opt_showresult").trim().toLowerCase()
+    const normalizedShow = showRaw === "false" ? "false" : "true"
+    urlParams.set("opt_showresult", normalizedShow)
+
+    const modeRaw = getRaw("opt_servicemode").trim().toLowerCase()
+    const normalizedMode =
+      modeRaw === "sync"
+        ? "sync"
+        : modeRaw === "schedule"
+          ? "schedule"
+          : "async"
+    urlParams.set("opt_servicemode", normalizedMode)
   }
 
   return urlParams

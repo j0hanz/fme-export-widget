@@ -295,11 +295,7 @@ const asGeometryEngineAsync = (v: unknown): any =>
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
-  WEBHOOK_EXCLUDE_KEYS: [
-    "opt_servicemode",
-    "opt_responseformat",
-    "opt_showresult",
-  ],
+  WEBHOOK_EXCLUDE_KEYS: [],
   WEBHOOK_LOG_WHITELIST: [
     "opt_responseformat",
     "opt_showresult",

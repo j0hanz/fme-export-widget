@@ -540,8 +540,7 @@ describe("FME internal helper functions", () => {
     expect(out.opt_servicemode).toBe("schedule")
     expect(out.start).toBe("2025-09-20 09:30:00")
     expect(out.trigger).toBe("runonce")
-    // requester email is only added for async mode now
-    expect(out.opt_requesteremail).toBeUndefined()
+    expect(out.opt_requesteremail).toBe("user@example.com")
     expect(Object.prototype.hasOwnProperty.call(out, "_serviceMode")).toBe(
       false
     )
@@ -583,6 +582,7 @@ describe("FME internal helper functions", () => {
     expect(out.name).toBe("Night run")
     expect(out.category).toBe("One-offs")
     expect(out.description).toBe("Export AOI for project X")
+    expect(out.opt_requesteremail).toBe("user@example.com")
   })
 
   test("getEmail returns valid email and throws coded errors for missing/invalid", async () => {

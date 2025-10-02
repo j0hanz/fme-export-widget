@@ -1451,8 +1451,8 @@ export default function Widget(
         latestConfig
       )
       const fmeClient = getOrCreateFmeClient()
-      const userEmail =
-        earlyMode === "async" ? await getEmail(latestConfig) : ""
+      const requiresEmail = earlyMode === "async" || earlyMode === "schedule"
+      const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
       const workspace = reduxState.selectedWorkspace
       if (!workspace) {
