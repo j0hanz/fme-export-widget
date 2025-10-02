@@ -882,6 +882,24 @@ export interface JobResult {
   }
 }
 
+export type EsriAreaOperatorFn = (
+  geometry: __esri.Geometry,
+  unit?: string
+) => number | Promise<number>
+
+export interface EsriGeometryOperators {
+  readonly geodesic?: EsriAreaOperatorFn
+  readonly geodesicArea?: EsriAreaOperatorFn
+  readonly planar?: EsriAreaOperatorFn
+  readonly planarArea?: EsriAreaOperatorFn
+  readonly area?: {
+    readonly geodesic?: EsriAreaOperatorFn
+    readonly geodesicArea?: EsriAreaOperatorFn
+    readonly planar?: EsriAreaOperatorFn
+    readonly planarArea?: EsriAreaOperatorFn
+  }
+}
+
 export interface EsriModules {
   SketchViewModel: new (...a: readonly unknown[]) => __esri.SketchViewModel
   GraphicsLayer: new (...a: readonly unknown[]) => __esri.GraphicsLayer
@@ -949,6 +967,7 @@ export interface EsriModules {
       ReadonlyArray<__esri.Geometry | __esri.Mesh | null | undefined>
     >
   }
+  geometryOperators?: EsriGeometryOperators | null
 }
 
 export interface DerivedParamNames {

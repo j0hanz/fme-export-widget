@@ -116,6 +116,20 @@ const buildSymbols = (rgb: readonly [number, number, number]) => {
   return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
 }
 
+const normalizeSketchCreateTool = (
+  tool: string | null | undefined
+): "polygon" | "rectangle" | null => {
+  if (!tool) return null
+  const normalized = tool.toLowerCase()
+  if (normalized === "extent" || normalized === "rectangle") {
+    return "rectangle"
+  }
+  if (normalized === "polygon") {
+    return "polygon"
+  }
+  return null
+}
+
 const UPLOAD_PARAM_TYPES = [
   "FILENAME",
   "FILENAME_MUSTEXIST",
@@ -389,6 +403,18 @@ const safeClearLayer = (
   })
 }
 
+const destroyGraphicsLayer = (
+  layer?: __esri.GraphicsLayer | null,
+  context = "Failed to destroy GraphicsLayer"
+): void => {
+  safely(layer, context, (graphics) => {
+    const destroyFn = (graphics as { destroy?: () => void }).destroy
+    if (typeof destroyFn === "function") {
+      destroyFn.call(graphics)
+    }
+  })
+}
+
 const removeLayerFromMap = (
   jmv?: JimuMapView | null,
   layer?: __esri.GraphicsLayer | null,
@@ -448,6 +474,11 @@ const useEsriModules = (
           }
         } catch {}
 
+        const geometryOperators =
+          (geometryEngineAsync as any)?.operators ??
+          (geometryEngine as any)?.operators ??
+          null
+
         setState({
           modules: {
             SketchViewModel,
@@ -461,6 +492,7 @@ const useEsriModules = (
             Polyline,
             Polygon,
             Graphic,
+            geometryOperators,
           } as EsriModules,
           loading: false,
         })
@@ -523,6 +555,10 @@ const useMapResources = () => {
         `Error ${logSuffix} GraphicsLayer (remove)`
       )
       safeClearLayer(graphicsLayer, `Error ${logSuffix} GraphicsLayer (clear)`)
+      destroyGraphicsLayer(
+        graphicsLayer,
+        `Error ${logSuffix} GraphicsLayer (destroy)`
+      )
 
       setState((prev) => ({
         ...prev,
@@ -691,21 +727,32 @@ const setupSketchEventHandlers = (
 
   sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
     switch (evt.state) {
-      case "start":
+      case "start": {
         clickCount = 0
+        const normalizedTool = normalizeSketchCreateTool(evt.tool)
+        if (!normalizedTool) {
+          safeCancelSketch(
+            sketchViewModel,
+            "Error blocking unsupported Sketch tool"
+          )
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          return
+        }
         onDrawingSessionChange({ isActive: true, clickCount: 0 })
         dispatch(
           fmeActions.setDrawingTool(
-            evt.tool === "rectangle"
+            normalizedTool === "rectangle"
               ? DrawingTool.RECTANGLE
               : DrawingTool.POLYGON,
             widgetId
           )
         )
         break
+      }
 
-      case "active":
-        if (evt.tool === "polygon" && evt.graphic?.geometry) {
+      case "active": {
+        const normalizedTool = normalizeSketchCreateTool(evt.tool)
+        if (normalizedTool === "polygon" && evt.graphic?.geometry) {
           const geometry = evt.graphic.geometry as __esri.Polygon
           const vertices = geometry.rings?.[0]
           const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
@@ -716,11 +763,12 @@ const setupSketchEventHandlers = (
               dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             }
           }
-        } else if (evt.tool === "rectangle" && clickCount !== 1) {
+        } else if (normalizedTool === "rectangle" && clickCount !== 1) {
           clickCount = 1
           onDrawingSessionChange({ clickCount: 1, isActive: true })
         }
         break
+      }
 
       case "complete":
         clickCount = 0
@@ -746,11 +794,12 @@ const setupSketchEventHandlers = (
       Array.isArray(evt.graphics) &&
       (evt.graphics[0] as any)?.geometry
     ) {
+      const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
       try {
         onDrawComplete({
           graphic: evt.graphics[0] as any,
           state: "complete",
-          tool: (evt as any).tool,
+          tool: normalizedTool ?? (evt as any).tool,
         } as any)
       } catch (err: any) {
         logIfNotAbort("onDrawComplete update error", err)
