@@ -372,6 +372,100 @@ export interface OptionItem {
   readonly value: string | number
   readonly disabled?: boolean
   readonly hideLabel?: boolean
+  readonly description?: string
+  readonly path?: string
+  readonly children?: readonly OptionItem[]
+  readonly metadata?: { readonly [key: string]: unknown }
+  readonly isLeaf?: boolean
+}
+
+export interface ScriptedOptionNode {
+  readonly id: string
+  readonly label: string
+  readonly value?: string | number
+  readonly path: readonly string[]
+  readonly children?: readonly ScriptedOptionNode[]
+  readonly disabled?: boolean
+  readonly metadata?: { readonly [key: string]: unknown }
+  readonly isLeaf?: boolean
+}
+
+export interface ScriptedFieldConfig {
+  readonly allowMultiple?: boolean
+  readonly allowSearch?: boolean
+  readonly hierarchical?: boolean
+  readonly allowManualEntry?: boolean
+  readonly searchPlaceholder?: string
+  readonly instructions?: string
+  readonly breadcrumbSeparator?: string
+  readonly pageSize?: number
+  readonly maxResultsHint?: string
+  readonly autoSelectSingleLeaf?: boolean
+  readonly nodes?: readonly ScriptedOptionNode[]
+}
+
+export type TableColumnType =
+  | "text"
+  | "number"
+  | "select"
+  | "boolean"
+  | "date"
+  | "time"
+  | "datetime"
+
+export interface TableColumnConfig {
+  readonly key: string
+  readonly label: string
+  readonly type?: TableColumnType
+  readonly required?: boolean
+  readonly placeholder?: string
+  readonly options?: readonly OptionItem[]
+  readonly min?: number
+  readonly max?: number
+  readonly step?: number
+  readonly width?: number | string
+  readonly readOnly?: boolean
+  readonly defaultValue?: unknown
+  readonly pattern?: string
+  readonly description?: string
+}
+
+export interface TableFieldConfig {
+  readonly columns?: readonly TableColumnConfig[]
+  readonly minRows?: number
+  readonly maxRows?: number
+  readonly addRowLabel?: string
+  readonly removeRowLabel?: string
+  readonly helperText?: string
+  readonly allowReorder?: boolean
+  readonly showHeader?: boolean
+}
+
+export interface DateTimeFieldConfig {
+  readonly includeSeconds?: boolean
+  readonly includeMilliseconds?: boolean
+  readonly timezoneMode?: "fixed" | "select" | "offset"
+  readonly timezoneOffset?: string
+  readonly timezoneOptions?: readonly OptionItem[]
+  readonly defaultTimezone?: string
+  readonly showTimezoneBadge?: boolean
+  readonly helperText?: string
+}
+
+export interface SelectFieldConfig {
+  readonly allowSearch?: boolean
+  readonly allowCustomValues?: boolean
+  readonly hierarchical?: boolean
+  readonly pageSize?: number
+  readonly instructions?: string
+}
+
+export interface FileFieldConfig {
+  readonly accept?: readonly string[]
+  readonly multiple?: boolean
+  readonly maxSizeMb?: number
+  readonly helperText?: string
+  readonly capture?: string
 }
 
 export interface SelectProps extends BaseProps {
@@ -570,6 +664,12 @@ export interface DynamicFieldConfig {
   readonly min?: number
   readonly max?: number
   readonly step?: number
+  readonly helper?: string
+  readonly scripted?: ScriptedFieldConfig
+  readonly tableConfig?: TableFieldConfig
+  readonly dateTimeConfig?: DateTimeFieldConfig
+  readonly selectConfig?: SelectFieldConfig
+  readonly fileConfig?: FileFieldConfig
 }
 
 export interface DynamicFieldProps {
@@ -713,6 +813,10 @@ export interface RepositoryItems {
 export interface ParameterChoice {
   readonly caption?: string
   readonly value: unknown
+  readonly description?: string
+  readonly path?: string
+  readonly disabled?: boolean
+  readonly metadata?: { readonly [key: string]: unknown }
 }
 
 export interface WorkspaceParameter {
@@ -728,6 +832,13 @@ export interface WorkspaceParameter {
   readonly minimumExclusive?: boolean
   readonly maximumExclusive?: boolean
   readonly decimalPrecision?: number
+  readonly attributes?: { readonly [key: string]: unknown }
+  readonly control?: { readonly [key: string]: unknown }
+  readonly definition?: { readonly [key: string]: unknown }
+  readonly metadata?: { readonly [key: string]: unknown }
+  readonly schema?: { readonly [key: string]: unknown }
+  readonly ui?: { readonly [key: string]: unknown }
+  readonly extra?: { readonly [key: string]: unknown }
 }
 
 export interface JobDirectives {

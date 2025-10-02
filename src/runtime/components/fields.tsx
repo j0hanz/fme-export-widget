@@ -27,6 +27,7 @@ import {
   type SelectValue,
   type TextOrFileMode,
   type NormalizedTextOrFile,
+  type TableColumnConfig,
 } from "../../config"
 import defaultMessages from "./translations/default"
 import {
@@ -108,12 +109,72 @@ export const renderInputField = (
 }
 
 // Dynamic field component renders various form fields based on configuration
+const isPlainObject = (value: unknown): value is { [key: string]: unknown } =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const normalizeTableRows = (
+  raw: unknown,
+  columns: readonly TableColumnConfig[]
+): Array<{ [key: string]: unknown }> => {
+  if (Array.isArray(raw)) {
+    return raw.map((item) => {
+      if (isPlainObject(item)) {
+        const normalized: { [key: string]: unknown } = {}
+        for (const col of columns) {
+          if (col.key in item) {
+            normalized[col.key] = item[col.key]
+          }
+        }
+        for (const [key, val] of Object.entries(item)) {
+          if (!(key in normalized)) normalized[key] = val
+        }
+        return normalized
+      }
+      return { value: item }
+    })
+  }
+
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        return normalizeTableRows(parsed, columns)
+      }
+    } catch {
+      // fall back to string rows
+      return raw
+        .split(/\r?\n/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => ({ value: entry }))
+    }
+  }
+
+  return []
+}
+
+const prepareNewTableRow = (
+  columns: readonly TableColumnConfig[]
+): { [key: string]: unknown } => {
+  const row: { [key: string]: unknown } = {}
+  for (const column of columns) {
+    if (column.defaultValue !== undefined) {
+      row[column.key] = column.defaultValue
+    } else {
+      row[column.key] = ""
+    }
+  }
+  return row
+}
+
 export const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
   onChange,
+  translate: translateProp,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages)
+  const fallbackTranslate = hooks.useTranslation(defaultMessages)
+  const translate = translateProp ?? fallbackTranslate
   const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type)
   const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE
   const fieldValue = bypassNormalization
@@ -156,22 +217,225 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return <RichText html={html} />
       }
       case FormFieldType.TABLE: {
-        // Minimal table: array of strings; allow add/remove rows
-        const rows = parseTableRows(value)
+        const tableConfig = field.tableConfig
+        if (!tableConfig?.columns?.length) {
+          const rows = parseTableRows(value)
 
-        const updateRow = (idx: number, val: string) => {
+          const updateRow = (idx: number, val: string) => {
+            const next = [...rows]
+            next[idx] = val
+            onChange(next as unknown as FormPrimitive)
+          }
+
+          const addRow = () => {
+            onChange([...(rows || []), ""] as unknown as FormPrimitive)
+          }
+
+          const removeRow = (idx: number) => {
+            const next = rows.filter((_, i) => i !== idx)
+            onChange(next as unknown as FormPrimitive)
+          }
+
+          return (
+            <div data-testid="table-field">
+              {rows.length === 0 ? (
+                <div>{translate("tableEmpty")}</div>
+              ) : (
+                <Table responsive hover aria-label={field.label}>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i}>
+                        <td>
+                          <Input
+                            type="text"
+                            value={r}
+                            placeholder={
+                              field.placeholder || placeholders.enter
+                            }
+                            onChange={(val) => {
+                              const s = typeof val === "string" ? val : ""
+                              updateRow(i, s)
+                            }}
+                            disabled={field.readOnly}
+                          />
+                        </td>
+                        <td>
+                          <Button
+                            text={translate("deleteRow")}
+                            variant="text"
+                            type="tertiary"
+                            onClick={() => {
+                              removeRow(i)
+                            }}
+                            aria-label={translate("deleteRow")}
+                            disabled={field.readOnly}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+              <Button
+                text={translate("addRow")}
+                variant="outlined"
+                onClick={addRow}
+                aria-label={translate("addRow")}
+                disabled={field.readOnly}
+              />
+            </div>
+          )
+        }
+
+        const columns =
+          tableConfig.columns && tableConfig.columns.length
+            ? tableConfig.columns
+            : [
+                {
+                  key: "value",
+                  label: field.label || translate("tableColumnDefault"),
+                  type: "text" as const,
+                },
+              ]
+
+        const rows = normalizeTableRows(value, columns)
+        const minRows = tableConfig?.minRows ?? 0
+        const maxRows = tableConfig?.maxRows
+        const allowReorder = tableConfig?.allowReorder ?? false
+        const showHeader = tableConfig?.showHeader ?? true
+        const addLabel = tableConfig?.addRowLabel || translate("addRow")
+        const removeLabel =
+          tableConfig?.removeRowLabel || translate("deleteRow")
+
+        const canRemove = !field.readOnly && rows.length > minRows
+        const canAddRow =
+          !field.readOnly && (maxRows === undefined || rows.length < maxRows)
+
+        const handleCellChange = (
+          rowIndex: number,
+          columnKey: string,
+          newValue: unknown
+        ) => {
+          const next = rows.map((row, idx) =>
+            idx === rowIndex ? { ...row, [columnKey]: newValue } : row
+          )
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        const handleAddRow = () => {
+          if (!canAddRow) return
+          const nextRow = prepareNewTableRow(columns)
+          onChange([...rows, nextRow] as unknown as FormPrimitive)
+        }
+
+        const handleRemoveRow = (rowIndex: number) => {
+          if (!canRemove) return
+          const next = rows.filter((_, idx) => idx !== rowIndex)
+          onChange(next as unknown as FormPrimitive)
+        }
+
+        const handleMoveRow = (rowIndex: number, direction: -1 | 1) => {
+          const target = rowIndex + direction
+          if (target < 0 || target >= rows.length) return
           const next = [...rows]
-          next[idx] = val
+          const [moved] = next.splice(rowIndex, 1)
+          next.splice(target, 0, moved)
           onChange(next as unknown as FormPrimitive)
         }
 
-        const addRow = () => {
-          onChange([...(rows || []), ""] as unknown as FormPrimitive)
-        }
+        const renderCell = (
+          column: TableColumnConfig,
+          rowIndex: number,
+          rowValue: { [key: string]: unknown }
+        ) => {
+          const cellValue = rowValue[column.key]
+          const disabled = field.readOnly || column.readOnly
+          const placeholder =
+            column.placeholder || field.placeholder || placeholders.enter
 
-        const removeRow = (idx: number) => {
-          const next = rows.filter((_, i) => i !== idx)
-          onChange(next as unknown as FormPrimitive)
+          switch (column.type) {
+            case "number":
+              return (
+                <Input
+                  type="number"
+                  value={asString(cellValue)}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                  placeholder={placeholder}
+                />
+              )
+            case "select":
+              return (
+                <Select
+                  value={cellValue as SelectValue}
+                  options={column.options || []}
+                  placeholder={placeholder}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                />
+              )
+            case "boolean":
+              return (
+                <Checkbox
+                  checked={Boolean(cellValue)}
+                  onChange={(evt) => {
+                    handleCellChange(rowIndex, column.key, evt.target.checked)
+                  }}
+                  disabled={disabled}
+                  aria-label={column.label}
+                />
+              )
+            case "date":
+              return (
+                <Input
+                  type="date"
+                  value={asString(cellValue)}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                  placeholder={placeholder}
+                />
+              )
+            case "time":
+              return (
+                <Input
+                  type="time"
+                  value={asString(cellValue)}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                />
+              )
+            case "datetime":
+              return (
+                <DateTimePickerWrapper
+                  value={asString(cellValue)}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                  aria-label={column.label}
+                />
+              )
+            default:
+              return (
+                <Input
+                  type="text"
+                  value={asString(cellValue)}
+                  onChange={(val) => {
+                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                  }}
+                  disabled={disabled}
+                  placeholder={placeholder}
+                />
+              )
+          }
         }
 
         return (
@@ -180,31 +444,61 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               <div>{translate("tableEmpty")}</div>
             ) : (
               <Table responsive hover aria-label={field.label}>
+                {showHeader ? (
+                  <thead>
+                    <tr>
+                      {columns.map((column) => (
+                        <th key={column.key}>{column.label}</th>
+                      ))}
+                      <th>{translate("tableActionsHeader")}</th>
+                    </tr>
+                  </thead>
+                ) : null}
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i}>
-                      <td>
-                        <Input
-                          type="text"
-                          value={r}
-                          placeholder={field.placeholder || placeholders.enter}
-                          onChange={(val) => {
-                            const s = typeof val === "string" ? val : ""
-                            updateRow(i, s)
-                          }}
-                          disabled={field.readOnly}
-                        />
-                      </td>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={`row-${rowIndex}`}>
+                      {columns.map((column) => (
+                        <td key={`${rowIndex}-${column.key}`}>
+                          {renderCell(column, rowIndex, row)}
+                        </td>
+                      ))}
                       <td>
                         <Button
-                          text={translate("deleteRow")}
+                          text={removeLabel}
                           variant="text"
                           type="tertiary"
                           onClick={() => {
-                            removeRow(i)
+                            handleRemoveRow(rowIndex)
                           }}
-                          aria-label={translate("deleteRow")}
+                          aria-label={removeLabel}
+                          disabled={!canRemove}
                         />
+                        {allowReorder ? (
+                          <React.Fragment>
+                            <Button
+                              text={translate("tableMoveUp")}
+                              variant="text"
+                              type="tertiary"
+                              onClick={() => {
+                                handleMoveRow(rowIndex, -1)
+                              }}
+                              aria-label={translate("tableMoveUp")}
+                              disabled={field.readOnly || rowIndex === 0}
+                            />
+                            <Button
+                              text={translate("tableMoveDown")}
+                              variant="text"
+                              type="tertiary"
+                              onClick={() => {
+                                handleMoveRow(rowIndex, 1)
+                              }}
+                              aria-label={translate("tableMoveDown")}
+                              disabled={
+                                field.readOnly || rowIndex === rows.length - 1
+                              }
+                            />
+                          </React.Fragment>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -212,10 +506,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               </Table>
             )}
             <Button
-              text={translate("addRow")}
+              text={addLabel}
               variant="outlined"
-              onClick={addRow}
-              aria-label={translate("addRow")}
+              onClick={() => {
+                handleAddRow()
+              }}
+              aria-label={addLabel}
+              disabled={!canAddRow}
             />
           </div>
         )
@@ -750,5 +1047,4 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 }
 
 export default DynamicField
-// Re-export for backwards compatibility in tests and callers
 export { makePlaceholders } from "../../shared/utils"

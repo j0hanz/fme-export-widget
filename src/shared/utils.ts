@@ -14,6 +14,7 @@ import { ErrorType, ErrorSeverity, ParameterType } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 
+// Type checking and validation utilities
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -27,13 +28,19 @@ export const toTrimmedString = (value: unknown): string | undefined => {
   return trimmed || undefined
 }
 
+export const asString = (v: unknown): string =>
+  typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
+
 const hasOwn = (target: { [key: string]: unknown }, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(target, key)
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const NO_REPLY_REGEX = /no-?reply/i
+
 export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
-  if (/no-?reply/i.test(email)) return false
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  if (NO_REPLY_REGEX.test(email)) return false
+  return EMAIL_REGEX.test(email)
 }
 
 export const getSupportEmail = (
@@ -43,9 +50,7 @@ export const getSupportEmail = (
   return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
-export const asString = (v: unknown): string =>
-  typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
-
+// Placeholder and translation helpers
 export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
@@ -61,10 +66,14 @@ export const getTextPlaceholder = (
   kind?: "email" | "phone" | "search"
 ): string => {
   if (field?.placeholder) return field.placeholder
-  if (kind === "email") return translate("placeholderEmail")
-  if (kind === "phone") return translate("placeholderPhone")
-  if (kind === "search") return translate("placeholderSearch")
-  return placeholders.enter
+
+  const kindMap = {
+    email: "placeholderEmail",
+    phone: "placeholderPhone",
+    search: "placeholderSearch",
+  }
+
+  return kind ? translate(kindMap[kind]) : placeholders.enter
 }
 
 export const computeSelectCoerce = (
@@ -72,31 +81,36 @@ export const computeSelectCoerce = (
   selectOptions: ReadonlyArray<{ readonly value?: unknown }>
 ): "number" | undefined => {
   if (!isSelectType || !selectOptions?.length) return undefined
-  const vals = selectOptions.map((o) => o.value)
-  const allNumeric = vals.every((v) => {
+
+  const isNumericValue = (v: unknown): boolean => {
     if (typeof v === "number") return Number.isFinite(v)
     if (typeof v === "string") {
-      if (v.trim() === "") return false
-      const n = Number(v)
-      return Number.isFinite(n) && String(n) === v
+      const trimmed = v.trim()
+      if (!trimmed) return false
+      const n = Number(trimmed)
+      return Number.isFinite(n) && String(n) === trimmed
     }
     return false
-  })
+  }
+
+  const allNumeric = selectOptions.every((o) => isNumericValue(o.value))
   return allNumeric ? "number" : undefined
 }
 
 export const parseTableRows = (value: unknown): string[] => {
-  const v = value as any
-  if (Array.isArray(v))
-    return v.map((x) => (typeof x === "string" ? x : String(x)))
-  if (typeof v === "string") {
+  if (Array.isArray(value)) {
+    return value.map((x) => (typeof x === "string" ? x : String(x)))
+  }
+
+  if (typeof value === "string") {
     try {
-      const arr = JSON.parse(v)
-      return Array.isArray(arr) ? arr.map((x) => String(x)) : v ? [v] : []
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed.map(String) : value ? [value] : []
     } catch {
-      return v ? [v] : []
+      return value ? [value] : []
     }
   }
+
   return []
 }
 
@@ -104,26 +118,30 @@ export function resolveMessageOrKey(
   raw: string,
   translate: TranslateFn
 ): string {
-  if (!raw) return raw
+  if (!raw) return ""
+
   const exact = translate(raw)
   if (exact && exact !== raw) return exact
+
   const camelKey = raw
     .toLowerCase()
     .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
   const camel = translate(camelKey)
+
   return camel && camel !== camelKey ? camel : raw
 }
 
 export const maskEmailForDisplay = (email: unknown): string => {
   const trimmed = toTrimmedString(email)
-  if (!trimmed) return ""
-  if (!isValidEmail(trimmed)) return trimmed
+  if (!trimmed || !isValidEmail(trimmed)) return trimmed || ""
+
   const atIdx = trimmed.indexOf("@")
   if (atIdx <= 1) return `**${trimmed.slice(atIdx)}`
 
   const local = trimmed.slice(0, atIdx)
   const domain = trimmed.slice(atIdx)
   const visible = local.slice(0, 2)
+
   return `${visible}****${domain}`
 }
 
@@ -134,16 +152,13 @@ export const buildSupportHintText = (
   supportEmail?: string,
   userFriendly?: string
 ): string => {
-  const sanitizedSupportEmail = toTrimmedString(supportEmail)
-  if (sanitizedSupportEmail) {
+  const sanitizedEmail = toTrimmedString(supportEmail)
+  if (sanitizedEmail) {
     const template = translate("contactSupportWithEmail")
-    return template.replace(EMAIL_PLACEHOLDER, sanitizedSupportEmail)
+    return template.replace(EMAIL_PLACEHOLDER, sanitizedEmail)
   }
 
-  const friendlyMessage = toTrimmedString(userFriendly)
-  if (friendlyMessage) return friendlyMessage
-
-  return ""
+  return toTrimmedString(userFriendly) || ""
 }
 
 export function formatErrorForView(
@@ -153,24 +168,17 @@ export function formatErrorForView(
   supportEmail?: string,
   userFriendly?: string
 ): { message: string; code?: string; hint?: string } {
-  let message = ""
-  try {
-    message = resolveMessageOrKey(baseKeyOrMessage, translate)
-  } catch {
-    message = baseKeyOrMessage
-  }
+  const message =
+    resolveMessageOrKey(baseKeyOrMessage, translate) || baseKeyOrMessage
   const hint = buildSupportHintText(translate, supportEmail, userFriendly)
-  return { message: message || baseKeyOrMessage, code, hint }
+  return { message, code, hint }
 }
 
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
-  let out = input.replace(
-    /<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi,
-    ""
-  )
-  out = out.replace(/<[^>]*>/g, "")
-  return out
+  return input
+    .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<[^>]*>/g, "")
 }
 
 export const styleCss = (style?: CSSProperties) =>
@@ -199,38 +207,49 @@ export const safeAbort = (ctrl: AbortController | null) => {
   if (ctrl) {
     try {
       ctrl.abort()
-    } catch {}
+    } catch {
+      // Ignore abort errors
+    }
   }
+}
+
+const ABORT_REGEX = /abort/i
+
+const toStringSafe = (v: unknown): string => {
+  if (v === null || v === undefined) return ""
+  if (
+    typeof v === "string" ||
+    typeof v === "number" ||
+    typeof v === "boolean"
+  ) {
+    return String(v)
+  }
+  return ""
 }
 
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
-  if (typeof error === "string") {
-    return /abort/i.test(error)
-  }
+
+  if (typeof error === "string") return ABORT_REGEX.test(error)
   if (typeof error !== "object") return false
+
   const candidate = error as {
     name?: unknown
     code?: unknown
     message?: unknown
   }
-  const toStringSafe = (v: unknown): string => {
-    if (v === null || v === undefined) return ""
-    if (typeof v === "string") return v
-    if (typeof v === "number" || typeof v === "boolean") return String(v)
-    return ""
-  }
   const name = toStringSafe(candidate.name ?? candidate.code)
   const message = toStringSafe(candidate.message)
-  return /abort/i.test(name) || /abort/i.test(message)
+
+  return ABORT_REGEX.test(name) || ABORT_REGEX.test(message)
 }
 
 export const logIfNotAbort = (_context: string, error: unknown): void => {
-  if (!isAbortError(error)) {
-    // Logging removed intentionally
-  }
+  // Intentionally no-op to prevent logging sensitive data
+  void (_context, error)
 }
 
+// Collection utilities
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   typeof value !== "string" &&
   typeof (value as any)?.[Symbol.iterator] === "function"
@@ -240,20 +259,21 @@ const mapDefined = <T, R>(
   mapper: (value: T, index: number) => R | null | undefined
 ): R[] => {
   if (!values || !isIterable(values)) return []
+
   const result: R[] = []
   let index = 0
+
   for (const value of values) {
     const mapped = mapper(value, index++)
-    if (mapped !== undefined && mapped !== null) {
-      result.push(mapped)
-    }
+    if (mapped != null) result.push(mapped)
   }
+
   return result
 }
 
 export const collectTrimmedStrings = (
   values: Iterable<unknown> | null | undefined
-): string[] => mapDefined(values, (value) => toTrimmedString(value))
+): string[] => mapDefined(values, toTrimmedString)
 
 const toRecord = (value: unknown): { [key: string]: unknown } | null =>
   value && typeof value === "object"
@@ -266,35 +286,38 @@ const collectStringsFromProp = (
 ): string[] =>
   mapDefined(values, (value) => {
     const record = toRecord(value)
-    if (!record) return undefined
-    return toTrimmedString(record[prop])
+    return record ? toTrimmedString(record[prop]) : undefined
   })
 
 export const uniqueStrings = (values: Iterable<string>): string[] => {
   if (!values || !isIterable(values)) return []
+
   const seen = new Set<string>()
   const result: string[] = []
+
   for (const value of values) {
     if (!seen.has(value)) {
       seen.add(value)
       result.push(value)
     }
   }
+
   return result
 }
 
 export const extractRepositoryNames = (source: unknown): string[] => {
-  const names: string[] = []
   if (Array.isArray(source)) {
-    names.push(...collectStringsFromProp(source, "name"))
-  } else {
-    const record = toRecord(source)
-    const items = record?.items
-    if (Array.isArray(items)) {
-      names.push(...collectStringsFromProp(items, "name"))
-    }
+    return uniqueStrings(collectStringsFromProp(source, "name"))
   }
-  return uniqueStrings(names)
+
+  const record = toRecord(source)
+  const items = record?.items
+
+  if (Array.isArray(items)) {
+    return uniqueStrings(collectStringsFromProp(items, "name"))
+  }
+
+  return []
 }
 
 export const useLatestAbortController = () => {
@@ -479,13 +502,26 @@ const sanitizeScheduleMetadata = (
 }
 
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  let raw: string
-  if (typeof name === "string") raw = name
-  else if (typeof name === "number" && Number.isFinite(name)) raw = String(name)
-  else return fallback
+  const raw =
+    typeof name === "string"
+      ? name
+      : typeof name === "number" && Number.isFinite(name)
+        ? String(name)
+        : ""
+
   const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
   return safe || fallback
 }
+
+// Geometry validation
+const isValidCoordinateTuple = (pt: unknown): boolean =>
+  Array.isArray(pt) &&
+  pt.length >= 2 &&
+  pt.length <= 4 &&
+  pt.every((n) => Number.isFinite(n))
+
+const isValidRing = (ring: unknown): boolean =>
+  Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
 
 export const isPolygonGeometry = (
   value: unknown
@@ -496,20 +532,13 @@ export const isPolygonGeometry = (
     "geometry" in (value as any)
       ? (value as { geometry: unknown }).geometry
       : value
+
   if (!geom || typeof geom !== "object") return false
 
   const rings =
     "rings" in (geom as any) ? (geom as { rings: unknown }).rings : undefined
-  if (!Array.isArray(rings) || rings.length === 0) return false
 
-  const isValidTuple = (pt: unknown) =>
-    Array.isArray(pt) &&
-    pt.length >= 2 &&
-    pt.length <= 4 &&
-    pt.every((n) => Number.isFinite(n))
-  const isValidRing = (ring: unknown) =>
-    Array.isArray(ring) && ring.length >= 3 && ring.every(isValidTuple)
-  return (rings as unknown[]).every(isValidRing)
+  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
 }
 
 export const determineServiceMode = (
@@ -517,20 +546,22 @@ export const determineServiceMode = (
   config?: FmeExportConfig
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
+
   const startValRaw = data.start as unknown
   const hasStart =
     typeof startValRaw === "string" && startValRaw.trim().length > 0
+
   if (config?.allowScheduleMode && hasStart) return "schedule"
+
   const override =
     typeof data._serviceMode === "string"
       ? data._serviceMode.trim().toLowerCase()
       : ""
-  if (override === "sync" || override === "async") {
+
+  if (override === "sync" || override === "async")
     return override as ServiceMode
-  }
-  if (override === "schedule" && config?.allowScheduleMode) {
-    return "schedule"
-  }
+  if (override === "schedule" && config?.allowScheduleMode) return "schedule"
+
   return config?.syncMode ? "sync" : "async"
 }
 
@@ -540,21 +571,22 @@ export const buildFmeParams = (
   serviceMode: ServiceMode = "async"
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
-  const mode = (ALLOWED_SERVICE_MODES as readonly string[]).includes(
-    serviceMode
-  )
+  const mode = ALLOWED_SERVICE_MODES.includes(serviceMode)
     ? serviceMode
     : "async"
-  const base = {
+
+  const base: { [key: string]: unknown } = {
     ...data,
     opt_servicemode: mode,
     opt_responseformat: "json",
     opt_showresult: "true",
-  } as { [key: string]: unknown }
+  }
+
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
   if ((mode === "async" || mode === "schedule") && trimmedEmail) {
     base.opt_requesteremail = trimmedEmail
   }
+
   return base
 }
 
@@ -622,15 +654,13 @@ const extractRings = (poly: any): any[] => {
 
 const formatNumberForWkt = (value: number): string => {
   if (!Number.isFinite(value)) return "0"
+
   const str = value.toString()
-  if (!/[eE]/.test(str)) {
-    return str.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
-  }
-  const fixed = value
-    .toFixed(12)
-    .replace(/\.0+$/, "")
-    .replace(/(\.\d*?)0+$/, "$1")
-  return fixed || "0"
+  const hasScientific = /[eE]/.test(str)
+  const raw = hasScientific ? value.toFixed(12) : str
+  const trimmed = raw.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
+
+  return trimmed || "0"
 }
 
 export const polygonJsonToGeoJson = (poly: any): any => {
@@ -641,19 +671,43 @@ export const polygonJsonToGeoJson = (poly: any): any => {
     if (!rings.length) return null
 
     const normalized = rings
-      .map((ring) => normalizeRing(ring))
+      .map(normalizeRing)
       .filter((ring) => ring.length >= 4)
 
-    return normalized.length
-      ? {
-          type: "Polygon",
-          coordinates: normalized,
-        }
-      : null
-  } catch (error) {
-    void error
+    if (!normalized.length) return null
+
+    return {
+      type: "Polygon",
+      coordinates: normalized,
+    }
+  } catch {
     return null
   }
+}
+
+const serializeCoordinate = (coords: unknown): string | null => {
+  if (!Array.isArray(coords) || coords.length < 2) return null
+
+  const values: string[] = []
+  for (const raw of coords) {
+    const num = typeof raw === "number" ? raw : Number(raw)
+    if (!Number.isFinite(num)) return null
+    values.push(formatNumberForWkt(num))
+  }
+
+  return values.length >= 2 ? values.join(" ") : null
+}
+
+const serializeRing = (ring: unknown): string[] => {
+  if (!Array.isArray(ring)) return []
+
+  const parts: string[] = []
+  for (const vertex of ring) {
+    const serialized = serializeCoordinate(vertex)
+    if (serialized) parts.push(serialized)
+  }
+
+  return parts
 }
 
 export const polygonJsonToWkt = (poly: any): string => {
@@ -666,36 +720,39 @@ export const polygonJsonToWkt = (poly: any): string => {
 
   if (!rings.length) return "POLYGON EMPTY"
 
-  const ringStrings = rings
-    .map((ring) => {
-      if (!Array.isArray(ring)) return []
-      const parts: string[] = []
-      for (const coords of ring) {
-        if (!Array.isArray(coords) || coords.length < 2) continue
-        const serializedValues: string[] = []
-        for (const raw of coords) {
-          const num = typeof raw === "number" ? raw : Number(raw)
-          if (!Number.isFinite(num)) {
-            serializedValues.length = 0
-            break
-          }
-          serializedValues.push(formatNumberForWkt(num))
-        }
-        if (serializedValues.length >= 2) {
-          parts.push(serializedValues.join(" "))
-        }
-      }
-      return parts
-    })
+  const serialized = rings
+    .map(serializeRing)
     .filter((parts) => parts.length >= 4)
     .map((parts) => `(${parts.join(", ")})`)
+    .filter((ring) => ring !== "()" && ring !== "( )")
 
-  const serialized = ringStrings.filter(
-    (ring) => ring !== "()" && ring !== "( )"
-  )
   if (!serialized.length) return "POLYGON EMPTY"
 
   return `POLYGON(${serialized.join(", ")})`
+}
+
+const isWgs84Spatial = (sr: any): boolean =>
+  sr?.isWGS84 === true || sr?.wkid === 4326
+
+const projectToWgs84 = (
+  poly: __esri.Polygon,
+  modules: EsriModules
+): __esri.Polygon | null => {
+  const { projection, SpatialReference } = modules
+  if (!projection?.project || !SpatialReference) return null
+
+  const SpatialRefCtor = SpatialReference as any
+  const target =
+    SpatialRefCtor.WGS84 ||
+    (typeof SpatialRefCtor === "function"
+      ? new SpatialRefCtor({ wkid: 4326 })
+      : { wkid: 4326 })
+
+  const projected = projection.project(poly, target)
+  if (Array.isArray(projected)) {
+    return (projected[0] as __esri.Polygon) || null
+  }
+  return (projected as __esri.Polygon) || null
 }
 
 export const toWgs84PolygonJson = (
@@ -708,46 +765,28 @@ export const toWgs84PolygonJson = (
     const poly = modules.Polygon.fromJSON(polyJson)
     if (!poly) return polyJson
 
-    const sr = (poly as any).spatialReference as
-      | (__esri.SpatialReference & { isWGS84?: boolean })
-      | undefined
-    if (sr?.isWGS84 || sr?.wkid === 4326) {
+    const sr = (poly as any).spatialReference
+    if (isWgs84Spatial(sr)) {
       return poly.toJSON()
     }
 
-    const projection = modules.projection
-    const SpatialReferenceCtor = modules.SpatialReference as any
-    if (projection?.project && SpatialReferenceCtor) {
-      const target =
-        SpatialReferenceCtor.WGS84 ||
-        (typeof SpatialReferenceCtor === "function"
-          ? new SpatialReferenceCtor({ wkid: 4326 })
-          : { wkid: 4326 })
-      const projected = projection.project(poly, target) as
-        | __esri.Polygon
-        | readonly __esri.Geometry[]
-        | null
-        | undefined
-
-      if (projected && Array.isArray(projected) && projected[0]) {
-        const first = projected[0] as __esri.Polygon
-        if (first?.toJSON) return first.toJSON()
-      } else if (projected && (projected as __esri.Polygon).toJSON) {
-        return (projected as __esri.Polygon).toJSON()
-      }
+    const projected = projectToWgs84(poly, modules)
+    if (projected?.toJSON) {
+      return projected.toJSON()
     }
 
-    const wmUtils = modules.webMercatorUtils
-    if (wmUtils?.webMercatorToGeographic) {
-      const geographic = wmUtils.webMercatorToGeographic(poly) as __esri.Polygon
+    const { webMercatorUtils } = modules
+    if (webMercatorUtils?.webMercatorToGeographic) {
+      const geographic = webMercatorUtils.webMercatorToGeographic(
+        poly
+      ) as __esri.Polygon
       if (geographic?.toJSON) {
         return geographic.toJSON()
       }
     }
 
     return poly.toJSON()
-  } catch (error) {
-    void error
+  } catch {
     return polyJson
   }
 }
@@ -795,13 +834,12 @@ const extractPolygonJson = (
   currentGeometry: __esri.Geometry | undefined
 ): unknown => {
   if (isPolygonGeometry(geometryJson)) {
-    return "geometry" in (geometryJson as any)
-      ? (geometryJson as any).geometry
-      : geometryJson
+    const asAny = geometryJson as any
+    return "geometry" in asAny ? asAny.geometry : geometryJson
   }
 
-  const geometryToUse = currentGeometry?.toJSON()
-  return isPolygonGeometry(geometryToUse) ? geometryToUse : null
+  const fallback = currentGeometry?.toJSON()
+  return isPolygonGeometry(fallback) ? fallback : null
 }
 
 const safeStringify = (value: unknown): string | null => {
@@ -812,7 +850,7 @@ const safeStringify = (value: unknown): string | null => {
   }
 }
 
-const maybeProjectPolygonToWgs84 = (
+const projectToWgs84Safe = (
   aoiJson: unknown,
   modules: EsriModules | null | undefined
 ): any => {
@@ -823,7 +861,7 @@ const maybeProjectPolygonToWgs84 = (
   }
 }
 
-const appendDerivedAoiOutputs = (
+const appendDerivedAoiFormats = (
   target: { [key: string]: unknown },
   wgs84Polygon: any,
   names: DerivedParamNames
@@ -832,24 +870,14 @@ const appendDerivedAoiOutputs = (
   const { geoJsonName, wktName } = names
 
   if (geoJsonName) {
-    try {
-      const geojson = polygonJsonToGeoJson(wgs84Polygon)
-      if (geojson) {
-        const serialized = safeStringify(geojson)
-        if (serialized) {
-          target[geoJsonName] = serialized
-        }
-      }
-    } catch {}
+    const geojson = polygonJsonToGeoJson(wgs84Polygon)
+    const serialized = geojson ? safeStringify(geojson) : null
+    if (serialized) target[geoJsonName] = serialized
   }
 
   if (wktName) {
-    try {
-      const wkt = polygonJsonToWkt(wgs84Polygon)
-      if (wkt) {
-        target[wktName] = wkt
-      }
-    } catch {}
+    const wkt = polygonJsonToWkt(wgs84Polygon)
+    if (wkt) target[wktName] = wkt
   }
 }
 
@@ -863,9 +891,7 @@ export const attachAoi = (
 ): { [key: string]: unknown } => {
   const paramName = sanitizeParamKey(config?.aoiParamName, "AreaOfInterest")
   const aoiJson = extractPolygonJson(geometryJson, currentGeometry)
-  if (!aoiJson) {
-    return base
-  }
+  if (!aoiJson) return base
 
   const serialized = safeStringify(aoiJson)
   if (!serialized) {
@@ -877,12 +903,11 @@ export const attachAoi = (
     [paramName]: serialized,
   }
 
-  if (geometryParamNames && geometryParamNames.length) {
+  if (geometryParamNames?.length) {
     const extras = new Set<string>()
     for (const name of geometryParamNames) {
       const sanitized = sanitizeParamKey(name, "")
-      if (!sanitized || sanitized === paramName) continue
-      extras.add(sanitized)
+      if (sanitized && sanitized !== paramName) extras.add(sanitized)
     }
     for (const extra of extras) {
       result[extra] = serialized
@@ -890,12 +915,10 @@ export const attachAoi = (
   }
 
   const derivedNames = resolveDerivedParamNames(config)
-  if (!derivedNames.geoJsonName && !derivedNames.wktName) {
-    return result
+  if (derivedNames.geoJsonName || derivedNames.wktName) {
+    const wgs84Polygon = projectToWgs84Safe(aoiJson, modules)
+    appendDerivedAoiFormats(result, wgs84Polygon, derivedNames)
   }
-
-  const wgs84Polygon = maybeProjectPolygonToWgs84(aoiJson, modules)
-  appendDerivedAoiOutputs(result, wgs84Polygon, derivedNames)
 
   return result
 }
@@ -905,27 +928,26 @@ export const applyDirectiveDefaults = (
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
   if (!config) return params
-  const out: { [key: string]: unknown } = { ...params }
-  const has = (k: string) => hasOwn(out, k)
 
+  const out: { [key: string]: unknown } = { ...params }
   const toPosInt = (v: unknown): number | undefined => {
     const n = typeof v === "string" ? Number(v) : (v as number)
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
   }
 
-  if (!has("tm_ttc")) {
+  if (!hasOwn(out, "tm_ttc")) {
     const v = toPosInt(config.tm_ttc)
     if (v !== undefined) out.tm_ttc = v
   }
-  if (!has("tm_ttl")) {
+  if (!hasOwn(out, "tm_ttl")) {
     const v = toPosInt(config.tm_ttl)
     if (v !== undefined) out.tm_ttl = v
   }
-  if (!has("tm_tag")) {
+  if (!hasOwn(out, "tm_tag")) {
     const tag = toTrimmedString(config.tm_tag)
     if (tag) out.tm_tag = tag.substring(0, 128)
   }
-  if (!has("tm_description")) {
+  if (!hasOwn(out, "tm_description")) {
     const description = toTrimmedString(config.tm_description)
     if (description) out.tm_description = description.substring(0, 512)
   }
@@ -1252,19 +1274,10 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
 
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
-export const fmeDateToInput = (v: string): string => {
-  const s = (v || "").replace(/\D/g, "")
-  if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-}
-
-export const inputToFmeDate = (v: string): string =>
-  v ? v.replace(/-/g, "") : ""
-
 const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i
 const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/
 
-const extractTemporalParts = (
+export const extractTemporalParts = (
   raw: string
 ): { base: string; fraction: string; offset: string } => {
   const trimmed = (raw || "").trim()
@@ -1272,15 +1285,15 @@ const extractTemporalParts = (
 
   let base = trimmed
   let offset = ""
-  const offsetMatch = OFFSET_SUFFIX_RE.exec(trimmed)
-  if (offsetMatch && offsetMatch[1]) {
+  const offsetMatch = OFFSET_SUFFIX_RE.exec(base)
+  if (offsetMatch?.[1]) {
     offset = offsetMatch[1]
-    base = trimmed.slice(0, -offset.length)
+    base = base.slice(0, -offset.length)
   }
 
   let fraction = ""
   const fractionMatch = FRACTION_SUFFIX_RE.exec(base)
-  if (fractionMatch && fractionMatch[0]) {
+  if (fractionMatch?.[0]) {
     fraction = fractionMatch[0]
     base = base.slice(0, -fraction.length)
   }
@@ -1297,21 +1310,36 @@ const normalizeIsoTimeParts = (
 } => {
   let working = time
   let offset = ""
-  const isoOffsetMatch = OFFSET_SUFFIX_RE.exec(working)
-  if (isoOffsetMatch && isoOffsetMatch[1]) {
-    offset = isoOffsetMatch[1]
+  const offsetMatch = OFFSET_SUFFIX_RE.exec(working)
+  if (offsetMatch?.[1]) {
+    offset = offsetMatch[1]
     working = working.slice(0, -offset.length)
   }
 
   let fraction = ""
-  const isoFractionMatch = FRACTION_SUFFIX_RE.exec(working)
-  if (isoFractionMatch && isoFractionMatch[0]) {
-    fraction = isoFractionMatch[0]
-    working = working.slice(0, -isoFractionMatch[0].length)
+  const fractionMatch = FRACTION_SUFFIX_RE.exec(working)
+  if (fractionMatch?.[0]) {
+    fraction = fractionMatch[0]
+    working = working.slice(0, -fraction.length)
   }
 
   return { time: working, fraction, offset }
 }
+
+const safePad2 = (part?: string): string | null => {
+  if (!part) return null
+  const n = Number(part)
+  return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null
+}
+
+export const fmeDateToInput = (v: string): string => {
+  const s = (v || "").replace(/\D/g, "")
+  if (s.length !== 8) return ""
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+}
+
+export const inputToFmeDate = (v: string): string =>
+  v ? v.replace(/-/g, "") : ""
 
 export const fmeDateTimeToInput = (v: string): string => {
   const { base } = extractTemporalParts(v)
@@ -1341,12 +1369,6 @@ export const inputToFmeDateTime = (v: string, original?: string): string => {
   const [hh, mi, ssRaw] = timePart.split(":")
 
   if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) return ""
-
-  const safePad2 = (part?: string): string | null => {
-    if (!part) return null
-    const n = Number(part)
-    return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null
-  }
 
   const m2 = safePad2(m)
   const d2 = safePad2(d)

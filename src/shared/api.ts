@@ -63,44 +63,33 @@ const ESRI_GLOBAL_MOCK_KEYS: readonly EsriMockKey[] = [
   "SpatialReference",
 ] as const
 
-const getEsriMockFallback = (key: EsriMockKey): unknown => {
-  switch (key) {
-    case "esriRequest":
-      return () => Promise.resolve({ data: null })
-    case "esriConfig":
-      return {
-        request: { maxUrlLength: 4000, interceptors: [] },
-      }
-    case "projection":
-    case "webMercatorUtils":
-      return {}
-    case "SpatialReference":
-      return function spatialReferenceMock() {
-        return {}
-      }
-  }
+const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
+  esriRequest: () => Promise.resolve({ data: null }),
+  esriConfig: {
+    request: { maxUrlLength: 4000, interceptors: [] },
+  },
+  projection: {},
+  webMercatorUtils: {},
+  SpatialReference: function spatialReferenceMock() {
+    return {}
+  },
 }
 
+const getEsriMockFallback = (key: EsriMockKey): unknown =>
+  ESRI_MOCK_FALLBACKS[key]
+
 const applyGlobalEsriMocks = (source: any): void => {
+  const assignments: { [K in EsriMockKey]: (value: any) => void } = {
+    esriRequest: (v) => (_esriRequest = v),
+    esriConfig: (v) => (_esriConfig = v),
+    projection: (v) => (_projection = v),
+    webMercatorUtils: (v) => (_webMercatorUtils = v),
+    SpatialReference: (v) => (_SpatialReference = v),
+  }
+
   for (const key of ESRI_GLOBAL_MOCK_KEYS) {
     const value = source?.[key] ?? getEsriMockFallback(key)
-    switch (key) {
-      case "esriRequest":
-        _esriRequest = value
-        break
-      case "esriConfig":
-        _esriConfig = value
-        break
-      case "projection":
-        _projection = value
-        break
-      case "webMercatorUtils":
-        _webMercatorUtils = value
-        break
-      case "SpatialReference":
-        _SpatialReference = value
-        break
-    }
+    assignments[key](value)
   }
 }
 
@@ -143,65 +132,62 @@ async function ensureGeometryEngines(): Promise<void> {
   }
 }
 
+const areEsriModulesLoaded = (): boolean =>
+  Boolean(
+    _esriRequest &&
+      _esriConfig &&
+      _projection &&
+      _webMercatorUtils &&
+      _SpatialReference
+  )
+
+const hasGlobalEsriMocks = (): boolean => {
+  const globalAny =
+    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+  return Boolean(
+    globalAny && ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
+  )
+}
+
+const loadEsriModules = async (): Promise<void> => {
+  const [requestMod, configMod, projectionMod, webMercatorMod, spatialRefMod] =
+    await loadArcgisModules([
+      "esri/request",
+      "esri/config",
+      "esri/geometry/projection",
+      "esri/geometry/support/webMercatorUtils",
+      "esri/geometry/SpatialReference",
+    ])
+
+  _esriRequest = unwrapModule(requestMod)
+  _esriConfig = unwrapModule(configMod)
+  _projection = unwrapModule(projectionMod)
+  _webMercatorUtils = unwrapModule(webMercatorMod)
+  _SpatialReference = unwrapModule(spatialRefMod)
+
+  const projection = asProjection(_projection)
+  if (projection?.load) {
+    await projection.load()
+  }
+}
+
 /**
  * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
  */
 async function ensureEsri(): Promise<void> {
-  // Quick return if already loaded
-  if (
-    _esriRequest &&
-    _esriConfig &&
-    _projection &&
-    _webMercatorUtils &&
-    _SpatialReference
-  ) {
-    return
-  }
-
-  // Return existing promise if loading is in progress
+  if (areEsriModulesLoaded()) return
   if (_loadPromise) return _loadPromise
 
   const loadPromise = (async () => {
-    // In test environment, check for global mocks first before trying to load modules
-    const globalAny =
-      typeof globalThis !== "undefined" ? (globalThis as any) : undefined
-
-    if (
-      globalAny &&
-      ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
-    ) {
+    if (hasGlobalEsriMocks()) {
+      const globalAny = globalThis as any
       applyGlobalEsriMocks(globalAny)
       return
     }
 
     try {
-      const [
-        requestMod,
-        configMod,
-        projectionMod,
-        webMercatorMod,
-        spatialRefMod,
-      ] = await loadArcgisModules([
-        "esri/request",
-        "esri/config",
-        "esri/geometry/projection",
-        "esri/geometry/support/webMercatorUtils",
-        "esri/geometry/SpatialReference",
-      ])
-
-      _esriRequest = unwrapModule(requestMod)
-      _esriConfig = unwrapModule(configMod)
-      _projection = unwrapModule(projectionMod)
-      _webMercatorUtils = unwrapModule(webMercatorMod)
-      _SpatialReference = unwrapModule(spatialRefMod)
-
-      // Load projection dependencies for client-side transformation
-      const projection = asProjection(_projection)
-      if (projection && typeof projection.load === "function") {
-        await projection.load()
-      }
-    } catch (error) {
-      // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
+      await loadEsriModules()
+    } catch {
       throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
@@ -211,13 +197,9 @@ async function ensureEsri(): Promise<void> {
   try {
     await loadPromise
   } catch (error) {
-    const normalizedError =
-      error instanceof Error ? error : new Error(String(error))
     resetEsriCache()
-    throw normalizedError
+    throw error instanceof Error ? error : new Error(String(error))
   }
-
-  return loadPromise
 }
 
 async function getEsriConfig(): Promise<EsriRequestConfig | null> {
@@ -247,19 +229,19 @@ function removeMatchingInterceptors(
   }
 }
 
-// ArcGIS module validation helpers
+const isObjectType = (v: unknown): v is object =>
+  Boolean(v && typeof v === "object")
+
 const asEsriRequest = (
   v: unknown
-): ((url: string, options: any) => Promise<any>) | null => {
-  return typeof v === "function" ? (v as any) : null
-}
+): ((url: string, options: any) => Promise<any>) | null =>
+  typeof v === "function" ? (v as any) : null
 
 const asEsriConfig = (
   v: unknown
 ): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
-  if (!v || typeof v !== "object") return null
-  const obj = v as any
-  return obj.request ? obj : null
+  if (!isObjectType(v)) return null
+  return (v as any).request ? (v as any) : null
 }
 
 const asProjection = (
@@ -268,30 +250,23 @@ const asProjection = (
   project?: (geometry: any, spatialReference: any) => any
   load?: () => Promise<void>
   isLoaded?: () => boolean
-} | null => {
-  if (!v || typeof v !== "object") return null
-  return v as any
-}
+} | null => (isObjectType(v) ? (v as any) : null)
 
 const asWebMercatorUtils = (
   v: unknown
 ): {
   webMercatorToGeographic?: (geometry: any) => any
   geographicToWebMercator?: (geometry: any) => any
-} | null => {
-  if (!v || typeof v !== "object") return null
-  return v as any
-}
+} | null => (isObjectType(v) ? (v as any) : null)
 
-const asSpatialReference = (v: unknown): new (props: any) => any => {
-  return typeof v === "function" ? (v as any) : ((() => ({})) as any)
-}
+const asSpatialReference = (v: unknown): new (props: any) => any =>
+  typeof v === "function" ? (v as any) : ((() => ({})) as any)
 
 const asGeometryEngine = (v: unknown): any =>
-  v && typeof v === "object" ? (v as any) : null
+  isObjectType(v) ? (v as any) : null
 
 const asGeometryEngineAsync = (v: unknown): any =>
-  v && typeof v === "object" ? (v as any) : null
+  isObjectType(v) ? (v as any) : null
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
@@ -303,12 +278,65 @@ const API = {
   ],
 } as const
 
-// // Add interceptor to append fmetoken to requests to the specified server URL
+const hasCachedToken = (hostKey: string): boolean =>
+  Object.prototype.hasOwnProperty.call(_fmeTokensByHost, hostKey)
+
+const removeCachedToken = (hostKey: string): void => {
+  delete _fmeTokensByHost[hostKey]
+}
+
+const setCachedToken = (hostKey: string, token: string): void => {
+  _fmeTokensByHost[hostKey] = token
+}
+
+const getCachedToken = (hostKey: string): string | undefined =>
+  _fmeTokensByHost[hostKey]
+
+const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
+  let esriConfig: EsriRequestConfig | null
+  try {
+    esriConfig = await getEsriConfig()
+  } catch {
+    return
+  }
+  removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern)
+}
+
+const createTokenInterceptor = (
+  hostKey: string,
+  pattern: RegExp
+): {
+  urls: RegExp
+  before: (params: any) => void
+  _fmeInterceptor: boolean
+} => ({
+  urls: pattern,
+  before(params: any) {
+    if (!params?.requestOptions) {
+      params.requestOptions = {}
+    }
+    const ro: any = params.requestOptions
+    ro.query = ro.query || {}
+    ro.headers = ro.headers || {}
+
+    const currentToken = getCachedToken(hostKey)
+    if (currentToken) {
+      if (!ro.query.fmetoken) {
+        ro.query.fmetoken = currentToken
+      }
+      ro.headers.Authorization = `fmetoken token=${currentToken}`
+    }
+  },
+  _fmeInterceptor: true,
+})
+
+// Add interceptor to append fmetoken to requests to the specified server URL
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
 ): Promise<void> {
   if (!serverUrl) return
+
   const host = extractHostFromUrl(serverUrl)
   if (!host) return
 
@@ -316,30 +344,15 @@ async function addFmeInterceptor(
   const pattern = createHostPattern(host)
 
   if (!token) {
-    const hadCachedToken = Object.prototype.hasOwnProperty.call(
-      _fmeTokensByHost,
-      hostKey
-    )
-    delete _fmeTokensByHost[hostKey]
-
-    if (!hadCachedToken) {
-      return
+    const hadToken = hasCachedToken(hostKey)
+    removeCachedToken(hostKey)
+    if (hadToken) {
+      await removeTokenInterceptor(pattern)
     }
-
-    let esriConfig: EsriRequestConfig | null
-    try {
-      esriConfig = await getEsriConfig()
-    } catch {
-      return
-    }
-
-    removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern)
-
     return
   }
 
-  // Always record the latest token for this host
-  _fmeTokensByHost[hostKey] = token
+  setCachedToken(hostKey, token)
 
   let esriConfig: EsriRequestConfig | null
   try {
@@ -347,38 +360,11 @@ async function addFmeInterceptor(
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error))
   }
-  if (!esriConfig) return
 
-  const interceptors = esriConfig.request.interceptors
-  if (!interceptors) return
+  if (!esriConfig?.request?.interceptors) return
+  if (interceptorExists(esriConfig.request.interceptors, pattern)) return
 
-  if (interceptorExists(interceptors, pattern)) {
-    return
-  }
-
-  interceptors.push({
-    urls: pattern,
-    before(params: any) {
-      if (!params || !params.requestOptions) {
-        params.requestOptions = {}
-      }
-      const ro: any = params.requestOptions
-      ro.query = ro.query || {}
-      ro.headers = ro.headers || {}
-
-      // Always use the token stored for this host pattern
-      const currentToken = _fmeTokensByHost[hostKey]
-      if (currentToken) {
-        // Add token as query parameter if not already present
-        if (!ro.query.fmetoken) {
-          ro.query.fmetoken = currentToken
-        }
-        // Always set Authorization header with correct FME Flow format
-        ro.headers.Authorization = `fmetoken token=${currentToken}`
-      }
-    },
-    _fmeInterceptor: true,
-  })
+  esriConfig.request.interceptors.push(createTokenInterceptor(hostKey, pattern))
 }
 
 // Determine maximum URL length from Esri config or use default
@@ -425,13 +411,42 @@ export function isWebhookUrlTooLong(
 
 // helper moved to utils.ts: buildParams
 
+const isWgs84SpatialRef = (
+  sr: (__esri.SpatialReference & { isWGS84?: boolean }) | undefined
+): boolean => Boolean(sr?.isWGS84 || sr?.wkid === 4326)
+
+const projectGeometryToWgs84 = (
+  geometry: __esri.Geometry,
+  projection: any,
+  SpatialReference: any
+): __esri.Geometry | null => {
+  if (!projection?.project || !SpatialReference) return null
+
+  const target =
+    SpatialReference?.WGS84 ||
+    (typeof SpatialReference === "function"
+      ? new SpatialReference({ wkid: 4326 })
+      : { wkid: 4326 })
+
+  const projected = projection.project(geometry, target)
+  if (!projected) return null
+
+  if (Array.isArray(projected) && projected[0]) {
+    return (projected[0] as __esri.Geometry) || null
+  }
+
+  return (projected as __esri.Geometry).type
+    ? (projected as __esri.Geometry)
+    : null
+}
+
 // Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
   const spatialRef = geometry?.spatialReference as
     | (__esri.SpatialReference & { isWGS84?: boolean })
     | undefined
 
-  if (!spatialRef || spatialRef.isWGS84 || spatialRef.wkid === 4326) {
+  if (!spatialRef || isWgs84SpatialRef(spatialRef)) {
     return geometry
   }
 
@@ -440,29 +455,16 @@ const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
     const projection = asProjection(_projection)
     const SpatialReference = asSpatialReference(_SpatialReference) as any
 
-    if (projection?.project && SpatialReference) {
-      const target =
-        SpatialReference?.WGS84 ||
-        (typeof SpatialReference === "function"
-          ? new SpatialReference({ wkid: 4326 })
-          : { wkid: 4326 })
-
-      const projected = projection.project(geometry, target)
-      if (projected) {
-        if (Array.isArray(projected) && projected[0]) {
-          return (projected[0] as __esri.Geometry) || geometry
-        }
-        if ((projected as __esri.Geometry).type) {
-          return (projected as __esri.Geometry) || geometry
-        }
-      }
-    }
+    const projected = projectGeometryToWgs84(
+      geometry,
+      projection,
+      SpatialReference
+    )
+    if (projected) return projected
 
     const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
     if (webMercatorUtils?.webMercatorToGeographic) {
-      const converted =
-        webMercatorUtils.webMercatorToGeographic(geometry) || geometry
-      return converted
+      return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
     }
   } catch {}
 
@@ -485,25 +487,25 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 
 // Request Processing Utilities
 
+const toPosInt = (v: unknown): number | undefined => {
+  const n = typeof v === "string" ? Number(v) : (v as number)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+}
+
+const normalizeText = (value: unknown, limit: number): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, limit) : undefined
+}
+
 const appendWebhookTmParams = (
   params: URLSearchParams,
   source: PrimitiveParams = {}
 ): void => {
-  const toPosInt = (v: unknown): number | undefined => {
-    const n = typeof v === "string" ? Number(v) : (v as number)
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
-  }
-
   const numericKeys: Array<"tm_ttc" | "tm_ttl"> = ["tm_ttc", "tm_ttl"]
   for (const key of numericKeys) {
     const value = toPosInt((source as any)[key])
     if (value !== undefined) params.set(key, String(value))
-  }
-
-  const normalizeText = (value: unknown, limit: number): string | undefined => {
-    if (typeof value !== "string") return undefined
-    const trimmed = value.trim()
-    return trimmed ? trimmed.slice(0, limit) : undefined
   }
 
   const tag = normalizeText((source as any).tm_tag, 128)
@@ -539,33 +541,55 @@ export class FmeFlowApiClient {
         await addFmeInterceptor(config.serverUrl, config.token)
       })
       .catch((error) => {
-        const normalizedError =
-          error instanceof Error ? error : new Error(String(error))
-        throw normalizedError
+        throw error instanceof Error ? error : new Error(String(error))
       })
   }
 
   private queueTeardown(serverUrl: string): void {
     this.setupPromise = (this.setupPromise || Promise.resolve())
       .catch(() => undefined)
-      .then(async () => {
-        await addFmeInterceptor(serverUrl, "")
-      })
+      .then(() => addFmeInterceptor(serverUrl, ""))
       .catch(() => undefined)
   }
 
-  dispose(): void {
-    if (this.disposed) return
-    this.disposed = true
-
+  private safeAbortController(): void {
     if (this.abortController && !this.abortController.signal.aborted) {
       try {
         this.abortController.abort()
       } catch {}
     }
     this.abortController = null
+  }
 
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.safeAbortController()
     this.queueTeardown(this.config.serverUrl)
+  }
+
+  private resolveUploadPath(
+    data: any,
+    fileName: string,
+    subfolder: string
+  ): string {
+    const directPath =
+      (typeof data.path === "string" && data.path) ||
+      (typeof data.fullpath === "string" && data.fullpath)
+
+    if (directPath) return directPath
+
+    if (Array.isArray(data.files) && data.files.length) {
+      const first = data.files[0]
+      const filePath =
+        (typeof first?.path === "string" && first.path) ||
+        (typeof first?.fullpath === "string" && first.fullpath)
+      if (filePath) return filePath
+    }
+
+    const joined =
+      (subfolder ? `${subfolder.replace(/\/+$/g, "")}/` : "") + fileName
+    return `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -575,7 +599,6 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<{ path: string }>> {
     await ensureEsri()
 
-    // Validate file input
     const segments: string[] = [
       this.basePath.slice(1),
       "resources",
@@ -583,17 +606,16 @@ export class FmeFlowApiClient {
       "FME_SHAREDRESOURCE_TEMP",
       "filesys",
     ]
+
     const sub = (options?.subfolder || "")
       .replace(/[^A-Za-z0-9_\-/]/g, "")
       .replace(/^\/+|\/+$/g, "")
+
     if (sub) {
-      // Split safe subfolder into path segments
       for (const s of sub.split("/")) if (s) segments.push(s)
     }
 
     const endpoint = buildUrl(this.config.serverUrl, ...segments)
-
-    // Determine filename from File or provide a fallback
     const fileName = (file as any)?.name
       ? String((file as any).name)
       : `upload_${Date.now()}`
@@ -601,48 +623,28 @@ export class FmeFlowApiClient {
     const headers: { [key: string]: string } = {
       Accept: "application/json",
       "Content-Type": "application/octet-stream",
-      // RFC 6266 style Content-Disposition
       "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
     }
 
-    // Some deployments require explicit createDirectories flag
-    const query: PrimitiveParams = { createDirectories: "true" }
-
-    return this.request<{ path?: string; fullpath?: string; files?: any[] }>(
-      endpoint,
-      {
-        method: HttpMethod.POST,
-        headers,
-        body: file as unknown as any,
-        query,
-        signal: options?.signal,
-      }
-    ).then((resp) => {
-      const data: any = resp?.data || {}
-      // Try to resolve the absolute/engine-usable path from typical response shapes
-      let resolvedPath: string | undefined =
-        (typeof data.path === "string" && data.path) ||
-        (typeof data.fullpath === "string" && data.fullpath)
-
-      if (!resolvedPath && Array.isArray(data.files) && data.files.length) {
-        const first = data.files[0]
-        resolvedPath =
-          (typeof first?.path === "string" && first.path) ||
-          (typeof first?.fullpath === "string" && first.fullpath)
-      }
-
-      // If still not found, construct a best-effort path using known conventions
-      if (!resolvedPath) {
-        const joined = (sub ? `${sub.replace(/\/+$/g, "")}/` : "") + fileName
-        resolvedPath = `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
-      }
-
-      return {
-        data: { path: resolvedPath },
-        status: resp.status,
-        statusText: resp.statusText,
-      }
+    const resp = await this.request<{
+      path?: string
+      fullpath?: string
+      files?: any[]
+    }>(endpoint, {
+      method: HttpMethod.POST,
+      headers,
+      body: file as unknown as any,
+      query: { createDirectories: "true" },
+      signal: options?.signal,
     })
+
+    const resolvedPath = this.resolveUploadPath(resp?.data || {}, fileName, sub)
+
+    return {
+      data: { path: resolvedPath },
+      status: resp.status,
+      statusText: resp.statusText,
+    }
   }
 
   private resolveRepository(repository?: string): string {
@@ -662,7 +664,6 @@ export class FmeFlowApiClient {
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
-    // Extract Task Manager directives
     const params = parameters as any
     const toPosInt = (v: unknown) => {
       const n = typeof v === "string" ? Number(v) : (v as number)
@@ -673,26 +674,21 @@ export class FmeFlowApiClient {
       .filter(([name]) => !name.startsWith("tm_"))
       .map(([name, value]) => ({ name, value }))
 
-    const job: any = { publishedParameters }
-
-    // Add TM directives if present
     const tmDirectives: any = {}
     const ttc = toPosInt(params.tm_ttc)
     const ttl = toPosInt(params.tm_ttl)
-    const tag =
-      typeof params.tm_tag === "string" && params.tm_tag.trim()
-        ? params.tm_tag.trim()
-        : undefined
+    const tag = typeof params.tm_tag === "string" ? params.tm_tag.trim() : ""
     const description =
-      typeof params.tm_description === "string" && params.tm_description.trim()
+      typeof params.tm_description === "string"
         ? params.tm_description.trim().slice(0, 512)
-        : undefined
+        : ""
 
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
-    if (tag !== undefined) tmDirectives.tag = tag
-    if (description !== undefined) tmDirectives.description = description
+    if (tag) tmDirectives.tag = tag
+    if (description) tmDirectives.description = description
 
+    const job: any = { publishedParameters }
     if (Object.keys(tmDirectives).length > 0) {
       job.TMDirectives = tmDirectives
     }
@@ -1308,22 +1304,11 @@ export class FmeFlowApiClient {
   }
 
   cancelAllRequests(): void {
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch {}
-    }
-    this.abortController = null
+    this.safeAbortController()
   }
 
   createAbortController(): AbortController {
-    // Safely abort existing controller
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch {}
-    }
-
+    this.safeAbortController()
     this.abortController = new AbortController()
     return this.abortController
   }

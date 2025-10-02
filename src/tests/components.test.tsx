@@ -755,7 +755,7 @@ describe("DynamicField component", () => {
       )
     }
     renderWithProviders(<Wrapper />)
-    fireEvent.click(screen.getByRole("tab", { name: "Filuppladdning" }))
+    fireEvent.click(screen.getByRole("tab", { name: "fileInput" }))
     await waitFor(() => {
       expect(handleChange).toHaveBeenCalledWith(
         expect.objectContaining({ mode: "file", file: null })
@@ -789,8 +789,6 @@ describe("DynamicField component", () => {
         translate={(key: string) => key}
       />
     )
-    expect(
-      screen.getByText("Ingen geometri vald. Rita ett område i kartan.")
-    ).toBeInTheDocument()
+    expect(screen.getByText("geometryFieldMissing")).toBeInTheDocument()
   })
 })

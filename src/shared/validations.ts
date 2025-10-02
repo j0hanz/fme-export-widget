@@ -10,25 +10,23 @@ import {
 } from "../config"
 import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
 
-export const isInt = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isInteger(value)
+const parseAsNumber = (value: unknown): number | null => {
+  if (typeof value === "number") return value
   if (typeof value === "string") {
-    const trimmed = value.trim()
-    const num = Number(trimmed)
-    return Number.isInteger(num)
+    const num = Number(value.trim())
+    return Number.isFinite(num) ? num : null
   }
-  return false
+  return null
+}
+
+export const isInt = (value: unknown): boolean => {
+  const num = parseAsNumber(value)
+  return num !== null && Number.isInteger(num)
 }
 
 export const isNum = (value: unknown): boolean => {
-  if (typeof value === "number") return Number.isFinite(value)
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    const num = Number(trimmed)
-
-    return Number.isFinite(num)
-  }
-  return false
+  const num = parseAsNumber(value)
+  return num !== null
 }
 
 const MIN_TOKEN_LENGTH = 10
@@ -105,22 +103,22 @@ export const validateServerUrl = (
   return { ok: true }
 }
 
+const hasControlCharacters = (token: string): boolean => {
+  for (let i = 0; i < token.length; i++) {
+    const code = token.charCodeAt(i)
+    if (code < 32 || code === 127) return true
+  }
+  return false
+}
+
+const hasDangerousCharacters = (token: string): boolean =>
+  /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
+
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "errorMissingToken" }
 
-  const hasControlChar = (() => {
-    for (let i = 0; i < token.length; i++) {
-      const code = token.charCodeAt(i)
-      if (code < 32 || code === 127) return true
-    }
-    return false
-  })()
-
   const invalid =
-    token.length < MIN_TOKEN_LENGTH ||
-    /\s/.test(token) ||
-    /[<>"'`]/.test(token) ||
-    hasControlChar
+    token.length < MIN_TOKEN_LENGTH || hasDangerousCharacters(token)
 
   return invalid ? { ok: false, key: "errorTokenIsInvalid" } : { ok: true }
 }
@@ -138,37 +136,31 @@ export const validateRepository = (
   return { ok: true }
 }
 
+const STATUS_PROPERTIES = ["status", "statusCode", "httpStatus"] as const
+
 // Helper function for extracting HTTP status from various error structures
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
 
   const obj = error as { [key: string]: unknown }
 
-  // Try standard status properties first
-  for (const prop of ["status", "statusCode", "httpStatus"]) {
+  for (const prop of STATUS_PROPERTIES) {
     const value = obj[prop]
-    if (isHttpStatus(value)) {
-      return value
-    }
+    if (isHttpStatus(value)) return value
   }
 
-  // Check for esriRequest-specific error structure
   const details = obj.details as any
   if (details && typeof details === "object") {
     const detailsStatus = details.httpStatus || details.status
     if (isHttpStatus(detailsStatus)) return detailsStatus
   }
 
-  // Try to extract from error message using regex as last resort
   const message = extractErrorMessage(error)
   if (typeof message === "string") {
-    // Look for "status: 401" pattern in error messages
     const statusMatch = /status:\s*(\d{3})/i.exec(message)
     if (statusMatch) {
       const statusCode = parseInt(statusMatch[1], 10)
-      if (statusCode >= 100 && statusCode <= 599) {
-        return statusCode
-      }
+      if (isHttpStatus(statusCode)) return statusCode
     }
   }
 
@@ -193,20 +185,39 @@ const ERROR_CODE_TO_KEY: { [code: string]: string } = {
   URL_TOO_LONG: "urlTooLong",
 }
 
+const STATUS_TO_KEY_MAP: { [status: number]: string } = {
+  0: "startupNetworkError",
+  401: "startupTokenError",
+  403: "startupTokenError",
+  404: "connectionFailed",
+  408: "timeout",
+  429: "rateLimited",
+  431: "headersTooLarge",
+}
+
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
-  if (s === 0) return "startupNetworkError"
-  if (s === 401 || s === 403) return "startupTokenError"
-  if (s === 404) return "connectionFailed"
-  if (s === 408) return "timeout"
-  if (s === 429) return "rateLimited"
-  if (s === 431) return "headersTooLarge"
+  if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
   if (s >= 500) return "startupServerError"
   return undefined
 }
 
+const MESSAGE_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
+  { pattern: /failed to fetch/i, key: "startupNetworkError" },
+  { pattern: /timeout/i, key: "timeout" },
+  { pattern: /cors/i, key: "corsError" },
+  { pattern: /url.*too/i, key: "urlTooLong" },
+]
+
+const matchMessagePattern = (message: string): string | undefined => {
+  const lowerMessage = message.toLowerCase()
+  for (const { pattern, key } of MESSAGE_PATTERNS) {
+    if (pattern.test(lowerMessage)) return key
+  }
+  return undefined
+}
+
 export const mapErrorToKey = (err: unknown, status?: number): string => {
-  // Extract status from error object if not provided
   if (status == null) {
     status = extractHttpStatus(err)
   }
@@ -215,9 +226,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
     const code = (err as any).code
     if (typeof code === "string") {
       if (code === "REQUEST_FAILED") {
-        // Preserve existing categorization logic exactly
-        const fromStatus = statusToKey(status)
-        return fromStatus || "startupServerError"
+        return statusToKey(status) || "startupServerError"
       }
       const mapped = ERROR_CODE_TO_KEY[code]
       if (mapped) return mapped
@@ -227,15 +236,10 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   const byStatus = statusToKey(status)
   if (byStatus) return byStatus
 
-  // Simple message pattern matching as last resort
   const message = (err as Error)?.message
   if (typeof message === "string") {
-    const lowerMessage = message.toLowerCase()
-    if (lowerMessage.includes("failed to fetch")) return "startupNetworkError"
-    if (lowerMessage.includes("timeout")) return "timeout"
-    if (lowerMessage.includes("cors")) return "corsError"
-    if (lowerMessage.includes("url") && lowerMessage.includes("too"))
-      return "urlTooLong"
+    const matched = matchMessagePattern(message)
+    if (matched) return matched
   }
 
   return "unknownErrorOccurred"
@@ -264,16 +268,18 @@ export const validateRequiredConfig = (config: {
   }
 }
 
-// Check for missing required fields in the config
+const REQUIRED_CONFIG_FIELDS = [
+  "fmeServerUrl",
+  "fmeServerToken",
+  "repository",
+] as const
+
 const getMissingConfigFields = (
   config: FmeExportConfig | undefined
 ): string[] => {
-  if (!config) return ["fmeServerUrl", "fmeServerToken", "repository"]
-  const missing: string[] = []
-  if (!config.fmeServerUrl?.trim()) missing.push("fmeServerUrl")
-  if (!config.fmeServerToken?.trim()) missing.push("fmeServerToken")
-  if (!config.repository?.trim()) missing.push("repository")
-  return missing
+  if (!config) return [...REQUIRED_CONFIG_FIELDS]
+
+  return REQUIRED_CONFIG_FIELDS.filter((field) => !config[field]?.trim())
 }
 
 export const validateConfigFields = (
@@ -418,6 +424,39 @@ export const sanitizeFormValues = (
   return masked
 }
 
+const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
+  try {
+    const sr: any = polygon.spatialReference || {}
+    if (sr && (sr.isGeographic || sr.isWGS84)) return true
+    if (typeof sr.wkid === "number" && sr.wkid === 4326) return true
+    const json = polygon.toJSON?.()
+    const jsr = json?.spatialReference || {}
+    return Boolean(jsr.isGeographic) || jsr.wkid === 4326
+  } catch {
+    return false
+  }
+}
+
+const tryCalcArea = async (
+  engine: any,
+  polygon: __esri.Polygon,
+  isGeographic: boolean
+): Promise<number> => {
+  if (!engine) return 0
+
+  if (isGeographic && typeof engine.geodesicArea === "function") {
+    const area = await engine.geodesicArea(polygon, "square-meters")
+    if (Number.isFinite(area) && area > 0) return area
+  }
+
+  if (typeof engine.planarArea === "function") {
+    const area = await engine.planarArea(polygon, "square-meters")
+    if (Number.isFinite(area) && area > 0) return area
+  }
+
+  return 0
+}
+
 // Geometry helpers
 export const calcArea = async (
   geometry: __esri.Geometry | undefined,
@@ -426,51 +465,128 @@ export const calcArea = async (
   if (!geometry || geometry.type !== "polygon") return 0
 
   const polygon = geometry as __esri.Polygon
-  const engineAsync = modules?.geometryEngineAsync
-  const engine = modules?.geometryEngine
-
-  const isGeographic = (): boolean => {
-    try {
-      const sr: any = polygon.spatialReference || {}
-      if (sr && (sr.isGeographic || sr.isWGS84)) return true
-      if (typeof sr.wkid === "number" && sr.wkid === 4326) return true
-      const json = polygon.toJSON?.()
-      const jsr = json?.spatialReference || {}
-      return Boolean(jsr.isGeographic) || jsr.wkid === 4326
-    } catch {
-      return false
-    }
-  }
-
-  const geographic = isGeographic()
+  const geographic = isGeographicSpatialRef(polygon)
 
   try {
-    if (engineAsync) {
-      if (geographic && typeof engineAsync.geodesicArea === "function") {
-        const area = await engineAsync.geodesicArea(polygon, "square-meters")
-        if (Number.isFinite(area) && area > 0) return area
-      }
-
-      if (typeof engineAsync.planarArea === "function") {
-        const area = await engineAsync.planarArea(polygon, "square-meters")
-        if (Number.isFinite(area) && area > 0) return area
-      }
+    if (modules?.geometryEngineAsync) {
+      const area = await tryCalcArea(
+        modules.geometryEngineAsync,
+        polygon,
+        geographic
+      )
+      if (area > 0) return area
     }
 
-    if (engine) {
-      if (geographic && typeof engine.geodesicArea === "function") {
-        const area = engine.geodesicArea(polygon, "square-meters")
-        if (Number.isFinite(area) && area > 0) return area
-      }
-
-      if (typeof engine.planarArea === "function") {
-        const area = engine.planarArea(polygon, "square-meters")
-        if (Number.isFinite(area) && area > 0) return area
-      }
+    if (modules?.geometryEngine) {
+      const area = await tryCalcArea(
+        modules.geometryEngine,
+        polygon,
+        geographic
+      )
+      if (area > 0) return area
     }
   } catch {}
 
   return 0
+}
+
+const makeGeometryError = (
+  messageKey: string,
+  code: string
+): { valid: false; error: ErrorState } => ({
+  valid: false,
+  error: {
+    message: messageKey,
+    type: ErrorType.GEOMETRY,
+    code,
+    severity: ErrorSeverity.ERROR,
+    recoverable: true,
+    timestamp: new Date(),
+    timestampMs: Date.now(),
+    userFriendlyMessage: "",
+    suggestion: "",
+    kind: "runtime",
+  },
+})
+
+const simplifyPolygon = async (
+  poly: __esri.Polygon,
+  engine: any,
+  engineAsync: any
+): Promise<__esri.Polygon | null> => {
+  if (engineAsync?.simplify) {
+    const simplified = (await engineAsync.simplify(
+      poly
+    )) as __esri.Polygon | null
+    if (!simplified) return null
+
+    const checkSimple = engineAsync.isSimple || engine?.isSimple
+    if (checkSimple) {
+      const isSimple = await checkSimple(simplified)
+      if (!isSimple) return null
+    }
+
+    return simplified
+  }
+
+  if (engine?.simplify) {
+    const simplified = engine.simplify(poly) as __esri.Polygon | null
+    if (!simplified) return null
+    if (engine.isSimple && !engine.isSimple(simplified)) return null
+    return simplified
+  }
+
+  if (engine?.isSimple && !engine.isSimple(poly)) return null
+
+  return poly
+}
+
+const isRingClosed = (ring: any[]): boolean => {
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  return Boolean(first && last && first[0] === last[0] && first[1] === last[1])
+}
+
+const validateRingStructure = (rings: any[]): boolean => {
+  if (!Array.isArray(rings) || rings.length === 0) return false
+
+  for (const ring of rings) {
+    if (!Array.isArray(ring) || ring.length < 4) return false
+    if (!isRingClosed(ring)) return false
+  }
+
+  return true
+}
+
+const validateHolesWithinOuter = (
+  rings: any[],
+  poly: __esri.Polygon,
+  engine: any,
+  modules: any
+): boolean => {
+  if (rings.length <= 1 || !engine?.contains) return true
+
+  try {
+    const PolygonCtor = modules?.Polygon
+    if (!PolygonCtor) return true
+
+    const outer = PolygonCtor.fromJSON({
+      rings: [rings[0]],
+      spatialReference: (poly as any).spatialReference,
+    })
+
+    for (let i = 1; i < rings.length; i++) {
+      const hole = PolygonCtor.fromJSON({
+        rings: [rings[i]],
+        spatialReference: (poly as any).spatialReference,
+      })
+      if (!engine.contains(outer, hole)) return false
+    }
+  } catch {
+    return true
+  }
+
+  return true
 }
 
 export const validatePolygon = async (
@@ -481,28 +597,6 @@ export const validatePolygon = async (
   error?: ErrorState
   simplified?: __esri.Polygon
 }> => {
-  // Local helper to construct consistent geometry error objects
-  const makeGeometryError = (
-    messageKey: string,
-    code: string
-  ): { valid: false; error: ErrorState } => {
-    return {
-      valid: false,
-      error: {
-        message: messageKey,
-        type: ErrorType.GEOMETRY,
-        code,
-        severity: ErrorSeverity.ERROR,
-        recoverable: true,
-        timestamp: new Date(),
-        timestampMs: Date.now(),
-        userFriendlyMessage: "",
-        suggestion: "",
-        kind: "runtime",
-      },
-    }
-  }
-
   if (!geometry) {
     return makeGeometryError("noGeometryProvided", "NO_GEOMETRY")
   }
@@ -511,7 +605,6 @@ export const validatePolygon = async (
     return makeGeometryError("geometryMustBePolygon", "INVALID_GEOMETRY_TYPE")
   }
 
-  // If geometry engine is not available, skip detailed validation
   if (!modules?.geometryEngine && !modules?.geometryEngineAsync) {
     return { valid: true }
   }
@@ -521,91 +614,24 @@ export const validatePolygon = async (
     const engineAsync: any = modules.geometryEngineAsync
     let poly = geometry as __esri.Polygon
 
-    // 1) Simplify and/or check if simple (if supported by engine)
-    if (engineAsync && typeof engineAsync.simplify === "function") {
-      const simplified = (await engineAsync.simplify(
-        poly
-      )) as __esri.Polygon | null
-      if (!simplified) {
-        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-      }
-      poly = simplified
-
-      if (typeof engineAsync.isSimple === "function") {
-        const simple = await engineAsync.isSimple(poly)
-        if (!simple) {
-          return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-        }
-      } else if (typeof engine?.isSimple === "function") {
-        if (!engine.isSimple(poly)) {
-          return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-        }
-      }
-    } else if (typeof engine?.simplify === "function") {
-      const simplified = engine.simplify(poly) as __esri.Polygon | null
-      if (!simplified) {
-        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-      }
-      if (
-        typeof engine.isSimple === "function" &&
-        !engine.isSimple(simplified)
-      ) {
-        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-      }
-      poly = simplified
-    } else if (typeof engine?.isSimple === "function") {
-      if (!engine.isSimple(poly)) {
-        return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
-      }
+    const simplified = await simplifyPolygon(poly, engine, engineAsync)
+    if (!simplified) {
+      return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
     }
+    poly = simplified
 
-    // 2) Structural checks: rings must be closed with >=4 points
     const rings: any[] = (poly as any).rings || []
-    if (!Array.isArray(rings) || rings.length === 0) {
+    if (!validateRingStructure(rings)) {
       return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
-    for (const ring of rings) {
-      if (!Array.isArray(ring) || ring.length < 4) {
-        return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
-      }
-      const first = ring[0]
-      const last = ring[ring.length - 1]
-      if (!first || !last || first[0] !== last[0] || first[1] !== last[1]) {
-        return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
-      }
-    }
 
-    // 3) Area must be > 0 (use our calcArea helper)
     const area = await calcArea(poly as any, modules)
     if (!area || area <= 0) {
       return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
 
-    // 4) Validate holes lie within outer ring (best-effort if contains exists)
-    if (rings.length > 1 && typeof engine?.contains === "function") {
-      // Build outer polygon from first ring
-      try {
-        const PolygonCtor = (modules && modules.Polygon) || null
-        const outer = PolygonCtor
-          ? PolygonCtor.fromJSON({
-              rings: [rings[0]],
-              spatialReference: (poly as any).spatialReference,
-            })
-          : poly
-        for (let i = 1; i < rings.length; i++) {
-          const hole = PolygonCtor
-            ? PolygonCtor.fromJSON({
-                rings: [rings[i]],
-                spatialReference: (poly as any).spatialReference,
-              })
-            : poly
-          if (!engine.contains(outer, hole)) {
-            return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
-          }
-        }
-      } catch {
-        // If anything fails here, fall back to accepting simplified polygon
-      }
+    if (!validateHolesWithinOuter(rings, poly, engine, modules)) {
+      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
 
     return { valid: true, simplified: poly }
@@ -632,6 +658,40 @@ export const checkMaxArea = (
   }
 }
 
+const createBlobResponse = (
+  blob: Blob,
+  workspace: string,
+  userEmail: string
+) => ({
+  success: true,
+  blob,
+  email: userEmail,
+  workspaceName: workspace,
+  downloadFilename: `${workspace}_export.zip`,
+})
+
+const createSuccessResponse = (
+  serviceInfo: NormalizedServiceInfo,
+  workspace: string,
+  userEmail: string
+) => ({
+  success: true,
+  jobId: typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+  email: userEmail,
+  workspaceName: workspace,
+  downloadUrl: serviceInfo.url,
+  downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
+})
+
+const createFailureResponse = (message: string) => ({
+  success: false,
+  message,
+  code: "FME_JOB_FAILURE",
+})
+
+const isValidDownloadUrl = (url: unknown): boolean =>
+  typeof url === "string" && /^https?:\/\//.test(url)
+
 // FME response processing
 export const processFmeResponse = (
   fmeResponse: unknown,
@@ -650,39 +710,19 @@ export const processFmeResponse = (
     }
   }
 
-  // Handle blob response
   if (data.blob instanceof Blob) {
-    return {
-      success: true,
-      blob: data.blob,
-      email: userEmail,
-      workspaceName: workspace,
-      downloadFilename: `${workspace}_export.zip`,
-    }
+    return createBlobResponse(data.blob, workspace, userEmail)
   }
 
-  // Handle service response via normalization
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
-  const directUrl = serviceInfo.url
-  const status = serviceInfo.status
-  const jobId = serviceInfo.jobId
 
-  if (status === "success" || (directUrl && /^https?:\/\//.test(directUrl))) {
-    return {
-      success: true,
-      jobId: typeof jobId === "number" ? jobId : undefined,
-      email: userEmail,
-      workspaceName: workspace,
-      downloadUrl: directUrl,
-      downloadFilename: directUrl ? `${workspace}_export.zip` : undefined,
-    }
+  if (serviceInfo.status === "success" || isValidDownloadUrl(serviceInfo.url)) {
+    return createSuccessResponse(serviceInfo, workspace, userEmail)
   }
 
-  return {
-    success: false,
-    message: serviceInfo.message || translateFn("fmeJobSubmissionFailed"),
-    code: "FME_JOB_FAILURE",
-  }
+  return createFailureResponse(
+    serviceInfo.message || translateFn("fmeJobSubmissionFailed")
+  )
 }
 
 export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
