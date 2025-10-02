@@ -415,7 +415,7 @@ const useEsriModules = (
     loading: boolean
   }>({ modules: null, loading: true })
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     let cancelled = false
 
     setState((prev) => ({
@@ -865,7 +865,7 @@ export default function Widget(
     }
   }, [config, disposeFmeClient])
 
-  React.useEffect(() => () => disposeFmeClient(), [disposeFmeClient])
+  hooks.useUnmount(() => disposeFmeClient())
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {

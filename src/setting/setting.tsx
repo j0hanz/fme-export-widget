@@ -847,7 +847,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const shouldShowMaskEmailSetting = isDownloadService && !localSyncMode
   const shouldShowScheduleToggle = isDownloadService && !localSyncMode
   const showUploadTargetField = isDownloadService && localAllowRemoteDataset
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (!isStreamingService) return
     if (localAllowRemoteDataset) {
       setLocalAllowRemoteDataset(false)
@@ -869,21 +869,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     updateConfig,
   ])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (shouldShowScheduleToggle) return
     if (!localAllowScheduleMode) return
     setLocalAllowScheduleMode(false)
     updateConfig("allowScheduleMode", false as any)
   }, [shouldShowScheduleToggle, localAllowScheduleMode, updateConfig])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (shouldShowMaskEmailSetting) return
     if (!localMaskEmailOnSuccess) return
     setLocalMaskEmailOnSuccess(false)
     updateConfig("maskEmailOnSuccess", false as any)
   }, [shouldShowMaskEmailSetting, localMaskEmailOnSuccess, updateConfig])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (showUploadTargetField) return
     if (!localUploadTargetParamName) return
     updateConfig("uploadTargetParamName", undefined as any)

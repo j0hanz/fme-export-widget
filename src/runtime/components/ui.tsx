@@ -1360,7 +1360,7 @@ const useLoadingLatch = (
       : null
   )
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
 
     if (state.kind === "loading") {

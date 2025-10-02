@@ -1,4 +1,4 @@
-import { React } from "jimu-core"
+import { React, hooks } from "jimu-core"
 import "@testing-library/jest-dom"
 import { act, render, waitFor } from "@testing-library/react"
 import { initGlobal } from "jimu-for-test"
@@ -435,7 +435,7 @@ describe("useEsriModules", () => {
 
     const Harness: React.FC<{ reload: number }> = ({ reload }) => {
       const state = useEsriModules(reload)
-      React.useEffect(() => {
+      hooks.useEffectWithPreviousValues(() => {
         states.push(state)
       }, [state])
       return null
@@ -467,7 +467,7 @@ describe("useMapResources", () => {
 
     const Harness: React.FC = () => {
       const resources = useMapResources()
-      React.useEffect(() => {
+      hooks.useEffectWithPreviousValues(() => {
         latest = resources
       }, [resources])
       return null
@@ -548,7 +548,7 @@ describe("useErrorDispatcher", () => {
 
     const Harness: React.FC = () => {
       const handler = useErrorDispatcher(dispatch, "widget-1")
-      React.useEffect(() => {
+      hooks.useEffectWithPreviousValues(() => {
         emitError = handler
       }, [handler])
       return null
