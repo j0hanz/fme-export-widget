@@ -446,6 +446,182 @@ const GEOMETRY_CONSTS = {
   AREA_DECIMALS: 2,
 } as const
 
+const METERS_PER_KILOMETER = 1_000
+const SQUARE_FEET_PER_SQUARE_MILE = 27_878_400
+
+interface AreaDisplay {
+  value: number
+  label: string
+  decimals: number
+}
+
+const approxLengthUnit = (
+  value: number | undefined,
+  target: number
+): boolean => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return false
+  const tolerance = Math.max(1e-9, Math.abs(target) * 1e-6)
+  return Math.abs(value - target) <= tolerance
+}
+
+const normalizeUnitLabel = (unit?: string): string => {
+  if (!unit) return "units²"
+
+  const trimmed = unit.replace(/^esri/i, "").trim()
+  if (!trimmed) return "units²"
+
+  const lower = trimmed.toLowerCase()
+
+  switch (lower) {
+    case "meters":
+      return "m²"
+    case "feet":
+    case "internationalfeet":
+    case "ussfeet":
+      return "ft²"
+    case "kilometers":
+      return "km²"
+    case "miles":
+      return "mi²"
+    case "yards":
+      return "yd²"
+    case "inches":
+      return "in²"
+    case "centimeters":
+      return "cm²"
+    case "millimeters":
+      return "mm²"
+    case "nauticalmiles":
+      return "nm²"
+    default:
+      return `${lower}²`
+  }
+}
+
+const resolveMetricDisplay = (area: number): AreaDisplay => {
+  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
+    return {
+      value: area / GEOMETRY_CONSTS.M2_PER_KM2,
+      label: "km²",
+      decimals: GEOMETRY_CONSTS.AREA_DECIMALS,
+    }
+  }
+
+  if (area >= 1) {
+    return {
+      value: Math.round(area),
+      label: "m²",
+      decimals: 0,
+    }
+  }
+
+  return {
+    value: Number(area.toFixed(2)),
+    label: "m²",
+    decimals: 2,
+  }
+}
+
+const resolveAreaForSpatialReference = (
+  area: number,
+  spatialReference?: __esri.SpatialReference | null
+): AreaDisplay => {
+  if (!spatialReference) {
+    return resolveMetricDisplay(area)
+  }
+
+  const metersPerUnit = spatialReference.metersPerUnit
+  const hasValidFactor =
+    typeof metersPerUnit === "number" && Number.isFinite(metersPerUnit)
+
+  const unitId =
+    typeof spatialReference.unit === "string"
+      ? spatialReference.unit.toLowerCase()
+      : ""
+
+  if (!hasValidFactor) {
+    return resolveMetricDisplay(area)
+  }
+
+  const factor = metersPerUnit
+
+  if (
+    approxLengthUnit(factor, 0.3048) ||
+    approxLengthUnit(factor, 0.3048006096) ||
+    unitId.includes("foot") ||
+    unitId.includes("feet")
+  ) {
+    const squareFeet = area / (factor * factor)
+    if (squareFeet >= SQUARE_FEET_PER_SQUARE_MILE) {
+      return {
+        value: squareFeet / SQUARE_FEET_PER_SQUARE_MILE,
+        label: "mi²",
+        decimals: 2,
+      }
+    }
+
+    const decimals = squareFeet >= 100 ? 0 : squareFeet >= 10 ? 1 : 2
+    return { value: squareFeet, label: "ft²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 1609.344) || unitId.includes("mile")) {
+    return {
+      value: area / (1609.344 * 1609.344),
+      label: "mi²",
+      decimals: 2,
+    }
+  }
+
+  if (
+    approxLengthUnit(factor, METERS_PER_KILOMETER) ||
+    unitId.includes("kilometer")
+  ) {
+    const value = area / (METERS_PER_KILOMETER * METERS_PER_KILOMETER)
+    const decimals = value >= 10 ? 1 : 3
+    return { value, label: "km²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 0.9144) || unitId.includes("yard")) {
+    const value = area / (0.9144 * 0.9144)
+    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+    return { value, label: "yd²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 0.0254) || unitId.includes("inch")) {
+    const value = area / (0.0254 * 0.0254)
+    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+    return { value, label: "in²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 0.01) || unitId.includes("centimeter")) {
+    const value = area / (0.01 * 0.01)
+    const decimals = value >= 100 ? 0 : 2
+    return { value, label: "cm²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 0.001) || unitId.includes("millimeter")) {
+    const value = area / (0.001 * 0.001)
+    const decimals = value >= 100 ? 0 : 2
+    return { value, label: "mm²", decimals }
+  }
+
+  if (approxLengthUnit(factor, 1852) || unitId.includes("nautical")) {
+    return {
+      value: area / (1852 * 1852),
+      label: "nm²",
+      decimals: 2,
+    }
+  }
+
+  if (approxLengthUnit(factor, 1) || unitId.includes("meter")) {
+    return resolveMetricDisplay(area)
+  }
+
+  const value = area / (factor * factor)
+  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+  return { value, label: normalizeUnitLabel(spatialReference.unit), decimals }
+}
+
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "sync",
   "async",
@@ -994,17 +1170,23 @@ export const prepFmeParams = (
   return withDirectives
 }
 
-export function formatArea(area: number, modules: EsriModules): string {
-  if (!area || Number.isNaN(area) || area <= 0) return "0 m²"
+export function formatArea(
+  area: number,
+  modules: EsriModules,
+  spatialReference?: __esri.SpatialReference | null
+): string {
+  const safeArea = Number.isFinite(area) && area > 0 ? area : 0
+  const display = resolveAreaForSpatialReference(safeArea, spatialReference)
 
   const formatNumber = (value: number, decimals: number): string => {
     const intlModule = (modules as any)?.intl
     if (intlModule && typeof intlModule.formatNumber === "function") {
-      return intlModule.formatNumber(value, {
+      const result = intlModule.formatNumber(value, {
         style: "decimal",
         minimumFractionDigits: 0,
         maximumFractionDigits: decimals,
       })
+      return typeof result === "number" ? result.toString() : result
     }
     return value.toLocaleString(undefined, {
       minimumFractionDigits: 0,
@@ -1012,15 +1194,12 @@ export function formatArea(area: number, modules: EsriModules): string {
     })
   }
 
-  if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
-    const areaInSqKm = area / GEOMETRY_CONSTS.M2_PER_KM2
-    const formatted = formatNumber(areaInSqKm, GEOMETRY_CONSTS.AREA_DECIMALS)
-    return `${formatted} km²`
+  if (!display.value || display.value <= 0) {
+    return `0 ${display.label}`
   }
 
-  const roundedArea = Math.round(area)
-  const formatted = formatNumber(roundedArea, 0)
-  return `${formatted} m²`
+  const formatted = formatNumber(display.value, display.decimals)
+  return `${formatted} ${display.label}`
 }
 
 export const getEmail = async (_config?: FmeExportConfig): Promise<string> => {

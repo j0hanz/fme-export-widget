@@ -8,7 +8,12 @@ import {
   type FmeResponse,
   type NormalizedServiceInfo,
 } from "../config"
-import { extractErrorMessage, maskToken, safeParseUrl } from "./utils"
+import {
+  extractErrorMessage,
+  maskToken,
+  safeParseUrl,
+  loadArcgisModules,
+} from "./utils"
 
 const parseAsNumber = (value: unknown): number | null => {
   if (typeof value === "number") return value
@@ -32,7 +37,6 @@ export const isNum = (value: unknown): boolean => {
 const MIN_TOKEN_LENGTH = 10
 const FME_REST_PATH = "/fmerest"
 
-// Internal helpers to consolidate repeated patterns
 const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" && n >= 100 && n <= 599
 
@@ -45,7 +49,6 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
 
-  // Extract base path without /fmerest or anything after it
   let path = u.pathname || "/"
   const idxRest = path.toLowerCase().indexOf(FME_REST_PATH)
   if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
@@ -56,7 +59,6 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   u.password = ""
   u.pathname = path
 
-  // Remove trailing slash unless it's the root "/"
   const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
   return `${u.origin}${cleanPath}`
 }
@@ -76,27 +78,22 @@ export const validateServerUrl = (
 
   if (!/^https?:$/i.test(parsedUrl.protocol)) return invalidBaseUrl()
 
-  // Optional HTTPS enforcement
   if (opts?.requireHttps && !/^https:$/i.test(parsedUrl.protocol)) {
     return invalidBaseUrl()
   }
 
   if (parsedUrl.username || parsedUrl.password) return invalidBaseUrl()
 
-  // Disallow query string and fragment in base URL
   if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
 
   if (hasForbiddenPaths(parsedUrl.pathname)) {
     return { ok: false, key: "errorBadBaseUrl" }
   }
 
-  // Check for hostname ending with dot (invalid)
   if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
 
-  // Apply hostname heuristic only in strict mode
   if (opts?.strict) {
     const hostname = parsedUrl.hostname || ""
-    // In strict mode, reject hostnames that look suspicious (no dots, too short)
     if (!hostname.includes(".") || hostname.length < 4) return invalidBaseUrl()
   }
 
@@ -138,7 +135,6 @@ export const validateRepository = (
 
 const STATUS_PROPERTIES = ["status", "statusCode", "httpStatus"] as const
 
-// Helper function for extracting HTTP status from various error structures
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
 
@@ -251,9 +247,7 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (!trimmed || trimmed.length > 10000) return false
   const u = safeParseUrl(trimmed)
   if (!u) return false
-  // Enforce HTTPS and disallow embedded credentials for remote dataset URLs
   if (!/^https:$/i.test(u.protocol)) return false
-  // Disallow URLs with username/password
   if (u.username || u.password) return false
   return true
 }
@@ -336,7 +330,6 @@ export function validateConnectionInputs(args: {
   const t = validateToken(token)
   if (!t.ok) errors.token = t.key || "errorTokenIsInvalid"
 
-  // If availableRepos is null, skip repository validation (not loaded yet)
   const repoCheck = validateRepository(
     repository || "",
     availableRepos === undefined ? [] : availableRepos
@@ -397,7 +390,6 @@ export const createError = (
   }
 }
 
-// FME conversions (date/time/color)
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
   const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
@@ -424,54 +416,468 @@ export const sanitizeFormValues = (
   return masked
 }
 
+type GeometryAreaFn = (
+  geometry: __esri.Geometry,
+  unit: string
+) => number | PromiseLike<number>
+
+type GeometryDensifyFn = (
+  geometry: __esri.Geometry,
+  ...args: readonly unknown[]
+) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
+
+type GeometrySimplifyFn = (
+  polygon: __esri.Polygon
+) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
+
+type GeometryIsSimpleFn = (
+  polygon: __esri.Polygon
+) => boolean | PromiseLike<boolean>
+
+type GeometryContainsFn = (
+  outer: __esri.Geometry,
+  inner: __esri.Geometry
+) => boolean
+
+interface GeometryEngineLike {
+  geodesicArea?: GeometryAreaFn
+  planarArea?: GeometryAreaFn
+  geodesicDensify?: GeometryDensifyFn
+  densify?: GeometryDensifyFn
+  simplify?: GeometrySimplifyFn
+  isSimple?: GeometryIsSimpleFn
+  contains?: GeometryContainsFn
+}
+
+interface NormalizeUtilsModule {
+  normalizeCentralMeridian?: (
+    geometries: readonly __esri.Geometry[]
+  ) => PromiseLike<readonly __esri.Geometry[]> | readonly __esri.Geometry[]
+}
+
+interface EsriConfigLike {
+  geometryServiceUrl?: string
+  request?: { geometryServiceUrl?: string }
+  portalSelf?: { helperServices?: { geometry?: { url?: string } } }
+  portalInfo?: { helperServices?: { geometry?: { url?: string } } }
+  helperServices?: { geometry?: { url?: string } }
+}
+
+type AreasAndLengthsParametersCtor = new (
+  options: __esri.AreasAndLengthsParametersProperties
+) => __esri.AreasAndLengthsParameters
+
+interface AreasAndLengthsResponse {
+  areas?: number[]
+}
+
+interface GeometryServiceModule {
+  areasAndLengths?: (
+    url: string,
+    params: __esri.AreasAndLengthsParameters
+  ) => PromiseLike<AreasAndLengthsResponse> | AreasAndLengthsResponse
+}
+
+interface PolygonCtor {
+  fromJSON?: (json: unknown) => __esri.Polygon
+}
+
+interface ArcgisGeometryModules {
+  geometryEngine?: GeometryEngineLike
+  geometryEngineAsync?: GeometryEngineLike
+  normalizeUtils?: NormalizeUtilsModule
+  esriConfig?: EsriConfigLike
+  Polygon?: PolygonCtor
+}
+
+type PolygonMaybe =
+  | __esri.Geometry
+  | null
+  | undefined
+  | PromiseLike<__esri.Geometry | null | undefined>
+
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  "then" in value &&
+  typeof (value as { then?: unknown }).then === "function"
+
+const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "polygon"
+
+const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
+  if (typeof sr !== "object" || sr === null) {
+    return {}
+  }
+
+  const ref = sr as { wkid?: unknown; latestWkid?: unknown }
+  const wkid = typeof ref.wkid === "number" ? ref.wkid : undefined
+  const latestWkid =
+    typeof ref.latestWkid === "number" ? ref.latestWkid : undefined
+
+  return { wkid, latestWkid }
+}
+
+const isWebMercatorSr = (sr: unknown): boolean => {
+  const ref = sr as { isWebMercator?: boolean } | undefined
+  if (ref?.isWebMercator) return true
+  const { wkid, latestWkid } = readWkids(sr)
+  return wkid === 3857 || latestWkid === 3857
+}
+
+const isWgs84Sr = (sr: unknown): boolean => {
+  const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
+  if (ref?.isGeographic || ref?.isWGS84) return true
+  const { wkid, latestWkid } = readWkids(sr)
+  return wkid === 4326 || latestWkid === 4326
+}
+
 const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   try {
-    const sr: any = polygon.spatialReference || {}
-    if (sr && (sr.isGeographic || sr.isWGS84)) return true
-    if (typeof sr.wkid === "number" && sr.wkid === 4326) return true
+    if (
+      isWgs84Sr(polygon.spatialReference) ||
+      isWebMercatorSr(polygon.spatialReference)
+    ) {
+      return true
+    }
+
     const json = polygon.toJSON?.()
-    const jsr = json?.spatialReference || {}
-    return Boolean(jsr.isGeographic) || jsr.wkid === 4326
-  } catch {
-    return false
-  }
+    if (json && typeof json === "object") {
+      const spatialRef = (json as { spatialReference?: unknown })
+        .spatialReference
+      return isWgs84Sr(spatialRef) || isWebMercatorSr(spatialRef)
+    }
+  } catch {}
+
+  return false
 }
 
 const tryCalcArea = async (
-  engine: any,
+  engine: GeometryEngineLike | undefined,
   polygon: __esri.Polygon,
   isGeographic: boolean
 ): Promise<number> => {
   if (!engine) return 0
 
-  if (isGeographic && typeof engine.geodesicArea === "function") {
-    const area = await engine.geodesicArea(polygon, "square-meters")
+  const geodesicAreaFn = engine.geodesicArea
+  if (isGeographic && typeof geodesicAreaFn === "function") {
+    const area = await geodesicAreaFn(polygon, "square-meters")
     if (Number.isFinite(area) && area > 0) return area
   }
 
-  if (typeof engine.planarArea === "function") {
-    const area = await engine.planarArea(polygon, "square-meters")
+  const planarAreaFn = engine.planarArea
+  if (typeof planarAreaFn === "function") {
+    const area = await planarAreaFn(polygon, "square-meters")
     if (Number.isFinite(area) && area > 0) return area
   }
 
   return 0
 }
 
-// Geometry helpers
+const unwrapModule = (module: unknown): unknown =>
+  (module as { default?: unknown }).default ?? module
+
+const GEODESIC_SEGMENT_LENGTH_METERS = 50
+const MIN_PLANAR_SEGMENT_DEGREES = 1e-6
+const DEGREES_PER_METER = 1 / 111319.49079327358
+
+let normalizeUtilsCache: NormalizeUtilsModule | null | undefined
+let geometryServiceCache: GeometryServiceModule | null | undefined
+let areasAndLengthsParamsCache: AreasAndLengthsParametersCtor | null | undefined
+let esriConfigCache: EsriConfigLike | null | undefined
+
+const ensureNormalizeUtils = async (
+  modules: ArcgisGeometryModules
+): Promise<NormalizeUtilsModule | null> => {
+  if (modules?.normalizeUtils?.normalizeCentralMeridian) {
+    return modules.normalizeUtils
+  }
+
+  if (normalizeUtilsCache !== undefined) return normalizeUtilsCache
+
+  try {
+    const [normalizeUtilsMod] = await loadArcgisModules([
+      "esri/geometry/support/normalizeUtils",
+    ])
+    normalizeUtilsCache = unwrapModule(
+      normalizeUtilsMod
+    ) as NormalizeUtilsModule
+  } catch {
+    normalizeUtilsCache = null
+  }
+
+  return normalizeUtilsCache
+}
+
+const ensureEsriConfig = async (
+  modules: ArcgisGeometryModules
+): Promise<EsriConfigLike | null> => {
+  if (modules?.esriConfig) return modules.esriConfig
+  if (esriConfigCache !== undefined) return esriConfigCache
+
+  try {
+    const [configMod] = await loadArcgisModules(["esri/config"])
+    esriConfigCache = unwrapModule(configMod) as EsriConfigLike
+  } catch {
+    esriConfigCache = null
+  }
+
+  return esriConfigCache
+}
+
+const ensureGeometryServiceModules = async (): Promise<{
+  geometryService: GeometryServiceModule | null
+  AreasAndLengthsParameters: AreasAndLengthsParametersCtor | null
+}> => {
+  if (
+    geometryServiceCache !== undefined &&
+    areasAndLengthsParamsCache !== undefined
+  ) {
+    return {
+      geometryService: geometryServiceCache,
+      AreasAndLengthsParameters: areasAndLengthsParamsCache,
+    }
+  }
+
+  try {
+    const [geometryServiceMod, paramsMod] = await loadArcgisModules([
+      "esri/rest/geometryService",
+      "esri/rest/support/AreasAndLengthsParameters",
+    ])
+    geometryServiceCache = unwrapModule(
+      geometryServiceMod
+    ) as GeometryServiceModule
+    areasAndLengthsParamsCache = unwrapModule(
+      paramsMod
+    ) as AreasAndLengthsParametersCtor
+  } catch {
+    geometryServiceCache = null
+    areasAndLengthsParamsCache = null
+  }
+
+  return {
+    geometryService: geometryServiceCache,
+    AreasAndLengthsParameters: areasAndLengthsParamsCache,
+  }
+}
+
+const resolveGeometryServiceUrl = async (
+  modules: ArcgisGeometryModules
+): Promise<string | null> => {
+  try {
+    const directUrl = modules?.esriConfig?.geometryServiceUrl
+    if (typeof directUrl === "string" && directUrl) return directUrl
+
+    const config = await ensureEsriConfig(modules)
+    if (!config) return null
+
+    const directConfigUrl = config.geometryServiceUrl
+    if (typeof directConfigUrl === "string" && directConfigUrl) {
+      return directConfigUrl
+    }
+
+    const requestUrl = config.request?.geometryServiceUrl
+    if (typeof requestUrl === "string" && requestUrl) return requestUrl
+
+    const helperUrl =
+      config.portalSelf?.helperServices?.geometry?.url ||
+      config.portalInfo?.helperServices?.geometry?.url ||
+      config.helperServices?.geometry?.url
+
+    if (typeof helperUrl === "string" && helperUrl) return helperUrl
+  } catch {}
+
+  return null
+}
+
+const maybeResolvePolygon = async (
+  value: PolygonMaybe
+): Promise<__esri.Polygon | null> => {
+  if (!value) return null
+  try {
+    const resolved = isPromiseLike(value) ? await value : value
+    if (isPolygonGeometryLike(resolved)) {
+      return resolved
+    }
+  } catch {}
+  return null
+}
+
+const attemptDensify = async (
+  engine: GeometryEngineLike | undefined,
+  method: "geodesicDensify" | "densify",
+  geometry: __esri.Polygon,
+  args: readonly unknown[]
+): Promise<__esri.Polygon | null> => {
+  const densify = engine?.[method]
+  if (typeof densify !== "function") return null
+  try {
+    const result = densify(geometry, ...args)
+    return await maybeResolvePolygon(result)
+  } catch {
+    return null
+  }
+}
+
+const normalizePolygon = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  const sr = polygon?.spatialReference
+  const shouldNormalize = isWgs84Sr(sr) || isWebMercatorSr(sr)
+  if (!shouldNormalize) return polygon
+
+  const normalizeUtils = await ensureNormalizeUtils(modules)
+  if (!normalizeUtils?.normalizeCentralMeridian) return polygon
+
+  try {
+    const results = await normalizeUtils.normalizeCentralMeridian([polygon])
+    const normalized = Array.isArray(results) ? results[0] : null
+    if (isPolygonGeometryLike(normalized)) {
+      return normalized
+    }
+  } catch {}
+
+  return polygon
+}
+
+const applyDensify = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  const sr = polygon?.spatialReference
+  const canUseGeodesic = isWgs84Sr(sr) || isWebMercatorSr(sr)
+  const isGeographic = isWgs84Sr(sr)
+
+  let working = polygon
+
+  if (canUseGeodesic) {
+    const geodesicArgs: readonly unknown[] = [
+      GEODESIC_SEGMENT_LENGTH_METERS,
+      "meters",
+    ]
+    const geodesicResult =
+      (await attemptDensify(
+        modules?.geometryEngineAsync,
+        "geodesicDensify",
+        working,
+        geodesicArgs
+      )) ??
+      (await attemptDensify(
+        modules?.geometryEngine,
+        "geodesicDensify",
+        working,
+        geodesicArgs
+      ))
+
+    if (geodesicResult) {
+      working = geodesicResult
+    }
+  }
+
+  const planarSegment = isGeographic
+    ? Math.max(
+        GEODESIC_SEGMENT_LENGTH_METERS * DEGREES_PER_METER,
+        MIN_PLANAR_SEGMENT_DEGREES
+      )
+    : GEODESIC_SEGMENT_LENGTH_METERS
+
+  const planarArgs: readonly unknown[] = [planarSegment]
+  const planarResult =
+    (await attemptDensify(
+      modules?.geometryEngineAsync,
+      "densify",
+      working,
+      planarArgs
+    )) ??
+    (await attemptDensify(
+      modules?.geometryEngine,
+      "densify",
+      working,
+      planarArgs
+    ))
+
+  if (planarResult) {
+    working = planarResult
+  }
+
+  return working
+}
+
+const preparePolygonForArea = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  let working = polygon
+  working = await normalizePolygon(working, modules)
+  working = await applyDensify(working, modules)
+  return working
+}
+
+const calcAreaViaGeometryService = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<number> => {
+  const serviceUrl = await resolveGeometryServiceUrl(modules)
+  if (!serviceUrl) return 0
+
+  const { geometryService, AreasAndLengthsParameters } =
+    await ensureGeometryServiceModules()
+
+  if (
+    !geometryService?.areasAndLengths ||
+    typeof geometryService.areasAndLengths !== "function" ||
+    !AreasAndLengthsParameters
+  ) {
+    return 0
+  }
+
+  try {
+    const paramOptions: __esri.AreasAndLengthsParametersProperties & {
+      geodesic?: boolean
+    } = {
+      polygons: [polygon],
+      areaUnit: "square-meters",
+      lengthUnit: "meters",
+      calculationType: "geodesic",
+      geodesic: true,
+    }
+    const params = new AreasAndLengthsParameters(paramOptions)
+
+    const response = await geometryService.areasAndLengths(serviceUrl, params)
+    const area = response?.areas?.[0]
+    if (Number.isFinite(area) && Math.abs(area) > 0) {
+      return Math.abs(area)
+    }
+  } catch {}
+
+  return 0
+}
+
 export const calcArea = async (
   geometry: __esri.Geometry | undefined,
-  modules: any
+  modules: ArcgisGeometryModules
 ): Promise<number> => {
   if (!geometry || geometry.type !== "polygon") return 0
 
   const polygon = geometry as __esri.Polygon
-  const geographic = isGeographicSpatialRef(polygon)
+  let prepared = polygon
+
+  try {
+    prepared = await preparePolygonForArea(polygon, modules)
+  } catch {
+    prepared = polygon
+  }
+
+  const geographic = isGeographicSpatialRef(prepared)
 
   try {
     if (modules?.geometryEngineAsync) {
       const area = await tryCalcArea(
         modules.geometryEngineAsync,
-        polygon,
+        prepared,
         geographic
       )
       if (area > 0) return area
@@ -480,12 +886,18 @@ export const calcArea = async (
     if (modules?.geometryEngine) {
       const area = await tryCalcArea(
         modules.geometryEngine,
-        polygon,
+        prepared,
         geographic
       )
       if (area > 0) return area
     }
   } catch {}
+
+  const geometryServiceArea = await calcAreaViaGeometryService(
+    prepared,
+    modules
+  )
+  if (geometryServiceArea > 0) return geometryServiceArea
 
   return 0
 }
@@ -511,43 +923,69 @@ const makeGeometryError = (
 
 const simplifyPolygon = async (
   poly: __esri.Polygon,
-  engine: any,
-  engineAsync: any
+  engine: GeometryEngineLike | undefined,
+  engineAsync: GeometryEngineLike | undefined
 ): Promise<__esri.Polygon | null> => {
-  if (engineAsync?.simplify) {
-    const simplified = (await engineAsync.simplify(
-      poly
-    )) as __esri.Polygon | null
+  const simplifyAsync = engineAsync?.simplify
+  if (typeof simplifyAsync === "function") {
+    const asyncResult = await simplifyAsync(poly)
+    const simplified = await maybeResolvePolygon(asyncResult)
     if (!simplified) return null
 
-    const checkSimple = engineAsync.isSimple || engine?.isSimple
-    if (checkSimple) {
-      const isSimple = await checkSimple(simplified)
+    const checkSimple = engineAsync?.isSimple ?? engine?.isSimple
+    if (typeof checkSimple === "function") {
+      const simpleResult = checkSimple(simplified)
+      const isSimple = isPromiseLike(simpleResult)
+        ? await simpleResult
+        : simpleResult
       if (!isSimple) return null
     }
 
     return simplified
   }
 
-  if (engine?.simplify) {
-    const simplified = engine.simplify(poly) as __esri.Polygon | null
+  const simplifySync = engine?.simplify
+  if (typeof simplifySync === "function") {
+    const simplified = await maybeResolvePolygon(simplifySync(poly))
     if (!simplified) return null
-    if (engine.isSimple && !engine.isSimple(simplified)) return null
+    const isSimpleFn = engine?.isSimple
+    if (typeof isSimpleFn === "function") {
+      const simpleResult = isSimpleFn(simplified)
+      const isSimple = isPromiseLike(simpleResult)
+        ? await simpleResult
+        : simpleResult
+      if (!isSimple) return null
+    }
     return simplified
   }
 
-  if (engine?.isSimple && !engine.isSimple(poly)) return null
+  const isSimpleFn = engine?.isSimple
+  if (typeof isSimpleFn === "function") {
+    const simpleResult = isSimpleFn(poly)
+    const isSimple = isPromiseLike(simpleResult)
+      ? await simpleResult
+      : simpleResult
+    if (!isSimple) return null
+  }
 
   return poly
 }
 
-const isRingClosed = (ring: any[]): boolean => {
-  const first = ring[0]
-  const last = ring[ring.length - 1]
-  return Boolean(first && last && first[0] === last[0] && first[1] === last[1])
+const isRingClosed = (ring: unknown[]): boolean => {
+  if (!Array.isArray(ring) || ring.length === 0) return false
+  const first = ring[0] as number[] | undefined
+  const last = ring[ring.length - 1] as number[] | undefined
+  return Boolean(
+    first &&
+      last &&
+      Array.isArray(first) &&
+      Array.isArray(last) &&
+      first[0] === last[0] &&
+      first[1] === last[1]
+  )
 }
 
-const validateRingStructure = (rings: any[]): boolean => {
+const validateRingStructure = (rings: unknown[]): boolean => {
   if (!Array.isArray(rings) || rings.length === 0) return false
 
   for (const ring of rings) {
@@ -559,12 +997,14 @@ const validateRingStructure = (rings: any[]): boolean => {
 }
 
 const validateHolesWithinOuter = (
-  rings: any[],
+  rings: unknown[],
   poly: __esri.Polygon,
-  engine: any,
-  modules: any
+  engine: GeometryEngineLike | undefined,
+  modules: ArcgisGeometryModules
 ): boolean => {
-  if (rings.length <= 1 || !engine?.contains) return true
+  if (rings.length <= 1) return true
+  const contains = engine?.contains
+  if (typeof contains !== "function") return true
 
   try {
     const PolygonCtor = modules?.Polygon
@@ -572,15 +1012,15 @@ const validateHolesWithinOuter = (
 
     const outer = PolygonCtor.fromJSON({
       rings: [rings[0]],
-      spatialReference: (poly as any).spatialReference,
+      spatialReference: poly.spatialReference,
     })
 
     for (let i = 1; i < rings.length; i++) {
       const hole = PolygonCtor.fromJSON({
         rings: [rings[i]],
-        spatialReference: (poly as any).spatialReference,
+        spatialReference: poly.spatialReference,
       })
-      if (!engine.contains(outer, hole)) return false
+      if (!contains(outer, hole)) return false
     }
   } catch {
     return true
@@ -591,7 +1031,7 @@ const validateHolesWithinOuter = (
 
 export const validatePolygon = async (
   geometry: __esri.Geometry | undefined,
-  modules: any
+  modules: ArcgisGeometryModules
 ): Promise<{
   valid: boolean
   error?: ErrorState
@@ -610,8 +1050,8 @@ export const validatePolygon = async (
   }
 
   try {
-    const engine: any = modules.geometryEngine
-    const engineAsync: any = modules.geometryEngineAsync
+    const engine = modules.geometryEngine
+    const engineAsync = modules.geometryEngineAsync
     let poly = geometry as __esri.Polygon
 
     const simplified = await simplifyPolygon(poly, engine, engineAsync)
@@ -620,12 +1060,13 @@ export const validatePolygon = async (
     }
     poly = simplified
 
-    const rings: any[] = (poly as any).rings || []
+    const rawRings = (poly as { rings?: unknown }).rings
+    const rings = Array.isArray(rawRings) ? rawRings : []
     if (!validateRingStructure(rings)) {
       return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
 
-    const area = await calcArea(poly as any, modules)
+    const area = await calcArea(poly, modules)
     if (!area || area <= 0) {
       return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
     }
@@ -656,6 +1097,13 @@ export const checkMaxArea = (
     message: "AREA_TOO_LARGE",
     code: "AREA_TOO_LARGE",
   }
+}
+
+export const resetValidationCachesForTest = () => {
+  normalizeUtilsCache = undefined
+  geometryServiceCache = undefined
+  areasAndLengthsParamsCache = undefined
+  esriConfigCache = undefined
 }
 
 const createBlobResponse = (

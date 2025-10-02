@@ -4,6 +4,7 @@ import {
   attachAoi,
   applyDirectiveDefaults,
   prepFmeParams,
+  formatArea,
 } from "../shared/utils"
 import {
   sanitizeFormValues,
@@ -16,6 +17,7 @@ import {
   FormFieldType,
   type WorkspaceParameter,
   type FmeExportConfig,
+  type EsriModules,
 } from "../config"
 
 beforeAll(() => {
@@ -204,6 +206,55 @@ describe("prepFmeParams", () => {
     expect(result).toHaveProperty("aoi_geojson")
     expect(result).toHaveProperty("aoi_wkt")
     expect(result.fme_existing).toBe("form")
+  })
+})
+
+describe("formatArea", () => {
+  const modules = {
+    intl: {
+      formatNumber(value: number, options?: Intl.NumberFormatOptions) {
+        const maxDigits = options?.maximumFractionDigits ?? 0
+        return Number(value.toFixed(maxDigits))
+      },
+    },
+  } as unknown as EsriModules
+
+  const asSpatialReference = (
+    sr: Partial<__esri.SpatialReference>
+  ): __esri.SpatialReference => sr as unknown as __esri.SpatialReference
+
+  it("defaults to metric units and switches to square kilometers when large", () => {
+    expect(formatArea(500, modules)).toBe("500 m²")
+    expect(formatArea(1_500_000, modules)).toBe("1.5 km²")
+  })
+
+  it("converts to square feet when the spatial reference uses feet", () => {
+    const sr = asSpatialReference({
+      metersPerUnit: 0.3048,
+      unit: "feet",
+    })
+
+    const squareMetersFor100SqFt = 9.290304
+    expect(formatArea(squareMetersFor100SqFt, modules, sr)).toBe("100 ft²")
+  })
+
+  it("switches to square miles for large foot-based areas", () => {
+    const sr = asSpatialReference({
+      metersPerUnit: 0.3048,
+      unit: "feet",
+    })
+
+    const squareMetersForOneSquareMile = 1609.344 * 1609.344
+    expect(formatArea(squareMetersForOneSquareMile, modules, sr)).toBe("1 mi²")
+  })
+
+  it("respects kilometer spatial references", () => {
+    const sr = asSpatialReference({
+      metersPerUnit: 1_000,
+      unit: "kilometers",
+    })
+
+    expect(formatArea(250_000, modules, sr)).toBe("0.25 km²")
   })
 })
 

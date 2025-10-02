@@ -353,6 +353,7 @@ const MODULES = [
   "esri/geometry/support/webMercatorUtils",
   "esri/geometry/projection",
   "esri/geometry/SpatialReference",
+  "esri/geometry/support/normalizeUtils",
   "esri/geometry/Polyline",
   "esri/geometry/Polygon",
   "esri/Graphic",
@@ -434,6 +435,7 @@ const useEsriModules = (
           webMercatorUtils,
           projection,
           SpatialReference,
+          normalizeUtils,
           Polyline,
           Polygon,
           Graphic,
@@ -455,6 +457,7 @@ const useEsriModules = (
             webMercatorUtils,
             projection,
             SpatialReference,
+            normalizeUtils,
             Polyline,
             Polygon,
             Graphic,
@@ -1919,7 +1922,9 @@ export default function Widget(
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
-        formatArea={(area: number) => formatArea(area, modules)}
+        formatArea={(area: number) =>
+          formatArea(area, modules, jimuMapView?.view?.spatialReference)
+        }
         drawingMode={reduxState.drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool, widgetId))

@@ -890,12 +890,30 @@ export interface EsriModules {
     simplify?: (g: __esri.Geometry) => __esri.Geometry | null
     planarArea?: (g: __esri.Geometry, unit: string) => number
     geodesicArea?: (g: __esri.Geometry, unit: string) => number
+    geodesicDensify?: (
+      geometry: __esri.Geometry,
+      maxSegmentLength: number,
+      unit?: string
+    ) => __esri.Geometry | null
+    densify?: (
+      geometry: __esri.Geometry,
+      maxSegmentLength: number
+    ) => __esri.Geometry | null
   }
   geometryEngineAsync: {
     simplify?: (g: __esri.Geometry) => Promise<__esri.Geometry | null>
     isSimple?: (g: __esri.Geometry) => Promise<boolean>
     planarArea?: (g: __esri.Geometry, unit: string) => Promise<number>
     geodesicArea?: (g: __esri.Geometry, unit: string) => Promise<number>
+    geodesicDensify?: (
+      geometry: __esri.Geometry,
+      maxSegmentLength: number,
+      unit?: string
+    ) => Promise<__esri.Geometry | null>
+    densify?: (
+      geometry: __esri.Geometry,
+      maxSegmentLength: number
+    ) => Promise<__esri.Geometry | null>
   }
   projection: {
     project?: (
@@ -921,6 +939,15 @@ export interface EsriModules {
       value: number,
       options?: Intl.NumberFormatOptions
     ) => string | number
+  }
+  normalizeUtils?: {
+    normalizeCentralMeridian?: (
+      geometries: ReadonlyArray<__esri.Geometry | null | undefined>,
+      url?: string | null,
+      requestOptions?: unknown
+    ) => Promise<
+      ReadonlyArray<__esri.Geometry | __esri.Mesh | null | undefined>
+    >
   }
 }
 

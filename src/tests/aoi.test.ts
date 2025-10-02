@@ -48,6 +48,9 @@ beforeAll(() => {
 
 afterEach(() => {
   jest.restoreAllMocks()
+  if (typeof validations.resetValidationCachesForTest === "function") {
+    validations.resetValidationCachesForTest()
+  }
 })
 
 describe("polygonJson conversions", () => {
@@ -277,8 +280,16 @@ describe("calcArea", () => {
       geometryEngineAsync: {
         geodesicArea: jest.fn().mockResolvedValue(2500),
         planarArea: jest.fn(),
+        geodesicDensify: jest.fn().mockResolvedValue(polygon),
       },
       geometryEngine: {},
+      normalizeUtils: {
+        normalizeCentralMeridian: jest
+          .fn()
+          .mockImplementation((geoms: readonly any[]) =>
+            Promise.resolve(geoms)
+          ),
+      },
     }
 
     // Act
@@ -303,6 +314,13 @@ describe("calcArea", () => {
       geometryEngine: {
         planarArea: jest.fn().mockReturnValue(4567),
       },
+      normalizeUtils: {
+        normalizeCentralMeridian: jest
+          .fn()
+          .mockImplementation((geoms: readonly any[]) =>
+            Promise.resolve(geoms)
+          ),
+      },
     }
 
     // Act
@@ -322,6 +340,109 @@ describe("calcArea", () => {
 
     // Assert
     expect(area).toBe(0)
+  })
+
+  it("normalizes polygons that cross the dateline before measuring area", async () => {
+    // Arrange
+    const polygon = makePolygonGeometry()
+    const normalized = { ...polygon }
+    const modules = {
+      geometryEngineAsync: {
+        geodesicArea: jest.fn().mockResolvedValue(2000),
+        planarArea: jest.fn(),
+      },
+      geometryEngine: {},
+      normalizeUtils: {
+        normalizeCentralMeridian: jest.fn().mockResolvedValue([normalized]),
+      },
+    }
+
+    // Act
+    const area = await calcArea(polygon as any, modules as any)
+
+    // Assert
+    expect(modules.normalizeUtils.normalizeCentralMeridian).toHaveBeenCalled()
+    expect(area).toBe(2000)
+  })
+
+  it("falls back to geometry service areas when local engines fail", async () => {
+    // Arrange
+    const polygon = makePolygonGeometry()
+    const geometryServiceArea = 9876
+    const loadArcgisModulesSpy = jest
+      .spyOn(utils, "loadArcgisModules")
+      .mockImplementation((ids: readonly string[]) => {
+        const key = ids.join(",")
+        if (key.includes("esri/geometry/support/normalizeUtils")) {
+          return Promise.resolve([
+            {
+              normalizeCentralMeridian: jest.fn((geoms: readonly any[]) =>
+                Promise.resolve(geoms)
+              ),
+            },
+          ])
+        }
+        if (key === "esri/config") {
+          return Promise.resolve([
+            {
+              geometryServiceUrl: "https://example.com/Geometry",
+              request: {},
+              portalSelf: { helperServices: { geometry: { url: "" } } },
+            },
+          ])
+        }
+        const requestsGeometryService =
+          ids.includes("esri/rest/geometryService") &&
+          ids.includes("esri/rest/support/AreasAndLengthsParameters")
+        if (requestsGeometryService) {
+          const geometryServiceModule = {
+            areasAndLengths: jest
+              .fn()
+              .mockResolvedValue({ areas: [geometryServiceArea] }),
+          }
+          const MockParams = function (this: any, opts: any) {
+            Object.assign(this, opts)
+          }
+          return Promise.resolve([geometryServiceModule, MockParams])
+        }
+        if (ids.length === 1 && ids[0] === "esri/rest/geometryService") {
+          return Promise.resolve([
+            {
+              areasAndLengths: jest
+                .fn()
+                .mockResolvedValue({ areas: [geometryServiceArea] }),
+            },
+          ])
+        }
+        if (
+          ids.length === 1 &&
+          ids[0] === "esri/rest/support/AreasAndLengthsParameters"
+        ) {
+          const MockParams = function (this: any, opts: any) {
+            Object.assign(this, opts)
+          }
+          return Promise.resolve([MockParams])
+        }
+        return Promise.reject(new Error(`Unexpected module request: ${key}`))
+      })
+
+    const modules = {
+      geometryEngineAsync: {
+        geodesicArea: jest.fn().mockResolvedValue(0),
+        planarArea: jest.fn().mockResolvedValue(0),
+      },
+      geometryEngine: {
+        geodesicArea: jest.fn().mockReturnValue(0),
+        planarArea: jest.fn().mockReturnValue(0),
+      },
+    }
+
+    // Act
+    const area = await calcArea(polygon as any, modules as any)
+
+    // Assert
+    expect(area).toBe(geometryServiceArea)
+    expect(loadArcgisModulesSpy).toHaveBeenCalled()
   })
 })
 
@@ -406,6 +527,9 @@ describe("validatePolygon", () => {
   it("rejects polygons when calculated area is zero", async () => {
     // Arrange
     const polygon = makePolygonGeometry()
+    jest
+      .spyOn(utils, "loadArcgisModules")
+      .mockImplementation(() => Promise.reject(new Error("no fallback")))
     const modules = makeModules({
       asyncOverrides: {
         geodesicArea: jest.fn().mockResolvedValue(0),
@@ -418,9 +542,11 @@ describe("validatePolygon", () => {
     })
 
     // Act
+    const area = await calcArea(polygon as any, modules as any)
     const result = await validatePolygon(polygon as any, modules as any)
 
     // Assert
+    expect(area).toBe(0)
     expect(result.valid).toBe(false)
     expect(result.error?.code).toBe("GEOMETRY_INVALID")
   })
