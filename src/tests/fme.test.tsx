@@ -3,7 +3,6 @@ import {
   determineServiceMode,
   attachAoi,
   applyDirectiveDefaults,
-  applyEngineDirectives,
   prepFmeParams,
 } from "../shared/utils"
 import {
@@ -129,7 +128,6 @@ describe("applyDirectiveDefaults", () => {
       tm_ttc: "300",
       tm_ttl: 900,
       tm_tag: " fast-mode ",
-      tm_rtc: true,
       tm_description: "A long description".repeat(60),
     })
 
@@ -142,33 +140,7 @@ describe("applyDirectiveDefaults", () => {
     expect(result.tm_ttc).toBe(300)
     expect(result.tm_ttl).toBe(120)
     expect(result.tm_tag).toBe("explicit")
-    expect(result.tm_rtc).toBe(true)
     expect((result.tm_description as string).length).toBeLessThanOrEqual(512)
-  })
-})
-
-describe("applyEngineDirectives", () => {
-  it("sanitizes keys, coerces values, and preserves existing entries", () => {
-    const base = {
-      fme_EXISTING: "from-form",
-    }
-    const config = buildConfig({
-      engineDirectives: {
-        fme_custom: "  value  ",
-        FME_existing: "should-not-override",
-        "fme_bad-key": "extra",
-        invalid: "ignored",
-        fme_bool: true as unknown as string,
-      } as { [key: string]: string },
-    })
-
-    const result = applyEngineDirectives(base, config)
-    expect(result.fme_EXISTING).toBe("from-form")
-    const withDirectives = result as { [key: string]: unknown }
-    expect(withDirectives.fme_CUSTOM).toBe("value")
-    expect(withDirectives.fme_BOOL).toBe("true")
-    expect(withDirectives).not.toHaveProperty("fme_BADKEY")
-    expect(result).not.toHaveProperty("invalid")
   })
 })
 
@@ -176,18 +148,11 @@ describe("prepFmeParams", () => {
   it("builds full payload including schedule metadata, directives, and AOI cloning", () => {
     const config = buildConfig({
       allowScheduleMode: true,
-      optResponseFormat: "xml",
-      optShowResult: false,
       tm_ttc: "400",
-      tm_rtc: true,
       tm_description: " Schedule job ",
       aoiParamName: "CustomAOI",
       aoiGeoJsonParamName: "aoi_geojson",
       aoiWktParamName: "aoi_wkt",
-      engineDirectives: {
-        fme_priority: "5",
-        fme_existing: "config",
-      } as { [key: string]: string },
     })
 
     const workspaceParameters: WorkspaceParameter[] = [
@@ -223,15 +188,14 @@ describe("prepFmeParams", () => {
     )
 
     expect(result.opt_servicemode).toBe("schedule")
-    expect(result.opt_responseformat).toBe("xml")
-    expect(result.opt_showresult).toBe("false")
+    expect(result.opt_responseformat).toBe("json")
+    expect(result.opt_showresult).toBe("true")
     expect(result.opt_requesteremail).toBe("user@example.com")
     expect(result.start).toBe("2025-10-02 08:00:00")
     expect(result.trigger).toBe("runonce")
     expect(result.name).toBe("Run name")
     expect(result.category).toBe("Category")
     expect(result.tm_ttc).toBe(400)
-    expect(result.tm_rtc).toBe(true)
     expect(result.tm_description).toBe("Schedule job")
     expect(result.tm_tag).toBe("manual")
     expect(result).toHaveProperty("CustomAOI")
@@ -239,8 +203,7 @@ describe("prepFmeParams", () => {
     expect(result.SecondaryAOI).toBe(result.CustomAOI)
     expect(result).toHaveProperty("aoi_geojson")
     expect(result).toHaveProperty("aoi_wkt")
-    expect(result.fme_PRIORITY).toBe("5")
-    expect(result.fme_EXISTING).toBe("config")
+    expect(result.fme_existing).toBe("form")
   })
 })
 

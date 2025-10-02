@@ -595,7 +595,6 @@ export interface FmeExportConfig {
   readonly fmeServerUrl: string
   readonly fmeServerToken: string
   readonly repository: string
-  readonly workspace?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
@@ -604,7 +603,6 @@ export interface FmeExportConfig {
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly tm_tag?: string
-  readonly tm_rtc?: boolean
   readonly tm_description?: string
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
@@ -615,9 +613,6 @@ export interface FmeExportConfig {
   readonly aoiGeoJsonParamName?: string
   readonly aoiWktParamName?: string
   readonly drawingColor?: string
-  readonly optResponseFormat?: "json" | "xml"
-  readonly optShowResult?: boolean
-  readonly engineDirectives?: { readonly [key: string]: string }
 }
 
 export interface RequestConfig {
@@ -943,23 +938,14 @@ export interface JobDirectivesSectionProps {
   readonly tmTagEnabled: boolean
   readonly tmTagPreset: TmTagPreset
   readonly localTmDescription: string
-  readonly localTmRtc: boolean
-  readonly localOptResponseFormat: "json" | "xml"
-  readonly localOptShowResult: boolean
-  readonly localEngineDirectives: string
   readonly onTmTtcChange: (value: string) => void
   readonly onTmTtlChange: (value: string) => void
   readonly onTmTagEnabledChange: (value: boolean) => void
   readonly onTmTagPresetChange: (value: TmTagPreset) => void
   readonly onTmDescriptionChange: (value: string) => void
-  readonly onTmRtcChange: (value: boolean) => void
-  readonly onOptResponseFormatChange: (value: "json" | "xml") => void
-  readonly onOptShowResultChange: (value: boolean) => void
-  readonly onEngineDirectivesChange: (value: string) => void
   readonly onTmTtcBlur: (value: string) => void
   readonly onTmTtlBlur: (value: string) => void
   readonly onTmDescriptionBlur: (value: string) => void
-  readonly onEngineDirectivesBlur: (value: string) => void
   readonly fieldErrors: FieldErrors
   readonly translate: TranslateFn
   readonly styles: SettingStyles
@@ -968,10 +954,6 @@ export interface JobDirectivesSectionProps {
     readonly tm_ttl: string
     readonly tm_tag: string
     readonly tm_description: string
-    readonly tm_rtc: string
-    readonly optResponseFormat: string
-    readonly optShowResult: string
-    readonly engineDirectives: string
   }
 }
 

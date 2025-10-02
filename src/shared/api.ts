@@ -683,14 +683,6 @@ export class FmeFlowApiClient {
       typeof params.tm_tag === "string" && params.tm_tag.trim()
         ? params.tm_tag.trim()
         : undefined
-    let rtc: boolean | undefined
-    if (typeof params.tm_rtc === "boolean") {
-      rtc = params.tm_rtc
-    } else if (typeof params.tm_rtc === "string") {
-      const normalizedRtc = params.tm_rtc.trim().toLowerCase()
-      if (normalizedRtc === "true" || normalizedRtc === "1") rtc = true
-      else if (normalizedRtc === "false" || normalizedRtc === "0") rtc = false
-    }
     const description =
       typeof params.tm_description === "string" && params.tm_description.trim()
         ? params.tm_description.trim().slice(0, 512)
@@ -699,7 +691,6 @@ export class FmeFlowApiClient {
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
     if (tag !== undefined) tmDirectives.tag = tag
-    if (typeof rtc === "boolean") tmDirectives.rtc = rtc
     if (description !== undefined) tmDirectives.description = description
 
     if (Object.keys(tmDirectives).length > 0) {

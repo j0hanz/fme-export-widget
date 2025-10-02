@@ -2,10 +2,10 @@ export default {
   fmeServerUrl: "FME‑server‑URL",
   fmeServerToken: "API‑nyckel",
   fmeRepository: "Repository",
-  testConnection: "Uppdatera och testa",
+  testConnection: "Uppdatera och testa anslutning",
   testing: "Testar anslutningen …",
   testingConnection: "Uppdaterar och testar …",
-  loadingRepositories: "Uppdatera listan för att visa.",
+  loadingRepositories: "Uppdaterar listan …",
   refreshRepositories: "Uppdatera listan",
   fmeVersion: "FME‑version",
   connectionOk: "Anslutningen lyckades.",
@@ -27,18 +27,16 @@ export default {
   errorUnauthorizedHelper:
     "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
   errorNotFound: "Resursen hittades inte (status {status}).",
-  errorNotFoundHelper: "Kontrollera FME‑server‑URL:en och API‑nyckeln.",
+  errorNotFoundHelper: "Kontrollera FME‑serverns URL och API‑nyckeln.",
   errorInvalidResponse: "Ogiltigt serversvar.",
   errorInvalidResponseHelper: "Serverns svar hade ett oväntat format.",
   errorRepositories: "Det gick inte att hämta repositories.",
-  errorRepositoriesHelper:
-    "Anslutningen lyckades, men listan över repositories kunde inte hämtas.",
   errorHttpStatus: "Begäran misslyckades (status {status}).",
-  helperNetwork: "Kontrollera FME‑server‑URL:en och nätverksanslutningen.",
+  helperNetwork: "Kontrollera FME‑serverns URL och nätverksanslutningen.",
   helperAuth:
     "Kontrollera att API‑nyckeln är giltig och har rätt behörigheter.",
-  helperNotFound: "Kontrollera FME‑server‑URL:en och API‑nyckeln.",
-  errorNetworkShort: "Kontrollera FME‑server‑URL:en och nätverket.",
+  helperNotFound: "Kontrollera FME‑serverns URL och API‑nyckeln.",
+  errorNetworkShort: "Kontrollera FME‑serverns URL och nätverksanslutningen.",
   errorInvalidServerUrl: "Ange en giltig FME‑server‑URL.",
   errorTokenIsInvalid: "Ogiltig API‑nyckel.",
   errorBadRequest: "Ogiltig begäran (status {status}).",
@@ -47,31 +45,29 @@ export default {
   errorGateway: "Gateway‑fel (status {status}).",
   errorServiceUnavailable: "Tjänsten är otillgänglig (status {status}).",
   errorServer: "Serverfel (status {status}).",
-  errorRepositoryNotFound: "Det valda repositoriet finns inte i listan.",
+  errorRepositoryNotFound: "Det valda repositoryt finns inte i listan.",
   fixErrorsAbove: "Åtgärda felen ovan.",
   requiredField: "Obligatoriskt fält",
   ariaRequired: "Obligatoriskt fält",
-  supportEmail: "Support‑e‑post",
+  supportEmail: "Support‑e‑postadress",
   supportEmailPlaceholder: "support@exempel.se",
-  jobDirectivesHelper2: "Lämna tomt för standardvärdet.",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
-  tm_tagLabel: "Köval",
+  tm_tagLabel: "Kötagg",
   tm_tagOptionNormal: "Normal",
   tm_tagOptionFast: "Snabb",
   tm_ttcPlaceholder: "Lämna tomt (0 s)",
   tm_ttlPlaceholder: "Lämna tomt (0 s)",
   tm_descriptionLabel: "Jobbeskrivning",
   tm_descriptionPlaceholder: "Kort beskrivning av körningen",
-  tm_descriptionHelper: "Sparas som tm_description (max 512 tecken).",
-  tm_rtcLabel: "Run till completion (tm_rtc)",
-  tm_rtcHelper: "Aktiverar FME:s run-till-completion-flagga.",
+  tm_descriptionHelper:
+    "Visas i FME Flow‑gränssnittet och i e‑postmeddelanden.",
   serviceModeSync: "Direktnedladdning (synkront)",
   serviceModeSyncHelper:
     "På: nedladdning via direktlänk i webbläsaren. Av: länk skickas med e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
   supportEmailHelper:
-    "Om angivet visas adressen i felmeddelanden som supportkontakt.",
+    "Om en adress anges visas den i felmeddelanden som supportkontakt.",
   requestTimeoutLabel: "Tidsgräns för begäran (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
@@ -98,11 +94,11 @@ export default {
   aoiWktParamNameLabel: "AOI‑WKT‑parameternamn",
   aoiWktParamNamePlaceholder: "t.ex. AreaOfInterestWKT",
   aoiWktParamNameHelper:
-    "Om angivet skickas AOI även som WKT (POLYGON) under detta parameternamn.",
+    "Om angivet skickas AOI även som WKT under detta parameternamn.",
   uploadTargetParamNameLabel: "Parameternamn för uppladdning",
   uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
   uploadTargetParamNameHelper:
-    "Om angivet sätts den uppladdade TEMP‑sökvägen på detta publicerade parameternamn. Lämna tomt för automatiskt val av den första fil‑/katalogparametern eller fallback till SourceDataset.",
+    "Om angivet skickas uppladdade filer under detta parameternamn.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
   allowScheduleModeHelper: "Tillåt engångskörning vid en schemalagd tidpunkt.",
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
@@ -112,26 +108,16 @@ export default {
   allowRemoteUrlDatasetHelper:
     "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
   serviceTypeLabel: "Tjänstetyp",
-  serviceTypeDownload: "Data Download",
-  serviceTypeStream: "Data Streaming",
+  serviceTypeDownload: "Download",
+  serviceTypeStream: "Streaming",
   serviceTypeHelper:
-    "Välj leveranssätt. Streaming kräver FME Server 2024.1 eller senare.",
+    "Download: nedladdning av filer när jobbet är klart. Streaming: strömma data direkt från jobbet (om arbetsytan stöder det).",
   drawingColorLabel: "Ritningsfärg",
-  optResponseFormatLabel: "Svarformat (opt_responseformat)",
-  optResponseFormatHelper: "Välj format för serverns svar. Standard är JSON.",
-  optResponseFormatJson: "JSON",
-  optResponseFormatXml: "XML",
-  optShowResultLabel: "Visa resultatlänk (opt_showresult)",
-  optShowResultHelper:
-    "Styr om FME ska inkludera resultatlänken direkt i svaret.",
-  engineDirectivesLabel: "Motor-direktiv (fme_*)",
-  engineDirectivesPlaceholder: "fme_QUEUE=HIGH_PRIORITY",
-  engineDirectivesHelper:
-    "En rad per direktiv i formatet fme_NAMN=värde. Endast nycklar som börjar med fme_.",
-  engineDirectivesErrorInvalid:
-    "Ogiltigt format på rad {line}. Använd fme_namn=värde.",
-  engineDirectivesErrorInvalidKey:
-    "Ogiltigt direktivnamn på rad {line}. Nyckeln måste börja med fme_.",
-  engineDirectivesErrorInvalidValue: "Ogiltigt värde på rad {line}.",
-  engineDirectivesErrorDuplicate: "Direktivet {key} anges flera gånger.",
+  // Helpers for individual job directive fields (give clear FME Flow context)
+  tm_ttcHelper:
+    "Maximal körtid innan jobbet avbryts. Lämna tomt för att använda serverns standard.",
+  tm_ttlHelper:
+    "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för att använda serverns standard.",
+  tm_tagHelper:
+    "Anger vilken kö (publicerad parameter 'tm_tag') jobbet skickas till. Ange 'fast' för prioriterad kö när sådan finns på servern. Lämna tomt för att använda standardkö.",
 }

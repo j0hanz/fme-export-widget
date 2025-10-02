@@ -10,8 +10,6 @@ import {
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
-  sanitizeEngineDirectiveKey,
-  sanitizeEngineDirectiveValue,
 } from "../shared/utils"
 import { useTheme } from "jimu-theme"
 import { useSelector, useDispatch } from "react-redux"
@@ -427,23 +425,14 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   tmTagEnabled,
   tmTagPreset,
   localTmDescription,
-  localTmRtc,
-  localOptResponseFormat,
-  localOptShowResult,
-  localEngineDirectives,
   onTmTtcChange,
   onTmTtlChange,
   onTmTagEnabledChange,
   onTmTagPresetChange,
   onTmDescriptionChange,
-  onTmRtcChange,
-  onOptResponseFormatChange,
-  onOptShowResultChange,
-  onEngineDirectivesChange,
   onTmTtcBlur,
   onTmTtlBlur,
   onTmDescriptionBlur,
-  onEngineDirectivesBlur,
   fieldErrors,
   translate,
   styles,
@@ -469,7 +458,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       <FieldRow
         id={ID.tm_ttc}
         label={
-          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+          <Tooltip content={translate("tm_ttcHelper")} placement="top">
             {translate("tm_ttcLabel")}
           </Tooltip>
         }
@@ -483,7 +472,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       <FieldRow
         id={ID.tm_ttl}
         label={
-          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+          <Tooltip content={translate("tm_ttlHelper")} placement="top">
             {translate("tm_ttlLabel")}
           </Tooltip>
         }
@@ -497,7 +486,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       <SettingRow
         flow="no-wrap"
         label={
-          <Tooltip content={translate("jobDirectivesHelper2")} placement="top">
+          <Tooltip content={translate("tm_tagHelper")} placement="top">
             {translate("tm_tagLabel")}
           </Tooltip>
         }
@@ -517,10 +506,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         <SettingRow
           flow="wrap"
           label={
-            <Tooltip
-              content={translate("jobDirectivesHelper2")}
-              placement="top"
-            >
+            <Tooltip content={translate("tm_tagHelper")} placement="top">
               {translate("tm_tagLabel")}
             </Tooltip>
           }
@@ -562,104 +548,6 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             fullWidth
             css={css(styles.ALERT_INLINE)}
             text={fieldErrors.tm_description}
-            type="error"
-            closable={false}
-          />
-        </SettingRow>
-      )}
-      <SettingRow
-        flow="no-wrap"
-        label={
-          <Tooltip content={translate("tm_rtcHelper")} placement="top">
-            {translate("tm_rtcLabel")}
-          </Tooltip>
-        }
-        level={1}
-      >
-        <Switch
-          id={ID.tm_rtc}
-          checked={localTmRtc}
-          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-            const checked = evt?.target?.checked ?? !localTmRtc
-            onTmRtcChange(checked)
-          }}
-          aria-label={translate("tm_rtcLabel")}
-        />
-      </SettingRow>
-      <SettingRow
-        flow="wrap"
-        label={
-          <Tooltip
-            content={translate("optResponseFormatHelper")}
-            placement="top"
-          >
-            {translate("optResponseFormatLabel")}
-          </Tooltip>
-        }
-        level={1}
-        tag="label"
-      >
-        <Select
-          options={[
-            { label: translate("optResponseFormatJson"), value: "json" },
-            { label: translate("optResponseFormatXml"), value: "xml" },
-          ]}
-          value={localOptResponseFormat}
-          onChange={(val) => {
-            const next = val === "xml" ? "xml" : "json"
-            onOptResponseFormatChange(next)
-          }}
-        />
-      </SettingRow>
-      <SettingRow
-        flow="no-wrap"
-        label={
-          <Tooltip content={translate("optShowResultHelper")} placement="top">
-            {translate("optShowResultLabel")}
-          </Tooltip>
-        }
-        level={1}
-      >
-        <Switch
-          id={ID.optShowResult}
-          checked={localOptShowResult}
-          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-            const checked = evt?.target?.checked ?? !localOptShowResult
-            onOptShowResultChange(checked)
-          }}
-          aria-label={translate("optShowResultLabel")}
-        />
-      </SettingRow>
-      <SettingRow
-        flow="wrap"
-        label={
-          <Tooltip
-            content={translate("engineDirectivesHelper")}
-            placement="top"
-          >
-            {translate("engineDirectivesLabel")}
-          </Tooltip>
-        }
-        level={1}
-        tag="label"
-      >
-        <TextArea
-          id={ID.engineDirectives}
-          value={localEngineDirectives}
-          rows={4}
-          onChange={onEngineDirectivesChange}
-          onBlur={onEngineDirectivesBlur}
-          placeholder={translate("engineDirectivesPlaceholder")}
-          errorText={fieldErrors.engineDirectives}
-        />
-      </SettingRow>
-      {fieldErrors.engineDirectives && (
-        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
-          <Alert
-            id={`${ID.engineDirectives}-error`}
-            fullWidth
-            css={css(styles.ALERT_INLINE)}
-            text={fieldErrors.engineDirectives}
             type="error"
             closable={false}
           />
@@ -834,10 +722,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttl: "setting-tm-ttl",
     tm_tag: "setting-tm-tag",
     tm_description: "setting-tm-description",
-    tm_rtc: "setting-tm-rtc",
-    optResponseFormat: "setting-opt-response-format",
-    optShowResult: "setting-opt-show-result",
-    engineDirectives: "setting-engine-directives",
     aoiParamName: "setting-aoi-param-name",
     uploadTargetParamName: "setting-upload-target-param-name",
     allowScheduleMode: "setting-allow-schedule-mode",
@@ -925,38 +809,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return typeof v === "string" ? v : ""
     }
   )
-  const [localTmRtc, setLocalTmRtc] = React.useState<boolean>(() => {
-    const v = (config as any)?.tm_rtc
-    return typeof v === "boolean" ? v : false
-  })
-  const [localOptResponseFormat, setLocalOptResponseFormat] = React.useState<
-    "json" | "xml"
-  >(() => ((config as any)?.optResponseFormat === "xml" ? "xml" : "json"))
-  const [localOptShowResult, setLocalOptShowResult] = React.useState<boolean>(
-    () => {
-      const v = (config as any)?.optShowResult
-      return v !== false
-    }
-  )
-  const [localEngineDirectives, setLocalEngineDirectives] =
-    React.useState<string>(() => {
-      const directives = (config as any)?.engineDirectives
-      if (!directives || typeof directives !== "object") return ""
-      return Object.entries(directives)
-        .filter(([key]) => typeof key === "string")
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => {
-          let val = ""
-          if (typeof value === "string") val = value
-          else if (typeof value === "number" && Number.isFinite(value)) {
-            val = String(value)
-          } else if (typeof value === "boolean") {
-            val = value ? "true" : "false"
-          }
-          return `${key}=${val}`
-        })
-        .join("\n")
-    })
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
     () => {
       const v = (config as any)?.aoiParamName
@@ -1141,85 +993,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       updateConfig("tm_tag", undefined as any)
     }
   )
-
-  const handleEngineDirectivesBlur = hooks.useEventCallback((value: string) => {
-    const lines = (value || "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-
-    if (lines.length === 0) {
-      updateConfig("engineDirectives", undefined as any)
-      setLocalEngineDirectives("")
-      setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
-      return
-    }
-
-    const seen = new Set<string>()
-    const entries: Array<[string, string]> = []
-    let errorMessage: string | undefined
-
-    for (let i = 0; i < lines.length; i++) {
-      const lineNumber = i + 1
-      const line = lines[i]
-      const eqIndex = line.indexOf("=")
-      if (eqIndex === -1) {
-        errorMessage = translate("engineDirectivesErrorInvalid", {
-          line: lineNumber,
-        })
-        break
-      }
-      const rawKey = line.slice(0, eqIndex).trim()
-      const rawValue = line.slice(eqIndex + 1).trim()
-      const key = sanitizeEngineDirectiveKey(rawKey)
-      if (!key) {
-        errorMessage = translate("engineDirectivesErrorInvalidKey", {
-          line: lineNumber,
-        })
-        break
-      }
-      if (seen.has(key)) {
-        errorMessage = translate("engineDirectivesErrorDuplicate", { key })
-        break
-      }
-      const sanitizedValue = sanitizeEngineDirectiveValue(rawValue)
-      if (sanitizedValue === undefined) {
-        errorMessage = translate("engineDirectivesErrorInvalidValue", {
-          line: lineNumber,
-        })
-        break
-      }
-      seen.add(key)
-      entries.push([key, sanitizedValue])
-    }
-
-    if (errorMessage) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        engineDirectives: errorMessage,
-      }))
-      return
-    }
-
-    if (!entries.length) {
-      updateConfig("engineDirectives", undefined as any)
-      setLocalEngineDirectives("")
-      setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
-      return
-    }
-
-    const directiveObject: { [key: string]: string } = {}
-    for (const [key, val] of entries) {
-      directiveObject[key] = val
-    }
-
-    updateConfig("engineDirectives", directiveObject as any)
-    const normalized = entries
-      .map(([key, val]) => (val ? `${key}=${val}` : `${key}=`))
-      .join("\n")
-    setLocalEngineDirectives(normalized)
-    setFieldErrors((prev) => ({ ...prev, engineDirectives: undefined }))
-  })
 
   // Cleanup on unmount
   hooks.useUnmount(() => {
@@ -2141,10 +1914,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         tmTagEnabled={localTmTagEnabled}
         tmTagPreset={localTmTagPreset}
         localTmDescription={localTmDescription}
-        localTmRtc={localTmRtc}
-        localOptResponseFormat={localOptResponseFormat}
-        localOptShowResult={localOptShowResult}
-        localEngineDirectives={localEngineDirectives}
         onTmTtcChange={(val: string) => {
           setLocalTmTtc(val)
           // Don't update config on every keystroke
@@ -2158,26 +1927,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         onTmDescriptionChange={(val: string) => {
           setLocalTmDescription(val)
           setFieldErrors((prev) => ({ ...prev, tm_description: undefined }))
-        }}
-        onTmRtcChange={(checked: boolean) => {
-          setLocalTmRtc(checked)
-          updateConfig("tm_rtc", checked as any)
-        }}
-        onOptResponseFormatChange={(value) => {
-          const next = value === "xml" ? "xml" : "json"
-          setLocalOptResponseFormat(next)
-          updateConfig("optResponseFormat", next as any)
-        }}
-        onOptShowResultChange={(checked: boolean) => {
-          setLocalOptShowResult(checked)
-          updateConfig("optShowResult", checked as any)
-        }}
-        onEngineDirectivesChange={(val: string) => {
-          setLocalEngineDirectives(val)
-          setFieldErrors((prev) => ({
-            ...prev,
-            engineDirectives: undefined,
-          }))
         }}
         onTmTtcBlur={(val: string) => {
           const trimmed = (val ?? "").trim()
@@ -2231,7 +1980,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             tm_description: undefined,
           }))
         }}
-        onEngineDirectivesBlur={handleEngineDirectivesBlur}
         fieldErrors={fieldErrors}
         translate={translate}
         styles={settingStyles}
