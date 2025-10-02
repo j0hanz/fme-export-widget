@@ -1969,6 +1969,17 @@ Reflect.set(
 
 // Consolidated exports (internal helpers exposed strictly for unit tests)
 export {
+  hexToRgbArray,
+  buildSymbols,
+  resolveUploadTargetParam,
+  parseSubmissionFormData,
+  applyUploadedDatasetParam,
+  sanitizeOptGetUrlParam,
+  shouldApplyRemoteDatasetUrl,
+  shouldUploadRemoteDataset,
+  removeAoiErrorMarker,
+  resolveRemoteDataset,
+  prepareSubmissionParams,
   getEmail,
   attachAoi,
   isValidExternalUrlForOptGetUrl,
@@ -1978,4 +1989,9 @@ export {
   validatePolygon,
   processFmeResponse,
   useEsriModules,
+  useMapResources,
+  useErrorDispatcher,
+  createLayers,
+  createSketchVM,
+  setupSketchEventHandlers,
 }
