@@ -182,7 +182,7 @@ const createStyles = (theme: IMThemeVariables) => {
       backgroundColor: colors?.surface?.paper,
     }),
 
-    header: flexRow({ placeContent: "end", flex: "0 0 auto" }),
+    header: flexRow({ placeContent: "end", marginBlockEnd: spacing?.(2) }),
 
     content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
     contentCentered: flexColumn({
@@ -217,7 +217,7 @@ const createStyles = (theme: IMThemeVariables) => {
         marginBlockEnd: spacing?.(3),
       }),
 
-      label: flexRow({
+      label: css({
         ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
         marginBlockEnd: 0,
