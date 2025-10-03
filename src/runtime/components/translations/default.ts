@@ -85,5 +85,7 @@ export default {
   tableMoveDown: "Flytta ned",
   textInput: "Textinmatning",
   fileInput: "Filuppladdning",
+  fileValueDefaultLabel: "Förvalt värde:",
+  fileValueSelectedLabel: "Valt värde:",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
 }

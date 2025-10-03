@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx } from "jimu-core"
+import { React, hooks, jsx, css } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -47,6 +47,7 @@ import {
   normalizeFormValue,
   isFileObject,
   getFileDisplayName,
+  toTrimmedString,
 } from "../../shared/utils"
 
 // makePlaceholders is now imported from shared/utils
@@ -69,6 +70,11 @@ const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
 }
+
+const fileValueHintStyles = css({
+  marginTop: "0.25rem",
+  fontSize: "0.875rem",
+})
 
 // Helper: Render simple text-based input fields
 const renderTextInput = (
@@ -204,6 +210,51 @@ const prepareNewTableRow = (
       column.defaultValue !== undefined ? column.defaultValue : ""
   }
   return row
+}
+
+const FILE_DISPLAY_KEYS = [
+  "text",
+  "path",
+  "location",
+  "value",
+  "dataset",
+  "defaultValue",
+  "fileName",
+  "filename",
+  "file_path",
+  "file",
+  "uri",
+  "url",
+  "name",
+] as const
+
+// Helper: Extract a readable path/name from FME dataset metadata objects
+const resolveFileDisplayValue = (raw: unknown): string | undefined => {
+  if (typeof raw === "string") return raw
+  if (typeof raw === "number" || typeof raw === "boolean") {
+    return String(raw)
+  }
+  if (!raw) return undefined
+  if (isFileObject(raw)) {
+    return getFileDisplayName(raw)
+  }
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const resolved = resolveFileDisplayValue(entry)
+      if (resolved) return resolved
+    }
+    return undefined
+  }
+  if (isPlainObject(raw)) {
+    const obj = raw as { [key: string]: unknown }
+    for (const key of FILE_DISPLAY_KEYS) {
+      if (key in obj) {
+        const resolved = resolveFileDisplayValue(obj[key])
+        if (resolved) return resolved
+      }
+    }
+  }
+  return undefined
 }
 
 export const DynamicField: React.FC<DynamicFieldProps> = ({
@@ -713,16 +764,48 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.FILE:
+        const selectedFile = isFileObject(value) ? value : null
+        const resolvedDefault = !selectedFile
+          ? (resolveFileDisplayValue(value) ??
+            resolveFileDisplayValue(fieldValue) ??
+            resolveFileDisplayValue(field.defaultValue))
+          : resolveFileDisplayValue(field.defaultValue)
+        const defaultDisplay = toTrimmedString(resolvedDefault) || ""
+        const displayText = selectedFile
+          ? getFileDisplayName(selectedFile)
+          : defaultDisplay
+        const hasDisplay = Boolean(displayText)
+        const labelKey = selectedFile
+          ? "fileValueSelectedLabel"
+          : "fileValueDefaultLabel"
+        const message = hasDisplay
+          ? (() => {
+              const label = translate(labelKey)
+              return label ? `${label} ${displayText}` : displayText
+            })()
+          : null
+
         return (
-          <Input
-            type="file"
-            onFileChange={(evt) => {
-              const files = evt.target.files
-              onChange(files ? files[0] : null)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
+          <div>
+            <Input
+              type="file"
+              onFileChange={(evt) => {
+                const files = evt.target.files
+                onChange(files ? files[0] : null)
+              }}
+              disabled={field.readOnly}
+              aria-label={field.label}
+            />
+            {message ? (
+              <div
+                data-testid="file-field-display"
+                aria-live="polite"
+                css={fileValueHintStyles}
+              >
+                {message}
+              </div>
+            ) : null}
+          </div>
         )
       case FormFieldType.TEXT_OR_FILE: {
         const currentValue: NormalizedTextOrFile =

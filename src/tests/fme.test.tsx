@@ -496,7 +496,6 @@ describe("ParameterFormService", () => {
     expect(field.defaultValue).toBe("OBJECTID")
   })
 
-
   describe("color conversions", () => {
     it("converts normalized RGB fractions to hex", () => {
       expect(normalizedRgbToHex("0.333333,1,0")).toBe("#55ff00")

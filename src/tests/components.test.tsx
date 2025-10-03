@@ -878,4 +878,47 @@ describe("DynamicField component", () => {
     expect(textInput).toBeInTheDocument()
     expect(textInput).toHaveValue("OBJECTID")
   })
+
+  it("shows default file value and updates when a file is selected", async () => {
+    const defaultPath = "C:\\Users\\020244\\Desktop\\dataexport"
+    const Wrapper: React.FC = () => {
+      const [fieldValue, setFieldValue] = React.useState<any>(defaultPath)
+      return (
+        <DynamicField
+          field={baseField({
+            type: FormFieldType.FILE,
+            defaultValue: defaultPath,
+          })}
+          value={fieldValue}
+          onChange={(next) => {
+            setFieldValue(next as any)
+          }}
+          translate={(key: string) => key}
+        />
+      )
+    }
+
+    renderWithProviders(<Wrapper />)
+
+    expect(screen.getByTestId("file-field-display")).toHaveTextContent(
+      `fileValueDefaultLabel ${defaultPath}`
+    )
+
+    const fileInput = screen.getByTestId("mock-text-input")
+    const file = new File(["dummy"], "example.txt", { type: "text/plain" })
+
+    // File inputs don't allow programmatic value setting for security reasons
+    // Only set the files property
+    fireEvent.change(fileInput, {
+      target: {
+        files: [file],
+      },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId("file-field-display")).toHaveTextContent(
+        "fileValueSelectedLabel example.txt"
+      )
+    })
+  })
 })
