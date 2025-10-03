@@ -169,6 +169,22 @@ describe("FME Redux state management", () => {
     expect(plain.drawnArea).toBe(0)
   })
 
+  it("toggles the area warning flag", () => {
+    // Arrange
+    const reducer = createReducer()
+
+    // Act
+    let state = reducer(undefined, fmeActions.setAreaWarning(true, widgetId))
+
+    // Assert
+    let plain = toPlainState(state)
+    expect(plain.areaWarning).toBe(true)
+
+    state = reducer(state, fmeActions.setAreaWarning(false, widgetId))
+    plain = toPlainState(state)
+    expect(plain.areaWarning).toBe(false)
+  })
+
   it("advances view state when drawing completes", () => {
     // Arrange
     const reducer = createReducer()

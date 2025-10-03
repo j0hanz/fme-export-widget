@@ -7,6 +7,7 @@ import {
   Form,
   Field,
   ButtonTabs,
+  Alert,
   useStyles,
   renderSupportHint,
   DateTimePickerWrapper,
@@ -972,6 +973,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   isSubmittingOrder = false,
   onBack,
   drawnArea,
+  areaWarning,
+  formatArea,
   // Header actions
   showHeaderActions,
   // Drawing mode
@@ -1044,6 +1047,50 @@ export const Workflow: React.FC<WorkflowProps> = ({
       </div>
     )
   })
+
+  const formatAreaValue = (value?: number): string | undefined => {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      return undefined
+    }
+    const target = Math.abs(value)
+    if (typeof formatArea === "function") {
+      try {
+        return formatArea(target)
+      } catch {
+        /* ignore formatting errors and fall back to default */
+      }
+    }
+    try {
+      return `${Math.round(target).toLocaleString()} m²`
+    } catch {
+      return `${Math.round(target)} m²`
+    }
+  }
+
+  const areaWarningActive =
+    Boolean(areaWarning) &&
+    (state === ViewMode.WORKSPACE_SELECTION ||
+      state === ViewMode.EXPORT_OPTIONS ||
+      state === ViewMode.EXPORT_FORM)
+
+  let areaWarningMessage: string | null = null
+  if (areaWarningActive) {
+    const currentAreaText = formatAreaValue(drawnArea)
+    const limitAreaText = formatAreaValue(config?.largeArea)
+
+    if (currentAreaText && limitAreaText) {
+      areaWarningMessage = translate("largeAreaWarningWithLimit", {
+        current: currentAreaText,
+        limit: limitAreaText,
+      })
+    } else if (currentAreaText) {
+      areaWarningMessage = translate("largeAreaWarning", {
+        current: currentAreaText,
+      })
+    } else {
+      areaWarningMessage = translate("largeAreaWarningFallback")
+    }
+  }
 
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
@@ -1472,7 +1519,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
   return (
     <div css={styles.parent}>
       <div css={styles.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div css={styles.content}>{renderCurrent()}</div>
+      <div css={styles.content}>
+        {areaWarningMessage && (
+          <Alert
+            text={areaWarningMessage}
+            type="warning"
+            closable={false}
+            role="alert"
+          />
+        )}
+        {renderCurrent()}
+      </div>
     </div>
   )
 }

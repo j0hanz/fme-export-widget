@@ -10,7 +10,7 @@ const {
   attachAoi,
 } = utils
 
-const { calcArea, validatePolygon, checkMaxArea } = validations
+const { calcArea, validatePolygon, checkMaxArea, checkLargeArea } = validations
 
 const makePolygonJson = () => ({
   spatialReference: { wkid: 4326 },
@@ -569,5 +569,21 @@ describe("checkMaxArea", () => {
     expect(result.ok).toBe(false)
     expect(result.code).toBe("AREA_TOO_LARGE")
     expect(result.message).toBe("AREA_TOO_LARGE")
+  })
+})
+
+describe("checkLargeArea", () => {
+  it("returns false when area is within limit", () => {
+    expect(checkLargeArea(500, 1000)).toBe(false)
+  })
+
+  it("returns true when area exceeds limit", () => {
+    expect(checkLargeArea(2000, 1000)).toBe(true)
+  })
+
+  it("ignores non-positive limits", () => {
+    expect(checkLargeArea(2000, -50)).toBe(false)
+    expect(checkLargeArea(2000, 0)).toBe(false)
+    expect(checkLargeArea(2000, undefined)).toBe(false)
   })
 })

@@ -2,6 +2,7 @@ import { React } from "jimu-core"
 import "@testing-library/jest-dom"
 import { act, fireEvent, screen, waitFor } from "@testing-library/react"
 import { initGlobal, withThemeIntlRender } from "jimu-for-test"
+import * as ReactRedux from "react-redux"
 import {
   Tooltip,
   Button,
@@ -18,7 +19,13 @@ import {
   config,
 } from "../runtime/components/ui"
 import { DynamicField } from "../runtime/components/fields"
-import { FormFieldType, type DynamicFieldConfig } from "../config"
+import { Workflow } from "../runtime/components/workflow"
+import {
+  FormFieldType,
+  ViewMode,
+  DrawingTool,
+  type DynamicFieldConfig,
+} from "../config"
 
 jest.mock("jimu-ui", () => {
   const React = require("react")
@@ -327,6 +334,16 @@ jest.mock("jimu-ui", () => {
     />
   )
 
+  const Alert = (props: any) => {
+    const { text, children, ...rest } = filterProps(props)
+    return (
+      <div data-testid="mock-alert" {...rest}>
+        {text}
+        {children}
+      </div>
+    )
+  }
+
   return {
     TextInput,
     Tooltip: JimuTooltip,
@@ -350,6 +367,7 @@ jest.mock("jimu-ui", () => {
     SVG,
     Table: JimuTable,
     RichDisplayer,
+    Alert,
   }
 })
 
@@ -421,6 +439,10 @@ jest.mock("jimu-ui/basic/date-picker", () => {
 
 const datePickerMock = require("jimu-ui/basic/date-picker")
 
+jest.mock("../shared/api", () => ({
+  createFmeFlowClient: jest.fn(() => ({ dispose: jest.fn() })),
+}))
+
 const renderWithProviders = withThemeIntlRender()
 
 beforeAll(() => {
@@ -452,6 +474,84 @@ describe("Tooltip component", () => {
     )
     expect(screen.queryByTestId("mock-tooltip")).toBeNull()
     expect(screen.getByRole("button", { name: "Target" })).toBeInTheDocument()
+  })
+})
+
+describe("Workflow component", () => {
+  const dispatchMock = jest.fn()
+  const widgetId = "widget-1"
+  const baseState = {
+    "fme-state": {
+      byId: {
+        [widgetId]: {
+          workspaceItems: [{ name: "WorkspaceA", title: "Workspace A" }],
+          currentRepository: "repo-1",
+        },
+      },
+    },
+  }
+
+  let useDispatchSpy: jest.SpyInstance
+  let useSelectorSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    useDispatchSpy = jest
+      .spyOn(ReactRedux, "useDispatch")
+      .mockReturnValue(dispatchMock)
+    useSelectorSpy = jest
+      .spyOn(ReactRedux, "useSelector")
+      .mockImplementation((selector: any) => selector(baseState as any))
+  })
+
+  afterEach(() => {
+    useDispatchSpy.mockRestore()
+    useSelectorSpy.mockRestore()
+    dispatchMock.mockReset()
+  })
+
+  it("renders area warning alert when threshold exceeded", () => {
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={{ largeArea: 40000, repository: "repo-1" } as any}
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText="Rita AOI"
+        isModulesLoading={false}
+        canStartDrawing={true}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={null}
+        onReuseGeography={jest.fn()}
+        isSubmittingOrder={false}
+        onBack={jest.fn()}
+        drawnArea={50000}
+        areaWarning={true}
+        formatArea={(value: number) => `${value} kvm`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        onReset={jest.fn()}
+        canReset={true}
+        showHeaderActions={false}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    const alert = screen.getByTestId("mock-alert")
+    expect(alert).toBeInTheDocument()
+    expect(alert).toHaveTextContent("överstiger")
+    expect(alert).toHaveTextContent("50000 kvm")
+    expect(alert).toHaveTextContent("40000 kvm")
   })
 })
 

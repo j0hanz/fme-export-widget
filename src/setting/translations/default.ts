@@ -74,9 +74,17 @@ export default {
     "Maximal väntetid på serversvar i millisekunder. Standard: 30000 (30 sekunder). Lämna tomt för ingen tidsgräns.",
   maxAreaLabel: "Max AOI‑yta (m²)",
   maxAreaHelper:
-    "Tomt innebär standardvärdet ({defaultM2} m²). Högsta tillåtna värde: {maxM2} m².",
-  maxAreaPlaceholder: "100000000",
+    "Lämna tomt för att tillåta obegränsad AOI‑yta. Högsta tillåtna värde: {maxM2} m².",
+  maxAreaPlaceholder: "t.ex. 100000000",
   errorMaxAreaTooLarge: "Värdet är för stort.",
+  largeAreaLabel: "AOI‑varning (m²)",
+  largeAreaHelper:
+    "Visa en varning när ritad AOI överstiger detta värde. Lämna tomt för att inaktivera varningen. Högsta tillåtna värde: {maxM2} m².",
+  largeAreaPlaceholder: "t.ex. 50000",
+  errorLargeAreaTooLarge: "Värdet är för stort.",
+  errorLargeAreaAboveMax: "Värdet måste vara lägre än maxgränsen {maxM2} m².",
+  largeAreaExceedsMaxInfo:
+    "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",

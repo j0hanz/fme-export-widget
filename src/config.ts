@@ -145,6 +145,7 @@ export const enum FmeActionType {
   SET_ERROR = "fme/SET_ERROR",
   SET_IMPORT_ERROR = "fme/SET_IMPORT_ERROR",
   SET_EXPORT_ERROR = "fme/SET_EXPORT_ERROR",
+  SET_AREA_WARNING = "fme/SET_AREA_WARNING",
   CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
 }
 
@@ -165,6 +166,7 @@ export const FME_ACTION_TYPES = [
   FmeActionType.SET_ERROR,
   FmeActionType.SET_IMPORT_ERROR,
   FmeActionType.SET_EXPORT_ERROR,
+  FmeActionType.SET_AREA_WARNING,
   FmeActionType.CLEAR_WORKSPACE_STATE,
 ] as const
 
@@ -721,6 +723,9 @@ export interface FmeExportConfig {
   readonly fmeServerUrl: string
   readonly fmeServerToken: string
   readonly repository: string
+  /** Optional warning threshold in square meters. Advisory only, shows alert when exceeded. */
+  readonly largeArea?: number
+  /** Optional hard limit in square meters. Blocks workflow when exceeded. */
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
@@ -1053,6 +1058,7 @@ export interface FmeWidgetState {
   readonly drawingTool: DrawingTool
   readonly geometryJson: unknown
   readonly drawnArea: number
+  readonly areaWarning: boolean
 
   // Export state
   readonly formValues: FormValues
@@ -1173,6 +1179,7 @@ export interface WorkflowProps extends BaseProps {
   readonly isSubmittingOrder?: boolean
   readonly onBack?: () => void
   readonly drawnArea?: number
+  readonly areaWarning?: boolean
   readonly formatArea?: (area: number) => string
   readonly drawingMode?: DrawingTool
   readonly onDrawingModeChange?: (tool: DrawingTool) => void

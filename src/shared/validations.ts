@@ -1157,11 +1157,18 @@ export const validatePolygon = async (
   }
 }
 
+const resolveAreaLimit = (limit?: number): number | undefined => {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return undefined
+  if (limit <= 0) return undefined
+  return limit
+}
+
 export const checkMaxArea = (
   area: number,
   maxArea?: number
 ): { ok: boolean; message?: string; code?: string } => {
-  if (!maxArea || area <= maxArea) {
+  const resolved = resolveAreaLimit(maxArea)
+  if (!resolved || area <= resolved) {
     return { ok: true }
   }
 
@@ -1170,6 +1177,12 @@ export const checkMaxArea = (
     message: "AREA_TOO_LARGE",
     code: "AREA_TOO_LARGE",
   }
+}
+
+export const checkLargeArea = (area: number, largeArea?: number): boolean => {
+  const resolved = resolveAreaLimit(largeArea)
+  if (!resolved) return false
+  return area > resolved
 }
 
 export const resetValidationCachesForTest = () => {

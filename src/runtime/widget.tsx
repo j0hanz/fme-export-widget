@@ -53,6 +53,7 @@ import {
   calcArea,
   validatePolygon,
   checkMaxArea,
+  checkLargeArea,
   processFmeResponse,
 } from "../shared/validations"
 import { fmeActions, initialFmeState } from "../extensions/store"
@@ -937,6 +938,7 @@ export default function Widget(
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
     dispatch(fmeActions.setGeometry(null, 0, widgetId))
+    dispatch(fmeActions.setAreaWarning(false, widgetId))
     updateDrawingSession({ isActive: false, clickCount: 0 })
     dispatch(fmeActions.setError(null, widgetId))
     dispatch(fmeActions.setImportError(null, widgetId))
@@ -1350,7 +1352,7 @@ export default function Widget(
       const geometry = evt.graphic?.geometry
       if (!geometry) return
       endSketchSession()
-      dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
+      dispatch(fmeActions.setAreaWarning(false, widgetId))
 
       try {
         // Validate
@@ -1363,6 +1365,7 @@ export default function Widget(
           // Tear down drawing resources to reset state
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
+          dispatch(fmeActions.setAreaWarning(false, widgetId))
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error) {
             dispatch(fmeActions.setError(validation.error, widgetId))
@@ -1377,6 +1380,7 @@ export default function Widget(
 
         // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
+          dispatch(fmeActions.setAreaWarning(false, widgetId))
           dispatchError(
             translate("invalidGeometry"),
             ErrorType.VALIDATION,
@@ -1385,14 +1389,30 @@ export default function Widget(
           return
         }
 
+        const normalizedArea = Math.abs(calculatedArea)
+
         // Max area validation
-        const maxCheck = checkMaxArea(calculatedArea, config?.maxArea)
+        const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
         if (!maxCheck.ok) {
+          try {
+            graphicsLayer?.remove(evt.graphic as any)
+          } catch {}
+          teardownDrawingResources()
+          dispatch(fmeActions.setGeometry(null, 0, widgetId))
+          dispatch(fmeActions.setAreaWarning(false, widgetId))
+          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (maxCheck.message) {
-            dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
+            const messageKey = maxCheck.message || "AREA_TOO_LARGE"
+            dispatchError(messageKey, ErrorType.VALIDATION, maxCheck.code)
           }
           return
         }
+
+        const hasLargeAreaWarning = checkLargeArea(
+          normalizedArea,
+          config?.largeArea
+        )
+        dispatch(fmeActions.setAreaWarning(hasLargeAreaWarning, widgetId))
 
         // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
@@ -1404,11 +1424,10 @@ export default function Widget(
         }
 
         // Persist geometry and area to Redux
-        dispatch(
-          fmeActions.setGeometry(geomForUse, Math.abs(calculatedArea), widgetId)
-        )
+        dispatch(fmeActions.setGeometry(geomForUse, normalizedArea, widgetId))
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {
+        dispatch(fmeActions.setAreaWarning(false, widgetId))
         dispatchError(
           translate("drawingCompleteFailed"),
           ErrorType.VALIDATION,
@@ -1710,6 +1729,7 @@ export default function Widget(
     updateDrawingSession({ isActive: true, clickCount: 0 })
     dispatch(fmeActions.setDrawingTool(tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+    dispatch(fmeActions.setAreaWarning(false, widgetId))
 
     // Clear and hide
     resetGraphicsAndMeasurements()
@@ -1831,6 +1851,26 @@ export default function Widget(
       teardownDrawingResources()
     }
   }, [reduxState.error, teardownDrawingResources])
+
+  hooks.useUpdateEffect(() => {
+    const hasGeometry = Boolean(reduxState.geometryJson)
+    if (!hasGeometry) {
+      if (reduxState.areaWarning) {
+        dispatch(fmeActions.setAreaWarning(false, widgetId))
+      }
+      return
+    }
+
+    const shouldWarn = checkLargeArea(reduxState.drawnArea, config?.largeArea)
+    if (shouldWarn !== reduxState.areaWarning) {
+      dispatch(fmeActions.setAreaWarning(shouldWarn, widgetId))
+    }
+  }, [
+    reduxState.geometryJson,
+    reduxState.drawnArea,
+    reduxState.areaWarning,
+    config?.largeArea,
+  ])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
@@ -1971,6 +2011,7 @@ export default function Widget(
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
+        areaWarning={reduxState.areaWarning}
         formatArea={(area: number) =>
           formatArea(area, modules, jimuMapView?.view?.spatialReference)
         }

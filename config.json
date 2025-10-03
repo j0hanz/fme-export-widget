@@ -9,6 +9,7 @@
   "allowScheduleMode": false,
   "allowRemoteDataset": false,
   "allowRemoteUrlDataset": false,
+  "largeArea": "",
   "maxArea": "",
   "drawingColor": "#0079C1",
   "aoiParamName": "AreaOfInterest",

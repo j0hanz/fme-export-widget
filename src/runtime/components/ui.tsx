@@ -32,6 +32,7 @@ import {
   SVG,
   Table as JimuTable,
   RichDisplayer,
+  Alert as JimuAlert,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
@@ -203,6 +204,8 @@ const createStyles = (theme: IMThemeVariables) => {
       textAlign: "center",
       zIndex: config.zIndex.overlay,
     }),
+
+    alertStyle: css({ backgroundColor: "transparent", border: "none" }),
 
     // Typography styles
     typography: {
@@ -1289,6 +1292,21 @@ export const Button: React.FC<ButtonProps> = ({
         styles,
       })
     : buttonElement
+}
+
+export const Alert: React.FC<React.ComponentProps<typeof JimuAlert>> = ({
+  className,
+  style,
+  ...rest
+}) => {
+  const styles = useStyles()
+  return (
+    <JimuAlert
+      {...rest}
+      className={className}
+      css={applyComponentStyles([styles.alertStyle], style as any)}
+    />
+  )
 }
 
 // ButtonTabs component

@@ -325,4 +325,54 @@ describe("Setting builder interactions", () => {
       configs.some((cfg) => cfg.supportEmail === "agent@example.com")
     ).toBe(true)
   })
+
+  it("prevents saving large area above max area", async () => {
+    const { onSettingChange } = renderSetting({
+      maxArea: 1000,
+      largeArea: 500,
+    })
+
+    const largeAreaInput = getByLabel("AOI-varning (m²)") as HTMLInputElement
+
+    fireEvent.change(largeAreaInput, { target: { value: "1500" } })
+    fireEvent.blur(largeAreaInput, { target: { value: "1500" } })
+
+    const alerts = await screen.findAllByRole("alert")
+    expect(
+      alerts.some((alert) =>
+        /lägre än maxgränsen/i.test(alert.textContent ?? "")
+      )
+    ).toBe(true)
+
+    const configs = extractConfigs(onSettingChange)
+    expect(configs.some((cfg) => cfg.largeArea === 1500)).toBe(false)
+  })
+
+  it("clamps large area when max area decreases", async () => {
+    const { onSettingChange } = renderSetting({
+      maxArea: 1500,
+      largeArea: 1400,
+    })
+
+    const maxAreaInput = getByLabel("Max AOI-yta (m²)") as HTMLInputElement
+    fireEvent.change(maxAreaInput, { target: { value: "800" } })
+    fireEvent.blur(maxAreaInput, { target: { value: "800" } })
+
+    await waitFor(() => {
+      expect(maxAreaInput.value).toBe("800")
+    })
+
+    const largeAreaInput = getByLabel("AOI-varning (m²)") as HTMLInputElement
+    await waitFor(() => {
+      expect(largeAreaInput.value).toBe("800")
+    })
+
+    const configs = extractConfigs(onSettingChange)
+    expect(
+      configs.some((cfg) => cfg.maxArea === 800 && cfg.largeArea === 800)
+    ).toBe(true)
+
+    expect(screen.queryByText(/Varningsgränsen/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/lägre än maxgränsen/i)).not.toBeInTheDocument()
+  })
 })

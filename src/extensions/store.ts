@@ -79,6 +79,11 @@ export const fmeActions = {
     orderResult,
     widgetId,
   }),
+  setAreaWarning: (warning: boolean, widgetId: string) => ({
+    type: FmeActionType.SET_AREA_WARNING,
+    warning,
+    widgetId,
+  }),
   setWorkspaceItems: (
     workspaceItems: readonly WorkspaceItem[],
     repository: string | undefined,
@@ -181,6 +186,7 @@ export const initialFmeState: FmeWidgetState = {
   drawingTool: DrawingTool.POLYGON,
   geometryJson: null,
   drawnArea: 0,
+  areaWarning: false,
 
   // Export
   formValues: {},
@@ -265,6 +271,12 @@ const reduceOne = (
         .set("viewMode", nextView)
     }
 
+    case FmeActionType.SET_AREA_WARNING: {
+      const nextValue = Boolean(action.warning)
+      if (state.areaWarning === nextValue) return state
+      return state.set("areaWarning", nextValue)
+    }
+
     case FmeActionType.SET_DRAWING_TOOL:
       return state.set("drawingTool", action.drawingTool)
 
@@ -334,7 +346,8 @@ const reduceOne = (
           .set("workspaceParameters", [])
           .set("workspaceItem", null)
           .set("formValues", {})
-          .set("isSubmittingOrder", false),
+          .set("isSubmittingOrder", false)
+          .set("areaWarning", false),
         nextRepo,
         null
       )

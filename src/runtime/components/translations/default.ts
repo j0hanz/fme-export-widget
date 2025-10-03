@@ -37,6 +37,12 @@ export default {
   failedToLoadWorkspaceDetails:
     "Det gick inte att ladda information om arbetsytan",
   unknownErrorOccurred: "Ett okänt fel inträffade",
+  largeAreaWarning:
+    "Det markerade området är {current}. Bearbetningen kan ta längre tid än normalt.",
+  largeAreaWarningWithLimit:
+    "Det markerade området är {current} och överstiger riktvärdet {limit}. Bearbetningen kan ta längre tid än normalt.",
+  largeAreaWarningFallback:
+    "Det markerade området är stort. Bearbetningen kan ta längre tid än normalt.",
   noWorkspacesFound: "Inga arbetsytor hittades i detta repository",
   requiredField: "Detta fält är obligatoriskt.",
   formValidationSingleError: "Vänligen fyll i det obligatoriska fältet.",
