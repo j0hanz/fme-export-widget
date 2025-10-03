@@ -894,8 +894,8 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
   if (!value) return null
   const trimmed = value.trim()
   if (!trimmed) return null
-  const [datePart, timePart] = trimmed.split("T")
-  if (!datePart || !timePart) return null
+  const normalized = trimmed.includes("T") ? trimmed : `${trimmed}T00:00:00`
+  const [datePart = "", timePart = ""] = normalized.split("T")
 
   const dateMatch = ISO_LOCAL_DATE.exec(datePart)
   const timeMatch = ISO_LOCAL_TIME.exec(timePart)
@@ -944,6 +944,7 @@ export const DateTimePickerWrapper: React.FC<{
   style?: React.CSSProperties
   disabled?: boolean
   "aria-label"?: string
+  mode?: "date-time" | "date"
 }> = ({
   value,
   defaultValue,
@@ -951,6 +952,7 @@ export const DateTimePickerWrapper: React.FC<{
   style,
   disabled,
   "aria-label": ariaLabel,
+  mode = "date-time",
 }) => {
   const styles = useStyles()
   const [currentValue, setCurrentValue] = useValue(
@@ -959,7 +961,17 @@ export const DateTimePickerWrapper: React.FC<{
     onChange
   )
 
-  const fallbackDateRef = React.useRef<Date>(new Date())
+  const buildFallbackDate = () => {
+    const base = new Date()
+    if (mode === "date") base.setHours(0, 0, 0, 0)
+    return base
+  }
+  const fallbackDateRef = React.useRef<Date>(buildFallbackDate())
+
+  hooks.useUpdateEffect(() => {
+    fallbackDateRef.current = buildFallbackDate()
+  }, [mode])
+
   const fallbackDate = fallbackDateRef.current
 
   const selectedDate =
@@ -970,12 +982,16 @@ export const DateTimePickerWrapper: React.FC<{
   const handleChange = hooks.useEventCallback(
     (rawValue: any, _label: string) => {
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-        setCurrentValue(formatIsoLocalDateTime(new Date(rawValue)))
+        const next = new Date(rawValue)
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next))
         return
       }
 
       if (rawValue instanceof Date) {
-        setCurrentValue(formatIsoLocalDateTime(rawValue))
+        const next = new Date(rawValue.getTime())
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next))
         return
       }
 
@@ -995,8 +1011,8 @@ export const DateTimePickerWrapper: React.FC<{
       <JimuDatePicker
         selectedDate={selectedDate}
         runtime={false}
-        showTimeInput
-        isLongTime
+        showTimeInput={mode === "date-time"}
+        isLongTime={mode === "date-time"}
         supportVirtualDateList={false}
         disablePortal
         onChange={handleChange}

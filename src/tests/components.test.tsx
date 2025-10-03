@@ -380,6 +380,7 @@ const datePickerPropsRef: {
 } = {}
 
 jest.mock("jimu-ui/basic/date-picker", () => {
+  const React = require("react")
   const filterProps = (props: any = {}) => {
     const { css: _css, ...rest } = props
     return rest
@@ -395,17 +396,16 @@ jest.mock("jimu-ui/basic/date-picker", () => {
           ? onSelectedDateChange
           : undefined
     datePickerPropsRef.changeHandler = handler
-    return (
-      <button
-        type="button"
-        data-testid="mock-date-picker"
-        {...rest}
-        onClick={() =>
-          handler?.(selectedDate ? selectedDate.getTime() : Date.now(), "")
-        }
-      >
-        mock-date-picker
-      </button>
+    return React.createElement(
+      "button",
+      {
+        type: "button",
+        "data-testid": "mock-date-picker",
+        ...rest,
+        onClick: () =>
+          handler?.(selectedDate ? selectedDate.getTime() : Date.now(), ""),
+      },
+      "mock-date-picker"
     )
   }
   return {
@@ -418,6 +418,8 @@ jest.mock("jimu-ui/basic/date-picker", () => {
       typeof datePickerPropsRef.changeHandler === "function",
   }
 })
+
+const datePickerMock = require("jimu-ui/basic/date-picker")
 
 const renderWithProviders = withThemeIntlRender()
 
@@ -576,7 +578,7 @@ describe("Select controls", () => {
 })
 
 describe("DateTimePickerWrapper", () => {
-  it("forwards aria-label and renders picker button", () => {
+  it("forwards aria-label and renders picker button with datetime mode by default", () => {
     renderWithProviders(<DateTimePickerWrapper aria-label="Start" />)
     const pickerButton = screen.getByRole("button", { name: "Start" })
     expect(pickerButton).toHaveAttribute("data-testid", "mock-date-picker")
@@ -591,6 +593,15 @@ describe("DateTimePickerWrapper", () => {
       .getByTestId("mock-date-picker")
       .closest('span[aria-disabled="true"]')
     expect(disabledWrapper).not.toBeNull()
+  })
+
+  it("hides time inputs when rendering date-only mode", () => {
+    renderWithProviders(
+      <DateTimePickerWrapper mode="date" value="2025-07-17" />
+    )
+    const lastProps = datePickerMock.__getLastProps()
+    expect(lastProps?.showTimeInput).toBe(false)
+    expect(lastProps?.isLongTime).toBe(false)
   })
 })
 
@@ -763,6 +774,7 @@ describe("DynamicField component", () => {
     }
     renderWithProviders(<Wrapper />)
     fireEvent.click(screen.getByRole("tab", { name: "fileInput" }))
+
     await waitFor(() => {
       expect(handleChange).toHaveBeenCalledWith(
         expect.objectContaining({ mode: "file", file: null })
@@ -787,6 +799,20 @@ describe("DynamicField component", () => {
     })
   })
 
+  it("renders date fields without time input", () => {
+    renderWithProviders(
+      <DynamicField
+        field={baseField({ type: FormFieldType.DATE })}
+        value="20250717"
+        onChange={jest.fn()}
+        translate={(key: string) => key}
+      />
+    )
+    const lastProps = datePickerMock.__getLastProps()
+    expect(lastProps?.showTimeInput).toBe(false)
+    expect(lastProps?.isLongTime).toBe(false)
+  })
+
   it("renders geometry placeholder when no value is provided", () => {
     renderWithProviders(
       <DynamicField
@@ -797,5 +823,59 @@ describe("DynamicField component", () => {
       />
     )
     expect(screen.getByText("geometryFieldMissing")).toBeInTheDocument()
+  })
+
+  it("renders COORDSYS field with options as select dropdown", () => {
+    renderWithProviders(
+      <DynamicField
+        field={baseField({
+          type: FormFieldType.COORDSYS,
+          options: [
+            { label: "WGS 84", value: "EPSG:4326" },
+            { label: "Web Mercator", value: "EPSG:3857" },
+          ],
+        })}
+        value="EPSG:4326"
+        onChange={jest.fn()}
+        translate={(key: string) => key}
+      />
+    )
+    expect(screen.getByTestId("mock-select")).toBeInTheDocument()
+  })
+
+  it("renders COORDSYS field without options as text input", () => {
+    const handleChange = jest.fn()
+    renderWithProviders(
+      <DynamicField
+        field={baseField({
+          type: FormFieldType.COORDSYS,
+          options: undefined, // No options provided
+        })}
+        value="SWEREF-99-13-30"
+        onChange={handleChange}
+        translate={(key: string) => key}
+      />
+    )
+    const textInput = screen.getByTestId("mock-text-input")
+    expect(textInput).toBeInTheDocument()
+    expect(textInput).toHaveValue("SWEREF-99-13-30")
+  })
+
+  it("renders ATTRIBUTE_NAME field without options as text input", () => {
+    const handleChange = jest.fn()
+    renderWithProviders(
+      <DynamicField
+        field={baseField({
+          type: FormFieldType.ATTRIBUTE_NAME,
+          options: undefined, // No options provided
+        })}
+        value="OBJECTID"
+        onChange={handleChange}
+        translate={(key: string) => key}
+      />
+    )
+    const textInput = screen.getByTestId("mock-text-input")
+    expect(textInput).toBeInTheDocument()
+    expect(textInput).toHaveValue("OBJECTID")
   })
 })

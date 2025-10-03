@@ -564,6 +564,16 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.SELECT: {
         const options = field.options || []
 
+        if (options.length === 0) {
+          return renderTextInput(
+            "text",
+            fieldValue as FormPrimitive,
+            placeholders.enter,
+            onChange,
+            field.readOnly
+          )
+        }
+
         return (
           <Select
             value={
@@ -932,9 +942,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.COLOR: {
         // Accept normalized floats string or hex; render as hex, store normalized string
+        const colorConfig = field.colorConfig
         const initial =
           typeof fieldValue === "string"
-            ? normalizedRgbToHex(fieldValue) || fieldValue
+            ? normalizedRgbToHex(fieldValue, colorConfig) || fieldValue
             : undefined
         const val =
           typeof initial === "string" && initial.startsWith("#")
@@ -944,7 +955,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <ColorPickerWrapper
             value={val}
             onChange={(color) => {
-              const normalized = hexToNormalizedRgb(color) || color
+              const normalized = hexToNormalizedRgb(color, colorConfig) || color
               onChange(normalized as FormPrimitive)
             }}
           />
@@ -956,6 +967,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const isoValue = val ? `${val}T00:00:00` : ""
         return (
           <DateTimePickerWrapper
+            mode="date"
             value={isoValue}
             onChange={(dateTime) => {
               const raw = typeof dateTime === "string" ? dateTime : ""

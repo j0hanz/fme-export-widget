@@ -8,6 +8,7 @@ import type {
   DateTimeFieldConfig,
   SelectFieldConfig,
   FileFieldConfig,
+  ColorFieldConfig,
   ScriptedOptionNode,
   OptionItem,
   FormPrimitive,
@@ -93,6 +94,8 @@ const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
   [ParameterType.DATE]: FormFieldType.DATE,
   [ParameterType.TIME]: FormFieldType.TIME,
+  [ParameterType.MONTH]: FormFieldType.MONTH,
+  [ParameterType.WEEK]: FormFieldType.WEEK,
   [ParameterType.COLOR]: FormFieldType.COLOR,
   [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
   [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
@@ -315,7 +318,12 @@ export class ParameterFormService {
     if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
     if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false
     if (LIST_REQUIRED_TYPES.has(p.type)) {
-      return Array.isArray(p.listOptions) && p.listOptions.length > 0
+      return (
+        (Array.isArray(p.listOptions) && p.listOptions.length > 0) ||
+        (p.defaultValue !== null &&
+          p.defaultValue !== undefined &&
+          p.defaultValue !== "")
+      )
     }
 
     return true
@@ -638,18 +646,27 @@ export class ParameterFormService {
       .map((column, index) => this.normalizeTableColumn(column, index))
       .filter((column): column is TableColumnConfig => column != null)
 
-    if (!columns.length) return undefined
+    const validatedColumns = this.validateTableColumns(columns)
+
+    if (!validatedColumns.length) return undefined
+
+    const minRowsRaw = pickNumber(meta, [
+      "minRows",
+      "minimumRows",
+      "minRowCount",
+    ])
+    const maxRowsRaw = pickNumber(meta, [
+      "maxRows",
+      "maximumRows",
+      "maxRowCount",
+    ])
+
+    const bounds = this.normalizeRowBounds(minRowsRaw, maxRowsRaw)
 
     return {
-      columns,
-      ...(pickNumber(meta, ["minRows", "minimumRows", "minRowCount"]) !==
-        undefined && {
-        minRows: pickNumber(meta, ["minRows", "minimumRows", "minRowCount"]),
-      }),
-      ...(pickNumber(meta, ["maxRows", "maximumRows", "maxRowCount"]) !==
-        undefined && {
-        maxRows: pickNumber(meta, ["maxRows", "maximumRows", "maxRowCount"]),
-      }),
+      columns: validatedColumns,
+      ...(bounds.minRows !== undefined && { minRows: bounds.minRows }),
+      ...(bounds.maxRows !== undefined && { maxRows: bounds.maxRows }),
       ...(pickString(meta, ["addRowLabel", "addLabel"]) && {
         addRowLabel: pickString(meta, ["addRowLabel", "addLabel"]),
       }),
@@ -666,6 +683,54 @@ export class ParameterFormService {
         showHeader: true,
       }),
     }
+  }
+
+  private validateTableColumns(
+    columns: readonly TableColumnConfig[]
+  ): TableColumnConfig[] {
+    if (!columns?.length) return []
+
+    const seen = new Set<string>()
+    const valid: TableColumnConfig[] = []
+
+    for (const column of columns) {
+      if (!column?.key) continue
+      if (seen.has(column.key)) continue
+      if (
+        column.type === "select" &&
+        (!column.options || column.options.length === 0)
+      ) {
+        continue
+      }
+      valid.push(column)
+      seen.add(column.key)
+    }
+
+    return valid
+  }
+
+  private normalizeRowBounds(
+    minRows: number | undefined,
+    maxRows: number | undefined
+  ): { minRows?: number; maxRows?: number } {
+    const resolvedMin =
+      typeof minRows === "number" && Number.isFinite(minRows) && minRows >= 0
+        ? Math.floor(minRows)
+        : undefined
+    let resolvedMax =
+      typeof maxRows === "number" && Number.isFinite(maxRows) && maxRows >= 0
+        ? Math.floor(maxRows)
+        : undefined
+
+    if (
+      resolvedMin !== undefined &&
+      resolvedMax !== undefined &&
+      resolvedMin > resolvedMax
+    ) {
+      resolvedMax = resolvedMin
+    }
+
+    return { minRows: resolvedMin, maxRows: resolvedMax }
   }
 
   private normalizeTableColumn(
@@ -1021,6 +1086,63 @@ export class ParameterFormService {
     }
   }
 
+  private deriveColorConfig(
+    param: WorkspaceParameter
+  ): ColorFieldConfig | undefined {
+    if (
+      param.type !== ParameterType.COLOR &&
+      param.type !== ParameterType.COLOR_PICK
+    ) {
+      return undefined
+    }
+
+    const meta = this.getParameterMetadata(param)
+    const spaceRaw = pickString(meta, [
+      "colorSpace",
+      "colourSpace",
+      "space",
+      "colorModel",
+      "colourModel",
+    ])
+    const normalizedSpace = spaceRaw?.trim().toLowerCase()
+    let space: ColorFieldConfig["space"]
+
+    if (normalizedSpace === "cmyk") {
+      space = "cmyk"
+    } else if (normalizedSpace === "rgb") {
+      space = "rgb"
+    }
+
+    if (!space) {
+      const defaultString =
+        typeof param.defaultValue === "string" ? param.defaultValue : ""
+      const parts = defaultString
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+      if (!space) {
+        if (parts.length === 4) {
+          space = "cmyk"
+        } else if (parts.length === 3) {
+          space = "rgb"
+        }
+      }
+    }
+
+    const alpha = pickBoolean(
+      meta,
+      ["alpha", "allowAlpha", "hasAlpha", "supportsAlpha", "includeAlpha"],
+      false
+    )
+
+    if (!space && !alpha) return undefined
+
+    return {
+      ...(space && { space }),
+      ...(alpha && { alpha: true }),
+    }
+  }
+
   /** Validate values object against parameter definitions (required/type/choices). */
   validateParameters(
     data: { [key: string]: unknown },
@@ -1105,6 +1227,7 @@ export class ParameterFormService {
       const dateTimeConfig = this.deriveDateTimeConfig(param)
       const selectConfig = this.deriveSelectConfig(type, param, options)
       const fileConfig = this.deriveFileConfig(type, param)
+      const colorConfig = this.deriveColorConfig(param)
       const readOnly = this.isReadOnlyField(type, scripted)
       const helper =
         scripted?.instructions ??
@@ -1139,6 +1262,7 @@ export class ParameterFormService {
         ...(dateTimeConfig && { dateTimeConfig }),
         ...(selectConfig && { selectConfig }),
         ...(fileConfig && { fileConfig }),
+        ...(colorConfig && { colorConfig }),
       }
       return field
     }) as readonly DynamicFieldConfig[]

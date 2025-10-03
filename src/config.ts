@@ -102,6 +102,8 @@ export const enum ParameterType {
   DATETIME = "DATETIME",
   DATE = "DATE",
   TIME = "TIME",
+  MONTH = "MONTH",
+  WEEK = "WEEK",
   COLOR = "COLOR",
   COLOR_PICK = "COLOR_PICK",
   RANGE_SLIDER = "RANGE_SLIDER",
@@ -662,6 +664,13 @@ export interface StateViewProps extends BaseProps {
   ) => React.ReactNode
 }
 
+export type ColorSpace = "rgb" | "cmyk"
+
+export interface ColorFieldConfig {
+  readonly space?: ColorSpace
+  readonly alpha?: boolean
+}
+
 // Form and validation
 export interface DynamicFieldConfig {
   readonly name: string
@@ -684,6 +693,7 @@ export interface DynamicFieldConfig {
   readonly dateTimeConfig?: DateTimeFieldConfig
   readonly selectConfig?: SelectFieldConfig
   readonly fileConfig?: FileFieldConfig
+  readonly colorConfig?: ColorFieldConfig
 }
 
 export interface DynamicFieldProps {

@@ -5,6 +5,8 @@ import {
   applyDirectiveDefaults,
   prepFmeParams,
   formatArea,
+  normalizedRgbToHex,
+  hexToNormalizedRgb,
 } from "../shared/utils"
 import {
   sanitizeFormValues,
@@ -320,6 +322,16 @@ describe("ParameterFormService", () => {
       type: ParameterType.INTEGER,
       optional: false,
     },
+    {
+      name: "reportMonth",
+      type: ParameterType.MONTH,
+      optional: false,
+    },
+    {
+      name: "reportWeek",
+      type: ParameterType.WEEK,
+      optional: true,
+    },
   ]
 
   it("converts parameters into dynamic field configs with expected metadata", () => {
@@ -341,6 +353,8 @@ describe("ParameterFormService", () => {
     const rangeField = fields.find((f) => f.name === "range")
     const messageField = fields.find((f) => f.name === "message")
     const docField = fields.find((f) => f.name === "document")
+    const monthField = fields.find((f) => f.name === "reportMonth")
+    const weekField = fields.find((f) => f.name === "reportWeek")
 
     expect(modeField?.type).toBe(FormFieldType.RADIO)
     expect(modeField?.options).toHaveLength(2)
@@ -351,6 +365,154 @@ describe("ParameterFormService", () => {
     expect(rangeField?.step).toBe(1)
     expect(messageField?.readOnly).toBe(true)
     expect(docField?.type).toBe(FormFieldType.TEXT_OR_FILE)
+    expect(monthField?.type).toBe(FormFieldType.MONTH)
+    expect(weekField?.type).toBe(FormFieldType.WEEK)
+  })
+
+  it("derives color configuration metadata for CMYK colors", () => {
+    const colorParam: WorkspaceParameter = {
+      name: "brandColor",
+      type: ParameterType.COLOR,
+      optional: false,
+      defaultValue: "0.25,0.1,0.05,0.2",
+      metadata: {
+        colorSpace: "CMYK",
+        alpha: false,
+      },
+    }
+
+    const fields = service.convertParametersToFields([colorParam])
+    const field = fields[0]
+    expect(field.type).toBe(FormFieldType.COLOR)
+    expect(field.colorConfig?.space).toBe("cmyk")
+    expect(field.colorConfig?.alpha).toBeUndefined()
+  })
+
+  it("normalizes table metadata by removing duplicates and invalid select columns", () => {
+    const tableParam: WorkspaceParameter = {
+      name: "itemsTable",
+      type: ParameterType.TEXT,
+      optional: true,
+      metadata: {
+        columns: [
+          { key: "id", label: "Id", type: "number" },
+          { key: "id", label: "Duplicate", type: "number" },
+          { key: "status", label: "Status", type: "select", options: [] },
+          { key: "name", label: "Name", type: "text" },
+        ],
+        minRows: 3,
+        maxRows: 1,
+      },
+    }
+
+    const fields = service.convertParametersToFields([tableParam])
+    const field = fields[0]
+    const columnKeys = field.tableConfig?.columns?.map((col) => col.key)
+
+    expect(columnKeys).toEqual(["id", "name"])
+    expect(field.tableConfig?.minRows).toBe(3)
+    expect(field.tableConfig?.maxRows).toBe(3)
+  })
+
+  it("renders COORDSYS field with listOptions as select", () => {
+    const coordsysWithOptions: WorkspaceParameter = {
+      name: "targetCRS",
+      type: ParameterType.COORDSYS,
+      description: "Target Coordinate System",
+      optional: false,
+      defaultValue: "EPSG:4326",
+      listOptions: [
+        { caption: "WGS 84", value: "EPSG:4326" },
+        { caption: "Web Mercator", value: "EPSG:3857" },
+      ],
+    }
+
+    const fields = service.convertParametersToFields([coordsysWithOptions])
+    const field = fields[0]
+
+    expect(field).toBeDefined()
+    expect(field.name).toBe("targetCRS")
+    expect(field.type).toBe(FormFieldType.COORDSYS)
+    expect(field.options).toHaveLength(2)
+    expect(field.options?.[0]).toMatchObject({
+      label: "WGS 84",
+      value: "EPSG:4326",
+    })
+  })
+
+  it("renders COORDSYS field without listOptions as text input when defaultValue is provided", () => {
+    const coordsysWithoutOptions: WorkspaceParameter = {
+      name: "sourceCRS",
+      type: ParameterType.COORDSYS,
+      description: "Source Coordinate System",
+      optional: false,
+      defaultValue: "SWEREF-99-13-30",
+      listOptions: [],
+    }
+
+    const fields = service.convertParametersToFields([coordsysWithoutOptions])
+    const field = fields[0]
+
+    expect(field).toBeDefined()
+    expect(field.name).toBe("sourceCRS")
+    expect(field.type).toBe(FormFieldType.COORDSYS)
+    expect(field.options).toBeUndefined() // Empty arrays are not included
+    expect(field.defaultValue).toBe("SWEREF-99-13-30")
+  })
+
+  it("filters out COORDSYS field without listOptions and without defaultValue", () => {
+    const coordsysEmpty: WorkspaceParameter = {
+      name: "emptyCRS",
+      type: ParameterType.COORDSYS,
+      description: "Empty CRS",
+      optional: false,
+      defaultValue: "",
+      listOptions: [],
+    }
+
+    const fields = service.convertParametersToFields([coordsysEmpty])
+    const fieldNames = fields.map((f) => f.name)
+
+    expect(fieldNames).not.toContain("emptyCRS")
+  })
+
+  it("handles ATTRIBUTE_NAME with default value but no listOptions", () => {
+    const attrWithDefault: WorkspaceParameter = {
+      name: "joinField",
+      type: ParameterType.ATTRIBUTE_NAME,
+      description: "Join Field",
+      optional: false,
+      defaultValue: "OBJECTID",
+      listOptions: [],
+    }
+
+    const fields = service.convertParametersToFields([attrWithDefault])
+    const field = fields[0]
+
+    expect(field).toBeDefined()
+    expect(field.name).toBe("joinField")
+    expect(field.type).toBe(FormFieldType.ATTRIBUTE_NAME)
+    expect(field.options).toBeUndefined() // Empty arrays are not included
+    expect(field.defaultValue).toBe("OBJECTID")
+  })
+
+
+  describe("color conversions", () => {
+    it("converts normalized RGB fractions to hex", () => {
+      expect(normalizedRgbToHex("0.333333,1,0")).toBe("#55ff00")
+    })
+
+    it("converts normalized CMYK fractions to hex when configured", () => {
+      expect(normalizedRgbToHex("0.1,0.2,0.3,0.4", { space: "cmyk" })).toBe(
+        "#8a7a6b"
+      )
+    })
+
+    it("converts hex colors back to CMYK fractions when requested", () => {
+      expect(hexToNormalizedRgb("#8a7a6b", { space: "cmyk" })).toBe(
+        "0,0.115942,0.224638,0.458824"
+      )
+    })
   })
 
   it("validates parameter values and reports missing or invalid entries", () => {

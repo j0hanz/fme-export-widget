@@ -9,6 +9,7 @@ import type {
   DerivedParamNames,
   ServiceMode,
   CoordinateTuple,
+  ColorFieldConfig,
 } from "../config"
 import { ErrorType, ErrorSeverity, ParameterType } from "../config"
 import { SessionManager, css, hooks } from "jimu-core"
@@ -1601,30 +1602,129 @@ export const inputToFmeTime = (v: string, original?: string): string => {
   return `${base}${fraction}${offset}`
 }
 
-export const normalizedRgbToHex = (v: string): string | null => {
-  const parts = (v || "").split(",").map((s) => s.trim())
-  if (parts.length < 3) return null
-  const to255 = (f: string) => {
-    const n = Number(f)
-    return Number.isFinite(n) && n >= 0 && n <= 1 ? Math.round(n * 255) : null
-  }
-  const r = to255(parts[0])
-  const g = to255(parts[1])
-  const b = to255(parts[2])
-  if (r == null || g == null || b == null) return null
-  const toHex = (n: number) => n.toString(16).padStart(2, "0")
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+const clamp01 = (value: number): number => {
+  if (!Number.isFinite(value)) return 0
+  if (value <= 0) return 0
+  if (value >= 1) return 1
+  return value
 }
 
-export const hexToNormalizedRgb = (hex: string): string | null => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-  if (!m) return null
-  const n = parseInt(m[1], 16)
-  const r = (n >> 16) & 0xff
-  const g = (n >> 8) & 0xff
-  const b = n & 0xff
-  const f = (x: number) => Number((x / 255).toFixed(6)).toString()
-  return `${f(r)},${f(g)},${f(b)}`
+const clamp255 = (value: number): number => {
+  if (!Number.isFinite(value)) return 0
+  if (value <= 0) return 0
+  if (value >= 255) return 255
+  return value
+}
+
+const toHexComponent = (value: number): string =>
+  Math.round(clamp255(value)).toString(16).padStart(2, "0")
+
+const rgbToHexString = (r: number, g: number, b: number): string =>
+  `#${toHexComponent(r)}${toHexComponent(g)}${toHexComponent(b)}`
+
+const formatUnitFraction = (value: number): string =>
+  Number(clamp01(value).toFixed(6)).toString()
+
+const cmykToRgb = (
+  c: number,
+  m: number,
+  y: number,
+  k: number
+): { r: number; g: number; b: number } => {
+  const cc = clamp01(c)
+  const mm = clamp01(m)
+  const yy = clamp01(y)
+  const kk = clamp01(k)
+  const r = 255 * (1 - cc) * (1 - kk)
+  const g = 255 * (1 - mm) * (1 - kk)
+  const b = 255 * (1 - yy) * (1 - kk)
+  return {
+    r: clamp255(r),
+    g: clamp255(g),
+    b: clamp255(b),
+  }
+}
+
+const rgbToCmyk = (
+  r: number,
+  g: number,
+  b: number
+): { c: number; m: number; y: number; k: number } => {
+  const rn = clamp01(r / 255)
+  const gn = clamp01(g / 255)
+  const bn = clamp01(b / 255)
+  const k = 1 - Math.max(rn, gn, bn)
+  if (k >= 0.999999) {
+    return { c: 0, m: 0, y: 0, k: 1 }
+  }
+  const denom = 1 - k
+  const c = (1 - rn - k) / denom
+  const m = (1 - gn - k) / denom
+  const y = (1 - bn - k) / denom
+  return {
+    c: clamp01(c),
+    m: clamp01(m),
+    y: clamp01(y),
+    k: clamp01(k),
+  }
+}
+
+const parseNormalizedParts = (value: string): number[] =>
+  (value || "")
+    .split(",")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+    .map((segment) => Number(segment))
+
+const formatRgbFraction = (value: number): string =>
+  formatUnitFraction(value / 255)
+
+export const normalizedRgbToHex = (
+  v: string,
+  config?: ColorFieldConfig
+): string | null => {
+  const parts = parseNormalizedParts(v)
+  if (!parts.length) return null
+
+  const treatAsCmyk =
+    config?.space === "cmyk" ||
+    (!config?.space && !config?.alpha && parts.length === 4)
+
+  if (treatAsCmyk) {
+    if (parts.length < 4) return null
+    const [c, m, y, k] = parts
+    if ([c, m, y, k].some((value) => !Number.isFinite(value))) return null
+    const rgb = cmykToRgb(c, m, y, k)
+    return rgbToHexString(rgb.r, rgb.g, rgb.b)
+  }
+
+  if (parts.length < 3) return null
+  const [rPart, gPart, bPart] = parts
+  if ([rPart, gPart, bPart].some((value) => !Number.isFinite(value)))
+    return null
+  const r = clamp255(Math.round(clamp01(rPart) * 255))
+  const g = clamp255(Math.round(clamp01(gPart) * 255))
+  const b = clamp255(Math.round(clamp01(bPart) * 255))
+  return rgbToHexString(r, g, b)
+}
+
+export const hexToNormalizedRgb = (
+  hex: string,
+  config?: ColorFieldConfig
+): string | null => {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+  if (!match) return null
+  const numeric = parseInt(match[1], 16)
+  const r = (numeric >> 16) & 0xff
+  const g = (numeric >> 8) & 0xff
+  const b = numeric & 0xff
+
+  if (config?.space === "cmyk") {
+    const { c, m, y, k } = rgbToCmyk(r, g, b)
+    return [c, m, y, k].map(formatUnitFraction).join(",")
+  }
+
+  return [r, g, b].map(formatRgbFraction).join(",")
 }
 
 export const toIsoLocal = (spaceDateTime: string | undefined): string => {
