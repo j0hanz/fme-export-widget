@@ -723,9 +723,8 @@ export interface FmeExportConfig {
   readonly fmeServerUrl: string
   readonly fmeServerToken: string
   readonly repository: string
-  /** Optional warning threshold in square meters. Advisory only, shows alert when exceeded. */
   readonly largeArea?: number
-  /** Optional hard limit in square meters. Blocks workflow when exceeded. */
+  readonly largeAreaWarningMessage?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean

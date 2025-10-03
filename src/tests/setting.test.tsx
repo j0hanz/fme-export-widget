@@ -375,4 +375,63 @@ describe("Setting builder interactions", () => {
     expect(screen.queryByText(/Varningsgränsen/)).not.toBeInTheDocument()
     expect(screen.queryByText(/lägre än maxgränsen/i)).not.toBeInTheDocument()
   })
+
+  it("disables custom large-area message until threshold is saved", async () => {
+    const { onSettingChange, rerenderWithConfig } = renderSetting()
+
+    const messageField = getByLabel(
+      "Varningsmeddelande (stor AOI)"
+    ) as HTMLInputElement
+    expect(messageField).toBeDisabled()
+
+    const largeAreaInput = getByLabel("AOI-varning (m²)") as HTMLInputElement
+    fireEvent.change(largeAreaInput, { target: { value: "400" } })
+    fireEvent.blur(largeAreaInput, { target: { value: "400" } })
+
+    const configs = extractConfigs(onSettingChange)
+    const latestConfig = configs[configs.length - 1]
+    expect(latestConfig?.largeArea).toBe(400)
+
+    rerenderWithConfig(latestConfig ?? {})
+
+    await waitFor(() => {
+      expect(
+        getByLabel("Varningsmeddelande (stor AOI)") as HTMLInputElement
+      ).not.toBeDisabled()
+    })
+  })
+
+  it("persists sanitized large-area message and clears when empty", () => {
+    const { onSettingChange, rerenderWithConfig } = renderSetting({
+      largeArea: 500,
+    })
+
+    rerenderWithConfig({ largeArea: 500 })
+
+    const messageField = getByLabel(
+      "Varningsmeddelande (stor AOI)"
+    ) as HTMLInputElement
+    expect(messageField).not.toBeDisabled()
+
+    fireEvent.change(messageField, {
+      target: { value: "  AOI {current}  är stor." },
+    })
+    fireEvent.blur(messageField, {
+      target: { value: "  AOI {current}  är stor." },
+    })
+
+    let configs = extractConfigs(onSettingChange)
+    expect(
+      configs.some(
+        (cfg) => cfg.largeAreaWarningMessage === "AOI {current} är stor."
+      )
+    ).toBe(true)
+
+    fireEvent.change(messageField, { target: { value: "" } })
+    fireEvent.blur(messageField, { target: { value: "" } })
+
+    configs = extractConfigs(onSettingChange)
+    const clearedConfig = configs[configs.length - 1]
+    expect(clearedConfig?.largeAreaWarningMessage).toBeUndefined()
+  })
 })

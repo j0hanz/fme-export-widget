@@ -554,6 +554,55 @@ describe("Workflow component", () => {
     expect(alert).toHaveTextContent("50000 kvm")
     expect(alert).toHaveTextContent("40000 kvm")
   })
+
+  it("uses custom large-area warning message when provided", () => {
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={
+          {
+            largeArea: 30000,
+            largeAreaWarningMessage: "AOI {current} passerar gränsen.",
+            repository: "repo-1",
+          } as any
+        }
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText="Rita AOI"
+        isModulesLoading={false}
+        canStartDrawing={true}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={null}
+        onReuseGeography={jest.fn()}
+        isSubmittingOrder={false}
+        onBack={jest.fn()}
+        drawnArea={42000}
+        areaWarning={true}
+        formatArea={(value: number) => `${value} m²`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        onReset={jest.fn()}
+        canReset={true}
+        showHeaderActions={false}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    const alert = screen.getByTestId("mock-alert")
+    expect(alert).toHaveTextContent("AOI 42000 m² passerar gränsen.")
+    expect(alert).not.toHaveTextContent("Stora områden")
+  })
 })
 
 describe("Alert component", () => {

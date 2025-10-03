@@ -1078,9 +1078,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
     const currentAreaText = formatAreaValue(drawnArea)
 
     if (currentAreaText) {
-      areaWarningMessage = translate("largeAreaWarning", {
-        current: currentAreaText,
-      })
+      const customTemplate = toTrimmedString(config?.largeAreaWarningMessage)
+
+      if (customTemplate) {
+        const normalizedTemplate = customTemplate.replace(/\s+/g, " ")
+        areaWarningMessage = normalizedTemplate.includes("{current}")
+          ? normalizedTemplate.replace(/\{current\}/g, currentAreaText)
+          : `${normalizedTemplate.trimEnd()} ${currentAreaText}`
+      } else {
+        areaWarningMessage = translate("largeAreaWarning", {
+          current: currentAreaText,
+        })
+      }
     }
   }
 

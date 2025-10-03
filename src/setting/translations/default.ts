@@ -85,6 +85,11 @@ export default {
   errorLargeAreaAboveMax: "Värdet måste vara lägre än maxgränsen {maxM2} m².",
   largeAreaExceedsMaxInfo:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
+  largeAreaMessageLabel: "Varningsmeddelande (stor AOI)",
+  largeAreaMessageHelper:
+    "Texten visas när ritad AOI överstiger varningsgränsen. Lämna tomt för standardmeddelandet. Max {max} tecken (bokstäver, blanksteg, punkt).",
+  largeAreaMessagePlaceholder:
+    "Anpassad varning, till exempel AOI är stor ({current}).",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",

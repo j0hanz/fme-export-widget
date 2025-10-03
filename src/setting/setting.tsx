@@ -66,6 +66,8 @@ import type {
 import { DEFAULT_DRAWING_HEX } from "../config"
 import resetIcon from "../assets/icons/refresh.svg"
 
+const LARGE_AREA_MESSAGE_CHAR_LIMIT = 100
+
 // Constants
 const CONSTANTS = {
   VALIDATION: {
@@ -83,9 +85,43 @@ const CONSTANTS = {
   COLORS: {
     BACKGROUND_DARK: "#181818",
   },
+  TEXT: {
+    LARGE_AREA_MESSAGE_MAX: LARGE_AREA_MESSAGE_CHAR_LIMIT,
+  },
 } as const
 
 const FAST_TM_TAG = "fast"
+
+const normalizeLargeAreaMessageInput = (value: string): string =>
+  (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
+
+const countsTowardMessageLimit = (char: string): boolean => {
+  if (!char) return false
+  if (char === " " || char === ".") return true
+  const upper = char.toUpperCase()
+  const lower = char.toLowerCase()
+  return upper !== lower
+}
+
+const normalizeLargeAreaMessage = (
+  value: string
+): { sanitized: string; counted: number } => {
+  const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
+  if (!base) return { sanitized: "", counted: 0 }
+
+  let count = 0
+  let result = ""
+
+  for (const char of base) {
+    if (countsTowardMessageLimit(char)) {
+      if (count >= CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX) continue
+      count += 1
+    }
+    result += char
+  }
+
+  return { sanitized: result, counted: count }
+}
 
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
@@ -375,6 +411,8 @@ const FieldRow: React.FC<{
   type?: "text" | "email" | "password"
   required?: boolean
   errorText?: string
+  maxLength?: number
+  disabled?: boolean
   styles: SettingStyles
 }> = ({
   id,
@@ -386,6 +424,8 @@ const FieldRow: React.FC<{
   type = "text",
   required = false,
   errorText,
+  maxLength,
+  disabled,
   styles,
 }) => (
   <SettingRow flow="wrap" label={label} level={1} tag="label">
@@ -398,6 +438,8 @@ const FieldRow: React.FC<{
       onBlur={onBlur}
       placeholder={placeholder}
       errorText={errorText}
+      maxLength={maxLength}
+      disabled={disabled}
       aria-invalid={errorText ? true : undefined}
       aria-describedby={errorText ? `${id}-error` : undefined}
     />
@@ -741,6 +783,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     maskEmailOnSuccess: "setting-mask-email-on-success",
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
+    largeAreaMessage: "setting-large-area-message",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
@@ -804,6 +847,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = getNumberConfig("largeArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
+  const [localLargeAreaMessage, setLocalLargeAreaMessage] =
+    React.useState<string>(() => {
+      const raw = getStringConfig("largeAreaWarningMessage") || ""
+      if (!raw) return ""
+      return normalizeLargeAreaMessage(raw).sanitized
+    })
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = getNumberConfig("tm_ttc")
@@ -864,10 +913,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const currentLargeAreaValue = resolveAreaInput(localLargeAreaM2)
   const currentMaxAreaValue = resolveAreaInput(localMaxAreaM2)
+  const persistedLargeAreaValue = getNumberConfig("largeArea")
   const showLargeAreaInfo =
     currentLargeAreaValue !== undefined &&
     currentMaxAreaValue !== undefined &&
     currentLargeAreaValue > currentMaxAreaValue
+  const isLargeAreaMessageEnabled =
+    typeof persistedLargeAreaValue === "number" && persistedLargeAreaValue > 0
 
   const handleLargeAreaChange = hooks.useEventCallback((val: string) => {
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
@@ -901,6 +953,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     updateConfig("largeArea", bounded as any)
     setLocalLargeAreaM2(String(bounded))
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+  })
+
+  const handleLargeAreaMessageChange = hooks.useEventCallback((val: string) => {
+    const cleaned = normalizeLargeAreaMessageInput(val)
+    setLocalLargeAreaMessage(cleaned)
+    setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
+  })
+
+  const handleLargeAreaMessageBlur = hooks.useEventCallback((val: string) => {
+    const { sanitized } = normalizeLargeAreaMessage(val)
+    if (!sanitized) {
+      setLocalLargeAreaMessage("")
+      updateConfig("largeAreaWarningMessage", undefined as any)
+      setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
+      return
+    }
+
+    setLocalLargeAreaMessage(sanitized)
+    updateConfig("largeAreaWarningMessage", sanitized as any)
+    setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
   })
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
@@ -1561,6 +1633,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
+  hooks.useUpdateEffect(() => {
+    const rawMessage = getStringConfig("largeAreaWarningMessage") || ""
+    const sanitized = rawMessage
+      ? normalizeLargeAreaMessage(rawMessage).sanitized
+      : ""
+    setLocalLargeAreaMessage(sanitized)
+  }, [config])
+
   return (
     <>
       <SettingSection>
@@ -1869,6 +1949,27 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           onBlur={handleLargeAreaBlur}
           placeholder={translate("largeAreaPlaceholder")}
           errorText={fieldErrors.largeArea}
+          styles={settingStyles}
+        />
+        <FieldRow
+          id={ID.largeAreaMessage}
+          label={
+            <Tooltip
+              content={translate("largeAreaMessageHelper", {
+                max: CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX,
+              })}
+              placement="top"
+            >
+              {translate("largeAreaMessageLabel")}
+            </Tooltip>
+          }
+          value={localLargeAreaMessage}
+          onChange={handleLargeAreaMessageChange}
+          onBlur={handleLargeAreaMessageBlur}
+          placeholder={translate("largeAreaMessagePlaceholder")}
+          maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
+          disabled={!isLargeAreaMessageEnabled}
+          errorText={fieldErrors.largeAreaMessage}
           styles={settingStyles}
         />
         {showLargeAreaInfo && (
