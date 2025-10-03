@@ -1,4 +1,4 @@
-import { React, hooks } from "jimu-core"
+import { React, hooks, WidgetState } from "jimu-core"
 import "@testing-library/jest-dom"
 import { act, render, waitFor } from "@testing-library/react"
 import { initGlobal } from "jimu-for-test"
@@ -19,6 +19,11 @@ import {
   useErrorDispatcher,
   createLayers,
   createSketchVM,
+  applyPopupSuppression,
+  clearPopupSuppression,
+  computeWidgetsToClose,
+  popupSuppressionManager,
+  type PopupSuppressionRecord,
 } from "../runtime/widget"
 import {
   DEFAULT_DRAWING_HEX,
@@ -74,6 +79,7 @@ beforeAll(() => {
 afterEach(() => {
   jest.clearAllMocks()
   jest.restoreAllMocks()
+  popupSuppressionManager.releaseAll()
 })
 
 describe("color helpers", () => {
@@ -223,7 +229,9 @@ describe("submission form preparation", () => {
   })
 
   it("removes AOI error markers after processing", () => {
-    const params: MutableParams = { __aoi_error__: { code: "ERR" } }
+    const params: MutableParams = {
+      __aoi_error__: { code: "ERR" } as any,
+    }
     removeAoiErrorMarker(params)
     expect(params).not.toHaveProperty("__aoi_error__")
   })
@@ -712,5 +720,120 @@ describe("createLayers and createSketchVM", () => {
       tool: "polygon",
     })
     expect(onDrawComplete).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("popup suppression helpers", () => {
+  it("disables popup auto-open and registers a watcher", () => {
+  const ref: { current: PopupSuppressionRecord | null } = { current: null }
+    const remove = jest.fn()
+    let visibleHandler: ((value: boolean) => void) | null = null
+    const popup: any = {
+      autoOpenEnabled: true,
+      close: jest.fn(),
+      watch: jest.fn((prop: string, handler: (value: boolean) => void) => {
+        if (prop === "visible") {
+          visibleHandler = handler
+        }
+        return { remove }
+      }),
+    }
+
+    applyPopupSuppression(ref, popup)
+
+    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(popup.autoOpenEnabled).toBe(false)
+    expect(ref.current?.popup).toBe(popup)
+    expect(ref.current?.prevAutoOpen).toBe(true)
+    expect(typeof visibleHandler).toBe("function")
+
+    visibleHandler?.(true)
+    expect(popup.close).toHaveBeenCalledTimes(2)
+
+    clearPopupSuppression(ref)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(popup.autoOpenEnabled).toBe(true)
+    expect(ref.current).toBeNull()
+  })
+
+  it("ignores missing popup references", () => {
+  const ref: { current: PopupSuppressionRecord | null } = { current: null }
+    applyPopupSuppression(ref, null)
+    expect(ref.current).toBeNull()
+    clearPopupSuppression(ref)
+    expect(ref.current).toBeNull()
+  })
+})
+
+describe("popupSuppressionManager", () => {
+  it("keeps popups suppressed until all owners release", () => {
+    const remove = jest.fn()
+    const popup: any = {
+      autoOpenEnabled: true,
+      close: jest.fn(),
+      watch: jest.fn(() => ({ remove })),
+    }
+
+    const ownerA = Symbol("ownerA")
+    const ownerB = Symbol("ownerB")
+
+    popupSuppressionManager.acquire(ownerA, popup)
+    popupSuppressionManager.acquire(ownerB, popup)
+
+    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(popup.autoOpenEnabled).toBe(false)
+
+    popupSuppressionManager.release(ownerA)
+    expect(remove).not.toHaveBeenCalled()
+    expect(popup.autoOpenEnabled).toBe(false)
+
+    popupSuppressionManager.release(ownerB)
+    expect(remove).toHaveBeenCalledTimes(1)
+    expect(popup.autoOpenEnabled).toBe(true)
+  })
+
+  it("tears down prior popup when a new popup is acquired", () => {
+    const removeA = jest.fn()
+    const popupA: any = {
+      autoOpenEnabled: true,
+      close: jest.fn(),
+      watch: jest.fn(() => ({ remove: removeA })),
+    }
+    const ownerA = Symbol("ownerA")
+    popupSuppressionManager.acquire(ownerA, popupA)
+
+    expect(popupA.close).toHaveBeenCalledTimes(1)
+    expect(popupA.autoOpenEnabled).toBe(false)
+
+    const removeB = jest.fn()
+    const popupB: any = {
+      autoOpenEnabled: true,
+      close: jest.fn(),
+      watch: jest.fn(() => ({ remove: removeB })),
+    }
+    const ownerB = Symbol("ownerB")
+    popupSuppressionManager.acquire(ownerB, popupB)
+
+    expect(removeA).toHaveBeenCalledTimes(1)
+    expect(popupB.close).toHaveBeenCalledTimes(1)
+    expect(popupB.autoOpenEnabled).toBe(false)
+  })
+})
+
+describe("computeWidgetsToClose", () => {
+  it("selects other widgets that are open or active", () => {
+    const runtimeInfo = {
+      fme: { state: WidgetState.Opened },
+      searchWidget: { state: "ACTIVE" },
+      legendWidget: { state: WidgetState.Hidden },
+      detailsWidget: { state: WidgetState.Closed },
+      drawWidget: { state: WidgetState.Opened },
+    }
+
+    const targets = computeWidgetsToClose(runtimeInfo, "fme")
+    expect(targets).toEqual(["searchWidget", "drawWidget"])
+
+    const none = computeWidgetsToClose(null, "fme")
+    expect(none).toEqual([])
   })
 })

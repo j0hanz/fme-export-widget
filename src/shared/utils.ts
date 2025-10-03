@@ -250,6 +250,117 @@ export const logIfNotAbort = (_context: string, error: unknown): void => {
   void (_context, error)
 }
 
+export interface PopupSuppressionRecord {
+  popup: __esri.Popup
+  handle: __esri.WatchHandle | null
+  prevAutoOpen?: boolean
+}
+
+const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
+  const popupAny = record.popup as unknown as { autoOpenEnabled?: boolean }
+  try {
+    const restore =
+      typeof record.prevAutoOpen === "boolean" ? record.prevAutoOpen : true
+    popupAny.autoOpenEnabled = restore
+  } catch {}
+}
+
+export const createPopupSuppressionRecord = (
+  popup: __esri.Popup | null | undefined
+): PopupSuppressionRecord | null => {
+  if (!popup) return null
+
+  const popupAny = popup as unknown as { autoOpenEnabled?: boolean }
+  const previousAutoOpen =
+    typeof popupAny.autoOpenEnabled === "boolean"
+      ? popupAny.autoOpenEnabled
+      : undefined
+
+  try {
+    popup.close?.()
+  } catch {}
+
+  try {
+    popupAny.autoOpenEnabled = false
+  } catch {}
+
+  let handle: __esri.WatchHandle | null = null
+  if (typeof popup.watch === "function") {
+    try {
+      handle = popup.watch("visible", (value: boolean) => {
+        if (value) {
+          try {
+            popup.close?.()
+          } catch {}
+        }
+      })
+    } catch {}
+  }
+
+  return {
+    popup,
+    handle,
+    prevAutoOpen: previousAutoOpen,
+  }
+}
+
+export const releasePopupSuppressionRecord = (
+  record: PopupSuppressionRecord | null | undefined
+): void => {
+  if (!record) return
+
+  try {
+    record.handle?.remove?.()
+  } catch {}
+
+  restorePopupAutoOpen(record)
+}
+
+class PopupSuppressionManager {
+  private record: PopupSuppressionRecord | null = null
+
+  private readonly owners = new Set<symbol>()
+
+  acquire(ownerId: symbol, popup: __esri.Popup | null | undefined): void {
+    if (!popup) {
+      this.release(ownerId)
+      return
+    }
+
+    const activePopup = this.record?.popup
+    if (!activePopup || activePopup !== popup) {
+      this.teardown()
+      this.owners.clear()
+      const record = createPopupSuppressionRecord(popup)
+      if (!record) return
+      this.record = record
+    }
+
+    this.owners.add(ownerId)
+  }
+
+  release(ownerId: symbol): void {
+    if (!this.owners.delete(ownerId)) return
+    if (this.owners.size === 0) {
+      this.teardown()
+    }
+  }
+
+  releaseAll(): void {
+    if (this.owners.size === 0 && !this.record) return
+    this.owners.clear()
+    this.teardown()
+  }
+
+  private teardown(): void {
+    if (!this.record) return
+    releasePopupSuppressionRecord(this.record)
+    this.record = null
+  }
+}
+
+export const popupSuppressionManager = new PopupSuppressionManager()
+
 // Collection utilities
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   typeof value !== "string" &&

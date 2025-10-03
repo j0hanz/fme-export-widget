@@ -794,6 +794,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
+    autoCloseOtherWidgets: "setting-auto-close-other-widgets",
     service: "setting-service",
     aoiGeoJsonParamName: "setting-aoi-geojson-param-name",
     aoiWktParamName: "setting-aoi-wkt-param-name",
@@ -830,6 +831,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
     React.useState<boolean>(() => getBooleanConfig("maskEmailOnSuccess"))
+  const [localAutoCloseOtherWidgets, setLocalAutoCloseOtherWidgets] =
+    React.useState<boolean>(() =>
+      getBooleanConfig("autoCloseOtherWidgets", true)
+    )
   // Request timeout (ms)
   const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
     () => {
@@ -1821,6 +1826,31 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             />
           </SettingRow>
         )}
+
+        <SettingRow
+          flow="no-wrap"
+          label={
+            <Tooltip
+              content={translate("autoCloseOtherWidgetsHelper")}
+              placement="top"
+            >
+              {translate("autoCloseOtherWidgetsLabel")}
+            </Tooltip>
+          }
+          level={1}
+        >
+          <Switch
+            id={ID.autoCloseOtherWidgets}
+            checked={localAutoCloseOtherWidgets}
+            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+              const checked =
+                evt?.target?.checked ?? !localAutoCloseOtherWidgets
+              setLocalAutoCloseOtherWidgets(checked)
+              updateConfig("autoCloseOtherWidgets", checked)
+            }}
+            aria-label={translate("autoCloseOtherWidgetsLabel")}
+          />
+        </SettingRow>
       </SettingSection>
 
       {/* === SCHEDULING & REMOTE DATA === */}

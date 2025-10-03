@@ -739,6 +739,7 @@ export interface FmeExportConfig {
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
+  readonly autoCloseOtherWidgets?: boolean
   readonly service?: "download" | "stream"
   readonly aoiGeoJsonParamName?: string
   readonly aoiWktParamName?: string

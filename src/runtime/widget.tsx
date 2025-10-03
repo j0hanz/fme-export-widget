@@ -9,6 +9,8 @@ import {
   ReactRedux,
   type IMState,
   WidgetState,
+  appActions,
+  getAppStore,
 } from "jimu-core"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
@@ -74,7 +76,11 @@ import {
   coerceFormValueForSubmission,
   logIfNotAbort,
   loadArcgisModules,
+  createPopupSuppressionRecord,
+  releasePopupSuppressionRecord,
+  popupSuppressionManager,
 } from "../shared/utils"
+import type { PopupSuppressionRecord } from "../shared/utils"
 
 // Styling and symbols derived from config
 
@@ -427,6 +433,72 @@ const removeLayerFromMap = (
       jmv.view.map.remove(graphicsLayer)
     }
   })
+}
+
+export const computeWidgetsToClose = (
+  runtimeInfo:
+    | { [id: string]: { state?: WidgetState | string } | undefined }
+    | null
+    | undefined,
+  widgetId: string
+): string[] => {
+  if (!runtimeInfo) return []
+
+  const ids: string[] = []
+
+  for (const [id, info] of Object.entries(runtimeInfo)) {
+    if (id === widgetId || !info) continue
+    const stateRaw = info.state
+    if (!stateRaw) continue
+    const normalized =
+      typeof stateRaw === "string"
+        ? stateRaw.toUpperCase()
+        : String(stateRaw).toUpperCase()
+
+    if (
+      normalized === WidgetState.Closed ||
+      normalized === WidgetState.Hidden
+    ) {
+      continue
+    }
+
+    ids.push(id)
+  }
+
+  return ids
+}
+
+export const clearPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined
+): void => {
+  const record = ref?.current
+  if (!record) return
+  releasePopupSuppressionRecord(record)
+  ref.current = null
+}
+
+export const applyPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined,
+  popup: __esri.Popup | null | undefined
+): void => {
+  if (!ref) return
+
+  if (!popup) {
+    clearPopupSuppression(ref)
+    return
+  }
+
+  if (ref.current?.popup === popup) {
+    try {
+      popup.close?.()
+    } catch {}
+    return
+  }
+
+  clearPopupSuppression(ref)
+
+  const record = createPopupSuppressionRecord(popup)
+  ref.current = record
 }
 
 // Consolidated module and resource management
@@ -845,6 +917,9 @@ export default function Widget(
   const fmeClientKeyRef = React.useRef<string | null>(null)
   // When true, after reinitializing SketchViewModel we will immediately start drawing
   const shouldAutoStartRef = React.useRef(false)
+  const popupClientIdRef = React.useRef<symbol>(
+    Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
+  )
 
   const [drawingSession, setDrawingSession] =
     React.useState<DrawingSessionState>(() => ({
@@ -857,6 +932,43 @@ export default function Widget(
       setDrawingSession((prev) => ({ ...prev, ...updates }))
     }
   )
+
+  const enablePopupGuard = hooks.useEventCallback(
+    (view: JimuMapView | null | undefined) => {
+      if (!view?.view) return
+      const popup = (view.view as any)?.popup as __esri.Popup | undefined
+      if (popup) {
+        popupSuppressionManager.acquire(popupClientIdRef.current, popup)
+      }
+      try {
+        ;(view.view as any)?.closePopup?.()
+      } catch {}
+    }
+  )
+
+  const disablePopupGuard = hooks.useEventCallback(() => {
+    popupSuppressionManager.release(popupClientIdRef.current)
+  })
+
+  const closeOtherWidgets = hooks.useEventCallback(() => {
+    const autoCloseSetting = configRef.current?.autoCloseOtherWidgets
+    if (autoCloseSetting !== undefined && !autoCloseSetting) {
+      return
+    }
+    try {
+      const store = typeof getAppStore === "function" ? getAppStore() : null
+      const state = store?.getState?.()
+      const runtimeInfo = state?.widgetsRuntimeInfo as
+        | { [id: string]: { state?: WidgetState | string } | undefined }
+        | undefined
+      const targets = computeWidgetsToClose(runtimeInfo, widgetId)
+      if (targets.length) {
+        dispatch(appActions.closeWidgets(targets))
+      }
+    } catch (err) {
+      logIfNotAbort("closeOtherWidgets error", err)
+    }
+  })
 
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
@@ -916,7 +1028,10 @@ export default function Widget(
     }
   }, [config, disposeFmeClient])
 
-  hooks.useUnmount(() => disposeFmeClient())
+  hooks.useUnmount(() => {
+    disposeFmeClient()
+    disablePopupGuard()
+  })
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
@@ -941,6 +1056,21 @@ export default function Widget(
     dispatch(fmeActions.setAreaWarning(false, widgetId))
     updateDrawingSession({ isActive: false, clickCount: 0 })
     dispatch(fmeActions.setError(null, widgetId))
+
+  hooks.useUpdateEffect(() => {
+    if (
+      runtimeState === WidgetState.Closed ||
+      runtimeState === WidgetState.Hidden
+    ) {
+      disablePopupGuard()
+    }
+  }, [runtimeState, disablePopupGuard])
+
+  hooks.useUpdateEffect(() => {
+    if (!jimuMapView) {
+      disablePopupGuard()
+    }
+  }, [jimuMapView, disablePopupGuard])
     dispatch(fmeActions.setImportError(null, widgetId))
     dispatch(fmeActions.setExportError(null, widgetId))
     dispatch(fmeActions.setOrderResult(null, widgetId))
@@ -1601,10 +1731,8 @@ export default function Widget(
       return
     }
     try {
-      // Best-effort: close any open popups as soon as the widget takes focus on the map
-      try {
-        ;(jmv as any)?.view?.closePopup?.()
-      } catch {}
+      // Ensure map popups are suppressed while the widget is active
+      enablePopupGuard(jmv)
 
       const layer = createLayers(jmv, modules, setGraphicsLayer)
       try {
@@ -1823,6 +1951,11 @@ export default function Widget(
 
     // Reset Redux state
     resetReduxToInitialDrawing()
+
+    closeOtherWidgets()
+    if (jimuMapView) {
+      enablePopupGuard(jimuMapView)
+    }
   })
   hooks.useUpdateEffect(() => {
     // Reset when widget is closed
@@ -1836,18 +1969,27 @@ export default function Widget(
 
   // Close any open popups when widget is opened
   hooks.useUpdateEffect(() => {
-    if (
-      jimuMapView &&
-      prevRuntimeState === WidgetState.Closed &&
-      runtimeState !== WidgetState.Closed
-    ) {
-      try {
-        ;(jimuMapView as any)?.view?.closePopup?.()
-      } catch (_) {
-        // Best-effort: ignore popup close errors
+    const isShowing =
+      runtimeState === WidgetState.Opened ||
+      runtimeState === WidgetState.Active
+    const wasClosed =
+      prevRuntimeState === WidgetState.Closed ||
+      prevRuntimeState === WidgetState.Hidden ||
+      typeof prevRuntimeState === "undefined"
+
+    if (isShowing && wasClosed) {
+      closeOtherWidgets()
+      if (jimuMapView) {
+        enablePopupGuard(jimuMapView)
       }
     }
-  }, [runtimeState, prevRuntimeState, jimuMapView])
+  }, [
+    runtimeState,
+    prevRuntimeState,
+    jimuMapView,
+    closeOtherWidgets,
+    enablePopupGuard,
+  ])
 
   // Teardown drawing resources on critical errors
   hooks.useUpdateEffect(() => {
@@ -2091,4 +2233,7 @@ export {
   createLayers,
   createSketchVM,
   setupSketchEventHandlers,
+  popupSuppressionManager,
 }
+
+export type { PopupSuppressionRecord } from "../shared/utils"

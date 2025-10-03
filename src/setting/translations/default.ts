@@ -96,6 +96,9 @@ export default {
   allowRemoteUrlDatasetLabel: "Tillåt fjärr‑URL (HTTPS)",
   allowRemoteUrlDatasetHelper:
     "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
+  autoCloseOtherWidgetsLabel: "Stäng andra widgets automatiskt",
+  autoCloseOtherWidgetsHelper:
+    "Stäng andra widgets när FME‑exporten öppnas eller återställs för att hålla kartan ren.",
   serviceTypeLabel: "Tjänstetyp",
   serviceTypeDownload: "Download",
   serviceTypeStream: "Streaming",
