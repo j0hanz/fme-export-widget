@@ -702,7 +702,10 @@ export const TextArea: React.FC<TextAreaProps> = ({
       value={value}
       onChange={handleChange}
       onBlur={handleBlur}
-      css={applyComponentStyles([styles.textareaResize], props.style as any)}
+      css={applyComponentStyles(
+        [styles.fullWidth, styles.textareaResize],
+        props.style as any
+      )}
       {...aria}
     />
   )

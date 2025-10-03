@@ -725,7 +725,7 @@ describe("createLayers and createSketchVM", () => {
 
 describe("popup suppression helpers", () => {
   it("disables popup auto-open and registers a watcher", () => {
-  const ref: { current: PopupSuppressionRecord | null } = { current: null }
+    const ref: { current: PopupSuppressionRecord | null } = { current: null }
     const remove = jest.fn()
     let visibleHandler: ((value: boolean) => void) | null = null
     const popup: any = {
@@ -757,7 +757,7 @@ describe("popup suppression helpers", () => {
   })
 
   it("ignores missing popup references", () => {
-  const ref: { current: PopupSuppressionRecord | null } = { current: null }
+    const ref: { current: PopupSuppressionRecord | null } = { current: null }
     applyPopupSuppression(ref, null)
     expect(ref.current).toBeNull()
     clearPopupSuppression(ref)

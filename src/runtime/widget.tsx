@@ -55,7 +55,7 @@ import {
   calcArea,
   validatePolygon,
   checkMaxArea,
-  checkLargeArea,
+  evaluateArea,
   processFmeResponse,
 } from "../shared/validations"
 import { fmeActions, initialFmeState } from "../extensions/store"
@@ -1057,20 +1057,20 @@ export default function Widget(
     updateDrawingSession({ isActive: false, clickCount: 0 })
     dispatch(fmeActions.setError(null, widgetId))
 
-  hooks.useUpdateEffect(() => {
-    if (
-      runtimeState === WidgetState.Closed ||
-      runtimeState === WidgetState.Hidden
-    ) {
-      disablePopupGuard()
-    }
-  }, [runtimeState, disablePopupGuard])
+    hooks.useUpdateEffect(() => {
+      if (
+        runtimeState === WidgetState.Closed ||
+        runtimeState === WidgetState.Hidden
+      ) {
+        disablePopupGuard()
+      }
+    }, [runtimeState, disablePopupGuard])
 
-  hooks.useUpdateEffect(() => {
-    if (!jimuMapView) {
-      disablePopupGuard()
-    }
-  }, [jimuMapView, disablePopupGuard])
+    hooks.useUpdateEffect(() => {
+      if (!jimuMapView) {
+        disablePopupGuard()
+      }
+    }, [jimuMapView, disablePopupGuard])
     dispatch(fmeActions.setImportError(null, widgetId))
     dispatch(fmeActions.setExportError(null, widgetId))
     dispatch(fmeActions.setOrderResult(null, widgetId))
@@ -1524,10 +1524,13 @@ export default function Widget(
         }
 
         const normalizedArea = Math.abs(calculatedArea)
+        const areaEvaluation = evaluateArea(normalizedArea, {
+          maxArea: config?.maxArea,
+          largeArea: config?.largeArea,
+        })
 
-        // Max area validation
-        const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
-        if (!maxCheck.ok) {
+        if (areaEvaluation.exceedsMaximum) {
+          const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
@@ -1541,12 +1544,7 @@ export default function Widget(
           }
           return
         }
-
-        const hasLargeAreaWarning = checkLargeArea(
-          normalizedArea,
-          config?.largeArea
-        )
-        dispatch(fmeActions.setAreaWarning(hasLargeAreaWarning, widgetId))
+        dispatch(fmeActions.setAreaWarning(areaEvaluation.shouldWarn, widgetId))
 
         // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
@@ -1970,8 +1968,7 @@ export default function Widget(
   // Close any open popups when widget is opened
   hooks.useUpdateEffect(() => {
     const isShowing =
-      runtimeState === WidgetState.Opened ||
-      runtimeState === WidgetState.Active
+      runtimeState === WidgetState.Opened || runtimeState === WidgetState.Active
     const wasClosed =
       prevRuntimeState === WidgetState.Closed ||
       prevRuntimeState === WidgetState.Hidden ||
@@ -2007,7 +2004,11 @@ export default function Widget(
       return
     }
 
-    const shouldWarn = checkLargeArea(reduxState.drawnArea, config?.largeArea)
+    const evaluation = evaluateArea(reduxState.drawnArea, {
+      maxArea: config?.maxArea,
+      largeArea: config?.largeArea,
+    })
+    const shouldWarn = evaluation.shouldWarn
     if (shouldWarn !== reduxState.areaWarning) {
       dispatch(fmeActions.setAreaWarning(shouldWarn, widgetId))
     }

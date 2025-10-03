@@ -567,6 +567,7 @@ export interface TextAreaProps extends BaseProps {
   readonly errorText?: string
   readonly required?: boolean
   readonly id?: string
+  readonly maxLength?: number
 }
 
 export interface BtnContentProps {

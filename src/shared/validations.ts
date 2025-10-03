@@ -1163,6 +1163,37 @@ const resolveAreaLimit = (limit?: number): number | undefined => {
   return limit
 }
 
+export interface AreaEvaluation {
+  readonly area: number
+  readonly warningThreshold?: number
+  readonly maxThreshold?: number
+  readonly exceedsMaximum: boolean
+  readonly shouldWarn: boolean
+}
+
+export const evaluateArea = (
+  area: number,
+  limits?: { maxArea?: number; largeArea?: number }
+): AreaEvaluation => {
+  const normalized = Math.abs(area) || 0
+  const maxThreshold = resolveAreaLimit(limits?.maxArea)
+  const warningThreshold = resolveAreaLimit(limits?.largeArea)
+  const exceedsMaximum =
+    typeof maxThreshold === "number" ? normalized > maxThreshold : false
+  const shouldWarn =
+    !exceedsMaximum &&
+    typeof warningThreshold === "number" &&
+    normalized > warningThreshold
+
+  return {
+    area: normalized,
+    maxThreshold,
+    warningThreshold,
+    exceedsMaximum,
+    shouldWarn,
+  }
+}
+
 export const checkMaxArea = (
   area: number,
   maxArea?: number
@@ -1179,11 +1210,8 @@ export const checkMaxArea = (
   }
 }
 
-export const checkLargeArea = (area: number, largeArea?: number): boolean => {
-  const resolved = resolveAreaLimit(largeArea)
-  if (!resolved) return false
-  return area > resolved
-}
+export const checkLargeArea = (area: number, largeArea?: number): boolean =>
+  evaluateArea(area, { largeArea }).shouldWarn
 
 export const resetValidationCachesForTest = () => {
   normalizeUtilsCache = undefined

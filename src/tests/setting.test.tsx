@@ -66,26 +66,27 @@ jest.mock("../runtime/components/ui", () => {
         type={type}
         disabled={disabled}
         onClick={(event) => {
+          it("toggles auto-close widget behavior", () => {
+            const { onSettingChange } = renderSetting({
+              autoCloseOtherWidgets: true,
+            })
 
-    it("toggles auto-close widget behavior", () => {
-      const { onSettingChange } = renderSetting({
-        autoCloseOtherWidgets: true,
-      })
+            const toggle = getByLabel(
+              "Stäng andra widgets automatiskt"
+            ) as HTMLInputElement
 
-      const toggle = getByLabel(
-        "Stäng andra widgets automatiskt"
-      ) as HTMLInputElement
+            expect(toggle).toBeChecked()
+            fireEvent.click(toggle)
 
-      expect(toggle).toBeChecked()
-      fireEvent.click(toggle)
-
-      const configs = extractConfigs(onSettingChange)
-      expect(
-        configs.some(
-          (cfg) => cfg.autoCloseOtherWidgets !== undefined && !cfg.autoCloseOtherWidgets
-        )
-      ).toBe(true)
-    })
+            const configs = extractConfigs(onSettingChange)
+            expect(
+              configs.some(
+                (cfg) =>
+                  cfg.autoCloseOtherWidgets !== undefined &&
+                  !cfg.autoCloseOtherWidgets
+              )
+            ).toBe(true)
+          })
           if (disabled) return
           onClick?.(event)
         }}

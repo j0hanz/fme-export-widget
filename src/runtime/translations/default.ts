@@ -1,4 +1,4 @@
-﻿export default {
+export default {
   actionRetry: "Försök igen",
   actionReload: "Ladda om sidan",
   errorUnknown: "Ett okänt fel inträffade",

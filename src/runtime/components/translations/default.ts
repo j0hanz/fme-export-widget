@@ -37,7 +37,9 @@ export default {
     "Det gick inte att ladda information om arbetsytan",
   unknownErrorOccurred: "Ett okänt fel inträffade",
   largeAreaWarning:
-    "Stora områden kan orsaka att exporten tar längre tid än normalt.",
+    "Ritad AOI {current} kan göra att exporten tar längre tid än normalt.",
+  largeAreaWarningWithThreshold:
+    "Ritad AOI {current} överstiger varningsgränsen {threshold}. Exporten kan ta längre tid.",
   noWorkspacesFound: "Inga arbetsytor hittades i detta repository",
   requiredField: "Detta fält är obligatoriskt.",
   formValidationSingleError: "Vänligen fyll i det obligatoriska fältet.",

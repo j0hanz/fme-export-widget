@@ -66,7 +66,7 @@ import type {
 import { DEFAULT_DRAWING_HEX } from "../config"
 import resetIcon from "../assets/icons/refresh.svg"
 
-const LARGE_AREA_MESSAGE_CHAR_LIMIT = 100
+const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160
 
 // Constants
 const CONSTANTS = {
@@ -95,32 +95,10 @@ const FAST_TM_TAG = "fast"
 const normalizeLargeAreaMessageInput = (value: string): string =>
   (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
 
-const countsTowardMessageLimit = (char: string): boolean => {
-  if (!char) return false
-  if (char === " " || char === ".") return true
-  const upper = char.toUpperCase()
-  const lower = char.toLowerCase()
-  return upper !== lower
-}
-
-const normalizeLargeAreaMessage = (
-  value: string
-): { sanitized: string; counted: number } => {
+const normalizeLargeAreaMessage = (value: string): string => {
   const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
-  if (!base) return { sanitized: "", counted: 0 }
-
-  let count = 0
-  let result = ""
-
-  for (const char of base) {
-    if (countsTowardMessageLimit(char)) {
-      if (count >= CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX) continue
-      count += 1
-    }
-    result += char
-  }
-
-  return { sanitized: result, counted: count }
+  if (!base) return ""
+  return base.slice(0, CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX)
 }
 
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
@@ -457,6 +435,67 @@ const FieldRow: React.FC<{
     )}
   </SettingRow>
 )
+
+const TextAreaRow: React.FC<{
+  id: string
+  label: React.ReactNode
+  value: string
+  onChange: (val: string) => void
+  onBlur?: (val: string) => void
+  placeholder?: string
+  required?: boolean
+  errorText?: string
+  maxLength?: number
+  disabled?: boolean
+  rows?: number
+  styles: SettingStyles
+}> = ({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  required = false,
+  errorText,
+  maxLength,
+  disabled,
+  rows = 3,
+  styles,
+}) => {
+  if (process.env.NODE_ENV === "test") {
+    console.log("TextAreaRow control type", typeof TextArea)
+  }
+
+  return (
+    <SettingRow flow="wrap" label={label} level={1} tag="label">
+      <TextArea
+        id={id}
+        required={required}
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        placeholder={placeholder}
+        errorText={errorText}
+        maxLength={maxLength}
+        disabled={disabled}
+        rows={rows}
+      />
+      {errorText && (
+        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+          <Alert
+            id={`${id}-error`}
+            fullWidth
+            css={css(styles.ALERT_INLINE)}
+            text={errorText}
+            type="error"
+            closable={false}
+          />
+        </SettingRow>
+      )}
+    </SettingRow>
+  )
+}
 
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
@@ -856,7 +895,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<string>(() => {
       const raw = getStringConfig("largeAreaWarningMessage") || ""
       if (!raw) return ""
-      return normalizeLargeAreaMessage(raw).sanitized
+      return normalizeLargeAreaMessage(raw)
     })
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
@@ -967,7 +1006,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   const handleLargeAreaMessageBlur = hooks.useEventCallback((val: string) => {
-    const { sanitized } = normalizeLargeAreaMessage(val)
+    const sanitized = normalizeLargeAreaMessage(val)
     if (!sanitized) {
       setLocalLargeAreaMessage("")
       updateConfig("largeAreaWarningMessage", undefined as any)
@@ -1640,9 +1679,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   hooks.useUpdateEffect(() => {
     const rawMessage = getStringConfig("largeAreaWarningMessage") || ""
-    const sanitized = rawMessage
-      ? normalizeLargeAreaMessage(rawMessage).sanitized
-      : ""
+    const sanitized = rawMessage ? normalizeLargeAreaMessage(rawMessage) : ""
     setLocalLargeAreaMessage(sanitized)
   }, [config])
 
@@ -1981,7 +2018,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           errorText={fieldErrors.largeArea}
           styles={settingStyles}
         />
-        <FieldRow
+        <TextAreaRow
           id={ID.largeAreaMessage}
           label={
             <Tooltip
@@ -2000,6 +2037,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
           disabled={!isLargeAreaMessageEnabled}
           errorText={fieldErrors.largeAreaMessage}
+          rows={3}
           styles={settingStyles}
         />
         {showLargeAreaInfo && (

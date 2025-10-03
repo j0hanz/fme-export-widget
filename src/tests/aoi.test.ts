@@ -10,7 +10,13 @@ const {
   attachAoi,
 } = utils
 
-const { calcArea, validatePolygon, checkMaxArea, checkLargeArea } = validations
+const {
+  calcArea,
+  validatePolygon,
+  checkMaxArea,
+  checkLargeArea,
+  evaluateArea,
+} = validations
 
 const makePolygonJson = () => ({
   spatialReference: { wkid: 4326 },
@@ -585,5 +591,29 @@ describe("checkLargeArea", () => {
     expect(checkLargeArea(2000, -50)).toBe(false)
     expect(checkLargeArea(2000, 0)).toBe(false)
     expect(checkLargeArea(2000, undefined)).toBe(false)
+  })
+})
+
+describe("evaluateArea", () => {
+  it("returns warning when area exceeds warning threshold but not maximum", () => {
+    const result = evaluateArea(1500, { maxArea: 2000, largeArea: 1000 })
+    expect(result.shouldWarn).toBe(true)
+    expect(result.exceedsMaximum).toBe(false)
+    expect(result.warningThreshold).toBe(1000)
+    expect(result.maxThreshold).toBe(2000)
+  })
+
+  it("suppresses warning when area exceeds the maximum", () => {
+    const result = evaluateArea(2500, { maxArea: 2000, largeArea: 1000 })
+    expect(result.exceedsMaximum).toBe(true)
+    expect(result.shouldWarn).toBe(false)
+  })
+
+  it("ignores invalid thresholds", () => {
+    const result = evaluateArea(500, { maxArea: -1, largeArea: 0 })
+    expect(result.exceedsMaximum).toBe(false)
+    expect(result.shouldWarn).toBe(false)
+    expect(result.warningThreshold).toBeUndefined()
+    expect(result.maxThreshold).toBeUndefined()
   })
 })

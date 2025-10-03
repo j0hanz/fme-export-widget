@@ -610,6 +610,43 @@ const normalizeUnitLabel = (unit?: string): string => {
   }
 }
 
+export const buildLargeAreaWarningMessage = ({
+  currentAreaText,
+  thresholdAreaText,
+  template,
+  translate,
+}: {
+  currentAreaText?: string | null
+  thresholdAreaText?: string | null
+  template?: string | null
+  translate: TranslateFn
+}): string | null => {
+  const current = toTrimmedString(currentAreaText)
+  if (!current) return null
+
+  const threshold = toTrimmedString(thresholdAreaText)
+  const sanitizedTemplate = toTrimmedString(template)
+
+  if (sanitizedTemplate) {
+    const normalized = sanitizedTemplate.replace(/\s+/g, " ").trim()
+    const withCurrent = normalized.replace(/\{current\}/gi, current)
+    const withThreshold = threshold
+      ? withCurrent.replace(/\{threshold\}/gi, threshold)
+      : withCurrent.replace(/\{threshold\}/gi, "")
+    const cleaned = withThreshold.replace(/\s+/g, " ").trim()
+    return cleaned || null
+  }
+
+  if (threshold) {
+    return translate("largeAreaWarningWithThreshold", {
+      current,
+      threshold,
+    })
+  }
+
+  return translate("largeAreaWarning", { current })
+}
+
 const resolveMetricDisplay = (area: number): AreaDisplay => {
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     return {

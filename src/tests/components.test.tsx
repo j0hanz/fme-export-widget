@@ -495,19 +495,27 @@ describe("Workflow component", () => {
   let useDispatchSpy: jest.SpyInstance
   let useSelectorSpy: jest.SpyInstance
 
+  beforeAll(() => {
+    useDispatchSpy = jest.spyOn(ReactRedux, "useDispatch")
+    useSelectorSpy = jest.spyOn(ReactRedux, "useSelector")
+  })
+
   beforeEach(() => {
-    useDispatchSpy = jest
-      .spyOn(ReactRedux, "useDispatch")
-      .mockReturnValue(dispatchMock)
-    useSelectorSpy = jest
-      .spyOn(ReactRedux, "useSelector")
-      .mockImplementation((selector: any) => selector(baseState as any))
+    useDispatchSpy.mockReturnValue(dispatchMock)
+    useSelectorSpy.mockImplementation((selector: any) =>
+      selector(baseState as any)
+    )
   })
 
   afterEach(() => {
+    useDispatchSpy.mockReset()
+    useSelectorSpy.mockReset()
+    dispatchMock.mockReset()
+  })
+
+  afterAll(() => {
     useDispatchSpy.mockRestore()
     useSelectorSpy.mockRestore()
-    dispatchMock.mockReset()
   })
 
   it("renders area warning alert when threshold exceeded", () => {
@@ -602,6 +610,55 @@ describe("Workflow component", () => {
     const alert = screen.getByTestId("mock-alert")
     expect(alert).toHaveTextContent("AOI 42000 m² passerar gränsen.")
     expect(alert).not.toHaveTextContent("Stora områden")
+  })
+
+  it("respects custom templates without placeholders", () => {
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={
+          {
+            largeArea: 25000,
+            largeAreaWarningMessage: "Kontrollera AOI innan export.",
+            repository: "repo-1",
+          } as any
+        }
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText="Rita AOI"
+        isModulesLoading={false}
+        canStartDrawing={true}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={null}
+        onReuseGeography={jest.fn()}
+        isSubmittingOrder={false}
+        onBack={jest.fn()}
+        drawnArea={27500}
+        areaWarning={true}
+        formatArea={(value: number) => `${value} m²`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        onReset={jest.fn()}
+        canReset={true}
+        showHeaderActions={false}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    const alert = screen.getByTestId("mock-alert")
+    expect(alert).toHaveTextContent("Kontrollera AOI innan export.")
+    expect(alert).not.toHaveTextContent("27500 m²")
   })
 })
 
@@ -1069,7 +1126,7 @@ describe("DynamicField component", () => {
     renderWithProviders(<Wrapper />)
 
     expect(screen.getByTestId("file-field-display")).toHaveTextContent(
-      `fileValueDefaultLabel ${defaultPath}`
+      defaultPath
     )
 
     const fileInput = screen.getByTestId("mock-text-input")
@@ -1085,7 +1142,7 @@ describe("DynamicField component", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("file-field-display")).toHaveTextContent(
-        "fileValueSelectedLabel example.txt"
+        "example.txt"
       )
     })
   })

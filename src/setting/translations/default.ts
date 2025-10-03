@@ -64,7 +64,7 @@ export default {
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
   largeAreaMessageLabel: "Varningsmeddelande (stor AOI)",
   largeAreaMessageHelper:
-    "Texten visas när ritad AOI överstiger varningsgränsen. Lämna tomt för standardmeddelandet. Max {max} tecken (bokstäver, blanksteg, punkt).",
+    "Texten visas när ritad AOI överstiger varningsgränsen. Tillgängliga platshållare: {current} (ritad yta), {threshold} (varningsgräns). Lämna tomt för standardmeddelandet. Max {max} tecken.",
   largeAreaMessagePlaceholder: "Lämna tomt för standardmeddelandet.",
   ok: "OK",
   failed: "Misslyckades",

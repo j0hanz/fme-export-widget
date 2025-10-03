@@ -64,6 +64,7 @@ import {
   toIsoLocal,
   fromIsoLocal,
   toTrimmedString,
+  buildLargeAreaWarningMessage,
 } from "../../shared/utils"
 
 const DRAWING_MODE_TABS = [
@@ -1076,21 +1077,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
   let areaWarningMessage: string | null = null
   if (areaWarningActive) {
     const currentAreaText = formatAreaValue(drawnArea)
+    const thresholdAreaText =
+      typeof config?.largeArea === "number" && config.largeArea > 0
+        ? formatAreaValue(config.largeArea)
+        : undefined
 
-    if (currentAreaText) {
-      const customTemplate = toTrimmedString(config?.largeAreaWarningMessage)
-
-      if (customTemplate) {
-        const normalizedTemplate = customTemplate.replace(/\s+/g, " ")
-        areaWarningMessage = normalizedTemplate.includes("{current}")
-          ? normalizedTemplate.replace(/\{current\}/g, currentAreaText)
-          : `${normalizedTemplate.trimEnd()} ${currentAreaText}`
-      } else {
-        areaWarningMessage = translate("largeAreaWarning", {
-          current: currentAreaText,
-        })
-      }
-    }
+    areaWarningMessage = buildLargeAreaWarningMessage({
+      currentAreaText,
+      thresholdAreaText,
+      template: config?.largeAreaWarningMessage,
+      translate,
+    })
   }
 
   // Small helpers to render common StateViews consistently
