@@ -38,11 +38,7 @@ export default {
     "Det gick inte att ladda information om arbetsytan",
   unknownErrorOccurred: "Ett okänt fel inträffade",
   largeAreaWarning:
-    "Det markerade området är {current}. Bearbetningen kan ta längre tid än normalt.",
-  largeAreaWarningWithLimit:
-    "Det markerade området är {current} och överstiger riktvärdet {limit}. Bearbetningen kan ta längre tid än normalt.",
-  largeAreaWarningFallback:
-    "Det markerade området är stort. Bearbetningen kan ta längre tid än normalt.",
+    "Stora områden kan orsaka att exporten tar längre tid än normalt.",
   noWorkspacesFound: "Inga arbetsytor hittades i detta repository",
   requiredField: "Detta fält är obligatoriskt.",
   formValidationSingleError: "Vänligen fyll i det obligatoriska fältet.",
@@ -91,7 +87,5 @@ export default {
   tableMoveDown: "Flytta ned",
   textInput: "Textinmatning",
   fileInput: "Filuppladdning",
-  fileValueDefaultLabel: "Förvalt värde:",
-  fileValueSelectedLabel: "Valt värde:",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
 }

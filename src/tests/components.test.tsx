@@ -6,6 +6,7 @@ import * as ReactRedux from "react-redux"
 import {
   Tooltip,
   Button,
+  Alert,
   Icon,
   Input,
   TextArea,
@@ -553,6 +554,24 @@ describe("Workflow component", () => {
     expect(alert).toHaveTextContent("50000 kvm")
     expect(alert).toHaveTextContent("40000 kvm")
   })
+})
+
+describe("Alert component", () => {
+  it.each([
+    ["warning", "warning"],
+    ["error", "error"],
+    ["info", "info"],
+    ["success", "success"],
+  ] as Array<[React.ComponentProps<typeof Alert>["type"], string]>)(
+    "renders %s icon",
+    (type, expectedIcon) => {
+      renderWithProviders(<Alert type={type} text="Message" />)
+      const alert = screen.getByTestId("mock-alert")
+      const icon = alert.querySelector('[data-testid="mock-svg"]')
+      expect(icon).not.toBeNull()
+      expect(icon).toHaveAttribute("data-src", expectedIcon)
+    }
+  )
 })
 
 describe("Button component", () => {

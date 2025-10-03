@@ -990,23 +990,27 @@ export default function Widget(
       const codeUpper = (error.code || "").toUpperCase()
       const isGeometryInvalid =
         codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
+      const isAreaTooLarge = codeUpper === "AREA_TOO_LARGE"
+      const isAoiRetryableError = isGeometryInvalid || isAreaTooLarge
       const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
-      const suppressSupport = isGeometryInvalid || isConfigIncomplete
+      const suppressSupport = isAoiRetryableError || isConfigIncomplete
 
       // For geometry invalid errors: suppress code and support email; show an explanatory hint
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
         ? translate("geometryInvalidHint")
-        : isConfigIncomplete
-          ? translate("startupConfigErrorHint")
-          : formatErrorForView(
-              translate,
-              baseMsgKey,
-              error.code,
-              supportEmail,
-              typeof ufm === "string" ? ufm : undefined
-            ).hint
+        : isAreaTooLarge
+          ? translate("areaTooLargeHint")
+          : isConfigIncomplete
+            ? translate("startupConfigErrorHint")
+            : formatErrorForView(
+                translate,
+                baseMsgKey,
+                error.code,
+                supportEmail,
+                typeof ufm === "string" ? ufm : undefined
+              ).hint
 
       // Create actions (retry clears error by default)
       const actions: Array<{ label: string; onClick: () => void }> = []
@@ -1015,7 +1019,7 @@ export default function Widget(
         (() => {
           // Clear error and return to drawing mode if applicable
           dispatch(fmeActions.setError(null, widgetId))
-          if (isGeometryInvalid) {
+          if (isAoiRetryableError) {
             // Mark that we should auto-start once tools are re-initialized
             shouldAutoStartRef.current = true
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))

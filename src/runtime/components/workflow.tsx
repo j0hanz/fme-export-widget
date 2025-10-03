@@ -1076,19 +1076,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   let areaWarningMessage: string | null = null
   if (areaWarningActive) {
     const currentAreaText = formatAreaValue(drawnArea)
-    const limitAreaText = formatAreaValue(config?.largeArea)
 
-    if (currentAreaText && limitAreaText) {
-      areaWarningMessage = translate("largeAreaWarningWithLimit", {
-        current: currentAreaText,
-        limit: limitAreaText,
-      })
-    } else if (currentAreaText) {
+    if (currentAreaText) {
       areaWarningMessage = translate("largeAreaWarning", {
         current: currentAreaText,
       })
-    } else {
-      areaWarningMessage = translate("largeAreaWarningFallback")
     }
   }
 
@@ -1417,8 +1409,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     return (
-      <div css={styles.button.default} role="list">
-        {renderWorkspaceButtons()}
+      <div css={styles.selection.container}>
+        <div css={styles.button.default} role="list">
+          {renderWorkspaceButtons()}
+        </div>
+        {areaWarningMessage && (
+          <div css={styles.selection.warning}>
+            <Alert
+              fullWidth
+              text={areaWarningMessage}
+              type="warning"
+              closable={false}
+              role="alert"
+            />
+          </div>
+        )}
       </div>
     )
   }
@@ -1519,17 +1524,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   return (
     <div css={styles.parent}>
       <div css={styles.header}>{showHeaderActions ? renderHeader() : null}</div>
-      <div css={styles.content}>
-        {areaWarningMessage && (
-          <Alert
-            text={areaWarningMessage}
-            type="warning"
-            closable={false}
-            role="alert"
-          />
-        )}
-        {renderCurrent()}
-      </div>
+      <div css={styles.content}>{renderCurrent()}</div>
     </div>
   )
 }

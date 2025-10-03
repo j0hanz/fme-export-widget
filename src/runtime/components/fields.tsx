@@ -775,15 +775,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           ? getFileDisplayName(selectedFile)
           : defaultDisplay
         const hasDisplay = Boolean(displayText)
-        const labelKey = selectedFile
-          ? "fileValueSelectedLabel"
-          : "fileValueDefaultLabel"
-        const message = hasDisplay
-          ? (() => {
-              const label = translate(labelKey)
-              return label ? `${label} ${displayText}` : displayText
-            })()
-          : null
+        const message = hasDisplay ? displayText : null
 
         return (
           <div>

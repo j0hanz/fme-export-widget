@@ -62,6 +62,7 @@ export default {
   AREA_TOO_LARGE: "Området är för stort",
   geometryInvalidHint:
     "Polygonen är inte sluten, korsar sig själv eller har noll area.",
+  areaTooLargeHint: "Prova med ett mindre område",
   MAP_INIT_ERROR: "Misslyckades att initiera kartan",
   DRAWING_COMPLETE_ERROR: "Misslyckades att avsluta ritning",
   requestAborted: "Begäran avbröts.",

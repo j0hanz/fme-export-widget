@@ -52,12 +52,14 @@ import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
 import featureServiceIcon from "../../assets/icons/feature-service.svg"
 import folderIcon from "../../assets/icons/folder.svg"
+import infoIcon from "../../assets/icons/info.svg"
 import linkTiltedIcon from "../../assets/icons/link-tilted.svg"
 import mapIcon from "../../assets/icons/map.svg"
 import personLockIcon from "../../assets/icons/person-lock.svg"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import settingIcon from "../../assets/icons/setting.svg"
 import sharedNoIcon from "../../assets/icons/shared-no.svg"
+import successIcon from "../../assets/icons/success.svg"
 import timeIcon from "../../assets/icons/time.svg"
 import warningIcon from "../../assets/icons/warning.svg"
 import type {
@@ -82,7 +84,7 @@ import type {
 
 // Configuration & Constants
 export const config = {
-  icon: { small: 14, medium: 16, large: 24 },
+  icon: { small: 16, medium: 18, large: 24 },
   tooltip: {
     delay: { enter: 100, next: 0, leave: 0, touch: 700 },
     position: {
@@ -120,6 +122,17 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   time: timeIcon,
   setting: settingIcon,
   email: emailIcon,
+  info: infoIcon,
+  success: successIcon,
+}
+
+type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>
+
+const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
+  warning: "warning",
+  error: "error",
+  info: "info",
+  success: "success",
 }
 
 // Styling Helpers
@@ -205,7 +218,21 @@ const createStyles = (theme: IMThemeVariables) => {
       zIndex: config.zIndex.overlay,
     }),
 
-    alertStyle: css({ backgroundColor: "transparent", border: "none" }),
+    alertStyle: css({
+      backgroundColor: "transparent !important",
+      border: "none !important",
+      width: "100% !important",
+    }),
+
+    alertContent: flexRow({
+      alignItems: "flex-start",
+      gap,
+    }),
+
+    alertMessage: css({
+      flex: "1 1 auto",
+      ...getTypographyStyle(typography?.label2),
+    }),
 
     // Typography styles
     typography: {
@@ -284,6 +311,11 @@ const createStyles = (theme: IMThemeVariables) => {
         overflowY: "auto",
       }),
       footer: flexColumn({ flex: "0 0 auto", gap }),
+    },
+
+    selection: {
+      container: flexColumn({ flex: flexAuto, gap, minBlockSize: 0 }),
+      warning: css({ marginBlockStart: "auto" }),
     },
 
     fieldGroup: css({
@@ -1297,15 +1329,43 @@ export const Button: React.FC<ButtonProps> = ({
 export const Alert: React.FC<React.ComponentProps<typeof JimuAlert>> = ({
   className,
   style,
+  text,
+  children,
+  type = "warning",
+  withIcon: _withIcon,
   ...rest
 }) => {
   const styles = useStyles()
+  const iconKey = ALERT_ICON_MAP[type as AlertVariant]
+  const messageContent = children ?? (text != null ? <span>{text}</span> : null)
+
+  if (messageContent == null && !iconKey) {
+    return (
+      <JimuAlert
+        {...rest}
+        type={type}
+        withIcon={false}
+        className={className}
+        css={applyComponentStyles([styles.alertStyle], style as any)}
+      />
+    )
+  }
+
   return (
     <JimuAlert
       {...rest}
+      type={type}
+      withIcon={false}
       className={className}
       css={applyComponentStyles([styles.alertStyle], style as any)}
-    />
+    >
+      <div css={styles.alertContent}>
+        {iconKey ? <Icon src={iconKey} /> : null}
+        {messageContent ? (
+          <div css={styles.alertMessage}>{messageContent}</div>
+        ) : null}
+      </div>
+    </JimuAlert>
   )
 }
 
@@ -1524,7 +1584,7 @@ const StateView: React.FC<StateViewProps> = ({
             <div css={[styles.row, styles.rowAlignCenter]}>
               <Icon
                 src={getErrorIconSrc((state as any).code)}
-                size={config.icon.large}
+                size={config.icon.medium}
               />
               <div css={styles.typography.title}>{state.message}</div>
             </div>
@@ -1784,7 +1844,12 @@ export const Field: React.FC<FieldProps> = ({
         </>
       )}
       {helper && !error && (
-        <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
+        <div
+          css={styles.typography.label}
+          id={fieldId ? `${fieldId}-help` : undefined}
+        >
+          {helper}
+        </div>
       )}
       {error && (
         <div
