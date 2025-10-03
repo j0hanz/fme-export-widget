@@ -795,12 +795,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
   // Max AOI area (m²) – stored and displayed in m²
-  const [localLargeAreaM2, setLocalLargeAreaM2] = React.useState<string>(() => {
-    const v = getNumberConfig("largeArea")
-    return v !== undefined && v > 0 ? String(v) : ""
-  })
   const [localMaxAreaM2, setLocalMaxAreaM2] = React.useState<string>(() => {
     const v = getNumberConfig("maxArea")
+    return v !== undefined && v > 0 ? String(v) : ""
+  })
+  // Large-area warning threshold (m²)
+  const [localLargeAreaM2, setLocalLargeAreaM2] = React.useState<string>(() => {
+    const v = getNumberConfig("largeArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
   // Admin job directives (defaults 0/empty)
@@ -867,6 +868,82 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     currentLargeAreaValue !== undefined &&
     currentMaxAreaValue !== undefined &&
     currentLargeAreaValue > currentMaxAreaValue
+
+  const handleLargeAreaChange = hooks.useEventCallback((val: string) => {
+    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+    const digitsOnly = (val ?? "").replace(/\D+/g, "")
+    if (!digitsOnly) {
+      setLocalLargeAreaM2("")
+      return
+    }
+    const parsed = parseNonNegativeInt(digitsOnly)
+    if (parsed === undefined || parsed === 0) {
+      setLocalLargeAreaM2("")
+      return
+    }
+    const maxLimit = resolveAreaInput(localMaxAreaM2)
+    const bounded = maxLimit !== undefined ? Math.min(parsed, maxLimit) : parsed
+    setLocalLargeAreaM2(String(bounded))
+  })
+
+  const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
+    const resolved = resolveAreaInput(val ?? "")
+    if (resolved === undefined) {
+      updateConfig("largeArea", undefined as any)
+      setLocalLargeAreaM2("")
+      setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+      return
+    }
+    const upperBound = Math.min(resolved, CONSTANTS.LIMITS.MAX_M2_CAP)
+    const maxLimit = resolveAreaInput(localMaxAreaM2)
+    const bounded =
+      maxLimit !== undefined ? Math.min(upperBound, maxLimit) : upperBound
+    updateConfig("largeArea", bounded as any)
+    setLocalLargeAreaM2(String(bounded))
+    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+  })
+
+  const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
+    const trimmed = (val ?? "").trim()
+    const previousMaxConfig = getNumberConfig("maxArea")
+    const coerced = parseNonNegativeInt(trimmed)
+    if (coerced === undefined || coerced === 0) {
+      if (previousMaxConfig !== undefined) {
+        updateConfig("largeArea", undefined as any)
+        setLocalLargeAreaM2("")
+      }
+      updateConfig("maxArea", undefined as any)
+      setLocalMaxAreaM2("")
+      setFieldErrors((prev) => ({
+        ...prev,
+        maxArea: undefined,
+        largeArea: undefined,
+      }))
+      return
+    }
+    if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        maxArea: translate("errorMaxAreaTooLarge", {
+          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+        }),
+      }))
+      return
+    }
+    const m2 = coerced
+    const maxChanged = previousMaxConfig !== m2
+    updateConfig("maxArea", m2 as any)
+    setLocalMaxAreaM2(String(m2))
+    setFieldErrors((prev) => ({
+      ...prev,
+      maxArea: undefined,
+      largeArea: maxChanged ? undefined : prev.largeArea,
+    }))
+    if (maxChanged) {
+      updateConfig("largeArea", undefined as any)
+      setLocalLargeAreaM2("")
+    }
+  })
 
   // Consolidated effect: manage service-type dependent state
   hooks.useEffectWithPreviousValues(() => {
@@ -1751,74 +1828,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         )}
       </SettingSection>
       <SettingSection>
-        {/* Large AOI warning area (m²) */}
-        <FieldRow
-          id={ID.largeArea}
-          label={
-            <Tooltip
-              content={translate("largeAreaHelper", {
-                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-              })}
-              placement="top"
-            >
-              {translate("largeAreaLabel")}
-            </Tooltip>
-          }
-          value={localLargeAreaM2}
-          onChange={(val: string) => {
-            setLocalLargeAreaM2(val)
-            setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            const coerced = parseNonNegativeInt(trimmed)
-            if (coerced === undefined || coerced === 0) {
-              updateConfig("largeArea", undefined as any)
-              setLocalLargeAreaM2("")
-              setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-              return
-            }
-            if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
-              setFieldErrors((prev) => ({
-                ...prev,
-                largeArea: translate("errorLargeAreaTooLarge", {
-                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                }),
-              }))
-              return
-            }
-            const maxLimit = resolveAreaInput(localMaxAreaM2)
-            if (maxLimit !== undefined && coerced > maxLimit) {
-              setFieldErrors((prev) => ({
-                ...prev,
-                largeArea: translate("errorLargeAreaAboveMax", {
-                  maxM2: maxLimit,
-                }),
-              }))
-              return
-            }
-            updateConfig("largeArea", coerced as any)
-            setLocalLargeAreaM2(String(coerced))
-            setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-          }}
-          placeholder={translate("largeAreaPlaceholder")}
-          errorText={fieldErrors.largeArea}
-          styles={settingStyles}
-        />
-        {showLargeAreaInfo && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("largeAreaExceedsMaxInfo", {
-                largeM2: currentLargeAreaValue ?? 0,
-                maxM2: currentMaxAreaValue ?? 0,
-              })}
-              type="info"
-              closable={false}
-            />
-          </SettingRow>
-        )}
         {/* Max AOI area (m²) */}
         <FieldRow
           id={ID.maxArea}
@@ -1837,57 +1846,45 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             setLocalMaxAreaM2(val)
             setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
           }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            const coerced = parseNonNegativeInt(trimmed)
-            // Blank, zero, or invalid -> unset
-            if (coerced === undefined || coerced === 0) {
-              updateConfig("maxArea", undefined as any)
-              setLocalMaxAreaM2("")
-              setFieldErrors((prev) => ({
-                ...prev,
-                maxArea: undefined,
-                largeArea: undefined,
-              }))
-              return
-            }
-            // Enforce upper cap in m²
-            if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
-              // Do not save; show inline error
-              setFieldErrors((prev) => ({
-                ...prev,
-                maxArea: translate("errorMaxAreaTooLarge", {
-                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                }),
-              }))
-              return
-            }
-            const m2 = coerced
-            updateConfig("maxArea", m2 as any)
-            setLocalMaxAreaM2(String(m2))
-            const largeValueBeforeUpdate = resolveAreaInput(localLargeAreaM2)
-            if (
-              largeValueBeforeUpdate !== undefined &&
-              largeValueBeforeUpdate > m2
-            ) {
-              updateConfig("largeArea", m2 as any)
-              setLocalLargeAreaM2(String(m2))
-            }
-            // Clear any lingering error on valid save
-            setFieldErrors((prev) => ({
-              ...prev,
-              maxArea: undefined,
-              largeArea:
-                largeValueBeforeUpdate !== undefined &&
-                largeValueBeforeUpdate > m2
-                  ? undefined
-                  : prev.largeArea,
-            }))
-          }}
+          onBlur={handleMaxAreaBlur}
           placeholder={translate("maxAreaPlaceholder")}
           errorText={fieldErrors.maxArea}
           styles={settingStyles}
         />
+        {/* Large-area warning threshold (m²) */}
+        <FieldRow
+          id={ID.largeArea}
+          label={
+            <Tooltip
+              content={translate("largeAreaHelper", {
+                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+              })}
+              placement="top"
+            >
+              {translate("largeAreaLabel")}
+            </Tooltip>
+          }
+          value={localLargeAreaM2}
+          onChange={handleLargeAreaChange}
+          onBlur={handleLargeAreaBlur}
+          placeholder={translate("largeAreaPlaceholder")}
+          errorText={fieldErrors.largeArea}
+          styles={settingStyles}
+        />
+        {showLargeAreaInfo && (
+          <SettingRow flow="wrap" level={3}>
+            <Alert
+              fullWidth
+              css={css(settingStyles.ALERT_INLINE)}
+              text={translate("largeAreaExceedsMaxInfo", {
+                largeM2: currentLargeAreaValue ?? 0,
+                maxM2: currentMaxAreaValue ?? 0,
+              })}
+              type="info"
+              closable={false}
+            />
+          </SettingRow>
+        )}
         {/* Drawing color */}
         <SettingRow
           flow="wrap"
