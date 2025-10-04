@@ -796,7 +796,7 @@ const useSettingStyles = () => {
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
