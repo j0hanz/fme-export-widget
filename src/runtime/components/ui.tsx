@@ -235,6 +235,10 @@ const createStyles = (theme: IMThemeVariables) => {
       width: "100% !important",
     }),
 
+    alertFullWidth: css({
+      width: "100% !important",
+    }),
+
     alertContent: flexRow({
       alignItems: "flex-start",
       gap,
@@ -1407,13 +1411,15 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={shouldWrapWithTooltip ? undefined : jimuCss}
-        style={shouldWrapWithTooltip ? undefined : style}
+        css={applyComponentStyles(
+          [styles.alertFullWidth, shouldWrapWithTooltip ? undefined : jimuCss],
+          style as any
+        )}
       >
         {iconKey ? (
-          <span css={styles.alertIconOnly}>
+          <div css={styles.alertIconOnly}>
             <Icon src={iconKey} aria-label={accessibleLabel} />
-          </span>
+          </div>
         ) : null}
       </JimuAlert>
     )
@@ -1425,7 +1431,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
     return wrapWithTooltip(alertElement, {
       tooltip: tooltipContent,
       placement: sanitizeTooltipPlacement(tooltipPlacement),
-      block: false,
+      block: true,
       jimuCss,
       jimuStyle: style,
       styles,

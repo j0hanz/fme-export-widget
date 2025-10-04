@@ -41,7 +41,6 @@ import {
 } from "../../config"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
-import resetIcon from "../../assets/icons/close-circle.svg"
 import itemIcon from "../../assets/icons/item.svg"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
@@ -1340,14 +1339,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (resetEnabled) {
         resetButton = (
           <Button
-            icon={resetIcon}
             tooltip={translate("tooltipCancel")}
             tooltipPlacement="bottom"
             onClick={onReset}
             color="inherit"
             type="default"
             variant="contained"
-            alignText="start"
             text={translate("cancel")}
             size="sm"
             aria-label={translate("tooltipCancel")}
