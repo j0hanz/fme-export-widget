@@ -16,6 +16,10 @@ import {
   type IMStateWithFmeExport,
   type ErrorWithScope,
   type ErrorScope,
+  ErrorSeverity,
+  type LoadingState,
+  type LoadingFlagKey,
+  type ErrorMap,
 } from "../config"
 import { toSerializable } from "../shared/utils"
 
@@ -102,6 +106,33 @@ export const fmeActions = {
     error: error ? toSerializable(error) : null,
     widgetId,
   }),
+  setErrors: (
+    errors: Partial<{
+      [scope in ErrorScope]?:
+        | ErrorState
+        | SerializableErrorState
+        | null
+        | undefined
+    }>,
+    widgetId: string
+  ) => {
+    const serialized: Partial<{
+      [scope in ErrorScope]?: SerializableErrorState | null
+    }> = {}
+
+    for (const [scopeKey, maybeError] of Object.entries(errors) as Array<
+      [ErrorScope, ErrorState | SerializableErrorState | null | undefined]
+    >) {
+      if (typeof maybeError === "undefined") continue
+      serialized[scopeKey] = maybeError ? toSerializable(maybeError) : null
+    }
+
+    return {
+      type: FmeActionType.SET_ERRORS,
+      errors: serialized,
+      widgetId,
+    }
+  },
   clearError: (scope: ErrorScope | "all", widgetId: string) => ({
     type: FmeActionType.CLEAR_ERROR,
     scope,
@@ -117,6 +148,26 @@ export const fmeActions = {
   }),
   completeStartup: (widgetId: string) => ({
     type: FmeActionType.COMPLETE_STARTUP,
+    widgetId,
+  }),
+  setLoadingFlag: (flag: LoadingFlagKey, value: boolean, widgetId: string) => ({
+    type: FmeActionType.SET_LOADING_FLAG,
+    flag,
+    value,
+    widgetId,
+  }),
+  applyWorkspaceData: (
+    payload: {
+      readonly workspaceName: string
+      readonly parameters: readonly WorkspaceParameter[]
+      readonly item: WorkspaceItemDetail
+    },
+    widgetId: string
+  ) => ({
+    type: FmeActionType.APPLY_WORKSPACE_DATA,
+    workspaceName: payload.workspaceName,
+    workspaceParameters: payload.parameters,
+    workspaceItem: payload.item,
     widgetId,
   }),
   // Internal action to remove entire widget state (e.g. on unmount)
@@ -140,6 +191,7 @@ export const initialFmeState: FmeWidgetState = {
   drawingTool: DrawingTool.POLYGON,
   geometryJson: null,
   drawnArea: 0,
+  geometryRevision: 0,
 
   // Export
   orderResult: null,
@@ -150,8 +202,12 @@ export const initialFmeState: FmeWidgetState = {
   workspaceParameters: [],
   workspaceItem: null,
 
+  // Loading
+  loading: createInitialLoadingState(),
+
   // Errors
   error: null,
+  errors: createInitialErrorMap(),
 }
 
 // Seamless-immutable typing is broken, so we need to force it here
@@ -183,6 +239,109 @@ const serializeGeometry = (
   }
 }
 
+function createInitialLoadingState(): LoadingState {
+  return {
+    workspaces: false,
+    parameters: false,
+    modules: false,
+    submission: false,
+  }
+}
+
+function createInitialErrorMap(): ErrorMap {
+  return {}
+}
+
+function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
+  return (
+    a.workspaces === b.workspaces &&
+    a.parameters === b.parameters &&
+    a.modules === b.modules &&
+    a.submission === b.submission
+  )
+}
+
+const ERROR_SEVERITY_RANK: {
+  readonly [key in ErrorSeverity]: number
+} = {
+  [ErrorSeverity.ERROR]: 3,
+  [ErrorSeverity.WARNING]: 2,
+  [ErrorSeverity.INFO]: 1,
+}
+
+const ERROR_SCOPE_PRIORITY: { readonly [scope in ErrorScope]: number } = {
+  general: 0,
+  export: 1,
+  import: 2,
+}
+
+const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
+  let best: ErrorWithScope | null = null
+  let bestRank = -1
+  let bestScopePriority = Number.POSITIVE_INFINITY
+
+  for (const [scopeKey, details] of Object.entries(errors) as Array<
+    [ErrorScope, SerializableErrorState | undefined]
+  >) {
+    if (!details) continue
+    const rank = ERROR_SEVERITY_RANK[details.severity] ?? 0
+    const scopePriority = ERROR_SCOPE_PRIORITY[scopeKey] ?? 99
+
+    if (
+      rank > bestRank ||
+      (rank === bestRank && scopePriority < bestScopePriority)
+    ) {
+      best = { scope: scopeKey, details }
+      bestRank = rank
+      bestScopePriority = scopePriority
+    }
+  }
+
+  return best
+}
+
+function applyErrorPatch(
+  state: ImmutableObject<FmeWidgetState>,
+  patch: Partial<{ [scope in ErrorScope]: SerializableErrorState | null }>
+): ImmutableObject<FmeWidgetState> {
+  if (!patch || Object.keys(patch).length === 0) {
+    return state
+  }
+
+  const currentMap = (state.errors as ErrorMap) ?? createInitialErrorMap()
+  let changed = false
+  const nextMap: Partial<{ [scope in ErrorScope]: SerializableErrorState }> = {
+    ...currentMap,
+  }
+
+  for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
+    [ErrorScope, SerializableErrorState | null]
+  >) {
+    if (!maybeError) {
+      if (scopeKey in nextMap) {
+        delete nextMap[scopeKey]
+        changed = true
+      }
+      continue
+    }
+
+    const current = nextMap[scopeKey]
+    if (current !== maybeError) {
+      nextMap[scopeKey] = maybeError
+      changed = true
+    }
+  }
+
+  if (!changed) {
+    return state
+  }
+
+  const readonlyMap = nextMap as ErrorMap
+  const primary = pickPrimaryError(readonlyMap)
+
+  return state.set("errors", readonlyMap).set("error", primary)
+}
+
 // Reducer for a single widget instance
 const reduceOne = (
   state: ImmutableObject<FmeWidgetState>,
@@ -200,32 +359,61 @@ const reduceOne = (
 
     case FmeActionType.SET_GEOMETRY: {
       const act = action as ActionFrom<"setGeometry">
+      const area = act.drawnArea ?? 0
+      const geometryChanged =
+        state.geometryJson !== act.geometryJson || state.drawnArea !== area
+      if (!geometryChanged) {
+        return state
+      }
       return state
         .set("geometryJson", act.geometryJson)
-        .set("drawnArea", act.drawnArea ?? 0)
+        .set("drawnArea", area)
+        .set("geometryRevision", state.geometryRevision + 1)
     }
 
     case FmeActionType.COMPLETE_DRAWING: {
       const act = action as ActionFrom<"completeDrawing">
+      const area = act.drawnArea ?? 0
       const nextView = act.nextViewMode ?? state.viewMode
-      return state
-        .set("geometryJson", act.geometryJson)
-        .set("drawnArea", act.drawnArea ?? 0)
-        .set("viewMode", nextView)
+      const geometryChanged =
+        state.geometryJson !== act.geometryJson || state.drawnArea !== area
+
+      let nextState = state
+      if (geometryChanged) {
+        nextState = nextState
+          .set("geometryJson", act.geometryJson)
+          .set("drawnArea", area)
+          .set("geometryRevision", state.geometryRevision + 1)
+      }
+
+      if (nextView !== state.viewMode) {
+        nextState = nextState.set("viewMode", nextView)
+      }
+
+      return nextState
     }
 
     case FmeActionType.SET_DRAWING_TOOL: {
       const act = action as ActionFrom<"setDrawingTool">
+      if (state.drawingTool === act.drawingTool) {
+        return state
+      }
       return state.set("drawingTool", act.drawingTool)
     }
 
     case FmeActionType.SET_ORDER_RESULT: {
       const act = action as ActionFrom<"setOrderResult">
+      if (state.orderResult === act.orderResult) {
+        return state
+      }
       return state.set("orderResult", act.orderResult)
     }
 
     case FmeActionType.SET_WORKSPACE_ITEMS: {
       const act = action as ActionFrom<"setWorkspaceItems">
+      if (state.workspaceItems === act.workspaceItems) {
+        return state
+      }
       return state.set("workspaceItems", act.workspaceItems)
     }
 
@@ -234,16 +422,31 @@ const reduceOne = (
       const requested = normalizeWorkspaceName(act.workspaceName)
       const currentSelection = normalizeWorkspaceName(state.selectedWorkspace)
 
-      if (requested && currentSelection && requested !== currentSelection) {
+      if (!requested) {
+        if (state.workspaceParameters === act.workspaceParameters) {
+          return state
+        }
+        return state.set("workspaceParameters", act.workspaceParameters)
+      }
+
+      if (!currentSelection) {
+        return state
+          .set("selectedWorkspace", requested)
+          .set("workspaceParameters", act.workspaceParameters)
+          .set("orderResult", null)
+      }
+
+      if (requested !== currentSelection) {
+        return state
+      }
+
+      if (state.workspaceParameters === act.workspaceParameters) {
         return state
       }
 
       let nextState = state.set("workspaceParameters", act.workspaceParameters)
-
-      if (requested !== currentSelection) {
-        nextState = nextState
-          .set("selectedWorkspace", requested)
-          .set("orderResult", null)
+      if (state.orderResult !== null) {
+        nextState = nextState.set("orderResult", null)
       }
 
       return nextState
@@ -256,11 +459,26 @@ const reduceOne = (
       if (current === desired) {
         return state
       }
-      return state
-        .set("selectedWorkspace", desired)
-        .set("workspaceParameters", [])
-        .set("workspaceItem", null)
-        .set("orderResult", null)
+      let nextState = state.set("selectedWorkspace", desired)
+
+      if (state.workspaceParameters.length) {
+        nextState = nextState.set("workspaceParameters", [])
+      }
+
+      if (state.workspaceItem !== null) {
+        nextState = nextState.set("workspaceItem", null)
+      }
+
+      if (state.orderResult !== null) {
+        nextState = nextState.set("orderResult", null)
+      }
+
+      nextState = applyErrorPatch(nextState, {
+        import: null,
+        export: null,
+      })
+
+      return nextState
     }
 
     case FmeActionType.SET_WORKSPACE_ITEM: {
@@ -272,56 +490,164 @@ const reduceOne = (
         return state
       }
 
+      if (state.workspaceItem === act.workspaceItem) {
+        return state
+      }
+
       return state.set("workspaceItem", act.workspaceItem)
     }
 
     case FmeActionType.CLEAR_WORKSPACE_STATE: {
-      return state
-        .set("workspaceItems", [])
-        .set("selectedWorkspace", null)
-        .set("workspaceParameters", [])
-        .set("workspaceItem", null)
-        .set("orderResult", null)
+      const clearedLoading = createInitialLoadingState()
+      let nextState = state
+
+      if (state.workspaceItems.length) {
+        nextState = nextState.set("workspaceItems", [])
+      }
+
+      if (state.selectedWorkspace !== null) {
+        nextState = nextState.set("selectedWorkspace", null)
+      }
+
+      if (state.workspaceParameters.length) {
+        nextState = nextState.set("workspaceParameters", [])
+      }
+
+      if (state.workspaceItem !== null) {
+        nextState = nextState.set("workspaceItem", null)
+      }
+
+      if (state.orderResult !== null) {
+        nextState = nextState.set("orderResult", null)
+      }
+
+      if (!areLoadingStatesEqual(state.loading, clearedLoading)) {
+        nextState = nextState.set("loading", clearedLoading)
+      }
+
+      nextState = applyErrorPatch(nextState, {
+        general: null,
+        import: null,
+        export: null,
+      })
+
+      return nextState
     }
 
     case FmeActionType.SET_ERROR: {
       const act = action as ActionFrom<"setError">
-      const current = state.error
-      if (!act.error) {
-        if (current?.scope === act.scope) {
-          return state.set("error", null)
-        }
-        return state
-      }
-      const errorWithScope: ErrorWithScope = {
-        scope: act.scope,
-        details: act.error,
-      }
-      return state.set("error", errorWithScope)
+      return applyErrorPatch(state, { [act.scope]: act.error })
+    }
+
+    case FmeActionType.SET_ERRORS: {
+      const act = action as ActionFrom<"setErrors">
+      return applyErrorPatch(state, act.errors)
     }
 
     case FmeActionType.CLEAR_ERROR: {
       const act = action as ActionFrom<"clearError">
       if (act.scope === "all") {
-        return state.error ? state.set("error", null) : state
+        return applyErrorPatch(state, {
+          general: null,
+          import: null,
+          export: null,
+        })
       }
-      const current = state.error
-      if (current?.scope === act.scope) {
-        return state.set("error", null)
-      }
-      return state
+      return applyErrorPatch(state, { [act.scope]: null })
     }
 
-    case FmeActionType.RESET_TO_DRAWING:
-      return state
-        .set("geometryJson", null)
-        .set("drawnArea", 0)
-        .set("error", null)
-        .set("selectedWorkspace", null)
-        .set("workspaceParameters", [])
-        .set("workspaceItem", null)
-        .set("orderResult", null)
-        .set("viewMode", ViewMode.DRAWING)
+    case FmeActionType.RESET_TO_DRAWING: {
+      const clearedLoading = createInitialLoadingState()
+      let nextState = state
+
+      if (state.geometryJson !== null || state.drawnArea !== 0) {
+        nextState = nextState
+          .set("geometryJson", null)
+          .set("drawnArea", 0)
+          .set("geometryRevision", state.geometryRevision + 1)
+      }
+
+      if (state.selectedWorkspace !== null) {
+        nextState = nextState.set("selectedWorkspace", null)
+      }
+
+      if (state.workspaceParameters.length) {
+        nextState = nextState.set("workspaceParameters", [])
+      }
+
+      if (state.workspaceItem !== null) {
+        nextState = nextState.set("workspaceItem", null)
+      }
+
+      if (state.orderResult !== null) {
+        nextState = nextState.set("orderResult", null)
+      }
+
+      if (!areLoadingStatesEqual(state.loading, clearedLoading)) {
+        nextState = nextState.set("loading", clearedLoading)
+      }
+
+      nextState = applyErrorPatch(nextState, {
+        general: null,
+        import: null,
+        export: null,
+      })
+
+      if (nextState.viewMode !== ViewMode.DRAWING) {
+        nextState = nextState.set("viewMode", ViewMode.DRAWING)
+      }
+
+      return nextState
+    }
+
+    case FmeActionType.SET_LOADING_FLAG: {
+      const act = action as ActionFrom<"setLoadingFlag">
+      const currentValue = state.loading[act.flag]
+      const nextValue = Boolean(act.value)
+      if (currentValue === nextValue) {
+        return state
+      }
+      return state.set("loading", {
+        ...state.loading,
+        [act.flag]: nextValue,
+      })
+    }
+
+    case FmeActionType.APPLY_WORKSPACE_DATA: {
+      const act = action as ActionFrom<"applyWorkspaceData">
+      const normalized = normalizeWorkspaceName(act.workspaceName)
+      if (!normalized) {
+        return state
+      }
+
+      let nextState = state
+
+      if (state.selectedWorkspace !== normalized) {
+        nextState = nextState.set("selectedWorkspace", normalized)
+      }
+
+      if (state.workspaceParameters !== act.workspaceParameters) {
+        nextState = nextState.set(
+          "workspaceParameters",
+          act.workspaceParameters
+        )
+      }
+
+      if (state.workspaceItem !== act.workspaceItem) {
+        nextState = nextState.set("workspaceItem", act.workspaceItem)
+      }
+
+      if (state.orderResult !== null) {
+        nextState = nextState.set("orderResult", null)
+      }
+
+      nextState = applyErrorPatch(nextState, {
+        import: null,
+        export: null,
+      })
+
+      return nextState
+    }
 
     case FmeActionType.COMPLETE_STARTUP:
       return state.set("viewMode", ViewMode.INITIAL)
@@ -340,8 +666,36 @@ const ensureSubState = (
   const current = (global as any).byId?.[widgetId] as
     | ImmutableObject<FmeWidgetState>
     | undefined
-  return (current ??
+  let hydrated = (current ??
     (createImmutableState() as unknown)) as ImmutableObject<FmeWidgetState>
+
+  if (typeof (hydrated as any).geometryRevision !== "number") {
+    hydrated = hydrated.set("geometryRevision", 0)
+  }
+
+  if (!(hydrated as any).loading) {
+    hydrated = hydrated.set("loading", createInitialLoadingState())
+  }
+
+  if (!(hydrated as any).errors) {
+    hydrated = hydrated.set("errors", createInitialErrorMap())
+  }
+
+  const errors = (hydrated as any).errors as ErrorMap
+  const desiredPrimary = pickPrimaryError(errors)
+  const currentPrimary = (hydrated as any).error as ErrorWithScope | null
+  const primaryChanged =
+    (!currentPrimary && desiredPrimary !== null) ||
+    (currentPrimary &&
+      (!desiredPrimary ||
+        currentPrimary.scope !== desiredPrimary.scope ||
+        currentPrimary.details !== desiredPrimary.details))
+
+  if (primaryChanged) {
+    hydrated = hydrated.set("error", desiredPrimary)
+  }
+
+  return hydrated
 }
 
 const setSubState = (
@@ -372,10 +726,16 @@ export const createFmeSelectors = (widgetId: string) => {
     selectSlice: getSlice,
     selectViewMode: (state: IMStateWithFmeExport) =>
       getSlice(state)?.viewMode ?? initialFmeState.viewMode,
+    selectDrawingTool: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.drawingTool ?? initialFmeState.drawingTool,
     selectGeometryJson: (state: IMStateWithFmeExport) =>
       getSlice(state)?.geometryJson ?? null,
     selectDrawnArea: (state: IMStateWithFmeExport) =>
       getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
+    selectGeometryRevision: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.geometryRevision ?? initialFmeState.geometryRevision,
+    selectWorkspaceItems: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
     selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
       getSlice(state)?.workspaceParameters ??
       initialFmeState.workspaceParameters,
@@ -387,6 +747,44 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.orderResult ?? initialFmeState.orderResult,
     selectError: (state: IMStateWithFmeExport) =>
       getSlice(state)?.error ?? initialFmeState.error,
+    selectErrors: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.errors ?? initialFmeState.errors,
+    selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
+      getSlice(state)?.errors?.[scope] ?? null,
+    selectLoading: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading ?? initialFmeState.loading,
+    selectLoadingFlag:
+      (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
+        getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
+    selectHasValidAoi: (state: IMStateWithFmeExport) => {
+      const slice = getSlice(state)
+      if (!slice) return false
+      return Boolean(slice.geometryJson) && (slice.drawnArea ?? 0) > 0
+    },
+    selectCanExport: (state: IMStateWithFmeExport) => {
+      const slice = getSlice(state)
+      if (!slice) return false
+      const hasGeometry = Boolean(slice.geometryJson) && slice.drawnArea > 0
+      const hasWorkspace = Boolean(
+        normalizeWorkspaceName(slice.selectedWorkspace)
+      )
+      const hasParameters = (slice.workspaceParameters?.length ?? 0) > 0
+      const generalError = slice.errors?.general
+      const blockingError = generalError
+        ? (ERROR_SEVERITY_RANK[generalError.severity] ?? 0) >=
+          ERROR_SEVERITY_RANK[ErrorSeverity.ERROR]
+        : false
+      return hasGeometry && hasWorkspace && hasParameters && !blockingError
+    },
+    selectIsBusy: (state: IMStateWithFmeExport) => {
+      const loading = getSlice(state)?.loading ?? initialFmeState.loading
+      return (
+        loading.workspaces ||
+        loading.parameters ||
+        loading.modules ||
+        loading.submission
+      )
+    },
   }
 }
 

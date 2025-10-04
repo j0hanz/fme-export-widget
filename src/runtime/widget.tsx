@@ -910,13 +910,31 @@ export default function Widget(
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
   const selectors = createFmeSelectors(widgetId)
-  const reduxSlice = ReactRedux.useSelector((state: IMStateWithFmeExport) =>
-    selectors.selectSlice(state)
+  const { viewMode, drawingTool } = ReactRedux.useSelector(
+    (state: IMStateWithFmeExport) => ({
+      viewMode: selectors.selectViewMode(state),
+      drawingTool: selectors.selectDrawingTool(state),
+    }),
+    (prev, next) =>
+      prev.viewMode === next.viewMode && prev.drawingTool === next.drawingTool
   )
-  const reduxState: FmeWidgetState =
-    (reduxSlice as unknown as FmeWidgetState) ?? initialFmeState
-  const previousViewMode = hooks.usePrevious(reduxState.viewMode)
-  const scopedError = reduxState.error
+  const geometryJson = ReactRedux.useSelector(selectors.selectGeometryJson)
+  const drawnArea = ReactRedux.useSelector(selectors.selectDrawnArea)
+  const workspaceItems = ReactRedux.useSelector(selectors.selectWorkspaceItems)
+  const workspaceParameters = ReactRedux.useSelector(
+    selectors.selectWorkspaceParameters
+  )
+  const workspaceItem = ReactRedux.useSelector(selectors.selectWorkspaceItem)
+  const selectedWorkspace = ReactRedux.useSelector(
+    selectors.selectSelectedWorkspace
+  )
+  const orderResult = ReactRedux.useSelector(selectors.selectOrderResult)
+  const loadingState = ReactRedux.useSelector(selectors.selectLoading)
+  const isSubmitting = ReactRedux.useSelector(
+    selectors.selectLoadingFlag("submission")
+  )
+  const scopedError = ReactRedux.useSelector(selectors.selectError)
+  const previousViewMode = hooks.usePrevious(viewMode)
   const generalErrorDetails =
     scopedError?.scope === "general" ? scopedError.details : null
   const generalError = expandSerializableError(generalErrorDetails)
@@ -935,8 +953,8 @@ export default function Widget(
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
   const configRef = hooks.useLatest(config)
-  const viewModeRef = hooks.useLatest(reduxState.viewMode)
-  const drawingToolRef = hooks.useLatest(reduxState.drawingTool)
+  const viewModeRef = hooks.useLatest(viewMode)
+  const drawingToolRef = hooks.useLatest(drawingTool)
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
   > | null>(null)
@@ -960,10 +978,6 @@ export default function Widget(
   )
 
   const [areaWarning, setAreaWarning] = React.useState(false)
-
-  // Local submission loading state
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-
   const [startupState, setStartupState] = React.useState<{
     isValidating: boolean
     step?: string
@@ -1249,13 +1263,13 @@ export default function Widget(
   const mapResources = useMapResources()
 
   const getActiveGeometry = hooks.useEventCallback(() => {
-    if (!reduxState.geometryJson || !modules?.Polygon) {
+    if (!geometryJson || !modules?.Polygon) {
       return null
     }
     const polygonCtor: any = modules.Polygon
     try {
       if (typeof polygonCtor?.fromJSON === "function") {
-        return polygonCtor.fromJSON(reduxState.geometryJson as any)
+        return polygonCtor.fromJSON(geometryJson as any)
       }
     } catch {
       return null
@@ -1597,13 +1611,13 @@ export default function Widget(
 
   // Form submission guard clauses
   const canSubmit = (): boolean => {
-    const hasGeometry = Boolean(reduxState.geometryJson)
-    if (!hasGeometry || !reduxState.selectedWorkspace) {
+    const hasGeometry = Boolean(geometryJson)
+    if (!hasGeometry || !selectedWorkspace) {
       return false
     }
 
     // Re-validate area constraints before submission
-    const maxCheck = checkMaxArea(reduxState.drawnArea, config?.maxArea)
+    const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
       dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
       return false
@@ -1663,7 +1677,7 @@ export default function Widget(
       return
     }
 
-    setIsSubmitting(true)
+    dispatch(fmeActions.setLoadingFlag("submission", true, widgetId))
 
     let controller: AbortController | null = null
 
@@ -1681,7 +1695,7 @@ export default function Widget(
       const requiresEmail = earlyMode === "async" || earlyMode === "schedule"
       const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
-      const workspace = reduxState.selectedWorkspace
+      const workspace = selectedWorkspace
       if (!workspace) {
         return
       }
@@ -1694,11 +1708,11 @@ export default function Widget(
       const preparation = await prepareSubmissionParams({
         rawFormData: rawDataEarly,
         userEmail,
-        geometryJson: reduxState.geometryJson,
+        geometryJson,
         geometry: getActiveGeometry() || undefined,
         modules,
         config: latestConfig,
-        workspaceParameters: reduxState.workspaceParameters,
+        workspaceParameters,
         makeCancelable,
         fmeClient,
         signal: controller.signal,
@@ -1729,7 +1743,7 @@ export default function Widget(
     } catch (error) {
       handleSubmissionError(error)
     } finally {
-      setIsSubmitting(false)
+      dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))
       submissionAbort.finalize(controller)
     }
   })
@@ -1925,7 +1939,7 @@ export default function Widget(
 
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
-    reduxState.viewMode === ViewMode.DRAWING &&
+    viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
     sketchViewModel &&
     !isSubmitting &&
@@ -1934,12 +1948,12 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     // Only auto-start if not already started and widget is not closed
     if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
-      handleStartDrawing(reduxState.drawingTool)
+      handleStartDrawing(drawingTool)
     }
   }, [
-    reduxState.viewMode,
+    viewMode,
     drawingSession.clickCount,
-    reduxState.drawingTool,
+    drawingTool,
     sketchViewModel,
     isSubmitting,
     handleStartDrawing,
@@ -2012,7 +2026,7 @@ export default function Widget(
   }, [hasCriticalGeneralError, teardownDrawingResources])
 
   hooks.useUpdateEffect(() => {
-    const hasGeometry = Boolean(reduxState.geometryJson)
+    const hasGeometry = Boolean(geometryJson)
     if (!hasGeometry) {
       if (areaWarning) {
         updateAreaWarning(false)
@@ -2020,7 +2034,7 @@ export default function Widget(
       return
     }
 
-    const evaluation = evaluateArea(reduxState.drawnArea, {
+    const evaluation = evaluateArea(drawnArea, {
       maxArea: config?.maxArea,
       largeArea: config?.largeArea,
     })
@@ -2029,8 +2043,8 @@ export default function Widget(
       updateAreaWarning(shouldWarn)
     }
   }, [
-    reduxState.geometryJson,
-    reduxState.drawnArea,
+    geometryJson,
+    drawnArea,
     areaWarning,
     config?.largeArea,
     config?.maxArea,
@@ -2086,10 +2100,10 @@ export default function Widget(
   })
 
   const navigateBack = hooks.useEventCallback(() => {
-    const viewMode = reduxState.viewMode
-    const defaultRoute = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
+    const currentViewMode = viewModeRef.current ?? viewMode
+    const defaultRoute = VIEW_ROUTES[currentViewMode] || ViewMode.INITIAL
     const target =
-      previousViewMode && previousViewMode !== viewMode
+      previousViewMode && previousViewMode !== currentViewMode
         ? previousViewMode
         : defaultRoute
     navigateTo(target)
@@ -2144,7 +2158,7 @@ export default function Widget(
 
   // derive simple view booleans for readability
   const showHeaderActions =
-    (drawingSession.isActive || reduxState.drawnArea > 0) &&
+    (drawingSession.isActive || drawnArea > 0) &&
     !isSubmitting &&
     !modulesLoading
 
@@ -2165,35 +2179,34 @@ export default function Widget(
       <Workflow
         widgetId={widgetId}
         config={props.config}
-        geometryJson={reduxState.geometryJson}
-        workspaceItems={reduxState.workspaceItems}
-        state={reduxState.viewMode}
+        geometryJson={geometryJson}
+        workspaceItems={workspaceItems}
+        state={viewMode}
         error={workflowError}
         instructionText={getDrawingInstructions(
-          reduxState.drawingTool,
+          drawingTool,
           drawingSession.isActive,
           drawingSession.clickCount
         )}
         loadingState={{
+          ...loadingState,
           modules: modulesLoading,
           submission: isSubmitting,
-          workspaces: false,
-          parameters: false,
         }}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         getFmeClient={getOrCreateFmeClient}
-        orderResult={reduxState.orderResult}
+        orderResult={orderResult}
         onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onBack={navigateBack}
-        drawnArea={reduxState.drawnArea}
+        drawnArea={drawnArea}
         areaWarning={areaWarning}
         formatArea={(area: number) =>
           formatArea(area, modules, jimuMapView?.view?.spatialReference)
         }
-        drawingMode={reduxState.drawingTool}
+        drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           // Rely on the auto-start effect to begin drawing; avoids duplicate create() calls
@@ -2203,16 +2216,15 @@ export default function Widget(
         clickCount={drawingSession.clickCount}
         // Header props
         showHeaderActions={
-          reduxState.viewMode !== ViewMode.STARTUP_VALIDATION &&
-          showHeaderActions
+          viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
         }
         onReset={handleReset}
         canReset={true}
         onWorkspaceSelected={handleWorkspaceSelected}
         onWorkspaceBack={handleWorkspaceBack}
-        selectedWorkspace={reduxState.selectedWorkspace}
-        workspaceParameters={reduxState.workspaceParameters}
-        workspaceItem={reduxState.workspaceItem}
+        selectedWorkspace={selectedWorkspace}
+        workspaceParameters={workspaceParameters}
+        workspaceItem={workspaceItem}
         // Startup validation props
         isStartupValidating={startupState.isValidating}
         startupValidationStep={startupState.step}

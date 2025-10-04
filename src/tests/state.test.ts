@@ -2,6 +2,7 @@ import { initGlobal } from "jimu-for-test"
 import FmeReduxStoreExtension, {
   fmeActions,
   initialFmeState,
+  createFmeSelectors,
 } from "../extensions/store"
 import {
   DrawingTool,
@@ -13,6 +14,7 @@ import {
   type ExportResult,
   type FmeWidgetState,
   type IMFmeGlobalState,
+  type IMStateWithFmeExport,
   type WorkspaceParameter,
 } from "../config"
 
@@ -517,5 +519,44 @@ describe("FME Redux state management", () => {
     const other = toPlainState(state, otherId)
     expect(base.viewMode).toBe(ViewMode.INITIAL)
     expect(other.viewMode).toBe(ViewMode.DRAWING)
+  })
+})
+
+describe("FME selectors", () => {
+  const wrapState = (global: IMFmeGlobalState): IMStateWithFmeExport =>
+    ({ "fme-state": global }) as unknown as IMStateWithFmeExport
+
+  it("provides initial values when widget slice is missing", () => {
+    const selectors = createFmeSelectors(widgetId)
+    const stateWithoutSlice = wrapState({ byId: {} } as any)
+
+    expect(selectors.selectDrawingTool(stateWithoutSlice)).toBe(
+      initialFmeState.drawingTool
+    )
+    expect(selectors.selectWorkspaceItems(stateWithoutSlice)).toEqual(
+      initialFmeState.workspaceItems
+    )
+  })
+
+  it("reads drawing tool and workspace items from widget slice", () => {
+    const selectors = createFmeSelectors(widgetId)
+    const reducer = createReducer()
+
+    let globalState = reducer(
+      undefined,
+      fmeActions.setDrawingTool(DrawingTool.RECTANGLE, widgetId)
+    )
+    const workspaceItems = [{ name: "Clipper" }]
+    globalState = reducer(
+      globalState,
+      fmeActions.setWorkspaceItems(workspaceItems as any, widgetId)
+    )
+
+    const wrapped = wrapState(globalState)
+    const selectedItems = selectors.selectWorkspaceItems(wrapped)
+
+    expect(selectors.selectDrawingTool(wrapped)).toBe(DrawingTool.RECTANGLE)
+    expect(Array.isArray(selectedItems)).toBe(true)
+    expect((selectedItems as any)[0].name).toBe("Clipper")
   })
 })

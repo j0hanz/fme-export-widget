@@ -140,11 +140,14 @@ export const enum FmeActionType {
   SET_SELECTED_WORKSPACE = "fme/SET_SELECTED_WORKSPACE",
   SET_WORKSPACE_ITEM = "fme/SET_WORKSPACE_ITEM",
   SET_ERROR = "fme/SET_ERROR",
+  SET_ERRORS = "fme/SET_ERRORS",
   CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
   CLEAR_ERROR = "fme/CLEAR_ERROR",
   RESET_TO_DRAWING = "fme/RESET_TO_DRAWING",
   COMPLETE_STARTUP = "fme/COMPLETE_STARTUP",
   REMOVE_WIDGET_STATE = "fme/REMOVE_WIDGET_STATE",
+  SET_LOADING_FLAG = "fme/SET_LOADING_FLAG",
+  APPLY_WORKSPACE_DATA = "fme/APPLY_WORKSPACE_DATA",
 }
 
 export const FME_ACTION_TYPES = [
@@ -159,11 +162,14 @@ export const FME_ACTION_TYPES = [
   FmeActionType.SET_SELECTED_WORKSPACE,
   FmeActionType.SET_WORKSPACE_ITEM,
   FmeActionType.SET_ERROR,
+  FmeActionType.SET_ERRORS,
   FmeActionType.CLEAR_WORKSPACE_STATE,
   FmeActionType.CLEAR_ERROR,
   FmeActionType.RESET_TO_DRAWING,
   FmeActionType.COMPLETE_STARTUP,
   FmeActionType.REMOVE_WIDGET_STATE,
+  FmeActionType.SET_LOADING_FLAG,
+  FmeActionType.APPLY_WORKSPACE_DATA,
 ] as const
 
 export const LAYER_CONFIG = {
@@ -329,6 +335,19 @@ export interface ErrorWithScope {
   readonly scope: ErrorScope
   readonly details: SerializableErrorState
 }
+
+export type ErrorMap = Readonly<{
+  readonly [scope in ErrorScope]?: SerializableErrorState
+}>
+
+export interface LoadingState {
+  readonly workspaces: boolean
+  readonly parameters: boolean
+  readonly modules: boolean
+  readonly submission: boolean
+}
+
+export type LoadingFlagKey = keyof LoadingState
 
 // UI component interfaces
 export interface BaseProps {
@@ -710,14 +729,7 @@ export interface DynamicFieldProps {
   readonly translate: TranslateFn
 }
 
-export interface LoadingState {
-  readonly workspaces: boolean
-  readonly parameters: boolean
-  readonly modules: boolean
-  readonly submission: boolean
-}
-
-export type LoadingFlagKey = keyof LoadingState
+// (duplicate definition removed above)
 // API and configuration
 export interface FmeFlowConfig {
   /** Base URL for the FME Flow instance. Always sanitize builder input before storing. */
@@ -1055,6 +1067,7 @@ export interface FmeWidgetState {
   readonly drawingTool: DrawingTool
   readonly geometryJson: unknown
   readonly drawnArea: number
+  readonly geometryRevision: number
 
   // Export state
   readonly orderResult: ExportResult | null
@@ -1065,8 +1078,12 @@ export interface FmeWidgetState {
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
 
+  // Loading state
+  readonly loading: LoadingState
+
   // Error state
   readonly error: ErrorWithScope | null
+  readonly errors: ErrorMap
 }
 
 // Global state for multiple widget instances
