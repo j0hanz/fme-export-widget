@@ -602,21 +602,63 @@ const useMapResources = () => {
     jimuMapView: JimuMapView | null
     sketchViewModel: __esri.SketchViewModel | null
     graphicsLayer: __esri.GraphicsLayer | null
+    cleanupHandles: (() => void) | null
   }>({
     jimuMapView: null,
     sketchViewModel: null,
     graphicsLayer: null,
+    cleanupHandles: null,
   })
 
   const updateResource = hooks.useEventCallback(
     <K extends keyof typeof state>(key: K, value: (typeof state)[K]) => {
-      setState((prev) => ({ ...prev, [key]: value }))
+      setState((prev) => {
+        let next = prev
+
+        if (
+          key === "sketchViewModel" &&
+          prev.sketchViewModel &&
+          prev.sketchViewModel !== value
+        ) {
+          try {
+            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__
+            if (typeof cleaner === "function") {
+              cleaner()
+            }
+          } catch {}
+        }
+
+        if (
+          key === "cleanupHandles" &&
+          prev.cleanupHandles &&
+          prev.cleanupHandles !== value
+        ) {
+          try {
+            prev.cleanupHandles()
+          } catch {}
+        }
+
+        next = { ...prev, [key]: value }
+
+        if (key === "cleanupHandles" && value === null) {
+          return { ...next, cleanupHandles: null }
+        }
+
+        return next
+      })
     }
   )
 
   const releaseDrawingResources = hooks.useEventCallback(
     (logSuffix: string, resetMapView: boolean) => {
-      const { sketchViewModel, graphicsLayer, jimuMapView } = state
+      const { sketchViewModel, graphicsLayer, jimuMapView, cleanupHandles } =
+        state
+
+      if (cleanupHandles) {
+        try {
+          cleanupHandles()
+        } catch {}
+      }
 
       safeCancelSketch(
         sketchViewModel,
@@ -649,6 +691,7 @@ const useMapResources = () => {
         jimuMapView: resetMapView ? null : prev.jimuMapView,
         sketchViewModel: null,
         graphicsLayer: null,
+        cleanupHandles: null,
       }))
     }
   )
@@ -670,6 +713,8 @@ const useMapResources = () => {
       updateResource("sketchViewModel", vm),
     setGraphicsLayer: (layer: __esri.GraphicsLayer | null) =>
       updateResource("graphicsLayer", layer),
+    setCleanupHandles: (cleanup: (() => void) | null) =>
+      updateResource("cleanupHandles", cleanup),
     teardownDrawingResources,
     cleanupResources,
   }
@@ -731,7 +776,10 @@ const createSketchVM = ({
     point: any
   }
   onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-}) => {
+}): {
+  sketchViewModel: __esri.SketchViewModel
+  cleanup: () => void
+} => {
   const sketchViewModel = new modules.SketchViewModel({
     view: jmv.view,
     layer,
@@ -787,7 +835,7 @@ const createSketchVM = ({
     },
   })
 
-  setupSketchEventHandlers(
+  const cleanup = setupSketchEventHandlers(
     sketchViewModel,
     onDrawComplete,
     dispatch,
@@ -795,7 +843,8 @@ const createSketchVM = ({
     widgetId,
     onDrawingSessionChange
   )
-  return sketchViewModel
+  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
+  return { sketchViewModel, cleanup }
 }
 
 // Setup SketchViewModel event handlers
@@ -809,87 +858,108 @@ const setupSketchEventHandlers = (
 ) => {
   let clickCount = 0
 
-  sketchViewModel.on("create", (evt: __esri.SketchCreateEvent) => {
-    switch (evt.state) {
-      case "start": {
-        clickCount = 0
-        const normalizedTool = normalizeSketchCreateTool(evt.tool)
-        if (!normalizedTool) {
-          safeCancelSketch(
-            sketchViewModel,
-            "Error blocking unsupported Sketch tool"
-          )
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          return
-        }
-        onDrawingSessionChange({ isActive: true, clickCount: 0 })
-        dispatch(
-          fmeActions.setDrawingTool(
-            normalizedTool === "rectangle"
-              ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON,
-            widgetId
-          )
-        )
-        break
-      }
-
-      case "active": {
-        const normalizedTool = normalizeSketchCreateTool(evt.tool)
-        if (normalizedTool === "polygon" && evt.graphic?.geometry) {
-          const geometry = evt.graphic.geometry as __esri.Polygon
-          const vertices = geometry.rings?.[0]
-          const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
-          if (actualClicks > clickCount) {
-            clickCount = actualClicks
-            onDrawingSessionChange({ clickCount: actualClicks, isActive: true })
-            if (actualClicks === 1) {
-              dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-            }
+  const createHandle = sketchViewModel.on(
+    "create",
+    (evt: __esri.SketchCreateEvent) => {
+      switch (evt.state) {
+        case "start": {
+          clickCount = 0
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (!normalizedTool) {
+            safeCancelSketch(
+              sketchViewModel,
+              "Error blocking unsupported Sketch tool"
+            )
+            onDrawingSessionChange({ isActive: false, clickCount: 0 })
+            return
           }
-        } else if (normalizedTool === "rectangle" && clickCount !== 1) {
-          clickCount = 1
-          onDrawingSessionChange({ clickCount: 1, isActive: true })
+          onDrawingSessionChange({ isActive: true, clickCount: 0 })
+          dispatch(
+            fmeActions.setDrawingTool(
+              normalizedTool === "rectangle"
+                ? DrawingTool.RECTANGLE
+                : DrawingTool.POLYGON,
+              widgetId
+            )
+          )
+          break
         }
-        break
+
+        case "active": {
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
+            const geometry = evt.graphic.geometry as __esri.Polygon
+            const vertices = geometry.rings?.[0]
+            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
+            if (actualClicks > clickCount) {
+              clickCount = actualClicks
+              onDrawingSessionChange({
+                clickCount: actualClicks,
+                isActive: true,
+              })
+              if (actualClicks === 1) {
+                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+              }
+            }
+          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
+            clickCount = 1
+            onDrawingSessionChange({ clickCount: 1, isActive: true })
+          }
+          break
+        }
+
+        case "complete":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          try {
+            onDrawComplete(evt)
+          } catch (err: any) {
+            logIfNotAbort("onDrawComplete error", err)
+          }
+          break
+
+        case "cancel":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          break
       }
-
-      case "complete":
-        clickCount = 0
-        onDrawingSessionChange({ isActive: false, clickCount: 0 })
-        try {
-          onDrawComplete(evt)
-        } catch (err: any) {
-          logIfNotAbort("onDrawComplete error", err)
-        }
-        break
-
-      case "cancel":
-        clickCount = 0
-        onDrawingSessionChange({ isActive: false, clickCount: 0 })
-        break
     }
-  })
+  )
 
   // Re-run the same completion pipeline when a reshape finishes
-  sketchViewModel.on("update", (evt: __esri.SketchUpdateEvent) => {
-    if (
-      evt.state === "complete" &&
-      Array.isArray(evt.graphics) &&
-      (evt.graphics[0] as any)?.geometry
-    ) {
-      const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
-      try {
-        onDrawComplete({
-          graphic: evt.graphics[0] as any,
-          state: "complete",
-          tool: normalizedTool ?? (evt as any).tool,
-        } as any)
-      } catch (err: any) {
-        logIfNotAbort("onDrawComplete update error", err)
+  const updateHandle = sketchViewModel.on(
+    "update",
+    (evt: __esri.SketchUpdateEvent) => {
+      if (
+        evt.state === "complete" &&
+        Array.isArray(evt.graphics) &&
+        (evt.graphics[0] as any)?.geometry
+      ) {
+        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
+        try {
+          onDrawComplete({
+            graphic: evt.graphics[0] as any,
+            state: "complete",
+            tool: normalizedTool ?? (evt as any).tool,
+          } as any)
+        } catch (err: any) {
+          logIfNotAbort("onDrawComplete update error", err)
+        }
       }
     }
-  })
+  )
+
+  return () => {
+    try {
+      createHandle?.remove()
+    } catch {}
+    try {
+      updateHandle?.remove()
+    } catch {}
+    try {
+      ;(sketchViewModel as any).__fmeCleanup__ = undefined
+    } catch {}
+  }
 }
 
 // Area formatting is imported from shared/utils
@@ -961,6 +1031,7 @@ export default function Widget(
   const fmeClientKeyRef = React.useRef<string | null>(null)
   // When true, after reinitializing SketchViewModel we will immediately start drawing
   const shouldAutoStartRef = React.useRef(false)
+  const isCompletingRef = React.useRef(false)
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
   )
@@ -1288,6 +1359,7 @@ export default function Widget(
     setSketchViewModel,
     graphicsLayer,
     setGraphicsLayer,
+    setCleanupHandles,
     teardownDrawingResources,
     cleanupResources,
   } = mapResources
@@ -1525,18 +1597,19 @@ export default function Widget(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
       if (!geometry) return
-      endSketchSession()
-      updateAreaWarning(false)
+      if (isCompletingRef.current) return
 
+      isCompletingRef.current = true
       try {
+        endSketchSession()
+        updateAreaWarning(false)
+
         // Validate
         const validation = await validatePolygon(geometry, modules)
         if (!validation.valid) {
-          // Remove erroneous graphic and reset drawing state
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
-          // Tear down drawing resources to reset state
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
           updateAreaWarning(false)
@@ -1552,7 +1625,6 @@ export default function Widget(
 
         const calculatedArea = await calcArea(geomForUse, modules)
 
-        // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
           updateAreaWarning(false)
           dispatchError(
@@ -1586,7 +1658,6 @@ export default function Widget(
         }
         updateAreaWarning(areaEvaluation.shouldWarn)
 
-        // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
           evt.graphic.geometry = geomForUse
           const highlightSymbol = symbolsRef.current?.HIGHLIGHT_SYMBOL
@@ -1595,9 +1666,14 @@ export default function Widget(
           }
         }
 
-        // Persist geometry and area to Redux
-        dispatch(fmeActions.setGeometry(geomForUse, normalizedArea, widgetId))
-        dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
+        dispatch(
+          fmeActions.completeDrawing(
+            geomForUse,
+            normalizedArea,
+            ViewMode.WORKSPACE_SELECTION,
+            widgetId
+          )
+        )
       } catch (error) {
         updateAreaWarning(false)
         dispatchError(
@@ -1605,6 +1681,8 @@ export default function Widget(
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
+      } finally {
+        isCompletingRef.current = false
       }
     }
   )
@@ -1765,7 +1843,7 @@ export default function Widget(
         ;(layer as unknown as { [key: string]: any }).title =
           translate("labelDrawingLayer")
       } catch {}
-      const svm = createSketchVM({
+      const { sketchViewModel: svm, cleanup } = createSketchVM({
         jmv,
         modules,
         layer,
@@ -1775,6 +1853,7 @@ export default function Widget(
         symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
         onDrawingSessionChange: updateDrawingSession,
       })
+      setCleanupHandles(cleanup)
       setSketchViewModel(svm)
       try {
         // If we're returning from a geometry error, immediately start drawing using the current tool
@@ -1941,6 +2020,8 @@ export default function Widget(
   const canAutoStartDrawing =
     viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
+    !drawingSession.isActive &&
+    !isCompletingRef.current &&
     sketchViewModel &&
     !isSubmitting &&
     !hasCriticalGeneralError
@@ -1953,6 +2034,7 @@ export default function Widget(
   }, [
     viewMode,
     drawingSession.clickCount,
+    drawingSession.isActive,
     drawingTool,
     sketchViewModel,
     isSubmitting,
@@ -2209,7 +2291,24 @@ export default function Widget(
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
-          // Rely on the auto-start effect to begin drawing; avoids duplicate create() calls
+          if (drawingSession.isActive && sketchViewModel) {
+            safeCancelSketch(
+              sketchViewModel,
+              "Error cancelling drawing while switching tool"
+            )
+            const arg: "rectangle" | "polygon" =
+              tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+            try {
+              const maybePromise = (sketchViewModel as any).create?.(arg)
+              if (maybePromise && typeof maybePromise.catch === "function") {
+                maybePromise.catch((err: any) => {
+                  logIfNotAbort("Sketch create error on tool switch", err)
+                })
+              }
+            } catch (err: any) {
+              logIfNotAbort("Sketch create error during tool switch", err)
+            }
+          }
         }}
         // Drawing props
         isDrawing={drawingSession.isActive}
