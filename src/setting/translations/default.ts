@@ -2,6 +2,17 @@ export default {
   fmeServerUrl: "FME‑server‑URL",
   fmeServerToken: "API‑nyckel",
   fmeRepository: "Repository",
+  connection: {
+    missingServerUrl: "Ange FME‑server‑URL.",
+    missingToken: "Ange API‑nyckeln.",
+    tokenWithWhitespace: "API‑nyckeln får inte innehålla blanksteg.",
+    missingRepository: "Välj ett repository.",
+    invalidRepository: "Det valda repositoryt finns inte i listan.",
+  },
+  validations: {
+    urlInvalid: "Ange en giltig FME‑server‑URL.",
+  },
+  errorTokenIssue: "API‑nyckeln saknas eller är ogiltig.",
   testConnection: "Uppdatera och testa anslutning",
   testing: "Testar anslutningen …",
   testingConnection: "Uppdaterar och testar …",

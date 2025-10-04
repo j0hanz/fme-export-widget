@@ -487,7 +487,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     const timeoutId = setTimeout(() => {
       if (isMountedRef.current && isLoading) {
         setIsLoading(false)
-        setError(translate("loadingTimeout"))
+        setError(translate("errorLoadingTimeout"))
         updateLoadingFlags({
           isLoadingParameters: false,
           isLoadingWorkspaces: false,
@@ -590,7 +590,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const buttonText = isSuccess
     ? translate("reuseGeography")
-    : translate("retry")
+    : translate("actionRetry")
 
   const buttonHandler = isSuccess ? onReuseGeography : onBack
 
@@ -612,7 +612,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
         ) {
           return translate("fmeFlowTransformationFailed")
         }
-        return msg || translate("unknownErrorOccurred")
+        return msg || translate("errorUnknown")
       })()
 
   return (
@@ -1107,7 +1107,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     ) => {
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
-        actions.push({ label: translate("retry"), onClick: onRetry })
+        actions.push({ label: translate("actionRetry"), onClick: onRetry })
       } else if (onBack) {
         actions.push({ label: translate("back"), onClick: onBack })
       }
@@ -1366,7 +1366,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const renderInitial = () => {
     if (isModulesLoading) {
-      return renderLoading(undefined, translate("preparingMapTools"))
+      return renderLoading(undefined, translate("statusPreparingMapTools"))
     }
     return renderDrawingModeTabs()
   }
@@ -1404,7 +1404,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     if (!workspaceItems.length) {
       const actions = [
-        { label: translate("retry"), onClick: loadWsList },
+        { label: translate("actionRetry"), onClick: loadWsList },
         { label: translate("back"), onClick: onBack },
       ]
       return (

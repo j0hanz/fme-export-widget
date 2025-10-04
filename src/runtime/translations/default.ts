@@ -2,6 +2,7 @@ export default {
   actionRetry: "Försök igen",
   actionReload: "Ladda om sidan",
   errorUnknown: "Ett okänt fel inträffade",
+  validatingStartup: "Validerar konfiguration...",
   statusValidatingConfig: "Validerar konfiguration...",
   statusValidatingMap: "Kontrollerar kartkonfiguration...",
   statusValidatingConnection: "Validerar anslutning...",

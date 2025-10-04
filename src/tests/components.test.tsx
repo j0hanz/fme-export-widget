@@ -909,7 +909,7 @@ describe("Form and Field components", () => {
 
 describe("renderSupportHint", () => {
   const translateStub = (key: string, vars?: { [key: string]: unknown }) => {
-    if (key === "contactSupportWithEmail") {
+    if (key === "contactSupportEmail") {
       const email = typeof vars?.email === "string" ? vars.email : "{email}"
       return `Contact ${email}`
     }

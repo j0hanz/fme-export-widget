@@ -738,17 +738,21 @@ describe("popup suppression helpers", () => {
         return { remove }
       }),
     }
+    const view: any = {
+      closePopup: jest.fn(),
+    }
 
-    applyPopupSuppression(ref, popup)
+    applyPopupSuppression(ref, popup, view)
 
-    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(view.closePopup).toHaveBeenCalledTimes(1)
     expect(popup.autoOpenEnabled).toBe(false)
     expect(ref.current?.popup).toBe(popup)
+    expect(ref.current?.view).toBe(view)
     expect(ref.current?.prevAutoOpen).toBe(true)
     expect(typeof visibleHandler).toBe("function")
 
     visibleHandler?.(true)
-    expect(popup.close).toHaveBeenCalledTimes(2)
+    expect(view.closePopup).toHaveBeenCalledTimes(2)
 
     clearPopupSuppression(ref)
     expect(remove).toHaveBeenCalledTimes(1)
@@ -758,7 +762,7 @@ describe("popup suppression helpers", () => {
 
   it("ignores missing popup references", () => {
     const ref: { current: PopupSuppressionRecord | null } = { current: null }
-    applyPopupSuppression(ref, null)
+    applyPopupSuppression(ref, null, null)
     expect(ref.current).toBeNull()
     clearPopupSuppression(ref)
     expect(ref.current).toBeNull()
@@ -773,14 +777,17 @@ describe("popupSuppressionManager", () => {
       close: jest.fn(),
       watch: jest.fn(() => ({ remove })),
     }
+    const view: any = {
+      closePopup: jest.fn(),
+    }
 
     const ownerA = Symbol("ownerA")
     const ownerB = Symbol("ownerB")
 
-    popupSuppressionManager.acquire(ownerA, popup)
-    popupSuppressionManager.acquire(ownerB, popup)
+    popupSuppressionManager.acquire(ownerA, popup, view)
+    popupSuppressionManager.acquire(ownerB, popup, view)
 
-    expect(popup.close).toHaveBeenCalledTimes(1)
+    expect(view.closePopup).toHaveBeenCalledTimes(1)
     expect(popup.autoOpenEnabled).toBe(false)
 
     popupSuppressionManager.release(ownerA)
@@ -799,10 +806,13 @@ describe("popupSuppressionManager", () => {
       close: jest.fn(),
       watch: jest.fn(() => ({ remove: removeA })),
     }
+    const viewA: any = {
+      closePopup: jest.fn(),
+    }
     const ownerA = Symbol("ownerA")
-    popupSuppressionManager.acquire(ownerA, popupA)
+    popupSuppressionManager.acquire(ownerA, popupA, viewA)
 
-    expect(popupA.close).toHaveBeenCalledTimes(1)
+    expect(viewA.closePopup).toHaveBeenCalledTimes(1)
     expect(popupA.autoOpenEnabled).toBe(false)
 
     const removeB = jest.fn()
@@ -811,11 +821,14 @@ describe("popupSuppressionManager", () => {
       close: jest.fn(),
       watch: jest.fn(() => ({ remove: removeB })),
     }
+    const viewB: any = {
+      closePopup: jest.fn(),
+    }
     const ownerB = Symbol("ownerB")
-    popupSuppressionManager.acquire(ownerB, popupB)
+    popupSuppressionManager.acquire(ownerB, popupB, viewB)
 
     expect(removeA).toHaveBeenCalledTimes(1)
-    expect(popupB.close).toHaveBeenCalledTimes(1)
+    expect(viewB.closePopup).toHaveBeenCalledTimes(1)
     expect(popupB.autoOpenEnabled).toBe(false)
   })
 })

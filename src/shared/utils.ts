@@ -155,7 +155,7 @@ export const buildSupportHintText = (
 ): string => {
   const sanitizedEmail = toTrimmedString(supportEmail)
   if (sanitizedEmail) {
-    const template = translate("contactSupportWithEmail")
+    const template = translate("contactSupportEmail")
     return template.replace(EMAIL_PLACEHOLDER, sanitizedEmail)
   }
 
@@ -252,6 +252,7 @@ export const logIfNotAbort = (_context: string, error: unknown): void => {
 
 export interface PopupSuppressionRecord {
   popup: __esri.Popup
+  view: __esri.MapView | __esri.SceneView | null
   handle: __esri.WatchHandle | null
   prevAutoOpen?: boolean
 }
@@ -265,8 +266,22 @@ const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
   } catch {}
 }
 
-export const createPopupSuppressionRecord = (
+const closePopupSafely = (
+  view: __esri.MapView | __esri.SceneView | null | undefined,
   popup: __esri.Popup | null | undefined
+): void => {
+  try {
+    if (view && typeof (view as any).closePopup === "function") {
+      ;(view as any).closePopup()
+    } else if (popup && typeof popup.close === "function") {
+      popup.close()
+    }
+  } catch {}
+}
+
+export const createPopupSuppressionRecord = (
+  popup: __esri.Popup | null | undefined,
+  view: __esri.MapView | __esri.SceneView | null | undefined
 ): PopupSuppressionRecord | null => {
   if (!popup) return null
 
@@ -276,9 +291,7 @@ export const createPopupSuppressionRecord = (
       ? popupAny.autoOpenEnabled
       : undefined
 
-  try {
-    popup.close?.()
-  } catch {}
+  closePopupSafely(view, popup)
 
   try {
     popupAny.autoOpenEnabled = false
@@ -289,9 +302,7 @@ export const createPopupSuppressionRecord = (
     try {
       handle = popup.watch("visible", (value: boolean) => {
         if (value) {
-          try {
-            popup.close?.()
-          } catch {}
+          closePopupSafely(view, popup)
         }
       })
     } catch {}
@@ -299,6 +310,7 @@ export const createPopupSuppressionRecord = (
 
   return {
     popup,
+    view: view || null,
     handle,
     prevAutoOpen: previousAutoOpen,
   }
@@ -321,7 +333,11 @@ class PopupSuppressionManager {
 
   private readonly owners = new Set<symbol>()
 
-  acquire(ownerId: symbol, popup: __esri.Popup | null | undefined): void {
+  acquire(
+    ownerId: symbol,
+    popup: __esri.Popup | null | undefined,
+    view: __esri.MapView | __esri.SceneView | null | undefined
+  ): void {
     if (!popup) {
       this.release(ownerId)
       return
@@ -331,7 +347,7 @@ class PopupSuppressionManager {
     if (!activePopup || activePopup !== popup) {
       this.teardown()
       this.owners.clear()
-      const record = createPopupSuppressionRecord(popup)
+      const record = createPopupSuppressionRecord(popup, view)
       if (!record) return
       this.record = record
     }

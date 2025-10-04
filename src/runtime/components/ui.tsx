@@ -1894,7 +1894,7 @@ export const renderSupportHint = (
 ): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
 
-  const fullText = translate("contactSupportWithEmail")
+  const fullText = translate("contactSupportEmail")
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
@@ -1905,7 +1905,7 @@ export const renderSupportHint = (
         <a
           href={`mailto:${supportEmail}`}
           css={styles.typography.link}
-          aria-label={translate("contactSupportWithEmail", {
+          aria-label={translate("contactSupportEmail", {
             email: supportEmail,
           })}
         >
@@ -1923,7 +1923,7 @@ export const renderSupportHint = (
           <a
             href={`mailto:${supportEmail}`}
             css={styles.typography.link}
-            aria-label={translate("contactSupportWithEmail", {
+            aria-label={translate("contactSupportEmail", {
               email: supportEmail,
             })}
           >

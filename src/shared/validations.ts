@@ -69,9 +69,9 @@ export const validateServerUrl = (
 ): { ok: boolean; key?: string } => {
   const trimmedUrl = url?.trim()
   const invalid = (key: string) => ({ ok: false as const, key })
-  const invalidBaseUrl = () => invalid("errorInvalidServerUrl")
+  const invalidBaseUrl = () => invalid("validations.urlInvalid")
 
-  if (!trimmedUrl) return invalid("errorMissingServerUrl")
+  if (!trimmedUrl) return invalid("connection.missingServerUrl")
 
   const parsedUrl = safeParseUrl(trimmedUrl)
   if (!parsedUrl) return invalidBaseUrl()
@@ -87,7 +87,7 @@ export const validateServerUrl = (
   if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
 
   if (hasForbiddenPaths(parsedUrl.pathname)) {
-    return { ok: false, key: "errorBadBaseUrl" }
+    return { ok: false, key: "validations.urlInvalid" }
   }
 
   if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
@@ -112,12 +112,19 @@ const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
 
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
-  if (!token) return { ok: false, key: "errorMissingToken" }
+  if (!token) return { ok: false, key: "connection.missingToken" }
 
-  const invalid =
-    token.length < MIN_TOKEN_LENGTH || hasDangerousCharacters(token)
+  const tooShort = token.length < MIN_TOKEN_LENGTH
+  const hasWhitespace = /\s/.test(token)
+  const invalidChars = hasDangerousCharacters(token)
 
-  return invalid ? { ok: false, key: "errorTokenIsInvalid" } : { ok: true }
+  if (tooShort || invalidChars) {
+    if (hasWhitespace)
+      return { ok: false, key: "connection.tokenWithWhitespace" }
+    return { ok: false, key: "errorTokenIssue" }
+  }
+
+  return { ok: true }
 }
 
 export const validateRepository = (
@@ -126,9 +133,9 @@ export const validateRepository = (
 ): { ok: boolean; key?: string } => {
   if (available === null) return { ok: true }
   if (available.length > 0 && !repository)
-    return { ok: false, key: "errorRepoRequired" }
+    return { ok: false, key: "connection.missingRepository" }
   if (available.length > 0 && repository && !available.includes(repository)) {
-    return { ok: false, key: "errorRepositoryNotFound" }
+    return { ok: false, key: "connection.invalidRepository" }
   }
   return { ok: true }
 }
@@ -164,45 +171,46 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
 }
 
 const ERROR_CODE_TO_KEY: { [code: string]: string } = {
-  ARCGIS_MODULE_ERROR: "startupNetworkError",
-  NETWORK_ERROR: "startupNetworkError",
-  INVALID_RESPONSE_FORMAT: "startupTokenError",
-  WEBHOOK_AUTH_ERROR: "startupTokenError",
-  SERVER_URL_ERROR: "connectionFailed",
-  REPOSITORIES_ERROR: "startupServerError",
-  REPOSITORY_ITEMS_ERROR: "startupServerError",
-  WORKSPACE_ITEM_ERROR: "startupServerError",
-  JOB_SUBMISSION_ERROR: "startupServerError",
-  DATA_STREAMING_ERROR: "startupServerError",
-  DATA_DOWNLOAD_ERROR: "startupServerError",
-  INVALID_CONFIG: "startupConfigError",
-  GEOMETRY_MISSING: "GEOMETRY_SERIALIZATION_FAILED",
-  GEOMETRY_TYPE_INVALID: "GEOMETRY_SERIALIZATION_FAILED",
-  URL_TOO_LONG: "urlTooLong",
+  ARCGIS_MODULE_ERROR: "errorNetworkIssue",
+  NETWORK_ERROR: "errorNetworkIssue",
+  INVALID_RESPONSE_FORMAT: "errorTokenIssue",
+  WEBHOOK_AUTH_ERROR: "errorTokenIssue",
+  SERVER_URL_ERROR: "connectionFailedMessage",
+  REPOSITORIES_ERROR: "errorServerIssue",
+  REPOSITORY_ITEMS_ERROR: "errorServerIssue",
+  WORKSPACE_ITEM_ERROR: "errorServerIssue",
+  JOB_SUBMISSION_ERROR: "errorJobSubmission",
+  DATA_STREAMING_ERROR: "errorServerIssue",
+  DATA_DOWNLOAD_ERROR: "errorServerIssue",
+  INVALID_CONFIG: "errorSetupRequired",
+  GEOMETRY_MISSING: "geometryMissingCode",
+  GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
+  GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
+  URL_TOO_LONG: "urlTooLongMessage",
 }
 
 const STATUS_TO_KEY_MAP: { [status: number]: string } = {
-  0: "startupNetworkError",
-  401: "startupTokenError",
-  403: "startupTokenError",
-  404: "connectionFailed",
-  408: "timeout",
-  429: "rateLimited",
-  431: "headersTooLarge",
+  0: "errorNetworkIssue",
+  401: "errorTokenIssue",
+  403: "errorTokenIssue",
+  404: "connectionFailedMessage",
+  408: "requestTimedOut",
+  429: "rateLimitExceeded",
+  431: "headersTooLargeMessage",
 }
 
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
   if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
-  if (s >= 500) return "startupServerError"
+  if (s >= 500) return "errorServerIssue"
   return undefined
 }
 
 const MESSAGE_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
-  { pattern: /failed to fetch/i, key: "startupNetworkError" },
-  { pattern: /timeout/i, key: "timeout" },
-  { pattern: /cors/i, key: "corsError" },
-  { pattern: /url.*too/i, key: "urlTooLong" },
+  { pattern: /failed to fetch/i, key: "errorNetworkIssue" },
+  { pattern: /timeout/i, key: "requestTimedOut" },
+  { pattern: /cors/i, key: "corsBlocked" },
+  { pattern: /url.*too/i, key: "urlTooLongMessage" },
 ]
 
 const matchMessagePattern = (message: string): string | undefined => {
@@ -222,7 +230,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
     const code = (err as any).code
     if (typeof code === "string") {
       if (code === "REQUEST_FAILED") {
-        return statusToKey(status) || "startupServerError"
+        return statusToKey(status) || "errorServerIssue"
       }
       const mapped = ERROR_CODE_TO_KEY[code]
       if (mapped) return mapped
@@ -238,7 +246,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
     if (matched) return matched
   }
 
-  return "unknownErrorOccurred"
+  return "errorUnknown"
 }
 
 export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
@@ -325,17 +333,17 @@ export function validateConnectionInputs(args: {
   const errors: { serverUrl?: string; token?: string; repository?: string } = {}
 
   const u = validateServerUrl(url)
-  if (!u.ok) errors.serverUrl = u.key || "errorInvalidServerUrl"
+  if (!u.ok) errors.serverUrl = u.key || "validations.urlInvalid"
 
   const t = validateToken(token)
-  if (!t.ok) errors.token = t.key || "errorTokenIsInvalid"
+  if (!t.ok) errors.token = t.key || "errorTokenIssue"
 
   const repoCheck = validateRepository(
     repository || "",
     availableRepos === undefined ? [] : availableRepos
   )
   if (!repoCheck.ok)
-    errors.repository = repoCheck.key || "errorRepositoryNotFound"
+    errors.repository = repoCheck.key || "connection.invalidRepository"
 
   return { ok: Object.keys(errors).length === 0, errors }
 }
@@ -384,7 +392,7 @@ export const createError = (
     timestampMs: Date.now(),
     userFriendlyMessage: options?.userFriendlyMessage || "",
     suggestion:
-      options?.suggestion || translate("checkConnectionSettings") || "",
+      options?.suggestion || translate("connectionSettingsHint") || "",
     retry: options?.retry,
     kind: "runtime",
   }
@@ -1111,11 +1119,11 @@ export const validatePolygon = async (
   simplified?: __esri.Polygon
 }> => {
   if (!geometry) {
-    return makeGeometryError("noGeometryProvided", "NO_GEOMETRY")
+    return makeGeometryError("geometryMissingMessage", "NO_GEOMETRY")
   }
 
   if (geometry.type !== "polygon") {
-    return makeGeometryError("geometryMustBePolygon", "INVALID_GEOMETRY_TYPE")
+    return makeGeometryError("geometryPolygonRequired", "INVALID_GEOMETRY_TYPE")
   }
 
   if (!modules?.geometryEngine && !modules?.geometryEngineAsync) {
@@ -1129,29 +1137,29 @@ export const validatePolygon = async (
 
     const simplified = await simplifyPolygon(poly, engine, engineAsync)
     if (!simplified) {
-      return makeGeometryError("polygonNotSimple", "INVALID_GEOMETRY")
+      return makeGeometryError("geometryNotSimple", "INVALID_GEOMETRY")
     }
     poly = simplified
 
     const rawRings = (poly as { rings?: unknown }).rings
     const rings = Array.isArray(rawRings) ? rawRings : []
     if (!validateRingStructure(rings)) {
-      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
     }
 
     const area = await calcArea(poly, modules)
     if (!area || area <= 0) {
-      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
     }
 
     if (!validateHolesWithinOuter(rings, poly, engine, modules)) {
-      return makeGeometryError("GEOMETRY_INVALID", "GEOMETRY_INVALID")
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
     }
 
     return { valid: true, simplified: poly }
   } catch {
     return makeGeometryError(
-      "geometryValidationFailed",
+      "geometryValidationFailedMessage",
       "GEOMETRY_VALIDATION_ERROR"
     )
   }
@@ -1205,7 +1213,7 @@ export const checkMaxArea = (
 
   return {
     ok: false,
-    message: "AREA_TOO_LARGE",
+    message: "geometryAreaTooLargeCode",
     code: "AREA_TOO_LARGE",
   }
 }
@@ -1283,7 +1291,7 @@ export const processFmeResponse = (
   }
 
   return createFailureResponse(
-    serviceInfo.message || translateFn("fmeJobSubmissionFailed")
+    serviceInfo.message || translateFn("errorJobSubmission")
   )
 }
 

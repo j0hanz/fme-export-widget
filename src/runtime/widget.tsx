@@ -479,7 +479,8 @@ export const clearPopupSuppression = (
 
 export const applyPopupSuppression = (
   ref: { current: PopupSuppressionRecord | null } | null | undefined,
-  popup: __esri.Popup | null | undefined
+  popup: __esri.Popup | null | undefined,
+  view: __esri.MapView | __esri.SceneView | null | undefined
 ): void => {
   if (!ref) return
 
@@ -490,14 +491,18 @@ export const applyPopupSuppression = (
 
   if (ref.current?.popup === popup) {
     try {
-      popup.close?.()
+      if (view && typeof (view as any).closePopup === "function") {
+        ;(view as any).closePopup()
+      } else if (typeof popup.close === "function") {
+        popup.close()
+      }
     } catch {}
     return
   }
 
   clearPopupSuppression(ref)
 
-  const record = createPopupSuppressionRecord(popup)
+  const record = createPopupSuppressionRecord(popup, view)
   ref.current = record
 }
 
@@ -933,15 +938,30 @@ export default function Widget(
     }
   )
 
+  const [areaWarning, setAreaWarning] = React.useState(false)
+
+  const updateAreaWarning = hooks.useEventCallback((next: boolean) => {
+    setAreaWarning(Boolean(next))
+  })
+
   const enablePopupGuard = hooks.useEventCallback(
     (view: JimuMapView | null | undefined) => {
       if (!view?.view) return
-      const popup = (view.view as any)?.popup as __esri.Popup | undefined
+      const mapView = view.view
+      const popup = (mapView as any)?.popup as __esri.Popup | undefined
       if (popup) {
-        popupSuppressionManager.acquire(popupClientIdRef.current, popup)
+        popupSuppressionManager.acquire(
+          popupClientIdRef.current,
+          popup,
+          mapView
+        )
       }
       try {
-        ;(view.view as any)?.closePopup?.()
+        if (typeof (mapView as any).closePopup === "function") {
+          ;(mapView as any).closePopup()
+        } else if (popup && typeof popup.close === "function") {
+          popup.close()
+        }
       } catch {}
     }
   )
@@ -1039,6 +1059,7 @@ export default function Widget(
     const latestConfig = configRef.current
 
     dispatch(fmeActions.resetState(widgetId))
+    updateAreaWarning(false)
 
     if (latestConfig?.repository) {
       dispatch(
@@ -1053,24 +1074,9 @@ export default function Widget(
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
     dispatch(fmeActions.setGeometry(null, 0, widgetId))
-    dispatch(fmeActions.setAreaWarning(false, widgetId))
+    updateAreaWarning(false)
     updateDrawingSession({ isActive: false, clickCount: 0 })
     dispatch(fmeActions.setError(null, widgetId))
-
-    hooks.useUpdateEffect(() => {
-      if (
-        runtimeState === WidgetState.Closed ||
-        runtimeState === WidgetState.Hidden
-      ) {
-        disablePopupGuard()
-      }
-    }, [runtimeState, disablePopupGuard])
-
-    hooks.useUpdateEffect(() => {
-      if (!jimuMapView) {
-        disablePopupGuard()
-      }
-    }, [jimuMapView, disablePopupGuard])
     dispatch(fmeActions.setImportError(null, widgetId))
     dispatch(fmeActions.setExportError(null, widgetId))
     dispatch(fmeActions.setOrderResult(null, widgetId))
@@ -1113,8 +1119,7 @@ export default function Widget(
       // Determine base error message with translation
       const baseMsgKey = error.message
       const resolvedMessage =
-        resolveMessageOrKey(baseMsgKey, translate) ||
-        translate("unknownErrorOccurred")
+        resolveMessageOrKey(baseMsgKey, translate) || translate("errorUnknown")
 
       // Decide how to guide the user depending on error type
       const codeUpper = (error.code || "").toUpperCase()
@@ -1129,11 +1134,11 @@ export default function Widget(
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
-        ? translate("geometryInvalidHint")
+        ? translate("hintGeometryInvalid")
         : isAreaTooLarge
-          ? translate("areaTooLargeHint")
+          ? translate("hintAreaTooLarge")
           : isConfigIncomplete
-            ? translate("startupConfigErrorHint")
+            ? translate("hintSetupWidget")
             : formatErrorForView(
                 translate,
                 baseMsgKey,
@@ -1161,12 +1166,12 @@ export default function Widget(
             } catch {}
           }
         })
-      actions.push({ label: translate("retry"), onClick: retryHandler })
+      actions.push({ label: translate("actionRetry"), onClick: retryHandler })
 
       // If offline, offer a reload action for convenience
       if (isNavigatorOffline()) {
         actions.push({
-          label: translate("reload"),
+          label: translate("actionReload"),
           onClick: () => {
             try {
               ;(globalThis as any).location?.reload()
@@ -1311,7 +1316,7 @@ export default function Widget(
       userFriendlyMessage: config?.supportEmail
         ? String(config.supportEmail)
         : "",
-      suggestion: translate("retryValidation"),
+      suggestion: translate("actionRetryValidation"),
       retry,
       kind: "runtime",
     })
@@ -1323,16 +1328,16 @@ export default function Widget(
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
-    setValidationStep(translate("validatingConfiguration"))
+    setValidationStep(translate("validatingStartup"))
 
     try {
       // Step 1: validate map configuration
-      setValidationStep(translate("validatingMapConfiguration"))
+      setValidationStep(translate("statusValidatingMap"))
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
 
       // Step 2: validate widget configuration and FME connection using shared service
-      setValidationStep(translate("validatingConnection"))
+      setValidationStep(translate("statusValidatingConnection"))
       const validationResult = await validateWidgetStartup({
         config,
         translate,
@@ -1347,7 +1352,7 @@ export default function Widget(
           // Fallback error
           setValidationError(
             createStartupError(
-              "invalidConfiguration",
+              "configurationInvalid",
               "VALIDATION_FAILED",
               runStartupValidation
             )
@@ -1358,13 +1363,13 @@ export default function Widget(
 
       // Step 3: validate user email only when async mode is in use
       if (!config?.syncMode) {
-        setValidationStep(translate("validatingUserEmail"))
+        setValidationStep(translate("statusValidatingEmail"))
         try {
           const email = await getEmail(config)
           if (!isValidEmail(email)) {
             setValidationError(
               createStartupError(
-                "userEmailMissing",
+                "userEmailMissingError",
                 "UserEmailMissing",
                 runStartupValidation
               )
@@ -1374,7 +1379,7 @@ export default function Widget(
         } catch (emailErr) {
           setValidationError(
             createStartupError(
-              "userEmailMissing",
+              "userEmailMissingError",
               "UserEmailMissing",
               runStartupValidation
             )
@@ -1386,7 +1391,7 @@ export default function Widget(
       // All validation passed
       setValidationSuccess()
     } catch (err: unknown) {
-      const errorKey = mapErrorToKey(err) || "unknownErrorOccurred"
+      const errorKey = mapErrorToKey(err) || "errorUnknown"
       const errorCode =
         typeof err === "object" && err !== null && "code" in err
           ? String((err as any).code)
@@ -1486,7 +1491,7 @@ export default function Widget(
       const geometry = evt.graphic?.geometry
       if (!geometry) return
       endSketchSession()
-      dispatch(fmeActions.setAreaWarning(false, widgetId))
+      updateAreaWarning(false)
 
       try {
         // Validate
@@ -1499,7 +1504,7 @@ export default function Widget(
           // Tear down drawing resources to reset state
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          dispatch(fmeActions.setAreaWarning(false, widgetId))
+          updateAreaWarning(false)
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error) {
             dispatch(fmeActions.setError(validation.error, widgetId))
@@ -1514,9 +1519,9 @@ export default function Widget(
 
         // Zero-area guard: reject invalid or degenerate geometries
         if (!calculatedArea || calculatedArea <= 0) {
-          dispatch(fmeActions.setAreaWarning(false, widgetId))
+          updateAreaWarning(false)
           dispatchError(
-            translate("invalidGeometry"),
+            translate("geometryInvalidCode"),
             ErrorType.VALIDATION,
             "ZERO_AREA"
           )
@@ -1536,15 +1541,15 @@ export default function Widget(
           } catch {}
           teardownDrawingResources()
           dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          dispatch(fmeActions.setAreaWarning(false, widgetId))
+          updateAreaWarning(false)
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (maxCheck.message) {
-            const messageKey = maxCheck.message || "AREA_TOO_LARGE"
+            const messageKey = maxCheck.message || "geometryAreaTooLargeCode"
             dispatchError(messageKey, ErrorType.VALIDATION, maxCheck.code)
           }
           return
         }
-        dispatch(fmeActions.setAreaWarning(areaEvaluation.shouldWarn, widgetId))
+        updateAreaWarning(areaEvaluation.shouldWarn)
 
         // Set visual symbol and replace geometry with simplified
         if (evt.graphic) {
@@ -1559,9 +1564,9 @@ export default function Widget(
         dispatch(fmeActions.setGeometry(geomForUse, normalizedArea, widgetId))
         dispatch(fmeActions.setViewMode(ViewMode.WORKSPACE_SELECTION, widgetId))
       } catch (error) {
-        dispatch(fmeActions.setAreaWarning(false, widgetId))
+        updateAreaWarning(false)
         dispatchError(
-          translate("drawingCompleteFailed"),
+          translate("errorDrawingComplete"),
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
@@ -1610,17 +1615,17 @@ export default function Widget(
   // Handle submission error
   const handleSubmissionError = (error: unknown) => {
     // Prefer localized message key resolution
-    const rawKey = mapErrorToKey(error) || "unknownErrorOccurred"
+    const rawKey = mapErrorToKey(error) || "errorUnknown"
     let localizedErr = ""
     try {
       localizedErr = resolveMessageOrKey(rawKey, translate)
     } catch {
-      localizedErr = translate("unknownErrorOccurred")
+      localizedErr = translate("errorUnknown")
     }
     // Build localized failure message and append contact support hint
     const configured = getSupportEmail(configRef.current?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
-    const baseFailMessage = translate("orderFailed")
+    const baseFailMessage = translate("errorOrderFailed")
     const resultMessage =
       `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
     const result: ExportResult = {
@@ -1736,7 +1741,7 @@ export default function Widget(
       try {
         // Localize drawing layer title
         ;(layer as unknown as { [key: string]: any }).title =
-          translate("drawingLayerTitle")
+          translate("labelDrawingLayer")
       } catch {}
       const svm = createSketchVM({
         jmv,
@@ -1761,7 +1766,7 @@ export default function Widget(
       } catch {}
     } catch (error) {
       dispatchError(
-        translate("mapInitFailed"),
+        translate("errorMapInit"),
         ErrorType.MODULE,
         "MAP_INIT_ERROR"
       )
@@ -1834,20 +1839,20 @@ export default function Widget(
   const getDrawingInstructions = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
       if (tool === DrawingTool.RECTANGLE) {
-        return translate("rectangleDrawingInstructions")
+        return translate("hintDrawRectangle")
       }
 
       if (tool === DrawingTool.POLYGON) {
         if (!isDrawing || clickCount === 0) {
-          return translate("polygonDrawingStart")
+          return translate("hintDrawPolygonStart")
         }
         if (clickCount < 3) {
-          return translate("polygonDrawingContinue")
+          return translate("hintDrawPolygonContinue")
         }
-        return translate("polygonDrawingComplete")
+        return translate("hintDrawPolygonComplete")
       }
 
-      return translate("drawInstruction")
+      return translate("hintSelectDrawingMode")
     }
   )
 
@@ -1859,7 +1864,7 @@ export default function Widget(
     updateDrawingSession({ isActive: true, clickCount: 0 })
     dispatch(fmeActions.setDrawingTool(tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-    dispatch(fmeActions.setAreaWarning(false, widgetId))
+    updateAreaWarning(false)
 
     // Clear and hide
     resetGraphicsAndMeasurements()
@@ -1907,6 +1912,7 @@ export default function Widget(
 
   // Previous runtime state for comparison
   const prevRuntimeState = hooks.usePrevious(runtimeState)
+  const prevRepository = hooks.usePrevious(reduxState.currentRepository)
 
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
@@ -1998,8 +2004,8 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     const hasGeometry = Boolean(reduxState.geometryJson)
     if (!hasGeometry) {
-      if (reduxState.areaWarning) {
-        dispatch(fmeActions.setAreaWarning(false, widgetId))
+      if (areaWarning) {
+        updateAreaWarning(false)
       }
       return
     }
@@ -2009,15 +2015,45 @@ export default function Widget(
       largeArea: config?.largeArea,
     })
     const shouldWarn = evaluation.shouldWarn
-    if (shouldWarn !== reduxState.areaWarning) {
-      dispatch(fmeActions.setAreaWarning(shouldWarn, widgetId))
+    if (shouldWarn !== areaWarning) {
+      updateAreaWarning(shouldWarn)
     }
   }, [
     reduxState.geometryJson,
     reduxState.drawnArea,
-    reduxState.areaWarning,
+    areaWarning,
     config?.largeArea,
+    config?.maxArea,
+    updateAreaWarning,
   ])
+
+  hooks.useUpdateEffect(() => {
+    if (reduxState.currentRepository !== prevRepository && areaWarning) {
+      updateAreaWarning(false)
+    }
+  }, [
+    reduxState.currentRepository,
+    prevRepository,
+    areaWarning,
+    updateAreaWarning,
+  ])
+
+  // Disable popup guard when widget is closed or hidden
+  hooks.useUpdateEffect(() => {
+    if (
+      runtimeState === WidgetState.Closed ||
+      runtimeState === WidgetState.Hidden
+    ) {
+      disablePopupGuard()
+    }
+  }, [runtimeState, disablePopupGuard])
+
+  // Disable popup guard when map view is removed
+  hooks.useUpdateEffect(() => {
+    if (!jimuMapView) {
+      disablePopupGuard()
+    }
+  }, [jimuMapView, disablePopupGuard])
 
   // Workspace handlers
   const handleWorkspaceSelected = hooks.useEventCallback(
@@ -2076,7 +2112,10 @@ export default function Widget(
     return (
       <div css={styles.parent}>
         <StateView
-          state={{ kind: "loading", message: translate("preparingMapTools") }}
+          state={{
+            kind: "loading",
+            message: translate("statusPreparingMapTools"),
+          }}
         />
       </div>
     )
@@ -2086,7 +2125,7 @@ export default function Widget(
       <div css={styles.parent}>
         {renderWidgetError(
           {
-            message: "mapInitFailed",
+            message: "errorMapInit",
             type: ErrorType.MODULE,
             code: "MAP_MODULES_LOAD_FAILED",
             severity: ErrorSeverity.ERROR,
@@ -2158,7 +2197,7 @@ export default function Widget(
         isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
-        areaWarning={reduxState.areaWarning}
+        areaWarning={areaWarning}
         formatArea={(area: number) =>
           formatArea(area, modules, jimuMapView?.view?.spatialReference)
         }

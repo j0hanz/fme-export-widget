@@ -2,7 +2,7 @@ export default {
   back: "Tillbaka",
   submit: "Beställ",
   cancel: "Avbryt",
-  retry: "Försök igen",
+  actionRetry: "Försök igen",
   validatingStartup: "Validerar konfiguration...",
   orderConfirmation: "Beställningen är bekräftad",
   orderComplete: "Exporten är klar",
@@ -10,7 +10,7 @@ export default {
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
   notificationEmail: "E‑post",
-  contactSupportWithEmail: "Kontakta supporten på {email}",
+  contactSupportEmail: "Kontakta supporten via {email}.",
   emailNotificationSent: "E‑postmeddelande skickas när jobbet är klart.",
   clickToDownload: "Ladda ner filen",
   reuseGeography: "Ny beställning",
@@ -18,7 +18,7 @@ export default {
   orderResultMissing: "Inget tillgängligt",
   submittingOrder: "Skickar beställningen...",
   submittingOrderSync: "Bearbetar beställningen... Detta kan ta flera minuter.",
-  preparingMapTools: "Förbereder kartverktygen...",
+  statusPreparingMapTools: "Förbereder kartverktygen...",
   loadingWorkspaces: "Laddar arbetsytor...",
   loadingWorkspaceDetails: "Laddar information om arbetsytan...",
   drawingModeTooltip: "Välj ritläge för att definiera området",
@@ -35,7 +35,7 @@ export default {
   failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",
   failedToLoadWorkspaceDetails:
     "Det gick inte att ladda information om arbetsytan",
-  unknownErrorOccurred: "Ett okänt fel inträffade",
+  errorUnknown: "Ett okänt fel inträffade",
   largeAreaWarning:
     "Ritad AOI {current} kan göra att exporten tar längre tid än normalt.",
   largeAreaWarningWithThreshold:
@@ -84,4 +84,5 @@ export default {
   textInput: "Textinmatning",
   fileInput: "Filuppladdning",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
+  errorLoadingTimeout: "Inläsningen tog för lång tid. Försök igen.",
 }

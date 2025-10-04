@@ -1762,13 +1762,13 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupConfigError",
+        "errorSetupRequired",
         ErrorType.CONFIG,
         "configMissing",
         translate,
         {
-          suggestion: translate("openSettingsPanel"),
-          userFriendlyMessage: translate("startupConfigErrorHint"),
+          suggestion: translate("actionOpenSettings"),
+          userFriendlyMessage: translate("hintSetupWidget"),
         }
       ),
     }
@@ -1784,7 +1784,7 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupConfigError",
+        "errorSetupRequired",
         ErrorType.CONFIG,
         "CONFIG_INCOMPLETE",
         translate
@@ -1807,19 +1807,19 @@ export async function validateWidgetStartup(
         canProceed: false,
         requiresSettings: true,
         error: createError(
-          connectionResult.error?.message || "startupConnectionError",
+          connectionResult.error?.message || "errorConnectionIssue",
           ErrorType.NETWORK,
           connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
           translate,
           {
             suggestion:
               connectionResult.error?.type === "token"
-                ? translate("checkTokenSettings")
+                ? translate("tokenSettingsHint")
                 : connectionResult.error?.type === "server"
-                  ? translate("checkServerUrlSettings")
+                  ? translate("serverUrlSettingsHint")
                   : connectionResult.error?.type === "repository"
-                    ? translate("checkRepositorySettings")
-                    : translate("checkConnectionSettings"),
+                    ? translate("repositorySettingsHint")
+                    : translate("connectionSettingsHint"),
           }
         ),
       }
@@ -1846,12 +1846,12 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupNetworkError",
+        "errorNetworkIssue",
         ErrorType.NETWORK,
         "STARTUP_NETWORK_ERROR",
         translate,
         {
-          suggestion: translate("checkNetworkConnection"),
+          suggestion: translate("networkConnectionHint"),
         }
       ),
     }

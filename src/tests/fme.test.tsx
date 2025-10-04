@@ -591,7 +591,7 @@ describe("processFmeResponse", () => {
   const translate = (key: string) =>
     ({
       noDataInResponse: "No data",
-      fmeJobSubmissionFailed: "Failed",
+      errorJobSubmission: "Failed",
     })[key] ?? key
 
   it("handles blob responses for streaming services", () => {
