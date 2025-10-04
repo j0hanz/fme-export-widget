@@ -396,8 +396,12 @@ describe("Setting builder interactions", () => {
 
     const messageField = getByLabel(
       "Varningsmeddelande (stor AOI)"
-    ) as HTMLInputElement
+    ) as HTMLTextAreaElement
+    const infoField = getByLabel(
+      "Informationsmeddelande (stor AOI)"
+    ) as HTMLTextAreaElement
     expect(messageField).toBeDisabled()
+    expect(infoField).toBeDisabled()
 
     const largeAreaInput = getByLabel("AOI-varning (m²)") as HTMLInputElement
     fireEvent.change(largeAreaInput, { target: { value: "400" } })
@@ -411,7 +415,10 @@ describe("Setting builder interactions", () => {
 
     await waitFor(() => {
       expect(
-        getByLabel("Varningsmeddelande (stor AOI)") as HTMLInputElement
+        getByLabel("Varningsmeddelande (stor AOI)") as HTMLTextAreaElement
+      ).not.toBeDisabled()
+      expect(
+        getByLabel("Informationsmeddelande (stor AOI)") as HTMLTextAreaElement
       ).not.toBeDisabled()
     })
   })
@@ -425,8 +432,12 @@ describe("Setting builder interactions", () => {
 
     const messageField = getByLabel(
       "Varningsmeddelande (stor AOI)"
-    ) as HTMLInputElement
+    ) as HTMLTextAreaElement
+    const infoField = getByLabel(
+      "Informationsmeddelande (stor AOI)"
+    ) as HTMLTextAreaElement
     expect(messageField).not.toBeDisabled()
+    expect(infoField).not.toBeDisabled()
 
     fireEvent.change(messageField, {
       target: { value: "  AOI {current}  är stor." },
@@ -442,11 +453,31 @@ describe("Setting builder interactions", () => {
       )
     ).toBe(true)
 
+    fireEvent.change(infoField, {
+      target: { value: "  Kontrollera {threshold}  innan export." },
+    })
+    fireEvent.blur(infoField, {
+      target: { value: "  Kontrollera {threshold}  innan export." },
+    })
+
+    configs = extractConfigs(onSettingChange)
+    expect(
+      configs.some(
+        (cfg) =>
+          cfg.largeAreaWarningDetails ===
+          "Kontrollera {threshold} innan export."
+      )
+    ).toBe(true)
+
     fireEvent.change(messageField, { target: { value: "" } })
     fireEvent.blur(messageField, { target: { value: "" } })
+
+    fireEvent.change(infoField, { target: { value: "" } })
+    fireEvent.blur(infoField, { target: { value: "" } })
 
     configs = extractConfigs(onSettingChange)
     const clearedConfig = configs[configs.length - 1]
     expect(clearedConfig?.largeAreaWarningMessage).toBeUndefined()
+    expect(clearedConfig?.largeAreaWarningDetails).toBeUndefined()
   })
 })

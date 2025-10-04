@@ -225,10 +225,43 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     null
   )
   const isMountedRef = React.useRef(true)
+  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(null)
 
   const dispatchAction = hooks.useEventCallback((action: unknown) => {
     reduxDispatch(action)
   })
+
+  const beginLoading = hooks.useEventCallback(
+    (scope: "workspaces" | "parameters") => {
+      loadingScopeRef.current = scope
+      reduxDispatch(fmeActions.setLoadingFlag(scope, true, widgetId))
+      setIsLoading(true)
+    }
+  )
+
+  const finishLoading = hooks.useEventCallback(
+    (
+      scope: "workspaces" | "parameters",
+      options?: { resetLocal?: boolean }
+    ) => {
+      const shouldUpdateLocal = options?.resetLocal ?? true
+      reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
+      if (loadingScopeRef.current === scope) {
+        loadingScopeRef.current = null
+        if (shouldUpdateLocal && isMountedRef.current) {
+          setIsLoading(false)
+        }
+        return
+      }
+      if (
+        !loadingScopeRef.current &&
+        shouldUpdateLocal &&
+        isMountedRef.current
+      ) {
+        setIsLoading(false)
+      }
+    }
+  )
 
   // Cleanup on unmount
   hooks.useEffectOnce(() => {
@@ -241,6 +274,11 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current)
         loadTimeoutRef.current = null
+      }
+      const scope = loadingScopeRef.current
+      if (scope) {
+        reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
+        loadingScopeRef.current = null
       }
     }
   })
@@ -269,6 +307,11 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     if (loadAbortRef.current) {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
+    }
+    const scope = loadingScopeRef.current
+    if (scope) {
+      finishLoading(scope)
+    } else {
       setIsLoading(false)
     }
   })
@@ -287,9 +330,11 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         return
       }
 
-      dispatchAction(fmeActions.setWorkspaceItem(workspaceItem, widgetId))
       dispatchAction(
-        fmeActions.setWorkspaceParameters(parameters, workspaceName, widgetId)
+        fmeActions.applyWorkspaceData(
+          { workspaceName, parameters, item: workspaceItem },
+          widgetId
+        )
       )
     }
   )
@@ -308,7 +353,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     cancelCurrent()
     const controller = new AbortController()
     loadAbortRef.current = controller
-    setIsLoading(true)
+    beginLoading("workspaces")
     setError(null)
 
     try {
@@ -355,7 +400,13 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       }
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false)
+        finishLoading("workspaces")
+      } else {
+        reduxDispatch(fmeActions.setLoadingFlag("workspaces", false, widgetId))
+        loadingScopeRef.current =
+          loadingScopeRef.current === "workspaces"
+            ? null
+            : loadingScopeRef.current
       }
       if (loadAbortRef.current === controller) {
         loadAbortRef.current = null
@@ -378,7 +429,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         cancelCurrent()
         controller = new AbortController()
         loadAbortRef.current = controller
-        setIsLoading(true)
+        beginLoading("parameters")
         setError(null)
 
         const [itemResponse, parametersResponse] = await Promise.all([
@@ -415,7 +466,17 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         const msg = formatError(err, "failedToLoadWorkspaceDetails")
         if (msg && isMountedRef.current) setError(msg)
       } finally {
-        if (isMountedRef.current) setIsLoading(false)
+        if (isMountedRef.current) {
+          finishLoading("parameters")
+        } else {
+          reduxDispatch(
+            fmeActions.setLoadingFlag("parameters", false, widgetId)
+          )
+          loadingScopeRef.current =
+            loadingScopeRef.current === "parameters"
+              ? null
+              : loadingScopeRef.current
+        }
         if (controller && loadAbortRef.current === controller) {
           loadAbortRef.current = null
         }
@@ -449,7 +510,12 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
 
     const timeoutId = setTimeout(() => {
       if (isMountedRef.current && isLoading) {
-        setIsLoading(false)
+        const scope = loadingScopeRef.current
+        if (scope) {
+          finishLoading(scope)
+        } else {
+          setIsLoading(false)
+        }
         setError(translate("errorLoadingTimeout"))
       }
     }, LOADING_TIMEOUT_MS)
@@ -457,7 +523,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     return () => {
       clearTimeout(timeoutId)
     }
-  }, [isLoading])
+  }, [isLoading, finishLoading, translate])
 
   return { isLoading, error, loadAll, loadItem, scheduleLoad }
 }
@@ -1034,6 +1100,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       state === ViewMode.EXPORT_FORM)
 
   let areaWarningMessage: string | null = null
+  let areaInfoMessage: string | null = null
   if (areaWarningActive) {
     const currentAreaText = formatAreaValue(drawnArea)
     const thresholdAreaText =
@@ -1047,6 +1114,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
       template: config?.largeAreaWarningMessage,
       translate,
     })
+
+    const infoTemplate = toTrimmedString(config?.largeAreaWarningDetails)
+    if (infoTemplate) {
+      const resolvedInfo = buildLargeAreaWarningMessage({
+        currentAreaText,
+        thresholdAreaText,
+        template: infoTemplate,
+        translate,
+      })
+      const trimmedInfo = toTrimmedString(resolvedInfo)
+      if (trimmedInfo) {
+        areaInfoMessage = trimmedInfo
+      }
+    }
   }
 
   // Small helpers to render common StateViews consistently
@@ -1239,37 +1320,61 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Header
   const renderHeader = () => {
-    // Never show cancel in pre-draw states where ButtonTabs are rendered
-    if (state === ViewMode.INITIAL) return null
-    if (state === ViewMode.DRAWING && (clickCount || 0) === 0) return null
+    const showAlertIcon = Boolean(areaWarningActive && areaWarningMessage)
 
-    const resetEnabled = canResetButton(
-      onReset,
-      canResetProp,
-      state,
-      drawnArea ?? 0,
-      isDrawing,
-      clickCount
-    )
+    let resetButton: React.ReactNode = null
+    const canShowReset =
+      state !== ViewMode.INITIAL &&
+      !(state === ViewMode.DRAWING && (clickCount || 0) === 0)
 
-    if (!resetEnabled) return null
+    if (canShowReset) {
+      const resetEnabled = canResetButton(
+        onReset,
+        canResetProp,
+        state,
+        drawnArea ?? 0,
+        isDrawing,
+        clickCount
+      )
+
+      if (resetEnabled) {
+        resetButton = (
+          <Button
+            icon={resetIcon}
+            tooltip={translate("tooltipCancel")}
+            tooltipPlacement="bottom"
+            onClick={onReset}
+            color="inherit"
+            type="default"
+            variant="contained"
+            alignText="start"
+            text={translate("cancel")}
+            size="sm"
+            aria-label={translate("tooltipCancel")}
+            logging={{ enabled: true, prefix: "FME-Export-Header" }}
+            block={false}
+          />
+        )
+      }
+    }
+
+    if (!showAlertIcon && !resetButton) return null
 
     return (
-      <Button
-        icon={resetIcon}
-        tooltip={translate("tooltipCancel")}
-        tooltipPlacement="bottom"
-        onClick={onReset}
-        color="inherit"
-        type="default"
-        variant="contained"
-        alignText="start"
-        text={translate("cancel")}
-        size="sm"
-        aria-label={translate("tooltipCancel")}
-        logging={{ enabled: true, prefix: "FME-Export-Header" }}
-        block={false}
-      />
+      <>
+        {showAlertIcon ? (
+          <div css={styles.headerAlert}>
+            <Alert
+              variant="icon"
+              type="warning"
+              text={areaWarningMessage ?? undefined}
+              role="alert"
+              tooltipPlacement="bottom"
+            />
+          </div>
+        ) : null}
+        {resetButton}
+      </>
     )
   }
 
@@ -1328,15 +1433,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         <div css={styles.button.default} role="list">
           {renderWorkspaceButtons()}
         </div>
-        {areaWarningMessage && (
+        {areaInfoMessage && (
           <div css={styles.selection.warning}>
-            <Alert
-              fullWidth
-              text={areaWarningMessage}
-              type="warning"
-              closable={false}
-              role="alert"
-            />
+            <div css={styles.selection.message}>{areaInfoMessage}</div>
           </div>
         )}
       </div>

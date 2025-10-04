@@ -746,6 +746,7 @@ export interface FmeExportConfig {
   readonly repository: string
   readonly largeArea?: number
   readonly largeAreaWarningMessage?: string
+  readonly largeAreaWarningDetails?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean

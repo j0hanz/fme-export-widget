@@ -816,6 +816,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
     largeAreaMessage: "setting-large-area-message",
+    largeAreaDetails: "setting-large-area-details",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
@@ -887,6 +888,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localLargeAreaMessage, setLocalLargeAreaMessage] =
     React.useState<string>(() => {
       const raw = getStringConfig("largeAreaWarningMessage") || ""
+      if (!raw) return ""
+      return normalizeLargeAreaMessage(raw)
+    })
+  const [localLargeAreaDetails, setLocalLargeAreaDetails] =
+    React.useState<string>(() => {
+      const raw = getStringConfig("largeAreaWarningDetails") || ""
       if (!raw) return ""
       return normalizeLargeAreaMessage(raw)
     })
@@ -1010,6 +1017,26 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setLocalLargeAreaMessage(sanitized)
     updateConfig("largeAreaWarningMessage", sanitized as any)
     setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
+  })
+
+  const handleLargeAreaDetailsChange = hooks.useEventCallback((val: string) => {
+    const cleaned = normalizeLargeAreaMessageInput(val)
+    setLocalLargeAreaDetails(cleaned)
+    setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
+  })
+
+  const handleLargeAreaDetailsBlur = hooks.useEventCallback((val: string) => {
+    const sanitized = normalizeLargeAreaMessage(val)
+    if (!sanitized) {
+      setLocalLargeAreaDetails("")
+      updateConfig("largeAreaWarningDetails", undefined as any)
+      setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
+      return
+    }
+
+    setLocalLargeAreaDetails(sanitized)
+    updateConfig("largeAreaWarningDetails", sanitized as any)
+    setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
   })
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
@@ -1674,6 +1701,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const rawMessage = getStringConfig("largeAreaWarningMessage") || ""
     const sanitized = rawMessage ? normalizeLargeAreaMessage(rawMessage) : ""
     setLocalLargeAreaMessage(sanitized)
+
+    const rawDetails = getStringConfig("largeAreaWarningDetails") || ""
+    const sanitizedDetails = rawDetails
+      ? normalizeLargeAreaMessage(rawDetails)
+      : ""
+    setLocalLargeAreaDetails(sanitizedDetails)
   }, [config])
 
   return (
@@ -2030,6 +2063,28 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
           disabled={!isLargeAreaMessageEnabled}
           errorText={fieldErrors.largeAreaMessage}
+          rows={3}
+          styles={settingStyles}
+        />
+        <TextAreaRow
+          id={ID.largeAreaDetails}
+          label={
+            <Tooltip
+              content={translate("largeAreaInfoMessageHelper", {
+                max: CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX,
+              })}
+              placement="top"
+            >
+              {translate("largeAreaInfoMessageLabel")}
+            </Tooltip>
+          }
+          value={localLargeAreaDetails}
+          onChange={handleLargeAreaDetailsChange}
+          onBlur={handleLargeAreaDetailsBlur}
+          placeholder={translate("largeAreaInfoMessagePlaceholder")}
+          maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
+          disabled={!isLargeAreaMessageEnabled}
+          errorText={fieldErrors.largeAreaDetails}
           rows={3}
           styles={settingStyles}
         />

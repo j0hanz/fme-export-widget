@@ -548,7 +548,7 @@ describe("Workflow component", () => {
         clickCount={0}
         onReset={jest.fn()}
         canReset={true}
-        showHeaderActions={false}
+        showHeaderActions={true}
         onWorkspaceSelected={jest.fn()}
         onWorkspaceBack={jest.fn()}
         selectedWorkspace={null}
@@ -563,9 +563,15 @@ describe("Workflow component", () => {
 
     const alert = screen.getByTestId("mock-alert")
     expect(alert).toBeInTheDocument()
+    expect(alert).toHaveAttribute("role", "alert")
     expect(alert).toHaveTextContent("överstiger")
     expect(alert).toHaveTextContent("50000 kvm")
     expect(alert).toHaveTextContent("40000 kvm")
+
+    const infoMatches = screen.getAllByText(/Exporten kan ta längre tid\./i)
+    expect(
+      infoMatches.some((node) => node.getAttribute("role") !== "alert")
+    ).toBe(true)
   })
 
   it("uses custom large-area warning message when provided", () => {
@@ -603,7 +609,7 @@ describe("Workflow component", () => {
         clickCount={0}
         onReset={jest.fn()}
         canReset={true}
-        showHeaderActions={false}
+        showHeaderActions={true}
         onWorkspaceSelected={jest.fn()}
         onWorkspaceBack={jest.fn()}
         selectedWorkspace={null}
@@ -619,6 +625,11 @@ describe("Workflow component", () => {
     const alert = screen.getByTestId("mock-alert")
     expect(alert).toHaveTextContent("AOI 42000 m² passerar gränsen.")
     expect(alert).not.toHaveTextContent("Stora områden")
+
+    const strayMessages = screen
+      .getAllByText("AOI 42000 m² passerar gränsen.")
+      .filter((node) => !node.closest('[data-testid="mock-alert"]'))
+    expect(strayMessages).toHaveLength(0)
   })
 
   it("respects custom templates without placeholders", () => {
@@ -656,7 +667,7 @@ describe("Workflow component", () => {
         clickCount={0}
         onReset={jest.fn()}
         canReset={true}
-        showHeaderActions={false}
+        showHeaderActions={true}
         onWorkspaceSelected={jest.fn()}
         onWorkspaceBack={jest.fn()}
         selectedWorkspace={null}
@@ -672,6 +683,67 @@ describe("Workflow component", () => {
     const alert = screen.getByTestId("mock-alert")
     expect(alert).toHaveTextContent("Kontrollera AOI innan export.")
     expect(alert).not.toHaveTextContent("27500 m²")
+
+    const strayMessages = screen
+      .getAllByText("Kontrollera AOI innan export.")
+      .filter((node) => !node.closest('[data-testid="mock-alert"]'))
+    expect(strayMessages).toHaveLength(0)
+  })
+
+  it("renders configured large-area detail message", () => {
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={
+          {
+            largeArea: 18000,
+            largeAreaWarningDetails: "AOI {current} är större än {threshold}.",
+            repository: "repo-1",
+          } as any
+        }
+        state={ViewMode.WORKSPACE_SELECTION}
+        instructionText="Rita AOI"
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
+        canStartDrawing={true}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={null}
+        onReuseGeography={jest.fn()}
+        onBack={jest.fn()}
+        drawnArea={20000}
+        areaWarning={true}
+        formatArea={(value: number) => `${value} m²`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        onReset={jest.fn()}
+        canReset={true}
+        showHeaderActions={true}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    const detailNodes = screen.getAllByText(
+      "AOI 20000 m² är större än 18000 m²."
+    )
+    expect(
+      detailNodes.some((node) => !node.closest('[data-testid="mock-alert"]'))
+    ).toBe(true)
   })
 })
 
@@ -691,6 +763,18 @@ describe("Alert component", () => {
       expect(icon).toHaveAttribute("data-src", expectedIcon)
     }
   )
+
+  it("renders icon variant with tooltip and hides inline text", () => {
+    renderWithProviders(<Alert variant="icon" type="warning" text="Caution" />)
+    const alert = screen.getByTestId("mock-alert")
+    expect(alert).not.toHaveTextContent("Caution")
+    const icon = alert.querySelector('[data-testid="mock-svg"]')
+    expect(icon).not.toBeNull()
+    expect(screen.getByTestId("mock-tooltip")).toHaveAttribute(
+      "data-title",
+      "Caution"
+    )
+  })
 })
 
 describe("Button component", () => {

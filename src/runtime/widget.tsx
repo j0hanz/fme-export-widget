@@ -518,11 +518,13 @@ const useEsriModules = (
 ): {
   modules: EsriModules | null
   loading: boolean
+  errorKey: string | null
 } => {
   const [state, setState] = React.useState<{
     modules: EsriModules | null
     loading: boolean
-  }>({ modules: null, loading: true })
+    errorKey: string | null
+  }>({ modules: null, loading: true, errorKey: null })
 
   hooks.useEffectWithPreviousValues(() => {
     let cancelled = false
@@ -530,6 +532,7 @@ const useEsriModules = (
     setState((prev) => ({
       modules: reloadSignal === 0 ? prev.modules : null,
       loading: true,
+      errorKey: null,
     }))
 
     const loadModules = async () => {
@@ -579,10 +582,11 @@ const useEsriModules = (
             geometryOperators,
           } as EsriModules,
           loading: false,
+          errorKey: null,
         })
       } catch (error) {
         if (!cancelled) {
-          setState({ modules: null, loading: false })
+          setState({ modules: null, loading: false, errorKey: "errorMapInit" })
         }
       }
     }
@@ -1003,6 +1007,7 @@ export default function Widget(
   const isSubmitting = ReactRedux.useSelector(
     selectors.selectLoadingFlag("submission")
   )
+  const canExport = ReactRedux.useSelector(selectors.selectCanExport)
   const scopedError = ReactRedux.useSelector(selectors.selectError)
   const previousViewMode = hooks.usePrevious(viewMode)
   const generalErrorDetails =
@@ -1108,6 +1113,12 @@ export default function Widget(
   // Error handling
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionAbort = useLatestAbortController()
+
+  const navigateTo = hooks.useEventCallback((nextView: ViewMode) => {
+    dispatch(fmeActions.clearError("export", widgetId))
+    dispatch(fmeActions.clearError("import", widgetId))
+    dispatch(fmeActions.setViewMode(nextView, widgetId))
+  })
 
   // Compute symbols from configured color (single source of truth = config)
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
@@ -1330,8 +1341,35 @@ export default function Widget(
     }
   )
 
-  const { modules, loading: modulesLoading } = useEsriModules(moduleRetryKey)
+  const {
+    modules,
+    loading: modulesLoading,
+    errorKey: modulesErrorKey,
+  } = useEsriModules(moduleRetryKey)
   const mapResources = useMapResources()
+
+  React.useEffect(() => {
+    dispatch(
+      fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
+    )
+  }, [dispatch, modulesLoading, widgetId])
+
+  React.useEffect(() => {
+    if (!modulesErrorKey) {
+      return
+    }
+    dispatchError(modulesErrorKey, ErrorType.MODULE, "MAP_MODULES_LOAD_FAILED")
+  }, [modulesErrorKey, dispatchError])
+
+  hooks.useUpdateEffect(() => {
+    if (
+      !modulesLoading &&
+      modules &&
+      generalError?.code === "MAP_MODULES_LOAD_FAILED"
+    ) {
+      dispatch(fmeActions.clearError("general", widgetId))
+    }
+  }, [modulesLoading, modules, generalError?.code, dispatch, widgetId])
 
   const getActiveGeometry = hooks.useEventCallback(() => {
     if (!geometryJson || !modules?.Polygon) {
@@ -1394,6 +1432,7 @@ export default function Widget(
 
   const setValidationSuccess = hooks.useEventCallback(() => {
     setStartupState({ isValidating: false, step: undefined, error: null })
+    dispatch(fmeActions.clearError("general", widgetId))
     dispatch(fmeActions.completeStartup(widgetId))
     const currentViewMode = viewModeRef.current
     const isUnset =
@@ -1402,12 +1441,13 @@ export default function Widget(
       currentViewMode === ViewMode.STARTUP_VALIDATION ||
       currentViewMode === ViewMode.INITIAL
     if (isUnset || isStartupPhase) {
-      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+      navigateTo(ViewMode.DRAWING)
     }
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
     setStartupState({ isValidating: false, step: undefined, error })
+    dispatch(fmeActions.setError("general", error, widgetId))
   })
 
   // Small helper to build consistent startup validation errors
@@ -1687,27 +1727,10 @@ export default function Widget(
     }
   )
 
-  // Form submission guard clauses
-  const canSubmit = (): boolean => {
-    const hasGeometry = Boolean(geometryJson)
-    if (!hasGeometry || !selectedWorkspace) {
-      return false
-    }
-
-    // Re-validate area constraints before submission
-    const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
-    if (!maxCheck.ok && maxCheck.message) {
-      dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
-      return false
-    }
-
-    return true
-  }
-
   // Handle successful submission
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
     dispatch(fmeActions.setOrderResult(result, widgetId))
-    dispatch(fmeActions.setViewMode(ViewMode.ORDER_RESULT, widgetId))
+    navigateTo(ViewMode.ORDER_RESULT)
   })
 
   // Handle successful submission
@@ -1751,7 +1774,13 @@ export default function Widget(
 
   // Form submission handler
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    if (isSubmitting || !canSubmit()) {
+    if (isSubmitting || !canExport) {
+      return
+    }
+
+    const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
+    if (!maxCheck.ok && maxCheck.message) {
+      dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
       return
     }
 
@@ -2163,22 +2192,18 @@ export default function Widget(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      dispatch(fmeActions.setSelectedWorkspace(workspaceName, widgetId))
       dispatch(
-        fmeActions.setWorkspaceParameters(parameters, workspaceName, widgetId)
+        fmeActions.applyWorkspaceData(
+          { workspaceName, parameters, item: workspaceItem },
+          widgetId
+        )
       )
-      dispatch(fmeActions.setWorkspaceItem(workspaceItem, widgetId))
-      dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM, widgetId))
+      navigateTo(ViewMode.EXPORT_FORM)
     }
   )
 
   const handleWorkspaceBack = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setViewMode(ViewMode.INITIAL, widgetId))
-  })
-
-  // Navigation helpers
-  const navigateTo = hooks.useEventCallback((viewMode: ViewMode) => {
-    dispatch(fmeActions.setViewMode(viewMode, widgetId))
+    navigateTo(ViewMode.INITIAL)
   })
 
   const navigateBack = hooks.useEventCallback(() => {

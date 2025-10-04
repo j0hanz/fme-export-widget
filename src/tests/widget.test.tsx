@@ -439,7 +439,11 @@ describe("useEsriModules", () => {
   it("loads ArcGIS modules and exposes them via state", async () => {
     loadArcgisModulesMock.mockResolvedValueOnce(buildModules())
 
-    const states: Array<{ modules: EsriModules | null; loading: boolean }> = []
+    const states: Array<{
+      modules: EsriModules | null
+      loading: boolean
+      errorKey: string | null
+    }> = []
 
     const Harness: React.FC<{ reload: number }> = ({ reload }) => {
       const state = useEsriModules(reload)
@@ -455,6 +459,7 @@ describe("useEsriModules", () => {
       const latest = states.at(-1)
       expect(latest?.loading).toBe(false)
       expect(latest?.modules?.SketchViewModel).toBeDefined()
+      expect(latest?.errorKey).toBeNull()
     })
 
     loadArcgisModulesMock.mockResolvedValueOnce(buildModules())
@@ -465,6 +470,7 @@ describe("useEsriModules", () => {
       const latest = states.at(-1)
       expect(latest?.loading).toBe(false)
       expect(loadArcgisModulesMock).toHaveBeenCalledTimes(2)
+      expect(latest?.errorKey).toBeNull()
     })
   })
 })

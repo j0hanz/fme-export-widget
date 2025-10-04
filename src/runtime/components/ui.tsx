@@ -191,7 +191,18 @@ const createStyles = (theme: IMThemeVariables) => {
       backgroundColor: colors?.surface?.paper,
     }),
 
-    header: flexRow({ placeContent: "end", marginBlockEnd: spacing?.(2) }),
+    header: flexRow({
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap,
+      marginBlockEnd: spacing?.(2),
+    }),
+
+    headerAlert: css({
+      marginInlineEnd: "auto",
+      display: "flex",
+      alignItems: "center",
+    }),
 
     content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
     contentCentered: flexColumn({
@@ -232,6 +243,12 @@ const createStyles = (theme: IMThemeVariables) => {
     alertMessage: css({
       flex: "1 1 auto",
       ...getTypographyStyle(typography?.label2),
+    }),
+
+    alertIconOnly: css({
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
     }),
 
     // Typography styles
@@ -316,6 +333,11 @@ const createStyles = (theme: IMThemeVariables) => {
     selection: {
       container: flexColumn({ flex: flexAuto, gap, minBlockSize: 0 }),
       warning: css({ marginBlockStart: "auto" }),
+      message: css({
+        marginBlockStart: "auto",
+        ...getTypographyStyle(typography?.body2),
+        color: colors?.surface?.backgroundText,
+      }),
     },
 
     fieldGroup: css({
@@ -1329,38 +1351,108 @@ export const Button: React.FC<ButtonProps> = ({
     : buttonElement
 }
 
-export const Alert: React.FC<React.ComponentProps<typeof JimuAlert>> = ({
+type AlertDisplayVariant = "default" | "icon"
+
+type AlertComponentBaseProps = React.ComponentProps<typeof JimuAlert>
+
+type AlertComponentProps = Omit<
+  AlertComponentBaseProps,
+  "variant" | "withIcon"
+> & {
+  variant?: AlertDisplayVariant
+  jimuVariant?: AlertComponentBaseProps["variant"]
+  tooltipPlacement?: TooltipProps["placement"]
+  withIcon?: AlertComponentBaseProps["withIcon"]
+}
+
+export const Alert: React.FC<AlertComponentProps> = ({
   className,
   style,
   text,
   children,
   type = "warning",
   withIcon: _withIcon,
+  variant = "default",
+  jimuVariant,
+  tooltipPlacement = config.tooltip.position.top,
   ...rest
 }) => {
   const styles = useStyles()
   const iconKey = ALERT_ICON_MAP[type as AlertVariant]
   const messageContent = children ?? (text != null ? <span>{text}</span> : null)
+  const resolvedVariant: AlertDisplayVariant =
+    variant === "icon" && !iconKey ? "default" : variant
+
+  const { css: jimuCss, ...restAlertProps } = rest as any
+
+  if (resolvedVariant === "icon") {
+    const tooltipContent =
+      typeof text === "string"
+        ? text
+        : typeof children === "string"
+          ? children
+          : messageContent
+    const shouldWrapWithTooltip = Boolean(tooltipContent)
+    const accessibleLabel =
+      typeof text === "string"
+        ? text
+        : typeof children === "string"
+          ? children
+          : undefined
+
+    const alertElement = (
+      <JimuAlert
+        {...restAlertProps}
+        type={type}
+        withIcon={false}
+        variant={jimuVariant}
+        className={className}
+        css={shouldWrapWithTooltip ? undefined : jimuCss}
+        style={shouldWrapWithTooltip ? undefined : style}
+      >
+        {iconKey ? (
+          <span css={styles.alertIconOnly}>
+            <Icon src={iconKey} aria-label={accessibleLabel} />
+          </span>
+        ) : null}
+      </JimuAlert>
+    )
+
+    if (!shouldWrapWithTooltip) {
+      return alertElement
+    }
+
+    return wrapWithTooltip(alertElement, {
+      tooltip: tooltipContent,
+      placement: sanitizeTooltipPlacement(tooltipPlacement),
+      block: false,
+      jimuCss,
+      jimuStyle: style,
+      styles,
+    })
+  }
 
   if (messageContent == null && !iconKey) {
     return (
       <JimuAlert
-        {...rest}
+        {...restAlertProps}
         type={type}
         withIcon={false}
+        variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alertStyle], style as any)}
+        css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
       />
     )
   }
 
   return (
     <JimuAlert
-      {...rest}
+      {...restAlertProps}
       type={type}
       withIcon={false}
+      variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alertStyle], style as any)}
+      css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
     >
       <div css={styles.alertContent}>
         {iconKey ? <Icon src={iconKey} /> : null}
@@ -1873,6 +1965,7 @@ export type {
   StateViewProps,
   ButtonProps,
   ButtonGroupProps,
+  AlertComponentProps as AlertProps,
   TooltipProps,
   FormProps,
   FieldProps,

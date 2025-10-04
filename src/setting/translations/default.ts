@@ -77,6 +77,11 @@ export default {
   largeAreaMessageHelper:
     "Texten visas när ritad AOI överstiger varningsgränsen. Tillgängliga platshållare: {current} (ritad yta), {threshold} (varningsgräns). Lämna tomt för standardmeddelandet. Max {max} tecken.",
   largeAreaMessagePlaceholder: "Lämna tomt för standardmeddelandet.",
+  largeAreaInfoMessageLabel: "Informationsmeddelande (stor AOI)",
+  largeAreaInfoMessageHelper:
+    "Texten visas under arbetsytorna när varningsikonen visas. Platshållare: {current} (ritad yta), {threshold} (varningsgräns). Lämna tomt för att återgå till standardmeddelandet.",
+  largeAreaInfoMessagePlaceholder:
+    "Valfri instruktion, t.ex. föreslå ett mindre område.",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",
