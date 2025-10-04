@@ -913,7 +913,8 @@ export default function Widget(
   const reduxSlice = ReactRedux.useSelector((state: IMStateWithFmeExport) =>
     selectors.selectSlice(state)
   )
-  const reduxState = reduxSlice?.asMutable({ deep: true }) ?? initialFmeState
+  const reduxState: FmeWidgetState =
+    (reduxSlice as unknown as FmeWidgetState) ?? initialFmeState
   const previousViewMode = hooks.usePrevious(reduxState.viewMode)
   const scopedError = reduxState.error
   const generalErrorDetails =
@@ -1713,17 +1714,6 @@ export default function Widget(
       if (!finalParams) {
         throw new Error("Submission parameter preparation failed")
       }
-      try {
-        if (typeof globalThis !== "undefined") {
-          ;(globalThis as any).__LAST_FME_CALL__ = {
-            workspace,
-            params: finalParams,
-          }
-        }
-      } catch {
-        // Ignore global write errors in constrained environments
-      }
-
       // Submit to FME Flow
       const serviceType = latestConfig?.service || "download"
       const fmeResponse = await makeCancelable(
@@ -1850,6 +1840,7 @@ export default function Widget(
       submissionAbort.cancel()
       startupAbort.cancel()
       cleanupResources()
+      dispatch(fmeActions.removeWidgetState(widgetId))
     }
   })
 
@@ -2174,6 +2165,8 @@ export default function Widget(
       <Workflow
         widgetId={widgetId}
         config={props.config}
+        geometryJson={reduxState.geometryJson}
+        workspaceItems={reduxState.workspaceItems}
         state={reduxState.viewMode}
         error={workflowError}
         instructionText={getDrawingInstructions(
@@ -2191,6 +2184,7 @@ export default function Widget(
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
+        getFmeClient={getOrCreateFmeClient}
         orderResult={reduxState.orderResult}
         onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onBack={navigateBack}

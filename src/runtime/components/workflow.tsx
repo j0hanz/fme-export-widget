@@ -38,13 +38,11 @@ import {
   type ErrorState,
   ErrorSeverity,
   makeErrorView,
-  type IMStateWithFmeExport,
 } from "../../config"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/close-circle.svg"
 import itemIcon from "../../assets/icons/item.svg"
-import { createFmeFlowClient } from "../../shared/api"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
@@ -615,7 +613,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
 }
 
 // ExportForm component: dynamic form generation and submission
-const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
+const ExportForm: React.FC<
+  ExportFormProps & { widgetId: string; geometryJson?: unknown }
+> = ({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -625,6 +625,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   translate,
   widgetId,
   config,
+  geometryJson,
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
   const [parameterService] = React.useState(() => new ParameterFormService())
@@ -632,22 +633,16 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     [key: string]: File | null
   }>({})
 
-  const geometryJsonFromStore = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => {
-      const global = (state as any)?.["fme-state"]
-      const sub = global?.byId?.[widgetId]
-      return sub?.geometryJson ?? null
-    }
-  )
+  const geometryJsonFromStore = geometryJson ?? null
 
   const [geometryString, setGeometryString] = React.useState<string>(() =>
     safeStringifyGeometry(geometryJsonFromStore)
   )
 
   hooks.useEffectWithPreviousValues(() => {
-    const next = safeStringifyGeometry(geometryJsonFromStore)
+    const next = safeStringifyGeometry(geometryJson ?? null)
     setGeometryString((prev) => (prev === next ? prev : next))
-  }, [geometryJsonFromStore])
+  }, [geometryJson])
 
   const [geometryFieldNames, setGeometryFieldNames] = React.useState<string[]>(
     () => extractGeometryFieldNames(workspaceParameters)
@@ -922,6 +917,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   error,
   onFormBack,
   onFormSubmit,
+  getFmeClient: getFmeClientProp,
   orderResult,
   onReuseGeography,
   onBack,
@@ -943,10 +939,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   config,
   onWorkspaceSelected,
   selectedWorkspace,
+  workspaceItems: workspaceItemsProp,
   workspaceParameters,
   workspaceItem,
-  // Read workspace items from Redux via parent (Widget provides these via state slice if needed in future)
-  // For now, we’ll derive from store at read-time below to avoid changing public API
+  geometryJson,
+  // Workspace collection now arrives from the parent widget via props
   // Startup validation props
   isStartupValidating: _isStartupValidating,
   startupValidationStep,
@@ -1124,39 +1121,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // FME client - always create fresh instance
-  const clientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
-    null
-  )
-
-  const disposeClient = hooks.useEventCallback(() => {
-    if (clientRef.current?.dispose) {
-      try {
-        clientRef.current.dispose()
-      } catch {}
-    }
-    clientRef.current = null
-  })
-
   const getFmeClient = hooks.useEventCallback(() => {
-    try {
-      if (!config) return null
-      // Always create a fresh client for each operation to avoid stale connections
-      disposeClient()
-      clientRef.current = createFmeFlowClient(config)
-      return clientRef.current
-    } catch {
+    if (typeof getFmeClientProp !== "function") {
       return null
     }
-  })
-
-  // Clear client when config changes
-  hooks.useUpdateEffect(() => {
-    disposeClient()
-  }, [config, disposeClient])
-
-  hooks.useEffectOnce(() => {
-    return () => {
-      disposeClient()
+    try {
+      return getFmeClientProp()
+    } catch {
+      return null
     }
   })
 
@@ -1182,26 +1154,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     dispatch: reduxDispatch,
   })
 
-  const storeWorkspaceItems = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => {
-      const global = (state as any)?.["fme-state"]
-      const sub = global?.byId?.[effectiveWidgetId]
-      const items = sub?.workspaceItems
-      if (Array.isArray(items)) {
-        return items
-      }
-      if (
-        items &&
-        typeof items === "object" &&
-        typeof (items as { length?: number }).length === "number"
-      ) {
-        return items as readonly WorkspaceItem[]
-      }
-      return EMPTY_WORKSPACES
-    }
-  ) as readonly WorkspaceItem[]
-
-  const workspaceItems = storeWorkspaceItems
+  const workspaceItems = Array.isArray(workspaceItemsProp)
+    ? workspaceItemsProp
+    : EMPTY_WORKSPACES
   const currentRepository = configuredRepository || null
 
   // Helper: are we in a workspace selection context?
@@ -1408,6 +1363,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         isSubmitting={isSubmittingOrder}
         translate={translate}
         config={config}
+        geometryJson={geometryJson}
       />
     )
   }

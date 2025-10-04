@@ -226,6 +226,52 @@ describe("FME Redux state management", () => {
     // Assert
     const plain = toPlainState(state)
     expect(plain.selectedWorkspace).toBe("Clipper")
+    expect(plain.workspaceParameters).toEqual([])
+    expect(plain.workspaceItem).toBeNull()
+    expect(plain.orderResult).toBeNull()
+  })
+
+  it("ignores stale workspace parameter responses", () => {
+    // Arrange
+    const reducer = createReducer()
+    let state = reducer(
+      undefined,
+      fmeActions.setSelectedWorkspace("Clipper", widgetId)
+    )
+
+    // Act (stale response for a different workspace)
+    state = reducer(
+      state,
+      fmeActions.setWorkspaceParameters(
+        [{ name: "threshold", type: ParameterType.INTEGER, optional: false }],
+        "Buffer",
+        widgetId
+      )
+    )
+
+    // Assert
+    const plain = toPlainState(state)
+    expect(plain.selectedWorkspace).toBe("Clipper")
+    expect(plain.workspaceParameters).toEqual([])
+  })
+
+  it("ignores stale workspace item metadata", () => {
+    // Arrange
+    const reducer = createReducer()
+    let state = reducer(
+      undefined,
+      fmeActions.setSelectedWorkspace("Clipper", widgetId)
+    )
+
+    // Act (workspace item for different selection)
+    state = reducer(
+      state,
+      fmeActions.setWorkspaceItem({ name: "Buffer" } as any, widgetId)
+    )
+
+    // Assert
+    const plain = toPlainState(state)
+    expect(plain.workspaceItem).toBeNull()
   })
 
   it("stores detailed workspace item metadata", () => {

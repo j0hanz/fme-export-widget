@@ -1156,6 +1156,8 @@ export interface WorkspaceLoaderOptions {
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig
+  readonly geometryJson?: unknown
+  readonly workspaceItems?: readonly WorkspaceItem[]
   readonly state: ViewMode
   readonly error?: AnyErrorState | null
   readonly instructionText?: string
@@ -1164,6 +1166,7 @@ export interface WorkflowProps extends BaseProps {
   readonly canStartDrawing?: boolean
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
+  readonly getFmeClient?: () => FmeFlowApiClient | null
   readonly orderResult?: ExportResult | null
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void

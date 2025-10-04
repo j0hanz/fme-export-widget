@@ -159,6 +159,17 @@ const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
 
+const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
+  Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
+
+const normalizeWorkspaceName = (
+  name: string | null | undefined
+): string | null => {
+  if (typeof name !== "string") return null
+  const trimmed = name.trim()
+  return trimmed || null
+}
+
 const serializeGeometry = (
   geometry: __esri.Geometry | null | undefined
 ): unknown => {
@@ -185,7 +196,7 @@ const reduceOne = (
     }
 
     case FmeActionType.RESET_STATE:
-      return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
+      return createImmutableState()
 
     case FmeActionType.SET_GEOMETRY: {
       const act = action as ActionFrom<"setGeometry">
@@ -220,18 +231,47 @@ const reduceOne = (
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS: {
       const act = action as ActionFrom<"setWorkspaceParameters">
-      return state
-        .set("workspaceParameters", act.workspaceParameters)
-        .set("selectedWorkspace", act.workspaceName)
+      const requested = normalizeWorkspaceName(act.workspaceName)
+      const currentSelection = normalizeWorkspaceName(state.selectedWorkspace)
+
+      if (requested && currentSelection && requested !== currentSelection) {
+        return state
+      }
+
+      let nextState = state.set("workspaceParameters", act.workspaceParameters)
+
+      if (requested !== currentSelection) {
+        nextState = nextState
+          .set("selectedWorkspace", requested)
+          .set("orderResult", null)
+      }
+
+      return nextState
     }
 
     case FmeActionType.SET_SELECTED_WORKSPACE: {
       const act = action as ActionFrom<"setSelectedWorkspace">
-      return state.set("selectedWorkspace", act.workspaceName)
+      const desired = normalizeWorkspaceName(act.workspaceName)
+      const current = normalizeWorkspaceName(state.selectedWorkspace)
+      if (current === desired) {
+        return state
+      }
+      return state
+        .set("selectedWorkspace", desired)
+        .set("workspaceParameters", [])
+        .set("workspaceItem", null)
+        .set("orderResult", null)
     }
 
     case FmeActionType.SET_WORKSPACE_ITEM: {
       const act = action as ActionFrom<"setWorkspaceItem">
+      const current = normalizeWorkspaceName(state.selectedWorkspace)
+      const itemName = normalizeWorkspaceName(act.workspaceItem?.name)
+
+      if (act.workspaceItem && current && itemName && itemName !== current) {
+        return state
+      }
+
       return state.set("workspaceItem", act.workspaceItem)
     }
 
@@ -289,6 +329,8 @@ const reduceOne = (
     case FmeActionType.REMOVE_WIDGET_STATE:
       return state
   }
+
+  return state
 }
 
 const ensureSubState = (
@@ -298,10 +340,8 @@ const ensureSubState = (
   const current = (global as any).byId?.[widgetId] as
     | ImmutableObject<FmeWidgetState>
     | undefined
-  return (
-    current ??
-    (Immutable(initialFmeState) as unknown as ImmutableObject<FmeWidgetState>)
-  )
+  return (current ??
+    (createImmutableState() as unknown)) as ImmutableObject<FmeWidgetState>
 }
 
 const setSubState = (
@@ -334,13 +374,19 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.viewMode ?? initialFmeState.viewMode,
     selectGeometryJson: (state: IMStateWithFmeExport) =>
       getSlice(state)?.geometryJson ?? null,
+    selectDrawnArea: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
     selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
       getSlice(state)?.workspaceParameters ??
       initialFmeState.workspaceParameters,
     selectWorkspaceItem: (state: IMStateWithFmeExport) =>
       getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem,
+    selectSelectedWorkspace: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace,
     selectOrderResult: (state: IMStateWithFmeExport) =>
       getSlice(state)?.orderResult ?? initialFmeState.orderResult,
+    selectError: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.error ?? initialFmeState.error,
   }
 }
 
@@ -367,6 +413,9 @@ const fmeReducer = (
   // Special: remove entire widget state
   if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
+    if (!(action.widgetId in byId)) {
+      return state
+    }
     delete byId[action.widgetId]
     return Immutable({ byId }) as unknown as IMFmeGlobalState
   }
