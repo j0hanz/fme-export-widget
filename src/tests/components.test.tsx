@@ -525,14 +525,18 @@ describe("Workflow component", () => {
         config={{ largeArea: 40000, repository: "repo-1" } as any}
         state={ViewMode.WORKSPACE_SELECTION}
         instructionText="Rita AOI"
-        isModulesLoading={false}
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
         canStartDrawing={true}
         error={null}
         onFormBack={undefined}
         onFormSubmit={undefined}
         orderResult={null}
         onReuseGeography={jest.fn()}
-        isSubmittingOrder={false}
         onBack={jest.fn()}
         drawnArea={50000}
         areaWarning={true}
@@ -576,14 +580,18 @@ describe("Workflow component", () => {
         }
         state={ViewMode.WORKSPACE_SELECTION}
         instructionText="Rita AOI"
-        isModulesLoading={false}
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
         canStartDrawing={true}
         error={null}
         onFormBack={undefined}
         onFormSubmit={undefined}
         orderResult={null}
         onReuseGeography={jest.fn()}
-        isSubmittingOrder={false}
         onBack={jest.fn()}
         drawnArea={42000}
         areaWarning={true}
@@ -625,14 +633,18 @@ describe("Workflow component", () => {
         }
         state={ViewMode.WORKSPACE_SELECTION}
         instructionText="Rita AOI"
-        isModulesLoading={false}
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
         canStartDrawing={true}
         error={null}
         onFormBack={undefined}
         onFormSubmit={undefined}
         orderResult={null}
         onReuseGeography={jest.fn()}
-        isSubmittingOrder={false}
         onBack={jest.fn()}
         drawnArea={27500}
         areaWarning={true}

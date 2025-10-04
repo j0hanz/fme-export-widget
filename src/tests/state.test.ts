@@ -243,12 +243,38 @@ describe("FME Redux state management", () => {
     expect(sanitizeFormValuesMock).toHaveBeenCalledWith(rawValues, parameters)
   })
 
+  it("rejects File instances in form values to keep Redux state serializable", () => {
+    // Arrange
+    const reducer = createReducer()
+    const OriginalFile = (global as any).File
+    class MockFile {
+      readonly name = "mock-file"
+    }
+    ;(global as any).File = MockFile
+
+    try {
+      // Act
+      const invoke = () =>
+        reducer(
+          undefined,
+          fmeActions.setFormValues({ upload: new MockFile() } as any, widgetId)
+        )
+
+      // Assert
+      expect(invoke).toThrow(
+        "Form values must not include File instances. Handle uploads outside Redux state."
+      )
+    } finally {
+      ;(global as any).File = OriginalFile
+    }
+  })
+
   it("captures order results and clears submitting flag", () => {
     // Arrange
     const reducer = createReducer()
     let state = reducer(
       undefined,
-      fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId)
+      fmeActions.setLoadingState({ submission: true }, widgetId)
     )
     const orderResult: ExportResult = {
       success: true,
@@ -261,7 +287,7 @@ describe("FME Redux state management", () => {
     // Assert
     const plain = toPlainState(state)
     expect(plain.orderResult).toEqual(orderResult)
-    expect(plain.isSubmittingOrder).toBe(false)
+    expect(plain.loading.submission).toBe(false)
   })
 
   it("updates workspace items and repository context", () => {
@@ -359,19 +385,29 @@ describe("FME Redux state management", () => {
     const reducer = createReducer()
     let state = reducer(
       undefined,
-      fmeActions.setLoadingFlags({ isModulesLoading: true }, widgetId)
+      fmeActions.setLoadingState({ modules: true }, widgetId)
     )
 
     // Act
     state = reducer(
       state,
-      fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId)
+      fmeActions.setLoadingState({ submission: true }, widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setLoadingState({ workspaces: true }, widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setLoadingState({ parameters: true }, widgetId)
     )
 
     // Assert
     const plain = toPlainState(state)
-    expect(plain.isModulesLoading).toBe(true)
-    expect(plain.isSubmittingOrder).toBe(true)
+    expect(plain.loading.modules).toBe(true)
+    expect(plain.loading.submission).toBe(true)
+    expect(plain.loading.workspaces).toBe(true)
+    expect(plain.loading.parameters).toBe(true)
   })
 
   it("clears workspace-specific state and updates repository context", () => {
@@ -396,7 +432,7 @@ describe("FME Redux state management", () => {
     state = reducer(state, fmeActions.setFormValues({ Area: 10 }, widgetId))
     state = reducer(
       state,
-      fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId)
+      fmeActions.setLoadingState({ submission: true }, widgetId)
     )
 
     // Act
@@ -412,7 +448,9 @@ describe("FME Redux state management", () => {
     expect(plain.selectedWorkspace).toBeNull()
     expect(plain.workspaceItem).toBeNull()
     expect(plain.formValues).toEqual({})
-    expect(plain.isSubmittingOrder).toBe(false)
+    expect(plain.loading.submission).toBe(false)
+    expect(plain.loading.workspaces).toBe(false)
+    expect(plain.loading.parameters).toBe(false)
     expect(plain.currentRepository).toBe("repo-next")
   })
 
@@ -453,10 +491,7 @@ describe("FME Redux state management", () => {
     )
 
     // Act
-    const cleared = reducer(populated, {
-      type: "fme/REMOVE_WIDGET_STATE",
-      widgetId,
-    })
+    const cleared = reducer(populated, fmeActions.removeWidgetState(widgetId))
 
     // Assert
     expect((cleared as any).byId[widgetId]).toBeUndefined()

@@ -141,11 +141,14 @@ export const enum FmeActionType {
   SET_WORKSPACE_PARAMETERS = "fme/SET_WORKSPACE_PARAMETERS",
   SET_SELECTED_WORKSPACE = "fme/SET_SELECTED_WORKSPACE",
   SET_WORKSPACE_ITEM = "fme/SET_WORKSPACE_ITEM",
-  SET_LOADING_FLAGS = "fme/SET_LOADING_FLAGS",
+  SET_LOADING_STATE = "fme/SET_LOADING_STATE",
   SET_ERROR = "fme/SET_ERROR",
   SET_IMPORT_ERROR = "fme/SET_IMPORT_ERROR",
   SET_EXPORT_ERROR = "fme/SET_EXPORT_ERROR",
   CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
+  CLEAR_ERROR = "fme/CLEAR_ERROR",
+  CLEAR_ALL_ERRORS = "fme/CLEAR_ALL_ERRORS",
+  REMOVE_WIDGET_STATE = "fme/REMOVE_WIDGET_STATE",
 }
 
 export const FME_ACTION_TYPES = [
@@ -161,11 +164,14 @@ export const FME_ACTION_TYPES = [
   FmeActionType.SET_WORKSPACE_PARAMETERS,
   FmeActionType.SET_SELECTED_WORKSPACE,
   FmeActionType.SET_WORKSPACE_ITEM,
-  FmeActionType.SET_LOADING_FLAGS,
+  FmeActionType.SET_LOADING_STATE,
   FmeActionType.SET_ERROR,
   FmeActionType.SET_IMPORT_ERROR,
   FmeActionType.SET_EXPORT_ERROR,
   FmeActionType.CLEAR_WORKSPACE_STATE,
+  FmeActionType.CLEAR_ERROR,
+  FmeActionType.CLEAR_ALL_ERRORS,
+  FmeActionType.REMOVE_WIDGET_STATE,
 ] as const
 
 export const LAYER_CONFIG = {
@@ -705,9 +711,14 @@ export interface DynamicFieldProps {
   readonly translate: TranslateFn
 }
 
-export interface LoadingFlags {
-  readonly [key: string]: boolean
+export interface LoadingState {
+  readonly workspaces: boolean
+  readonly parameters: boolean
+  readonly modules: boolean
+  readonly submission: boolean
 }
+
+export type LoadingFlagKey = keyof LoadingState
 // API and configuration
 export interface FmeFlowConfig {
   /** Base URL for the FME Flow instance. Always sanitize builder input before storing. */
@@ -1036,14 +1047,6 @@ export interface SubmissionPreparationResult {
   aoiError?: ErrorState
 }
 
-// Redux state
-export interface FmeAction {
-  readonly type: FmeActionType
-  readonly [key: string]: unknown
-}
-
-export type FmeActions = FmeAction
-
 // Widget state
 export interface FmeWidgetState {
   // View state
@@ -1070,8 +1073,7 @@ export interface FmeWidgetState {
   readonly currentRepository: string | null // Track current repository for workspace isolation
 
   // Loading and error state
-  readonly isModulesLoading: boolean
-  readonly isSubmittingOrder: boolean
+  readonly loading: LoadingState
   readonly error: SerializableErrorState | null
   readonly importError: SerializableErrorState | null
   readonly exportError: SerializableErrorState | null
@@ -1167,14 +1169,13 @@ export interface WorkflowProps extends BaseProps {
   readonly state: ViewMode
   readonly error?: AnyErrorState | null
   readonly instructionText?: string
-  readonly isModulesLoading?: boolean
+  readonly loadingState?: LoadingState
   readonly modules?: EsriModules | null
   readonly canStartDrawing?: boolean
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
   readonly orderResult?: ExportResult | null
   readonly onReuseGeography?: () => void
-  readonly isSubmittingOrder?: boolean
   readonly onBack?: () => void
   readonly drawnArea?: number
   readonly areaWarning?: boolean

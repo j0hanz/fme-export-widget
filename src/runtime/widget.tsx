@@ -58,7 +58,11 @@ import {
   evaluateArea,
   processFmeResponse,
 } from "../shared/validations"
-import { fmeActions, initialFmeState } from "../extensions/store"
+import {
+  fmeActions,
+  initialFmeState,
+  createFmeSelectors,
+} from "../extensions/store"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
@@ -889,20 +893,25 @@ const setupSketchEventHandlers = (
 // Area formatting is imported from shared/utils
 
 export default function Widget(
-  props: AllWidgetProps<FmeExportConfig> & { state: FmeWidgetState }
+  props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
   const {
     id,
     widgetId: widgetIdProp,
     useMapWidgetIds,
     dispatch,
-    state: reduxState,
     config,
   } = props
 
   // Determine widget ID for state management
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
+
+  const selectors = createFmeSelectors(widgetId)
+  const reduxSlice = ReactRedux.useSelector((state: IMStateWithFmeExport) =>
+    selectors.selectSlice(state)
+  )
+  const reduxState = reduxSlice?.asMutable({ deep: true }) ?? initialFmeState
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -1084,12 +1093,8 @@ export default function Widget(
       fmeActions.setSelectedWorkspace(null, config?.repository, widgetId)
     )
     dispatch(fmeActions.setFormValues({}, widgetId))
-    dispatch(
-      fmeActions.setLoadingFlags(
-        { isModulesLoading: false, isSubmittingOrder: false },
-        widgetId
-      )
-    )
+    dispatch(fmeActions.setLoadingState({ modules: false }, widgetId))
+    dispatch(fmeActions.setLoadingState({ submission: false }, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
   })
 
@@ -1222,6 +1227,9 @@ export default function Widget(
   )
 
   const { modules, loading: modulesLoading } = useEsriModules(moduleRetryKey)
+  hooks.useUpdateEffect(() => {
+    dispatch(fmeActions.setLoadingState({ modules: modulesLoading }, widgetId))
+  }, [modulesLoading, dispatch, widgetId])
   const mapResources = useMapResources()
 
   const getActiveGeometry = hooks.useEventCallback(() => {
@@ -1638,11 +1646,11 @@ export default function Widget(
 
   // Form submission handler
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    if (reduxState.isSubmittingOrder || !canSubmit()) {
+    if (reduxState.loading.submission || !canSubmit()) {
       return
     }
 
-    dispatch(fmeActions.setLoadingFlags({ isSubmittingOrder: true }, widgetId))
+    dispatch(fmeActions.setLoadingState({ submission: true }, widgetId))
 
     let controller: AbortController | null = null
 
@@ -1719,9 +1727,7 @@ export default function Widget(
     } catch (error) {
       handleSubmissionError(error)
     } finally {
-      dispatch(
-        fmeActions.setLoadingFlags({ isSubmittingOrder: false }, widgetId)
-      )
+      dispatch(fmeActions.setLoadingState({ submission: false }, widgetId))
       submissionAbort.finalize(controller)
     }
   })
@@ -1758,7 +1764,7 @@ export default function Widget(
         // If we're returning from a geometry error, immediately start drawing using the current tool
         if (shouldAutoStartRef.current) {
           shouldAutoStartRef.current = false
-          const tool = props.state?.drawingTool || reduxState.drawingTool
+          const tool = drawingToolRef.current ?? DrawingTool.POLYGON
           const arg: "rectangle" | "polygon" =
             tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
           ;(svm as any).create?.(arg)
@@ -1919,7 +1925,7 @@ export default function Widget(
     reduxState.viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
     sketchViewModel &&
-    !reduxState.isSubmittingOrder &&
+    !reduxState.loading.submission &&
     !(reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR)
 
   hooks.useUpdateEffect(() => {
@@ -1932,7 +1938,7 @@ export default function Widget(
     drawingSession.clickCount,
     reduxState.drawingTool,
     sketchViewModel,
-    reduxState.isSubmittingOrder,
+    reduxState.loading.submission,
     handleStartDrawing,
     runtimeState,
   ])
@@ -2160,7 +2166,7 @@ export default function Widget(
   // derive simple view booleans for readability
   const showHeaderActions =
     (drawingSession.isActive || reduxState.drawnArea > 0) &&
-    !reduxState.isSubmittingOrder &&
+    !reduxState.loading.submission &&
     !modulesLoading
 
   // precompute UI booleans
@@ -2187,14 +2193,13 @@ export default function Widget(
           drawingSession.isActive,
           drawingSession.clickCount
         )}
-        isModulesLoading={modulesLoading}
+        loadingState={reduxState.loading}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={reduxState.orderResult}
         onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
-        isSubmittingOrder={reduxState.isSubmittingOrder}
         onBack={navigateBack}
         drawnArea={reduxState.drawnArea}
         areaWarning={areaWarning}

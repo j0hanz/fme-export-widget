@@ -6,7 +6,6 @@ import {
   FmeActionType,
   FME_ACTION_TYPES,
   type FmeWidgetState,
-  type FmeActions,
   type ErrorState,
   type SerializableErrorState,
   type WorkspaceItem,
@@ -15,11 +14,26 @@ import {
   type ExportResult,
   type FormValues,
   type IMFmeGlobalState,
+  type IMStateWithFmeExport,
+  type LoadingState,
 } from "../config"
 import { sanitizeFormValues } from "../shared/validations"
 import { toSerializable } from "../shared/utils"
 
 // Action creators
+const PRESERVE_REPOSITORY = Symbol("PRESERVE_REPOSITORY")
+
+const normalizeRepository = (
+  repository: unknown
+): string | null | typeof PRESERVE_REPOSITORY => {
+  if (repository === undefined) return PRESERVE_REPOSITORY
+  if (typeof repository !== "string") return null
+  const trimmed = repository.trim()
+  return trimmed || null
+}
+
+type ErrorScope = "general" | "import" | "export"
+
 export const fmeActions = {
   setViewMode: (viewMode: ViewMode, widgetId: string) => ({
     type: FmeActionType.SET_VIEW_MODE,
@@ -48,7 +62,7 @@ export const fmeActions = {
     widgetId: string
   ) => ({
     type: FmeActionType.SET_GEOMETRY,
-    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+    geometryJson: serializeGeometry(geometry),
     drawnArea,
     widgetId,
   }),
@@ -64,7 +78,7 @@ export const fmeActions = {
     widgetId: string
   ) => ({
     type: FmeActionType.COMPLETE_DRAWING,
-    geometryJson: geometry ? ((geometry as any).toJSON?.() ?? null) : null,
+    geometryJson: serializeGeometry(geometry),
     drawnArea,
     nextViewMode,
     widgetId,
@@ -81,52 +95,49 @@ export const fmeActions = {
   }),
   setWorkspaceItems: (
     workspaceItems: readonly WorkspaceItem[],
-    repository: string | undefined,
+    repository: string | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEMS,
     workspaceItems,
-    repository, // Add repository context to ensure workspace items are scoped correctly
+    repository: normalizeRepository(repository),
     widgetId,
   }),
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string,
-    repository: string | undefined,
+    repository: string | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_PARAMETERS,
     workspaceParameters,
     workspaceName,
-    repository, // Add repository context to track which repo these parameters belong to
+    repository: normalizeRepository(repository),
     widgetId,
   }),
   setSelectedWorkspace: (
     workspaceName: string | null,
-    repository: string | undefined,
+    repository: string | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE,
     workspaceName,
-    repository, // Track which repository the selected workspace belongs to
+    repository: normalizeRepository(repository),
     widgetId,
   }),
   setWorkspaceItem: (
     workspaceItem: WorkspaceItemDetail | null,
-    repository: string | undefined,
+    repository: string | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM,
     workspaceItem,
-    repository, // Track repository context for workspace item
+    repository: normalizeRepository(repository),
     widgetId,
   }),
-  setLoadingFlags: (
-    flags: { isModulesLoading?: boolean; isSubmittingOrder?: boolean },
-    widgetId: string
-  ) => ({
-    type: FmeActionType.SET_LOADING_FLAGS,
-    ...flags,
+  setLoadingState: (flags: Partial<LoadingState>, widgetId: string) => ({
+    type: FmeActionType.SET_LOADING_STATE,
+    flags,
     widgetId,
   }),
   setError: (
@@ -153,21 +164,35 @@ export const fmeActions = {
     error: toSerializable(error),
     widgetId,
   }),
-  // New action to clear workspace-related state when switching repositories
+  clearError: (scope: ErrorScope, widgetId: string) => ({
+    type: FmeActionType.CLEAR_ERROR,
+    scope,
+    widgetId,
+  }),
+  clearAllErrors: (widgetId: string) => ({
+    type: FmeActionType.CLEAR_ALL_ERRORS,
+    widgetId,
+  }),
   clearWorkspaceState: (
-    newRepository: string | undefined,
+    newRepository: string | null | undefined,
     widgetId: string
   ) => ({
     type: FmeActionType.CLEAR_WORKSPACE_STATE,
-    newRepository,
+    newRepository: normalizeRepository(newRepository),
     widgetId,
   }),
   // Internal action to remove entire widget state (e.g. on unmount)
   removeWidgetState: (widgetId: string) => ({
-    type: "fme/REMOVE_WIDGET_STATE",
+    type: FmeActionType.REMOVE_WIDGET_STATE,
     widgetId,
   }),
 }
+
+export type FmeAction = ReturnType<(typeof fmeActions)[keyof typeof fmeActions]>
+
+type ActionFrom<K extends keyof typeof fmeActions> = ReturnType<
+  (typeof fmeActions)[K]
+>
 
 export const initialFmeState: FmeWidgetState = {
   // View
@@ -194,8 +219,12 @@ export const initialFmeState: FmeWidgetState = {
   currentRepository: null,
 
   // Loading and errors
-  isModulesLoading: false,
-  isSubmittingOrder: false,
+  loading: {
+    workspaces: false,
+    parameters: false,
+    modules: false,
+    submission: false,
+  },
   error: null,
   importError: null,
   exportError: null,
@@ -206,23 +235,25 @@ const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
 
-const toOptionalString = (value: unknown): string | undefined =>
-  typeof value === "string" ? value : undefined
+const serializeGeometry = (
+  geometry: __esri.Geometry | null | undefined
+): unknown => {
+  if (!geometry) return null
+  const serializer = (geometry as any)?.toJSON
+  if (typeof serializer !== "function") return null
+  try {
+    return serializer.call(geometry)
+  } catch {
+    return null
+  }
+}
 
 // Reducer for a single widget instance
 const withRepositoryContext = (
   state: ImmutableObject<FmeWidgetState>,
-  repository: string | undefined,
-  fallback?: string | null
+  repository: unknown
 ): ImmutableObject<FmeWidgetState> => {
-  if (repository === undefined && fallback === undefined) {
-    return state
-  }
-
-  const fallbackValue =
-    fallback !== undefined ? fallback : (state.currentRepository ?? null)
-  const nextRepository = repository ?? fallbackValue
-
+  const nextRepository = normalizeRepository(repository)
   return nextRepository === state.currentRepository
     ? state
     : state.set("currentRepository", nextRepository)
@@ -230,126 +261,195 @@ const withRepositoryContext = (
 
 const reduceOne = (
   state: ImmutableObject<FmeWidgetState>,
-  action: FmeActions
+  action: FmeAction
 ): ImmutableObject<FmeWidgetState> => {
   switch (action.type) {
-    case FmeActionType.SET_VIEW_MODE:
-      if (state.viewMode === action.viewMode) return state
+    case FmeActionType.SET_VIEW_MODE: {
+      const act = action as ActionFrom<"setViewMode">
+      if (state.viewMode === act.viewMode) return state
       return state
         .set("previousViewMode", state.viewMode)
-        .set("viewMode", action.viewMode)
+        .set("viewMode", act.viewMode)
+    }
 
     case FmeActionType.RESET_STATE:
       return Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
 
-    case FmeActionType.SET_STARTUP_VALIDATION_STATE:
+    case FmeActionType.SET_STARTUP_VALIDATION_STATE: {
+      const act = action as ActionFrom<"setStartupValidationState">
       return state
-        .set("isStartupValidating", action.isValidating)
-        .set("startupValidationStep", action.validationStep)
+        .set("isStartupValidating", act.isValidating)
+        .set("startupValidationStep", act.validationStep)
         .set(
           "startupValidationError",
-          action.validationError ? toSerializable(action.validationError) : null
+          act.validationError ? toSerializable(act.validationError) : null
         )
+    }
 
-    case FmeActionType.SET_GEOMETRY:
+    case FmeActionType.SET_GEOMETRY: {
+      const act = action as ActionFrom<"setGeometry">
       return state
-        .set("geometryJson", action.geometryJson)
-        .set("drawnArea", action.drawnArea ?? 0)
+        .set("geometryJson", act.geometryJson)
+        .set("drawnArea", act.drawnArea ?? 0)
+    }
 
     case FmeActionType.COMPLETE_DRAWING: {
-      const nextView = action.nextViewMode ?? state.viewMode
+      const act = action as ActionFrom<"completeDrawing">
+      const nextView = act.nextViewMode ?? state.viewMode
       return state
-        .set("geometryJson", action.geometryJson)
-        .set("drawnArea", action.drawnArea ?? 0)
+        .set("geometryJson", act.geometryJson)
+        .set("drawnArea", act.drawnArea ?? 0)
         .set("previousViewMode", state.viewMode)
         .set("viewMode", nextView)
     }
 
-    case FmeActionType.SET_DRAWING_TOOL:
-      return state.set("drawingTool", action.drawingTool)
+    case FmeActionType.SET_DRAWING_TOOL: {
+      const act = action as ActionFrom<"setDrawingTool">
+      return state.set("drawingTool", act.drawingTool)
+    }
 
-    case FmeActionType.SET_FORM_VALUES:
+    case FmeActionType.SET_FORM_VALUES: {
+      const act = action as ActionFrom<"setFormValues">
+      const fileCtor =
+        typeof File === "undefined" ? undefined : (File as unknown as any)
+      if (fileCtor) {
+        const values = Object.values(act.formValues || {})
+        const hasFile = values.some((value) => value instanceof fileCtor)
+        if (hasFile) {
+          throw new Error(
+            "Form values must not include File instances. Handle uploads outside Redux state."
+          )
+        }
+      }
       return state.set(
         "formValues",
-        sanitizeFormValues(action.formValues, state.workspaceParameters as any)
+        sanitizeFormValues(act.formValues, state.workspaceParameters as any)
       )
+    }
 
-    case FmeActionType.SET_ORDER_RESULT:
+    case FmeActionType.SET_ORDER_RESULT: {
+      const act = action as ActionFrom<"setOrderResult">
       return state
-        .set("orderResult", action.orderResult)
-        .set("isSubmittingOrder", false)
+        .set("orderResult", act.orderResult)
+        .setIn(["loading", "submission"], false)
+    }
 
     case FmeActionType.SET_WORKSPACE_ITEMS: {
-      const workspaceRepo = toOptionalString(action.repository)
+      const act = action as ActionFrom<"setWorkspaceItems">
       return withRepositoryContext(
-        state.set("workspaceItems", action.workspaceItems),
-        workspaceRepo,
-        null
+        state.set("workspaceItems", act.workspaceItems),
+        act.repository
       )
     }
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS: {
-      const parametersRepo = toOptionalString(action.repository)
+      const act = action as ActionFrom<"setWorkspaceParameters">
       return withRepositoryContext(
         state
-          .set("workspaceParameters", action.workspaceParameters)
-          .set("selectedWorkspace", action.workspaceName),
-        parametersRepo
+          .set("workspaceParameters", act.workspaceParameters)
+          .set("selectedWorkspace", act.workspaceName),
+        act.repository
       )
     }
 
     case FmeActionType.SET_SELECTED_WORKSPACE: {
-      const selectedRepo = toOptionalString(action.repository)
-      return withRepositoryContext(
-        state.set("selectedWorkspace", action.workspaceName),
-        selectedRepo
-      )
+      const act = action as ActionFrom<"setSelectedWorkspace">
+      const newState = state.set("selectedWorkspace", act.workspaceName)
+      // PRESERVE_REPOSITORY means keep current repository unchanged
+      return act.repository === PRESERVE_REPOSITORY
+        ? newState
+        : withRepositoryContext(newState, act.repository)
     }
 
     case FmeActionType.SET_WORKSPACE_ITEM: {
-      const itemRepo = toOptionalString(action.repository)
-      return withRepositoryContext(
-        state.set("workspaceItem", action.workspaceItem),
-        itemRepo
-      )
+      const act = action as ActionFrom<"setWorkspaceItem">
+      const newState = state.set("workspaceItem", act.workspaceItem)
+      // PRESERVE_REPOSITORY means keep current repository unchanged
+      return act.repository === PRESERVE_REPOSITORY
+        ? newState
+        : withRepositoryContext(newState, act.repository)
     }
 
-    case FmeActionType.SET_LOADING_FLAGS: {
-      let newState = state
-      if (action.isModulesLoading !== undefined) {
-        newState = newState.set("isModulesLoading", action.isModulesLoading)
+    case FmeActionType.SET_LOADING_STATE: {
+      const act = action as ActionFrom<"setLoadingState">
+      if (!act.flags) return state
+      let next = state
+      let changed = false
+      const current = state.loading
+      for (const [key, value] of Object.entries(act.flags)) {
+        if (typeof value !== "boolean") continue
+        if (!Object.prototype.hasOwnProperty.call(current, key)) continue
+        const typedKey = key as keyof typeof current
+        if (current[typedKey] === value) continue
+        next = next.setIn(
+          ["loading", typedKey],
+          value
+        ) as ImmutableObject<FmeWidgetState>
+        changed = true
       }
-      if (action.isSubmittingOrder !== undefined) {
-        newState = newState.set("isSubmittingOrder", action.isSubmittingOrder)
-      }
-      return newState
+      return changed ? next : state
     }
 
     case FmeActionType.CLEAR_WORKSPACE_STATE: {
-      const nextRepo = toOptionalString(action.newRepository)
+      const act = action as ActionFrom<"clearWorkspaceState">
+      const nextRepo = normalizeRepository(act.newRepository)
+      const repositoryChanged = nextRepo !== state.currentRepository
+      const preserveFormValues =
+        !repositoryChanged && state.orderResult === null
+      const nextFormValues = preserveFormValues ? state.formValues : {}
+      const nextOrderResult = preserveFormValues ? state.orderResult : null
       return withRepositoryContext(
         state
           .set("workspaceItems", [])
           .set("selectedWorkspace", null)
           .set("workspaceParameters", [])
           .set("workspaceItem", null)
-          .set("formValues", {})
-          .set("isSubmittingOrder", false),
-        nextRepo,
-        null
+          .setIn(["loading", "workspaces"], false)
+          .setIn(["loading", "parameters"], false)
+          .set("formValues", nextFormValues)
+          .setIn(["loading", "submission"], false)
+          .set("orderResult", nextOrderResult),
+        nextRepo
       )
     }
 
-    case FmeActionType.SET_ERROR:
-      return state.set("error", action.error)
+    case FmeActionType.SET_ERROR: {
+      const act = action as ActionFrom<"setError">
+      return state.set("error", act.error)
+    }
 
-    case FmeActionType.SET_IMPORT_ERROR:
-      return state.set("importError", action.error)
+    case FmeActionType.SET_IMPORT_ERROR: {
+      const act = action as ActionFrom<"setImportError">
+      return state.set("importError", act.error)
+    }
 
-    case FmeActionType.SET_EXPORT_ERROR:
-      return state.set("exportError", action.error)
+    case FmeActionType.SET_EXPORT_ERROR: {
+      const act = action as ActionFrom<"setExportError">
+      return state.set("exportError", act.error)
+    }
+
+    case FmeActionType.CLEAR_ERROR: {
+      const act = action as ActionFrom<"clearError">
+      if (act.scope === "general") {
+        return state.error === null ? state : state.set("error", null)
+      }
+      if (act.scope === "import") {
+        return state.importError === null
+          ? state
+          : state.set("importError", null)
+      }
+      return state.exportError === null ? state : state.set("exportError", null)
+    }
+
+    case FmeActionType.CLEAR_ALL_ERRORS:
+      return state
+        .set("error", null)
+        .set("importError", null)
+        .set("exportError", null)
+
+    case FmeActionType.REMOVE_WIDGET_STATE:
+      return state
   }
-  return state
 }
 
 const ensureSubState = (
@@ -375,17 +475,73 @@ const setSubState = (
   return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
 
+export const selectFmeSlice = (
+  state: IMStateWithFmeExport,
+  widgetId: string
+): ImmutableObject<FmeWidgetState> | null => {
+  const slice = (state as any)?.["fme-state"]?.byId?.[widgetId] as
+    | ImmutableObject<FmeWidgetState>
+    | undefined
+  return slice ?? null
+}
+
+export const createFmeSelectors = (widgetId: string) => {
+  const getSlice = (state: IMStateWithFmeExport) =>
+    selectFmeSlice(state, widgetId)
+
+  return {
+    selectSlice: getSlice,
+    selectViewMode: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.viewMode ?? initialFmeState.viewMode,
+    selectGeometryJson: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.geometryJson ?? null,
+    selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.workspaceParameters ??
+      initialFmeState.workspaceParameters,
+    selectWorkspaceItem: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem,
+    selectCurrentRepository: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.currentRepository ?? initialFmeState.currentRepository,
+    selectOrderResult: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.orderResult ?? initialFmeState.orderResult,
+    selectLoading: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading ?? initialFmeState.loading,
+    selectIsLoadingWorkspaces: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading?.workspaces ??
+      initialFmeState.loading.workspaces,
+    selectIsLoadingParameters: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading?.parameters ??
+      initialFmeState.loading.parameters,
+    selectIsModulesLoading: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading?.modules ?? initialFmeState.loading.modules,
+    selectIsSubmittingOrder: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.loading?.submission ??
+      initialFmeState.loading.submission,
+  }
+}
+
 // Root reducer that delegates to per-widget reducer
 const initialGlobalState = Immutable({
   byId: {},
 }) as unknown as IMFmeGlobalState
 
+const isFmeAction = (candidate: unknown): candidate is FmeAction => {
+  if (!candidate || typeof candidate !== "object") return false
+  const action = candidate as { type?: unknown; widgetId?: unknown }
+  if (typeof action.type !== "string") return false
+  if (!FME_ACTION_TYPES.includes(action.type as FmeActionType)) return false
+  return typeof action.widgetId === "string"
+}
+
 const fmeReducer = (
   state: IMFmeGlobalState = initialGlobalState,
-  action: any
+  action: unknown
 ): IMFmeGlobalState => {
+  if (!isFmeAction(action)) {
+    return state
+  }
   // Special: remove entire widget state
-  if (action?.type === "fme/REMOVE_WIDGET_STATE" && action?.widgetId) {
+  if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
     delete byId[action.widgetId]
     return Immutable({ byId }) as unknown as IMFmeGlobalState

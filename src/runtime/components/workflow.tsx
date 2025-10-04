@@ -28,6 +28,7 @@ import {
   type ExportFormProps,
   type DynamicFieldConfig,
   type WorkspaceLoaderOptions,
+  type LoadingState,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -45,7 +46,7 @@ import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/close-circle.svg"
 import itemIcon from "../../assets/icons/item.svg"
 import { createFmeFlowClient } from "../../shared/api"
-import { fmeActions } from "../../extensions/store"
+import { fmeActions, initialFmeState } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
 import {
@@ -232,20 +233,17 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     reduxDispatch(action)
   })
 
-  const updateLoadingFlags = hooks.useEventCallback(
-    (flags: {
-      isLoadingWorkspaces?: boolean
-      isLoadingParameters?: boolean
-    }) => {
-      const payload: { [key: string]: boolean } = {}
-      if (flags.isLoadingWorkspaces !== undefined) {
-        payload.isLoadingWorkspaces = flags.isLoadingWorkspaces
+  const updateLoadingState = hooks.useEventCallback(
+    (flags: Partial<Pick<LoadingState, "workspaces" | "parameters">>) => {
+      const payload: { workspaces?: boolean; parameters?: boolean } = {}
+      if (typeof flags.workspaces === "boolean") {
+        payload.workspaces = flags.workspaces
       }
-      if (flags.isLoadingParameters !== undefined) {
-        payload.isLoadingParameters = flags.isLoadingParameters
+      if (typeof flags.parameters === "boolean") {
+        payload.parameters = flags.parameters
       }
       if (Object.keys(payload).length) {
-        dispatchAction(fmeActions.setLoadingFlags(payload, widgetId))
+        dispatchAction(fmeActions.setLoadingState(payload, widgetId))
       }
     }
   )
@@ -290,9 +288,9 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
       setIsLoading(false)
-      updateLoadingFlags({
-        isLoadingWorkspaces: false,
-        isLoadingParameters: false,
+      updateLoadingState({
+        workspaces: false,
+        parameters: false,
       })
     }
   })
@@ -340,7 +338,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     const controller = new AbortController()
     loadAbortRef.current = controller
     setIsLoading(true)
-    updateLoadingFlags({ isLoadingWorkspaces: true })
+    updateLoadingState({ workspaces: true })
     setError(null)
 
     try {
@@ -391,7 +389,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (isMountedRef.current) {
         setIsLoading(false)
       }
-      updateLoadingFlags({ isLoadingWorkspaces: false })
+      updateLoadingState({ workspaces: false })
       if (loadAbortRef.current === controller) {
         loadAbortRef.current = null
       }
@@ -414,7 +412,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         controller = new AbortController()
         loadAbortRef.current = controller
         setIsLoading(true)
-        updateLoadingFlags({ isLoadingParameters: true })
+        updateLoadingState({ parameters: true })
         setError(null)
 
         const [itemResponse, parametersResponse] = await Promise.all([
@@ -452,7 +450,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         if (msg && isMountedRef.current) setError(msg)
       } finally {
         if (isMountedRef.current) setIsLoading(false)
-        updateLoadingFlags({ isLoadingParameters: false })
+        updateLoadingState({ parameters: false })
         if (controller && loadAbortRef.current === controller) {
           loadAbortRef.current = null
         }
@@ -488,9 +486,9 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (isMountedRef.current && isLoading) {
         setIsLoading(false)
         setError(translate("errorLoadingTimeout"))
-        updateLoadingFlags({
-          isLoadingParameters: false,
-          isLoadingWorkspaces: false,
+        updateLoadingState({
+          parameters: false,
+          workspaces: false,
         })
       }
     }, LOADING_TIMEOUT_MS)
@@ -964,14 +962,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
   widgetId,
   state,
   instructionText,
-  isModulesLoading,
+  loadingState: loadingStateProp,
   canStartDrawing: _canStartDrawing,
   error,
   onFormBack,
   onFormSubmit,
   orderResult,
   onReuseGeography,
-  isSubmittingOrder = false,
   onBack,
   drawnArea,
   areaWarning,
@@ -1007,6 +1004,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Ensure a non-empty widgetId for internal Redux interactions
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
+
+  const loadingState = loadingStateProp ?? initialFmeState.loading
+  const isModulesLoading = Boolean(loadingState.modules)
+  const isSubmittingOrder = Boolean(loadingState.submission)
+  const isWorkspaceLoading = Boolean(loadingState.workspaces)
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -1205,7 +1207,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const {
-    isLoading: isLoadingWorkspaces,
+    isLoading: workspaceLoaderIsLoading,
     error: workspaceError,
     loadAll: loadWsList,
     loadItem: loadWorkspace,
@@ -1292,14 +1294,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
     if (isWorkspaceSelectionContext) {
-      if (!workspaceItems.length && !isLoadingWorkspaces && !workspaceError) {
+      if (
+        !workspaceItems.length &&
+        !workspaceLoaderIsLoading &&
+        !workspaceError
+      ) {
         scheduleWsLoad()
       }
     }
   }, [
     isWorkspaceSelectionContext,
     workspaceItems.length,
-    isLoadingWorkspaces,
+    workspaceLoaderIsLoading,
     workspaceError,
     scheduleWsLoad,
   ])
@@ -1386,7 +1392,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
-      isLoadingWorkspaces,
+      isWorkspaceLoading,
       workspaceItems,
       state,
       Boolean(workspaceError)
