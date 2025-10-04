@@ -31,6 +31,7 @@ import type {
   WorkspaceParameter,
   WorkspaceItemDetail,
   ErrorState,
+  SerializableErrorState,
   ApiResponse,
   DrawingSessionState,
   MutableParams,
@@ -83,6 +84,7 @@ import {
   createPopupSuppressionRecord,
   releasePopupSuppressionRecord,
   popupSuppressionManager,
+  toSerializable,
 } from "../shared/utils"
 import type { PopupSuppressionRecord } from "../shared/utils"
 
@@ -689,7 +691,7 @@ const useErrorDispatcher = (
       timestampMs: Date.now(),
       kind: "runtime",
     }
-    dispatch(fmeActions.setError(error, widgetId))
+    dispatch(fmeActions.setError("general", error, widgetId))
   })
 
 // Initialize graphics layers for drawing
@@ -912,6 +914,15 @@ export default function Widget(
     selectors.selectSlice(state)
   )
   const reduxState = reduxSlice?.asMutable({ deep: true }) ?? initialFmeState
+  const previousViewMode = hooks.usePrevious(reduxState.viewMode)
+  const scopedError = reduxState.error
+  const generalErrorDetails =
+    scopedError?.scope === "general" ? scopedError.details : null
+  const generalError = expandSerializableError(generalErrorDetails)
+  const hasCriticalGeneralError =
+    generalErrorDetails?.severity === ErrorSeverity.ERROR
+  const workflowError = scopedError?.details ?? null
+  const configuredRepository = config?.repository ?? null
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -948,6 +959,15 @@ export default function Widget(
   )
 
   const [areaWarning, setAreaWarning] = React.useState(false)
+
+  // Local submission loading state
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+
+  const [startupState, setStartupState] = React.useState<{
+    isValidating: boolean
+    step?: string
+    error: ErrorState | null
+  }>(() => ({ isValidating: true, step: undefined, error: null }))
 
   const updateAreaWarning = hooks.useEventCallback((next: boolean) => {
     setAreaWarning(Boolean(next))
@@ -1051,6 +1071,20 @@ export default function Widget(
     return fmeClientRef.current
   })
 
+  function expandSerializableError(
+    error: SerializableErrorState | null | undefined
+  ): ErrorState | null {
+    if (!error) return null
+    const timestampMs =
+      typeof error.timestampMs === "number" ? error.timestampMs : Date.now()
+    return {
+      ...error,
+      timestamp: new Date(timestampMs),
+      timestampMs,
+      kind: "runtime",
+    }
+  }
+
   hooks.useUpdateEffect(() => {
     if (!config) {
       disposeFmeClient()
@@ -1065,16 +1099,11 @@ export default function Widget(
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
     const activeTool = drawingToolRef.current
-    const latestConfig = configRef.current
 
     dispatch(fmeActions.resetState(widgetId))
     updateAreaWarning(false)
 
-    if (latestConfig?.repository) {
-      dispatch(
-        fmeActions.clearWorkspaceState(latestConfig.repository, widgetId)
-      )
-    }
+    dispatch(fmeActions.clearWorkspaceState(widgetId))
 
     if (activeTool) {
       dispatch(fmeActions.setDrawingTool(activeTool, widgetId))
@@ -1082,20 +1111,9 @@ export default function Widget(
   })
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
-    dispatch(fmeActions.setGeometry(null, 0, widgetId))
+    dispatch(fmeActions.resetToDrawing(widgetId))
     updateAreaWarning(false)
     updateDrawingSession({ isActive: false, clickCount: 0 })
-    dispatch(fmeActions.setError(null, widgetId))
-    dispatch(fmeActions.setImportError(null, widgetId))
-    dispatch(fmeActions.setExportError(null, widgetId))
-    dispatch(fmeActions.setOrderResult(null, widgetId))
-    dispatch(
-      fmeActions.setSelectedWorkspace(null, config?.repository, widgetId)
-    )
-    dispatch(fmeActions.setFormValues({}, widgetId))
-    dispatch(fmeActions.setLoadingState({ modules: false }, widgetId))
-    dispatch(fmeActions.setLoadingState({ submission: false }, widgetId))
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
   })
 
   const [moduleRetryKey, setModuleRetryKey] = React.useState(0)
@@ -1158,7 +1176,7 @@ export default function Widget(
         onRetry ??
         (() => {
           // Clear error and return to drawing mode if applicable
-          dispatch(fmeActions.setError(null, widgetId))
+          dispatch(fmeActions.clearError("general", widgetId))
           if (isAoiRetryableError) {
             // Mark that we should auto-start once tools are re-initialized
             shouldAutoStartRef.current = true
@@ -1227,9 +1245,6 @@ export default function Widget(
   )
 
   const { modules, loading: modulesLoading } = useEsriModules(moduleRetryKey)
-  hooks.useUpdateEffect(() => {
-    dispatch(fmeActions.setLoadingState({ modules: modulesLoading }, widgetId))
-  }, [modulesLoading, dispatch, widgetId])
   const mapResources = useMapResources()
 
   const getActiveGeometry = hooks.useEventCallback(() => {
@@ -1287,13 +1302,12 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    dispatch(fmeActions.setStartupValidationState(true, step, null, widgetId))
+    setStartupState({ isValidating: true, step, error: null })
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
-    dispatch(
-      fmeActions.setStartupValidationState(false, undefined, null, widgetId)
-    )
+    setStartupState({ isValidating: false, step: undefined, error: null })
+    dispatch(fmeActions.completeStartup(widgetId))
     const currentViewMode = viewModeRef.current
     const isUnset =
       currentViewMode === null || typeof currentViewMode === "undefined"
@@ -1306,9 +1320,7 @@ export default function Widget(
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    dispatch(
-      fmeActions.setStartupValidationState(false, undefined, error, widgetId)
-    )
+    setStartupState({ isValidating: false, step: undefined, error })
   })
 
   // Small helper to build consistent startup validation errors
@@ -1515,7 +1527,7 @@ export default function Widget(
           updateAreaWarning(false)
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error) {
-            dispatch(fmeActions.setError(validation.error, widgetId))
+            dispatch(fmeActions.setError("general", validation.error, widgetId))
           }
           return
         }
@@ -1646,11 +1658,11 @@ export default function Widget(
 
   // Form submission handler
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    if (reduxState.loading.submission || !canSubmit()) {
+    if (isSubmitting || !canSubmit()) {
       return
     }
 
-    dispatch(fmeActions.setLoadingState({ submission: true }, widgetId))
+    setIsSubmitting(true)
 
     let controller: AbortController | null = null
 
@@ -1693,7 +1705,7 @@ export default function Widget(
       })
 
       if (preparation.aoiError) {
-        dispatch(fmeActions.setError(preparation.aoiError, widgetId))
+        dispatch(fmeActions.setError("general", preparation.aoiError, widgetId))
         return
       }
 
@@ -1727,7 +1739,7 @@ export default function Widget(
     } catch (error) {
       handleSubmissionError(error)
     } finally {
-      dispatch(fmeActions.setLoadingState({ submission: false }, widgetId))
+      setIsSubmitting(false)
       submissionAbort.finalize(controller)
     }
   })
@@ -1918,15 +1930,15 @@ export default function Widget(
 
   // Previous runtime state for comparison
   const prevRuntimeState = hooks.usePrevious(runtimeState)
-  const prevRepository = hooks.usePrevious(reduxState.currentRepository)
+  const prevRepository = hooks.usePrevious(configuredRepository)
 
   // Auto-start drawing when in DRAWING mode
   const canAutoStartDrawing =
     reduxState.viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
     sketchViewModel &&
-    !reduxState.loading.submission &&
-    !(reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR)
+    !isSubmitting &&
+    !hasCriticalGeneralError
 
   hooks.useUpdateEffect(() => {
     // Only auto-start if not already started and widget is not closed
@@ -1938,9 +1950,10 @@ export default function Widget(
     drawingSession.clickCount,
     reduxState.drawingTool,
     sketchViewModel,
-    reduxState.loading.submission,
+    isSubmitting,
     handleStartDrawing,
     runtimeState,
+    hasCriticalGeneralError,
   ])
 
   // Reset handler
@@ -2002,10 +2015,10 @@ export default function Widget(
 
   // Teardown drawing resources on critical errors
   hooks.useUpdateEffect(() => {
-    if (reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR) {
+    if (hasCriticalGeneralError) {
       teardownDrawingResources()
     }
-  }, [reduxState.error, teardownDrawingResources])
+  }, [hasCriticalGeneralError, teardownDrawingResources])
 
   hooks.useUpdateEffect(() => {
     const hasGeometry = Boolean(reduxState.geometryJson)
@@ -2034,15 +2047,10 @@ export default function Widget(
   ])
 
   hooks.useUpdateEffect(() => {
-    if (reduxState.currentRepository !== prevRepository && areaWarning) {
+    if (configuredRepository !== prevRepository && areaWarning) {
       updateAreaWarning(false)
     }
-  }, [
-    reduxState.currentRepository,
-    prevRepository,
-    areaWarning,
-    updateAreaWarning,
-  ])
+  }, [configuredRepository, prevRepository, areaWarning, updateAreaWarning])
 
   // Disable popup guard when widget is closed or hidden
   hooks.useUpdateEffect(() => {
@@ -2068,28 +2076,11 @@ export default function Widget(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
+      dispatch(fmeActions.setSelectedWorkspace(workspaceName, widgetId))
       dispatch(
-        fmeActions.setSelectedWorkspace(
-          workspaceName,
-          configRef.current?.repository,
-          widgetId
-        )
+        fmeActions.setWorkspaceParameters(parameters, workspaceName, widgetId)
       )
-      dispatch(
-        fmeActions.setWorkspaceParameters(
-          parameters,
-          workspaceName,
-          configRef.current?.repository,
-          widgetId
-        )
-      )
-      dispatch(
-        fmeActions.setWorkspaceItem(
-          workspaceItem,
-          configRef.current?.repository,
-          widgetId
-        )
-      )
+      dispatch(fmeActions.setWorkspaceItem(workspaceItem, widgetId))
       dispatch(fmeActions.setViewMode(ViewMode.EXPORT_FORM, widgetId))
     }
   )
@@ -2104,7 +2095,7 @@ export default function Widget(
   })
 
   const navigateBack = hooks.useEventCallback(() => {
-    const { viewMode, previousViewMode } = reduxState
+    const viewMode = reduxState.viewMode
     const defaultRoute = VIEW_ROUTES[viewMode] || ViewMode.INITIAL
     const target =
       previousViewMode && previousViewMode !== viewMode
@@ -2146,27 +2137,24 @@ export default function Widget(
   }
 
   // Error state - prioritize startup validation errors, then general errors
-  if (reduxState.startupValidationError) {
+  if (startupState.error) {
     // Always handle startup validation errors first
     return (
       <div css={styles.parent}>
-        {renderWidgetError(
-          reduxState.startupValidationError,
-          runStartupValidation
-        )}
+        {renderWidgetError(startupState.error, runStartupValidation)}
       </div>
     )
   }
 
-  if (reduxState.error && reduxState.error.severity === ErrorSeverity.ERROR) {
+  if (hasCriticalGeneralError && generalError) {
     // Handle other errors (non-startup validation)
-    return <div css={styles.parent}>{renderWidgetError(reduxState.error)}</div>
+    return <div css={styles.parent}>{renderWidgetError(generalError)}</div>
   }
 
   // derive simple view booleans for readability
   const showHeaderActions =
     (drawingSession.isActive || reduxState.drawnArea > 0) &&
-    !reduxState.loading.submission &&
+    !isSubmitting &&
     !modulesLoading
 
   // precompute UI booleans
@@ -2187,13 +2175,18 @@ export default function Widget(
         widgetId={widgetId}
         config={props.config}
         state={reduxState.viewMode}
-        error={reduxState.error}
+        error={workflowError}
         instructionText={getDrawingInstructions(
           reduxState.drawingTool,
           drawingSession.isActive,
           drawingSession.clickCount
         )}
-        loadingState={reduxState.loading}
+        loadingState={{
+          modules: modulesLoading,
+          submission: isSubmitting,
+          workspaces: false,
+          parameters: false,
+        }}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
@@ -2227,9 +2220,13 @@ export default function Widget(
         workspaceParameters={reduxState.workspaceParameters}
         workspaceItem={reduxState.workspaceItem}
         // Startup validation props
-        isStartupValidating={reduxState.isStartupValidating}
-        startupValidationStep={reduxState.startupValidationStep}
-        startupValidationError={reduxState.startupValidationError}
+        isStartupValidating={startupState.isValidating}
+        startupValidationStep={startupState.step}
+        startupValidationError={
+          startupState.error
+            ? (toSerializable(startupState.error) as SerializableErrorState)
+            : null
+        }
         onRetryValidation={runStartupValidation}
       />
     </div>

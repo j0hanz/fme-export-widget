@@ -131,46 +131,38 @@ export const enum JobStatus {
 export const enum FmeActionType {
   SET_VIEW_MODE = "fme/SET_VIEW_MODE",
   RESET_STATE = "fme/RESET_STATE",
-  SET_STARTUP_VALIDATION_STATE = "fme/SET_STARTUP_VALIDATION_STATE",
   SET_GEOMETRY = "fme/SET_GEOMETRY",
   SET_DRAWING_TOOL = "fme/SET_DRAWING_TOOL",
   COMPLETE_DRAWING = "fme/COMPLETE_DRAWING",
-  SET_FORM_VALUES = "fme/SET_FORM_VALUES",
   SET_ORDER_RESULT = "fme/SET_ORDER_RESULT",
   SET_WORKSPACE_ITEMS = "fme/SET_WORKSPACE_ITEMS",
   SET_WORKSPACE_PARAMETERS = "fme/SET_WORKSPACE_PARAMETERS",
   SET_SELECTED_WORKSPACE = "fme/SET_SELECTED_WORKSPACE",
   SET_WORKSPACE_ITEM = "fme/SET_WORKSPACE_ITEM",
-  SET_LOADING_STATE = "fme/SET_LOADING_STATE",
   SET_ERROR = "fme/SET_ERROR",
-  SET_IMPORT_ERROR = "fme/SET_IMPORT_ERROR",
-  SET_EXPORT_ERROR = "fme/SET_EXPORT_ERROR",
   CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
   CLEAR_ERROR = "fme/CLEAR_ERROR",
-  CLEAR_ALL_ERRORS = "fme/CLEAR_ALL_ERRORS",
+  RESET_TO_DRAWING = "fme/RESET_TO_DRAWING",
+  COMPLETE_STARTUP = "fme/COMPLETE_STARTUP",
   REMOVE_WIDGET_STATE = "fme/REMOVE_WIDGET_STATE",
 }
 
 export const FME_ACTION_TYPES = [
   FmeActionType.SET_VIEW_MODE,
   FmeActionType.RESET_STATE,
-  FmeActionType.SET_STARTUP_VALIDATION_STATE,
   FmeActionType.SET_GEOMETRY,
   FmeActionType.SET_DRAWING_TOOL,
   FmeActionType.COMPLETE_DRAWING,
-  FmeActionType.SET_FORM_VALUES,
   FmeActionType.SET_ORDER_RESULT,
   FmeActionType.SET_WORKSPACE_ITEMS,
   FmeActionType.SET_WORKSPACE_PARAMETERS,
   FmeActionType.SET_SELECTED_WORKSPACE,
   FmeActionType.SET_WORKSPACE_ITEM,
-  FmeActionType.SET_LOADING_STATE,
   FmeActionType.SET_ERROR,
-  FmeActionType.SET_IMPORT_ERROR,
-  FmeActionType.SET_EXPORT_ERROR,
   FmeActionType.CLEAR_WORKSPACE_STATE,
   FmeActionType.CLEAR_ERROR,
-  FmeActionType.CLEAR_ALL_ERRORS,
+  FmeActionType.RESET_TO_DRAWING,
+  FmeActionType.COMPLETE_STARTUP,
   FmeActionType.REMOVE_WIDGET_STATE,
 ] as const
 
@@ -330,6 +322,13 @@ export interface SerializableErrorState {
 }
 
 export type AnyErrorState = ErrorState | SerializableErrorState
+
+export type ErrorScope = "general" | "import" | "export"
+
+export interface ErrorWithScope {
+  readonly scope: ErrorScope
+  readonly details: SerializableErrorState
+}
 
 // UI component interfaces
 export interface BaseProps {
@@ -1051,10 +1050,6 @@ export interface SubmissionPreparationResult {
 export interface FmeWidgetState {
   // View state
   readonly viewMode: ViewMode
-  readonly previousViewMode: ViewMode | null
-  readonly isStartupValidating: boolean
-  readonly startupValidationStep?: string
-  readonly startupValidationError: SerializableErrorState | null
 
   // Drawing state
   readonly drawingTool: DrawingTool
@@ -1062,7 +1057,6 @@ export interface FmeWidgetState {
   readonly drawnArea: number
 
   // Export state
-  readonly formValues: FormValues
   readonly orderResult: ExportResult | null
 
   // Workspace state
@@ -1070,13 +1064,9 @@ export interface FmeWidgetState {
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
-  readonly currentRepository: string | null // Track current repository for workspace isolation
 
-  // Loading and error state
-  readonly loading: LoadingState
-  readonly error: SerializableErrorState | null
-  readonly importError: SerializableErrorState | null
-  readonly exportError: SerializableErrorState | null
+  // Error state
+  readonly error: ErrorWithScope | null
 }
 
 // Global state for multiple widget instances

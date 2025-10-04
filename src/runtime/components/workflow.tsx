@@ -28,7 +28,6 @@ import {
   type ExportFormProps,
   type DynamicFieldConfig,
   type WorkspaceLoaderOptions,
-  type LoadingState,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -46,7 +45,7 @@ import rectangleIcon from "../../assets/icons/rectangle.svg"
 import resetIcon from "../../assets/icons/close-circle.svg"
 import itemIcon from "../../assets/icons/item.svg"
 import { createFmeFlowClient } from "../../shared/api"
-import { fmeActions, initialFmeState } from "../../extensions/store"
+import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
 import {
@@ -162,7 +161,7 @@ const createFormValidator = (
 // Form state management hook
 const useFormStateManager = (
   validator: ReturnType<typeof createFormValidator>,
-  onValuesChange: (values: FormValues) => void
+  onValuesChange?: (values: FormValues) => void
 ) => {
   const [values, setValues] = React.useState<FormValues>(() =>
     validator.initializeValues()
@@ -172,7 +171,7 @@ const useFormStateManager = (
 
   const syncValues = hooks.useEventCallback((next: FormValues) => {
     setValues(next)
-    onValuesChange(next)
+    onValuesChange?.(next)
   })
 
   const updateField = hooks.useEventCallback(
@@ -233,21 +232,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     reduxDispatch(action)
   })
 
-  const updateLoadingState = hooks.useEventCallback(
-    (flags: Partial<Pick<LoadingState, "workspaces" | "parameters">>) => {
-      const payload: { workspaces?: boolean; parameters?: boolean } = {}
-      if (typeof flags.workspaces === "boolean") {
-        payload.workspaces = flags.workspaces
-      }
-      if (typeof flags.parameters === "boolean") {
-        payload.parameters = flags.parameters
-      }
-      if (Object.keys(payload).length) {
-        dispatchAction(fmeActions.setLoadingState(payload, widgetId))
-      }
-    }
-  )
-
   // Cleanup on unmount
   hooks.useEffectOnce(() => {
     return () => {
@@ -288,10 +272,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
       setIsLoading(false)
-      updateLoadingState({
-        workspaces: false,
-        parameters: false,
-      })
     }
   })
 
@@ -309,16 +289,9 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         return
       }
 
+      dispatchAction(fmeActions.setWorkspaceItem(workspaceItem, widgetId))
       dispatchAction(
-        fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
-      )
-      dispatchAction(
-        fmeActions.setWorkspaceParameters(
-          parameters,
-          workspaceName,
-          repoName,
-          widgetId
-        )
+        fmeActions.setWorkspaceParameters(parameters, workspaceName, widgetId)
       )
     }
   )
@@ -338,7 +311,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     const controller = new AbortController()
     loadAbortRef.current = controller
     setIsLoading(true)
-    updateLoadingState({ workspaces: true })
     setError(null)
 
     try {
@@ -376,9 +348,7 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       )
 
       if (isMountedRef.current) {
-        dispatchAction(
-          fmeActions.setWorkspaceItems(sorted, targetRepository, widgetId)
-        )
+        dispatchAction(fmeActions.setWorkspaceItems(sorted, widgetId))
       }
     } catch (err) {
       const msg = formatError(err, "failedToLoadWorkspaces")
@@ -389,7 +359,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (isMountedRef.current) {
         setIsLoading(false)
       }
-      updateLoadingState({ workspaces: false })
       if (loadAbortRef.current === controller) {
         loadAbortRef.current = null
       }
@@ -412,7 +381,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         controller = new AbortController()
         loadAbortRef.current = controller
         setIsLoading(true)
-        updateLoadingState({ parameters: true })
         setError(null)
 
         const [itemResponse, parametersResponse] = await Promise.all([
@@ -450,7 +418,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         if (msg && isMountedRef.current) setError(msg)
       } finally {
         if (isMountedRef.current) setIsLoading(false)
-        updateLoadingState({ parameters: false })
         if (controller && loadAbortRef.current === controller) {
           loadAbortRef.current = null
         }
@@ -486,10 +453,6 @@ const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       if (isMountedRef.current && isLoading) {
         setIsLoading(false)
         setError(translate("errorLoadingTimeout"))
-        updateLoadingState({
-          parameters: false,
-          workspaces: false,
-        })
       }
     }, LOADING_TIMEOUT_MS)
 
@@ -714,15 +677,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   const validator = createFormValidator(parameterService, workspaceParameters)
 
   // Use form state manager hook
-  const syncFormToStore = hooks.useEventCallback((values: FormValues) => {
-    reduxDispatch(fmeActions.setFormValues(values, widgetId))
-  })
-  const formState = useFormStateManager(validator, syncFormToStore)
-
-  // Initialize form values in Redux store only once
-  hooks.useEffectOnce(() => {
-    syncFormToStore(formState.values)
-  })
+  const formState = useFormStateManager(validator)
 
   // Validate form on mount and when dependencies change
   hooks.useEffectOnce(() => {
@@ -795,7 +750,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
         kind: "runtime",
       }
       // Dispatch error to the store
-      reduxDispatch(fmeActions.setError(error, widgetId))
+      reduxDispatch(fmeActions.setError("general", error, widgetId))
       return
     }
     // Merge file inputs with other values
@@ -1005,7 +960,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Ensure a non-empty widgetId for internal Redux interactions
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
 
-  const loadingState = loadingStateProp ?? initialFmeState.loading
+  const loadingState = loadingStateProp ?? {
+    modules: false,
+    submission: false,
+    workspaces: false,
+    parameters: false,
+  }
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
   const isWorkspaceLoading = Boolean(loadingState.workspaces)
@@ -1241,18 +1201,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   ) as readonly WorkspaceItem[]
 
-  const repositoryFromStore = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => {
-      const global = (state as any)?.["fme-state"]
-      const sub = global?.byId?.[effectiveWidgetId]
-      const repo = sub?.currentRepository as string | null | undefined
-      return toTrimmedString(repo) ?? null
-    }
-  )
-
   const workspaceItems = storeWorkspaceItems
-
-  const currentRepository = repositoryFromStore || configuredRepository || null
+  const currentRepository = configuredRepository || null
 
   // Helper: are we in a workspace selection context?
   const isWorkspaceSelectionContext =
@@ -1319,9 +1269,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     previousConfiguredRepositoryRef.current = configuredRepository
 
-    reduxDispatch(
-      fmeActions.clearWorkspaceState(configuredRepository, effectiveWidgetId)
-    )
+    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
 
     if (configuredRepository && isWorkspaceSelectionContext) {
       scheduleWsLoad()

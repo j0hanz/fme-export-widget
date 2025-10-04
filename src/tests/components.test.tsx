@@ -27,6 +27,7 @@ import {
   DrawingTool,
   type DynamicFieldConfig,
 } from "../config"
+import { initialFmeState } from "../extensions/store"
 
 jest.mock("jimu-ui", () => {
   const React = require("react")
@@ -485,8 +486,8 @@ describe("Workflow component", () => {
     "fme-state": {
       byId: {
         [widgetId]: {
+          ...initialFmeState,
           workspaceItems: [{ name: "WorkspaceA", title: "Workspace A" }],
-          currentRepository: "repo-1",
         },
       },
     },

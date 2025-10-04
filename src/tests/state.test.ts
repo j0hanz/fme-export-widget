@@ -15,29 +15,13 @@ import {
   type IMFmeGlobalState,
   type WorkspaceParameter,
 } from "../config"
-import { sanitizeFormValues } from "../shared/validations"
-
-jest.mock("../shared/validations", () => {
-  const actual = jest.requireActual("../shared/validations")
-  return {
-    ...actual,
-    sanitizeFormValues: jest.fn((values: any) => ({
-      __sanitized__: true,
-      ...values,
-    })),
-  }
-})
-
-const sanitizeFormValuesMock = sanitizeFormValues as jest.MockedFunction<
-  typeof sanitizeFormValues
->
 
 const widgetId = "widget-test"
 
 // Key state behaviors verified in these tests:
 // - Lazy widget sub-state creation and reset lifecycle
-// - Geometry, drawing, and workspace repository state transitions
-// - Error serialization, loading flags, and workspace clearing flows
+// - Geometry, drawing, and workspace state transitions
+// - Scoped error serialization and clearing flows
 
 const createReducer = () => new FmeReduxStoreExtension().getReducer()
 
@@ -57,12 +41,8 @@ beforeAll(() => {
   initGlobal()
 })
 
-beforeEach(() => {
-  sanitizeFormValuesMock.mockClear()
-})
-
 describe("FME Redux state management", () => {
-  it("creates widget sub-state lazily and tracks view history", () => {
+  it("creates widget sub-state lazily and updates view mode", () => {
     // Arrange
     const reducer = createReducer()
 
@@ -75,7 +55,6 @@ describe("FME Redux state management", () => {
     // Assert
     const plain = toPlainState(nextState)
     expect(plain.viewMode).toBe(ViewMode.INITIAL)
-    expect(plain.previousViewMode).toBe(ViewMode.STARTUP_VALIDATION)
   })
 
   it("keeps state immutable when view mode is unchanged", () => {
@@ -111,43 +90,6 @@ describe("FME Redux state management", () => {
     // Assert
     const plain = toPlainState(resetState)
     expect(plain).toEqual(initialFmeState)
-  })
-
-  it("captures startup validation state and serializes runtime errors", () => {
-    // Arrange
-    const reducer = createReducer()
-    const runtimeError: ErrorState = {
-      message: "Startup failed",
-      type: ErrorType.CONFIG,
-      code: "CFG",
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      details: { reason: "missing-config" },
-      timestamp: new Date(1_700_000_000_000),
-      timestampMs: 1_700_000_000_000,
-    }
-
-    // Act
-    const nextState = reducer(
-      undefined,
-      fmeActions.setStartupValidationState(
-        false,
-        "loading-modules",
-        runtimeError,
-        widgetId
-      )
-    )
-
-    // Assert
-    const plain = toPlainState(nextState)
-    expect(plain.isStartupValidating).toBe(false)
-    expect(plain.startupValidationStep).toBe("loading-modules")
-    const serialized = plain.startupValidationError
-    if (!serialized) {
-      throw new Error("Expected serialized startup error")
-    }
-    expect(serialized.timestampMs).toBe(1_700_000_000_000)
-    expect(serialized.kind).toBe("serializable")
   })
 
   it("stores geometry JSON output and normalizes drawn area", () => {
@@ -194,7 +136,6 @@ describe("FME Redux state management", () => {
     const plain = toPlainState(state)
     expect(plain.geometryJson).toEqual(geometryJson)
     expect(plain.drawnArea).toBe(42)
-    expect(plain.previousViewMode).toBe(ViewMode.DRAWING)
     expect(plain.viewMode).toBe(ViewMode.EXPORT_FORM)
   })
 
@@ -213,108 +154,42 @@ describe("FME Redux state management", () => {
     expect(plain.drawingTool).toBe(DrawingTool.RECTANGLE)
   })
 
-  it("sanitizes form values using workspace parameters as context", () => {
+  it("captures order results", () => {
     // Arrange
     const reducer = createReducer()
-    const parameters: WorkspaceParameter[] = [
-      {
-        name: "city",
-        type: ParameterType.TEXT,
-        optional: false,
-      },
-    ]
-    let state = reducer(
-      undefined,
-      fmeActions.setWorkspaceParameters(
-        parameters,
-        "DemoWorkspace",
-        "repo-1",
-        widgetId
-      )
-    )
-    const rawValues = { city: "Stockholm", extra: "value" }
-
-    // Act
-    state = reducer(state, fmeActions.setFormValues(rawValues, widgetId))
-
-    // Assert
-    const plain = toPlainState(state)
-    expect(plain.formValues).toEqual({ __sanitized__: true, ...rawValues })
-    expect(sanitizeFormValuesMock).toHaveBeenCalledWith(rawValues, parameters)
-  })
-
-  it("rejects File instances in form values to keep Redux state serializable", () => {
-    // Arrange
-    const reducer = createReducer()
-    const OriginalFile = (global as any).File
-    class MockFile {
-      readonly name = "mock-file"
-    }
-    ;(global as any).File = MockFile
-
-    try {
-      // Act
-      const invoke = () =>
-        reducer(
-          undefined,
-          fmeActions.setFormValues({ upload: new MockFile() } as any, widgetId)
-        )
-
-      // Assert
-      expect(invoke).toThrow(
-        "Form values must not include File instances. Handle uploads outside Redux state."
-      )
-    } finally {
-      ;(global as any).File = OriginalFile
-    }
-  })
-
-  it("captures order results and clears submitting flag", () => {
-    // Arrange
-    const reducer = createReducer()
-    let state = reducer(
-      undefined,
-      fmeActions.setLoadingState({ submission: true }, widgetId)
-    )
     const orderResult: ExportResult = {
       success: true,
       message: "done",
     }
 
     // Act
-    state = reducer(state, fmeActions.setOrderResult(orderResult, widgetId))
+    const state = reducer(
+      undefined,
+      fmeActions.setOrderResult(orderResult, widgetId)
+    )
 
     // Assert
     const plain = toPlainState(state)
     expect(plain.orderResult).toEqual(orderResult)
-    expect(plain.loading.submission).toBe(false)
   })
 
-  it("updates workspace items and repository context", () => {
+  it("updates workspace items", () => {
     // Arrange
     const reducer = createReducer()
     const items = [{ name: "workspace" }]
 
     // Act
-    let state = reducer(
+    const state = reducer(
       undefined,
-      fmeActions.setWorkspaceItems(items, "repo-a", widgetId)
-    )
-    const withRepo = toPlainState(state)
-    expect(withRepo.workspaceItems).toEqual(items)
-    expect(withRepo.currentRepository).toBe("repo-a")
-
-    state = reducer(
-      state,
-      fmeActions.setWorkspaceItems(items, undefined, widgetId)
+      fmeActions.setWorkspaceItems(items, widgetId)
     )
 
     // Assert
-    const clearedRepo = toPlainState(state)
-    expect(clearedRepo.currentRepository).toBeNull()
+    const plain = toPlainState(state)
+    expect(plain.workspaceItems).toEqual(items)
   })
 
-  it("tracks workspace parameters, selection, and repository", () => {
+  it("tracks workspace parameters and selection", () => {
     // Arrange
     const reducer = createReducer()
     const parameters: WorkspaceParameter[] = [
@@ -328,42 +203,32 @@ describe("FME Redux state management", () => {
     // Act
     const state = reducer(
       undefined,
-      fmeActions.setWorkspaceParameters(
-        parameters,
-        "BufferCity",
-        "repo-b",
-        widgetId
-      )
+      fmeActions.setWorkspaceParameters(parameters, "BufferCity", widgetId)
     )
 
     // Assert
     const plain = toPlainState(state)
     expect(plain.workspaceParameters).toEqual(parameters)
     expect(plain.selectedWorkspace).toBe("BufferCity")
-    expect(plain.currentRepository).toBe("repo-b")
   })
 
-  it("retains repository context when selection updates without explicit repo", () => {
+  it("updates selected workspace independently", () => {
     // Arrange
     const reducer = createReducer()
     let state = reducer(
       undefined,
-      fmeActions.setWorkspaceItems([], "repo-c", widgetId)
+      fmeActions.setWorkspaceParameters([], "", widgetId)
     )
 
     // Act
-    state = reducer(
-      state,
-      fmeActions.setSelectedWorkspace("Clipper", undefined, widgetId)
-    )
+    state = reducer(state, fmeActions.setSelectedWorkspace("Clipper", widgetId))
 
     // Assert
     const plain = toPlainState(state)
     expect(plain.selectedWorkspace).toBe("Clipper")
-    expect(plain.currentRepository).toBe("repo-c")
   })
 
-  it("stores detailed workspace item metadata with repository affinity", () => {
+  it("stores detailed workspace item metadata", () => {
     // Arrange
     const reducer = createReducer()
     const item = { name: "Clipper", title: "Clip polygons" }
@@ -371,75 +236,32 @@ describe("FME Redux state management", () => {
     // Act
     const state = reducer(
       undefined,
-      fmeActions.setWorkspaceItem(item as any, "repo-x", widgetId)
+      fmeActions.setWorkspaceItem(item as any, widgetId)
     )
 
     // Assert
     const plain = toPlainState(state)
     expect(plain.workspaceItem).toEqual(item)
-    expect(plain.currentRepository).toBe("repo-x")
   })
 
-  it("toggles loading flags independently", () => {
+  it("clears workspace-specific state", () => {
     // Arrange
     const reducer = createReducer()
     let state = reducer(
       undefined,
-      fmeActions.setLoadingState({ modules: true }, widgetId)
+      fmeActions.setWorkspaceParameters([], "Clipper", widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setWorkspaceItem({ name: "Clipper" } as any, widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setOrderResult({ success: true, message: "ok" }, widgetId)
     )
 
     // Act
-    state = reducer(
-      state,
-      fmeActions.setLoadingState({ submission: true }, widgetId)
-    )
-    state = reducer(
-      state,
-      fmeActions.setLoadingState({ workspaces: true }, widgetId)
-    )
-    state = reducer(
-      state,
-      fmeActions.setLoadingState({ parameters: true }, widgetId)
-    )
-
-    // Assert
-    const plain = toPlainState(state)
-    expect(plain.loading.modules).toBe(true)
-    expect(plain.loading.submission).toBe(true)
-    expect(plain.loading.workspaces).toBe(true)
-    expect(plain.loading.parameters).toBe(true)
-  })
-
-  it("clears workspace-specific state and updates repository context", () => {
-    // Arrange
-    const reducer = createReducer()
-    const parameters: WorkspaceParameter[] = [
-      {
-        name: "Area",
-        type: ParameterType.GEOMETRY,
-        optional: false,
-      },
-    ]
-    let state = reducer(
-      undefined,
-      fmeActions.setWorkspaceParameters(
-        parameters,
-        "Clipper",
-        "repo-initial",
-        widgetId
-      )
-    )
-    state = reducer(state, fmeActions.setFormValues({ Area: 10 }, widgetId))
-    state = reducer(
-      state,
-      fmeActions.setLoadingState({ submission: true }, widgetId)
-    )
-
-    // Act
-    state = reducer(
-      state,
-      fmeActions.clearWorkspaceState("repo-next", widgetId)
-    )
+    state = reducer(state, fmeActions.clearWorkspaceState(widgetId))
 
     // Assert
     const plain = toPlainState(state)
@@ -447,14 +269,10 @@ describe("FME Redux state management", () => {
     expect(plain.workspaceParameters).toEqual([])
     expect(plain.selectedWorkspace).toBeNull()
     expect(plain.workspaceItem).toBeNull()
-    expect(plain.formValues).toEqual({})
-    expect(plain.loading.submission).toBe(false)
-    expect(plain.loading.workspaces).toBe(false)
-    expect(plain.loading.parameters).toBe(false)
-    expect(plain.currentRepository).toBe("repo-next")
+    expect(plain.orderResult).toBeNull()
   })
 
-  it("serializes error payloads for general, import, and export flows", () => {
+  it("stores scoped errors and clears them by scope", () => {
     // Arrange
     const reducer = createReducer()
     const error: ErrorState = {
@@ -468,18 +286,139 @@ describe("FME Redux state management", () => {
     }
 
     // Act
-    let state = reducer(undefined, fmeActions.setError(error, widgetId))
-    state = reducer(state, fmeActions.setImportError(error, widgetId))
-    state = reducer(state, fmeActions.setExportError(error, widgetId))
+    let state = reducer(
+      undefined,
+      fmeActions.setError("general", error, widgetId)
+    )
+
+    // Assert
+    let plain = toPlainState(state)
+    expect(plain.error?.scope).toBe("general")
+    expect(plain.error?.details.timestampMs).toBe(100)
+    expect(plain.error?.details.kind).toBe("serializable")
+
+    // Act - clear scoped error
+    state = reducer(state, fmeActions.clearError("general", widgetId))
+
+    // Assert
+    plain = toPlainState(state)
+    expect(plain.error).toBeNull()
+  })
+
+  it("clears all errors when requested", () => {
+    // Arrange
+    const reducer = createReducer()
+    const error: ErrorState = {
+      message: "Import crashed",
+      type: ErrorType.NETWORK,
+      code: "NET",
+      severity: ErrorSeverity.ERROR,
+      recoverable: false,
+      timestamp: new Date(200),
+      timestampMs: 200,
+    }
+
+    // Act
+    let state = reducer(
+      undefined,
+      fmeActions.setError("import", error, widgetId)
+    )
+    state = reducer(state, fmeActions.clearError("all", widgetId))
 
     // Assert
     const plain = toPlainState(state)
-    expect(plain.error?.timestampMs).toBe(100)
-    expect(plain.importError?.timestampMs).toBe(100)
-    expect(plain.exportError?.timestampMs).toBe(100)
-    expect(plain.error?.kind).toBe("serializable")
-    expect(plain.importError?.kind).toBe("serializable")
-    expect(plain.exportError?.kind).toBe("serializable")
+    expect(plain.error).toBeNull()
+  })
+
+  it("ignores clear requests for unrelated scopes", () => {
+    // Arrange
+    const reducer = createReducer()
+    const error: ErrorState = {
+      message: "General issue",
+      type: ErrorType.CONFIG,
+      code: "CFG",
+      severity: ErrorSeverity.ERROR,
+      recoverable: true,
+      timestamp: new Date(300),
+      timestampMs: 300,
+    }
+
+    // Act
+    const initial = reducer(
+      undefined,
+      fmeActions.setError("general", error, widgetId)
+    )
+    const state = reducer(initial, fmeActions.clearError("import", widgetId))
+
+    // Assert
+    expect(state).toBe(initial)
+  })
+
+  it("resets to drawing mode while clearing export state", () => {
+    // Arrange
+    const reducer = createReducer()
+    let state = reducer(
+      undefined,
+      fmeActions.completeDrawing(
+        { toJSON: () => ({}) } as any,
+        99,
+        ViewMode.EXPORT_FORM,
+        widgetId
+      )
+    )
+    state = reducer(
+      state,
+      fmeActions.setWorkspaceParameters([], "Clipper", widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setWorkspaceItem({ name: "Clipper" } as any, widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setOrderResult({ success: true, message: "ok" }, widgetId)
+    )
+    state = reducer(
+      state,
+      fmeActions.setError(
+        "general",
+        {
+          message: "oops",
+          type: ErrorType.CONFIG,
+          code: "CFG",
+          severity: ErrorSeverity.ERROR,
+          recoverable: true,
+          timestamp: new Date(400),
+          timestampMs: 400,
+        },
+        widgetId
+      )
+    )
+
+    // Act
+    state = reducer(state, fmeActions.resetToDrawing(widgetId))
+
+    // Assert
+    const plain = toPlainState(state)
+    expect(plain.viewMode).toBe(ViewMode.DRAWING)
+    expect(plain.geometryJson).toBeNull()
+    expect(plain.drawnArea).toBe(0)
+    expect(plain.workspaceParameters).toEqual([])
+    expect(plain.workspaceItem).toBeNull()
+    expect(plain.orderResult).toBeNull()
+    expect(plain.error).toBeNull()
+  })
+
+  it("marks startup as complete", () => {
+    // Arrange
+    const reducer = createReducer()
+
+    // Act
+    const state = reducer(undefined, fmeActions.completeStartup(widgetId))
+
+    // Assert
+    const plain = toPlainState(state)
+    expect(plain.viewMode).toBe(ViewMode.INITIAL)
   })
 
   it("removes widget state entirely when requested", () => {

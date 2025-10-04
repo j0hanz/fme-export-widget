@@ -12,7 +12,7 @@ import {
   uniqueStrings,
 } from "../shared/utils"
 import { useTheme } from "jimu-theme"
-import { useSelector, useDispatch } from "react-redux"
+import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
 import {
   MapWidgetSelector,
@@ -55,7 +55,6 @@ import type {
   StepStatus,
   CheckSteps,
   ValidationResult,
-  IMStateWithFmeExport,
   TranslateFn,
   SettingStyles,
   ConnectionTestSectionProps,
@@ -800,12 +799,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
-
-  // Get current repository from global state to detect external changes
-  const currentRepository = useSelector((state: IMStateWithFmeExport) => {
-    const global = state?.["fme-state"] as any
-    return (global?.byId && id && global.byId[id]?.currentRepository) || null
-  })
 
   const getStringConfig = useStringConfigValue(config)
   const getBooleanConfig = useBooleanConfigValue(config)
@@ -1616,12 +1609,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
-      const previousRepository = currentRepository
+      const previousRepository = selectedRepository
       updateConfig("repository", newRepository)
 
       // Clear workspace-related state when switching repositories for isolation
       if (previousRepository !== newRepository) {
-        dispatch(fmeActions.clearWorkspaceState(newRepository, id))
+        dispatch(fmeActions.clearWorkspaceState(id))
       }
 
       // Clear repository field error but don't bump config revision for minor changes

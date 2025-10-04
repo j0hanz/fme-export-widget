@@ -314,12 +314,6 @@ describe("Setting builder interactions", () => {
     expect(
       hasConfig((cfg) => typeof cfg.uploadTargetParamName === "undefined")
     ).toBe(true)
-
-    await waitFor(() => {
-      const state = getAppStore().getState() as any
-      const widgetState = state?.["fme-state"]?.byId?.["test-widget"]
-      expect(widgetState?.currentRepository ?? null).toBeNull()
-    })
   })
 
   it("validates support email on blur and persists sanitized value", async () => {
