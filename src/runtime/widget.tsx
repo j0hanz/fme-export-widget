@@ -767,6 +767,7 @@ const createSketchVM = ({
   widgetId,
   symbols,
   onDrawingSessionChange,
+  onSketchToolStart,
 }: {
   jmv: JimuMapView
   modules: EsriModules
@@ -780,6 +781,7 @@ const createSketchVM = ({
     point: any
   }
   onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
+  onSketchToolStart: (tool: DrawingTool) => void
 }): {
   sketchViewModel: __esri.SketchViewModel
   cleanup: () => void
@@ -839,27 +841,37 @@ const createSketchVM = ({
     },
   })
 
-  const cleanup = setupSketchEventHandlers(
+  const cleanup = setupSketchEventHandlers({
     sketchViewModel,
     onDrawComplete,
     dispatch,
     modules,
     widgetId,
-    onDrawingSessionChange
-  )
+    onDrawingSessionChange,
+    onSketchToolStart,
+  })
   ;(sketchViewModel as any).__fmeCleanup__ = cleanup
   return { sketchViewModel, cleanup }
 }
 
 // Setup SketchViewModel event handlers
-const setupSketchEventHandlers = (
-  sketchViewModel: __esri.SketchViewModel,
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void,
-  dispatch: (action: unknown) => void,
-  modules: EsriModules,
-  widgetId: string,
+const setupSketchEventHandlers = ({
+  sketchViewModel,
+  onDrawComplete,
+  dispatch,
+  modules,
+  widgetId,
+  onDrawingSessionChange,
+  onSketchToolStart,
+}: {
+  sketchViewModel: __esri.SketchViewModel
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
+  modules: EsriModules
+  widgetId: string
   onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-) => {
+  onSketchToolStart: (tool: DrawingTool) => void
+}) => {
   let clickCount = 0
 
   const createHandle = sketchViewModel.on(
@@ -878,13 +890,10 @@ const setupSketchEventHandlers = (
             return
           }
           onDrawingSessionChange({ isActive: true, clickCount: 0 })
-          dispatch(
-            fmeActions.setDrawingTool(
-              normalizedTool === "rectangle"
-                ? DrawingTool.RECTANGLE
-                : DrawingTool.POLYGON,
-              widgetId
-            )
+          onSketchToolStart(
+            normalizedTool === "rectangle"
+              ? DrawingTool.RECTANGLE
+              : DrawingTool.POLYGON
           )
           break
         }
@@ -1030,6 +1039,7 @@ export default function Widget(
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(viewMode)
   const drawingToolRef = hooks.useLatest(drawingTool)
+  const pendingDrawingToolRef = React.useRef<DrawingTool | null>(null)
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
   > | null>(null)
@@ -1052,6 +1062,21 @@ export default function Widget(
       setDrawingSession((prev) => ({ ...prev, ...updates }))
     }
   )
+
+  const handleSketchToolStart = hooks.useEventCallback((tool: DrawingTool) => {
+    const pending = pendingDrawingToolRef.current
+    if (pending && pending !== tool) {
+      return
+    }
+
+    pendingDrawingToolRef.current = null
+
+    if (drawingToolRef.current === tool) {
+      return
+    }
+
+    dispatch(fmeActions.setDrawingTool(tool, widgetId))
+  })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
   const [startupState, setStartupState] = React.useState<{
@@ -1881,6 +1906,7 @@ export default function Widget(
         widgetId,
         symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
         onDrawingSessionChange: updateDrawingSession,
+        onSketchToolStart: handleSketchToolStart,
       })
       setCleanupHandles(cleanup)
       setSketchViewModel(svm)
@@ -1992,6 +2018,7 @@ export default function Widget(
     if (!sketchViewModel) return
 
     // Set tool
+    pendingDrawingToolRef.current = tool
     updateDrawingSession({ isActive: true, clickCount: 0 })
     dispatch(fmeActions.setDrawingTool(tool, widgetId))
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
@@ -2315,6 +2342,7 @@ export default function Widget(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
+          pendingDrawingToolRef.current = tool
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           if (drawingSession.isActive && sketchViewModel) {
             safeCancelSketch(

@@ -237,6 +237,8 @@ const createStyles = (theme: IMThemeVariables) => {
 
     alertFullWidth: css({
       width: "100% !important",
+      backgroundColor: "transparent !important",
+      border: "none !important",
     }),
 
     alertContent: flexRow({

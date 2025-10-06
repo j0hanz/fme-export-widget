@@ -643,11 +643,12 @@ describe("createLayers and createSketchVM", () => {
     const dispatch = jest.fn()
     const onDrawComplete = jest.fn()
     const onDrawingSessionChange = jest.fn()
+    const onSketchToolStart = jest.fn()
 
     const view = { view: {} } as JimuMapView
     const symbols = buildSymbols([0, 120, 200]).DRAWING_SYMBOLS
 
-    const vm = createSketchVM({
+    const { sketchViewModel: vm } = createSketchVM({
       jmv: view,
       modules,
       layer,
@@ -656,23 +657,36 @@ describe("createLayers and createSketchVM", () => {
       widgetId: "widget-123",
       symbols,
       onDrawingSessionChange,
-    }) as unknown as MockSketchViewModel
+      onSketchToolStart,
+    }) as unknown as {
+      sketchViewModel: MockSketchViewModel
+    }
 
-    expect(vm.options.layer).toBe(layer)
-    expect(vm.options.polygonSymbol).toBe(symbols.polygon)
+    const sketch = vm
 
-    vm.emit("create", { state: "start", tool: "polygon" })
+    expect(sketch.options.layer).toBe(layer)
+    expect(sketch.options.polygonSymbol).toBe(symbols.polygon)
+
+    sketch.emit("create", { state: "start", tool: "polygon" })
     expect(onDrawingSessionChange).toHaveBeenCalledWith({
       isActive: true,
       clickCount: 0,
     })
-    expect(dispatch.mock.calls[0][0]).toEqual({
-      type: FmeActionType.SET_DRAWING_TOOL,
-      drawingTool: DrawingTool.POLYGON,
-      widgetId: "widget-123",
-    })
+    expect(onSketchToolStart).toHaveBeenCalledWith(DrawingTool.POLYGON)
+    expect(dispatch).not.toHaveBeenCalled()
 
-    vm.emit("create", {
+    onSketchToolStart.mockClear()
+    onDrawingSessionChange.mockClear()
+
+    sketch.emit("create", { state: "start", tool: "extent" })
+    expect(onDrawingSessionChange).toHaveBeenCalledWith({
+      isActive: true,
+      clickCount: 0,
+    })
+    expect(onSketchToolStart).toHaveBeenCalledWith(DrawingTool.RECTANGLE)
+    expect(dispatch).not.toHaveBeenCalled()
+
+    sketch.emit("create", {
       state: "active",
       tool: "polygon",
       graphic: {
@@ -701,14 +715,14 @@ describe("createLayers and createSketchVM", () => {
       tool: "polygon",
       graphic: { geometry: {} },
     }
-    vm.emit("create", completeEvent)
+    sketch.emit("create", completeEvent)
     expect(onDrawingSessionChange).toHaveBeenCalledWith({
       isActive: false,
       clickCount: 0,
     })
     expect(onDrawComplete).toHaveBeenCalledWith(completeEvent)
 
-    vm.emit("update", {
+    sketch.emit("update", {
       state: "complete",
       graphics: [
         {
