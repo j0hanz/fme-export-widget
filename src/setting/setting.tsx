@@ -2070,18 +2070,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           id={ID.largeAreaDetails}
           label={
             <Tooltip
-              content={translate("largeAreaInfoMessageHelper", {
+              content={translate("customInfoMessageHelper", {
                 max: CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX,
               })}
               placement="top"
             >
-              {translate("largeAreaInfoMessageLabel")}
+              {translate("customInfoMessageLabel")}
             </Tooltip>
           }
           value={localLargeAreaDetails}
           onChange={handleLargeAreaDetailsChange}
           onBlur={handleLargeAreaDetailsBlur}
-          placeholder={translate("largeAreaInfoMessagePlaceholder")}
+          placeholder={translate("customInfoMessagePlaceholder")}
           maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
           disabled={!isLargeAreaMessageEnabled}
           errorText={fieldErrors.largeAreaDetails}

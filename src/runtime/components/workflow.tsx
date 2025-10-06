@@ -1115,9 +1115,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
       template: config?.largeAreaWarningMessage,
       translate,
     })
-
-    const infoTemplate = toTrimmedString(config?.largeAreaWarningDetails)
-    if (infoTemplate) {
+  }
+  const infoTemplate = toTrimmedString(config?.largeAreaWarningDetails)
+  if (infoTemplate) {
+    if (areaWarningActive) {
+      const currentAreaText = formatAreaValue(drawnArea)
+      const thresholdAreaText =
+        typeof config?.largeArea === "number" && config.largeArea > 0
+          ? formatAreaValue(config.largeArea)
+          : undefined
       const resolvedInfo = buildLargeAreaWarningMessage({
         currentAreaText,
         thresholdAreaText,
@@ -1128,6 +1134,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (trimmedInfo) {
         areaInfoMessage = trimmedInfo
       }
+    } else {
+      areaInfoMessage = infoTemplate
     }
   }
 

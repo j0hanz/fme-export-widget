@@ -75,15 +75,15 @@ export default {
   largeAreaPlaceholder: "t.ex. 50000",
   largeAreaExceedsMaxInfo:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
-  largeAreaMessageLabel: "Varningsmeddelande (stor AOI)",
+  largeAreaMessageLabel: "Varningsmeddelande (vid tröskelvarning)",
   largeAreaMessageHelper:
-    "Texten visas när ritad AOI överstiger varningsgränsen. Tillgängliga platshållare: {current} (ritad yta), {threshold} (varningsgräns). Lämna tomt för standardmeddelandet. Max {max} tecken.",
+    "Anpassat meddelande som visas som varningsikon när ytan överstiger tröskelvärdet. Platshållare: {current} (aktuell yta), {threshold} (tröskelvärde). Lämna tomt för standardmeddelandet. Max {max} tecken.",
   largeAreaMessagePlaceholder: "Lämna tomt för standardmeddelandet.",
-  largeAreaInfoMessageLabel: "Informationsmeddelande (stor AOI)",
-  largeAreaInfoMessageHelper:
-    "Texten visas under arbetsytorna när varningsikonen visas. Platshållare: {current} (ritad yta), {threshold} (varningsgräns). Lämna tomt för att återgå till standardmeddelandet.",
-  largeAreaInfoMessagePlaceholder:
-    "Valfri instruktion, t.ex. föreslå ett mindre område.",
+  customInfoMessageLabel: "Informationsmeddelande",
+  customInfoMessageHelper:
+    "Anpassat meddelande som alltid visas under arbetsytorna. Använd för t.ex. organisationsnamn, allmän information eller instruktioner. Lämna tomt för att inte visa något meddelande. Max {max} tecken.",
+  customInfoMessagePlaceholder:
+    "t.ex. 'Kartdata från Avdelning XYZ' eller 'Kontakta support vid frågor'",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",
