@@ -2342,25 +2342,13 @@ export default function Widget(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
-          pendingDrawingToolRef.current = tool
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
-          if (drawingSession.isActive && sketchViewModel) {
+          if (sketchViewModel) {
             safeCancelSketch(
               sketchViewModel,
               "Error cancelling drawing while switching tool"
             )
-            const arg: "rectangle" | "polygon" =
-              tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-            try {
-              const maybePromise = (sketchViewModel as any).create?.(arg)
-              if (maybePromise && typeof maybePromise.catch === "function") {
-                maybePromise.catch((err: any) => {
-                  logIfNotAbort("Sketch create error on tool switch", err)
-                })
-              }
-            } catch (err: any) {
-              logIfNotAbort("Sketch create error during tool switch", err)
-            }
+            updateDrawingSession({ isActive: false, clickCount: 0 })
           }
         }}
         // Drawing props
