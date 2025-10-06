@@ -21,6 +21,8 @@ export default {
   statusPreparingMapTools: "Förbereder kartverktygen...",
   loadingWorkspaces: "Laddar arbetsytor...",
   loadingWorkspaceDetails: "Laddar information om arbetsytan...",
+  loadingGeometryValidation: "Validerar geometrin...",
+  pleaseWait: "Vänligen vänta",
   drawingModeTooltip: "Välj ritläge för att definiera området",
   drawingModePolygon: "Polygon",
   drawingModeRectangle: "Rektangel",

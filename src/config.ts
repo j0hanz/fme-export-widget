@@ -1195,6 +1195,7 @@ export interface WorkflowProps extends BaseProps {
   readonly onDrawingModeChange?: (tool: DrawingTool) => void
   readonly isDrawing?: boolean
   readonly clickCount?: number
+  readonly isCompleting?: boolean
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
   readonly canReset?: boolean

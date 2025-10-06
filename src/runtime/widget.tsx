@@ -994,15 +994,21 @@ export default function Widget(
 
   const selectors = createFmeSelectors(widgetId)
   const { viewMode, drawingTool } = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => ({
-      viewMode: selectors.selectViewMode(state),
-      drawingTool: selectors.selectDrawingTool(state),
-    }),
-    (prev, next) =>
-      prev.viewMode === next.viewMode && prev.drawingTool === next.drawingTool
+    (state: IMStateWithFmeExport) => {
+      const vm = selectors.selectViewMode(state)
+      const dt = selectors.selectDrawingTool(state)
+      return { viewMode: vm, drawingTool: dt }
+    },
+    (prev, next) => {
+      return prev.viewMode === next.viewMode && prev.drawingTool === next.drawingTool
+    }
   )
-  const geometryJson = ReactRedux.useSelector(selectors.selectGeometryJson)
-  const drawnArea = ReactRedux.useSelector(selectors.selectDrawnArea)
+  const geometryJson = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
+    return selectors.selectGeometryJson(state)
+  })
+  const drawnArea = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
+    return selectors.selectDrawnArea(state)
+  })
   const workspaceItems = ReactRedux.useSelector(selectors.selectWorkspaceItems)
   const workspaceParameters = ReactRedux.useSelector(
     selectors.selectWorkspaceParameters
@@ -1059,12 +1065,15 @@ export default function Widget(
 
   const updateDrawingSession = hooks.useEventCallback(
     (updates: Partial<DrawingSessionState>) => {
-      setDrawingSession((prev) => ({ ...prev, ...updates }))
+      setDrawingSession((prev) => {
+        return { ...prev, ...updates }
+      })
     }
   )
 
   const handleSketchToolStart = hooks.useEventCallback((tool: DrawingTool) => {
     const pending = pendingDrawingToolRef.current
+    
     if (pending && pending !== tool) {
       return
     }
@@ -1660,18 +1669,37 @@ export default function Widget(
   // Drawing complete with enhanced Graphic functionality
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
+
+
+
+
+      
       const geometry = evt.graphic?.geometry
-      if (!geometry) return
-      if (isCompletingRef.current) return
+      if (!geometry) {
+
+
+        return
+      }
+      if (isCompletingRef.current) {
+
+
+        return
+      }
+
 
       isCompletingRef.current = true
       try {
+
         endSketchSession()
         updateAreaWarning(false)
 
         // Validate
+
         const validation = await validatePolygon(geometry, modules)
+
+        
         if (!validation.valid) {
+
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
@@ -1680,33 +1708,43 @@ export default function Widget(
           updateAreaWarning(false)
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (validation.error) {
+
             dispatch(fmeActions.setError("general", validation.error, widgetId))
           }
+
           return
         }
         const geomForUse =
           (validation as { simplified?: __esri.Polygon | null }).simplified ??
           (geometry as __esri.Polygon)
 
+
         const calculatedArea = await calcArea(geomForUse, modules)
 
+
         if (!calculatedArea || calculatedArea <= 0) {
+
           updateAreaWarning(false)
           dispatchError(
             translate("geometryInvalidCode"),
             ErrorType.VALIDATION,
             "ZERO_AREA"
           )
+
           return
         }
 
         const normalizedArea = Math.abs(calculatedArea)
+
+        
         const areaEvaluation = evaluateArea(normalizedArea, {
           maxArea: config?.maxArea,
           largeArea: config?.largeArea,
         })
 
+
         if (areaEvaluation.exceedsMaximum) {
+
           const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
           try {
             graphicsLayer?.remove(evt.graphic as any)
@@ -1717,19 +1755,25 @@ export default function Widget(
           exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           if (maxCheck.message) {
             const messageKey = maxCheck.message || "geometryAreaTooLargeCode"
+
             dispatchError(messageKey, ErrorType.VALIDATION, maxCheck.code)
           }
+
           return
         }
+        
+
         updateAreaWarning(areaEvaluation.shouldWarn)
 
         if (evt.graphic) {
           evt.graphic.geometry = geomForUse
           const highlightSymbol = symbolsRef.current?.HIGHLIGHT_SYMBOL
           if (highlightSymbol) {
+
             evt.graphic.symbol = highlightSymbol as any
           }
         }
+
 
         dispatch(
           fmeActions.completeDrawing(
@@ -1739,14 +1783,18 @@ export default function Widget(
             widgetId
           )
         )
+
       } catch (error) {
+
         updateAreaWarning(false)
         dispatchError(
           translate("errorDrawingComplete"),
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
+
       } finally {
+
         isCompletingRef.current = false
       }
     }
@@ -2015,23 +2063,46 @@ export default function Widget(
 
   // Start drawing
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
-    if (!sketchViewModel) return
+
+
+
+
+
+    
+    if (!sketchViewModel) {
+
+
+      return
+    }
 
     // Set tool
+
     pendingDrawingToolRef.current = tool
+    
+
     updateDrawingSession({ isActive: true, clickCount: 0 })
+    
+
     dispatch(fmeActions.setDrawingTool(tool, widgetId))
+    
+
     dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+    
+
     updateAreaWarning(false)
 
     // Clear and hide
+
     resetGraphicsAndMeasurements()
 
     // Cancel only if SketchViewModel is actively drawing to reduce AbortError races
     try {
       const anyVm = sketchViewModel as any
       const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
+
+      
       if (isActive) {
+
         safeCancelSketch(
           sketchViewModel,
           "Error cancelling active SketchViewModel before starting new drawing"
@@ -2039,6 +2110,7 @@ export default function Widget(
       }
     } catch {
       // fallback best-effort cancel
+
       safeCancelSketch(
         sketchViewModel,
         "Error cancelling SketchViewModel after exception in handleStartDrawing"
@@ -2048,19 +2120,26 @@ export default function Widget(
     // Start drawing immediately; prior cancel avoids overlap
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+
+    
     if (sketchViewModel?.create) {
       try {
         const maybePromise = (sketchViewModel as any).create(arg)
         if (maybePromise && typeof maybePromise.catch === "function") {
           maybePromise.catch((err: any) => {
+
             logIfNotAbort("Sketch create promise error", err)
           })
         }
+
       } catch (err: any) {
         // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
+
         logIfNotAbort("Sketch create error", err)
       }
     }
+    
+
   })
 
   // Track runtime (Controller) state to coordinate auto-start only when visible
@@ -2085,8 +2164,10 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     // Only auto-start if not already started and widget is not closed
     if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
+
       handleStartDrawing(drawingTool)
     }
+
   }, [
     viewMode,
     drawingSession.clickCount,
@@ -2342,18 +2423,26 @@ export default function Widget(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
+
+
+
+
+          
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           if (sketchViewModel) {
+
             safeCancelSketch(
               sketchViewModel,
               "Error cancelling drawing while switching tool"
             )
             updateDrawingSession({ isActive: false, clickCount: 0 })
           }
+
         }}
         // Drawing props
         isDrawing={drawingSession.isActive}
         clickCount={drawingSession.clickCount}
+        isCompleting={isCompletingRef.current}
         // Header props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions

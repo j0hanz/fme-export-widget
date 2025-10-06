@@ -347,15 +347,21 @@ const reduceOne = (
   state: ImmutableObject<FmeWidgetState>,
   action: FmeAction
 ): ImmutableObject<FmeWidgetState> => {
+  let nextState = state
+  
   switch (action.type) {
     case FmeActionType.SET_VIEW_MODE: {
       const act = action as ActionFrom<"setViewMode">
-      if (state.viewMode === act.viewMode) return state
-      return state.set("viewMode", act.viewMode)
+      if (state.viewMode === act.viewMode) {
+        return state
+      }
+      nextState = state.set("viewMode", act.viewMode)
+      break
     }
 
     case FmeActionType.RESET_STATE:
-      return createImmutableState()
+      nextState = createImmutableState()
+      break
 
     case FmeActionType.SET_GEOMETRY: {
       const act = action as ActionFrom<"setGeometry">
@@ -365,10 +371,11 @@ const reduceOne = (
       if (!geometryChanged) {
         return state
       }
-      return state
+      nextState = state
         .set("geometryJson", act.geometryJson)
         .set("drawnArea", area)
         .set("geometryRevision", state.geometryRevision + 1)
+      break
     }
 
     case FmeActionType.COMPLETE_DRAWING: {
@@ -378,7 +385,7 @@ const reduceOne = (
       const geometryChanged =
         state.geometryJson !== act.geometryJson || state.drawnArea !== area
 
-      let nextState = state
+      nextState = state
       if (geometryChanged) {
         nextState = nextState
           .set("geometryJson", act.geometryJson)
@@ -389,8 +396,7 @@ const reduceOne = (
       if (nextView !== state.viewMode) {
         nextState = nextState.set("viewMode", nextView)
       }
-
-      return nextState
+      break
     }
 
     case FmeActionType.SET_DRAWING_TOOL: {
@@ -398,7 +404,8 @@ const reduceOne = (
       if (state.drawingTool === act.drawingTool) {
         return state
       }
-      return state.set("drawingTool", act.drawingTool)
+      nextState = state.set("drawingTool", act.drawingTool)
+      break
     }
 
     case FmeActionType.SET_ORDER_RESULT: {
@@ -650,13 +657,14 @@ const reduceOne = (
     }
 
     case FmeActionType.COMPLETE_STARTUP:
-      return state.set("viewMode", ViewMode.INITIAL)
+      nextState = state.set("viewMode", ViewMode.INITIAL)
+      break
 
     case FmeActionType.REMOVE_WIDGET_STATE:
       return state
   }
 
-  return state
+  return nextState
 }
 
 const ensureSubState = (

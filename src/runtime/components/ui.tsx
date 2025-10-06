@@ -1491,7 +1491,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    if (!isControlled) setUncontrolledValue(final as any)
+    if (!isControlled) {
+      setUncontrolledValue(final as any)
+    }
     onChange?.(final as any)
     onTabChange?.(final as any)
   })
@@ -1523,7 +1525,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
             tooltipPlacement="bottom"
             disabled={item.disabled}
             onClick={() => {
-              if (active) return
+              if (active) {
+                return
+              }
               handleChange(item.value)
             }}
             block={false}
