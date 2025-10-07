@@ -2166,6 +2166,10 @@ export default function Widget(
     // Abort any ongoing submission
     submissionAbort.cancel()
 
+    // Clear warnings and local drawing state
+    updateAreaWarning(false)
+    updateDrawingSession({ isActive: false, clickCount: 0 })
+
     // Cancel any in-progress drawing
     if (sketchViewModel) {
       safeCancelSketch(
@@ -2174,8 +2178,13 @@ export default function Widget(
       )
     }
 
-    // Reset Redux state
-    resetReduxToInitialDrawing()
+    const currentViewMode = viewModeRef.current ?? viewMode
+    const preserveStartupValidation =
+      currentViewMode === ViewMode.STARTUP_VALIDATION && hasCriticalGeneralError
+
+    if (!preserveStartupValidation) {
+      resetReduxToInitialDrawing()
+    }
 
     closeOtherWidgets()
     if (jimuMapView) {
