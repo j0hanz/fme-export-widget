@@ -1116,7 +1116,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       translate,
     })
   }
-  const infoTemplate = toTrimmedString(config?.largeAreaWarningDetails)
+  const infoTemplate = toTrimmedString(config?.customInfoMessage)
   if (infoTemplate) {
     if (areaWarningActive) {
       const currentAreaText = formatAreaValue(drawnArea)

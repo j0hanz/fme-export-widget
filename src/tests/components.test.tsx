@@ -697,7 +697,7 @@ describe("Workflow component", () => {
         config={
           {
             largeArea: 18000,
-            largeAreaWarningDetails: "AOI {current} är större än {threshold}.",
+            customInfoMessage: "AOI {current} är större än {threshold}.",
             repository: "repo-1",
           } as any
         }

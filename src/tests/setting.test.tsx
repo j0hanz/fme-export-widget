@@ -464,7 +464,7 @@ describe("Setting builder interactions", () => {
     expect(
       configs.some(
         (cfg) =>
-          cfg.largeAreaWarningDetails ===
+          cfg.customInfoMessage ===
           "Kontrollera {threshold} innan export."
       )
     ).toBe(true)
@@ -478,6 +478,6 @@ describe("Setting builder interactions", () => {
     configs = extractConfigs(onSettingChange)
     const clearedConfig = configs[configs.length - 1]
     expect(clearedConfig?.largeAreaWarningMessage).toBeUndefined()
-    expect(clearedConfig?.largeAreaWarningDetails).toBeUndefined()
+    expect(clearedConfig?.customInfoMessage).toBeUndefined()
   })
 })

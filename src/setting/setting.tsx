@@ -816,7 +816,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
     largeAreaMessage: "setting-large-area-message",
-    largeAreaDetails: "setting-large-area-details",
+    customInfoMessage: "setting-custom-info-message",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
@@ -891,9 +891,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (!raw) return ""
       return normalizeLargeAreaMessage(raw)
     })
-  const [localLargeAreaDetails, setLocalLargeAreaDetails] =
+  const [localCustomInfoMessage, setLocalCustomInfoMessage] =
     React.useState<string>(() => {
-      const raw = getStringConfig("largeAreaWarningDetails") || ""
+      const raw = getStringConfig("customInfoMessage") || ""
       if (!raw) return ""
       return normalizeLargeAreaMessage(raw)
     })
@@ -1021,22 +1021,22 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const handleLargeAreaDetailsChange = hooks.useEventCallback((val: string) => {
     const cleaned = normalizeLargeAreaMessageInput(val)
-    setLocalLargeAreaDetails(cleaned)
-    setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
+    setLocalCustomInfoMessage(cleaned)
+    setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
   })
 
   const handleLargeAreaDetailsBlur = hooks.useEventCallback((val: string) => {
     const sanitized = normalizeLargeAreaMessage(val)
     if (!sanitized) {
-      setLocalLargeAreaDetails("")
-      updateConfig("largeAreaWarningDetails", undefined as any)
-      setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
+      setLocalCustomInfoMessage("")
+      updateConfig("customInfoMessage", undefined as any)
+      setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
       return
     }
 
-    setLocalLargeAreaDetails(sanitized)
-    updateConfig("largeAreaWarningDetails", sanitized as any)
-    setFieldErrors((prev) => ({ ...prev, largeAreaDetails: undefined }))
+    setLocalCustomInfoMessage(sanitized)
+    updateConfig("customInfoMessage", sanitized as any)
+    setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
   })
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
@@ -1702,11 +1702,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const sanitized = rawMessage ? normalizeLargeAreaMessage(rawMessage) : ""
     setLocalLargeAreaMessage(sanitized)
 
-    const rawDetails = getStringConfig("largeAreaWarningDetails") || ""
+    const rawDetails = getStringConfig("customInfoMessage") || ""
     const sanitizedDetails = rawDetails
       ? normalizeLargeAreaMessage(rawDetails)
       : ""
-    setLocalLargeAreaDetails(sanitizedDetails)
+    setLocalCustomInfoMessage(sanitizedDetails)
   }, [config])
 
   return (
@@ -2067,7 +2067,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           styles={settingStyles}
         />
         <TextAreaRow
-          id={ID.largeAreaDetails}
+          id={ID.customInfoMessage}
           label={
             <Tooltip
               content={translate("customInfoMessageHelper", {
@@ -2078,13 +2078,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               {translate("customInfoMessageLabel")}
             </Tooltip>
           }
-          value={localLargeAreaDetails}
+          value={localCustomInfoMessage}
           onChange={handleLargeAreaDetailsChange}
           onBlur={handleLargeAreaDetailsBlur}
           placeholder={translate("customInfoMessagePlaceholder")}
           maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
-          disabled={!isLargeAreaMessageEnabled}
-          errorText={fieldErrors.largeAreaDetails}
+          errorText={fieldErrors.customInfoMessage}
           rows={3}
           styles={settingStyles}
         />
