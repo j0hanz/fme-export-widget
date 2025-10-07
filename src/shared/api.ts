@@ -5,9 +5,10 @@ import type {
   RequestConfig,
   ApiResponse,
   WorkspaceParameter,
-  JobResponse,
   JobResult,
   PrimitiveParams,
+  EsriRequestConfig,
+  EsriMockKey,
 } from "../config"
 import { FmeFlowApiError, HttpMethod } from "../config"
 import {
@@ -15,6 +16,7 @@ import {
   validateRequiredConfig,
   isAuthError,
   mapErrorToKey,
+  calcArea,
 } from "./validations"
 import {
   buildUrl,
@@ -26,43 +28,19 @@ import {
   makeScopeId,
   makeGeoJson,
   isJson,
-  maskToken,
   extractHostFromUrl,
   extractErrorMessage,
+  isAbortError,
+  extractRepositoryNames,
+  loadArcgisModules,
 } from "./utils"
 
 // Construct a typed FME Flow API error with identical message and code.
 const makeError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
 
-/**
- * Dynamically loads ArcGIS JSAPI modules within EXB with test-mode short circuit.
- * Throws a code-only error (ARCGIS_MODULE_ERROR) for consistent upstream handling.
- */
-async function loadEsriModules(modules: readonly string[]): Promise<unknown[]> {
-  // Check test environment first for better performance
-  if (process.env.NODE_ENV === "test") {
-    const stub = (global as any).__ESRI_TEST_STUB__
-    if (typeof stub === "function") return stub(modules)
-  }
-
-  // Use dynamic import for better EXB integration
-  try {
-    const mod = await import("jimu-arcgis")
-    const loader = mod.loadArcGISJSAPIModules
-    if (typeof loader !== "function") {
-      // Use key only (no fallback English)
-      throw new Error("ARCGIS_MODULE_ERROR")
-    }
-    const loaded = await loader(modules as string[])
-    const unwrap = (m: any) => m?.default ?? m
-    return (loaded || []).map(unwrap)
-  } catch (error) {
-    console.error("Failed to load ArcGIS modules:", error)
-    // Throw a code that downstream can localize
-    throw new Error("ARCGIS_MODULE_ERROR")
-  }
-}
+const unwrapModule = (module: unknown): any =>
+  (module as any)?.default ?? module
 
 // ArcGIS module references
 let _esriRequest: unknown
@@ -71,8 +49,48 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
+let _geometryEngine: unknown
+let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
+
+const ESRI_GLOBAL_MOCK_KEYS: readonly EsriMockKey[] = [
+  "esriRequest",
+  "esriConfig",
+  "projection",
+  "webMercatorUtils",
+  "SpatialReference",
+] as const
+
+const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
+  esriRequest: () => Promise.resolve({ data: null }),
+  esriConfig: {
+    request: { maxUrlLength: 4000, interceptors: [] },
+  },
+  projection: {},
+  webMercatorUtils: {},
+  SpatialReference: function spatialReferenceMock() {
+    return {}
+  },
+}
+
+const getEsriMockFallback = (key: EsriMockKey): unknown =>
+  ESRI_MOCK_FALLBACKS[key]
+
+const applyGlobalEsriMocks = (source: any): void => {
+  const assignments: { [K in EsriMockKey]: (value: any) => void } = {
+    esriRequest: (v) => (_esriRequest = v),
+    esriConfig: (v) => (_esriConfig = v),
+    projection: (v) => (_projection = v),
+    webMercatorUtils: (v) => (_webMercatorUtils = v),
+    SpatialReference: (v) => (_SpatialReference = v),
+  }
+
+  for (const key of ESRI_GLOBAL_MOCK_KEYS) {
+    const value = source?.[key] ?? getEsriMockFallback(key)
+    assignments[key](value)
+  }
+}
 
 /**
  * Reset loaded ArcGIS modules cache and computed limits (used in tests).
@@ -85,145 +103,173 @@ export function resetEsriCache(): void {
   _SpatialReference = undefined
   _loadPromise = null
   _cachedMaxUrlLength = null
+  _geometryEngine = undefined
+  _geometryEngineAsync = undefined
 }
 
-const isTestEnv = (): boolean =>
-  typeof process !== "undefined" &&
-  !!(process as any).env &&
-  (!!(process as any).env.JEST_WORKER_ID ||
-    (process as any).env.NODE_ENV === "test")
+async function ensureGeometryEngines(): Promise<void> {
+  if (!_geometryEngine) {
+    try {
+      const [engineMod] = await loadArcgisModules([
+        "esri/geometry/geometryEngine",
+      ])
+      _geometryEngine = unwrapModule(engineMod)
+    } catch {
+      throw new Error("ARCGIS_MODULE_ERROR")
+    }
+  }
+
+  if (_geometryEngineAsync === undefined) {
+    try {
+      const [engineAsyncMod] = await loadArcgisModules([
+        "esri/geometry/geometryEngineAsync",
+      ])
+      _geometryEngineAsync = unwrapModule(engineAsyncMod)
+    } catch {
+      _geometryEngineAsync = null
+    }
+  }
+}
+
+const areEsriModulesLoaded = (): boolean =>
+  Boolean(
+    _esriRequest &&
+      _esriConfig &&
+      _projection &&
+      _webMercatorUtils &&
+      _SpatialReference
+  )
+
+const hasGlobalEsriMocks = (): boolean => {
+  const globalAny =
+    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+  return Boolean(
+    globalAny && ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
+  )
+}
+
+const loadEsriModules = async (): Promise<void> => {
+  const [requestMod, configMod, projectionMod, webMercatorMod, spatialRefMod] =
+    await loadArcgisModules([
+      "esri/request",
+      "esri/config",
+      "esri/geometry/projection",
+      "esri/geometry/support/webMercatorUtils",
+      "esri/geometry/SpatialReference",
+    ])
+
+  _esriRequest = unwrapModule(requestMod)
+  _esriConfig = unwrapModule(configMod)
+  _projection = unwrapModule(projectionMod)
+  _webMercatorUtils = unwrapModule(webMercatorMod)
+  _SpatialReference = unwrapModule(spatialRefMod)
+
+  const projection = asProjection(_projection)
+  if (projection?.load) {
+    await projection.load()
+  }
+}
 
 /**
  * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
  */
 async function ensureEsri(): Promise<void> {
-  // Quick return if already loaded
-  if (
-    _esriRequest &&
-    _esriConfig &&
-    _projection &&
-    _webMercatorUtils &&
-    _SpatialReference
-  ) {
-    return
-  }
-
-  // Return existing promise if loading is in progress
+  if (areEsriModulesLoaded()) return
   if (_loadPromise) return _loadPromise
 
-  _loadPromise = (async () => {
-    // In test environment, check for global mocks first before trying to load modules
-    if (isTestEnv()) {
-      const globalAny = global as any
-
-      // If we have global mocks set up, use them directly
-      if (
-        globalAny.esriRequest ||
-        globalAny.esriConfig ||
-        globalAny.projection ||
-        globalAny.webMercatorUtils ||
-        globalAny.SpatialReference
-      ) {
-        console.warn("FME API - Using global mocks in test environment")
-        _esriRequest =
-          globalAny.esriRequest || (() => Promise.resolve({ data: null }))
-        _esriConfig = globalAny.esriConfig || {
-          request: { maxUrlLength: 4000, interceptors: [] },
-        }
-        _projection = globalAny.projection || {}
-        _webMercatorUtils = globalAny.webMercatorUtils || {}
-        _SpatialReference =
-          globalAny.SpatialReference ||
-          function () {
-            return {}
-          }
-        return
-      }
+  const loadPromise = (async () => {
+    if (hasGlobalEsriMocks()) {
+      const globalAny = globalThis as any
+      applyGlobalEsriMocks(globalAny)
+      return
     }
 
     try {
-      const [
-        requestMod,
-        configMod,
-        projectionMod,
-        webMercatorMod,
-        spatialRefMod,
-      ] = await loadEsriModules([
-        "esri/request",
-        "esri/config",
-        "esri/geometry/projection",
-        "esri/geometry/support/webMercatorUtils",
-        "esri/geometry/SpatialReference",
-      ])
-
-      const unwrap = (m: any) => m?.default ?? m
-      _esriRequest = unwrap(requestMod)
-      _esriConfig = unwrap(configMod)
-      _projection = unwrap(projectionMod)
-      _webMercatorUtils = unwrap(webMercatorMod)
-      _SpatialReference = unwrap(spatialRefMod)
-
-      // Load projection dependencies for client-side transformation
-      const projection = asProjection(_projection)
-      if (projection && typeof projection.load === "function") {
-        await projection.load()
-      }
-    } catch (error) {
-      // Eliminate legacy fallbacks: fail fast if modules cannot be loaded
-      console.error("ARCGIS_MODULE_ERROR", { error })
+      await loadEsriModules()
+    } catch {
       throw new Error("ARCGIS_MODULE_ERROR")
     }
   })()
 
-  return _loadPromise
+  _loadPromise = loadPromise
+
+  try {
+    await loadPromise
+  } catch (error) {
+    resetEsriCache()
+    throw error instanceof Error ? error : new Error(String(error))
+  }
 }
 
-// ArcGIS module validation helpers
+async function getEsriConfig(): Promise<EsriRequestConfig | null> {
+  await ensureEsri()
+  return asEsriConfig(_esriConfig)
+}
+
+function removeMatchingInterceptors(
+  interceptors: any[] | undefined,
+  pattern: RegExp
+): void {
+  if (!interceptors?.length) return
+
+  for (let i = interceptors.length - 1; i >= 0; i--) {
+    const candidate = interceptors[i]
+    if (!candidate?._fmeInterceptor) continue
+
+    const urls = candidate.urls
+    const matches =
+      urls instanceof RegExp
+        ? urls.source === pattern.source && urls.flags === pattern.flags
+        : pattern.test(typeof urls === "string" ? urls : String(urls ?? ""))
+
+    if (matches) {
+      interceptors.splice(i, 1)
+    }
+  }
+}
+
+const isObjectType = (v: unknown): v is object =>
+  Boolean(v && typeof v === "object")
+
 const asEsriRequest = (
   v: unknown
-): ((url: string, options: any) => Promise<any>) | null => {
-  return typeof v === "function" ? (v as any) : null
-}
+): ((url: string, options: any) => Promise<any>) | null =>
+  typeof v === "function" ? (v as any) : null
 
 const asEsriConfig = (
   v: unknown
 ): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
-  if (!v || typeof v !== "object") return null
-  const obj = v as any
-  return obj.request ? obj : null
+  if (!isObjectType(v)) return null
+  return (v as any).request ? (v as any) : null
 }
 
 const asProjection = (
   v: unknown
 ): {
-  project?: (geometries: any[], spatialReference: any) => Promise<any[]>
+  project?: (geometry: any, spatialReference: any) => any
   load?: () => Promise<void>
-} | null => {
-  if (!v || typeof v !== "object") return null
-  return v as any
-}
+  isLoaded?: () => boolean
+} | null => (isObjectType(v) ? (v as any) : null)
 
 const asWebMercatorUtils = (
   v: unknown
 ): {
   webMercatorToGeographic?: (geometry: any) => any
   geographicToWebMercator?: (geometry: any) => any
-} | null => {
-  if (!v || typeof v !== "object") return null
-  return v as any
-}
+} | null => (isObjectType(v) ? (v as any) : null)
 
-const asSpatialReference = (v: unknown): new (props: any) => any => {
-  return typeof v === "function" ? (v as any) : ((() => ({})) as any)
-}
+const asSpatialReference = (v: unknown): new (props: any) => any =>
+  typeof v === "function" ? (v as any) : ((() => ({})) as any)
+
+const asGeometryEngine = (v: unknown): any =>
+  isObjectType(v) ? (v as any) : null
+
+const asGeometryEngineAsync = (v: unknown): any =>
+  isObjectType(v) ? (v as any) : null
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
-  WEBHOOK_EXCLUDE_KEYS: [
-    "opt_servicemode",
-    "opt_responseformat",
-    "opt_showresult",
-  ],
+  WEBHOOK_EXCLUDE_KEYS: [],
   WEBHOOK_LOG_WHITELIST: [
     "opt_responseformat",
     "opt_showresult",
@@ -231,64 +277,92 @@ const API = {
   ],
 } as const
 
+const hasCachedToken = (hostKey: string): boolean =>
+  Object.prototype.hasOwnProperty.call(_fmeTokensByHost, hostKey)
+
+const removeCachedToken = (hostKey: string): void => {
+  delete _fmeTokensByHost[hostKey]
+}
+
+const setCachedToken = (hostKey: string, token: string): void => {
+  _fmeTokensByHost[hostKey] = token
+}
+
+const getCachedToken = (hostKey: string): string | undefined =>
+  _fmeTokensByHost[hostKey]
+
+const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
+  let esriConfig: EsriRequestConfig | null
+  try {
+    esriConfig = await getEsriConfig()
+  } catch {
+    return
+  }
+  removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern)
+}
+
+const createTokenInterceptor = (
+  hostKey: string,
+  pattern: RegExp
+): {
+  urls: RegExp
+  before: (params: any) => void
+  _fmeInterceptor: boolean
+} => ({
+  urls: pattern,
+  before(params: any) {
+    if (!params?.requestOptions) {
+      params.requestOptions = {}
+    }
+    const ro: any = params.requestOptions
+    ro.headers = ro.headers || {}
+
+    const currentToken = getCachedToken(hostKey)
+    if (currentToken) {
+      ro.headers.Authorization = `fmetoken token=${currentToken}`
+    }
+  },
+  _fmeInterceptor: true,
+})
+
 // Add interceptor to append fmetoken to requests to the specified server URL
-
-// helper moved to utils.ts: createHostPattern, interceptorExists
-
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
 ): Promise<void> {
-  if (!serverUrl || !token) return
+  if (!serverUrl) return
+
   const host = extractHostFromUrl(serverUrl)
   if (!host) return
 
-  // Always record the latest token for this host
-  _fmeTokensByHost[host.toLowerCase()] = token
-
-  await ensureEsri()
-  const esriConfig = asEsriConfig(_esriConfig)
-  if (!esriConfig) return
-
+  const hostKey = host.toLowerCase()
   const pattern = createHostPattern(host)
-  if (interceptorExists(esriConfig.request.interceptors, pattern)) {
+
+  if (!token) {
+    const hadToken = hasCachedToken(hostKey)
+    removeCachedToken(hostKey)
+    if (hadToken) {
+      await removeTokenInterceptor(pattern)
+    }
     return
   }
 
-  esriConfig.request.interceptors?.push({
-    urls: pattern,
-    before(params: any) {
-      if (!params || !params.requestOptions) {
-        params.requestOptions = {}
-      }
-      const ro: any = params.requestOptions
-      ro.query = ro.query || {}
-      ro.headers = ro.headers || {}
+  setCachedToken(hostKey, token)
 
-      // Always use the token stored for this host pattern
-      const currentToken = _fmeTokensByHost[host.toLowerCase()]
-      if (currentToken) {
-        // Add token as query parameter if not already present
-        if (!ro.query.fmetoken) {
-          ro.query.fmetoken = currentToken
-        }
-        // Always set Authorization header with correct FME Flow format
-        ro.headers.Authorization = `fmetoken token=${currentToken}`
-      } else {
-        // Debug: log when token is missing
-        console.warn(
-          "FME API - No token found for host:",
-          host.toLowerCase(),
-          "Available hosts:",
-          Object.keys(_fmeTokensByHost)
-        )
-      }
-    },
-    _fmeInterceptor: true,
-  })
+  let esriConfig: EsriRequestConfig | null
+  try {
+    esriConfig = await getEsriConfig()
+  } catch (error) {
+    throw error instanceof Error ? error : new Error(String(error))
+  }
+
+  if (!esriConfig?.request?.interceptors) return
+  if (interceptorExists(esriConfig.request.interceptors, pattern)) return
+
+  esriConfig.request.interceptors.push(createTokenInterceptor(hostKey, pattern))
 }
-// Get max URL length from esriConfig if available; otherwise use default
-// Cache the result to avoid repeated config lookups
+
+// Determine maximum URL length from Esri config or use default
 let _cachedMaxUrlLength: number | null = null
 const getMaxUrlLength = (): number => {
   if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength
@@ -299,17 +373,7 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// helper moved to utils.ts: toStr
-
-// helpers moved to utils.ts: buildUrl
-
-// Create a stable scope ID from server URL, token, and repository for caching purposes
-// helper moved to utils.ts: makeScopeId
-
-/**
- * Computes whether a webhook URL would exceed the max supported URL length.
- * Includes default opt_* params and token if supplied.
- */
+// Check if a constructed webhook URL would exceed the maximum length
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
@@ -329,6 +393,7 @@ export function isWebhookUrlTooLong(
     [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
     true
   )
+  appendWebhookTmParams(params, parameters)
   // Add tm_* values if present
   if (token) {
     params.set("token", token)
@@ -341,42 +406,70 @@ export function isWebhookUrlTooLong(
 
 // helper moved to utils.ts: buildParams
 
+const isWgs84SpatialRef = (
+  sr: (__esri.SpatialReference & { isWGS84?: boolean }) | undefined
+): boolean => Boolean(sr?.isWGS84 || sr?.wkid === 4326)
+
+const projectGeometryToWgs84 = (
+  geometry: __esri.Geometry,
+  projection: any,
+  SpatialReference: any
+): __esri.Geometry | null => {
+  if (!projection?.project || !SpatialReference) return null
+
+  const target =
+    SpatialReference?.WGS84 ||
+    (typeof SpatialReference === "function"
+      ? new SpatialReference({ wkid: 4326 })
+      : { wkid: 4326 })
+
+  const projected = projection.project(geometry, target)
+  if (!projected) return null
+
+  if (Array.isArray(projected) && projected[0]) {
+    return (projected[0] as __esri.Geometry) || null
+  }
+
+  return (projected as __esri.Geometry).type
+    ? (projected as __esri.Geometry)
+    : null
+}
+
 // Geometry processing: coordinate transformation
 const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
-  if (geometry.spatialReference?.wkid === 4326) return geometry
+  const spatialRef = geometry?.spatialReference as
+    | (__esri.SpatialReference & { isWGS84?: boolean })
+    | undefined
+
+  if (!spatialRef || isWgs84SpatialRef(spatialRef)) {
+    return geometry
+  }
 
   try {
     await ensureEsri()
-
-    // Use webMercatorUtils for Web Mercator (most common case)
-    if (geometry.spatialReference?.wkid === 3857) {
-      const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-      if (webMercatorUtils?.webMercatorToGeographic) {
-        return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
-      }
-    }
-
-    // Use projection engine for other coordinate systems
     const projection = asProjection(_projection)
-    const SpatialReference = asSpatialReference(_SpatialReference)
-    if (projection?.project && SpatialReference) {
-      const wgs84SR = new SpatialReference({ wkid: 4326 })
-      const projected = await projection.project([geometry], wgs84SR)
-      return projected?.[0] || geometry
-    }
+    const SpatialReference = asSpatialReference(_SpatialReference) as any
 
-    return geometry // Fallback to original
-  } catch (error) {
-    console.warn("FME API - Coordinate transformation failed:", error)
-    return geometry
-  }
+    const projected = projectGeometryToWgs84(
+      geometry,
+      projection,
+      SpatialReference
+    )
+    if (projected) return projected
+
+    const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
+    if (webMercatorUtils?.webMercatorToGeographic) {
+      return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
+    }
+  } catch {}
+
+  return geometry
 }
 
 // helper moved to utils.ts: makeGeoJson
 
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
-  await ensureEsri()
-  const esriConfig = asEsriConfig(_esriConfig)
+  const esriConfig = await getEsriConfig()
   if (!esriConfig) return
 
   // Preserve existing platform value; ensure it is at least our safe default.
@@ -388,6 +481,31 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 }
 
 // Request Processing Utilities
+
+const toPosInt = (v: unknown): number | undefined => {
+  const n = typeof v === "string" ? Number(v) : (v as number)
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
+}
+
+const normalizeText = (value: unknown, limit: number): string | undefined => {
+  if (typeof value !== "string") return undefined
+  const trimmed = value.trim()
+  return trimmed ? trimmed.slice(0, limit) : undefined
+}
+
+const appendWebhookTmParams = (
+  params: URLSearchParams,
+  source: PrimitiveParams = {}
+): void => {
+  const numericKeys: Array<"tm_ttc" | "tm_ttl"> = ["tm_ttc", "tm_ttl"]
+  for (const key of numericKeys) {
+    const value = toPosInt((source as any)[key])
+    if (value !== undefined) params.set(key, String(value))
+  }
+
+  const tag = normalizeText((source as any).tm_tag, 128)
+  if (tag) params.set("tm_tag", tag)
+}
 
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
@@ -401,11 +519,72 @@ export class FmeFlowApiClient {
   private config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
   private abortController: AbortController | null = null
+  private setupPromise: Promise<void>
+  private disposed = false
 
   constructor(config: FmeFlowConfig) {
     this.config = config
-    void setApiSettings(config)
-    void addFmeInterceptor(config.serverUrl, config.token)
+    this.setupPromise = Promise.resolve()
+    this.queueSetup(config)
+  }
+
+  private queueSetup(config: FmeFlowConfig): void {
+    this.setupPromise = (this.setupPromise || Promise.resolve())
+      .catch(() => undefined)
+      .then(async () => {
+        await setApiSettings(config)
+        await addFmeInterceptor(config.serverUrl, config.token)
+      })
+      .catch((error) => {
+        throw error instanceof Error ? error : new Error(String(error))
+      })
+  }
+
+  private queueTeardown(serverUrl: string): void {
+    this.setupPromise = (this.setupPromise || Promise.resolve())
+      .catch(() => undefined)
+      .then(() => addFmeInterceptor(serverUrl, ""))
+      .catch(() => undefined)
+  }
+
+  private safeAbortController(): void {
+    if (this.abortController && !this.abortController.signal.aborted) {
+      try {
+        this.abortController.abort()
+      } catch {}
+    }
+    this.abortController = null
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.safeAbortController()
+    this.queueTeardown(this.config.serverUrl)
+  }
+
+  private resolveUploadPath(
+    data: any,
+    fileName: string,
+    subfolder: string
+  ): string {
+    const directPath =
+      (typeof data.path === "string" && data.path) ||
+      (typeof data.fullpath === "string" && data.fullpath)
+
+    if (directPath) return directPath
+
+    if (Array.isArray(data.files) && data.files.length) {
+      const first = data.files[0]
+      const filePath =
+        (typeof first?.path === "string" && first.path) ||
+        (typeof first?.fullpath === "string" && first.fullpath)
+      if (filePath) return filePath
+    }
+
+    const joined =
+      (subfolder ? `${subfolder.replace(/\/+$/g, "")}/` : "") + fileName
+    return `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
   }
 
   /** Upload a file/blob to FME temp shared resource. */
@@ -415,7 +594,6 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse<{ path: string }>> {
     await ensureEsri()
 
-    // Validate file input
     const segments: string[] = [
       this.basePath.slice(1),
       "resources",
@@ -423,17 +601,16 @@ export class FmeFlowApiClient {
       "FME_SHAREDRESOURCE_TEMP",
       "filesys",
     ]
+
     const sub = (options?.subfolder || "")
       .replace(/[^A-Za-z0-9_\-/]/g, "")
       .replace(/^\/+|\/+$/g, "")
+
     if (sub) {
-      // Split safe subfolder into path segments
       for (const s of sub.split("/")) if (s) segments.push(s)
     }
 
     const endpoint = buildUrl(this.config.serverUrl, ...segments)
-
-    // Determine filename from File or provide a fallback
     const fileName = (file as any)?.name
       ? String((file as any).name)
       : `upload_${Date.now()}`
@@ -441,48 +618,28 @@ export class FmeFlowApiClient {
     const headers: { [key: string]: string } = {
       Accept: "application/json",
       "Content-Type": "application/octet-stream",
-      // RFC 6266 style Content-Disposition
       "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
     }
 
-    // Some deployments require explicit createDirectories flag
-    const query: PrimitiveParams = { createDirectories: "true" }
-
-    return this.request<{ path?: string; fullpath?: string; files?: any[] }>(
-      endpoint,
-      {
-        method: HttpMethod.POST,
-        headers,
-        body: file as unknown as any,
-        query,
-        signal: options?.signal,
-      }
-    ).then((resp) => {
-      const data: any = resp?.data || {}
-      // Try to resolve the absolute/engine-usable path from typical response shapes
-      let resolvedPath: string | undefined =
-        (typeof data.path === "string" && data.path) ||
-        (typeof data.fullpath === "string" && data.fullpath)
-
-      if (!resolvedPath && Array.isArray(data.files) && data.files.length) {
-        const first = data.files[0]
-        resolvedPath =
-          (typeof first?.path === "string" && first.path) ||
-          (typeof first?.fullpath === "string" && first.fullpath)
-      }
-
-      // If still not found, construct a best-effort path using known conventions
-      if (!resolvedPath) {
-        const joined = (sub ? `${sub.replace(/\/+$/g, "")}/` : "") + fileName
-        resolvedPath = `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
-      }
-
-      return {
-        data: { path: resolvedPath },
-        status: resp.status,
-        statusText: resp.statusText,
-      }
+    const resp = await this.request<{
+      path?: string
+      fullpath?: string
+      files?: any[]
+    }>(endpoint, {
+      method: HttpMethod.POST,
+      headers,
+      body: file as unknown as any,
+      query: { createDirectories: "true" },
+      signal: options?.signal,
     })
+
+    const resolvedPath = this.resolveUploadPath(resp?.data || {}, fileName, sub)
+
+    return {
+      data: { path: resolvedPath },
+      status: resp.status,
+      statusText: resp.statusText,
+    }
   }
 
   private resolveRepository(repository?: string): string {
@@ -502,7 +659,6 @@ export class FmeFlowApiClient {
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
-    // Extract Task Manager directives
     const params = parameters as any
     const toPosInt = (v: unknown) => {
       const n = typeof v === "string" ? Number(v) : (v as number)
@@ -513,21 +669,21 @@ export class FmeFlowApiClient {
       .filter(([name]) => !name.startsWith("tm_"))
       .map(([name, value]) => ({ name, value }))
 
-    const job: any = { publishedParameters }
-
-    // Add TM directives if present
     const tmDirectives: any = {}
     const ttc = toPosInt(params.tm_ttc)
     const ttl = toPosInt(params.tm_ttl)
-    const tag =
-      typeof params.tm_tag === "string" && params.tm_tag.trim()
-        ? params.tm_tag.trim()
-        : undefined
+    const tag = typeof params.tm_tag === "string" ? params.tm_tag.trim() : ""
+    const description =
+      typeof params.tm_description === "string"
+        ? params.tm_description.trim().slice(0, 512)
+        : ""
 
     if (ttc !== undefined) tmDirectives.ttc = ttc
     if (ttl !== undefined) tmDirectives.ttl = ttl
-    if (tag !== undefined) tmDirectives.tag = tag
+    if (tag) tmDirectives.tag = tag
+    if (description) tmDirectives.description = description
 
+    const job: any = { publishedParameters }
     if (Object.keys(tmDirectives).length > 0) {
       job.TMDirectives = tmDirectives
     }
@@ -577,8 +733,7 @@ export class FmeFlowApiClient {
 
   updateConfig(config: Partial<FmeFlowConfig>): void {
     this.config = { ...this.config, ...config }
-    void setApiSettings(this.config)
-    void addFmeInterceptor(this.config.serverUrl, this.config.token)
+    this.queueSetup(this.config)
   }
 
   /**
@@ -617,22 +772,7 @@ export class FmeFlowApiClient {
         })
 
         const data = raw?.data
-        let items: Array<{ name: string }>
-        if (Array.isArray(data)) {
-          items = data
-            .map((r: any) => ({ name: String(r?.name ?? "") }))
-            .filter((r) => r.name.length > 0)
-        } else if (
-          data &&
-          Array.isArray((data as unknown as { items?: unknown[] }).items)
-        ) {
-          const arr = (data as unknown as { items?: unknown[] }).items || []
-          items = arr
-            .map((r: any) => ({ name: String(r?.name ?? "") }))
-            .filter((r) => r.name.length > 0)
-        } else {
-          items = []
-        }
+        const items = extractRepositoryNames(data).map((name) => ({ name }))
 
         return {
           data: items,
@@ -743,13 +883,13 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<JobResponse>> {
+  ): Promise<ApiResponse<JobResult>> {
     const repo = this.resolveRepository(repository)
     const endpoint = this.transformEndpoint("submit", repo, workspace)
     const jobRequest = this.formatJobParams(parameters)
     return this.withApiError(
       () =>
-        this.request<JobResponse>(endpoint, {
+        this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(jobRequest),
@@ -784,7 +924,7 @@ export class FmeFlowApiClient {
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<JobResponse>> {
+  ): Promise<ApiResponse<JobResult>> {
     const geometryParams = await this.toFmeParams(geometry)
     return this.submitJob(
       workspace,
@@ -872,6 +1012,7 @@ export class FmeFlowApiClient {
         )
         // Show result inline (lets FME stream the generated content)
         params.set("opt_showresult", "true")
+        appendWebhookTmParams(params, parameters)
 
         // Append token as query param (consistent with webhook auth model)
         let url = serviceUrl
@@ -889,35 +1030,96 @@ export class FmeFlowApiClient {
           API.WEBHOOK_LOG_WHITELIST
         )
 
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params.toString(),
-          signal,
-        })
-
-        // Non-2xx -> surface as error for consistent handling
-        if (!response.ok) {
-          throw makeError("DATA_STREAMING_ERROR", response.status)
+        await ensureEsri()
+        const esriRequestFn = asEsriRequest(_esriRequest)
+        if (!esriRequestFn) {
+          throw makeError("ARCGIS_MODULE_ERROR")
         }
 
-        // Always read as Blob; callers can decode based on content-type
-        const blob = await response.blob()
-        const contentType = response.headers.get("content-type")
-
-        // Attempt to extract filename from Content-Disposition header
-        const cd = response.headers.get("content-disposition") || ""
-        let fileName: string | undefined
-        const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
-        if (m) {
-          const raw = decodeURIComponent(m[1] || m[2] || "").trim()
-          fileName = raw || undefined
+        // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
+        const controller = new AbortController()
+        let timeoutId: ReturnType<typeof setTimeout> | null = null
+        let didTimeout = false
+        const onAbort = () => {
+          controller.abort()
         }
+        try {
+          if (signal) {
+            if (signal.aborted) controller.abort()
+            else signal.addEventListener("abort", onAbort)
+          }
 
-        return {
-          data: { blob, fileName, contentType },
-          status: response.status,
-          statusText: response.statusText,
+          const timeoutMs =
+            typeof this.config.timeout === "number" && this.config.timeout > 0
+              ? this.config.timeout
+              : undefined
+          if (timeoutMs) {
+            timeoutId = setTimeout(() => {
+              didTimeout = true
+              try {
+                controller.abort()
+              } catch {}
+            }, timeoutMs)
+          }
+
+          const response = await esriRequestFn(url, {
+            method: "post",
+            responseType: "blob",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: params.toString(),
+            signal: controller.signal,
+            timeout: timeoutMs,
+          })
+
+          const status =
+            typeof response?.httpStatus === "number"
+              ? response.httpStatus
+              : typeof response?.status === "number"
+                ? response.status
+                : 200
+          if (status < 200 || status >= 300) {
+            throw makeError("DATA_STREAMING_ERROR", status)
+          }
+
+          const blob = response?.data as Blob
+          const headers = response?.headers
+          const contentType =
+            typeof headers?.get === "function"
+              ? headers.get("content-type")
+              : null
+
+          // Attempt to extract filename from Content-Disposition header
+          const cd =
+            typeof headers?.get === "function"
+              ? headers.get("content-disposition") || ""
+              : ""
+          let fileName: string | undefined
+          const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
+          if (m) {
+            const raw = decodeURIComponent(m[1] || m[2] || "").trim()
+            fileName = raw || undefined
+          }
+
+          return {
+            data: { blob, fileName, contentType },
+            status,
+            statusText: response?.statusText,
+          }
+        } catch (e: any) {
+          if (isAbortError(e)) {
+            if (didTimeout) {
+              // Map timeout to HTTP 408 for user-friendly translation
+              throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+            }
+          }
+          throw e instanceof Error ? e : new Error(String(e))
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId)
+          try {
+            if (signal) signal.removeEventListener("abort", onAbort)
+          } catch {}
         }
       },
       "DATA_STREAMING_ERROR",
@@ -974,15 +1176,7 @@ export class FmeFlowApiClient {
       }
 
       // Ensure tm_* values are present if provided
-      const maybeAppend = (k: string) => {
-        const v = (parameters as any)[k]
-        if (v !== undefined && v !== null && String(v).length > 0) {
-          params.set(k, String(v))
-        }
-      }
-      maybeAppend("tm_ttc")
-      maybeAppend("tm_ttl")
-      maybeAppend("tm_tag")
+      appendWebhookTmParams(params, parameters)
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
@@ -1009,12 +1203,67 @@ export class FmeFlowApiClient {
         API.WEBHOOK_LOG_WHITELIST
       )
 
-      const response = await fetch(fullUrl, {
-        method: "GET",
-        signal,
-      })
+      await ensureEsri()
+      const esriRequestFn = asEsriRequest(_esriRequest)
+      if (!esriRequestFn) {
+        throw makeError("ARCGIS_MODULE_ERROR")
+      }
 
-      return this.parseWebhookResponse(response)
+      // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
+      const controller = new AbortController()
+      let timeoutId: ReturnType<typeof setTimeout> | null = null
+      let didTimeout = false
+      const onAbort = () => {
+        controller.abort()
+      }
+      try {
+        if (signal) {
+          if (signal.aborted) controller.abort()
+          else signal.addEventListener("abort", onAbort)
+        }
+
+        const timeoutMs =
+          typeof this.config.timeout === "number" && this.config.timeout > 0
+            ? this.config.timeout
+            : undefined
+        if (timeoutMs) {
+          timeoutId = setTimeout(() => {
+            didTimeout = true
+            try {
+              controller.abort()
+            } catch {}
+          }, timeoutMs)
+        }
+
+        const response = await esriRequestFn(fullUrl, {
+          method: "get",
+          responseType: "json",
+          signal: controller.signal,
+          timeout: timeoutMs,
+        })
+
+        return this.parseWebhookResponse(response)
+      } catch (e: any) {
+        if (isAbortError(e)) {
+          if (didTimeout) {
+            throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+          }
+        }
+        if (
+          e &&
+          typeof e.message === "string" &&
+          /unexpected token|json/i.test(e.message)
+        ) {
+          const status = extractHttpStatus(e) || 0
+          throw makeError("WEBHOOK_AUTH_ERROR", status)
+        }
+        throw e instanceof Error ? e : new Error(String(e))
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
+        try {
+          if (signal) signal.removeEventListener("abort", onAbort)
+        } catch {}
+      }
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
       const status = extractHttpStatus(err)
@@ -1050,53 +1299,98 @@ export class FmeFlowApiClient {
   }
 
   cancelAllRequests(): void {
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch (error) {
-        console.warn("FME API - Error aborting controller:", error)
-      }
-    }
-    this.abortController = null
+    this.safeAbortController()
   }
 
   createAbortController(): AbortController {
-    // Safely abort existing controller
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch (error) {
-        console.warn("FME API - Error aborting previous controller:", error)
-      }
-    }
-
+    this.safeAbortController()
     this.abortController = new AbortController()
     return this.abortController
   }
 
-  private async parseWebhookResponse(response: Response): Promise<ApiResponse> {
-    const contentType = response.headers.get("content-type")
+  private async parseWebhookResponse(
+    response:
+      | Response
+      | {
+          data?: any
+          headers?: { get: (name: string) => string | null }
+          status?: number
+          statusText?: string
+          httpStatus?: number
+        }
+  ): Promise<ApiResponse> {
+    const isFetchResponse =
+      typeof (response as any)?.json === "function" &&
+      typeof (response as any)?.headers?.get === "function"
 
-    if (!isJson(contentType)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    if (isFetchResponse) {
+      const fetchResponse = response as Response
+      const contentType = fetchResponse.headers.get("content-type")
+
+      if (!isJson(contentType)) {
+        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+      }
+
+      try {
+        const responseData = await fetchResponse.json()
+        if (isAuthError(fetchResponse.status)) {
+          throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+        }
+
+        return {
+          data: responseData,
+          status: fetchResponse.status,
+          statusText: fetchResponse.statusText,
+        }
+      } catch (error) {
+        if (error instanceof FmeFlowApiError) throw error
+        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+      }
     }
 
-    let responseData: any
-    try {
-      responseData = await response.json()
-    } catch {
-      console.warn("FME API - Failed to parse webhook JSON response")
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    const esriResponse = response as {
+      data?: any
+      headers?: { get: (name: string) => string | null }
+      status?: number
+      statusText?: string
+      httpStatus?: number
     }
 
-    if (isAuthError(response.status)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", response.status)
+    const status =
+      typeof esriResponse.httpStatus === "number"
+        ? esriResponse.httpStatus
+        : typeof esriResponse.status === "number"
+          ? esriResponse.status
+          : 200
+
+    const headers = esriResponse.headers
+    const contentType =
+      typeof headers?.get === "function" ? headers.get("content-type") : ""
+    if (headers && !isJson(contentType)) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    if (esriResponse.data === undefined) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    let payload = esriResponse.data
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload)
+      } catch (error) {
+        throw makeError("WEBHOOK_AUTH_ERROR", status)
+      }
+    }
+
+    if (isAuthError(status)) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
     }
 
     return {
-      data: responseData,
-      status: response.status,
-      statusText: response.statusText,
+      data: payload,
+      status,
+      statusText: esriResponse.statusText,
     }
   }
 
@@ -1119,19 +1413,33 @@ export class FmeFlowApiClient {
     }
 
     // Reproject to WGS84
-    const projectedGeometry = await toWgs84(geometry)
+    const projectedGeometry = (await toWgs84(geometry)) as __esri.Polygon
 
-    const geoJsonPolygon = makeGeoJson(projectedGeometry as __esri.Polygon)
+    const geoJsonPolygon = makeGeoJson(projectedGeometry)
 
     // Convert to Esri JSON for FME
-    const esriJson = (projectedGeometry as __esri.Polygon).toJSON()
+    const esriJson = projectedGeometry.toJSON()
+
+    let polygonArea = 0
+    try {
+      await ensureGeometryEngines()
+      const areaModules = {
+        geometryEngine: asGeometryEngine(_geometryEngine),
+        geometryEngineAsync: asGeometryEngineAsync(_geometryEngineAsync),
+      }
+      polygonArea = await calcArea(projectedGeometry, areaModules)
+    } catch {}
+
+    const fallbackArea = Math.abs(extent.width * extent.height)
+    const resolvedArea =
+      polygonArea && polygonArea > 0 ? polygonArea : fallbackArea
 
     return {
       MAXX: extent.xmax,
       MAXY: extent.ymax,
       MINX: extent.xmin,
       MINY: extent.ymin,
-      AREA: Math.abs(extent.width * extent.height),
+      AREA: resolvedArea,
       AreaOfInterest: JSON.stringify(esriJson),
       ExtentGeoJson: JSON.stringify(geoJsonPolygon),
     }
@@ -1141,6 +1449,20 @@ export class FmeFlowApiClient {
     endpoint: string,
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
+    if (this.disposed) {
+      throw makeError("CLIENT_DISPOSED")
+    }
+
+    try {
+      await this.setupPromise
+    } catch (error) {
+      this.queueSetup(this.config)
+      try {
+        await this.setupPromise
+      } catch {
+        throw makeError("ARCGIS_MODULE_ERROR")
+      }
+    }
     await ensureEsri()
     const url = resolveRequestUrl(
       endpoint,
@@ -1174,25 +1496,23 @@ export class FmeFlowApiClient {
 
       // BYPASS INTERCEPTOR - Add FME authentication directly
       try {
-        const serverHost = extractHostFromUrl(
+        const serverHostKey = extractHostFromUrl(
           this.config.serverUrl
         )?.toLowerCase()
-        const reqHost = new URL(
+        const requestHostKey = new URL(
           url,
           globalThis.location?.origin || "http://d"
         ).host.toLowerCase()
-        if (serverHost && reqHost === serverHost && this.config.token) {
-          // Add token as query parameter
-          if (!requestOptions.query.fmetoken) {
-            requestOptions.query.fmetoken = this.config.token
-          }
+        if (
+          serverHostKey &&
+          requestHostKey === serverHostKey &&
+          this.config.token
+        ) {
           // Add Authorization header with correct FME Flow format
           requestOptions.headers = requestOptions.headers || {}
           requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
         }
-      } catch (e) {
-        console.warn("FME API - Error adding token directly:", e)
-      }
+      } catch {}
 
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =
@@ -1242,23 +1562,6 @@ export class FmeFlowApiClient {
 
       // Get user-friendly translation key using centralized error mapping
       const translationKey = mapErrorToKey(err, httpStatus)
-
-      // Debug logging to help identify error structure
-      if (process.env.NODE_ENV !== "production") {
-        console.debug("FME API - error structure debug", {
-          errorType: typeof err,
-          errorKeys: err && typeof err === "object" ? Object.keys(err) : [],
-          extractedStatus: httpStatus,
-          rawError: err,
-        })
-      }
-
-      console.error("FME API - request error", {
-        url,
-        token: maskToken(this.config.token),
-        message: extractErrorMessage(err),
-        status: httpStatus,
-      })
 
       throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
     }

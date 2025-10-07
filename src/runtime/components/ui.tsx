@@ -30,18 +30,38 @@ import {
   TagInput as JimuTagInput,
   MultiSelect,
   SVG,
+  Table as JimuTable,
+  RichDisplayer,
+  Alert as JimuAlert,
 } from "jimu-ui"
+import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
+import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import { useTheme } from "jimu-theme"
 import defaultMessages from "./translations/default"
 import {
   EMAIL_PLACEHOLDER,
-  stripHtmlToText,
   styleCss,
   getErrorIconSrc,
   getBtnAria,
   ariaDesc,
+  pad2,
 } from "../../shared/utils"
+import dataIcon from "../../assets/icons/data.svg"
+import emailIcon from "../../assets/icons/email.svg"
+import errorIcon from "../../assets/icons/error.svg"
+import featureServiceIcon from "../../assets/icons/feature-service.svg"
+import folderIcon from "../../assets/icons/folder.svg"
+import infoIcon from "../../assets/icons/info.svg"
+import linkTiltedIcon from "../../assets/icons/link-tilted.svg"
+import mapIcon from "../../assets/icons/map.svg"
+import personLockIcon from "../../assets/icons/person-lock.svg"
+import polygonIcon from "../../assets/icons/polygon.svg"
+import settingIcon from "../../assets/icons/setting.svg"
+import sharedNoIcon from "../../assets/icons/shared-no.svg"
+import successIcon from "../../assets/icons/success.svg"
+import timeIcon from "../../assets/icons/time.svg"
+import warningIcon from "../../assets/icons/warning.svg"
 import type {
   ViewAction,
   ButtonProps,
@@ -57,14 +77,14 @@ import type {
   FormProps,
   FieldProps,
   BtnContentProps,
-  IconProps,
   StateViewProps,
   TranslateFn,
+  LoadingSnapshot,
 } from "../../config"
 
-// Configuration
+// Configuration & Constants
 export const config = {
-  icon: { small: 14, medium: 16, large: 20 },
+  icon: { small: 16, medium: 18, large: 24 },
   tooltip: {
     delay: { enter: 100, next: 0, leave: 0, touch: 700 },
     position: {
@@ -88,88 +108,153 @@ export const config = {
   required: "*",
 } as const
 
-// Theme-aware styles
+const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
+  error: errorIcon,
+  map: mapIcon,
+  polygon: polygonIcon,
+  warning: warningIcon,
+  "person-lock": personLockIcon,
+  folder: folderIcon,
+  data: dataIcon,
+  "shared-no": sharedNoIcon,
+  "feature-service": featureServiceIcon,
+  "link-tilted": linkTiltedIcon,
+  time: timeIcon,
+  setting: settingIcon,
+  email: emailIcon,
+  info: infoIcon,
+  success: successIcon,
+}
+
+type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>
+
+const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
+  warning: "warning",
+  error: "error",
+  info: "info",
+  success: "success",
+}
+
+// Styling Helpers
 const getTypographyStyle = (
   typographyVariant: ImmutableObject<TypographyStyle>
-) => {
-  if (!typographyVariant) {
-    return {}
-  }
-  return {
-    fontFamily: typographyVariant.fontFamily,
-    fontWeight: typographyVariant.fontWeight?.toString(),
-    fontSize: typographyVariant.fontSize,
-    fontStyle: typographyVariant.fontStyle,
-    lineHeight: typographyVariant.lineHeight,
-    color: typographyVariant.color,
-  }
-}
+) => ({
+  fontFamily: typographyVariant?.fontFamily,
+  fontWeight: typographyVariant?.fontWeight?.toString(),
+  fontSize: typographyVariant?.fontSize,
+  fontStyle: typographyVariant?.fontStyle,
+  lineHeight: typographyVariant?.lineHeight,
+  color: typographyVariant?.color,
+})
 
 const createStyles = (theme: IMThemeVariables) => {
   // Cache commonly used spacing and color values
   const spacing = theme.sys.spacing
   const colors = theme.sys.color
   const typography = theme.sys.typography
+  const gap = spacing?.(2)
+  const flexAuto = "1 1 auto"
+
+  const flexRow = (styles: { [key: string]: any } = {}) =>
+    css({ display: "flex", ...styles })
+
+  const flexColumn = (styles: { [key: string]: any } = {}) =>
+    css({ display: "flex", flexFlow: "column nowrap", ...styles })
+
+  const inlineFlexRow = (styles: { [key: string]: any } = {}) =>
+    css({ display: "inline-flex", flexFlow: "row wrap", ...styles })
 
   return {
     // Layout utilities with better performance
-    row: css({ display: "flex" }),
-    btnFlex: css({ flex: 1, marginTop: 15 }),
-    fullWidth: css({
-      display: "flex",
-      width: "100%",
-      flexDirection: "column",
-      minWidth: 0,
+    row: flexRow({ gap }),
+    btnFlex: css({ flex: flexAuto }),
+    buttonGroup: flexColumn({ inlineSize: "100%", gap }),
+    fullWidth: flexColumn({
+      inlineSize: "100%",
+      flex: flexAuto,
+      minInlineSize: 0,
     }),
     relative: css({ position: "relative" }),
-    block: css({ display: "block" }),
-    marginTop: (value: number) => css({ marginTop: value }),
-    gapBtnGroup: css({ gap: spacing?.(2) }),
+    rowAlignCenter: css({ alignItems: "center" }),
 
     // Interactive utilities
-    disabledCursor: css({ display: "inline-block", cursor: "not-allowed" }),
+    disabledPicker: flexRow({ pointerEvents: "none" }),
     textareaResize: css({ resize: "vertical" }),
 
     // Main layout styles
-    parent: css({
-      display: "flex",
-      flexDirection: "column",
+    parent: flexColumn({
       overflowY: "auto",
-      height: "100%",
+      blockSize: "100%",
       position: "relative",
+      gap,
       padding: spacing?.(1),
       backgroundColor: colors?.surface?.paper,
     }),
 
-    header: css({
-      display: "flex",
-      justifyContent: "end",
-      flexShrink: 0,
+    header: flexRow({
+      alignItems: "center",
+      justifyContent: "flex-end",
+      gap,
+      marginBlockEnd: spacing?.(2),
     }),
 
-    content: css({
+    headerAlert: css({
+      marginInlineEnd: "auto",
       display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      flex: "1 1 auto",
+      alignItems: "center",
+    }),
+
+    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
+    contentCentered: flexColumn({
+      placeContent: "center",
+      alignItems: "center",
+      textAlign: "center",
+      flex: flexAuto,
+      minBlockSize: 0,
+      gap,
     }),
 
     // State patterns
-    centered: css({
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "center",
-      gap: spacing?.(1),
-      height: "100%",
+    centered: flexColumn({
+      placeContent: "center",
+      gap,
+      blockSize: "100%",
     }),
 
     overlay: css({
       position: "absolute",
-      top: "50%",
-      left: "50%",
+      inset: "50% auto auto 50%",
       transform: "translate(-50%, -50%)",
       textAlign: "center",
       zIndex: config.zIndex.overlay,
+    }),
+
+    alertStyle: css({
+      backgroundColor: "transparent !important",
+      border: "none !important",
+      width: "100% !important",
+    }),
+
+    alertFullWidth: css({
+      width: "100% !important",
+      backgroundColor: "transparent !important",
+      border: "none !important",
+    }),
+
+    alertContent: flexRow({
+      alignItems: "flex-start",
+      gap,
+    }),
+
+    alertMessage: css({
+      flex: "1 1 auto",
+      ...getTypographyStyle(typography?.label2),
+    }),
+
+    alertIconOnly: css({
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
     }),
 
     // Typography styles
@@ -177,14 +262,13 @@ const createStyles = (theme: IMThemeVariables) => {
       caption: css({
         ...getTypographyStyle(typography?.body2),
         color: colors?.surface?.backgroundText,
-        marginBottom: spacing?.(2),
+        marginBlockEnd: spacing?.(3),
       }),
 
       label: css({
-        display: "block",
         ...getTypographyStyle(typography?.label2),
         color: colors?.surface?.backgroundText,
-        marginBottom: 0,
+        marginBlockEnd: 0,
       }),
 
       title: css({
@@ -212,58 +296,85 @@ const createStyles = (theme: IMThemeVariables) => {
       }),
 
       required: css({
-        marginLeft: "0.25rem",
+        marginInlineStart: spacing?.(1),
         color: colors?.error.main,
       }),
     },
 
     // Button styles
     button: {
-      group: css({
-        display: "flex",
-        gap: spacing?.(1),
-      }),
+      default: flexColumn({ inlineSize: "100%", gap }),
 
-      default: css({
-        display: "flex",
-        flexFlow: "column",
-        width: "100%",
-        gap: spacing?.(1),
-      }),
-
-      text: css({
-        flex: 1,
-      }),
+      text: (align: BtnContentProps["alignText"]) =>
+        css({
+          flex: flexAuto,
+          textAlign: (align || "start") as any,
+          paddingInlineEnd: config.button.textPadding,
+        }),
 
       icon: css({
         position: "absolute",
         zIndex: 1,
-        top: "50%",
+        insetBlockStart: "50%",
+        insetInlineEnd: config.button.offset,
         transform: "translateY(-50%)",
       }),
     },
 
+    form: {
+      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
+      header: css({ flex: "0 0 auto" }),
+      content: flexColumn({
+        flex: flexAuto,
+        gap,
+      }),
+      body: flexColumn({
+        flex: flexAuto,
+        gap,
+        overflowY: "auto",
+      }),
+      footer: flexColumn({ flex: "0 0 auto", gap }),
+    },
+
+    selection: {
+      container: flexColumn({ flex: flexAuto, gap, minBlockSize: 0 }),
+      warning: css({ marginBlockStart: "auto" }),
+      message: css({
+        marginBlockStart: "auto",
+        ...getTypographyStyle(typography?.body2),
+        color: colors?.surface?.backgroundText,
+      }),
+    },
+
     fieldGroup: css({
-      marginBottom: spacing?.(2),
+      marginBlockEnd: spacing?.(2),
     }),
+
+    checkLabel: flexRow({
+      alignItems: "center",
+      justifyContent: "space-between",
+      inlineSize: "100%",
+    }),
+
+    tooltipWrap: {
+      block: flexRow({ inlineSize: "100%", minInlineSize: 0 }),
+      inline: inlineFlexRow({ minInlineSize: 0 }),
+      anchor: flexRow({
+        flex: flexAuto,
+        minInlineSize: 0,
+        "& > *": { flex: flexAuto, minInlineSize: 0 },
+      }),
+    },
   } as const
 }
 
-// Theme-aware styles hook with stable reference caching
-export const useStyles = () => {
+// Theme-aware styles hook
+export const useStyles = (): ReturnType<typeof createStyles> => {
   const theme = useTheme()
-  const stylesRef = React.useRef<ReturnType<typeof createStyles> | null>(null)
-  const themeRef = React.useRef(theme)
-
-  if (!stylesRef.current || themeRef.current !== theme) {
-    stylesRef.current = createStyles(theme)
-    themeRef.current = theme
-  }
-
-  return stylesRef.current || createStyles(theme)
+  return createStyles(theme)
 }
 
-// Utility functions
+// Hooks & Utility Helpers
 let idSeq = 0
 
 const useId = (): string => {
@@ -298,25 +409,31 @@ const withId = (
   readOnly: boolean,
   fallbackId: string
 ): { id: string | undefined; child: React.ReactNode } => {
-  if (!readOnly && React.isValidElement(child)) {
-    const childProps = (child.props || {}) as { [key: string]: unknown }
-    const id = (childProps.id as string) || fallbackId
-    if (!childProps.id) {
-      const cloned = React.cloneElement(child as React.ReactElement, { id })
-      return { id, child: cloned }
-    }
+  if (readOnly || !React.isValidElement(child)) {
+    return { id: undefined, child }
+  }
+
+  const childProps = (child.props || {}) as { [key: string]: unknown }
+  const id = (childProps.id as string) || fallbackId
+
+  if (childProps.id) {
     return { id, child }
   }
-  return { id: undefined, child }
+
+  const cloned = React.cloneElement(child as React.ReactElement, { id })
+  return { id, child: cloned }
 }
 
-// Compose common css arrays with optional custom styles
+// Style composition helpers
 const applyComponentStyles = (
   base: Array<ReturnType<typeof css> | undefined>,
   customStyle?: React.CSSProperties
-) => {
-  return [...base, styleCss(customStyle)].filter(Boolean)
-}
+) => [...base, styleCss(customStyle)].filter(Boolean)
+
+const applyFullWidthStyles = (
+  styles: ReturnType<typeof createStyles>,
+  customStyle?: React.CSSProperties
+) => applyComponentStyles([styles.fullWidth], customStyle)
 
 // Build common ARIA attributes for form inputs/areas
 const getFormAria = (opts: {
@@ -342,38 +459,49 @@ const wrapWithTooltip = (
     block?: boolean
     jimuCss?: any
     jimuStyle?: React.CSSProperties
+    styles: ReturnType<typeof createStyles>
   }
 ) => {
-  const { tooltip, placement, block, jimuCss, jimuStyle } = opts || {}
+  const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts
   if (!tooltip) return element
 
   const wrapperCss = [
     jimuCss,
     styleCss(jimuStyle),
-    css(
-      block
-        ? { display: "block", width: "100%", minWidth: 0 }
-        : { display: "inline-flex", minWidth: 0 }
-    ),
+    block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
   ]
-
-  const anchorCss = css({
-    display: "flex",
-    width: "100%",
-    minWidth: 0,
-    "& > *": { flex: 1, minWidth: 0 },
-  })
 
   return (
     <span css={wrapperCss as any}>
       <Tooltip content={tooltip} placement={placement}>
-        <span css={anchorCss}>{element}</span>
+        <span css={styles.tooltipWrap.anchor}>{element}</span>
       </Tooltip>
     </span>
   )
 }
 
-// Render the required mark with tooltip and proper aria
+const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
+  (placement as any) === "auto" ? config.tooltip.position.top : placement
+
+const createTooltipAnchor = (
+  child: React.ReactElement,
+  tooltipContent: React.ReactNode
+) => {
+  const childProps = (child as any)?.props || {}
+  const isDisabled = childProps.disabled || childProps["aria-disabled"]
+
+  if (!isDisabled) return child
+
+  const ariaLabel =
+    typeof tooltipContent === "string" ? tooltipContent : undefined
+
+  return (
+    <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>
+      {child}
+    </span>
+  )
+}
+
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
   styles: ReturnType<typeof useStyles>
@@ -390,7 +518,9 @@ const getRequiredMark = (
   </Tooltip>
 )
 
-// Button content component extracted from Button
+// Primitive UI Components
+
+// Button content component
 const BtnContent: React.FC<BtnContentProps> = ({
   loading,
   children,
@@ -426,10 +556,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
     )
 
   const iconWithPosition = (
-    <span
-      css={[styles.button.icon, css({ right: config.button.offset })]}
-      aria-hidden="true"
-    >
+    <span css={styles.button.icon} aria-hidden="true">
       {iconEl}
     </span>
   )
@@ -437,38 +564,35 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {/* left icon not supported */}
-      <div
-        css={[
-          styles.button.text,
-          css({
-            textAlign: alignText as any,
-            paddingRight: config.button.textPadding,
-          }),
-        ]}
-      >
-        {text}
-      </div>
+      <div css={styles.button.text(alignText)}>{text}</div>
       {iconWithPosition}
     </>
   )
 }
 
 // Icon component
-export const Icon: React.FC<IconProps> = ({
+export const Icon: React.FC<SVGProps> = ({
   src,
   size = config.icon.medium,
   className,
-  ariaLabel,
   style,
+  role = "img",
+  "aria-label": ariaLabel,
+  "aria-hidden": ariaHidden,
+  ...props
 }) => {
+  const resolved = LOCAL_ICON_SOURCES[src] ?? src
+  const computedHidden = ariaHidden ?? !ariaLabel
+
   return (
     <SVG
-      src={src}
+      {...props}
+      src={resolved}
       size={size}
       className={className}
-      role="img"
-      aria-hidden={!ariaLabel}
+      role={role}
       aria-label={ariaLabel}
+      aria-hidden={computedHidden}
       css={applyComponentStyles([], style as any)}
     />
   )
@@ -487,37 +611,22 @@ export const Tooltip: React.FC<TooltipProps> = ({
   if (!React.isValidElement(children) || !tooltipContent || disabled) {
     return <>{children}</>
   }
-  const isChildDisabled = Boolean(
-    (children as any)?.props?.disabled ||
-      (children as any)?.props?.["aria-disabled"]
-  )
-  const anchor = isChildDisabled ? (
-    <span
-      aria-disabled="true"
-      tabIndex={0}
-      aria-label={
-        typeof tooltipContent === "string" ? tooltipContent : undefined
-      }
-    >
-      {children}
-    </span>
-  ) : (
-    children
-  )
-  const placementProp = (placement as any) === "auto" ? "top" : placement
+  const anchor = createTooltipAnchor(children, tooltipContent)
+  const placementProp = sanitizeTooltipPlacement(placement)
 
   return (
     <JimuTooltip
       title={tooltipContent as any}
       showArrow={showArrow}
       placement={placementProp as any}
-      disabled={false}
       {...otherProps}
     >
       {anchor}
     </JimuTooltip>
   )
 }
+
+// Form controls
 
 // Checkbox component
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
@@ -576,7 +685,7 @@ export const Input: React.FC<InputProps> = ({
       maxLength={maxLength}
       title={errorText}
       {...aria}
-      css={applyComponentStyles([styles.fullWidth], (props as any).style)}
+      css={applyFullWidthStyles(styles, (props as any).style)}
     />
   )
 }
@@ -586,6 +695,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   value: controlled,
   defaultValue,
   onChange,
+  onBlur,
   ...props
 }) => {
   const styles = useStyles()
@@ -596,6 +706,12 @@ export const TextArea: React.FC<TextAreaProps> = ({
       const newValue = event.target.value
       handleValueChange(newValue)
       onChange?.(newValue)
+    }
+  )
+
+  const handleBlur = hooks.useEventCallback(
+    (event: React.FocusEvent<HTMLTextAreaElement>) => {
+      onBlur?.(event.target.value)
     }
   )
 
@@ -613,7 +729,11 @@ export const TextArea: React.FC<TextAreaProps> = ({
       {...props}
       value={value}
       onChange={handleChange}
-      css={applyComponentStyles([styles.textareaResize], props.style as any)}
+      onBlur={handleBlur}
+      css={applyComponentStyles(
+        [styles.fullWidth, styles.textareaResize],
+        props.style as any
+      )}
       {...aria}
     />
   )
@@ -639,7 +759,7 @@ export const UrlInput: React.FC<{
         const sanitized = raw
         onChange?.(sanitized)
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -671,7 +791,7 @@ export const Radio: React.FC<{
   const isControlled = value !== undefined
   return (
     <div
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
       role="radiogroup"
       aria-label={ariaLabel}
     >
@@ -732,7 +852,7 @@ export const Slider: React.FC<{
           onChange?.(numValue)
         }
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -780,7 +900,7 @@ export const NumericInput: React.FC<{
           onChange?.(value)
         }
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
@@ -802,10 +922,14 @@ export const TagInput: React.FC<{
       onChange={(vals) => {
         onChange?.(vals)
       }}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   )
 }
+
+export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
+  props
+) => <JimuTable {...props} />
 
 // ColorPicker component
 export const ColorPickerWrapper: React.FC<{
@@ -823,136 +947,155 @@ export const ColorPickerWrapper: React.FC<{
         onChange?.(color)
       }}
       aria-label={ariaLabel}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
+      showArrow
     />
   )
 }
 
-// DatePicker component
-export const DatePickerWrapper: React.FC<{
-  value?: string
-  defaultValue?: string
-  onChange?: (date: string) => void
-  style?: React.CSSProperties
-}> = ({ value, defaultValue, onChange, style }) => {
-  const styles = useStyles()
-  const inputRef = React.useRef<HTMLInputElement | null>(null)
+const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
+const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
 
-  const openPicker = hooks.useEventCallback(() => {
-    const el = inputRef.current as any
-    if (el && typeof el.showPicker === "function") {
-      try {
-        el.showPicker()
-      } catch {
-        // ignore if browser blocks showPicker
-      }
-    }
-  })
+const parseIsoLocalDateTime = (value?: string): Date | null => {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const normalized = trimmed.includes("T") ? trimmed : `${trimmed}T00:00:00`
+  const [datePart = "", timePart = ""] = normalized.split("T")
 
-  return (
-    <input
-      type="date"
-      ref={inputRef}
-      value={value || defaultValue || ""}
-      onChange={(e) => {
-        onChange?.(e.target.value)
-      }}
-      onFocus={openPicker}
-      onMouseDown={() => {
-        // also try opening on mouse/touch down for convenience
-        openPicker()
-      }}
-      css={applyComponentStyles([styles.fullWidth], style)}
-    />
-  )
+  const dateMatch = ISO_LOCAL_DATE.exec(datePart)
+  const timeMatch = ISO_LOCAL_TIME.exec(timePart)
+  if (!dateMatch || !timeMatch) return null
+
+  const year = Number(dateMatch[1])
+  const month = Number(dateMatch[2])
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+  const second = timeMatch[3] ? Number(timeMatch[3]) : 0
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null
+  }
+
+  const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-// DateTimePicker component (date + time inputs)
+const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
+  if (!value) return ""
+  const timestamp = value.getTime()
+  if (Number.isNaN(timestamp)) return ""
+  const yyyy = value.getFullYear()
+  const mm = pad2(value.getMonth() + 1)
+  const dd = pad2(value.getDate())
+  const hh = pad2(value.getHours())
+  const mi = pad2(value.getMinutes())
+  const ss = pad2(value.getSeconds())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
+}
+
+// DateTimePicker component
 export const DateTimePickerWrapper: React.FC<{
   value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
   defaultValue?: string
   onChange?: (dateTime: string) => void
   style?: React.CSSProperties
   disabled?: boolean
-}> = ({ value, defaultValue, onChange, style, disabled }) => {
+  "aria-label"?: string
+  mode?: "date-time" | "date"
+}> = ({
+  value,
+  defaultValue,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+  mode = "date-time",
+}) => {
   const styles = useStyles()
-  const dateRef = React.useRef<HTMLInputElement | null>(null)
-  const timeRef = React.useRef<HTMLInputElement | null>(null)
+  const [currentValue, setCurrentValue] = useValue(
+    value,
+    defaultValue,
+    onChange
+  )
 
-  // Local split state for better typing UX
-  const [datePart, setDatePart] = React.useState<string>("")
-  const [timePart, setTimePart] = React.useState<string>("")
+  const buildFallbackDate = () => {
+    const base = new Date()
+    if (mode === "date") base.setHours(0, 0, 0, 0)
+    return base
+  }
+  const fallbackDateRef = React.useRef<Date>(buildFallbackDate())
 
-  // Sync from controlled props
-  React.useEffect(() => {
-    const src = value ?? defaultValue ?? ""
-    if (typeof src === "string" && src) {
-      const [d, t] = src.split("T")
-      setDatePart(d || "")
-      setTimePart(t || "")
-    } else {
-      setDatePart("")
-      setTimePart("")
-    }
-  }, [value, defaultValue])
+  hooks.useUpdateEffect(() => {
+    fallbackDateRef.current = buildFallbackDate()
+  }, [mode])
 
-  const emitChange = hooks.useEventCallback((d: string, t: string) => {
-    const hasDate = !!d
-    const hasTime = !!t
-    const normalizedTime = t // allow HH:mm or HH:mm:ss
-    const combined = hasDate && hasTime ? `${d}T${normalizedTime}` : ""
-    onChange?.(combined)
-  })
+  const fallbackDate = fallbackDateRef.current
 
-  const openPicker = hooks.useEventCallback((el: HTMLInputElement | null) => {
-    const anyEl = el as any
-    if (anyEl && typeof anyEl.showPicker === "function") {
-      try {
-        anyEl.showPicker()
-      } catch {
-        // ignore if not permitted
+  const selectedDate =
+    parseIsoLocalDateTime(currentValue) ||
+    parseIsoLocalDateTime(defaultValue) ||
+    fallbackDate
+
+  const handleChange = hooks.useEventCallback(
+    (rawValue: any, _label: string) => {
+      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+        const next = new Date(rawValue)
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next))
+        return
+      }
+
+      if (rawValue instanceof Date) {
+        const next = new Date(rawValue.getTime())
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next))
+        return
+      }
+
+      if (rawValue == null) {
+        setCurrentValue("")
       }
     }
-  })
+  )
 
-  return (
-    <div
-      css={[
-        ...applyComponentStyles(
-          [styles.row, styles.fullWidth, css({ flexWrap: "wrap", gap: 4 })],
-          style
-        ),
-      ]}
-    >
-      <input
-        type="date"
-        ref={dateRef}
-        value={datePart}
-        onChange={(e) => {
-          const d = e.target.value
-          setDatePart(d)
-          emitChange(d, timePart)
-        }}
-        onFocus={() => openPicker(dateRef.current)}
-        onMouseDown={() => openPicker(dateRef.current)}
-        disabled={disabled}
-      />
-      <input
-        type="time"
-        step={1}
-        ref={timeRef}
-        value={timePart}
-        onChange={(e) => {
-          const t = e.target.value
-          setTimePart(t)
-          emitChange(datePart, t)
-        }}
-        onFocus={() => openPicker(timeRef.current)}
-        onMouseDown={() => openPicker(timeRef.current)}
-        disabled={disabled}
+  const containerStyles = applyComponentStyles(
+    [styles.fullWidth, styles.relative],
+    style
+  )
+
+  const picker = (
+    <div css={containerStyles}>
+      <JimuDatePicker
+        selectedDate={selectedDate}
+        runtime={false}
+        showTimeInput={mode === "date-time"}
+        isLongTime={mode === "date-time"}
+        supportVirtualDateList={false}
+        disablePortal
+        onChange={handleChange}
+        aria-label={ariaLabel}
       />
     </div>
   )
+
+  if (disabled) {
+    return (
+      <span aria-disabled="true" css={styles.disabledPicker}>
+        {picker}
+      </span>
+    )
+  }
+
+  return picker
 }
 
 export const RichText: React.FC<{
@@ -961,11 +1104,16 @@ export const RichText: React.FC<{
   className?: string
   style?: React.CSSProperties
 }> = ({ html, placeholder, className, style }) => {
-  const text = stripHtmlToText(html)
+  if (!html || html.trim().length === 0) {
+    return (
+      <div className={className} css={styleCss(style)}>
+        {placeholder || ""}
+      </div>
+    )
+  }
+
   return (
-    <div className={className} css={styleCss(style)}>
-      {text || placeholder || ""}
-    </div>
+    <RichDisplayer className={className} css={styleCss(style)} value={html} />
   )
 }
 
@@ -1031,7 +1179,7 @@ export const Select: React.FC<SelectProps> = ({
       disabled={disabled}
       placeholder={resolvedPlaceholder}
       zIndex={config.zIndex.selectMenu}
-      css={applyComponentStyles([styles.fullWidth], style)}
+      css={applyFullWidthStyles(styles, style)}
     >
       {(options || [])
         .map((option) => {
@@ -1119,21 +1267,24 @@ export const MultiSelectControl: React.FC<{
   )
 }
 
+// Composite controls
+
 // Button component
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
   alignText = "start",
   tooltip,
+  type,
   tooltipDisabled = false,
   tooltipPlacement = config.button.defaults.tooltipPosition,
   loading = false,
   onClick,
   children,
   block = config.button.defaults.block,
-  size = "default",
+  size,
   variant = "contained",
-  color = "default",
+  color,
   htmlType = "button",
   ...jimuProps
 }) => {
@@ -1145,7 +1296,7 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Extract aria-label without useMemo for simplicity
+  // Extract aria-label
   const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
@@ -1155,15 +1306,6 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Safely type the color prop without useMemo
-  const safeColor: "default" | "inherit" | "primary" | "secondary" =
-    color === "default" ||
-    color === "inherit" ||
-    color === "primary" ||
-    color === "secondary"
-      ? color
-      : "default"
-
   // Absorb potential style/css from incoming props so no inline style attribute is forwarded
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
@@ -1172,7 +1314,8 @@ export const Button: React.FC<ButtonProps> = ({
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
-      color={safeColor}
+      type={type as any}
+      color={color}
       variant={variant}
       size={size}
       htmlType={htmlType}
@@ -1187,7 +1330,7 @@ export const Button: React.FC<ButtonProps> = ({
         styles.relative,
         // When not using tooltip, carry caller styles directly on the button
         !hasTooltip && jimuCss,
-        !hasTooltip && jimuStyle && css(jimuStyle),
+        !hasTooltip && styleCss(jimuStyle),
       ]}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
@@ -1209,8 +1352,124 @@ export const Button: React.FC<ButtonProps> = ({
         block,
         jimuCss,
         jimuStyle,
+        styles,
       })
     : buttonElement
+}
+
+type AlertDisplayVariant = "default" | "icon"
+
+type AlertComponentBaseProps = React.ComponentProps<typeof JimuAlert>
+
+type AlertComponentProps = Omit<
+  AlertComponentBaseProps,
+  "variant" | "withIcon"
+> & {
+  variant?: AlertDisplayVariant
+  jimuVariant?: AlertComponentBaseProps["variant"]
+  tooltipPlacement?: TooltipProps["placement"]
+  withIcon?: AlertComponentBaseProps["withIcon"]
+}
+
+export const Alert: React.FC<AlertComponentProps> = ({
+  className,
+  style,
+  text,
+  children,
+  type = "warning",
+  withIcon: _withIcon,
+  variant = "default",
+  jimuVariant,
+  tooltipPlacement = config.tooltip.position.top,
+  ...rest
+}) => {
+  const styles = useStyles()
+  const iconKey = ALERT_ICON_MAP[type as AlertVariant]
+  const messageContent = children ?? (text != null ? <span>{text}</span> : null)
+  const resolvedVariant: AlertDisplayVariant =
+    variant === "icon" && !iconKey ? "default" : variant
+
+  const { css: jimuCss, ...restAlertProps } = rest as any
+
+  if (resolvedVariant === "icon") {
+    const tooltipContent =
+      typeof text === "string"
+        ? text
+        : typeof children === "string"
+          ? children
+          : messageContent
+    const shouldWrapWithTooltip = Boolean(tooltipContent)
+    const accessibleLabel =
+      typeof text === "string"
+        ? text
+        : typeof children === "string"
+          ? children
+          : undefined
+
+    const alertElement = (
+      <JimuAlert
+        {...restAlertProps}
+        type={type}
+        withIcon={false}
+        variant={jimuVariant}
+        className={className}
+        css={applyComponentStyles(
+          [styles.alertFullWidth, shouldWrapWithTooltip ? undefined : jimuCss],
+          style as any
+        )}
+      >
+        {iconKey ? (
+          <div css={styles.alertIconOnly}>
+            <Icon src={iconKey} aria-label={accessibleLabel} />
+          </div>
+        ) : null}
+      </JimuAlert>
+    )
+
+    if (!shouldWrapWithTooltip) {
+      return alertElement
+    }
+
+    return wrapWithTooltip(alertElement, {
+      tooltip: tooltipContent,
+      placement: sanitizeTooltipPlacement(tooltipPlacement),
+      block: true,
+      jimuCss,
+      jimuStyle: style,
+      styles,
+    })
+  }
+
+  if (messageContent == null && !iconKey) {
+    return (
+      <JimuAlert
+        {...restAlertProps}
+        type={type}
+        withIcon={false}
+        variant={jimuVariant}
+        className={className}
+        css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+      />
+    )
+  }
+
+  return (
+    <JimuAlert
+      {...restAlertProps}
+      type={type}
+      withIcon={false}
+      variant={jimuVariant}
+      className={className}
+      css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+    >
+      <div css={styles.alertContent}>
+        {iconKey ? <Icon src={iconKey} /> : null}
+        {messageContent ? (
+          <div css={styles.alertMessage}>{messageContent}</div>
+        ) : null}
+      </div>
+    </JimuAlert>
+  )
 }
 
 // ButtonTabs component
@@ -1232,7 +1491,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
     const final = typeof controlled === "number" ? Number(newValue) : newValue
-    if (!isControlled) setUncontrolledValue(final as any)
+    if (!isControlled) {
+      setUncontrolledValue(final as any)
+    }
     onChange?.(final as any)
     onTabChange?.(final as any)
   })
@@ -1241,7 +1502,7 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
     <AdvancedButtonGroup
       role="tablist"
       aria-label={ariaLabel}
-      css={[styles.row, styles.gapBtnGroup]}
+      css={[styles.row]}
     >
       {items.map((item, i) => {
         const active = currentValue === item.value
@@ -1253,27 +1514,93 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
                 : `tab-${i}-${item.label}`
             }
             icon={item.icon}
+            size="lg"
             text={!item.hideLabel ? item.label : undefined}
             active={active}
             aria-label={item.label}
-            variant={active ? "contained" : "outlined"}
-            color={active ? "primary" : "default"}
+            type={active ? "primary" : "tertiary"}
             role="tab"
             aria-selected={active}
             tooltip={item.tooltip}
-            tooltipPlacement="top"
+            tooltipPlacement="bottom"
             disabled={item.disabled}
             onClick={() => {
-              if (active) return
+              if (active) {
+                return
+              }
               handleChange(item.value)
             }}
-            block={true}
+            block={false}
           />
         )
       })}
     </AdvancedButtonGroup>
   )
 }
+
+const useLoadingLatch = (
+  state: StateViewProps["state"],
+  delay: number
+): { showLoading: boolean; snapshot: LoadingSnapshot } => {
+  const [latched, setLatched] = React.useState(state.kind === "loading")
+  const startRef = React.useRef<number | null>(
+    state.kind === "loading" ? Date.now() : null
+  )
+  const snapshotRef = React.useRef<LoadingSnapshot>(
+    state.kind === "loading"
+      ? { message: (state as any).message, detail: (state as any).detail }
+      : null
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    if (state.kind === "loading") {
+      snapshotRef.current = {
+        message: (state as any).message,
+        detail: (state as any).detail,
+      }
+      if (startRef.current == null) {
+        startRef.current = Date.now()
+      }
+      setLatched(true)
+    } else if (startRef.current != null) {
+      const elapsed = Date.now() - startRef.current
+      const remaining = Math.max(0, delay - elapsed)
+
+      if (remaining > 0) {
+        timer = setTimeout(() => {
+          setLatched(false)
+          startRef.current = null
+          snapshotRef.current = null
+        }, remaining)
+      } else {
+        setLatched(false)
+        startRef.current = null
+        snapshotRef.current = null
+      }
+    } else {
+      setLatched(false)
+      snapshotRef.current = null
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [state, delay])
+
+  const isLoading = state.kind === "loading"
+  const snapshot = isLoading
+    ? { message: (state as any).message, detail: (state as any).detail }
+    : snapshotRef.current
+
+  return {
+    showLoading: isLoading || latched,
+    snapshot,
+  }
+}
+
+// View components
 
 // StateView component
 const StateView: React.FC<StateViewProps> = ({
@@ -1285,69 +1612,27 @@ const StateView: React.FC<StateViewProps> = ({
 }) => {
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
-  const [showLoading, setShowLoading] = React.useState(state.kind === "loading")
-  const loadingStartedAtRef = React.useRef<number | null>(null)
-  // Persist last loading messages to show while holding the loader after a state change
-  const lastLoadingRef = React.useRef<{
-    message?: React.ReactNode
-    detail?: React.ReactNode
-  } | null>(
-    state.kind === "loading"
-      ? { message: (state as any).message, detail: (state as any).detail }
-      : null
-  )
-  React.useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
+  const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
 
-    if (state.kind === "loading") {
-      setShowLoading(true)
-      if (loadingStartedAtRef.current == null) {
-        loadingStartedAtRef.current = Date.now()
-      }
-      lastLoadingRef.current = {
-        message: (state as any).message,
-        detail: (state as any).detail,
-      }
-    } else if (loadingStartedAtRef.current != null) {
-      const elapsed = Date.now() - loadingStartedAtRef.current
-      const remaining = Math.max(0, config.loading.delay - elapsed)
-
-      if (remaining > 0) {
-        timer = setTimeout(() => {
-          setShowLoading(false)
-          loadingStartedAtRef.current = null
-        }, remaining)
-      } else {
-        setShowLoading(false)
-        loadingStartedAtRef.current = null
-      }
-    } else {
-      setShowLoading(false)
-      loadingStartedAtRef.current = null
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state])
-  const DefaultActions = hooks.useEventCallback(
+  const defaultActionsRenderer = hooks.useEventCallback(
     ({
       actions,
       ariaLabel,
     }: {
       actions?: readonly ViewAction[]
       ariaLabel: string
-    }): JSX.Element | null => {
+    }): React.ReactNode => {
       if (!actions?.length) return null
+
       return (
         <div role="group" aria-label={ariaLabel}>
-          {actions.map((a, i) => (
+          {actions.map((action, index) => (
             <Button
-              key={i}
-              onClick={a.onClick}
-              disabled={a.disabled}
-              variant={a.variant}
-              text={a.label}
+              key={index}
+              onClick={action.onClick}
+              disabled={action.disabled}
+              variant={action.variant}
+              text={action.label}
               block
             />
           ))}
@@ -1356,7 +1641,13 @@ const StateView: React.FC<StateViewProps> = ({
     }
   )
 
-  const Actions = renderActions
+  const renderActionsFn: ({
+    actions,
+    ariaLabel,
+  }: {
+    actions?: readonly ViewAction[]
+    ariaLabel: string
+  }) => React.ReactNode = renderActions
     ? ({
         actions,
         ariaLabel,
@@ -1364,51 +1655,43 @@ const StateView: React.FC<StateViewProps> = ({
         actions?: readonly ViewAction[]
         ariaLabel: string
       }) => renderActions(actions, ariaLabel)
-    : DefaultActions
+    : defaultActionsRenderer
 
-  const isLoadingView = state.kind === "loading" || showLoading
+  const renderLoadingState = () => {
+    const message = snapshot?.message
+    const detail = snapshot?.detail
 
-  const content = (() => {
-    if (isLoadingView) {
-      const message =
-        state.kind === "loading"
-          ? (state as any).message
-          : lastLoadingRef.current?.message
-      const detail =
-        state.kind === "loading"
-          ? (state as any).detail
-          : lastLoadingRef.current?.detail
+    return (
+      <div css={styles.centered} role="status" aria-live="polite">
+        {showLoading && (
+          <Loading
+            type={LoadingType.Donut}
+            width={config.loading.width}
+            height={config.loading.height}
+          />
+        )}
+        {(message || detail) && (
+          <div
+            css={styles.overlay}
+            aria-label={translate("ariaLoadingDetails")}
+          >
+            {message && <div>{message}</div>}
+            {detail && <div css={styles.typography.caption}>{detail}</div>}
+          </div>
+        )}
+      </div>
+    )
+  }
 
-      return (
-        <div css={styles.centered} role="status" aria-live="polite">
-          {showLoading && (
-            <Loading
-              type={LoadingType.Donut}
-              width={config.loading.width}
-              height={config.loading.height}
-            />
-          )}
-          {(message || detail) && (
-            <div
-              css={styles.overlay}
-              aria-label={translate("ariaLoadingDetails")}
-            >
-              {message && <div>{message}</div>}
-              {detail && <div css={styles.typography.caption}>{detail}</div>}
-            </div>
-          )}
-        </div>
-      )
-    }
-
+  const renderStateByKind = (): React.ReactNode => {
     switch (state.kind) {
       case "error":
         return (
           <div role="alert" aria-live="assertive">
-            <div css={css({ display: "flex", alignItems: "center", gap: 6 })}>
+            <div css={[styles.row, styles.rowAlignCenter]}>
               <Icon
                 src={getErrorIconSrc((state as any).code)}
-                size={config.icon.large}
+                size={config.icon.medium}
               />
               <div css={styles.typography.title}>{state.message}</div>
             </div>
@@ -1417,20 +1700,20 @@ const StateView: React.FC<StateViewProps> = ({
                 {translate("errorCode")}: {state.code}
               </div>
             )}
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaErrorActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaErrorActions"),
+            })}
           </div>
         )
       case "empty":
         return (
           <div role="status" aria-live="polite">
             <div>{state.message}</div>
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaEmptyActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaEmptyActions"),
+            })}
           </div>
         )
       case "success":
@@ -1442,18 +1725,25 @@ const StateView: React.FC<StateViewProps> = ({
             {state.message && (
               <div css={styles.typography.caption}>{state.message}</div>
             )}
-            <Actions
-              actions={state.actions}
-              ariaLabel={translate("ariaSuccessActions")}
-            />
+            {renderActionsFn({
+              actions: state.actions,
+              ariaLabel: translate("ariaSuccessActions"),
+            })}
           </div>
         )
       case "content":
         return <>{state.node}</>
+      case "loading":
+        return renderLoadingState()
     }
-  })()
+  }
 
-  const shouldCenter = typeof center === "boolean" ? center : isLoadingView
+  const content =
+    state.kind === "loading" || showLoading
+      ? renderLoadingState()
+      : renderStateByKind()
+
+  const shouldCenter = typeof center === "boolean" ? center : showLoading
 
   return (
     <div
@@ -1470,44 +1760,79 @@ const StateView: React.FC<StateViewProps> = ({
 
 // ButtonGroup component
 export const ButtonGroup: React.FC<ButtonGroupProps> = ({
-  leftButton,
-  rightButton,
+  buttons,
+  secondaryButton,
+  primaryButton,
   className,
   style,
 }) => {
   const styles = useStyles()
 
-  if (!leftButton && !rightButton) {
-    console.warn(
-      "ButtonGroup requires at least one button (leftButton or rightButton)"
-    )
+  const resolvedButtons: Array<{
+    readonly config: GroupButtonConfig
+    readonly role: "secondary" | "primary"
+    readonly key: string
+  }> = buttons?.length
+    ? buttons.map((config, index) => ({
+        config,
+        role: index === buttons.length - 1 ? "primary" : "secondary",
+        key: index.toString(),
+      }))
+    : [
+        secondaryButton
+          ? {
+              config: secondaryButton,
+              role: "secondary" as const,
+              key: "secondary",
+            }
+          : null,
+        primaryButton
+          ? { config: primaryButton, role: "primary" as const, key: "primary" }
+          : null,
+      ].filter(
+        (
+          entry
+        ): entry is {
+          readonly config: GroupButtonConfig
+          readonly role: "secondary" | "primary"
+          readonly key: string
+        } => entry != null
+      )
+
+  if (!resolvedButtons.length) {
     return null
   }
 
-  const createButton = (
-    buttonConfig: GroupButtonConfig,
-    side: "left" | "right"
-  ) => {
+  const createButton = ({
+    config,
+    role,
+    key,
+  }: {
+    readonly config: GroupButtonConfig
+    readonly role: "secondary" | "primary"
+    readonly key: string
+  }) => {
+    const fallbackType =
+      role === "primary" ? ("primary" as const) : ("default" as const)
     const btnConfig = {
-      ...buttonConfig,
-      variant:
-        buttonConfig.variant || (side === "left" ? "outlined" : "contained"),
-      color: buttonConfig.color || (side === "left" ? "default" : "primary"),
-      key: side,
+      ...config,
+      type: config.type ?? fallbackType,
+      key,
     }
     return <Button {...btnConfig} block={true} css={styles.btnFlex} />
   }
 
   return (
     <div
-      css={applyComponentStyles([styles.button.group], style as any)}
+      css={applyComponentStyles([styles.buttonGroup], style as any)}
       className={className}
     >
-      {leftButton && createButton(leftButton, "left")}
-      {rightButton && createButton(rightButton, "right")}
+      {resolvedButtons.map(createButton)}
     </div>
   )
 }
+
+// Form layout components
 
 // Form component
 export const Form: React.FC<FormProps> = (props) => {
@@ -1526,31 +1851,39 @@ export const Form: React.FC<FormProps> = (props) => {
     } = props
 
     return (
-      <>
-        {/* Header */}
-        <div>
+      <div
+        className={className}
+        css={applyComponentStyles([styles.form.layout], style)}
+      >
+        <div css={styles.form.header}>
           {title && <div css={styles.typography.title}>{title}</div>}
           {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
         </div>
-        {/* Form contents */}
-        {children}
-        {/* Action buttons */}
-        <ButtonGroup
-          leftButton={{
-            text: translate("back"),
-            onClick: onBack,
-            disabled: loading,
-            tooltip: translate("tooltipBackToOptions"),
-          }}
-          rightButton={{
-            text: translate("submit"),
-            onClick: onSubmit,
-            disabled: !isValid || loading,
-            loading: loading,
-            tooltip: translate("tooltipSubmitOrder"),
-          }}
-        />
-      </>
+        <div css={styles.form.content}>
+          <div css={styles.form.body}>{children}</div>
+          <div css={styles.form.footer}>
+            <ButtonGroup
+              secondaryButton={
+                onBack
+                  ? {
+                      text: translate("back"),
+                      onClick: onBack,
+                      disabled: loading,
+                      tooltip: translate("tooltipBackToOptions"),
+                    }
+                  : undefined
+              }
+              primaryButton={{
+                text: translate("submit"),
+                onClick: onSubmit,
+                disabled: !isValid || loading,
+                loading,
+                tooltip: translate("tooltipSubmitOrder"),
+              }}
+            />
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -1582,6 +1915,7 @@ export const Field: React.FC<FieldProps> = ({
   helper,
   required = false,
   readOnly = false,
+  check = false,
   error,
   children,
 }) => {
@@ -1593,22 +1927,36 @@ export const Field: React.FC<FieldProps> = ({
     readOnly,
     autoId
   )
+
   return (
     <FormGroup
       className={className}
       css={applyComponentStyles([styles.fieldGroup], style)}
     >
-      <Label
-        css={[styles.block, styles.typography.label]}
-        check={false}
-        for={fieldId}
-      >
-        {label}
-        {required && getRequiredMark(translate, styles)}
-      </Label>
-      {!readOnly && renderedChild}
+      {check ? (
+        <Label css={[styles.typography.label, styles.checkLabel]} check={true}>
+          <span>
+            {label}
+            {required && getRequiredMark(translate, styles)}
+          </span>
+          {!readOnly && renderedChild}
+        </Label>
+      ) : (
+        <>
+          <Label css={styles.typography.label} check={false} for={fieldId}>
+            {label}
+            {required && getRequiredMark(translate, styles)}
+          </Label>
+          {!readOnly && renderedChild}
+        </>
+      )}
       {helper && !error && (
-        <div id={fieldId ? `${fieldId}-help` : undefined}>{helper}</div>
+        <div
+          css={styles.typography.label}
+          id={fieldId ? `${fieldId}-help` : undefined}
+        >
+          {helper}
+        </div>
       )}
       {error && (
         <div
@@ -1629,6 +1977,7 @@ export type {
   StateViewProps,
   ButtonProps,
   ButtonGroupProps,
+  AlertComponentProps as AlertProps,
   TooltipProps,
   FormProps,
   FieldProps,
@@ -1650,7 +1999,7 @@ export const renderSupportHint = (
 ): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
 
-  const fullText = translate("contactSupportWithEmail")
+  const fullText = translate("contactSupportEmail")
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
@@ -1661,7 +2010,7 @@ export const renderSupportHint = (
         <a
           href={`mailto:${supportEmail}`}
           css={styles.typography.link}
-          aria-label={translate("contactSupportWithEmail", {
+          aria-label={translate("contactSupportEmail", {
             email: supportEmail,
           })}
         >
@@ -1679,7 +2028,7 @@ export const renderSupportHint = (
           <a
             href={`mailto:${supportEmail}`}
             css={styles.typography.link}
-            aria-label={translate("contactSupportWithEmail", {
+            aria-label={translate("contactSupportEmail", {
               email: supportEmail,
             })}
           >

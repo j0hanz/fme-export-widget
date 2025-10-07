@@ -1,12 +1,13 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, getAppStore, jsx } from "jimu-core"
+import { React, hooks, ReactRedux, jsx } from "jimu-core"
 import {
   Button,
   StateView,
   Form,
   Field,
   ButtonTabs,
+  Alert,
   useStyles,
   renderSupportHint,
   DateTimePickerWrapper,
@@ -19,14 +20,18 @@ import defaultMessages from "./translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
+  type WorkspaceItemDetail,
+  type WorkspaceParameter,
   type FormPrimitive,
   type FormValues,
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
+  type WorkspaceLoaderOptions,
   ViewMode,
   DrawingTool,
   FormFieldType,
+  ParameterType,
   makeLoadingView,
   makeEmptyView,
   ErrorType,
@@ -34,11 +39,9 @@ import {
   ErrorSeverity,
   makeErrorView,
 } from "../../config"
-import polygonIcon from "jimu-icons/svg/outlined/gis/polygon.svg"
-import rectangleIcon from "jimu-icons/svg/outlined/gis/rectangle.svg"
-import resetIcon from "jimu-icons/svg/outlined/editor/close-circle.svg"
-import exportIcon from "jimu-icons/svg/outlined/editor/export.svg"
-import { createFmeFlowClient } from "../../shared/api"
+import polygonIcon from "../../assets/icons/polygon.svg"
+import rectangleIcon from "../../assets/icons/rectangle.svg"
+import itemIcon from "../../assets/icons/item.svg"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import { validateDateTimeFormat } from "../../shared/validations"
@@ -57,6 +60,8 @@ import {
   shouldShowWorkspaceLoading,
   toIsoLocal,
   fromIsoLocal,
+  toTrimmedString,
+  buildLargeAreaWarningMessage,
 } from "../../shared/utils"
 
 const DRAWING_MODE_TABS = [
@@ -76,32 +81,68 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
-// Form validation helpers
+const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
+const LOADING_TIMEOUT_MS = 30000 // 30 seconds
+
+// Helper: Check if value is non-empty string
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== ""
+
+// Helper: Safely stringify geometry object
+const safeStringifyGeometry = (geometry: unknown): string => {
+  if (!geometry) return ""
+  try {
+    return JSON.stringify(geometry)
+  } catch {
+    return ""
+  }
+}
+
+// Helper: Extract unique geometry field names from workspace parameters
+const extractGeometryFieldNames = (
+  workspaceParameters?: readonly WorkspaceParameter[]
+): string[] => {
+  if (!workspaceParameters?.length) return []
+
+  const names: string[] = []
+  const seen = new Set<string>()
+
+  for (const param of workspaceParameters) {
+    if (!param || param.type !== ParameterType.GEOMETRY) continue
+    if (typeof param.name !== "string") continue
+
+    const trimmed = param.name.trim()
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed)
+      names.push(trimmed)
+    }
+  }
+
+  return names
+}
+
+// Form validation: validate workspace parameters and schedule fields
 const createFormValidator = (
   parameterService: ParameterFormService,
-  workspaceParameters: readonly any[]
+  workspaceParameters: readonly WorkspaceParameter[]
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
 
   const validateValues = (values: FormValues) => {
-    // First validate the workspace parameters
     const baseValidation = parameterService.validateFormValues(
       values,
       getFormConfig()
     )
-
-    // Add custom validation for schedule fields
     const errors = { ...baseValidation.errors }
 
-    // Optional schedule start field: validate format only when provided
-    const startRaw = values.start as unknown
-    if (typeof startRaw === "string" && startRaw.trim() !== "") {
-      const startTrimmed = startRaw.trim()
-      if (!validateDateTimeFormat(startTrimmed)) {
-        // Use a translation key so UI can localize
-        errors.start = "invalidDateTimeFormat"
-      }
+    // Validate schedule start field format when provided
+    const startRaw = values.start
+    if (
+      isNonEmptyString(startRaw) &&
+      !validateDateTimeFormat(startRaw.trim())
+    ) {
+      errors.start = "invalidDateTimeFormat"
     }
 
     return {
@@ -114,9 +155,10 @@ const createFormValidator = (
   return { getFormConfig, validateValues, initializeValues }
 }
 
+// Form state management hook
 const useFormStateManager = (
   validator: ReturnType<typeof createFormValidator>,
-  onValuesChange: (values: FormValues) => void
+  onValuesChange?: (values: FormValues) => void
 ) => {
   const [values, setValues] = React.useState<FormValues>(() =>
     validator.initializeValues()
@@ -124,11 +166,15 @@ const useFormStateManager = (
   const [isValid, setIsValid] = React.useState(true)
   const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
 
+  const syncValues = hooks.useEventCallback((next: FormValues) => {
+    setValues(next)
+    onValuesChange?.(next)
+  })
+
   const updateField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
-      const newValues = { ...values, [field]: value }
-      setValues(newValues)
-      onValuesChange(newValues)
+      const updated = { ...values, [field]: value }
+      syncValues(updated)
     }
   )
 
@@ -141,9 +187,9 @@ const useFormStateManager = (
 
   const resetForm = hooks.useEventCallback(() => {
     const nextValues = validator.initializeValues()
-    setValues(nextValues)
     setErrors({})
-    onValuesChange(nextValues)
+    setIsValid(true)
+    syncValues(nextValues)
   })
 
   return {
@@ -153,26 +199,14 @@ const useFormStateManager = (
     updateField,
     validateForm,
     resetForm,
-    setValues,
+    setValues: syncValues,
     setIsValid,
     setErrors,
   }
 }
 
 // Workspace loader hook
-const useWorkspaceLoader = (opts: {
-  config: any
-  getFmeClient: () => ReturnType<typeof createFmeFlowClient> | null
-  translate: (k: string) => string
-  makeCancelable: ReturnType<typeof hooks.useCancelablePromiseMaker>
-  widgetId: string
-  onWorkspaceSelected?: (
-    workspaceName: string,
-    params: readonly any[],
-    item: any
-  ) => void
-  onWorkspaceItemsLoaded?: (items: readonly WorkspaceItem[]) => void
-}) => {
+const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const {
     config,
     getFmeClient,
@@ -180,16 +214,53 @@ const useWorkspaceLoader = (opts: {
     makeCancelable,
     widgetId,
     onWorkspaceSelected,
-    onWorkspaceItemsLoaded,
+    dispatch: reduxDispatch,
   } = opts
+
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-
   const loadAbortRef = React.useRef<AbortController | null>(null)
   const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
     null
   )
   const isMountedRef = React.useRef(true)
+  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(null)
+
+  const dispatchAction = hooks.useEventCallback((action: unknown) => {
+    reduxDispatch(action)
+  })
+
+  const beginLoading = hooks.useEventCallback(
+    (scope: "workspaces" | "parameters") => {
+      loadingScopeRef.current = scope
+      reduxDispatch(fmeActions.setLoadingFlag(scope, true, widgetId))
+      setIsLoading(true)
+    }
+  )
+
+  const finishLoading = hooks.useEventCallback(
+    (
+      scope: "workspaces" | "parameters",
+      options?: { resetLocal?: boolean }
+    ) => {
+      const shouldUpdateLocal = options?.resetLocal ?? true
+      reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
+      if (loadingScopeRef.current === scope) {
+        loadingScopeRef.current = null
+        if (shouldUpdateLocal && isMountedRef.current) {
+          setIsLoading(false)
+        }
+        return
+      }
+      if (
+        !loadingScopeRef.current &&
+        shouldUpdateLocal &&
+        isMountedRef.current
+      ) {
+        setIsLoading(false)
+      }
+    }
+  )
 
   // Cleanup on unmount
   hooks.useEffectOnce(() => {
@@ -203,10 +274,15 @@ const useWorkspaceLoader = (opts: {
         clearTimeout(loadTimeoutRef.current)
         loadTimeoutRef.current = null
       }
+      const scope = loadingScopeRef.current
+      if (scope) {
+        reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
+        loadingScopeRef.current = null
+      }
     }
   })
 
-  // Error formatting
+  // Format error for display, suppress cancelled/aborted errors
   const formatError = hooks.useEventCallback(
     (err: unknown, baseKey: string): string | null => {
       const errName = (err as { name?: string } | null)?.name
@@ -218,11 +294,8 @@ const useWorkspaceLoader = (opts: {
         return null
       }
 
-      // Do not surface raw error messages to end users; return a localized base message only
-      // Use resolveMessageOrKey if baseKey is already a message key
       try {
-        const localized = resolveMessageOrKey(baseKey, translate)
-        return localized
+        return resolveMessageOrKey(baseKey, translate)
       } catch {
         return translate(baseKey)
       }
@@ -234,24 +307,58 @@ const useWorkspaceLoader = (opts: {
       loadAbortRef.current.abort()
       loadAbortRef.current = null
     }
+    const scope = loadingScopeRef.current
+    if (scope) {
+      finishLoading(scope)
+    } else {
+      setIsLoading(false)
+    }
   })
+
+  const finalizeSelection = hooks.useEventCallback(
+    (
+      repoName: string,
+      workspaceName: string,
+      workspaceItem: WorkspaceItemDetail,
+      parameters: readonly WorkspaceParameter[]
+    ) => {
+      if (!isMountedRef.current) return
+
+      if (onWorkspaceSelected) {
+        onWorkspaceSelected(workspaceName, parameters, workspaceItem)
+        return
+      }
+
+      dispatchAction(
+        fmeActions.applyWorkspaceData(
+          { workspaceName, parameters, item: workspaceItem },
+          widgetId
+        )
+      )
+    }
+  )
 
   const loadAll = hooks.useEventCallback(async () => {
     const fmeClient = getFmeClient()
-    if (!fmeClient || !config?.repository) {
+    const targetRepository = toTrimmedString(config?.repository)
+
+    if (!fmeClient || !targetRepository) {
+      if (isMountedRef.current && !targetRepository) {
+        setError(null)
+      }
       return
     }
 
     cancelCurrent()
     const controller = new AbortController()
     loadAbortRef.current = controller
-    setIsLoading(true)
+    beginLoading("workspaces")
     setError(null)
 
     try {
       const response = await makeCancelable(
         fmeClient.getRepositoryItems(
-          config.repository,
+          targetRepository,
           WORKSPACE_ITEM_TYPE,
           undefined,
           undefined,
@@ -259,45 +366,47 @@ const useWorkspaceLoader = (opts: {
         )
       )
 
-      if (controller.signal.aborted) {
-        return
-      }
+      if (controller.signal.aborted) return
 
-      if (response.status === 200 && response.data.items) {
-        const items = (response.data.items as readonly any[]).filter(
-          (i: any) => i.type === WORKSPACE_ITEM_TYPE
-        ) as readonly WorkspaceItem[]
-
-        // Scope to repository if specified in config
-        const repoName = String(config.repository)
-        const scoped = items.filter((i: any) => {
-          const r = i?.repository
-          return r === undefined || r === repoName
-        })
-
-        const sorted = scoped.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        )
-
-        if (isMountedRef.current) {
-          // Dispatch workspace items with repository context to store (single source of truth)
-          const dispatch = getAppStore().dispatch as any
-          dispatch(fmeActions.setWorkspaceItems(sorted, repoName, widgetId))
-          // Also notify caller (Workflow) so it can render immediately without relying on store subscription timing
-          onWorkspaceItemsLoaded?.(sorted)
-        }
-      } else {
-        console.error("FME Export - Unexpected response format:", response)
+      if (response.status !== 200 || !response.data.items) {
         throw new Error(translate("failedToLoadWorkspaces"))
       }
+
+      const items = (response.data.items as readonly WorkspaceItem[]).filter(
+        (item) => item.type === WORKSPACE_ITEM_TYPE
+      )
+
+      const scoped = items.filter((item) => {
+        const repoName = toTrimmedString(
+          (item as { repository?: string })?.repository
+        )
+        return !repoName || repoName === targetRepository
+      })
+
+      const sorted = scoped.slice().sort((a, b) =>
+        (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+          sensitivity: "base",
+        })
+      )
+
+      if (isMountedRef.current) {
+        dispatchAction(fmeActions.setWorkspaceItems(sorted, widgetId))
+      }
     } catch (err) {
-      console.error("FME Export - Workspace loading failed:", err)
       const msg = formatError(err, "failedToLoadWorkspaces")
-      if (msg && isMountedRef.current) setError(msg)
+      if (msg && isMountedRef.current) {
+        setError(msg)
+      }
     } finally {
-      if (isMountedRef.current) setIsLoading(false)
+      if (isMountedRef.current) {
+        finishLoading("workspaces")
+      } else {
+        reduxDispatch(fmeActions.setLoadingFlag("workspaces", false, widgetId))
+        loadingScopeRef.current =
+          loadingScopeRef.current === "workspaces"
+            ? null
+            : loadingScopeRef.current
+      }
       if (loadAbortRef.current === controller) {
         loadAbortRef.current = null
       }
@@ -307,18 +416,21 @@ const useWorkspaceLoader = (opts: {
   const loadItem = hooks.useEventCallback(
     async (workspaceName: string, repositoryName?: string) => {
       const fmeClient = getFmeClient()
-      if (!fmeClient || !(repositoryName || config?.repository)) return
+      const repoToUse =
+        toTrimmedString(repositoryName) ?? toTrimmedString(config?.repository)
 
-      cancelCurrent()
-      const controller = new AbortController()
-      loadAbortRef.current = controller
-      setIsLoading(true)
-      setError(null)
+      if (!fmeClient || !repoToUse) {
+        return
+      }
 
+      let controller: AbortController | null = null
       try {
-        const repoToUse = String(repositoryName || config?.repository || "")
+        cancelCurrent()
+        controller = new AbortController()
+        loadAbortRef.current = controller
+        beginLoading("parameters")
+        setError(null)
 
-        // Call both endpoints: workspace item details and parameters separately
         const [itemResponse, parametersResponse] = await Promise.all([
           makeCancelable(
             fmeClient.getWorkspaceItem(
@@ -336,47 +448,48 @@ const useWorkspaceLoader = (opts: {
           ),
         ])
 
-        if (itemResponse.status === 200 && parametersResponse.status === 200) {
-          const workspaceItem = itemResponse.data
-          const parameters = parametersResponse.data || []
+        if (controller.signal.aborted) {
+          return
+        }
 
-          onWorkspaceSelected?.(workspaceName, parameters, workspaceItem)
-          // Dispatch workspace item and parameters with repository context
-          const dispatch = getAppStore().dispatch as any
-          const repoName = String(repoToUse)
-          dispatch(
-            fmeActions.setWorkspaceItem(workspaceItem, repoName, widgetId)
-          )
-          dispatch(
-            fmeActions.setWorkspaceParameters(
-              parameters,
-              workspaceName,
-              repoName,
-              widgetId
-            )
-          )
-        } else {
+        if (itemResponse.status !== 200 || parametersResponse.status !== 200) {
           throw new Error(translate("failedToLoadWorkspaceDetails"))
         }
+
+        const workspaceItem = itemResponse.data as WorkspaceItemDetail
+        const parameters = (parametersResponse.data ||
+          []) as readonly WorkspaceParameter[]
+
+        finalizeSelection(repoToUse, workspaceName, workspaceItem, parameters)
       } catch (err) {
         const msg = formatError(err, "failedToLoadWorkspaceDetails")
         if (msg && isMountedRef.current) setError(msg)
       } finally {
-        if (isMountedRef.current) setIsLoading(false)
-        if (loadAbortRef.current === controller) {
+        if (isMountedRef.current) {
+          finishLoading("parameters")
+        } else {
+          reduxDispatch(
+            fmeActions.setLoadingFlag("parameters", false, widgetId)
+          )
+          loadingScopeRef.current =
+            loadingScopeRef.current === "parameters"
+              ? null
+              : loadingScopeRef.current
+        }
+        if (controller && loadAbortRef.current === controller) {
           loadAbortRef.current = null
         }
       }
     }
   )
 
-  // Clear local workspaces immediately when repository changes to prevent stale selections
+  // Clear workspaces when repository changes to prevent stale selections
   hooks.useUpdateEffect(() => {
-    if (!isMountedRef.current) return
-    cancelCurrent()
-    setError(null)
-    // Important: reset loading state to allow new requests
-    setIsLoading(false)
+    if (isMountedRef.current) {
+      cancelCurrent()
+      setError(null)
+      setIsLoading(false)
+    }
   }, [config?.repository])
 
   const scheduleLoad = hooks.useEventCallback(() => {
@@ -390,26 +503,31 @@ const useWorkspaceLoader = (opts: {
     }, MS_LOADING)
   })
 
-  // Safety mechanism: if loading is stuck for too long, reset it
+  // Safety: reset loading state if stuck for too long
   hooks.useUpdateEffect(() => {
-    if (isLoading && isMountedRef.current) {
-      const timeoutId = setTimeout(() => {
-        if (isMountedRef.current && isLoading) {
-          console.warn("FME Export - Loading timeout, resetting loading state")
-          setIsLoading(false)
-          setError(translate("loadingTimeout"))
-        }
-      }, 30000) // 30 second timeout
+    if (!isLoading || !isMountedRef.current) return
 
-      return () => {
-        clearTimeout(timeoutId)
+    const timeoutId = setTimeout(() => {
+      if (isMountedRef.current && isLoading) {
+        const scope = loadingScopeRef.current
+        if (scope) {
+          finishLoading(scope)
+        } else {
+          setIsLoading(false)
+        }
+        setError(translate("errorLoadingTimeout"))
       }
+    }, LOADING_TIMEOUT_MS)
+
+    return () => {
+      clearTimeout(timeoutId)
     }
-  }, [isLoading])
+  }, [isLoading, finishLoading, translate])
 
   return { isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
+// OrderResult component: displays job submission results
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -422,12 +540,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
 
-  // Compute download URL if available
+  // Manage download URL lifecycle
   const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
-  // Manage object URL lifecycle safely
   const objectUrlRef = React.useRef<string | null>(null)
+
   hooks.useEffectWithPreviousValues(() => {
-    // Revoke any previous object URL before creating a new one
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
       objectUrlRef.current = null
@@ -447,6 +564,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
     setDownloadUrl(null)
   }, [orderResult.downloadUrl, orderResult.blob])
+
   hooks.useUnmount(() => {
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current)
@@ -456,12 +574,17 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const addRow = (label?: string, value?: unknown) => {
     if (value === undefined || value === null || value === "") return
+
     const display =
       typeof value === "string" || typeof value === "number"
         ? String(value)
         : JSON.stringify(value)
+    const key = label
+      ? `order-row-${label}-${rows.length}`
+      : `order-row-${rows.length}`
+
     rows.push(
-      <div css={styles.typography.caption} key={label || display}>
+      <div css={styles.typography.caption} key={key}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -469,7 +592,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   addRow(translate("jobId"), orderResult.jobId)
   addRow(translate("workspace"), orderResult.workspaceName)
-  // Only show notification email when sync mode is OFF (async mode)
+
   if (!isSyncMode) {
     const emailVal = orderResult.email
     const masked =
@@ -478,8 +601,10 @@ const OrderResult: React.FC<OrderResultProps> = ({
         : emailVal
     addRow(translate("notificationEmail"), masked)
   }
-  if (orderResult.code && !isSuccess)
+
+  if (orderResult.code && !isSuccess) {
     addRow(translate("errorCode"), orderResult.code)
+  }
 
   const titleText = isSuccess
     ? isSyncMode
@@ -489,7 +614,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const buttonText = isSuccess
     ? translate("reuseGeography")
-    : translate("retry")
+    : translate("actionRetry")
 
   const buttonHandler = isSuccess ? onReuseGeography : onBack
 
@@ -511,43 +636,51 @@ const OrderResult: React.FC<OrderResultProps> = ({
         ) {
           return translate("fmeFlowTransformationFailed")
         }
-        return msg || translate("unknownErrorOccurred")
+        return msg || translate("errorUnknown")
       })()
 
   return (
-    <>
-      <div css={styles.typography.title}>{titleText}</div>
-      {rows}
-      {showDownloadLink && (
-        <div css={styles.typography.caption}>
-          <a
-            href={downloadUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            css={styles.typography.link}
-            download={orderResult.downloadFilename}
-          >
-            {translate("clickToDownload")}
-          </a>
+    <div css={styles.form.layout}>
+      <div css={styles.form.content}>
+        <div css={styles.form.body}>
+          <div css={styles.typography.title}>{titleText}</div>
+          {rows}
+          {showDownloadLink && (
+            <div css={styles.typography.caption}>
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                css={styles.typography.link}
+                download={orderResult.downloadFilename}
+              >
+                {translate("clickToDownload")}
+              </a>
+            </div>
+          )}
+          {showMessage && messageText && (
+            <div css={styles.typography.caption}>{messageText}</div>
+          )}
         </div>
-      )}
-      {showMessage && messageText && (
-        <div css={styles.typography.caption}>{messageText}</div>
-      )}
-      <Button
-        text={buttonText}
-        onClick={buttonHandler}
-        css={styles.marginTop(12)}
-        logging={{ enabled: true, prefix: "FME-Export" }}
-        tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
-        tooltipPlacement="bottom"
-      />
-    </>
+        <div css={styles.form.footer}>
+          <Button
+            text={buttonText}
+            onClick={buttonHandler}
+            type="primary"
+            logging={{ enabled: true, prefix: "FME-Export" }}
+            tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
+            tooltipPlacement="bottom"
+          />
+        </div>
+      </div>
+    </div>
   )
 }
 
 // ExportForm component: dynamic form generation and submission
-const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
+const ExportForm: React.FC<
+  ExportFormProps & { widgetId: string; geometryJson?: unknown }
+> = ({
   workspaceParameters,
   workspaceName,
   workspaceItem,
@@ -557,11 +690,41 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   translate,
   widgetId,
   config,
+  geometryJson,
 }) => {
+  const reduxDispatch = ReactRedux.useDispatch()
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [fileMap, setFileMap] = React.useState<{
     [key: string]: File | null
   }>({})
+
+  const geometryJsonFromStore = geometryJson ?? null
+
+  const [geometryString, setGeometryString] = React.useState<string>(() =>
+    safeStringifyGeometry(geometryJsonFromStore)
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const next = safeStringifyGeometry(geometryJson ?? null)
+    setGeometryString((prev) => (prev === next ? prev : next))
+  }, [geometryJson])
+
+  const [geometryFieldNames, setGeometryFieldNames] = React.useState<string[]>(
+    () => extractGeometryFieldNames(workspaceParameters)
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const next = extractGeometryFieldNames(workspaceParameters)
+    setGeometryFieldNames((prev) => {
+      if (
+        prev.length === next.length &&
+        prev.every((value, index) => value === next[index])
+      ) {
+        return prev
+      }
+      return next
+    })
+  }, [workspaceParameters])
 
   // Local validation message builder using current translate
   const errorMsg = hooks.useEventCallback((count: number): string =>
@@ -574,16 +737,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
   const validator = createFormValidator(parameterService, workspaceParameters)
 
   // Use form state manager hook
-  const syncFormToStore = hooks.useEventCallback((values: FormValues) => {
-    const dispatch = getAppStore().dispatch as any
-    dispatch(fmeActions.setFormValues(values, widgetId))
-  })
-  const formState = useFormStateManager(validator, syncFormToStore)
-
-  // Initialize form values in Redux store only once
-  hooks.useEffectOnce(() => {
-    syncFormToStore(formState.values)
-  })
+  const formState = useFormStateManager(validator)
 
   // Validate form on mount and when dependencies change
   hooks.useEffectOnce(() => {
@@ -620,6 +774,26 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
     }
   )
 
+  const formValues = formState.values
+  const setFormValues = formState.setValues
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (!geometryFieldNames.length) return
+    const nextValue = geometryString || ""
+    const shouldUpdate = geometryFieldNames.some((name) => {
+      const current = formValues?.[name]
+      const currentStr = typeof current === "string" ? current : ""
+      return currentStr !== nextValue
+    })
+    if (!shouldUpdate) return
+
+    const updated = { ...formValues }
+    geometryFieldNames.forEach((name) => {
+      updated[name] = nextValue
+    })
+    setFormValues(updated)
+  }, [geometryFieldNames, geometryString, formValues, setFormValues])
+
   const handleSubmit = hooks.useEventCallback(() => {
     const validation = formState.validateForm()
     if (!validation.isValid) {
@@ -636,8 +810,7 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
         kind: "runtime",
       }
       // Dispatch error to the store
-      const dispatch = getAppStore().dispatch as any
-      dispatch(fmeActions.setError(error, widgetId))
+      reduxDispatch(fmeActions.setError("general", error, widgetId))
       return
     }
     // Merge file inputs with other values
@@ -774,12 +947,16 @@ const ExportForm: React.FC<ExportFormProps & { widgetId: string }> = ({
           if (!field || !field.name || !field.type) {
             return null
           }
+          const isInlineField =
+            field.type === FormFieldType.SWITCH ||
+            field.type === FormFieldType.CHECKBOX
           return (
             <Field
               key={field.name}
               label={field.label}
               required={field.required}
               error={resolveError(formState.errors[field.name])}
+              check={isInlineField}
             >
               <DynamicField
                 field={field}
@@ -800,16 +977,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
   widgetId,
   state,
   instructionText,
-  isModulesLoading,
+  loadingState: loadingStateProp,
   canStartDrawing: _canStartDrawing,
   error,
   onFormBack,
   onFormSubmit,
+  getFmeClient: getFmeClientProp,
   orderResult,
   onReuseGeography,
-  isSubmittingOrder = false,
   onBack,
   drawnArea,
+  areaWarning,
+  formatArea,
   // Header actions
   showHeaderActions,
   // Drawing mode
@@ -818,6 +997,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Drawing progress
   isDrawing,
   clickCount,
+  isCompleting,
   // Reset
   onReset,
   canReset: canResetProp = true,
@@ -825,10 +1005,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   config,
   onWorkspaceSelected,
   selectedWorkspace,
+  workspaceItems: workspaceItemsProp,
   workspaceParameters,
   workspaceItem,
-  // Read workspace items from Redux via parent (Widget provides these via state slice if needed in future)
-  // For now, we’ll derive from store at read-time below to avoid changing public API
+  geometryJson,
+  // Workspace collection now arrives from the parent widget via props
   // Startup validation props
   isStartupValidating: _isStartupValidating,
   startupValidationStep,
@@ -837,9 +1018,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
+  const reduxDispatch = ReactRedux.useDispatch()
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Ensure a non-empty widgetId for internal Redux interactions
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
+
+  const loadingState = loadingStateProp ?? {
+    modules: false,
+    submission: false,
+    workspaces: false,
+    parameters: false,
+  }
+  const isModulesLoading = Boolean(loadingState.modules)
+  const isSubmittingOrder = Boolean(loadingState.submission)
+  const isWorkspaceLoading = Boolean(loadingState.workspaces)
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -851,18 +1043,100 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Render drawing mode tabs
-  const renderDrawingModeTabs = hooks.useEventCallback(() => (
-    <div css={styles.centered}>
-      <ButtonTabs
-        items={getDrawingModeItems()}
-        value={drawingMode}
-        onChange={(val) => {
-          onDrawingModeChange?.(val as DrawingTool)
-        }}
-        aria-label={translate("drawingModeTooltip")}
-      />
-    </div>
-  ))
+  const renderDrawingModeTabs = hooks.useEventCallback(() => {
+    const helperText = isNonEmptyString(instructionText)
+      ? instructionText
+      : translate("drawingModeTooltip")
+
+    return (
+      <div css={styles.form.layout}>
+        <div css={styles.form.content}>
+          <div css={[styles.form.body, styles.contentCentered]}>
+            <div
+              css={styles.typography.instruction}
+              role="status"
+              aria-live="polite"
+              aria-atomic={true}
+            >
+              {helperText}
+            </div>
+            <ButtonTabs
+              items={getDrawingModeItems()}
+              value={drawingMode}
+              onChange={(val) => {
+                onDrawingModeChange?.(val as DrawingTool)
+              }}
+              aria-label={translate("drawingModeTooltip")}
+            />
+          </div>
+        </div>
+      </div>
+    )
+  })
+
+  const formatAreaValue = (value?: number): string | undefined => {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+      return undefined
+    }
+    const target = Math.abs(value)
+    if (typeof formatArea === "function") {
+      try {
+        return formatArea(target)
+      } catch {
+        /* ignore formatting errors and fall back to default */
+      }
+    }
+    try {
+      return `${Math.round(target).toLocaleString()} m²`
+    } catch {
+      return `${Math.round(target)} m²`
+    }
+  }
+
+  const areaWarningActive =
+    Boolean(areaWarning) &&
+    (state === ViewMode.WORKSPACE_SELECTION ||
+      state === ViewMode.EXPORT_OPTIONS ||
+      state === ViewMode.EXPORT_FORM)
+
+  let areaWarningMessage: string | null = null
+  let areaInfoMessage: string | null = null
+  if (areaWarningActive) {
+    const currentAreaText = formatAreaValue(drawnArea)
+    const thresholdAreaText =
+      typeof config?.largeArea === "number" && config.largeArea > 0
+        ? formatAreaValue(config.largeArea)
+        : undefined
+
+    areaWarningMessage = buildLargeAreaWarningMessage({
+      currentAreaText,
+      thresholdAreaText,
+      template: config?.largeAreaWarningMessage,
+      translate,
+    })
+  }
+  const infoTemplate = toTrimmedString(config?.customInfoMessage)
+  if (infoTemplate) {
+    if (areaWarningActive) {
+      const currentAreaText = formatAreaValue(drawnArea)
+      const thresholdAreaText =
+        typeof config?.largeArea === "number" && config.largeArea > 0
+          ? formatAreaValue(config.largeArea)
+          : undefined
+      const resolvedInfo = buildLargeAreaWarningMessage({
+        currentAreaText,
+        thresholdAreaText,
+        template: infoTemplate,
+        translate,
+      })
+      const trimmedInfo = toTrimmedString(resolvedInfo)
+      if (trimmedInfo) {
+        areaInfoMessage = trimmedInfo
+      }
+    } else {
+      areaInfoMessage = infoTemplate
+    }
+  }
 
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
@@ -881,7 +1155,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     ) => {
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
-        actions.push({ label: translate("retry"), onClick: onRetry })
+        actions.push({ label: translate("actionRetry"), onClick: onRetry })
       } else if (onBack) {
         actions.push({ label: translate("back"), onClick: onBack })
       }
@@ -899,11 +1173,36 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return (
         <StateView
           state={makeErrorView(localizedMessage, { code, actions })}
-          renderActions={(_act, ariaLabel) => (
-            <div role="group" aria-label={ariaLabel}>
-              {renderSupportHint(rawEmail, translate, styles, hintText)}
-            </div>
-          )}
+          renderActions={(viewActions, ariaLabel) => {
+            const supportHint = renderSupportHint(
+              rawEmail,
+              translate,
+              styles,
+              hintText
+            )
+            const hasActions = Boolean(viewActions?.length)
+            if (!hasActions && !supportHint) return null
+
+            return (
+              <div role="group" aria-label={ariaLabel}>
+                {hasActions && (
+                  <div css={styles.button.default}>
+                    {(viewActions || []).map((action, index) => (
+                      <Button
+                        key={`${action.label}-${index}`}
+                        onClick={action.onClick}
+                        disabled={action.disabled}
+                        variant={action.variant}
+                        text={action.label}
+                        block
+                      />
+                    ))}
+                  </div>
+                )}
+                {supportHint}
+              </div>
+            )
+          }}
           center={false}
         />
       )
@@ -911,30 +1210,25 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // FME client - always create fresh instance
-  const clientRef = React.useRef<ReturnType<typeof createFmeFlowClient> | null>(
-    null
-  )
-
   const getFmeClient = hooks.useEventCallback(() => {
+    if (typeof getFmeClientProp !== "function") {
+      return null
+    }
     try {
-      if (!config) return null
-      // Always create a fresh client for each operation to avoid stale connections
-      clientRef.current = createFmeFlowClient(config)
-      return clientRef.current
-    } catch (e) {
-      console.warn("FME Export - Failed to create FME client:", e)
+      return getFmeClientProp()
+    } catch {
       return null
     }
   })
 
-  // Clear client when config changes
-  hooks.useUpdateEffect(() => {
-    clientRef.current = null
-  }, [config])
+  const configuredRepository = toTrimmedString(config?.repository)
 
-  // Load workspaces using custom hook
+  const previousConfiguredRepositoryRef = React.useRef<string | undefined>(
+    configuredRepository
+  )
+
   const {
-    isLoading: isLoadingWorkspaces,
+    isLoading: workspaceLoaderIsLoading,
     error: workspaceError,
     loadAll: loadWsList,
     loadItem: loadWorkspace,
@@ -946,61 +1240,29 @@ export const Workflow: React.FC<WorkflowProps> = ({
     makeCancelable,
     widgetId: effectiveWidgetId,
     onWorkspaceSelected,
-    onWorkspaceItemsLoaded: (items) => {
-      setWorkspaceItems(items)
-    },
+    dispatch: reduxDispatch,
   })
 
-  // Single source of truth: read workspace items from Redux store with subscription
-  const selectWorkspaceItems = hooks.useEventCallback(
-    (): readonly WorkspaceItem[] => {
-      try {
-        const store = getAppStore().getState() as any
-        const wid = effectiveWidgetId
-        const sub = store?.["fme-state"]?.byId?.[wid]
-        return (sub?.workspaceItems as readonly WorkspaceItem[]) || []
-      } catch {
-        return []
-      }
-    }
-  )
-
-  const getCurrentRepository = hooks.useEventCallback((): string | null => {
-    try {
-      const store = getAppStore().getState() as any
-      const wid = effectiveWidgetId
-      const sub = store?.["fme-state"]?.byId?.[wid]
-      return sub?.currentRepository || config?.repository || null
-    } catch {
-      return config?.repository || null
-    }
-  })
-
-  const [workspaceItems, setWorkspaceItems] = React.useState<
-    readonly WorkspaceItem[]
-  >(() => selectWorkspaceItems())
-
-  // Subscribe to store updates so UI re-renders when workspaceItems change
-  hooks.useEffectOnce(() => {
-    const unsubscribe = getAppStore().subscribe(() => {
-      setWorkspaceItems(selectWorkspaceItems())
-    })
-    return () => {
-      unsubscribe?.()
-    }
-  })
+  const workspaceItems = Array.isArray(workspaceItemsProp)
+    ? workspaceItemsProp
+    : EMPTY_WORKSPACES
+  const currentRepository = configuredRepository || null
 
   // Helper: are we in a workspace selection context?
   const isWorkspaceSelectionContext =
     state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
 
   // Render workspace buttons
-  const renderWsButtons = () =>
+  const renderWorkspaceButtons = hooks.useEventCallback(() =>
     workspaceItems.map((workspace) => {
       const handleOpen = () => {
-        const currentRepo = getCurrentRepository()
-        loadWorkspace(workspace.name, currentRepo)
+        const repoToUse =
+          toTrimmedString((workspace as { repository?: string })?.repository) ??
+          currentRepository ??
+          undefined
+        loadWorkspace(workspace.name, repoToUse)
       }
+
       return (
         <div
           key={workspace.name}
@@ -1010,9 +1272,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
         >
           <Button
             text={workspace.title || workspace.name}
-            icon={exportIcon}
+            icon={itemIcon}
             size="lg"
-            // Button onClick is optional since parent handles clicks; keep logging props
+            type="tertiary"
             logging={{
               enabled: true,
               prefix: "FME-Export-WorkspaceSelection",
@@ -1021,91 +1283,130 @@ export const Workflow: React.FC<WorkflowProps> = ({
         </div>
       )
     })
+  )
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
     if (isWorkspaceSelectionContext) {
-      if (!workspaceItems.length && !isLoadingWorkspaces && !workspaceError) {
+      if (
+        !workspaceItems.length &&
+        !workspaceLoaderIsLoading &&
+        !workspaceError
+      ) {
         scheduleWsLoad()
       }
     }
   }, [
     isWorkspaceSelectionContext,
     workspaceItems.length,
-    isLoadingWorkspaces,
+    workspaceLoaderIsLoading,
     workspaceError,
     scheduleWsLoad,
   ])
 
   // Clear workspace state when repository changes
   hooks.useUpdateEffect(() => {
-    if (config?.repository) {
-      const dispatch = getAppStore().dispatch as any
-      dispatch(
-        fmeActions.clearWorkspaceState(config.repository, effectiveWidgetId)
-      )
-      // Force reload of workspaces for new repository
-      if (isWorkspaceSelectionContext) {
-        scheduleWsLoad()
-      }
+    const previousRepository = previousConfiguredRepositoryRef.current
+    if (previousRepository === configuredRepository) {
+      return
     }
-  }, [config?.repository])
+
+    previousConfiguredRepositoryRef.current = configuredRepository
+
+    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+
+    if (configuredRepository && isWorkspaceSelectionContext) {
+      scheduleWsLoad()
+    }
+  }, [
+    configuredRepository,
+    reduxDispatch,
+    effectiveWidgetId,
+    isWorkspaceSelectionContext,
+    scheduleWsLoad,
+  ])
 
   // Header
   const renderHeader = () => {
-    // Never show cancel in pre-draw states where ButtonTabs are rendered
-    if (state === ViewMode.INITIAL) return null
-    if (state === ViewMode.DRAWING && (clickCount || 0) === 0) return null
+    const showAlertIcon = Boolean(areaWarningActive && areaWarningMessage)
 
-    const resetEnabled = canResetButton(
-      onReset,
-      canResetProp,
-      state,
-      drawnArea ?? 0,
-      isDrawing,
-      clickCount
-    )
+    let resetButton: React.ReactNode = null
+    const canShowReset =
+      state !== ViewMode.INITIAL &&
+      !(state === ViewMode.DRAWING && (clickCount || 0) === 0)
 
-    if (!resetEnabled) return null
+    if (canShowReset) {
+      const resetEnabled = canResetButton(
+        onReset,
+        canResetProp,
+        state,
+        drawnArea ?? 0,
+        isDrawing,
+        clickCount
+      )
+
+      if (resetEnabled) {
+        resetButton = (
+          <Button
+            tooltip={translate("tooltipCancel")}
+            tooltipPlacement="bottom"
+            onClick={onReset}
+            color="inherit"
+            type="default"
+            variant="contained"
+            text={translate("cancel")}
+            size="sm"
+            aria-label={translate("tooltipCancel")}
+            logging={{ enabled: true, prefix: "FME-Export-Header" }}
+            block={false}
+          />
+        )
+      }
+    }
+
+    if (!showAlertIcon && !resetButton) return null
 
     return (
-      <Button
-        icon={resetIcon}
-        tooltip={translate("tooltipCancel")}
-        tooltipPlacement="bottom"
-        onClick={onReset}
-        variant="text"
-        alignText="start"
-        text={translate("cancel")}
-        size="sm"
-        aria-label={translate("tooltipCancel")}
-        logging={{ enabled: true, prefix: "FME-Export-Header" }}
-        block={false}
-      />
+      <>
+        {showAlertIcon ? (
+          <div css={styles.headerAlert}>
+            <Alert
+              variant="icon"
+              type="warning"
+              text={areaWarningMessage ?? undefined}
+              role="alert"
+              tooltipPlacement="bottom"
+            />
+          </div>
+        ) : null}
+        {resetButton}
+      </>
     )
   }
 
   const renderInitial = () => {
     if (isModulesLoading) {
-      return renderLoading(undefined, translate("preparingMapTools"))
+      return renderLoading(undefined, translate("statusPreparingMapTools"))
     }
     return renderDrawingModeTabs()
   }
 
   const renderDrawing = () => (
-    <div
-      css={styles.typography.instruction}
-      role="status"
-      aria-live="polite"
-      aria-atomic={true}
-    >
-      {instructionText}
+    <div css={styles.contentCentered}>
+      <div
+        css={styles.typography.instruction}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
+        {instructionText}
+      </div>
     </div>
   )
 
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
-      isLoadingWorkspaces,
+      isWorkspaceLoading,
       workspaceItems,
       state,
       Boolean(workspaceError)
@@ -1123,7 +1424,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     if (!workspaceItems.length) {
       const actions = [
-        { label: translate("retry"), onClick: loadWsList },
+        { label: translate("actionRetry"), onClick: loadWsList },
         { label: translate("back"), onClick: onBack },
       ]
       return (
@@ -1134,8 +1435,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     return (
-      <div css={styles.button.default} role="list">
-        {renderWsButtons()}
+      <div css={styles.selection.container}>
+        <div css={styles.button.default} role="list">
+          {renderWorkspaceButtons()}
+        </div>
+        {areaInfoMessage && (
+          <div css={styles.selection.warning}>
+            <div css={styles.selection.message}>{areaInfoMessage}</div>
+          </div>
+        )}
       </div>
     )
   }
@@ -1160,6 +1468,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         isSubmitting={isSubmittingOrder}
         translate={translate}
         config={config}
+        geometryJson={geometryJson}
       />
     )
   }
@@ -1219,6 +1528,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
+        // If completing drawing, show loading state instead of tabs to prevent flicker
+        if (isCompleting) {
+          return (
+            <StateView
+              state={makeLoadingView(
+                translate("loadingGeometryValidation"),
+                translate("pleaseWait")
+              )}
+            />
+          )
+        }
         if ((clickCount || 0) === 0) {
           return renderDrawingModeTabs()
         }

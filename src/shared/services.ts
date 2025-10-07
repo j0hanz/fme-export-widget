@@ -1,15 +1,35 @@
 import type {
   WorkspaceParameter,
   DynamicFieldConfig,
+  ScriptedFieldConfig,
+  TableFieldConfig,
+  TableColumnConfig,
+  TableColumnType,
+  DateTimeFieldConfig,
+  SelectFieldConfig,
+  FileFieldConfig,
+  ColorFieldConfig,
+  ScriptedOptionNode,
+  OptionItem,
   FormPrimitive,
   CheckSteps,
   ConnectionValidationOptions,
   ConnectionValidationResult,
   StartupValidationResult,
   StartupValidationOptions,
+  FmeFlowConfig,
+  TextOrFileValue,
 } from "../config"
 import { ParameterType, FormFieldType, ErrorType } from "../config"
-import { isEmpty, extractErrorMessage } from "./utils"
+import {
+  isEmpty,
+  extractErrorMessage,
+  isAbortError,
+  extractRepositoryNames,
+  isFileObject,
+  toTrimmedString,
+  extractTemporalParts,
+} from "./utils"
 import {
   isInt,
   isNum,
@@ -21,32 +41,252 @@ import {
 } from "./validations"
 import FmeFlowApiClient from "./api"
 
-// In-flight request deduplication caches
+// Shared constants to keep parameter handling consistent
+const DEFAULT_REPOSITORY = "_"
+
+const SKIPPED_PARAMETER_NAMES = new Set([
+  "MAXX",
+  "MINX",
+  "MAXY",
+  "MINY",
+  "AreaOfInterest",
+  "tm_ttc",
+  "tm_ttl",
+  "tm_tag",
+])
+
+const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([ParameterType.NOVALUE])
+
+const LIST_REQUIRED_TYPES = new Set<ParameterType>([
+  ParameterType.DB_CONNECTION,
+  ParameterType.WEB_CONNECTION,
+  ParameterType.ATTRIBUTE_NAME,
+  ParameterType.ATTRIBUTE_LIST,
+  ParameterType.COORDSYS,
+  ParameterType.REPROJECTION_FILE,
+])
+
+const MULTI_SELECT_TYPES = new Set<ParameterType>([
+  ParameterType.LISTBOX,
+  ParameterType.LOOKUP_LISTBOX,
+  ParameterType.ATTRIBUTE_LIST,
+])
+
+const PARAMETER_FIELD_TYPE_MAP: Readonly<{
+  [K in ParameterType]?: FormFieldType
+}> = Object.freeze({
+  [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
+  [ParameterType.INTEGER]: FormFieldType.NUMBER,
+  [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
+  [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
+  [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
+  [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
+  [ParameterType.CHOICE]: FormFieldType.RADIO,
+  [ParameterType.FILENAME]: FormFieldType.FILE,
+  [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
+  [ParameterType.DIRNAME]: FormFieldType.FILE,
+  [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
+  [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
+  [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
+  [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
+  [ParameterType.URL]: FormFieldType.URL,
+  [ParameterType.LOOKUP_URL]: FormFieldType.URL,
+  [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
+  [ParameterType.DATE]: FormFieldType.DATE,
+  [ParameterType.TIME]: FormFieldType.TIME,
+  [ParameterType.MONTH]: FormFieldType.MONTH,
+  [ParameterType.WEEK]: FormFieldType.WEEK,
+  [ParameterType.COLOR]: FormFieldType.COLOR,
+  [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
+  [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
+  [ParameterType.TEXT_OR_FILE]: FormFieldType.TEXT_OR_FILE,
+  [ParameterType.REPROJECTION_FILE]: FormFieldType.REPROJECTION_FILE,
+  [ParameterType.COORDSYS]: FormFieldType.COORDSYS,
+  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.ATTRIBUTE_NAME,
+  [ParameterType.ATTRIBUTE_LIST]: FormFieldType.ATTRIBUTE_LIST,
+  [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
+  [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
+  [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
+  [ParameterType.GEOMETRY]: FormFieldType.GEOMETRY,
+  [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
+})
+
+// Type guards and metadata helpers
+const isPlainObject = (
+  value: unknown
+): value is { readonly [key: string]: unknown } =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
+const mergeMetadataSources = (
+  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
+): { readonly [key: string]: unknown } => {
+  const merged: { [key: string]: unknown } = {}
+  for (const source of sources) {
+    if (!isPlainObject(source)) continue
+    for (const [key, value] of Object.entries(source)) {
+      if (value != null && !(key in merged)) {
+        merged[key] = value
+      }
+    }
+  }
+  return merged
+}
+
+// Unified metadata picker with type coercion
+const pickFromObject = <T>(
+  data: { readonly [key: string]: unknown },
+  keys: readonly string[],
+  converter: (value: unknown) => T | undefined,
+  fallback?: T
+): T | undefined => {
+  for (const key of keys) {
+    const result = converter(data[key])
+    if (result !== undefined) return result
+  }
+  return fallback
+}
+
+const toStringValue = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value)
+  }
+  return undefined
+}
+
+const toBooleanValue = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value !== 0
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
+    if (["false", "0", "no", "n", "off"].includes(normalized)) return false
+  }
+  return undefined
+}
+
+const toNumberValue = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed) {
+      const parsed = Number(trimmed)
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return undefined
+}
+
+const pickString = (
+  data: { readonly [key: string]: unknown },
+  keys: readonly string[]
+): string | undefined => pickFromObject(data, keys, toStringValue)
+
+const pickBoolean = (
+  data: { readonly [key: string]: unknown },
+  keys: readonly string[],
+  fallback = false
+): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
+
+const pickNumber = (
+  data: { readonly [key: string]: unknown },
+  keys: readonly string[]
+): number | undefined => pickFromObject(data, keys, toNumberValue)
+
+const unwrapOptionArray = (value: unknown): readonly unknown[] | undefined => {
+  if (Array.isArray(value)) return value
+  if (isPlainObject(value)) {
+    for (const key of ["data", "items", "options"]) {
+      const arr = (value as any)[key]
+      if (Array.isArray(arr)) return arr
+    }
+  }
+  return undefined
+}
+
+const toMetadataRecord = (
+  value: unknown
+): { readonly [key: string]: unknown } | undefined => {
+  if (!isPlainObject(value)) return undefined
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined)
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+const normalizeParameterValue = (value: unknown): string | number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") return value
+  if (typeof value === "boolean") return value ? "true" : "false"
+  return JSON.stringify(value ?? null)
+}
+
+const buildChoiceSet = (
+  list: WorkspaceParameter["listOptions"]
+): Set<string | number> | null =>
+  list?.length
+    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+    : null
+
+const createAbortError = (message = "Operation was aborted"): DOMException => {
+  const err = new DOMException(message, "AbortError")
+  ;(err as any).name = "AbortError"
+  return err
+}
+
+const createFmeClient = (
+  serverUrl: string,
+  token: string,
+  overrides: Partial<Pick<FmeFlowConfig, "repository" | "timeout">> = {}
+): FmeFlowApiClient => {
+  const config: FmeFlowConfig = {
+    serverUrl,
+    token,
+    repository: overrides.repository ?? DEFAULT_REPOSITORY,
+    ...(overrides.timeout !== undefined && { timeout: overrides.timeout }),
+  }
+  return new FmeFlowApiClient(config)
+}
+
+// Generic in-flight request cache with automatic cleanup
+class InflightCache<T> {
+  private readonly cache = new Map<string, Promise<T>>()
+
+  async execute(key: string, factory: () => Promise<T>): Promise<T> {
+    const existing = this.cache.get(key)
+    if (existing) return existing
+
+    const promise = factory()
+    this.cache.set(key, promise)
+
+    return promise.finally(() => {
+      this.cache.delete(key)
+    })
+  }
+}
+
+// In-flight request deduplication
 const inFlight = {
-  healthCheck: new Map<
-    string,
-    Promise<{
-      reachable: boolean
-      version?: string
-      responseTime?: number
-      error?: string
-      status?: number
-    }>
-  >(),
-  validateConnection: new Map<string, Promise<ConnectionValidationResult>>(),
-  testBasicConnection: new Map<
-    string,
-    Promise<{
-      success: boolean
-      version?: string
-      error?: string
-      originalError?: unknown
-    }>
-  >(),
-  getRepositories: new Map<
-    string,
-    Promise<{ success: boolean; repositories?: string[]; error?: string }>
-  >(),
+  healthCheck: new InflightCache<{
+    reachable: boolean
+    version?: string
+    responseTime?: number
+    error?: string
+    status?: number
+  }>(),
+  validateConnection: new InflightCache<ConnectionValidationResult>(),
+  testBasicConnection: new InflightCache<{
+    success: boolean
+    version?: string
+    error?: string
+    originalError?: unknown
+  }>(),
+  getRepositories: new InflightCache<{
+    success: boolean
+    repositories?: string[]
+    error?: string
+  }>(),
 }
 
 // Common network error indicators in messages
@@ -68,75 +308,50 @@ const NETWORK_INDICATORS = Object.freeze([
 // Proxy-related error hints
 const PROXY_HINTS = Object.freeze(["Unable to load", "/sharing/proxy", "proxy"])
 
-// Generic helper to dedupe concurrent calls with same key
-function withInflight<T>(
-  cache: Map<string, Promise<T>>,
-  key: string,
-  factory: () => Promise<T>
-): Promise<T> {
-  const existing = cache.get(key)
-  if (existing) return existing
-  const p = (async () => factory())()
-  cache.set(key, p)
-  return p.finally(() => {
-    cache.delete(key)
-  })
-}
-
 // Parameter service
 export class ParameterFormService {
-  private readonly skipParams = [
-    "MAXX",
-    "MINX",
-    "MAXY",
-    "MINY",
-    "AreaOfInterest",
-    "tm_ttc",
-    "tm_ttl",
-    "tm_tag",
-  ]
-
   // Determine if a parameter should be rendered as a form field
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
     if (!p || typeof p.name !== "string") return false
-    if (this.skipParams.includes(p.name)) return false
-    if (
-      p.type === ParameterType.NOVALUE ||
-      p.type === ParameterType.GEOMETRY ||
-      p.type === ParameterType.SCRIPTED
-    ) {
-      return false
-    }
-    if (
-      p.type === ParameterType.DB_CONNECTION ||
-      p.type === ParameterType.WEB_CONNECTION ||
-      p.type === ParameterType.ATTRIBUTE_NAME ||
-      p.type === ParameterType.ATTRIBUTE_LIST
-    ) {
-      return Array.isArray(p.listOptions) && p.listOptions.length > 0
+    if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
+    if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false
+    if (LIST_REQUIRED_TYPES.has(p.type)) {
+      return (
+        (Array.isArray(p.listOptions) && p.listOptions.length > 0) ||
+        (p.defaultValue !== null &&
+          p.defaultValue !== undefined &&
+          p.defaultValue !== "")
+      )
     }
 
     return true
   }
 
-  // Map list options to {label,value} pairs for select/multiselect fields
+  private getRenderableParameters(
+    parameters: readonly WorkspaceParameter[]
+  ): WorkspaceParameter[] {
+    return parameters.filter((parameter) => this.isRenderableParam(parameter))
+  }
+
   private mapListOptions(
     list: WorkspaceParameter["listOptions"]
-  ): ReadonlyArray<{ label: string; value: string | number }> | undefined {
-    if (!list || !list.length) return undefined
+  ): readonly OptionItem[] | undefined {
+    if (!list?.length) return undefined
     return list.map((o) => {
-      const valueStr =
-        typeof o.value === "string" || typeof o.value === "number"
-          ? String(o.value)
-          : JSON.stringify(o.value)
+      const normalizedValue = normalizeParameterValue(o.value)
+      const label =
+        (typeof o.caption === "string" && o.caption.trim()) ||
+        String(normalizedValue)
+
       return {
-        label: o.caption || valueStr,
-        value:
-          typeof o.value === "string" || typeof o.value === "number"
-            ? o.value
-            : valueStr,
+        label,
+        value: normalizedValue,
+        ...(o.description && { description: o.description }),
+        ...(typeof o.path === "string" && o.path && { path: o.path }),
+        ...(o.disabled && { disabled: true }),
+        ...(o.metadata && { metadata: o.metadata }),
       }
     })
   }
@@ -157,32 +372,803 @@ export class ParameterFormService {
     return { min, max, step }
   }
 
+  private getParameterMetadata(param: WorkspaceParameter): {
+    readonly [key: string]: unknown
+  } {
+    const defaultValueMeta = isPlainObject(param.defaultValue)
+      ? (param.defaultValue as { readonly [key: string]: unknown })
+      : undefined
+    return mergeMetadataSources([
+      param.metadata,
+      param.attributes,
+      param.definition,
+      param.control,
+      param.schema,
+      param.ui,
+      param.extra,
+      defaultValueMeta,
+    ])
+  }
+
+  private normalizeOptionItem(item: unknown, index: number): OptionItem | null {
+    if (item == null) return null
+
+    if (typeof item === "string" || typeof item === "number") {
+      const normalized = normalizeParameterValue(item)
+      return {
+        label: String(normalized),
+        value: normalized,
+        isLeaf: true,
+      }
+    }
+
+    if (!isPlainObject(item)) return null
+
+    const obj = item as { readonly [key: string]: unknown }
+    const label =
+      pickString(obj, ["caption", "label", "name", "title", "displayName"]) ??
+      `Option ${index + 1}`
+    const rawValue =
+      obj.value ??
+      obj.id ??
+      obj.code ??
+      obj.path ??
+      obj.name ??
+      obj.key ??
+      label ??
+      index
+    const normalizedValue = normalizeParameterValue(rawValue)
+
+    const childEntries = unwrapOptionArray(obj.children)
+    const children = childEntries
+      ?.map((child, childIndex) => this.normalizeOptionItem(child, childIndex))
+      .filter((child): child is OptionItem => child != null)
+
+    return {
+      label,
+      value: normalizedValue,
+      ...(pickString(obj, [
+        "description",
+        "detail",
+        "tooltip",
+        "hint",
+        "helper",
+      ]) && {
+        description: pickString(obj, [
+          "description",
+          "detail",
+          "tooltip",
+          "hint",
+          "helper",
+        ]),
+      }),
+      ...(pickString(obj, ["path", "fullPath", "groupPath", "folder"]) && {
+        path: pickString(obj, ["path", "fullPath", "groupPath", "folder"]),
+      }),
+      ...((obj.disabled === true ||
+        obj.readOnly === true ||
+        obj.selectable === false) && {
+        disabled: true,
+      }),
+      ...(children?.length && { children }),
+      ...(toMetadataRecord(obj) && { metadata: toMetadataRecord(obj) }),
+      ...(children?.length ? {} : { isLeaf: true }),
+    }
+  }
+
+  private collectMetaOptions(meta: {
+    readonly [key: string]: unknown
+  }): readonly OptionItem[] | undefined {
+    const candidateKeys = [
+      "options",
+      "items",
+      "values",
+      "choices",
+      "entries",
+      "list",
+      "records",
+      "data",
+      "nodes",
+      "children",
+    ]
+
+    for (const key of candidateKeys) {
+      const arr = unwrapOptionArray(meta[key])
+      if (!arr?.length) continue
+      const normalized = arr
+        .map((item, index) => this.normalizeOptionItem(item, index))
+        .filter((item): item is OptionItem => item != null)
+      if (normalized.length) {
+        return normalized
+      }
+    }
+
+    return undefined
+  }
+
+  private extractScriptedOptions(
+    param: WorkspaceParameter,
+    baseOptions?: readonly OptionItem[]
+  ): readonly OptionItem[] | undefined {
+    const meta = this.getParameterMetadata(param)
+    const metaOptions = this.collectMetaOptions(meta)
+    if (metaOptions?.length) return metaOptions
+    return baseOptions
+  }
+
+  private buildScriptedNodes(
+    options: readonly OptionItem[] | undefined,
+    separator: string
+  ): readonly ScriptedOptionNode[] | undefined {
+    if (!options?.length) return undefined
+
+    const hasChildren = options.some(
+      (opt) => opt.children && opt.children.length > 0
+    )
+
+    if (hasChildren) {
+      const convert = (
+        option: OptionItem,
+        parentPath: readonly string[] | undefined
+      ): ScriptedOptionNode => {
+        const resolvedPath = option.path
+          ? option.path
+              .split(separator)
+              .map((segment) => segment.trim())
+              .filter(Boolean)
+          : parentPath
+            ? [...parentPath, option.label]
+            : [option.label]
+
+        const id =
+          (option.metadata &&
+            typeof option.metadata.id === "string" &&
+            option.metadata.id) ||
+          (option.value != null ? String(option.value) : resolvedPath.join("|"))
+
+        const childNodes = option.children?.length
+          ? option.children.map((child) => convert(child, resolvedPath))
+          : undefined
+
+        return {
+          id,
+          label: option.label,
+          path: resolvedPath,
+          ...(option.value !== undefined ? { value: option.value } : {}),
+          ...(option.disabled ? { disabled: true } : {}),
+          ...(option.metadata ? { metadata: option.metadata } : {}),
+          ...(childNodes && childNodes.length
+            ? { children: childNodes }
+            : { isLeaf: true }),
+        }
+      }
+
+      return options.map((option) => convert(option, undefined))
+    }
+
+    interface MutableNode {
+      id: string
+      label: string
+      path: string[]
+      value?: string | number
+      disabled?: boolean
+      metadata?: { [key: string]: unknown }
+      children: MutableNode[]
+    }
+
+    const separatorRegex = new RegExp(
+      `[${separator.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}]`
+    )
+    const roots: MutableNode[] = []
+    const nodeMap = new Map<string, MutableNode>()
+
+    const ensureNode = (
+      segments: readonly string[],
+      option?: OptionItem
+    ): MutableNode => {
+      const key = segments.join("|") || (option ? String(option.value) : "root")
+      const existing = nodeMap.get(key)
+      if (existing) return existing
+
+      const label = segments[segments.length - 1] || option?.label || key
+      const node: MutableNode = {
+        id: key,
+        label,
+        path: [...segments],
+        children: [],
+      }
+      nodeMap.set(key, node)
+
+      if (segments.length > 1) {
+        const parentSegments = segments.slice(0, -1)
+        const parent = ensureNode(parentSegments)
+        parent.children.push(node)
+      } else {
+        roots.push(node)
+      }
+
+      return node
+    }
+
+    for (const option of options) {
+      const pathSegments = option.path
+        ? option.path
+            .split(separatorRegex)
+            .map((segment) => segment.trim())
+            .filter(Boolean)
+        : [option.label]
+
+      const leaf = ensureNode(pathSegments, option)
+      leaf.value = option.value
+      if (option.metadata) {
+        leaf.metadata = { ...(leaf.metadata || {}), ...option.metadata }
+      }
+      if (option.disabled) {
+        leaf.disabled = true
+      }
+      if (option.description) {
+        leaf.metadata = {
+          ...(leaf.metadata || {}),
+          description: option.description,
+        }
+      }
+    }
+
+    const finalize = (node: MutableNode): ScriptedOptionNode => {
+      const children = node.children.map((child) => finalize(child))
+      return {
+        id: node.id,
+        label: node.label,
+        path: node.path,
+        ...(node.value !== undefined ? { value: node.value } : {}),
+        ...(node.disabled ? { disabled: true } : {}),
+        ...(node.metadata ? { metadata: node.metadata } : {}),
+        ...(children.length ? { children } : { isLeaf: true }),
+      }
+    }
+
+    return roots.map((root) => finalize(root))
+  }
+
+  private deriveTableConfig(
+    param: WorkspaceParameter
+  ): TableFieldConfig | undefined {
+    const meta = this.getParameterMetadata(param)
+    const columnCandidates =
+      unwrapOptionArray(meta.columns) ??
+      unwrapOptionArray(meta.fields) ??
+      unwrapOptionArray(meta.tableColumns) ??
+      unwrapOptionArray(meta.schema)
+
+    if (!columnCandidates?.length) return undefined
+
+    const columns = columnCandidates
+      .map((column, index) => this.normalizeTableColumn(column, index))
+      .filter((column): column is TableColumnConfig => column != null)
+
+    const validatedColumns = this.validateTableColumns(columns)
+
+    if (!validatedColumns.length) return undefined
+
+    const minRowsRaw = pickNumber(meta, [
+      "minRows",
+      "minimumRows",
+      "minRowCount",
+    ])
+    const maxRowsRaw = pickNumber(meta, [
+      "maxRows",
+      "maximumRows",
+      "maxRowCount",
+    ])
+
+    const bounds = this.normalizeRowBounds(minRowsRaw, maxRowsRaw)
+
+    return {
+      columns: validatedColumns,
+      ...(bounds.minRows !== undefined && { minRows: bounds.minRows }),
+      ...(bounds.maxRows !== undefined && { maxRows: bounds.maxRows }),
+      ...(pickString(meta, ["addRowLabel", "addLabel"]) && {
+        addRowLabel: pickString(meta, ["addRowLabel", "addLabel"]),
+      }),
+      ...(pickString(meta, ["removeRowLabel", "removeLabel"]) && {
+        removeRowLabel: pickString(meta, ["removeRowLabel", "removeLabel"]),
+      }),
+      ...(pickString(meta, ["helper", "helperText", "instructions"]) && {
+        helperText: pickString(meta, ["helper", "helperText", "instructions"]),
+      }),
+      ...(pickBoolean(meta, ["allowReorder", "reorder"], false) && {
+        allowReorder: true,
+      }),
+      ...(pickBoolean(meta, ["showHeader", "displayHeader"], true) && {
+        showHeader: true,
+      }),
+    }
+  }
+
+  private validateTableColumns(
+    columns: readonly TableColumnConfig[]
+  ): TableColumnConfig[] {
+    if (!columns?.length) return []
+
+    const seen = new Set<string>()
+    const valid: TableColumnConfig[] = []
+
+    for (const column of columns) {
+      if (!column?.key) continue
+      if (seen.has(column.key)) continue
+      if (
+        column.type === "select" &&
+        (!column.options || column.options.length === 0)
+      ) {
+        continue
+      }
+      valid.push(column)
+      seen.add(column.key)
+    }
+
+    return valid
+  }
+
+  private normalizeRowBounds(
+    minRows: number | undefined,
+    maxRows: number | undefined
+  ): { minRows?: number; maxRows?: number } {
+    const resolvedMin =
+      typeof minRows === "number" && Number.isFinite(minRows) && minRows >= 0
+        ? Math.floor(minRows)
+        : undefined
+    let resolvedMax =
+      typeof maxRows === "number" && Number.isFinite(maxRows) && maxRows >= 0
+        ? Math.floor(maxRows)
+        : undefined
+
+    if (
+      resolvedMin !== undefined &&
+      resolvedMax !== undefined &&
+      resolvedMin > resolvedMax
+    ) {
+      resolvedMax = resolvedMin
+    }
+
+    return { minRows: resolvedMin, maxRows: resolvedMax }
+  }
+
+  private normalizeTableColumn(
+    column: unknown,
+    index: number
+  ): TableColumnConfig | null {
+    if (!isPlainObject(column)) return null
+
+    const data = column as { readonly [key: string]: unknown }
+    const key =
+      pickString(data, ["key", "name", "field", "id"]) ?? `column_${index}`
+    const label = pickString(data, ["label", "title", "caption", "name"]) ?? key
+
+    const typeMap: { readonly [key: string]: TableColumnType } = {
+      text: "text",
+      string: "text",
+      number: "number",
+      numeric: "number",
+      float: "number",
+      integer: "number",
+      select: "select",
+      choice: "select",
+      dropdown: "select",
+      list: "select",
+      boolean: "boolean",
+      checkbox: "boolean",
+      date: "date",
+      time: "time",
+      datetime: "datetime",
+      "date-time": "datetime",
+    }
+    const typeRaw = pickString(data, ["type", "inputType", "fieldType"])
+    const type = typeRaw ? typeMap[typeRaw.toLowerCase()] : undefined
+
+    const optionsRaw =
+      unwrapOptionArray(data.options) ??
+      unwrapOptionArray(data.choices) ??
+      unwrapOptionArray(data.values)
+    const options = optionsRaw
+      ?.map((item, idx) => this.normalizeOptionItem(item, idx))
+      .filter((item): item is OptionItem => item != null)
+
+    return {
+      key,
+      label,
+      ...(type && { type }),
+      ...(pickBoolean(data, ["required", "isRequired"], false) && {
+        required: true,
+      }),
+      ...(pickBoolean(data, ["readOnly", "readonly"], false) && {
+        readOnly: true,
+      }),
+      ...(pickString(data, ["placeholder", "prompt"]) && {
+        placeholder: pickString(data, ["placeholder", "prompt"]),
+      }),
+      ...(pickNumber(data, ["min", "minimum"]) !== undefined && {
+        min: pickNumber(data, ["min", "minimum"]),
+      }),
+      ...(pickNumber(data, ["max", "maximum"]) !== undefined && {
+        max: pickNumber(data, ["max", "maximum"]),
+      }),
+      ...(pickNumber(data, ["step", "increment"]) !== undefined && {
+        step: pickNumber(data, ["step", "increment"]),
+      }),
+      ...(pickString(data, ["pattern", "regex"]) && {
+        pattern: pickString(data, ["pattern", "regex"]),
+      }),
+      ...(options?.length && { options }),
+      ...(pickString(data, ["description", "detail", "helper", "hint"]) && {
+        description: pickString(data, [
+          "description",
+          "detail",
+          "helper",
+          "hint",
+        ]),
+      }),
+      ...(data.defaultValue !== undefined && {
+        defaultValue: data.defaultValue,
+      }),
+      ...(data.width !== undefined && { width: data.width as number | string }),
+    }
+  }
+
+  private deriveScriptedConfig(
+    param: WorkspaceParameter,
+    baseOptions?: readonly OptionItem[]
+  ): ScriptedFieldConfig | undefined {
+    if (param.type !== ParameterType.SCRIPTED) return undefined
+
+    const meta = this.getParameterMetadata(param)
+    const options = this.extractScriptedOptions(param, baseOptions)
+    const separator =
+      pickString(meta, ["breadcrumbSeparator", "pathSeparator", "delimiter"]) ||
+      "/"
+    const nodes = this.buildScriptedNodes(options, separator)
+
+    const allowMultiple = pickBoolean(
+      meta,
+      ["allowMultiple", "multiple", "multiSelect", "supportsMultiple"],
+      Array.isArray(param.defaultValue)
+    )
+    const allowManualEntry = pickBoolean(
+      meta,
+      ["allowManualEntry", "allowManual", "allowCustom", "allowFreeform"],
+      false
+    )
+    const allowSearch = pickBoolean(
+      meta,
+      ["allowSearch", "searchable", "enableSearch", "supportsSearch"],
+      (options?.length ?? 0) > 15
+    )
+    const pageSize = pickNumber(meta, [
+      "pageSize",
+      "page_size",
+      "limit",
+      "pageLimit",
+    ])
+    const instructions =
+      pickString(meta, ["instructions", "instruction", "helper", "hint"]) ||
+      toTrimmedString(param.description)
+    const searchPlaceholder = pickString(meta, [
+      "searchPlaceholder",
+      "searchLabel",
+      "searchPrompt",
+    ])
+    const autoSelectSingleLeaf = pickBoolean(
+      meta,
+      ["autoSelectSingleLeaf", "autoSelectSingle", "autoSelect"],
+      true
+    )
+    const maxResultsHint = pickString(meta, [
+      "maxResultsHint",
+      "resultsHint",
+      "resultsMessage",
+    ])
+
+    const hierarchical = Boolean(
+      nodes?.some((node) => node.children && node.children.length > 0)
+    )
+
+    return {
+      allowMultiple,
+      allowSearch,
+      hierarchical,
+      allowManualEntry,
+      searchPlaceholder,
+      instructions,
+      breadcrumbSeparator: separator,
+      pageSize,
+      maxResultsHint,
+      autoSelectSingleLeaf,
+      nodes,
+    }
+  }
+
+  private deriveDateTimeConfig(
+    param: WorkspaceParameter
+  ): DateTimeFieldConfig | undefined {
+    const dateTimeTypes = [
+      ParameterType.DATE_TIME,
+      ParameterType.DATETIME,
+      ParameterType.TIME,
+    ]
+    if (!dateTimeTypes.includes(param.type)) return undefined
+
+    const meta = this.getParameterMetadata(param)
+    const includeSeconds = pickBoolean(
+      meta,
+      ["includeSeconds", "showSeconds", "seconds"],
+      true
+    )
+
+    const defaultValue =
+      typeof param.defaultValue === "string" ? param.defaultValue : undefined
+    const temporalParts = defaultValue
+      ? extractTemporalParts(defaultValue)
+      : { fraction: "", offset: "", base: "" }
+
+    const includeMilliseconds =
+      pickBoolean(
+        meta,
+        ["includeMilliseconds", "milliseconds", "fractional"],
+        false
+      ) ||
+      (temporalParts.fraction && temporalParts.fraction.length > 1)
+
+    const timezoneOptionsRaw =
+      unwrapOptionArray(meta.timezones) ??
+      unwrapOptionArray(meta.timezoneOptions)
+    const timezoneOptions = timezoneOptionsRaw
+      ?.map((item, idx) => this.normalizeOptionItem(item, idx))
+      .filter((item): item is OptionItem => item != null)
+
+    const defaultTimezone =
+      pickString(meta, ["defaultTimezone", "timezoneDefault"]) ||
+      pickString(meta, ["timezoneOffset", "defaultOffset"]) ||
+      temporalParts.offset ||
+      undefined
+
+    const rawTimezoneMode = pickString(meta, [
+      "timezoneMode",
+      "timezone",
+      "tzMode",
+    ])
+    const timezoneMode: DateTimeFieldConfig["timezoneMode"] =
+      rawTimezoneMode === "fixed" || rawTimezoneMode === "select"
+        ? rawTimezoneMode
+        : timezoneOptions?.length
+          ? "select"
+          : temporalParts.offset || rawTimezoneMode === "offset"
+            ? "offset"
+            : undefined
+
+    return {
+      includeSeconds,
+      includeMilliseconds,
+      ...(timezoneMode && { timezoneMode }),
+      ...(temporalParts.offset && { timezoneOffset: temporalParts.offset }),
+      ...(timezoneOptions?.length && { timezoneOptions }),
+      ...(defaultTimezone && { defaultTimezone }),
+      ...(pickString(meta, ["helper", "hint", "instructions"]) && {
+        helperText: pickString(meta, ["helper", "hint", "instructions"]),
+      }),
+      showTimezoneBadge: Boolean(temporalParts.offset),
+    }
+  }
+
+  private deriveSelectConfig(
+    type: FormFieldType,
+    param: WorkspaceParameter,
+    options?: readonly OptionItem[]
+  ): SelectFieldConfig | undefined {
+    const selectableTypes = new Set<FormFieldType>([
+      FormFieldType.SELECT,
+      FormFieldType.MULTI_SELECT,
+      FormFieldType.COORDSYS,
+      FormFieldType.ATTRIBUTE_NAME,
+      FormFieldType.ATTRIBUTE_LIST,
+      FormFieldType.DB_CONNECTION,
+      FormFieldType.WEB_CONNECTION,
+      FormFieldType.REPROJECTION_FILE,
+    ])
+
+    if (!selectableTypes.has(type)) return undefined
+
+    const meta = this.getParameterMetadata(param)
+    const allowSearch = pickBoolean(
+      meta,
+      ["allowSearch", "searchable", "enableSearch"],
+      (options?.length ?? 0) > 25
+    )
+    const allowCustomValues = pickBoolean(
+      meta,
+      ["allowCustomValues", "allowCustom", "allowManual", "allowFreeform"],
+      false
+    )
+    const pageSize = pickNumber(meta, [
+      "pageSize",
+      "page_size",
+      "limit",
+      "pageLimit",
+    ])
+    const instructions = pickString(meta, ["instructions", "hint", "helper"])
+    const hierarchical = pickBoolean(
+      meta,
+      ["hierarchical", "tree", "grouped", "nested"],
+      Boolean(options?.some((opt) => opt.children && opt.children.length > 0))
+    )
+
+    // Only return config if at least one non-default value exists
+    if (
+      !allowSearch &&
+      !allowCustomValues &&
+      !pageSize &&
+      !instructions &&
+      !hierarchical
+    ) {
+      return undefined
+    }
+
+    return {
+      allowSearch,
+      allowCustomValues,
+      hierarchical,
+      ...(pageSize && { pageSize }),
+      ...(instructions && { instructions }),
+    }
+  }
+
+  private deriveFileConfig(
+    type: FormFieldType,
+    param: WorkspaceParameter
+  ): FileFieldConfig | undefined {
+    const fileCapableTypes = new Set<FormFieldType>([
+      FormFieldType.FILE,
+      FormFieldType.TEXT_OR_FILE,
+      FormFieldType.REPROJECTION_FILE,
+    ])
+    if (!fileCapableTypes.has(type)) return undefined
+
+    const meta = this.getParameterMetadata(param)
+    const acceptRaw = meta.accept ?? meta.accepted ?? meta.extensions
+
+    const acceptList = (() => {
+      if (!acceptRaw) return undefined
+      if (Array.isArray(acceptRaw)) {
+        const list = (acceptRaw as unknown[])
+          .map((item) => toTrimmedString(item))
+          .filter((item): item is string => Boolean(item))
+        return list.length ? list : undefined
+      }
+      if (typeof acceptRaw === "string") {
+        const parts = acceptRaw
+          .split(/[,;\s]+/)
+          .map((part) => part.trim())
+          .filter(Boolean)
+        return parts.length ? parts : undefined
+      }
+      return undefined
+    })()
+
+    const maxSizeMb = pickNumber(meta, [
+      "maxSizeMb",
+      "maxSize",
+      "fileSizeMb",
+      "maxUploadMb",
+    ])
+    const allowMultiple = pickBoolean(
+      meta,
+      ["allowMultiple", "multiple", "multi"],
+      false
+    )
+    const helperText = pickString(meta, ["helper", "hint", "instructions"])
+    const capture = pickString(meta, ["capture", "captureMode"])
+
+    // Only return config if at least one value exists
+    if (
+      !acceptList &&
+      !maxSizeMb &&
+      !allowMultiple &&
+      !helperText &&
+      !capture
+    ) {
+      return undefined
+    }
+
+    return {
+      ...(acceptList && { accept: acceptList }),
+      ...(maxSizeMb !== undefined && { maxSizeMb }),
+      ...(allowMultiple && { multiple: true }),
+      ...(helperText && { helperText }),
+      ...(capture && { capture }),
+    }
+  }
+
+  private deriveColorConfig(
+    param: WorkspaceParameter
+  ): ColorFieldConfig | undefined {
+    if (
+      param.type !== ParameterType.COLOR &&
+      param.type !== ParameterType.COLOR_PICK
+    ) {
+      return undefined
+    }
+
+    const meta = this.getParameterMetadata(param)
+    const spaceRaw = pickString(meta, [
+      "colorSpace",
+      "colourSpace",
+      "space",
+      "colorModel",
+      "colourModel",
+    ])
+    const normalizedSpace = spaceRaw?.trim().toLowerCase()
+    let space: ColorFieldConfig["space"]
+
+    if (normalizedSpace === "cmyk") {
+      space = "cmyk"
+    } else if (normalizedSpace === "rgb") {
+      space = "rgb"
+    }
+
+    if (!space) {
+      const defaultString =
+        typeof param.defaultValue === "string" ? param.defaultValue : ""
+      const parts = defaultString
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+      if (!space) {
+        if (parts.length === 4) {
+          space = "cmyk"
+        } else if (parts.length === 3) {
+          space = "rgb"
+        }
+      }
+    }
+
+    const alpha = pickBoolean(
+      meta,
+      ["alpha", "allowAlpha", "hasAlpha", "supportsAlpha", "includeAlpha"],
+      false
+    )
+
+    if (!space && !alpha) return undefined
+
+    return {
+      ...(space && { space }),
+      ...(alpha && { alpha: true }),
+    }
+  }
+
   /** Validate values object against parameter definitions (required/type/choices). */
   validateParameters(
     data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
   ): { isValid: boolean; errors: string[] } {
     const errors: string[] = []
-    const validParams = parameters.filter((p) => this.isRenderableParam(p))
+    const validParams = this.getRenderableParameters(parameters)
 
     for (const param of validParams) {
+      if (param.type === ParameterType.GEOMETRY) {
+        continue
+      }
       const value = data[param.name]
-
-      // Check required fields
-      if (!param.optional && isEmpty(value)) {
+      const isMissingRequired = !param.optional && isEmpty(value)
+      if (isMissingRequired) {
         errors.push(`${param.name}:required`)
         continue
       }
 
       if (!isEmpty(value)) {
-        // Validate types
         const typeError = this.validateParameterType(param, value)
         if (typeError) {
           errors.push(typeError)
           continue
         }
 
-        // Validate choices
         const choiceError = this.validateParameterChoices(param, value)
         if (choiceError) {
           errors.push(choiceError)
@@ -198,15 +1184,14 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (param.type === ParameterType.INTEGER && !isInt(value)) {
-      return `${param.name}:integer`
+    switch (param.type) {
+      case ParameterType.INTEGER:
+        return isInt(value) ? null : `${param.name}:integer`
+      case ParameterType.FLOAT:
+        return isNum(value) ? null : `${param.name}:number`
+      default:
+        return null
     }
-
-    if (param.type === ParameterType.FLOAT && !isNum(value)) {
-      return `${param.name}:number`
-    }
-
-    return null
   }
 
   /** Validate enum/choice membership for select and multi-select parameters. */
@@ -214,19 +1199,15 @@ export class ParameterFormService {
     param: WorkspaceParameter,
     value: unknown
   ): string | null {
-    if (!param.listOptions?.length) return null
+    const validChoices = buildChoiceSet(param.listOptions)
+    if (!validChoices) return null
 
-    const validChoices = param.listOptions.map((opt) => opt.value)
-    const isMulti =
-      param.type === ParameterType.LISTBOX ||
-      param.type === ParameterType.LOOKUP_LISTBOX
-
-    if (isMulti) {
+    if (MULTI_SELECT_TYPES.has(param.type)) {
       const values = Array.isArray(value) ? value : [value]
-      if (values.some((v) => !validChoices.includes(v))) {
+      if (values.some((v) => !validChoices.has(normalizeParameterValue(v)))) {
         return `${param.name}:choice`
       }
-    } else if (!validChoices.includes(value)) {
+    } else if (!validChoices.has(normalizeParameterValue(value))) {
       return `${param.name}:choice`
     }
 
@@ -238,73 +1219,87 @@ export class ParameterFormService {
   ): readonly DynamicFieldConfig[] {
     if (!parameters?.length) return []
 
-    return parameters
-      .filter((p) => this.isRenderableParam(p))
-      .map((param) => {
-        const type = this.getFieldType(param)
-        const options = this.mapListOptions(param.listOptions)
-        const { min, max, step } = this.getSliderMeta(param)
-        const field: DynamicFieldConfig = {
-          name: param.name,
-          label: param.description || param.name,
-          type,
-          required: !param.optional,
-          readOnly: type === FormFieldType.MESSAGE,
-          description: param.description,
-          defaultValue: param.defaultValue as FormPrimitive,
-          placeholder: param.description || "",
-          // Only include options if non-empty
-          ...(options?.length ? { options: [...options] } : {}),
-          ...(param.type === ParameterType.TEXT_EDIT ? { rows: 3 } : {}),
-          ...(min !== undefined || max !== undefined || step !== undefined
-            ? { min, max, step }
-            : {}),
-        }
-        return field
-      }) as readonly DynamicFieldConfig[]
+    return this.getRenderableParameters(parameters).map((param) => {
+      const type = this.getFieldType(param)
+      const options = this.mapListOptions(param.listOptions)
+      const scripted = this.deriveScriptedConfig(param, options)
+      const tableConfig = this.deriveTableConfig(param)
+      const dateTimeConfig = this.deriveDateTimeConfig(param)
+      const selectConfig = this.deriveSelectConfig(type, param, options)
+      const fileConfig = this.deriveFileConfig(type, param)
+      const colorConfig = this.deriveColorConfig(param)
+      const readOnly = this.isReadOnlyField(type, scripted)
+      const helper =
+        scripted?.instructions ??
+        tableConfig?.helperText ??
+        dateTimeConfig?.helperText ??
+        fileConfig?.helperText ??
+        selectConfig?.instructions
+      const { min, max, step } = this.getSliderMeta(param)
+
+      const field: DynamicFieldConfig = {
+        name: param.name,
+        label: param.description || param.name,
+        type,
+        required: !param.optional,
+        readOnly,
+        description: param.description,
+        defaultValue:
+          type === FormFieldType.PASSWORD
+            ? ("" as FormPrimitive)
+            : param.type === ParameterType.GEOMETRY
+              ? ("" as FormPrimitive)
+              : (param.defaultValue as FormPrimitive),
+        placeholder: param.description || "",
+        ...(options?.length && { options: [...options] }),
+        ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
+        ...((min !== undefined || max !== undefined || step !== undefined) && {
+          min,
+          max,
+          step,
+        }),
+        ...(helper && { helper }),
+        ...(scripted && { scripted }),
+        ...(tableConfig && { tableConfig }),
+        ...(dateTimeConfig && { dateTimeConfig }),
+        ...(selectConfig && { selectConfig }),
+        ...(fileConfig && { fileConfig }),
+        ...(colorConfig && { colorConfig }),
+      }
+      return field
+    }) as readonly DynamicFieldConfig[]
   }
 
   /** Map parameter type to a UI field type. */
   private getFieldType(param: WorkspaceParameter): FormFieldType {
+    const override = PARAMETER_FIELD_TYPE_MAP[param.type]
+    if (override) return override
+
     const hasOptions = param.listOptions?.length > 0
     if (hasOptions) {
-      const isMulti =
-        param.type === ParameterType.LISTBOX ||
-        param.type === ParameterType.LOOKUP_LISTBOX ||
-        param.type === ParameterType.ATTRIBUTE_LIST
-      return isMulti ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
+      return MULTI_SELECT_TYPES.has(param.type)
+        ? FormFieldType.MULTI_SELECT
+        : FormFieldType.SELECT
     }
 
-    const typeMap: { [key in ParameterType]?: FormFieldType } = {
-      [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
-      [ParameterType.INTEGER]: FormFieldType.NUMBER,
-      [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
-      [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
-      [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
-      [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
-      [ParameterType.CHOICE]: FormFieldType.RADIO,
-      [ParameterType.FILENAME]: FormFieldType.FILE,
-      [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
-      [ParameterType.DIRNAME]: FormFieldType.FILE,
-      [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
-      [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
-      [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
-      [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
-      [ParameterType.URL]: FormFieldType.URL,
-      [ParameterType.LOOKUP_URL]: FormFieldType.URL,
-      [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
-      [ParameterType.DATE]: FormFieldType.DATE,
-      [ParameterType.TIME]: FormFieldType.TIME,
-      [ParameterType.COLOR]: FormFieldType.COLOR,
-      [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
-      [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
-      [ParameterType.REPROJECTION_FILE]: FormFieldType.FILE,
-      [ParameterType.ATTRIBUTE_NAME]: FormFieldType.SELECT,
-      [ParameterType.DB_CONNECTION]: FormFieldType.SELECT,
-      [ParameterType.WEB_CONNECTION]: FormFieldType.SELECT,
-      [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
+    return FormFieldType.TEXT
+  }
+
+  private isReadOnlyField(
+    type: FormFieldType,
+    scripted?: ScriptedFieldConfig
+  ): boolean {
+    if (type === FormFieldType.MESSAGE || type === FormFieldType.GEOMETRY) {
+      return true
     }
-    return typeMap[param.type] || FormFieldType.TEXT
+    if (type === FormFieldType.SCRIPTED) {
+      const hasInteractiveNodes = Boolean(
+        scripted?.allowManualEntry ||
+          (scripted?.nodes && scripted.nodes.length > 0)
+      )
+      return !hasInteractiveNodes
+    }
+    return false
   }
 
   validateFormValues(
@@ -318,6 +1313,21 @@ export class ParameterFormService {
     for (const field of fields) {
       const value = values[field.name]
       const hasValue = !isEmpty(value)
+
+      if (field.type === FormFieldType.GEOMETRY) {
+        continue
+      }
+
+      if (field.type === FormFieldType.TEXT_OR_FILE) {
+        const tf = value as TextOrFileValue | undefined
+        const hasText =
+          typeof tf?.text === "string" && tf.text.trim().length > 0
+        const hasFile = isFileObject(tf?.file)
+        if (field.required && !hasText && !hasFile) {
+          errors[field.name] = ""
+        }
+        continue
+      }
 
       if (field.required && !hasValue) {
         errors[field.name] = ""
@@ -338,84 +1348,60 @@ export class ParameterFormService {
  * Parse repository names from API response
  */
 function parseRepositoryNames(data: unknown): string[] {
-  if (!Array.isArray(data)) return []
-  return (data as Array<{ name?: unknown }>)
-    .map((r) => r?.name)
-    .filter((n): n is string => typeof n === "string" && n.length > 0)
+  return extractRepositoryNames(data)
 }
 
+// Extract FME version from server response
 function deriveFmeVersionString(info: unknown): string {
-  const d: any = (info as any) ?? {}
-  const data = d?.data ?? d
-  const pickString = (v: unknown): string | undefined => {
-    if (typeof v === "string") {
-      const t = v.trim()
-      return t || undefined
+  if (!info) return ""
+
+  const data = (info as any)?.data ?? info
+  const versionPattern = /(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\ b)/
+
+  // Try direct version fields first
+  const versionFields = [
+    "version",
+    "fmeVersion",
+    "fmeflowVersion",
+    "app.version",
+    "about.version",
+    "server.version",
+    "edition",
+    "build",
+    "productName",
+    "product",
+    "name",
+  ]
+
+  for (const field of versionFields) {
+    const value = field.includes(".")
+      ? field.split(".").reduce((obj, key) => obj?.[key], data)
+      : data?.[field]
+
+    if (typeof value === "string") {
+      const match = value.match(versionPattern)
+      if (match) return match[1]
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value)
     }
-    if (typeof v === "number" && Number.isFinite(v)) {
-      return String(v)
-    }
-    return undefined
   }
 
-  const candidates = [
-    pickString(data?.version),
-    pickString(data?.fmeVersion),
-    pickString(data?.fmeflowVersion),
-    pickString(data?.app?.version),
-    pickString(data?.about?.version),
-    pickString(data?.server?.version),
-    pickString(data?.edition),
-    pickString(data?.build),
-    pickString(data?.productName),
-    pickString(data?.product),
-    pickString(data?.name),
-  ].filter((v): v is string => !!v)
-
-  const extractNumeric = (s: string): string | undefined => {
-    const m = s.match(/(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\b)/)
-    return m ? m[1] : undefined
-  }
-
-  for (const c of candidates) {
-    const n = extractNumeric(c)
-    if (n) return n
-  }
+  // Fallback: search all object values
   try {
-    for (const val of Object.values(data || {})) {
+    const allValues = Object.values(data || {})
+    for (const val of allValues) {
       if (typeof val === "string") {
-        const n = extractNumeric(val)
-        if (n) return n
+        const match = val.match(versionPattern)
+        if (match) return match[1]
       }
     }
   } catch {
-    // ignore
-  }
-
-  // As a last resort, try to stringify and extract from that
-  try {
-    const blob = JSON.stringify(data)
-    if (blob && typeof blob === "string") {
-      const m = blob.match(/(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\b)/)
-      if (m) return m[1]
-    }
-  } catch {
-    // ignore
+    // Ignore errors
   }
 
   return ""
 }
 
-/**
- * Quick health check for FME Flow server
- * Provides basic connectivity and version information
- */
-/**
- * Quick health check for FME Flow server.
- * - Validates URL format locally first.
- * - Calls /info and classifies results into reachable/network/auth/server.
- * - Deduplicates concurrent calls per (serverUrl|token).
- */
 export async function healthCheck(
   serverUrl: string,
   token: string,
@@ -428,7 +1414,6 @@ export async function healthCheck(
   status?: number
 }> {
   const key = `${serverUrl}|${token}`
-  // Basic URL validation - if URL is malformed, don't even try
   const urlValidation = validateServerUrl(serverUrl)
   if (!urlValidation.ok) {
     return {
@@ -439,16 +1424,10 @@ export async function healthCheck(
     }
   }
 
-  return withInflight(inFlight.healthCheck, key, async () => {
+  return await inFlight.healthCheck.execute(key, async () => {
     const startTime = Date.now()
     try {
-      // Instantiate API client directly so Jest class mocks are honored in tests
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
-
+      const client = createFmeClient(serverUrl, token)
       const response = await client.testConnection(signal)
       const responseTime = Date.now() - startTime
 
@@ -476,7 +1455,6 @@ export async function healthCheck(
           }
         }
 
-        // Additional server URL verification using centralized validator and hostname heuristic
         const strictValidation = validateServerUrl(serverUrl, { strict: true })
         if (!strictValidation.ok) {
           return {
@@ -489,7 +1467,6 @@ export async function healthCheck(
         return { reachable: true, responseTime, status }
       }
 
-      // All other HTTP errors or network errors = unreachable
       return {
         reachable: false,
         responseTime,
@@ -500,19 +1477,11 @@ export async function healthCheck(
   })
 }
 
-// Helper to get user-friendly error message based on status
-/**
- * Validates server URL, token, and optionally a repository.
- * Provides step-by-step status and friendly error classification.
- * Deduplicates concurrent calls per (serverUrl|token|repository).
- */
 export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
   const { serverUrl, token, repository, signal } = options
-
   const key = `${serverUrl}|${token}|${repository || "_"}`
-
   const steps: CheckSteps = {
     serverUrl: "pending",
     token: "pending",
@@ -520,16 +1489,15 @@ export async function validateConnection(
     version: "",
   }
 
-  return withInflight(
-    inFlight.validateConnection,
+  return await inFlight.validateConnection.execute(
     key,
     async (): Promise<ConnectionValidationResult> => {
       try {
-        const client = new FmeFlowApiClient({
+        const client = createFmeClient(
           serverUrl,
           token,
-          repository: repository || "_",
-        })
+          repository ? { repository } : {}
+        )
 
         // Step 1: Test connection and get server info
         let serverInfo: any
@@ -539,7 +1507,7 @@ export async function validateConnection(
           steps.token = "ok"
           steps.version = deriveFmeVersionString(serverInfo)
         } catch (error) {
-          if ((error as Error)?.name === "AbortError") {
+          if (isAbortError(error)) {
             return {
               success: false,
               steps,
@@ -553,7 +1521,6 @@ export async function validateConnection(
           const status = extractHttpStatus(error)
 
           if (status === 401) {
-            // Clear token failure without extra network checks
             steps.serverUrl = "ok"
             steps.token = "fail"
             return {
@@ -572,7 +1539,6 @@ export async function validateConnection(
                 rawMessage.toLowerCase().includes(h.toLowerCase())
               )
             ) {
-              // Proxy forbids or cannot reach upstream → treat as server/connectivity
               steps.serverUrl = "fail"
               steps.token = "skip"
               return {
@@ -585,12 +1551,11 @@ export async function validateConnection(
                 },
               }
             }
-            // Could be auth error OR server URL error - verify reachability once
+
             try {
               const healthResult = await healthCheck(serverUrl, token, signal)
 
               if (healthResult.reachable) {
-                // Server is reachable but token invalid/forbidden
                 steps.serverUrl = "ok"
                 steps.token = "fail"
                 return {
@@ -629,7 +1594,6 @@ export async function validateConnection(
               }
             }
           } else {
-            // Server not reachable
             steps.serverUrl = "fail"
             steps.token = "skip"
             return {
@@ -643,6 +1607,7 @@ export async function validateConnection(
             }
           }
         }
+
         let repositories: string[] = []
         try {
           const reposResp = await client.getRepositories(signal)
@@ -677,7 +1642,7 @@ export async function validateConnection(
           steps,
         }
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
+        if (isAbortError(error)) {
           return {
             success: false,
             steps,
@@ -704,7 +1669,6 @@ export async function validateConnection(
   )
 }
 
-// Test connection and get version info
 /** Basic connectivity check that returns version string when available. */
 export async function testBasicConnection(
   serverUrl: string,
@@ -717,14 +1681,9 @@ export async function testBasicConnection(
   originalError?: unknown
 }> {
   const key = `${serverUrl}|${token}`
-  return withInflight(inFlight.testBasicConnection, key, async () => {
+  return await inFlight.testBasicConnection.execute(key, async () => {
     try {
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
-
+      const client = createFmeClient(serverUrl, token)
       const info = await client.testConnection(signal)
       return {
         success: true,
@@ -734,61 +1693,42 @@ export async function testBasicConnection(
       return {
         success: false,
         error: mapErrorToKey(error, extractHttpStatus(error)),
-        originalError: error, // Keep original error for better categorization
+        originalError: error,
       }
     }
   })
 }
 
-// Get repositories list from server
 /** Fetch repositories and normalize to a list of strings; dedupes concurrent calls per (serverUrl|token). */
 export async function getRepositories(
   serverUrl: string,
   token: string,
   signal?: AbortSignal
 ): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
-  // If already aborted, throw to allow callers to ignore gracefully
   if (signal?.aborted) {
-    const abortErr = new DOMException("Operation was aborted", "AbortError")
-    ;(abortErr as any).name = "AbortError"
-    throw abortErr
+    throw createAbortError()
   }
 
-  // When a signal is provided (typical for settings UI), bypass dedup
-  // to avoid race conditions where a newly-triggered request reuses an aborted promise.
   const execute = async () => {
     try {
-      const client = new FmeFlowApiClient({
-        serverUrl,
-        token,
-        repository: "_",
-      })
-
+      const client = createFmeClient(serverUrl, token)
       const resp = await client.getRepositories(signal)
-      // If the underlying API returned a synthetic aborted response, surface it as an AbortError
+
       if (
         (resp as any)?.status === 0 ||
         (resp as any)?.statusText === "requestAborted"
       ) {
-        const abortErr = new DOMException("Operation was aborted", "AbortError")
-        ;(abortErr as any).name = "AbortError"
-        throw abortErr
+        throw createAbortError()
       }
-      const repositories = parseRepositoryNames(resp?.data)
 
+      const repositories = parseRepositoryNames(resp?.data)
       return {
         success: true,
         repositories,
       }
     } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
-        // Re-throw as a proper Error-derived object to satisfy lint rules
-        const abortErr = new DOMException(
-          (error as Error).message || "Operation was aborted",
-          "AbortError"
-        )
-        ;(abortErr as any).name = "AbortError"
-        throw abortErr
+      if (isAbortError(error)) {
+        throw createAbortError((error as Error).message || undefined)
       }
       return {
         success: false,
@@ -802,7 +1742,7 @@ export async function getRepositories(
   }
 
   const key = `${serverUrl}|${token}`
-  return withInflight(inFlight.getRepositories, key, execute)
+  return await inFlight.getRepositories.execute(key, execute)
 }
 
 // Widget startup validation
@@ -824,13 +1764,13 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupConfigError",
+        "errorSetupRequired",
         ErrorType.CONFIG,
         "configMissing",
         translate,
         {
-          suggestion: translate("openSettingsPanel"),
-          userFriendlyMessage: translate("startupConfigErrorHint"),
+          suggestion: translate("actionOpenSettings"),
+          userFriendlyMessage: translate("hintSetupWidget"),
         }
       ),
     }
@@ -846,7 +1786,7 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupConfigError",
+        "errorSetupRequired",
         ErrorType.CONFIG,
         "CONFIG_INCOMPLETE",
         translate
@@ -869,19 +1809,19 @@ export async function validateWidgetStartup(
         canProceed: false,
         requiresSettings: true,
         error: createError(
-          connectionResult.error?.message || "startupConnectionError",
+          connectionResult.error?.message || "errorConnectionIssue",
           ErrorType.NETWORK,
           connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
           translate,
           {
             suggestion:
               connectionResult.error?.type === "token"
-                ? translate("checkTokenSettings")
+                ? translate("tokenSettingsHint")
                 : connectionResult.error?.type === "server"
-                  ? translate("checkServerUrlSettings")
+                  ? translate("serverUrlSettingsHint")
                   : connectionResult.error?.type === "repository"
-                    ? translate("checkRepositorySettings")
-                    : translate("checkConnectionSettings"),
+                    ? translate("repositorySettingsHint")
+                    : translate("connectionSettingsHint"),
           }
         ),
       }
@@ -894,7 +1834,7 @@ export async function validateWidgetStartup(
       requiresSettings: false,
     }
   } catch (error) {
-    if ((error as Error)?.name === "AbortError") {
+    if (isAbortError(error)) {
       // Don't treat abort as an error - just return neutral state
       return {
         isValid: false,
@@ -908,12 +1848,12 @@ export async function validateWidgetStartup(
       canProceed: false,
       requiresSettings: true,
       error: createError(
-        "startupNetworkError",
+        "errorNetworkIssue",
         ErrorType.NETWORK,
         "STARTUP_NETWORK_ERROR",
         translate,
         {
-          suggestion: translate("checkNetworkConnection"),
+          suggestion: translate("networkConnectionHint"),
         }
       ),
     }

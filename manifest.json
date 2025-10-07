@@ -6,7 +6,7 @@
   "exbVersion": "1.18.0",
   "author": "j0hanz",
   "description": "Draw an area and export via FME Flow.",
-  "icon": "jimu-icons/svg/outlined/editor/download.svg",
+  "icon": "icon.svg",
   "dependency": "jimu-arcgis",
   "extensions": [
     {
@@ -16,8 +16,8 @@
     }
   ],
   "defaultSize": {
-    "width": 350,
-    "height": 400
+    "width": 325,
+    "height": 375
   },
   "translatedLocales": ["sv-SE"],
   "settingDependency": ["jimu-arcgis"]
