@@ -84,7 +84,6 @@ import {
   createPopupSuppressionRecord,
   releasePopupSuppressionRecord,
   popupSuppressionManager,
-  toSerializable,
   maskToken,
 } from "../shared/utils"
 import type { PopupSuppressionRecord } from "../shared/utils"
@@ -1055,13 +1054,11 @@ export default function Widget(
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(viewMode)
   const drawingToolRef = hooks.useLatest(drawingTool)
-  const pendingDrawingToolRef = React.useRef<DrawingTool | null>(null)
+  const [shouldAutoStart, setShouldAutoStart] = React.useState(false)
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
   > | null>(null)
   const fmeClientKeyRef = React.useRef<string | null>(null)
-  // When true, after reinitializing SketchViewModel we will immediately start drawing
-  const shouldAutoStartRef = React.useRef(false)
   const isCompletingRef = React.useRef(false)
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
@@ -1082,14 +1079,6 @@ export default function Widget(
   )
 
   const handleSketchToolStart = hooks.useEventCallback((tool: DrawingTool) => {
-    const pending = pendingDrawingToolRef.current
-
-    if (pending && pending !== tool) {
-      return
-    }
-
-    pendingDrawingToolRef.current = null
-
     if (drawingToolRef.current === tool) {
       return
     }
@@ -1098,15 +1087,24 @@ export default function Widget(
   })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
-  const [startupState, setStartupState] = React.useState<{
-    isValidating: boolean
-    step?: string
-    error: ErrorState | null
-  }>(() => ({ isValidating: true, step: undefined, error: null }))
+  const [startupStep, setStartupStep] = React.useState<string | undefined>()
+
+  const isStartupPhase = viewMode === ViewMode.STARTUP_VALIDATION
+  const startupValidationErrorDetails: SerializableErrorState | null =
+    isStartupPhase && generalErrorDetails ? generalErrorDetails : null
+  const startupGeneralError = isStartupPhase ? generalError : null
+  const isStartupValidating = isStartupPhase && !startupValidationErrorDetails
+  const startupValidationStep = isStartupPhase ? startupStep : undefined
 
   const updateAreaWarning = hooks.useEventCallback((next: boolean) => {
     setAreaWarning(Boolean(next))
   })
+
+  hooks.useUpdateEffect(() => {
+    if (!isStartupPhase) {
+      setStartupStep(undefined)
+    }
+  }, [isStartupPhase])
 
   const enablePopupGuard = hooks.useEventCallback(
     (view: JimuMapView | null | undefined) => {
@@ -1320,7 +1318,7 @@ export default function Widget(
           dispatch(fmeActions.clearError("general", widgetId))
           if (isAoiRetryableError) {
             // Mark that we should auto-start once tools are re-initialized
-            shouldAutoStartRef.current = true
+            setShouldAutoStart(true)
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             // If drawing resources were torn down, re-initialize them now
             try {
@@ -1448,7 +1446,7 @@ export default function Widget(
 
   const endSketchSession = hooks.useEventCallback(
     (options?: { clearLocalGeometry?: boolean }) => {
-      shouldAutoStartRef.current = false
+      setShouldAutoStart(false)
       if (options?.clearLocalGeometry) {
         updateDrawingSession({ clickCount: 0 })
       }
@@ -1471,11 +1469,11 @@ export default function Widget(
 
   // Startup validation step updater
   const setValidationStep = hooks.useEventCallback((step: string) => {
-    setStartupState({ isValidating: true, step, error: null })
+    setStartupStep(step)
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
-    setStartupState({ isValidating: false, step: undefined, error: null })
+    setStartupStep(undefined)
     dispatch(fmeActions.clearError("general", widgetId))
     dispatch(fmeActions.completeStartup(widgetId))
     const currentViewMode = viewModeRef.current
@@ -1490,7 +1488,7 @@ export default function Widget(
   })
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    setStartupState({ isValidating: false, step: undefined, error })
+    setStartupStep(undefined)
     dispatch(fmeActions.setError("general", error, widgetId))
   })
 
@@ -1519,6 +1517,7 @@ export default function Widget(
   // Startup validation
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
+    dispatch(fmeActions.clearError("general", widgetId))
     setValidationStep(translate("validatingStartup"))
 
     try {
@@ -1613,6 +1612,9 @@ export default function Widget(
     (alsoCleanupMapResources = false) => {
       submissionAbort.cancel()
       startupAbort.cancel()
+
+      setStartupStep(undefined)
+      setShouldAutoStart(false)
 
       if (alsoCleanupMapResources) {
         cleanupResources()
@@ -1941,16 +1943,6 @@ export default function Widget(
       })
       setCleanupHandles(cleanup)
       setSketchViewModel(svm)
-      try {
-        // If we're returning from a geometry error, immediately start drawing using the current tool
-        if (shouldAutoStartRef.current) {
-          shouldAutoStartRef.current = false
-          const tool = drawingToolRef.current ?? DrawingTool.POLYGON
-          const arg: "rectangle" | "polygon" =
-            tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
-          ;(svm as any).create?.(arg)
-        }
-      } catch {}
     } catch (error) {
       dispatchError(
         translate("errorMapInit"),
@@ -1965,6 +1957,29 @@ export default function Widget(
       handleMapViewReady(jimuMapView)
     }
   }, [modules, jimuMapView, sketchViewModel, handleMapViewReady])
+
+  hooks.useUpdateEffect(() => {
+    if (!shouldAutoStart || !sketchViewModel) {
+      return
+    }
+
+    setShouldAutoStart(false)
+
+    const tool = drawingTool ?? DrawingTool.POLYGON
+    const arg: "rectangle" | "polygon" =
+      tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
+
+    try {
+      const maybePromise = (sketchViewModel as any).create?.(arg)
+      if (maybePromise && typeof maybePromise.catch === "function") {
+        maybePromise.catch((err: any) => {
+          logIfNotAbort("Sketch create promise error", err)
+        })
+      }
+    } catch (err: any) {
+      logIfNotAbort("Sketch auto-start error", err)
+    }
+  }, [shouldAutoStart, sketchViewModel, drawingTool])
 
   // Update symbols on color change
   hooks.useUpdateEffect(() => {
@@ -2051,8 +2066,6 @@ export default function Widget(
     }
 
     // Set tool
-
-    pendingDrawingToolRef.current = tool
 
     updateDrawingSession({ isActive: true, clickCount: 0 })
 
@@ -2319,16 +2332,16 @@ export default function Widget(
   }
 
   // Error state - prioritize startup validation errors, then general errors
-  if (startupState.error) {
+  if (startupGeneralError) {
     // Always handle startup validation errors first
     return (
       <div css={styles.parent}>
-        {renderWidgetError(startupState.error, runStartupValidation)}
+        {renderWidgetError(startupGeneralError, runStartupValidation)}
       </div>
     )
   }
 
-  if (hasCriticalGeneralError && generalError) {
+  if (!isStartupPhase && hasCriticalGeneralError && generalError) {
     // Handle other errors (non-startup validation)
     return <div css={styles.parent}>{renderWidgetError(generalError)}</div>
   }
@@ -2421,13 +2434,9 @@ export default function Widget(
         workspaceParameters={workspaceParameters}
         workspaceItem={workspaceItem}
         // Startup validation props
-        isStartupValidating={startupState.isValidating}
-        startupValidationStep={startupState.step}
-        startupValidationError={
-          startupState.error
-            ? (toSerializable(startupState.error) as SerializableErrorState)
-            : null
-        }
+        isStartupValidating={isStartupValidating}
+        startupValidationStep={startupValidationStep}
+        startupValidationError={startupValidationErrorDetails}
         onRetryValidation={runStartupValidation}
       />
     </div>
