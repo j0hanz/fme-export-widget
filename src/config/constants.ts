@@ -281,10 +281,10 @@ export const MESSAGE_PATTERNS = Object.freeze([
 ] as const)
 
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
-  require_https: "validations.urlSecureRequired",
-  no_query_or_hash: "validations.urlInvalid",
-  disallow_fmerest_for_webhook: "validations.webhookBaseInvalid",
-  invalid_url: "validations.urlInvalid",
+  require_https: "require_https",
+  no_query_or_hash: "invalid_url",
+  disallow_fmerest_for_webhook: "disallow_fmerest_for_webhook",
+  invalid_url: "invalid_url",
 }
 
 export const REQUIRED_CONFIG_FIELDS = Object.freeze([

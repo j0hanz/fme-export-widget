@@ -154,9 +154,9 @@ export function validateServerUrl(
   }
 }
 
-const mapServerUrlReasonToKey = (reason?: string): string => {
-  if (!reason) return "validations.urlInvalid"
-  return SERVER_URL_REASON_TO_KEY[reason] || "validations.urlInvalid"
+export const mapServerUrlReasonToKey = (reason?: string): string => {
+  if (!reason) return "invalid_url"
+  return SERVER_URL_REASON_TO_KEY[reason] || "invalid_url"
 }
 
 const hasControlCharacters = (token: string): boolean => {
@@ -171,15 +171,14 @@ const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
 
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
-  if (!token) return { ok: false, key: "connection.missingToken" }
+  if (!token) return { ok: false, key: "missingToken" }
 
   const tooShort = token.length < MIN_TOKEN_LENGTH
   const hasWhitespace = /\s/.test(token)
   const invalidChars = hasDangerousCharacters(token)
 
   if (tooShort || invalidChars) {
-    if (hasWhitespace)
-      return { ok: false, key: "connection.tokenWithWhitespace" }
+    if (hasWhitespace) return { ok: false, key: "tokenWithWhitespace" }
     return { ok: false, key: "errorTokenIssue" }
   }
 
@@ -192,9 +191,9 @@ export const validateRepository = (
 ): { ok: boolean; key?: string } => {
   if (available === null) return { ok: true }
   if (available.length > 0 && !repository)
-    return { ok: false, key: "connection.missingRepository" }
+    return { ok: false, key: "missingRepository" }
   if (available.length > 0 && repository && !available.includes(repository)) {
-    return { ok: false, key: "connection.invalidRepository" }
+    return { ok: false, key: "invalidRepository" }
   }
   return { ok: true }
 }
@@ -363,8 +362,7 @@ export function validateConnectionInputs(args: {
     repository || "",
     availableRepos === undefined ? [] : availableRepos
   )
-  if (!repoCheck.ok)
-    errors.repository = repoCheck.key || "connection.invalidRepository"
+  if (!repoCheck.ok) errors.repository = repoCheck.key || "invalidRepository"
 
   return { ok: Object.keys(errors).length === 0, errors }
 }
@@ -413,7 +411,7 @@ export function validateScheduleFields(data: any) {
   const ok = isRunOnce && hasCat && hasName && fmtOk && notTooPast
   return ok
     ? { ok: true as const }
-    : { ok: false as const, key: "validations.scheduleInvalid" }
+    : { ok: false as const, key: "scheduleInvalid" }
 }
 
 // Error Factory

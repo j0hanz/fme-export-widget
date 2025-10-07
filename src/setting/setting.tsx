@@ -48,6 +48,7 @@ import {
   validateToken,
   extractHttpStatus,
   mapErrorToKey,
+  mapServerUrlReasonToKey,
   validateConnectionInputs,
 } from "../shared/validations"
 import {
@@ -1489,12 +1490,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
     const validation = validateServerUrl(url, { requireHttps: true })
+    const reasonKey =
+      !validation.ok && "reason" in validation
+        ? mapServerUrlReasonToKey(validation.reason)
+        : undefined
     setError(
       setFieldErrors,
       "serverUrl",
-      !validation.ok && "reason" in validation
-        ? translate(`validations.${validation.reason}`)
-        : undefined
+      reasonKey ? translate(reasonKey) : undefined
     )
 
     // Sanitize and save to config
@@ -1509,12 +1512,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const cleanedValidation = validateServerUrl(cleaned, {
         requireHttps: true,
       })
+      const cleanedReasonKey =
+        !cleanedValidation.ok && "reason" in cleanedValidation
+          ? mapServerUrlReasonToKey(cleanedValidation.reason)
+          : undefined
       setError(
         setFieldErrors,
         "serverUrl",
-        !cleanedValidation.ok && "reason" in cleanedValidation
-          ? translate(`validations.${cleanedValidation.reason}`)
-          : undefined
+        cleanedReasonKey ? translate(cleanedReasonKey) : undefined
       )
     }
 
