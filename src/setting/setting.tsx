@@ -518,7 +518,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         id={ID.tm_ttc}
         label={
           <Tooltip content={translate("tm_ttcHelper")} placement="top">
-            {translate("tm_ttcLabel")}
+            <span>{translate("tm_ttcLabel")}</span>
           </Tooltip>
         }
         value={localTmTtc}
@@ -532,7 +532,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         id={ID.tm_ttl}
         label={
           <Tooltip content={translate("tm_ttlHelper")} placement="top">
-            {translate("tm_ttlLabel")}
+            <span>{translate("tm_ttlLabel")}</span>
           </Tooltip>
         }
         value={localTmTtl}
@@ -546,7 +546,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="no-wrap"
         label={
           <Tooltip content={translate("tm_tagHelper")} placement="top">
-            {translate("tm_tagLabel")}
+            <span>{translate("tm_tagLabel")}</span>
           </Tooltip>
         }
         level={1}
@@ -566,7 +566,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           flow="wrap"
           label={
             <Tooltip content={translate("tm_tagHelper")} placement="top">
-              {translate("tm_tagLabel")}
+              <span>{translate("tm_tagLabel")}</span>
             </Tooltip>
           }
           level={2}
@@ -584,7 +584,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         flow="wrap"
         label={
           <Tooltip content={translate("tm_descriptionHelper")} placement="top">
-            {translate("tm_descriptionLabel")}
+            <span>{translate("tm_descriptionLabel")}</span>
           </Tooltip>
         }
         level={1}
@@ -1712,7 +1712,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           flow="wrap"
           label={
             <Tooltip content={translate("serviceTypeHelper")} placement="top">
-              {translate("serviceTypeLabel")}
+              <span>{translate("serviceTypeLabel")}</span>
             </Tooltip>
           }
           level={1}
@@ -1740,7 +1740,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("serviceModeSyncHelper")}
                 placement="top"
               >
-                {translate("serviceModeSync")}
+                <span>{translate("serviceModeSync")}</span>
               </Tooltip>
             }
             level={1}
@@ -1765,7 +1765,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           id={ID.supportEmail}
           label={
             <Tooltip content={translate("supportEmailHelper")} placement="top">
-              {translate("supportEmail")}
+              <span>{translate("supportEmail")}</span>
             </Tooltip>
           }
           type="email"
@@ -1808,7 +1808,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("maskEmailOnSuccessHelper")}
                 placement="top"
               >
-                {translate("maskEmailOnSuccess")}
+                <span>{translate("maskEmailOnSuccess")}</span>
               </Tooltip>
             }
             level={1}
@@ -1833,7 +1833,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("autoCloseOtherWidgetsHelper")}
               placement="top"
             >
-              {translate("autoCloseOtherWidgetsLabel")}
+              <span>{translate("autoCloseOtherWidgetsLabel")}</span>
             </Tooltip>
           }
           level={1}
@@ -1863,7 +1863,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowScheduleModeHelper")}
                 placement="top"
               >
-                {translate("allowScheduleModeLabel")}
+                <span>{translate("allowScheduleModeLabel")}</span>
               </Tooltip>
             }
             level={1}
@@ -1890,7 +1890,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowRemoteDatasetHelper")}
                 placement="top"
               >
-                {translate("allowRemoteDatasetLabel")}
+                <span>{translate("allowRemoteDatasetLabel")}</span>
               </Tooltip>
             }
             level={1}
@@ -1917,7 +1917,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowRemoteUrlDatasetHelper")}
                 placement="top"
               >
-                {translate("allowRemoteUrlDatasetLabel")}
+                <span>{translate("allowRemoteUrlDatasetLabel")}</span>
               </Tooltip>
             }
             level={1}
@@ -1947,7 +1947,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               })}
               placement="top"
             >
-              {translate("maxAreaLabel")}
+              <span>{translate("maxAreaLabel")}</span>
             </Tooltip>
           }
           value={localMaxAreaM2}
@@ -1970,7 +1970,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               })}
               placement="top"
             >
-              {translate("largeAreaLabel")}
+              <span>{translate("largeAreaLabel")}</span>
             </Tooltip>
           }
           value={localLargeAreaM2}
@@ -1989,7 +1989,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               })}
               placement="top"
             >
-              {translate("largeAreaMessageLabel")}
+              <span>{translate("largeAreaMessageLabel")}</span>
             </Tooltip>
           }
           value={localLargeAreaMessage}
@@ -2011,7 +2011,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               })}
               placement="top"
             >
-              {translate("customInfoMessageLabel")}
+              <span>{translate("customInfoMessageLabel")}</span>
             </Tooltip>
           }
           value={localCustomInfoMessage}
@@ -2064,7 +2064,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           id={ID.aoiParamName}
           label={
             <Tooltip content={translate("aoiParamNameHelper")} placement="top">
-              {translate("aoiParamNameLabel")}
+              <span>{translate("aoiParamNameLabel")}</span>
             </Tooltip>
           }
           value={localAoiParamName}
@@ -2089,7 +2089,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("aoiGeoJsonParamNameHelper")}
               placement="top"
             >
-              {translate("aoiGeoJsonParamNameLabel")}
+              <span>{translate("aoiGeoJsonParamNameLabel")}</span>
             </Tooltip>
           }
           value={localAoiGeoJsonParamName}
@@ -2110,7 +2110,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("aoiWktParamNameHelper")}
               placement="top"
             >
-              {translate("aoiWktParamNameLabel")}
+              <span>{translate("aoiWktParamNameLabel")}</span>
             </Tooltip>
           }
           value={localAoiWktParamName}
@@ -2132,7 +2132,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               content={translate("requestTimeoutHelper")}
               placement="top"
             >
-              {translate("requestTimeoutLabel")}
+              <span>{translate("requestTimeoutLabel")}</span>
             </Tooltip>
           }
           level={1}
@@ -2160,7 +2160,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("uploadTargetParamNameHelper")}
                 placement="top"
               >
-                {translate("uploadTargetParamNameLabel")}
+                <span>{translate("uploadTargetParamNameLabel")}</span>
               </Tooltip>
             }
             value={localUploadTargetParamName}
