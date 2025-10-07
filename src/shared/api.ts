@@ -1401,16 +1401,6 @@ export class FmeFlowApiClient {
       throw makeError("WEBHOOK_NON_JSON", status, { contentType })
     }
 
-    const hasCoreField =
-      Object.prototype.hasOwnProperty.call(data, "status") ||
-      Object.prototype.hasOwnProperty.call(data, "url") ||
-      Object.prototype.hasOwnProperty.call(data, "jobID") ||
-      Object.prototype.hasOwnProperty.call(data, "jobId")
-
-    if (!hasCoreField) {
-      throw makeError("WEBHOOK_BAD_RESPONSE", status, data)
-    }
-
     return {
       data,
       status,
