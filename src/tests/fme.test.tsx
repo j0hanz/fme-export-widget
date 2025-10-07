@@ -21,6 +21,7 @@ import {
   type FmeExportConfig,
   type EsriModules,
 } from "../config/index"
+import { createFmeFlowClient } from "../shared/api"
 
 beforeAll(() => {
   initGlobal()
@@ -676,5 +677,33 @@ describe("processFmeResponse", () => {
     expect(result.success).toBe(false)
     expect(result.message).toBe("No data")
     expect(result.code).toBe("NO_DATA")
+  })
+})
+
+describe("FmeFlowApiClient webhook parsing", () => {
+  it("accepts webhook payloads without canonical fields", async () => {
+    const client: any = createFmeFlowClient(buildConfig())
+    await client.setupPromise.catch(() => undefined)
+
+    const response = await client.parseWebhookResponse({
+      data: {
+        message: "done",
+        downloadUrl: "https://example.com/output.zip",
+      },
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "content-type" ? "application/json" : null,
+      },
+      status: 200,
+      statusText: "OK",
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.data).toEqual({
+      message: "done",
+      downloadUrl: "https://example.com/output.zip",
+    })
+
+    client.dispose()
   })
 })
