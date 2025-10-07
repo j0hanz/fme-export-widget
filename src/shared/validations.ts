@@ -69,9 +69,9 @@ export const validateServerUrl = (
 ): { ok: boolean; key?: string } => {
   const trimmedUrl = url?.trim()
   const invalid = (key: string) => ({ ok: false as const, key })
-  const invalidBaseUrl = () => invalid("validations.urlInvalid")
+  const invalidBaseUrl = () => invalid("urlInvalid")
 
-  if (!trimmedUrl) return invalid("connection.missingServerUrl")
+  if (!trimmedUrl) return invalid("missingServerUrl")
 
   const parsedUrl = safeParseUrl(trimmedUrl)
   if (!parsedUrl) return invalidBaseUrl()
@@ -87,7 +87,7 @@ export const validateServerUrl = (
   if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
 
   if (hasForbiddenPaths(parsedUrl.pathname)) {
-    return { ok: false, key: "validations.urlInvalid" }
+    return { ok: false, key: "urlInvalid" }
   }
 
   if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
@@ -160,15 +160,14 @@ const isPrivateIpv6Host = (hostname: string): boolean => {
 }
 
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
-  if (!token) return { ok: false, key: "connection.missingToken" }
+  if (!token) return { ok: false, key: "missingToken" }
 
   const tooShort = token.length < MIN_TOKEN_LENGTH
   const hasWhitespace = /\s/.test(token)
   const invalidChars = hasDangerousCharacters(token)
 
   if (tooShort || invalidChars) {
-    if (hasWhitespace)
-      return { ok: false, key: "connection.tokenWithWhitespace" }
+    if (hasWhitespace) return { ok: false, key: "tokenWithWhitespace" }
     return { ok: false, key: "errorTokenIssue" }
   }
 
@@ -181,9 +180,9 @@ export const validateRepository = (
 ): { ok: boolean; key?: string } => {
   if (available === null) return { ok: true }
   if (available.length > 0 && !repository)
-    return { ok: false, key: "connection.missingRepository" }
+    return { ok: false, key: "missingRepository" }
   if (available.length > 0 && repository && !available.includes(repository)) {
-    return { ok: false, key: "connection.invalidRepository" }
+    return { ok: false, key: "invalidRepository" }
   }
   return { ok: true }
 }
@@ -391,7 +390,7 @@ export function validateConnectionInputs(args: {
   const errors: { serverUrl?: string; token?: string; repository?: string } = {}
 
   const u = validateServerUrl(url)
-  if (!u.ok) errors.serverUrl = u.key || "validations.urlInvalid"
+  if (!u.ok) errors.serverUrl = u.key || "urlInvalid"
 
   const t = validateToken(token)
   if (!t.ok) errors.token = t.key || "errorTokenIssue"
@@ -400,8 +399,7 @@ export function validateConnectionInputs(args: {
     repository || "",
     availableRepos === undefined ? [] : availableRepos
   )
-  if (!repoCheck.ok)
-    errors.repository = repoCheck.key || "connection.invalidRepository"
+  if (!repoCheck.ok) errors.repository = repoCheck.key || "invalidRepository"
 
   return { ok: Object.keys(errors).length === 0, errors }
 }
