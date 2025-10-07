@@ -299,6 +299,39 @@ describe("remote dataset resolution", () => {
     expect(params).not.toHaveProperty("opt_geturl")
     expect(params.UploadParam).toBe("/temp/uploaded/path")
   })
+
+  it("removes opt_geturl when uploading a dataset even if remote URLs are allowed", async () => {
+    const file = makeFile()
+    const params: MutableParams = {
+      opt_geturl: "https://datasets.example.com/old.zip",
+    }
+    const uploadResponse = {
+      data: { path: "/temp/uploaded/path" },
+      status: 200,
+      statusText: "OK",
+    }
+    const fmeClient = {
+      uploadToTemp: jest.fn().mockResolvedValue(uploadResponse),
+    }
+
+    await resolveRemoteDataset({
+      params,
+      remoteUrl: "",
+      uploadFile: file,
+      config: makeConfig({
+        allowRemoteDataset: true,
+        allowRemoteUrlDataset: true,
+      }),
+      workspaceParameters: [],
+      makeCancelable,
+      fmeClient: fmeClient as any,
+      signal: new AbortController().signal,
+      subfolder: "temp",
+    })
+
+    expect(params).not.toHaveProperty("opt_geturl")
+    expect(params.SourceDataset).toBe("/temp/uploaded/path")
+  })
 })
 
 describe("prepareSubmissionParams", () => {
