@@ -640,8 +640,7 @@ export default function Widget(
       if (!validationResult.isValid) {
         if (validationResult.error) {
           setValidationError(validationResult.error)
-        } else {
-          // Fallback error
+        } else if (validationResult.requiresSettings) {
           setValidationError(
             createStartupError(
               "configurationInvalid",
@@ -649,6 +648,8 @@ export default function Widget(
               runStartupValidation
             )
           )
+        } else {
+          setStartupStep(undefined)
         }
         return
       }
