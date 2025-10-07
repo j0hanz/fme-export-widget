@@ -27,8 +27,9 @@ export default {
   serverUrlFormatHint: "Exempel på giltig URL: https://fme.server.com.",
   tokenRequired: "Ange API-nyckeln för FME Server.",
   statusPreparingMapTools: "Förbereder kartverktygen...",
-  hintDrawRectangle: "Klicka och dra för att rita en rektangel.",
-  hintDrawPolygonStart: "Klicka på kartan för att börja rita en polygon.",
+  hintStartDrawing:
+    "Klicka på kartan för att ange utbredning för din beställning.",
+  hintDrawRectangle: "Fortsätt dra för att rita en rektangel.",
   hintDrawPolygonContinue: "Fortsätt klicka för att lägga till hörn.",
   hintDrawPolygonComplete: "Dubbelklicka för att avsluta polygonen.",
   hintSelectDrawingMode: "Välj ett ritläge för att börja.",

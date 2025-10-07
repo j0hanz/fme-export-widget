@@ -2041,14 +2041,17 @@ export default function Widget(
   // Instruction text
   const getDrawingInstructions = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
+      // Show general instruction before first click
+      if (clickCount === 0) {
+        return translate("hintStartDrawing")
+      }
+
+      // After first click, show tool-specific instructions
       if (tool === DrawingTool.RECTANGLE) {
         return translate("hintDrawRectangle")
       }
 
       if (tool === DrawingTool.POLYGON) {
-        if (!isDrawing || clickCount === 0) {
-          return translate("hintDrawPolygonStart")
-        }
         if (clickCount < 3) {
           return translate("hintDrawPolygonContinue")
         }
