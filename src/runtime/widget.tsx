@@ -24,7 +24,6 @@ import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
   FmeExportConfig,
-  EsriModules,
   ExportResult,
   IMStateWithFmeExport,
   FmeWidgetState,
@@ -32,27 +31,25 @@ import type {
   WorkspaceItemDetail,
   ErrorState,
   SerializableErrorState,
-  ApiResponse,
   DrawingSessionState,
-  MutableParams,
-  RemoteDatasetOptions,
-  SubmissionPreparationOptions,
-  SubmissionPreparationResult,
-} from "../config"
+} from "../config/index"
 import {
   makeErrorView,
   DrawingTool,
   ViewMode,
   ErrorType,
   ErrorSeverity,
-  LAYER_CONFIG,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
-} from "../config"
-import { validateWidgetStartup } from "../shared/services"
+} from "../config/index"
+import {
+  validateWidgetStartup,
+  prepareSubmissionParams,
+  createLayers,
+  createSketchVM,
+} from "../shared/services"
 import {
   mapErrorToKey,
-  isValidExternalUrlForOptGetUrl,
   calcArea,
   validatePolygon,
   checkMaxArea,
@@ -68,921 +65,27 @@ import {
   resolveMessageOrKey,
   buildSupportHintText,
   getEmail,
-  attachAoi,
-  prepFmeParams,
   determineServiceMode,
-  applyDirectiveDefaults,
   formatArea,
   isValidEmail,
   getSupportEmail,
   formatErrorForView,
   useLatestAbortController,
-  toTrimmedString,
-  coerceFormValueForSubmission,
   logIfNotAbort,
-  loadArcgisModules,
-  createPopupSuppressionRecord,
-  releasePopupSuppressionRecord,
   popupSuppressionManager,
   maskToken,
+  hexToRgbArray,
+  buildSymbols,
+  isNavigatorOffline,
+  computeWidgetsToClose,
 } from "../shared/utils"
-import type { PopupSuppressionRecord } from "../shared/utils"
-
-// Styling and symbols derived from config
-
-const hexToRgbArray = (hex: string): [number, number, number] => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-  const n = m ? parseInt(m[1], 16) : parseInt(DEFAULT_DRAWING_HEX.slice(1), 16)
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
-}
-
-const buildSymbols = (rgb: readonly [number, number, number]) => {
-  const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
-  const highlight = {
-    type: "simple-fill" as const,
-    color: [...base, 0.2] as [number, number, number, number],
-    outline: {
-      color: base,
-      width: 2,
-      style: "solid" as const,
-    },
-  }
-  const symbols = {
-    polygon: highlight,
-    polyline: {
-      type: "simple-line",
-      color: base,
-      width: 2,
-      style: "solid",
-    },
-    point: {
-      type: "simple-marker",
-      style: "circle",
-      size: 8,
-      color: base,
-      outline: {
-        color: [255, 255, 255],
-        width: 1,
-      },
-    },
-  } as const
-  return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
-}
-
-const normalizeSketchCreateTool = (
-  tool: string | null | undefined
-): "polygon" | "rectangle" | null => {
-  if (!tool) return null
-  const normalized = tool.toLowerCase()
-  if (normalized === "extent" || normalized === "rectangle") {
-    return "rectangle"
-  }
-  if (normalized === "polygon") {
-    return "polygon"
-  }
-  return null
-}
-
-const UPLOAD_PARAM_TYPES = [
-  "FILENAME",
-  "FILENAME_MUSTEXIST",
-  "DIRNAME",
-  "DIRNAME_MUSTEXIST",
-  "DIRNAME_SRC",
-  "LOOKUP_FILE",
-  "REPROJECTION_FILE",
-] as const
-
-const resolveUploadTargetParam = (
-  config: FmeExportConfig | null | undefined
-): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
-
-const parseSubmissionFormData = (rawData: {
-  [key: string]: unknown
-}): {
-  sanitizedFormData: { [key: string]: unknown }
-  uploadFile: File | null
-  remoteUrl: string
-} => {
-  const {
-    __upload_file__: uploadField,
-    __remote_dataset_url__: remoteDatasetField,
-    opt_geturl: optGetUrlField,
-    ...restFormData
-  } = rawData
-
-  const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
-  const sanitizedFormData = sanitizedOptGetUrl
-    ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
-    : { ...restFormData }
-
-  const normalizedFormData: { [key: string]: unknown } = {}
-  for (const [key, val] of Object.entries(sanitizedFormData)) {
-    normalizedFormData[key] = coerceFormValueForSubmission(val)
-  }
-
-  const uploadFile = uploadField instanceof File ? uploadField : null
-  const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
-
-  return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
-}
-
-const applyUploadedDatasetParam = ({
-  finalParams,
-  uploadedPath,
-  parameters,
-  explicitTarget,
-}: {
-  finalParams: { [key: string]: unknown }
-  uploadedPath?: string
-  parameters?: readonly WorkspaceParameter[] | null
-  explicitTarget: string | null
-}): void => {
-  if (!uploadedPath) return
-
-  if (explicitTarget) {
-    finalParams[explicitTarget] = uploadedPath
-    return
-  }
-
-  const candidate = (parameters ?? []).find((param) => {
-    const normalizedType = String(
-      param?.type
-    ) as (typeof UPLOAD_PARAM_TYPES)[number]
-    return UPLOAD_PARAM_TYPES.includes(normalizedType)
-  })
-
-  if (candidate?.name) {
-    finalParams[candidate.name] = uploadedPath
-    return
-  }
-
-  if (
-    typeof (finalParams as { SourceDataset?: unknown }).SourceDataset ===
-    "undefined"
-  ) {
-    ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
-  }
-}
-
-const isNavigatorOffline = (): boolean => {
-  try {
-    const nav = (globalThis as any)?.navigator
-    return Boolean(nav && nav.onLine === false)
-  } catch {
-    return false
-  }
-}
-
-const sanitizeOptGetUrlParam = (
-  params: MutableParams,
-  config: FmeExportConfig | null | undefined
-): void => {
-  const value = params.opt_geturl
-
-  if (typeof value !== "string") {
-    delete params.opt_geturl
-    return
-  }
-
-  const trimmed = value.trim()
-  const urlIsAllowed = Boolean(config?.allowRemoteUrlDataset)
-  const urlIsValid = isValidExternalUrlForOptGetUrl(trimmed)
-
-  if (!trimmed || !urlIsAllowed || !urlIsValid) {
-    delete params.opt_geturl
-    return
-  }
-
-  params.opt_geturl = trimmed
-}
-
-const shouldApplyRemoteDatasetUrl = (
-  remoteUrl: string,
-  config: FmeExportConfig | null | undefined
-): boolean =>
-  Boolean(
-    config?.allowRemoteUrlDataset &&
-      remoteUrl &&
-      isValidExternalUrlForOptGetUrl(remoteUrl)
-  )
-
-const shouldUploadRemoteDataset = (
-  config: FmeExportConfig | null | undefined,
-  uploadFile: File | null
-): uploadFile is File => Boolean(config?.allowRemoteDataset && uploadFile)
-
-const removeAoiErrorMarker = (params: MutableParams): void => {
-  if (typeof params.__aoi_error__ !== "undefined") {
-    delete params.__aoi_error__
-  }
-}
-
-const resolveRemoteDataset = async ({
-  params,
-  remoteUrl,
-  uploadFile,
-  config,
-  workspaceParameters,
-  makeCancelable,
-  fmeClient,
-  signal,
-  subfolder,
-}: RemoteDatasetOptions): Promise<void> => {
-  sanitizeOptGetUrlParam(params, config)
-
-  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
-    params.opt_geturl = remoteUrl
-    return
-  }
-
-  if (!shouldUploadRemoteDataset(config, uploadFile)) {
-    return
-  }
-
-  // When uploading a dataset we must clear any lingering opt_geturl value to
-  // avoid conflicting inputs. Otherwise a previously valid remote URL would
-  // override the uploaded dataset. (SRP & defensive programming)
-  if (typeof params.opt_geturl !== "undefined") {
-    delete params.opt_geturl
-  }
-
-  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
-    fmeClient.uploadToTemp(uploadFile, {
-      subfolder,
-      signal,
-    })
-  )
-
-  const uploadedPath = uploadResponse.data?.path
-  applyUploadedDatasetParam({
-    finalParams: params,
-    uploadedPath,
-    parameters: workspaceParameters,
-    explicitTarget: resolveUploadTargetParam(config),
-  })
-}
-
-const prepareSubmissionParams = async ({
-  rawFormData,
-  userEmail,
-  geometryJson,
-  geometry,
-  modules,
-  config,
-  workspaceParameters,
-  makeCancelable,
-  fmeClient,
-  signal,
-  remoteDatasetSubfolder,
-}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> => {
-  const { sanitizedFormData, uploadFile, remoteUrl } =
-    parseSubmissionFormData(rawFormData)
-
-  const baseParams = prepFmeParams(
-    {
-      data: sanitizedFormData,
-    },
-    userEmail,
-    geometryJson,
-    geometry || undefined,
-    modules,
-    {
-      config,
-      workspaceParameters,
-    }
-  )
-
-  const aoiError = (baseParams as MutableParams).__aoi_error__
-  if (aoiError) {
-    return { params: null, aoiError }
-  }
-
-  const params: MutableParams = { ...baseParams }
-
-  await resolveRemoteDataset({
-    params,
-    remoteUrl,
-    uploadFile,
-    config,
-    workspaceParameters,
-    makeCancelable,
-    fmeClient,
-    signal,
-    subfolder: remoteDatasetSubfolder,
-  })
-
-  const paramsWithDefaults = applyDirectiveDefaults(params, config as any)
-  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
-
-  return { params: paramsWithDefaults }
-}
-
-// ArcGIS JS API modules
-const MODULES = [
-  "esri/widgets/Sketch/SketchViewModel",
-  "esri/layers/GraphicsLayer",
-  "esri/geometry/geometryEngine",
-  "esri/geometry/geometryEngineAsync",
-  "esri/geometry/support/webMercatorUtils",
-  "esri/geometry/projection",
-  "esri/geometry/SpatialReference",
-  "esri/geometry/support/normalizeUtils",
-  "esri/geometry/Polyline",
-  "esri/geometry/Polygon",
-  "esri/Graphic",
-] as const
-
-// Safe operation helpers
-const safely = <T,>(
-  resource: T | null | undefined,
-  _context = "ArcGIS safe operation failed",
-  operation: (value: T) => void
-): void => {
-  if (!resource) return
-  try {
-    operation(resource)
-  } catch {}
-}
-
-const safeCancelSketch = (
-  vm?: __esri.SketchViewModel | null,
-  context = "Failed to cancel SketchViewModel"
-): void => {
-  safely(vm, context, (model) => {
-    model.cancel()
-  })
-}
-
-const safeClearLayer = (
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to clear GraphicsLayer"
-): void => {
-  safely(layer, context, (graphics) => {
-    graphics.removeAll()
-  })
-}
-
-const destroyGraphicsLayer = (
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to destroy GraphicsLayer"
-): void => {
-  safely(layer, context, (graphics) => {
-    const destroyFn = (graphics as { destroy?: () => void }).destroy
-    if (typeof destroyFn === "function") {
-      destroyFn.call(graphics)
-    }
-  })
-}
-
-const removeLayerFromMap = (
-  jmv?: JimuMapView | null,
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to remove GraphicsLayer from map"
-): void => {
-  if (!jmv?.view?.map) return
-  safely(layer, context, (graphicsLayer) => {
-    if (graphicsLayer.parent) {
-      jmv.view.map.remove(graphicsLayer)
-    }
-  })
-}
-
-export const computeWidgetsToClose = (
-  runtimeInfo:
-    | { [id: string]: { state?: WidgetState | string } | undefined }
-    | null
-    | undefined,
-  widgetId: string
-): string[] => {
-  if (!runtimeInfo) return []
-
-  const ids: string[] = []
-
-  for (const [id, info] of Object.entries(runtimeInfo)) {
-    if (id === widgetId || !info) continue
-    const stateRaw = info.state
-    if (!stateRaw) continue
-    const normalized =
-      typeof stateRaw === "string"
-        ? stateRaw.toUpperCase()
-        : String(stateRaw).toUpperCase()
-
-    if (
-      normalized === WidgetState.Closed ||
-      normalized === WidgetState.Hidden
-    ) {
-      continue
-    }
-
-    ids.push(id)
-  }
-
-  return ids
-}
-
-export const clearPopupSuppression = (
-  ref: { current: PopupSuppressionRecord | null } | null | undefined
-): void => {
-  const record = ref?.current
-  if (!record) return
-  releasePopupSuppressionRecord(record)
-  ref.current = null
-}
-
-export const applyPopupSuppression = (
-  ref: { current: PopupSuppressionRecord | null } | null | undefined,
-  popup: __esri.Popup | null | undefined,
-  view: __esri.MapView | __esri.SceneView | null | undefined
-): void => {
-  if (!ref) return
-
-  if (!popup) {
-    clearPopupSuppression(ref)
-    return
-  }
-
-  if (ref.current?.popup === popup) {
-    try {
-      if (view && typeof (view as any).closePopup === "function") {
-        ;(view as any).closePopup()
-      } else if (typeof popup.close === "function") {
-        popup.close()
-      }
-    } catch {}
-    return
-  }
-
-  clearPopupSuppression(ref)
-
-  const record = createPopupSuppressionRecord(popup, view)
-  ref.current = record
-}
-
-// Consolidated module and resource management
-const useEsriModules = (
-  reloadSignal: number
-): {
-  modules: EsriModules | null
-  loading: boolean
-  errorKey: string | null
-} => {
-  const [state, setState] = React.useState<{
-    modules: EsriModules | null
-    loading: boolean
-    errorKey: string | null
-  }>({ modules: null, loading: true, errorKey: null })
-
-  hooks.useEffectWithPreviousValues(() => {
-    let cancelled = false
-
-    setState((prev) => ({
-      modules: reloadSignal === 0 ? prev.modules : null,
-      loading: true,
-      errorKey: null,
-    }))
-
-    const loadModules = async () => {
-      try {
-        const loaded = await loadArcgisModules(MODULES)
-        if (cancelled) return
-
-        const [
-          SketchViewModel,
-          GraphicsLayer,
-          geometryEngine,
-          geometryEngineAsync,
-          webMercatorUtils,
-          projection,
-          SpatialReference,
-          normalizeUtils,
-          Polyline,
-          Polygon,
-          Graphic,
-        ] = loaded
-
-        try {
-          const proj = projection as any
-          if (proj?.load && typeof proj.load === "function") {
-            await proj.load()
-          }
-        } catch {}
-
-        const geometryOperators =
-          (geometryEngineAsync as any)?.operators ??
-          (geometryEngine as any)?.operators ??
-          null
-
-        setState({
-          modules: {
-            SketchViewModel,
-            GraphicsLayer,
-            geometryEngine,
-            geometryEngineAsync,
-            webMercatorUtils,
-            projection,
-            SpatialReference,
-            normalizeUtils,
-            Polyline,
-            Polygon,
-            Graphic,
-            geometryOperators,
-          } as EsriModules,
-          loading: false,
-          errorKey: null,
-        })
-      } catch (error) {
-        if (!cancelled) {
-          setState({ modules: null, loading: false, errorKey: "errorMapInit" })
-        }
-      }
-    }
-
-    void loadModules()
-    return () => {
-      cancelled = true
-    }
-  }, [reloadSignal])
-
-  return state
-}
-
-// Consolidated map state and resource management
-const useMapResources = () => {
-  const [state, setState] = React.useState<{
-    jimuMapView: JimuMapView | null
-    sketchViewModel: __esri.SketchViewModel | null
-    graphicsLayer: __esri.GraphicsLayer | null
-    cleanupHandles: (() => void) | null
-  }>({
-    jimuMapView: null,
-    sketchViewModel: null,
-    graphicsLayer: null,
-    cleanupHandles: null,
-  })
-
-  const updateResource = hooks.useEventCallback(
-    <K extends keyof typeof state>(key: K, value: (typeof state)[K]) => {
-      setState((prev) => {
-        let next = prev
-
-        if (
-          key === "sketchViewModel" &&
-          prev.sketchViewModel &&
-          prev.sketchViewModel !== value
-        ) {
-          try {
-            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__
-            if (typeof cleaner === "function") {
-              cleaner()
-            }
-          } catch {}
-        }
-
-        if (
-          key === "cleanupHandles" &&
-          prev.cleanupHandles &&
-          prev.cleanupHandles !== value
-        ) {
-          try {
-            prev.cleanupHandles()
-          } catch {}
-        }
-
-        next = { ...prev, [key]: value }
-
-        if (key === "cleanupHandles" && value === null) {
-          return { ...next, cleanupHandles: null }
-        }
-
-        return next
-      })
-    }
-  )
-
-  const releaseDrawingResources = hooks.useEventCallback(
-    (logSuffix: string, resetMapView: boolean) => {
-      const { sketchViewModel, graphicsLayer, jimuMapView, cleanupHandles } =
-        state
-
-      if (cleanupHandles) {
-        try {
-          cleanupHandles()
-        } catch {}
-      }
-
-      safeCancelSketch(
-        sketchViewModel,
-        `Error ${logSuffix} SketchViewModel (cancel)`
-      )
-
-      safely(
-        sketchViewModel,
-        `Error ${logSuffix} SketchViewModel (destroy)`,
-        (model) => {
-          if (typeof model.destroy === "function") {
-            model.destroy()
-          }
-        }
-      )
-
-      removeLayerFromMap(
-        jimuMapView,
-        graphicsLayer,
-        `Error ${logSuffix} GraphicsLayer (remove)`
-      )
-      safeClearLayer(graphicsLayer, `Error ${logSuffix} GraphicsLayer (clear)`)
-      destroyGraphicsLayer(
-        graphicsLayer,
-        `Error ${logSuffix} GraphicsLayer (destroy)`
-      )
-
-      setState((prev) => ({
-        ...prev,
-        jimuMapView: resetMapView ? null : prev.jimuMapView,
-        sketchViewModel: null,
-        graphicsLayer: null,
-        cleanupHandles: null,
-      }))
-    }
-  )
-
-  // Teardown drawing resources
-  const teardownDrawingResources = hooks.useEventCallback(() => {
-    releaseDrawingResources("tearing down", false)
-  })
-
-  const cleanupResources = hooks.useEventCallback(() => {
-    releaseDrawingResources("cleaning up", true)
-  })
-
-  return {
-    ...state,
-    setJimuMapView: (view: JimuMapView | null) =>
-      updateResource("jimuMapView", view),
-    setSketchViewModel: (vm: __esri.SketchViewModel | null) =>
-      updateResource("sketchViewModel", vm),
-    setGraphicsLayer: (layer: __esri.GraphicsLayer | null) =>
-      updateResource("graphicsLayer", layer),
-    setCleanupHandles: (cleanup: (() => void) | null) =>
-      updateResource("cleanupHandles", cleanup),
-    teardownDrawingResources,
-    cleanupResources,
-  }
-}
-
-// Error handling
-const useErrorDispatcher = (
-  dispatch: (action: unknown) => void,
-  widgetId: string
-) =>
-  hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
-    const error: ErrorState = {
-      message,
-      type,
-      code: code || "UNKNOWN",
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      timestamp: new Date(),
-      timestampMs: Date.now(),
-      kind: "runtime",
-    }
-    dispatch(fmeActions.setError("general", error, widgetId))
-  })
-
-// Initialize graphics layers for drawing
-const createLayers = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
-) => {
-  // Main sketch layer
-  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
-  jmv.view.map.add(layer)
-  setGraphicsLayer(layer)
-
-  return layer
-}
-
-// Create and configure SketchViewModel
-const createSketchVM = ({
-  jmv,
-  modules,
-  layer,
-  onDrawComplete,
-  dispatch,
-  widgetId,
-  symbols,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  jmv: JimuMapView
-  modules: EsriModules
-  layer: __esri.GraphicsLayer
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
-  symbols: {
-    polygon: any
-    polyline: any
-    point: any
-  }
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}): {
-  sketchViewModel: __esri.SketchViewModel
-  cleanup: () => void
-} => {
-  const sketchViewModel = new modules.SketchViewModel({
-    view: jmv.view,
-    layer,
-    polygonSymbol: symbols.polygon,
-    polylineSymbol: symbols.polyline,
-    pointSymbol: symbols.point,
-    defaultCreateOptions: {
-      hasZ: false,
-      mode: "click",
-    },
-    defaultUpdateOptions: {
-      tool: "reshape",
-      toggleToolOnClick: false,
-      enableRotation: true,
-      enableScaling: true,
-      preserveAspectRatio: false,
-    },
-    snappingOptions: {
-      enabled: true,
-      selfEnabled: true,
-      featureEnabled: true,
-    },
-    tooltipOptions: {
-      enabled: true,
-      inputEnabled: true,
-      visibleElements: {
-        area: true,
-        totalLength: true,
-        distance: true,
-        coordinates: false,
-        elevation: false,
-        rotation: false,
-        scale: false,
-        size: false,
-        radius: true,
-        direction: true,
-        header: true,
-        helpMessage: true,
-      },
-    },
-    valueOptions: {
-      directionMode: "relative",
-      displayUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-      inputUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-    },
-  })
-
-  const cleanup = setupSketchEventHandlers({
-    sketchViewModel,
-    onDrawComplete,
-    dispatch,
-    modules,
-    widgetId,
-    onDrawingSessionChange,
-    onSketchToolStart,
-  })
-  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
-  return { sketchViewModel, cleanup }
-}
-
-// Setup SketchViewModel event handlers
-const setupSketchEventHandlers = ({
-  sketchViewModel,
-  onDrawComplete,
-  dispatch,
-  modules,
-  widgetId,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  sketchViewModel: __esri.SketchViewModel
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  modules: EsriModules
-  widgetId: string
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}) => {
-  let clickCount = 0
-
-  const createHandle = sketchViewModel.on(
-    "create",
-    (evt: __esri.SketchCreateEvent) => {
-      switch (evt.state) {
-        case "start": {
-          clickCount = 0
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (!normalizedTool) {
-            safeCancelSketch(
-              sketchViewModel,
-              "Error blocking unsupported Sketch tool"
-            )
-            onDrawingSessionChange({ isActive: false, clickCount: 0 })
-            return
-          }
-          onDrawingSessionChange({ isActive: true, clickCount: 0 })
-          onSketchToolStart(
-            normalizedTool === "rectangle"
-              ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON
-          )
-          break
-        }
-
-        case "active": {
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
-            const geometry = evt.graphic.geometry as __esri.Polygon
-            const vertices = geometry.rings?.[0]
-            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
-            if (actualClicks > clickCount) {
-              clickCount = actualClicks
-              onDrawingSessionChange({
-                clickCount: actualClicks,
-                isActive: true,
-              })
-              if (actualClicks === 1) {
-                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-              }
-            }
-          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
-            clickCount = 1
-            onDrawingSessionChange({ clickCount: 1, isActive: true })
-          }
-          break
-        }
-
-        case "complete":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          try {
-            onDrawComplete(evt)
-          } catch (err: any) {
-            logIfNotAbort("onDrawComplete error", err)
-          }
-          break
-
-        case "cancel":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          break
-      }
-    }
-  )
-
-  // Re-run the same completion pipeline when a reshape finishes
-  const updateHandle = sketchViewModel.on(
-    "update",
-    (evt: __esri.SketchUpdateEvent) => {
-      if (
-        evt.state === "complete" &&
-        Array.isArray(evt.graphics) &&
-        (evt.graphics[0] as any)?.geometry
-      ) {
-        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
-        try {
-          onDrawComplete({
-            graphic: evt.graphics[0] as any,
-            state: "complete",
-            tool: normalizedTool ?? (evt as any).tool,
-          } as any)
-        } catch (err: any) {
-          logIfNotAbort("onDrawComplete update error", err)
-        }
-      }
-    }
-  )
-
-  return () => {
-    try {
-      createHandle?.remove()
-    } catch {}
-    try {
-      updateHandle?.remove()
-    } catch {}
-    try {
-      ;(sketchViewModel as any).__fmeCleanup__ = undefined
-    } catch {}
-  }
-}
-
-// Area formatting is imported from shared/utils
+import {
+  useEsriModules,
+  useMapResources,
+  useErrorDispatcher,
+  safeCancelSketch,
+  safeClearLayer,
+} from "../shared/hooks"
 
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
@@ -1231,6 +334,8 @@ export default function Widget(
   }, [config, disposeFmeClient])
 
   hooks.useUnmount(() => {
+    submissionAbort.cancel()
+    startupAbort.cancel()
     disposeFmeClient()
     disablePopupGuard()
   })
@@ -1451,10 +556,7 @@ export default function Widget(
         updateDrawingSession({ clickCount: 0 })
       }
       if (sketchViewModel) {
-        safeCancelSketch(
-          sketchViewModel,
-          "Error cancelling SketchViewModel while exiting drawing mode"
-        )
+        safeCancelSketch(sketchViewModel)
       }
       updateDrawingSession({ isActive: false })
     }
@@ -1672,10 +774,7 @@ export default function Widget(
 
   // Reset/hide measurement UI and clear layers
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    safeClearLayer(
-      graphicsLayer,
-      "Error clearing graphics during measurement reset"
-    )
+    safeClearLayer(graphicsLayer)
   })
 
   // Drawing complete with enhanced Graphic functionality
@@ -1985,36 +1084,29 @@ export default function Widget(
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (syms) {
-      safely(
-        sketchViewModel,
-        "Error applying drawing symbols to SketchViewModel",
-        (model) => {
-          ;(model as any).polygonSymbol = syms.polygon
-          ;(model as any).polylineSymbol = syms.polyline
-          ;(model as any).pointSymbol = syms.point
-        }
-      )
-      safely(
-        graphicsLayer,
-        "Error updating drawing symbols on GraphicsLayer",
-        (layer) => {
-          layer.graphics.forEach((g: any) => {
+      if (sketchViewModel) {
+        try {
+          ;(sketchViewModel as any).polygonSymbol = syms.polygon
+          ;(sketchViewModel as any).polylineSymbol = syms.polyline
+          ;(sketchViewModel as any).pointSymbol = syms.point
+        } catch {}
+      }
+      if (graphicsLayer) {
+        try {
+          graphicsLayer.graphics.forEach((g: any) => {
             if (g?.geometry?.type === "polygon") {
               g.symbol = syms.polygon
             }
           })
-        }
-      )
+        } catch {}
+      }
     }
   }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
   // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
   hooks.useUpdateEffect(() => {
     if (!isActive && sketchViewModel) {
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling drawing when widget deactivates"
-      )
+      safeCancelSketch(sketchViewModel)
     }
   }, [isActive, sketchViewModel])
 
@@ -2027,13 +1119,17 @@ export default function Widget(
     }
   }, [jimuMapView])
 
-  // Cleanup
+  // Cleanup on unmount
   hooks.useEffectOnce(() => {
     return () => {
-      // Cleanup resources on unmount
+      // Abort any pending requests
       submissionAbort.cancel()
       startupAbort.cancel()
+      // Dispose FME client and release resources
+      disposeFmeClient()
+      // Clean up map/drawing resources
       cleanupResources()
+      // Remove widget state from Redux
       dispatch(fmeActions.removeWidgetState(widgetId))
     }
   })
@@ -2088,18 +1184,11 @@ export default function Widget(
       const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
 
       if (isActive) {
-        safeCancelSketch(
-          sketchViewModel,
-          "Error cancelling active SketchViewModel before starting new drawing"
-        )
+        safeCancelSketch(sketchViewModel)
       }
     } catch {
       // fallback best-effort cancel
-
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling SketchViewModel after exception in handleStartDrawing"
-      )
+      safeCancelSketch(sketchViewModel)
     }
 
     // Start drawing immediately; prior cancel avoids overlap
@@ -2168,10 +1257,7 @@ export default function Widget(
 
     // Cancel any in-progress drawing
     if (sketchViewModel) {
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling drawing during handleReset"
-      )
+      safeCancelSketch(sketchViewModel)
     }
 
     // Reset Redux state
@@ -2414,10 +1500,7 @@ export default function Widget(
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           if (sketchViewModel) {
-            safeCancelSketch(
-              sketchViewModel,
-              "Error cancelling drawing while switching tool"
-            )
+            safeCancelSketch(sketchViewModel)
             updateDrawingSession({ isActive: false, clickCount: 0 })
           }
         }}
@@ -2460,35 +1543,3 @@ Reflect.set(
     return { state: sub || initialFmeState }
   }
 )
-
-// Consolidated exports (internal helpers exposed strictly for unit tests)
-export {
-  hexToRgbArray,
-  buildSymbols,
-  resolveUploadTargetParam,
-  parseSubmissionFormData,
-  applyUploadedDatasetParam,
-  sanitizeOptGetUrlParam,
-  shouldApplyRemoteDatasetUrl,
-  shouldUploadRemoteDataset,
-  removeAoiErrorMarker,
-  resolveRemoteDataset,
-  prepareSubmissionParams,
-  getEmail,
-  attachAoi,
-  isValidExternalUrlForOptGetUrl,
-  prepFmeParams,
-  formatArea,
-  calcArea,
-  validatePolygon,
-  processFmeResponse,
-  useEsriModules,
-  useMapResources,
-  useErrorDispatcher,
-  createLayers,
-  createSketchVM,
-  setupSketchEventHandlers,
-  popupSuppressionManager,
-}
-
-export type { PopupSuppressionRecord } from "../shared/utils"

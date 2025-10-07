@@ -20,7 +20,7 @@ import {
   type WorkspaceParameter,
   type FmeExportConfig,
   type EsriModules,
-} from "../config"
+} from "../config/index"
 
 beforeAll(() => {
   initGlobal()

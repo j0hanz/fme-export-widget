@@ -28,7 +28,8 @@ import {
   type TextOrFileMode,
   type NormalizedTextOrFile,
   type TableColumnConfig,
-} from "../../config"
+  type FileValidationResult,
+} from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
   asString,
@@ -228,6 +229,48 @@ const FILE_DISPLAY_KEYS = [
   "name",
 ] as const
 
+// File validation constants
+const MAX_FILE_SIZE_BYTES = 150 * 1024 * 1024 // 150MB
+const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)$/i
+const ALLOWED_MIME_TYPES = [
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/vnd.google-earth.kmz",
+  "application/json",
+  "application/geo+json",
+  "application/gml+xml",
+  "text/plain",
+  "",
+] as const
+
+// Helper: Validate file size and type
+const validateFile = (file: File | null | undefined): FileValidationResult => {
+  if (!file) {
+    return { valid: false, error: "fileInvalid" }
+  }
+
+  // Check file size
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    return {
+      valid: false,
+      error: "fileTooLarge",
+      maxSizeMB: Math.floor(MAX_FILE_SIZE_BYTES / (1024 * 1024)),
+    }
+  }
+
+  // Check file extension
+  if (!ALLOWED_FILE_EXTENSIONS.test(file.name)) {
+    return { valid: false, error: "fileTypeNotAllowed" }
+  }
+
+  // Check MIME type if available (some browsers don't provide it)
+  if (file.type && !ALLOWED_MIME_TYPES.includes(file.type as any)) {
+    return { valid: false, error: "fileTypeNotAllowed" }
+  }
+
+  return { valid: true }
+}
+
 // Helper: Extract a readable path/name from FME dataset metadata objects
 const resolveFileDisplayValue = (raw: unknown): string | undefined => {
   if (typeof raw === "string") return raw
@@ -271,6 +314,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     ? value
     : normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
+
+  // File validation state
+  const [fileError, setFileError] = React.useState<string | null>(null)
 
   // Determine if the field is a select type
   const isSelectType =
@@ -763,7 +809,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           field.maxLength
         )
       }
-      case FormFieldType.FILE:
+      case FormFieldType.FILE: {
         const selectedFile = isFileObject(value) ? value : null
         const resolvedDefault = !selectedFile
           ? (resolveFileDisplayValue(value) ??
@@ -777,18 +823,48 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const hasDisplay = Boolean(displayText)
         const message = hasDisplay ? displayText : null
 
+        const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+          const files = evt.target.files
+          const file = files && files.length > 0 ? files[0] : null
+
+          if (!file) {
+            setFileError(null)
+            onChange(null)
+            return
+          }
+
+          const validation = validateFile(file)
+          if (!validation.valid) {
+            setFileError(
+              validation.error === "fileTooLarge"
+                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                : validation.error === "fileTypeNotAllowed"
+                  ? translate("fileTypeNotAllowed")
+                  : translate("fileInvalid")
+            )
+            evt.target.value = ""
+            onChange(null)
+            return
+          }
+
+          setFileError(null)
+          onChange(file)
+        }
+
         return (
           <div>
             <Input
               type="file"
-              onFileChange={(evt) => {
-                const files = evt.target.files
-                onChange(files ? files[0] : null)
-              }}
+              onFileChange={handleFileChange}
               disabled={field.readOnly}
               aria-label={field.label}
             />
-            {message ? (
+            {fileError ? (
+              <div data-testid="file-field-error" role="alert">
+                {fileError}
+              </div>
+            ) : null}
+            {message && !fileError ? (
               <div
                 data-testid="file-field-display"
                 aria-live="polite"
@@ -799,6 +875,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             ) : null}
           </div>
         )
+      }
       case FormFieldType.TEXT_OR_FILE: {
         const currentValue: NormalizedTextOrFile =
           normalizeTextOrFileValue(fieldValue)
@@ -832,10 +909,40 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
           const files = evt.target.files
           const file = files && files.length > 0 ? files[0] : null
+
+          if (!file) {
+            setFileError(null)
+            onChange({
+              mode: TEXT_OR_FILE_MODES.FILE,
+              file: null,
+              fileName: undefined,
+            } as unknown as FormPrimitive)
+            return
+          }
+
+          const validation = validateFile(file)
+          if (!validation.valid) {
+            setFileError(
+              validation.error === "fileTooLarge"
+                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                : validation.error === "fileTypeNotAllowed"
+                  ? translate("fileTypeNotAllowed")
+                  : translate("fileInvalid")
+            )
+            evt.target.value = ""
+            onChange({
+              mode: TEXT_OR_FILE_MODES.FILE,
+              file: null,
+              fileName: undefined,
+            } as unknown as FormPrimitive)
+            return
+          }
+
+          setFileError(null)
           onChange({
             mode: TEXT_OR_FILE_MODES.FILE,
             file,
-            fileName: file ? getFileDisplayName(file) : undefined,
+            fileName: getFileDisplayName(file),
           } as unknown as FormPrimitive)
         }
 
@@ -874,7 +981,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   disabled={field.readOnly}
                   aria-label={field.label}
                 />
-                {isFileObject(currentValue.file) ? (
+                {fileError ? (
+                  <div data-testid="text-or-file-error" role="alert">
+                    {fileError}
+                  </div>
+                ) : null}
+                {isFileObject(currentValue.file) && !fileError ? (
                   <div data-testid="text-or-file-name">
                     {currentValue.fileName ||
                       getFileDisplayName(currentValue.file)}

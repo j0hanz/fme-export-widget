@@ -20,14 +20,12 @@ import defaultMessages from "./translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
-  type WorkspaceItemDetail,
   type WorkspaceParameter,
   type FormPrimitive,
   type FormValues,
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
-  type WorkspaceLoaderOptions,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -38,7 +36,7 @@ import {
   type ErrorState,
   ErrorSeverity,
   makeErrorView,
-} from "../../config"
+} from "../../config/index"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import itemIcon from "../../assets/icons/item.svg"
@@ -50,9 +48,6 @@ import {
   buildSupportHintText,
   maskEmailForDisplay,
   stripHtmlToText,
-  MS_LOADING,
-  WORKSPACE_ITEM_TYPE,
-  ERROR_NAMES,
   getSupportEmail,
   stripErrorLabel,
   initFormValues,
@@ -63,6 +58,7 @@ import {
   toTrimmedString,
   buildLargeAreaWarningMessage,
 } from "../../shared/utils"
+import { useFormStateManager, useWorkspaceLoader } from "../../shared/hooks"
 
 const DRAWING_MODE_TABS = [
   {
@@ -82,7 +78,6 @@ const DRAWING_MODE_TABS = [
 ] as const
 
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
-const LOADING_TIMEOUT_MS = 30000 // 30 seconds
 
 // Helper: Check if value is non-empty string
 const isNonEmptyString = (value: unknown): value is string =>
@@ -153,378 +148,6 @@ const createFormValidator = (
 
   const initializeValues = () => initFormValues(getFormConfig())
   return { getFormConfig, validateValues, initializeValues }
-}
-
-// Form state management hook
-const useFormStateManager = (
-  validator: ReturnType<typeof createFormValidator>,
-  onValuesChange?: (values: FormValues) => void
-) => {
-  const [values, setValues] = React.useState<FormValues>(() =>
-    validator.initializeValues()
-  )
-  const [isValid, setIsValid] = React.useState(true)
-  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
-
-  const syncValues = hooks.useEventCallback((next: FormValues) => {
-    setValues(next)
-    onValuesChange?.(next)
-  })
-
-  const updateField = hooks.useEventCallback(
-    (field: string, value: FormPrimitive) => {
-      const updated = { ...values, [field]: value }
-      syncValues(updated)
-    }
-  )
-
-  const validateForm = hooks.useEventCallback(() => {
-    const validation = validator.validateValues(values)
-    setIsValid(validation.isValid)
-    setErrors(validation.errors)
-    return validation
-  })
-
-  const resetForm = hooks.useEventCallback(() => {
-    const nextValues = validator.initializeValues()
-    setErrors({})
-    setIsValid(true)
-    syncValues(nextValues)
-  })
-
-  return {
-    values,
-    isValid,
-    errors,
-    updateField,
-    validateForm,
-    resetForm,
-    setValues: syncValues,
-    setIsValid,
-    setErrors,
-  }
-}
-
-// Workspace loader hook
-const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
-  const {
-    config,
-    getFmeClient,
-    translate,
-    makeCancelable,
-    widgetId,
-    onWorkspaceSelected,
-    dispatch: reduxDispatch,
-  } = opts
-
-  const [isLoading, setIsLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const loadAbortRef = React.useRef<AbortController | null>(null)
-  const loadTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-  const isMountedRef = React.useRef(true)
-  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(null)
-
-  const dispatchAction = hooks.useEventCallback((action: unknown) => {
-    reduxDispatch(action)
-  })
-
-  const beginLoading = hooks.useEventCallback(
-    (scope: "workspaces" | "parameters") => {
-      loadingScopeRef.current = scope
-      reduxDispatch(fmeActions.setLoadingFlag(scope, true, widgetId))
-      setIsLoading(true)
-    }
-  )
-
-  const finishLoading = hooks.useEventCallback(
-    (
-      scope: "workspaces" | "parameters",
-      options?: { resetLocal?: boolean }
-    ) => {
-      const shouldUpdateLocal = options?.resetLocal ?? true
-      reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
-      if (loadingScopeRef.current === scope) {
-        loadingScopeRef.current = null
-        if (shouldUpdateLocal && isMountedRef.current) {
-          setIsLoading(false)
-        }
-        return
-      }
-      if (
-        !loadingScopeRef.current &&
-        shouldUpdateLocal &&
-        isMountedRef.current
-      ) {
-        setIsLoading(false)
-      }
-    }
-  )
-
-  // Cleanup on unmount
-  hooks.useEffectOnce(() => {
-    return () => {
-      isMountedRef.current = false
-      if (loadAbortRef.current) {
-        loadAbortRef.current.abort()
-        loadAbortRef.current = null
-      }
-      if (loadTimeoutRef.current) {
-        clearTimeout(loadTimeoutRef.current)
-        loadTimeoutRef.current = null
-      }
-      const scope = loadingScopeRef.current
-      if (scope) {
-        reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
-        loadingScopeRef.current = null
-      }
-    }
-  })
-
-  // Format error for display, suppress cancelled/aborted errors
-  const formatError = hooks.useEventCallback(
-    (err: unknown, baseKey: string): string | null => {
-      const errName = (err as { name?: string } | null)?.name
-      if (
-        errName === ERROR_NAMES.CANCELLED_PROMISE ||
-        errName === ERROR_NAMES.ABORT ||
-        !isMountedRef.current
-      ) {
-        return null
-      }
-
-      try {
-        return resolveMessageOrKey(baseKey, translate)
-      } catch {
-        return translate(baseKey)
-      }
-    }
-  )
-
-  const cancelCurrent = hooks.useEventCallback(() => {
-    if (loadAbortRef.current) {
-      loadAbortRef.current.abort()
-      loadAbortRef.current = null
-    }
-    const scope = loadingScopeRef.current
-    if (scope) {
-      finishLoading(scope)
-    } else {
-      setIsLoading(false)
-    }
-  })
-
-  const finalizeSelection = hooks.useEventCallback(
-    (
-      repoName: string,
-      workspaceName: string,
-      workspaceItem: WorkspaceItemDetail,
-      parameters: readonly WorkspaceParameter[]
-    ) => {
-      if (!isMountedRef.current) return
-
-      if (onWorkspaceSelected) {
-        onWorkspaceSelected(workspaceName, parameters, workspaceItem)
-        return
-      }
-
-      dispatchAction(
-        fmeActions.applyWorkspaceData(
-          { workspaceName, parameters, item: workspaceItem },
-          widgetId
-        )
-      )
-    }
-  )
-
-  const loadAll = hooks.useEventCallback(async () => {
-    const fmeClient = getFmeClient()
-    const targetRepository = toTrimmedString(config?.repository)
-
-    if (!fmeClient || !targetRepository) {
-      if (isMountedRef.current && !targetRepository) {
-        setError(null)
-      }
-      return
-    }
-
-    cancelCurrent()
-    const controller = new AbortController()
-    loadAbortRef.current = controller
-    beginLoading("workspaces")
-    setError(null)
-
-    try {
-      const response = await makeCancelable(
-        fmeClient.getRepositoryItems(
-          targetRepository,
-          WORKSPACE_ITEM_TYPE,
-          undefined,
-          undefined,
-          controller.signal
-        )
-      )
-
-      if (controller.signal.aborted) return
-
-      if (response.status !== 200 || !response.data.items) {
-        throw new Error(translate("failedToLoadWorkspaces"))
-      }
-
-      const items = (response.data.items as readonly WorkspaceItem[]).filter(
-        (item) => item.type === WORKSPACE_ITEM_TYPE
-      )
-
-      const scoped = items.filter((item) => {
-        const repoName = toTrimmedString(
-          (item as { repository?: string })?.repository
-        )
-        return !repoName || repoName === targetRepository
-      })
-
-      const sorted = scoped.slice().sort((a, b) =>
-        (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-          sensitivity: "base",
-        })
-      )
-
-      if (isMountedRef.current) {
-        dispatchAction(fmeActions.setWorkspaceItems(sorted, widgetId))
-      }
-    } catch (err) {
-      const msg = formatError(err, "failedToLoadWorkspaces")
-      if (msg && isMountedRef.current) {
-        setError(msg)
-      }
-    } finally {
-      if (isMountedRef.current) {
-        finishLoading("workspaces")
-      } else {
-        reduxDispatch(fmeActions.setLoadingFlag("workspaces", false, widgetId))
-        loadingScopeRef.current =
-          loadingScopeRef.current === "workspaces"
-            ? null
-            : loadingScopeRef.current
-      }
-      if (loadAbortRef.current === controller) {
-        loadAbortRef.current = null
-      }
-    }
-  })
-
-  const loadItem = hooks.useEventCallback(
-    async (workspaceName: string, repositoryName?: string) => {
-      const fmeClient = getFmeClient()
-      const repoToUse =
-        toTrimmedString(repositoryName) ?? toTrimmedString(config?.repository)
-
-      if (!fmeClient || !repoToUse) {
-        return
-      }
-
-      let controller: AbortController | null = null
-      try {
-        cancelCurrent()
-        controller = new AbortController()
-        loadAbortRef.current = controller
-        beginLoading("parameters")
-        setError(null)
-
-        const [itemResponse, parametersResponse] = await Promise.all([
-          makeCancelable(
-            fmeClient.getWorkspaceItem(
-              workspaceName,
-              repoToUse,
-              controller.signal
-            )
-          ),
-          makeCancelable(
-            fmeClient.getWorkspaceParameters(
-              workspaceName,
-              repoToUse,
-              controller.signal
-            )
-          ),
-        ])
-
-        if (controller.signal.aborted) {
-          return
-        }
-
-        if (itemResponse.status !== 200 || parametersResponse.status !== 200) {
-          throw new Error(translate("failedToLoadWorkspaceDetails"))
-        }
-
-        const workspaceItem = itemResponse.data as WorkspaceItemDetail
-        const parameters = (parametersResponse.data ||
-          []) as readonly WorkspaceParameter[]
-
-        finalizeSelection(repoToUse, workspaceName, workspaceItem, parameters)
-      } catch (err) {
-        const msg = formatError(err, "failedToLoadWorkspaceDetails")
-        if (msg && isMountedRef.current) setError(msg)
-      } finally {
-        if (isMountedRef.current) {
-          finishLoading("parameters")
-        } else {
-          reduxDispatch(
-            fmeActions.setLoadingFlag("parameters", false, widgetId)
-          )
-          loadingScopeRef.current =
-            loadingScopeRef.current === "parameters"
-              ? null
-              : loadingScopeRef.current
-        }
-        if (controller && loadAbortRef.current === controller) {
-          loadAbortRef.current = null
-        }
-      }
-    }
-  )
-
-  // Clear workspaces when repository changes to prevent stale selections
-  hooks.useUpdateEffect(() => {
-    if (isMountedRef.current) {
-      cancelCurrent()
-      setError(null)
-      setIsLoading(false)
-    }
-  }, [config?.repository])
-
-  const scheduleLoad = hooks.useEventCallback(() => {
-    if (loadTimeoutRef.current) {
-      clearTimeout(loadTimeoutRef.current)
-    }
-
-    loadTimeoutRef.current = setTimeout(() => {
-      void loadAll()
-      loadTimeoutRef.current = null
-    }, MS_LOADING)
-  })
-
-  // Safety: reset loading state if stuck for too long
-  hooks.useUpdateEffect(() => {
-    if (!isLoading || !isMountedRef.current) return
-
-    const timeoutId = setTimeout(() => {
-      if (isMountedRef.current && isLoading) {
-        const scope = loadingScopeRef.current
-        if (scope) {
-          finishLoading(scope)
-        } else {
-          setIsLoading(false)
-        }
-        setError(translate("errorLoadingTimeout"))
-      }
-    }, LOADING_TIMEOUT_MS)
-
-    return () => {
-      clearTimeout(timeoutId)
-    }
-  }, [isLoading, finishLoading, translate])
-
-  return { isLoading, error, loadAll, loadItem, scheduleLoad }
 }
 
 // OrderResult component: displays job submission results

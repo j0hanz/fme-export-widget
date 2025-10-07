@@ -26,7 +26,7 @@ import {
   ViewMode,
   DrawingTool,
   type DynamicFieldConfig,
-} from "../config"
+} from "../config/index"
 import { initialFmeState } from "../extensions/store"
 
 jest.mock("jimu-ui", () => {

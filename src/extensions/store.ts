@@ -20,7 +20,7 @@ import {
   type LoadingState,
   type LoadingFlagKey,
   type ErrorMap,
-} from "../config"
+} from "../config/index"
 import { toSerializable } from "../shared/utils"
 
 export const fmeActions = {

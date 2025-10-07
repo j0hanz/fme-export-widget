@@ -10,8 +10,17 @@ import {
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
+  normalizeLargeAreaMessage,
+  normalizeLargeAreaMessageInput,
 } from "../shared/utils"
-import { useTheme } from "jimu-theme"
+import {
+  useBuilderSelector,
+  useStringConfigValue,
+  useBooleanConfigValue,
+  useNumberConfigValue,
+  useUpdateConfig,
+  useSettingStyles as useSettingStylesHook,
+} from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
 import {
@@ -45,7 +54,7 @@ import {
   validateConnection,
   getRepositories as fetchRepositoriesService,
 } from "../shared/services"
-import { fmeActions } from "../extensions/store"
+import { fmeActions, createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
   IMWidgetConfig,
@@ -61,44 +70,15 @@ import type {
   RepositorySelectorProps,
   JobDirectivesSectionProps,
   TmTagPreset,
-} from "../config"
-import { DEFAULT_DRAWING_HEX } from "../config"
+} from "../config/index"
+import {
+  DEFAULT_DRAWING_HEX,
+  FAST_TM_TAG,
+  SETTING_CONSTANTS,
+} from "../config/index"
 import resetIcon from "../assets/icons/refresh.svg"
 
-const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160
-
-// Constants
-const CONSTANTS = {
-  VALIDATION: {
-    DEFAULT_TTL_VALUE: "",
-    DEFAULT_TTC_VALUE: "",
-  },
-  LIMITS: {
-    MAX_M2_CAP: 10_000_000_000,
-    MAX_REQUEST_TIMEOUT_MS: 600_000,
-  },
-  DIRECTIVES: {
-    DESCRIPTION_MAX: 512,
-    TAG_MAX: 128,
-  },
-  COLORS: {
-    BACKGROUND_DARK: "#181818",
-  },
-  TEXT: {
-    LARGE_AREA_MESSAGE_MAX: LARGE_AREA_MESSAGE_CHAR_LIMIT,
-  },
-} as const
-
-const FAST_TM_TAG = "fast"
-
-const normalizeLargeAreaMessageInput = (value: string): string =>
-  (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
-
-const normalizeLargeAreaMessage = (value: string): string => {
-  const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
-  if (!base) return ""
-  return base.slice(0, CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX)
-}
+const CONSTANTS = SETTING_CONSTANTS
 
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
@@ -254,13 +234,14 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   styles,
   ID,
   repoHint,
+  isBusy,
 }) => {
   // Allow manual refresh whenever URL and token are present and pass basic validation
   const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
   const tokenCheck = validateToken(localToken)
   const hasValidServer = !!localServerUrl && serverCheck.ok
   const hasValidToken = tokenCheck.ok
-  const canRefresh = hasValidServer && hasValidToken
+  const canRefresh = hasValidServer && hasValidToken && !isBusy
 
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
@@ -279,7 +260,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   )
 
   const isSelectDisabled =
-    !hasValidServer || !hasValidToken || availableRepos === null
+    !hasValidServer || !hasValidToken || availableRepos === null || isBusy
   const repositoryPlaceholder = (() => {
     if (!hasValidServer || !hasValidToken) {
       return translate("testConnectionFirst")
@@ -692,40 +673,6 @@ const handleValidationFailure = (
   if (repositories) setAvailableRepos(repositories)
 }
 
-// String-only config getter to avoid repetitive type assertions
-function useStringConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (prop: keyof FmeExportConfig, defaultValue = ""): string => {
-      const v = config?.[prop]
-      return typeof v === "string" ? v : defaultValue
-    }
-  )
-}
-
-// Boolean config getter
-function useBooleanConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (prop: keyof FmeExportConfig, defaultValue = false): boolean => {
-      const v = config?.[prop]
-      return typeof v === "boolean" ? v : defaultValue
-    }
-  )
-}
-
-// Number config getter
-function useNumberConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (
-      prop: keyof FmeExportConfig,
-      defaultValue?: number
-    ): number | undefined => {
-      const v = config?.[prop]
-      if (typeof v === "number" && Number.isFinite(v)) return v
-      return defaultValue
-    }
-  )
-}
-
 // Create theme-aware styles for the setting UI
 const createSettingStyles = (theme: any) => {
   return {
@@ -771,34 +718,16 @@ const createSettingStyles = (theme: any) => {
   } as const
 }
 
-// Small helper to centralize config updates
-function useUpdateConfig(
-  id: string,
-  config: IMWidgetConfig,
-  onSettingChange: AllWidgetSettingProps<IMWidgetConfig>["onSettingChange"]
-) {
-  return hooks.useEventCallback(
-    <K extends keyof FmeExportConfig>(key: K, value: FmeExportConfig[K]) => {
-      onSettingChange({
-        id,
-        // Update only the specific key in the config
-        config: config.set(key as string, value),
-      })
-    }
-  )
-}
-
-const useSettingStyles = () => {
-  const theme = useTheme()
-  return createSettingStyles(theme)
-}
-
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
-  const settingStyles = useSettingStyles()
+  const settingStyles = useSettingStylesHook(createSettingStyles)
   const dispatch = useDispatch()
+
+  // Builder-aware Redux selectors
+  const fmeSelectors = React.useMemo(() => createFmeSelectors(id), [id])
+  const isBusy = useBuilderSelector(fmeSelectors.selectIsBusy)
 
   const getStringConfig = useStringConfigValue(config)
   const getBooleanConfig = useBooleanConfigValue(config)
@@ -1334,8 +1263,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const tokenValidation = validateToken(localToken)
   const canRunConnectionTest = serverValidation.ok && tokenValidation.ok
 
-  // Handle "Test Connection" button click
-  const isTestDisabled = !!testState.isTesting || !canRunConnectionTest
+  // Handle "Test Connection" button click - disable when widget is busy
+  const isTestDisabled =
+    !!testState.isTesting || !canRunConnectionTest || isBusy
 
   // Connection test sub-functions for better organization
   const handleTestSuccess = hooks.useEventCallback(
@@ -1562,8 +1492,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setError(
       setFieldErrors,
       "serverUrl",
-      !validation.ok
-        ? translate(validation.key || "invalidServerUrl")
+      !validation.ok && "reason" in validation
+        ? translate(`validations.${validation.reason}`)
         : undefined
     )
 
@@ -1582,8 +1512,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setError(
         setFieldErrors,
         "serverUrl",
-        !cleanedValidation.ok
-          ? translate(cleanedValidation.key || "invalidServerUrl")
+        !cleanedValidation.ok && "reason" in cleanedValidation
+          ? translate(`validations.${cleanedValidation.reason}`)
           : undefined
       )
     }
@@ -1768,6 +1698,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           styles={settingStyles}
           ID={ID}
           repoHint={reposHint}
+          isBusy={isBusy}
         />
       </SettingSection>
       <SettingSection>

@@ -19,8 +19,30 @@ import type {
   StartupValidationOptions,
   FmeFlowConfig,
   TextOrFileValue,
-} from "../config"
-import { ParameterType, FormFieldType, ErrorType } from "../config"
+  EsriModules,
+  RemoteDatasetOptions,
+  SubmissionPreparationOptions,
+  SubmissionPreparationResult,
+  DrawingSessionState,
+  MutableParams,
+  ApiResponse,
+  MutableNode,
+} from "../config/index"
+import {
+  ParameterType,
+  FormFieldType,
+  ErrorType,
+  LAYER_CONFIG,
+  DrawingTool,
+  ViewMode,
+  DEFAULT_REPOSITORY,
+  SKIPPED_PARAMETER_NAMES,
+  ALWAYS_SKIPPED_TYPES,
+  LIST_REQUIRED_TYPES,
+  MULTI_SELECT_TYPES,
+  PARAMETER_FIELD_TYPE_MAP,
+} from "../config/index"
+import type { JimuMapView } from "jimu-arcgis"
 import {
   isEmpty,
   extractErrorMessage,
@@ -29,6 +51,15 @@ import {
   isFileObject,
   toTrimmedString,
   extractTemporalParts,
+  shouldApplyRemoteDatasetUrl,
+  shouldUploadRemoteDataset,
+  removeAoiErrorMarker,
+  applyUploadedDatasetParam,
+  parseSubmissionFormData,
+  normalizeSketchCreateTool,
+  prepFmeParams,
+  applyDirectiveDefaults,
+  logIfNotAbort,
 } from "./utils"
 import {
   isInt,
@@ -38,114 +69,21 @@ import {
   validateRequiredFields,
   createError,
   mapErrorToKey,
+  sanitizeOptGetUrlParam,
+  resolveUploadTargetParam,
 } from "./validations"
+import { safeCancelSketch } from "./hooks"
+import { fmeActions } from "../extensions/store"
 import FmeFlowApiClient from "./api"
 
-// Shared constants to keep parameter handling consistent
-const DEFAULT_REPOSITORY = "_"
-
-const SKIPPED_PARAMETER_NAMES = new Set([
-  "MAXX",
-  "MINX",
-  "MAXY",
-  "MINY",
-  "AreaOfInterest",
-  "tm_ttc",
-  "tm_ttl",
-  "tm_tag",
-])
-
-const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([ParameterType.NOVALUE])
-
-const LIST_REQUIRED_TYPES = new Set<ParameterType>([
-  ParameterType.DB_CONNECTION,
-  ParameterType.WEB_CONNECTION,
-  ParameterType.ATTRIBUTE_NAME,
-  ParameterType.ATTRIBUTE_LIST,
-  ParameterType.COORDSYS,
-  ParameterType.REPROJECTION_FILE,
-])
-
-const MULTI_SELECT_TYPES = new Set<ParameterType>([
-  ParameterType.LISTBOX,
-  ParameterType.LOOKUP_LISTBOX,
-  ParameterType.ATTRIBUTE_LIST,
-])
-
-const PARAMETER_FIELD_TYPE_MAP: Readonly<{
-  [K in ParameterType]?: FormFieldType
-}> = Object.freeze({
-  [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
-  [ParameterType.INTEGER]: FormFieldType.NUMBER,
-  [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
-  [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
-  [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
-  [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
-  [ParameterType.CHOICE]: FormFieldType.RADIO,
-  [ParameterType.FILENAME]: FormFieldType.FILE,
-  [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
-  [ParameterType.DIRNAME]: FormFieldType.FILE,
-  [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
-  [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
-  [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
-  [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
-  [ParameterType.URL]: FormFieldType.URL,
-  [ParameterType.LOOKUP_URL]: FormFieldType.URL,
-  [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
-  [ParameterType.DATE]: FormFieldType.DATE,
-  [ParameterType.TIME]: FormFieldType.TIME,
-  [ParameterType.MONTH]: FormFieldType.MONTH,
-  [ParameterType.WEEK]: FormFieldType.WEEK,
-  [ParameterType.COLOR]: FormFieldType.COLOR,
-  [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
-  [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
-  [ParameterType.TEXT_OR_FILE]: FormFieldType.TEXT_OR_FILE,
-  [ParameterType.REPROJECTION_FILE]: FormFieldType.REPROJECTION_FILE,
-  [ParameterType.COORDSYS]: FormFieldType.COORDSYS,
-  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.ATTRIBUTE_NAME,
-  [ParameterType.ATTRIBUTE_LIST]: FormFieldType.ATTRIBUTE_LIST,
-  [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
-  [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
-  [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
-  [ParameterType.GEOMETRY]: FormFieldType.GEOMETRY,
-  [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
-})
-
-// Type guards and metadata helpers
+// Constants
+// Type guards
 const isPlainObject = (
   value: unknown
 ): value is { readonly [key: string]: unknown } =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const mergeMetadataSources = (
-  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
-): { readonly [key: string]: unknown } => {
-  const merged: { [key: string]: unknown } = {}
-  for (const source of sources) {
-    if (!isPlainObject(source)) continue
-    for (const [key, value] of Object.entries(source)) {
-      if (value != null && !(key in merged)) {
-        merged[key] = value
-      }
-    }
-  }
-  return merged
-}
-
-// Unified metadata picker with type coercion
-const pickFromObject = <T>(
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[],
-  converter: (value: unknown) => T | undefined,
-  fallback?: T
-): T | undefined => {
-  for (const key of keys) {
-    const result = converter(data[key])
-    if (result !== undefined) return result
-  }
-  return fallback
-}
-
+// Type coercion utilities
 const toStringValue = (value: unknown): string | undefined => {
   if (typeof value === "string") {
     const trimmed = value.trim()
@@ -180,6 +118,23 @@ const toNumberValue = (value: unknown): number | undefined => {
   return undefined
 }
 
+const toArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : value == null ? [] : [value]
+
+// Metadata extraction utilities
+const pickFromObject = <T>(
+  data: { readonly [key: string]: unknown },
+  keys: readonly string[],
+  converter: (value: unknown) => T | undefined,
+  fallback?: T
+): T | undefined => {
+  for (const key of keys) {
+    const result = converter(data[key])
+    if (result !== undefined) return result
+  }
+  return fallback
+}
+
 const pickString = (
   data: { readonly [key: string]: unknown },
   keys: readonly string[]
@@ -196,7 +151,22 @@ const pickNumber = (
   keys: readonly string[]
 ): number | undefined => pickFromObject(data, keys, toNumberValue)
 
-const unwrapOptionArray = (value: unknown): readonly unknown[] | undefined => {
+const mergeMetadata = (
+  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
+): { readonly [key: string]: unknown } => {
+  const merged: { [key: string]: unknown } = {}
+  for (const source of sources) {
+    if (!isPlainObject(source)) continue
+    for (const [key, value] of Object.entries(source)) {
+      if (value != null && !(key in merged)) {
+        merged[key] = value
+      }
+    }
+  }
+  return merged
+}
+
+const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
   if (Array.isArray(value)) return value
   if (isPlainObject(value)) {
     for (const key of ["data", "items", "options"]) {
@@ -289,7 +259,7 @@ const inFlight = {
   }>(),
 }
 
-// Common network error indicators in messages
+// Network error detection
 const NETWORK_INDICATORS = Object.freeze([
   "Failed to fetch",
   "NetworkError",
@@ -305,8 +275,21 @@ const NETWORK_INDICATORS = Object.freeze([
   "proxy",
 ])
 
-// Proxy-related error hints
-const PROXY_HINTS = Object.freeze(["Unable to load", "/sharing/proxy", "proxy"])
+const PROXY_INDICATORS = Object.freeze([
+  "Unable to load",
+  "/sharing/proxy",
+  "proxy",
+])
+
+const hasNetworkError = (message: string): boolean =>
+  NETWORK_INDICATORS.some((indicator) =>
+    message.toLowerCase().includes(indicator.toLowerCase())
+  )
+
+const hasProxyError = (message: string): boolean =>
+  PROXY_INDICATORS.some((indicator) =>
+    message.toLowerCase().includes(indicator.toLowerCase())
+  )
 
 // Parameter service
 export class ParameterFormService {
@@ -378,7 +361,7 @@ export class ParameterFormService {
     const defaultValueMeta = isPlainObject(param.defaultValue)
       ? (param.defaultValue as { readonly [key: string]: unknown })
       : undefined
-    return mergeMetadataSources([
+    return mergeMetadata([
       param.metadata,
       param.attributes,
       param.definition,
@@ -419,7 +402,7 @@ export class ParameterFormService {
       index
     const normalizedValue = normalizeParameterValue(rawValue)
 
-    const childEntries = unwrapOptionArray(obj.children)
+    const childEntries = unwrapArray(obj.children)
     const children = childEntries
       ?.map((child, childIndex) => this.normalizeOptionItem(child, childIndex))
       .filter((child): child is OptionItem => child != null)
@@ -473,7 +456,7 @@ export class ParameterFormService {
     ]
 
     for (const key of candidateKeys) {
-      const arr = unwrapOptionArray(meta[key])
+      const arr = unwrapArray(meta[key])
       if (!arr?.length) continue
       const normalized = arr
         .map((item, index) => this.normalizeOptionItem(item, index))
@@ -502,60 +485,62 @@ export class ParameterFormService {
   ): readonly ScriptedOptionNode[] | undefined {
     if (!options?.length) return undefined
 
-    const hasChildren = options.some(
+    const hasHierarchy = options.some(
       (opt) => opt.children && opt.children.length > 0
     )
 
-    if (hasChildren) {
-      const convert = (
-        option: OptionItem,
-        parentPath: readonly string[] | undefined
-      ): ScriptedOptionNode => {
-        const resolvedPath = option.path
-          ? option.path
-              .split(separator)
-              .map((segment) => segment.trim())
-              .filter(Boolean)
-          : parentPath
-            ? [...parentPath, option.label]
-            : [option.label]
+    return hasHierarchy
+      ? this.buildNodesFromHierarchy(options, separator)
+      : this.buildNodesFromPaths(options, separator)
+  }
 
-        const id =
-          (option.metadata &&
-            typeof option.metadata.id === "string" &&
-            option.metadata.id) ||
-          (option.value != null ? String(option.value) : resolvedPath.join("|"))
+  private buildNodesFromHierarchy(
+    options: readonly OptionItem[],
+    separator: string
+  ): ScriptedOptionNode[] {
+    const convert = (
+      option: OptionItem,
+      parentPath: readonly string[] | undefined
+    ): ScriptedOptionNode => {
+      const resolvedPath = option.path
+        ? option.path
+            .split(separator)
+            .map((segment) => segment.trim())
+            .filter(Boolean)
+        : parentPath
+          ? [...parentPath, option.label]
+          : [option.label]
 
-        const childNodes = option.children?.length
-          ? option.children.map((child) => convert(child, resolvedPath))
-          : undefined
+      const id =
+        (option.metadata &&
+          typeof option.metadata.id === "string" &&
+          option.metadata.id) ||
+        (option.value != null ? String(option.value) : resolvedPath.join("|"))
 
-        return {
-          id,
-          label: option.label,
-          path: resolvedPath,
-          ...(option.value !== undefined ? { value: option.value } : {}),
-          ...(option.disabled ? { disabled: true } : {}),
-          ...(option.metadata ? { metadata: option.metadata } : {}),
-          ...(childNodes && childNodes.length
-            ? { children: childNodes }
-            : { isLeaf: true }),
-        }
+      const childNodes = option.children?.length
+        ? option.children.map((child) => convert(child, resolvedPath))
+        : undefined
+
+      return {
+        id,
+        label: option.label,
+        path: resolvedPath,
+        ...(option.value !== undefined ? { value: option.value } : {}),
+        ...(option.disabled ? { disabled: true } : {}),
+        ...(option.metadata ? { metadata: option.metadata } : {}),
+        ...(childNodes && childNodes.length
+          ? { children: childNodes }
+          : { isLeaf: true }),
       }
-
-      return options.map((option) => convert(option, undefined))
     }
 
-    interface MutableNode {
-      id: string
-      label: string
-      path: string[]
-      value?: string | number
-      disabled?: boolean
-      metadata?: { [key: string]: unknown }
-      children: MutableNode[]
-    }
+    return options.map((option) => convert(option, undefined))
+  }
 
+  private buildNodesFromPaths(
+    options: readonly OptionItem[],
+    separator: string
+  ): ScriptedOptionNode[] {
     const separatorRegex = new RegExp(
       `[${separator.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}]`
     )
@@ -635,10 +620,10 @@ export class ParameterFormService {
   ): TableFieldConfig | undefined {
     const meta = this.getParameterMetadata(param)
     const columnCandidates =
-      unwrapOptionArray(meta.columns) ??
-      unwrapOptionArray(meta.fields) ??
-      unwrapOptionArray(meta.tableColumns) ??
-      unwrapOptionArray(meta.schema)
+      unwrapArray(meta.columns) ??
+      unwrapArray(meta.fields) ??
+      unwrapArray(meta.tableColumns) ??
+      unwrapArray(meta.schema)
 
     if (!columnCandidates?.length) return undefined
 
@@ -766,9 +751,9 @@ export class ParameterFormService {
     const type = typeRaw ? typeMap[typeRaw.toLowerCase()] : undefined
 
     const optionsRaw =
-      unwrapOptionArray(data.options) ??
-      unwrapOptionArray(data.choices) ??
-      unwrapOptionArray(data.values)
+      unwrapArray(data.options) ??
+      unwrapArray(data.choices) ??
+      unwrapArray(data.values)
     const options = optionsRaw
       ?.map((item, idx) => this.normalizeOptionItem(item, idx))
       .filter((item): item is OptionItem => item != null)
@@ -918,8 +903,7 @@ export class ParameterFormService {
       (temporalParts.fraction && temporalParts.fraction.length > 1)
 
     const timezoneOptionsRaw =
-      unwrapOptionArray(meta.timezones) ??
-      unwrapOptionArray(meta.timezoneOptions)
+      unwrapArray(meta.timezones) ?? unwrapArray(meta.timezoneOptions)
     const timezoneOptions = timezoneOptionsRaw
       ?.map((item, idx) => this.normalizeOptionItem(item, idx))
       .filter((item): item is OptionItem => item != null)
@@ -1249,7 +1233,9 @@ export class ParameterFormService {
             ? ("" as FormPrimitive)
             : param.type === ParameterType.GEOMETRY
               ? ("" as FormPrimitive)
-              : (param.defaultValue as FormPrimitive),
+              : type === FormFieldType.MULTI_SELECT
+                ? (toArray(param.defaultValue) as FormPrimitive)
+                : (param.defaultValue as FormPrimitive),
         placeholder: param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
@@ -1352,14 +1338,13 @@ function parseRepositoryNames(data: unknown): string[] {
 }
 
 // Extract FME version from server response
-function deriveFmeVersionString(info: unknown): string {
+function extractFmeVersion(info: unknown): string {
   if (!info) return ""
 
   const data = (info as any)?.data ?? info
-  const versionPattern = /(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\ b)/
+  const versionPattern = /\b(\d+\.\d+(?:\.\d+)?|20\d{2}(?:\.\d+)?)\b/
 
-  // Try direct version fields first
-  const versionFields = [
+  const directKeys = [
     "version",
     "fmeVersion",
     "fmeflowVersion",
@@ -1373,20 +1358,21 @@ function deriveFmeVersionString(info: unknown): string {
     "name",
   ]
 
-  for (const field of versionFields) {
-    const value = field.includes(".")
-      ? field.split(".").reduce((obj, key) => obj?.[key], data)
-      : data?.[field]
+  for (const key of directKeys) {
+    const value = key.includes(".")
+      ? key.split(".").reduce((obj, k) => obj?.[k], data)
+      : data?.[key]
 
     if (typeof value === "string") {
       const match = value.match(versionPattern)
       if (match) return match[1]
-    } else if (typeof value === "number" && Number.isFinite(value)) {
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
       return String(value)
     }
   }
 
-  // Fallback: search all object values
+  // Search all values as fallback
   try {
     const allValues = Object.values(data || {})
     for (const val of allValues) {
@@ -1396,7 +1382,7 @@ function deriveFmeVersionString(info: unknown): string {
       }
     }
   } catch {
-    // Ignore errors
+    // Ignore
   }
 
   return ""
@@ -1433,7 +1419,7 @@ export async function healthCheck(
 
       return {
         reachable: true,
-        version: deriveFmeVersionString(response),
+        version: extractFmeVersion(response),
         responseTime,
       }
     } catch (error) {
@@ -1442,11 +1428,7 @@ export async function healthCheck(
       const errorMessage = extractErrorMessage(error)
 
       if (status === 401 || status === 403) {
-        if (
-          NETWORK_INDICATORS.some((indicator) =>
-            errorMessage.toLowerCase().includes(indicator.toLowerCase())
-          )
-        ) {
+        if (hasNetworkError(errorMessage)) {
           return {
             reachable: false,
             responseTime,
@@ -1505,7 +1487,7 @@ export async function validateConnection(
           serverInfo = await client.testConnection(signal)
           steps.serverUrl = "ok"
           steps.token = "ok"
-          steps.version = deriveFmeVersionString(serverInfo)
+          steps.version = extractFmeVersion(serverInfo)
         } catch (error) {
           if (isAbortError(error)) {
             return {
@@ -1534,11 +1516,7 @@ export async function validateConnection(
             }
           } else if (status === 403) {
             const rawMessage = extractErrorMessage(error)
-            if (
-              PROXY_HINTS.some((h) =>
-                rawMessage.toLowerCase().includes(h.toLowerCase())
-              )
-            ) {
+            if (hasProxyError(rawMessage)) {
               steps.serverUrl = "fail"
               steps.token = "skip"
               return {
@@ -1551,7 +1529,6 @@ export async function validateConnection(
                 },
               }
             }
-
             try {
               const healthResult = await healthCheck(serverUrl, token, signal)
 
@@ -1687,7 +1664,7 @@ export async function testBasicConnection(
       const info = await client.testConnection(signal)
       return {
         success: true,
-        version: deriveFmeVersionString(info),
+        version: extractFmeVersion(info),
       }
     } catch (error) {
       return {
@@ -1745,13 +1722,325 @@ export async function getRepositories(
   return await inFlight.getRepositories.execute(key, execute)
 }
 
+export async function resolveRemoteDataset({
+  params,
+  remoteUrl,
+  uploadFile,
+  config,
+  workspaceParameters,
+  makeCancelable,
+  fmeClient,
+  signal,
+  subfolder,
+}: RemoteDatasetOptions): Promise<void> {
+  sanitizeOptGetUrlParam(params, config)
+
+  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
+    params.opt_geturl = remoteUrl
+    return
+  }
+
+  if (!shouldUploadRemoteDataset(config, uploadFile)) {
+    return
+  }
+
+  if (typeof params.opt_geturl !== "undefined") {
+    delete params.opt_geturl
+  }
+
+  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
+    fmeClient.uploadToTemp(uploadFile, {
+      subfolder,
+      signal,
+    })
+  )
+
+  const uploadedPath = uploadResponse.data?.path
+  applyUploadedDatasetParam({
+    finalParams: params,
+    uploadedPath,
+    parameters: workspaceParameters,
+    explicitTarget: resolveUploadTargetParam(config),
+  })
+}
+
+export async function prepareSubmissionParams({
+  rawFormData,
+  userEmail,
+  geometryJson,
+  geometry,
+  modules,
+  config,
+  workspaceParameters,
+  makeCancelable,
+  fmeClient,
+  signal,
+  remoteDatasetSubfolder,
+}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> {
+  const { sanitizedFormData, uploadFile, remoteUrl } =
+    parseSubmissionFormData(rawFormData)
+
+  const baseParams = prepFmeParams(
+    {
+      data: sanitizedFormData,
+    },
+    userEmail,
+    geometryJson,
+    geometry || undefined,
+    modules,
+    {
+      config,
+      workspaceParameters,
+    }
+  )
+
+  const aoiError = (baseParams as MutableParams).__aoi_error__
+  if (aoiError) {
+    return { params: null, aoiError }
+  }
+
+  const params: MutableParams = { ...baseParams }
+
+  await resolveRemoteDataset({
+    params,
+    remoteUrl,
+    uploadFile,
+    config,
+    workspaceParameters,
+    makeCancelable,
+    fmeClient,
+    signal,
+    subfolder: remoteDatasetSubfolder,
+  })
+
+  const paramsWithDefaults = applyDirectiveDefaults(params, config || undefined)
+  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
+
+  return { params: paramsWithDefaults }
+}
+
+export function createLayers(
+  jmv: JimuMapView,
+  modules: EsriModules,
+  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
+): __esri.GraphicsLayer {
+  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
+  jmv.view.map.add(layer)
+  setGraphicsLayer(layer)
+
+  return layer
+}
+
+export function setupSketchEventHandlers({
+  sketchViewModel,
+  onDrawComplete,
+  dispatch,
+  widgetId,
+  onDrawingSessionChange,
+  onSketchToolStart,
+}: {
+  sketchViewModel: __esri.SketchViewModel
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
+  widgetId: string
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
+  onSketchToolStart: (tool: DrawingTool) => void
+}): () => void {
+  let clickCount = 0
+
+  const createHandle = sketchViewModel.on(
+    "create",
+    (evt: __esri.SketchCreateEvent) => {
+      switch (evt.state) {
+        case "start": {
+          clickCount = 0
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (!normalizedTool) {
+            safeCancelSketch(sketchViewModel)
+            onDrawingSessionChange({ isActive: false, clickCount: 0 })
+            return
+          }
+          onDrawingSessionChange({ isActive: true, clickCount: 0 })
+          onSketchToolStart(
+            normalizedTool === "rectangle"
+              ? DrawingTool.RECTANGLE
+              : DrawingTool.POLYGON
+          )
+          break
+        }
+
+        case "active": {
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
+            const geometry = evt.graphic.geometry as __esri.Polygon
+            const vertices = geometry.rings?.[0]
+            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
+            if (actualClicks > clickCount) {
+              clickCount = actualClicks
+              onDrawingSessionChange({
+                clickCount: actualClicks,
+                isActive: true,
+              })
+              if (actualClicks === 1) {
+                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+              }
+            }
+          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
+            clickCount = 1
+            onDrawingSessionChange({ clickCount: 1, isActive: true })
+          }
+          break
+        }
+
+        case "complete":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          try {
+            onDrawComplete(evt)
+          } catch (err: unknown) {
+            logIfNotAbort("onDrawComplete error", err)
+          }
+          break
+
+        case "cancel":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          break
+      }
+    }
+  )
+
+  const updateHandle = sketchViewModel.on(
+    "update",
+    (evt: __esri.SketchUpdateEvent) => {
+      if (
+        evt.state === "complete" &&
+        Array.isArray(evt.graphics) &&
+        (evt.graphics[0] as any)?.geometry
+      ) {
+        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
+        try {
+          onDrawComplete({
+            graphic: evt.graphics[0] as any,
+            state: "complete",
+            tool: normalizedTool ?? (evt as any).tool,
+          } as any)
+        } catch (err: unknown) {
+          logIfNotAbort("onDrawComplete update error", err)
+        }
+      }
+    }
+  )
+
+  return () => {
+    try {
+      createHandle?.remove()
+    } catch {}
+    try {
+      updateHandle?.remove()
+    } catch {}
+    try {
+      ;(sketchViewModel as any).__fmeCleanup__ = undefined
+    } catch {}
+  }
+}
+
+export function createSketchVM({
+  jmv,
+  modules,
+  layer,
+  onDrawComplete,
+  dispatch,
+  widgetId,
+  symbols,
+  onDrawingSessionChange,
+  onSketchToolStart,
+}: {
+  jmv: JimuMapView
+  modules: EsriModules
+  layer: __esri.GraphicsLayer
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
+  widgetId: string
+  symbols: {
+    polygon: any
+    polyline: any
+    point: any
+  }
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
+  onSketchToolStart: (tool: DrawingTool) => void
+}): {
+  sketchViewModel: __esri.SketchViewModel
+  cleanup: () => void
+} {
+  const sketchViewModel = new modules.SketchViewModel({
+    view: jmv.view,
+    layer,
+    polygonSymbol: symbols.polygon,
+    polylineSymbol: symbols.polyline,
+    pointSymbol: symbols.point,
+    defaultCreateOptions: {
+      hasZ: false,
+      mode: "click",
+    },
+    defaultUpdateOptions: {
+      tool: "reshape",
+      toggleToolOnClick: false,
+      enableRotation: true,
+      enableScaling: true,
+      preserveAspectRatio: false,
+    },
+    snappingOptions: {
+      enabled: true,
+      selfEnabled: true,
+      featureEnabled: true,
+    },
+    tooltipOptions: {
+      enabled: true,
+      inputEnabled: true,
+      visibleElements: {
+        area: true,
+        totalLength: true,
+        distance: true,
+        coordinates: false,
+        elevation: false,
+        rotation: false,
+        scale: false,
+        size: false,
+        radius: true,
+        direction: true,
+        header: true,
+        helpMessage: true,
+      },
+    },
+    valueOptions: {
+      directionMode: "relative",
+      displayUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+      inputUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+    },
+  })
+
+  const cleanup = setupSketchEventHandlers({
+    sketchViewModel,
+    onDrawComplete,
+    dispatch,
+    widgetId,
+    onDrawingSessionChange,
+    onSketchToolStart,
+  })
+  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
+  return { sketchViewModel, cleanup }
+}
+
 // Widget startup validation
-/**
- * End-to-end startup validation:
- * - Required config fields
- * - Connection & repository reachability
- * Returns a structured result for the UI to proceed or show guidance.
- */
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {

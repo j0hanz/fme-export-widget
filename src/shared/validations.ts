@@ -7,12 +7,38 @@ import {
   type TranslateFn,
   type FmeResponse,
   type NormalizedServiceInfo,
-} from "../config"
+  type MutableParams,
+  type UrlValidation,
+  type AreaEvaluation,
+  type GeometryEngineLike,
+  type NormalizeUtilsModule,
+  type EsriConfigLike,
+  type GeometryServiceModule,
+  type ArcgisGeometryModules,
+  type AreasAndLengthsParametersCtor,
+  type PolygonMaybe,
+  type AreaStrategy,
+  MIN_TOKEN_LENGTH,
+  FME_REST_PATH,
+  WKID,
+  GEODESIC_SEGMENT_LENGTH_METERS,
+  MIN_PLANAR_SEGMENT_DEGREES,
+  DEGREES_PER_METER,
+  HTTP_STATUS_CODES,
+  ERROR_CODE_TO_KEY,
+  STATUS_TO_KEY_MAP,
+  MESSAGE_PATTERNS,
+  SERVER_URL_REASON_TO_KEY,
+  REQUIRED_CONFIG_FIELDS,
+  STATUS_PROPERTIES,
+} from "../config/index"
 import {
   extractErrorMessage,
   maskToken,
   safeParseUrl,
   loadArcgisModules,
+  toTrimmedString,
+  isValidExternalUrlForOptGetUrl,
 } from "./utils"
 
 const parseAsNumber = (value: unknown): number | null => {
@@ -34,16 +60,23 @@ export const isNum = (value: unknown): boolean => {
   return num !== null
 }
 
-const MIN_TOKEN_LENGTH = 10
-const FME_REST_PATH = "/fmerest"
-
+// Type guards
 const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" && n >= 100 && n <= 599
 
-const hasForbiddenPaths = (pathname: string): boolean => {
-  const lowerPath = pathname.toLowerCase()
-  return lowerPath.includes(FME_REST_PATH)
-}
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  "then" in value &&
+  typeof (value as { then?: unknown }).then === "function"
+
+const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "polygon"
+
+const hasForbiddenPath = (pathname: string): boolean =>
+  pathname.toLowerCase().includes(FME_REST_PATH)
 
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
@@ -63,41 +96,67 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   return `${u.origin}${cleanPath}`
 }
 
-export const validateServerUrl = (
+export function validateServerUrl(
   url: string,
-  opts?: { strict?: boolean; requireHttps?: boolean }
-): { ok: boolean; key?: string } => {
-  const trimmedUrl = url?.trim()
-  const invalid = (key: string) => ({ ok: false as const, key })
-  const invalidBaseUrl = () => invalid("validations.urlInvalid")
-
-  if (!trimmedUrl) return invalid("connection.missingServerUrl")
-
-  const parsedUrl = safeParseUrl(trimmedUrl)
-  if (!parsedUrl) return invalidBaseUrl()
-
-  if (!/^https?:$/i.test(parsedUrl.protocol)) return invalidBaseUrl()
-
-  if (opts?.requireHttps && !/^https:$/i.test(parsedUrl.protocol)) {
-    return invalidBaseUrl()
+  opts?: {
+    strict?: boolean
+    requireHttps?: boolean
+    disallowRestForWebhook?: boolean
   }
+): UrlValidation {
+  const trimmed = (url || "").trim()
+  if (!trimmed) return { ok: false, reason: "invalid_url" }
 
-  if (parsedUrl.username || parsedUrl.password) return invalidBaseUrl()
+  try {
+    const parsed = new URL(trimmed)
+    const protocol = parsed.protocol.toLowerCase()
+    if (protocol !== "http:" && protocol !== "https:") {
+      return { ok: false, reason: "invalid_url" }
+    }
 
-  if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
+    if (opts?.requireHttps && protocol !== "https:") {
+      return { ok: false, reason: "require_https" }
+    }
 
-  if (hasForbiddenPaths(parsedUrl.pathname)) {
-    return { ok: false, key: "validations.urlInvalid" }
+    if (parsed.username || parsed.password) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (parsed.search || parsed.hash) {
+      return { ok: false, reason: "no_query_or_hash" }
+    }
+
+    if (
+      opts?.disallowRestForWebhook &&
+      /\/fmerest(?:\/|$)/i.test(parsed.pathname)
+    ) {
+      return { ok: false, reason: "disallow_fmerest_for_webhook" }
+    }
+
+    if (hasForbiddenPath(parsed.pathname)) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (parsed.hostname.endsWith(".")) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (opts?.strict) {
+      const hostname = parsed.hostname || ""
+      if (!hostname.includes(".") || hostname.length < 4) {
+        return { ok: false, reason: "invalid_url" }
+      }
+    }
+
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: "invalid_url" }
   }
+}
 
-  if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
-
-  if (opts?.strict) {
-    const hostname = parsedUrl.hostname || ""
-    if (!hostname.includes(".") || hostname.length < 4) return invalidBaseUrl()
-  }
-
-  return { ok: true }
+const mapServerUrlReasonToKey = (reason?: string): string => {
+  if (!reason) return "validations.urlInvalid"
+  return SERVER_URL_REASON_TO_KEY[reason] || "validations.urlInvalid"
 }
 
 const hasControlCharacters = (token: string): boolean => {
@@ -110,54 +169,6 @@ const hasControlCharacters = (token: string): boolean => {
 
 const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
-
-const isIpv4Host = (hostname: string): number[] | null => {
-  const parts = hostname.split(".")
-  if (parts.length !== 4) return null
-  const octets = parts.map((part) => {
-    if (!/^\d+$/.test(part)) return NaN
-    const value = Number(part)
-    return value >= 0 && value <= 255 ? value : NaN
-  })
-  return octets.every((value) => Number.isInteger(value)) ? octets : null
-}
-
-const isPrivateIpv4 = (octets: number[]): boolean => {
-  if (octets[0] === 10) return true
-  if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true
-  if (octets[0] === 127) return true
-  if (octets[0] === 169 && octets[1] === 254) return true
-  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true
-  if (octets[0] === 192 && octets[1] === 168) return true
-  if (octets[0] === 0) return true
-  return false
-}
-
-const hasDisallowedHostnameSuffix = (hostname: string): boolean => {
-  const lower = hostname.toLowerCase()
-  const forbidden = [
-    "localhost",
-    ".localhost",
-    ".local",
-    ".internal",
-    ".intranet",
-    ".home",
-    ".lan",
-    ".localdomain",
-  ]
-  if (forbidden.some((suffix) => lower === suffix || lower.endsWith(suffix))) {
-    return true
-  }
-  return false
-}
-
-const isPrivateIpv6Host = (hostname: string): boolean => {
-  const lower = hostname.toLowerCase()
-  if (lower === "::1" || lower === "0:0:0:0:0:0:0:1") return true
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true
-  if (lower.startsWith("fe80")) return true
-  return false
-}
 
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "connection.missingToken" }
@@ -188,8 +199,6 @@ export const validateRepository = (
   return { ok: true }
 }
 
-const STATUS_PROPERTIES = ["status", "statusCode", "httpStatus"] as const
-
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
 
@@ -218,48 +227,12 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
-const ERROR_CODE_TO_KEY: { [code: string]: string } = {
-  ARCGIS_MODULE_ERROR: "errorNetworkIssue",
-  NETWORK_ERROR: "errorNetworkIssue",
-  INVALID_RESPONSE_FORMAT: "errorTokenIssue",
-  WEBHOOK_AUTH_ERROR: "errorTokenIssue",
-  SERVER_URL_ERROR: "connectionFailedMessage",
-  REPOSITORIES_ERROR: "errorServerIssue",
-  REPOSITORY_ITEMS_ERROR: "errorServerIssue",
-  WORKSPACE_ITEM_ERROR: "errorServerIssue",
-  JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  DATA_STREAMING_ERROR: "errorServerIssue",
-  DATA_DOWNLOAD_ERROR: "errorServerIssue",
-  INVALID_CONFIG: "errorSetupRequired",
-  GEOMETRY_MISSING: "geometryMissingCode",
-  GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
-  GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
-  URL_TOO_LONG: "urlTooLongMessage",
-}
-
-const STATUS_TO_KEY_MAP: { [status: number]: string } = {
-  0: "errorNetworkIssue",
-  401: "errorTokenIssue",
-  403: "errorTokenIssue",
-  404: "connectionFailedMessage",
-  408: "requestTimedOut",
-  429: "rateLimitExceeded",
-  431: "headersTooLargeMessage",
-}
-
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
   if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
   if (s >= 500) return "errorServerIssue"
   return undefined
 }
-
-const MESSAGE_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
-  { pattern: /failed to fetch/i, key: "errorNetworkIssue" },
-  { pattern: /timeout/i, key: "requestTimedOut" },
-  { pattern: /cors/i, key: "corsBlocked" },
-  { pattern: /url.*too/i, key: "urlTooLongMessage" },
-]
 
 const matchMessagePattern = (message: string): string | undefined => {
   const lowerMessage = message.toLowerCase()
@@ -297,26 +270,34 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   return "errorUnknown"
 }
 
-export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
-  if (typeof url !== "string") return false
-  const trimmed = url.trim()
-  if (!trimmed || trimmed.length > 10000) return false
-  const u = safeParseUrl(trimmed)
-  if (!u) return false
-  if (!/^https:$/i.test(u.protocol)) return false
-  if (u.username || u.password) return false
-  const hostname = u.hostname || ""
-  if (!hostname) return false
-  if (hasDisallowedHostnameSuffix(hostname)) return false
+export const resolveUploadTargetParam = (
+  config: FmeExportConfig | null | undefined
+): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
 
-  const ipv4 = isIpv4Host(hostname)
-  if (ipv4 && isPrivateIpv4(ipv4)) return false
+export const sanitizeOptGetUrlParam = (
+  params: MutableParams,
+  config: FmeExportConfig | null | undefined
+): void => {
+  const value = params.opt_geturl
 
-  if (hostname.includes(":")) {
-    if (isPrivateIpv6Host(hostname)) return false
+  if (typeof value !== "string") {
+    delete params.opt_geturl
+    return
   }
-  return true
+
+  const trimmed = value.trim()
+  const urlIsAllowed = Boolean(config?.allowRemoteUrlDataset)
+  const urlIsValid = isValidExternalUrlForOptGetUrl(trimmed)
+
+  if (!trimmed || !urlIsAllowed || !urlIsValid) {
+    delete params.opt_geturl
+    return
+  }
+
+  params.opt_geturl = trimmed
 }
+
+export { isValidExternalUrlForOptGetUrl } from "./utils"
 
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
@@ -327,12 +308,6 @@ export const validateRequiredConfig = (config: {
     throw new Error("Missing required configuration")
   }
 }
-
-const REQUIRED_CONFIG_FIELDS = [
-  "fmeServerUrl",
-  "fmeServerToken",
-  "repository",
-] as const
 
 const getMissingConfigFields = (
   config: FmeExportConfig | undefined
@@ -355,21 +330,6 @@ export const validateConfigFields = (
   }
 }
 
-export const HTTP_STATUS_CODES = {
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  BAD_REQUEST: 400,
-  TIMEOUT: 408,
-  GATEWAY_TIMEOUT: 504,
-  TOO_MANY_REQUESTS: 429,
-  BAD_GATEWAY: 502,
-  SERVICE_UNAVAILABLE: 503,
-  NETWORK_ERROR: 0,
-  SERVER_ERROR_MIN: 500,
-  SERVER_ERROR_MAX: 599,
-} as const
-
 export const isAuthError = (status: number): boolean => {
   return (
     status === HTTP_STATUS_CODES.UNAUTHORIZED ||
@@ -390,8 +350,11 @@ export function validateConnectionInputs(args: {
 
   const errors: { serverUrl?: string; token?: string; repository?: string } = {}
 
-  const u = validateServerUrl(url)
-  if (!u.ok) errors.serverUrl = u.key || "validations.urlInvalid"
+  const serverValidation = validateServerUrl(url)
+  if (!serverValidation.ok) {
+    const reason = (serverValidation as { reason?: string }).reason
+    errors.serverUrl = mapServerUrlReasonToKey(reason)
+  }
 
   const t = validateToken(token)
   if (!t.ok) errors.token = t.key || "errorTokenIssue"
@@ -429,6 +392,54 @@ export const validateRequiredFields = (
   }
 }
 
+export function validateScheduleFields(data: any) {
+  if (!data || data.opt_servicemode !== "schedule") return { ok: true as const }
+
+  const isRunOnce = data.trigger === "runonce"
+  const hasCat = typeof data.category === "string" && !!data.category.trim()
+  const hasName = typeof data.name === "string" && !!data.name.trim()
+  const startStr = String(data.start || "")
+  const fmtOk = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)
+
+  let notTooPast = false
+  if (fmtOk) {
+    const [datePart, timePart] = startStr.split(" ")
+    const [Y, M, D] = datePart.split("-").map(Number)
+    const [h, m, s] = timePart.split(":").map(Number)
+    const start = new Date(Y, (M || 1) - 1, D || 1, h || 0, m || 0, s || 0)
+    notTooPast = start.getTime() >= Date.now() - 60_000
+  }
+
+  const ok = isRunOnce && hasCat && hasName && fmtOk && notTooPast
+  return ok
+    ? { ok: true as const }
+    : { ok: false as const, key: "validations.scheduleInvalid" }
+}
+
+// Error Factory
+const createErrorState = (
+  message: string,
+  type: ErrorType,
+  code: string,
+  options?: {
+    userFriendlyMessage?: string
+    suggestion?: string
+    retry?: () => void
+  }
+): ErrorState => ({
+  message,
+  type,
+  code,
+  severity: ErrorSeverity.ERROR,
+  recoverable: true,
+  timestamp: new Date(),
+  timestampMs: Date.now(),
+  userFriendlyMessage: options?.userFriendlyMessage || "",
+  suggestion: options?.suggestion || "",
+  retry: options?.retry,
+  kind: "runtime",
+})
+
 export const createError = (
   messageKey: string,
   type: ErrorType,
@@ -439,22 +450,20 @@ export const createError = (
     userFriendlyMessage?: string
     retry?: () => void
   }
-): ErrorState => {
-  return {
-    message: translate(messageKey) || messageKey,
-    type,
-    code,
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: options?.userFriendlyMessage || "",
+): ErrorState =>
+  createErrorState(translate(messageKey) || messageKey, type, code, {
+    ...options,
     suggestion:
       options?.suggestion || translate("connectionSettingsHint") || "",
-    retry: options?.retry,
-    kind: "runtime",
-  }
-}
+  })
+
+const makeGeometryError = (
+  messageKey: string,
+  code: string
+): { valid: false; error: ErrorState } => ({
+  valid: false,
+  error: createErrorState(messageKey, ErrorType.GEOMETRY, code),
+})
 
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
@@ -482,98 +491,6 @@ export const sanitizeFormValues = (
   return masked
 }
 
-type GeometryAreaFn = (
-  geometry: __esri.Geometry,
-  unit: string
-) => number | PromiseLike<number>
-
-type GeometryDensifyFn = (
-  geometry: __esri.Geometry,
-  ...args: readonly unknown[]
-) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
-
-type GeometrySimplifyFn = (
-  polygon: __esri.Polygon
-) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
-
-type GeometryIsSimpleFn = (
-  polygon: __esri.Polygon
-) => boolean | PromiseLike<boolean>
-
-type GeometryContainsFn = (
-  outer: __esri.Geometry,
-  inner: __esri.Geometry
-) => boolean
-
-interface GeometryEngineLike {
-  geodesicArea?: GeometryAreaFn
-  planarArea?: GeometryAreaFn
-  geodesicDensify?: GeometryDensifyFn
-  densify?: GeometryDensifyFn
-  simplify?: GeometrySimplifyFn
-  isSimple?: GeometryIsSimpleFn
-  contains?: GeometryContainsFn
-}
-
-interface NormalizeUtilsModule {
-  normalizeCentralMeridian?: (
-    geometries: readonly __esri.Geometry[]
-  ) => PromiseLike<readonly __esri.Geometry[]> | readonly __esri.Geometry[]
-}
-
-interface EsriConfigLike {
-  geometryServiceUrl?: string
-  request?: { geometryServiceUrl?: string }
-  portalSelf?: { helperServices?: { geometry?: { url?: string } } }
-  portalInfo?: { helperServices?: { geometry?: { url?: string } } }
-  helperServices?: { geometry?: { url?: string } }
-}
-
-type AreasAndLengthsParametersCtor = new (
-  options: __esri.AreasAndLengthsParametersProperties
-) => __esri.AreasAndLengthsParameters
-
-interface AreasAndLengthsResponse {
-  areas?: number[]
-}
-
-interface GeometryServiceModule {
-  areasAndLengths?: (
-    url: string,
-    params: __esri.AreasAndLengthsParameters
-  ) => PromiseLike<AreasAndLengthsResponse> | AreasAndLengthsResponse
-}
-
-interface PolygonCtor {
-  fromJSON?: (json: unknown) => __esri.Polygon
-}
-
-interface ArcgisGeometryModules {
-  geometryEngine?: GeometryEngineLike
-  geometryEngineAsync?: GeometryEngineLike
-  normalizeUtils?: NormalizeUtilsModule
-  esriConfig?: EsriConfigLike
-  Polygon?: PolygonCtor
-  geometryOperators?: unknown
-}
-
-type PolygonMaybe =
-  | __esri.Geometry
-  | null
-  | undefined
-  | PromiseLike<__esri.Geometry | null | undefined>
-
-const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  typeof value === "object" &&
-  value !== null &&
-  "then" in value &&
-  typeof (value as { then?: unknown }).then === "function"
-
-const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { type?: unknown }).type === "polygon"
-
 const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
   if (typeof sr !== "object" || sr === null) {
     return {}
@@ -591,14 +508,14 @@ const isWebMercatorSr = (sr: unknown): boolean => {
   const ref = sr as { isWebMercator?: boolean } | undefined
   if (ref?.isWebMercator) return true
   const { wkid, latestWkid } = readWkids(sr)
-  return wkid === 3857 || latestWkid === 3857
+  return wkid === WKID.WEB_MERCATOR || latestWkid === WKID.WEB_MERCATOR
 }
 
 const isWgs84Sr = (sr: unknown): boolean => {
   const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
   if (ref?.isGeographic || ref?.isWGS84) return true
   const { wkid, latestWkid } = readWkids(sr)
-  return wkid === 4326 || latestWkid === 4326
+  return wkid === WKID.WGS84 || latestWkid === WKID.WGS84
 }
 
 const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
@@ -645,10 +562,6 @@ const tryCalcArea = async (
 
 const unwrapModule = (module: unknown): unknown =>
   (module as { default?: unknown }).default ?? module
-
-const GEODESIC_SEGMENT_LENGTH_METERS = 50
-const MIN_PLANAR_SEGMENT_DEGREES = 1e-6
-const DEGREES_PER_METER = 1 / 111319.49079327358
 
 let normalizeUtilsCache: NormalizeUtilsModule | null | undefined
 let geometryServiceCache: GeometryServiceModule | null | undefined
@@ -781,7 +694,7 @@ const attemptDensify = async (
   const densify = engine?.[method]
   if (typeof densify !== "function") return null
   try {
-    const result = densify(geometry, ...args)
+    const result = densify(geometry, ...(args as [number, string?]))
     return await maybeResolvePolygon(result)
   } catch {
     return null
@@ -923,8 +836,6 @@ const calcAreaViaGeometryService = async (
   return 0
 }
 
-type AreaStrategy = () => Promise<number>
-
 const coerceAreaOperator = (
   candidate: unknown
 ):
@@ -1040,25 +951,6 @@ export const calcArea = async (
 
   return 0
 }
-
-const makeGeometryError = (
-  messageKey: string,
-  code: string
-): { valid: false; error: ErrorState } => ({
-  valid: false,
-  error: {
-    message: messageKey,
-    type: ErrorType.GEOMETRY,
-    code,
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion: "",
-    kind: "runtime",
-  },
-})
 
 const simplifyPolygon = async (
   poly: __esri.Polygon,
@@ -1229,14 +1121,6 @@ const resolveAreaLimit = (limit?: number): number | undefined => {
   return limit
 }
 
-export interface AreaEvaluation {
-  readonly area: number
-  readonly warningThreshold?: number
-  readonly maxThreshold?: number
-  readonly exceedsMaximum: boolean
-  readonly shouldWarn: boolean
-}
-
 export const evaluateArea = (
   area: number,
   limits?: { maxArea?: number; largeArea?: number }
@@ -1286,36 +1170,36 @@ export const resetValidationCachesForTest = () => {
   esriConfigCache = undefined
 }
 
-const createBlobResponse = (
-  blob: Blob,
-  workspace: string,
-  userEmail: string
-) => ({
-  success: true,
-  blob,
-  email: userEmail,
-  workspaceName: workspace,
-  downloadFilename: `${workspace}_export.zip`,
-})
+// FME Response Factory
+const createFmeResponse = {
+  blob: (blob: Blob, workspace: string, userEmail: string) => ({
+    success: true,
+    blob,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadFilename: `${workspace}_export.zip`,
+  }),
 
-const createSuccessResponse = (
-  serviceInfo: NormalizedServiceInfo,
-  workspace: string,
-  userEmail: string
-) => ({
-  success: true,
-  jobId: typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
-  email: userEmail,
-  workspaceName: workspace,
-  downloadUrl: serviceInfo.url,
-  downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
-})
+  success: (
+    serviceInfo: NormalizedServiceInfo,
+    workspace: string,
+    userEmail: string
+  ) => ({
+    success: true,
+    jobId:
+      typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadUrl: serviceInfo.url,
+    downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
+  }),
 
-const createFailureResponse = (message: string) => ({
-  success: false,
-  message,
-  code: "FME_JOB_FAILURE",
-})
+  failure: (message: string) => ({
+    success: false,
+    message,
+    code: "FME_JOB_FAILURE",
+  }),
+}
 
 const isValidDownloadUrl = (url: unknown): boolean =>
   typeof url === "string" && /^https?:\/\//.test(url)
@@ -1339,16 +1223,16 @@ export const processFmeResponse = (
   }
 
   if (data.blob instanceof Blob) {
-    return createBlobResponse(data.blob, workspace, userEmail)
+    return createFmeResponse.blob(data.blob, workspace, userEmail)
   }
 
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
 
   if (serviceInfo.status === "success" || isValidDownloadUrl(serviceInfo.url)) {
-    return createSuccessResponse(serviceInfo, workspace, userEmail)
+    return createFmeResponse.success(serviceInfo, workspace, userEmail)
   }
 
-  return createFailureResponse(
+  return createFmeResponse.failure(
     serviceInfo.message || translateFn("errorJobSubmission")
   )
 }

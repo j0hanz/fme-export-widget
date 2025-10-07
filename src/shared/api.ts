@@ -9,12 +9,15 @@ import type {
   PrimitiveParams,
   EsriRequestConfig,
   EsriMockKey,
-} from "../config"
-import { FmeFlowApiError, HttpMethod } from "../config"
+} from "../config/index"
+import {
+  FmeFlowApiError,
+  HttpMethod,
+  ESRI_GLOBAL_MOCK_KEYS,
+} from "../config/index"
 import {
   extractHttpStatus,
   validateRequiredConfig,
-  isAuthError,
   mapErrorToKey,
   calcArea,
 } from "./validations"
@@ -36,7 +39,7 @@ import {
 } from "./utils"
 
 // Construct a typed FME Flow API error with identical message and code.
-const makeError = (code: string, status?: number) =>
+const makeFlowError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status)
 
 const unwrapModule = (module: unknown): any =>
@@ -53,14 +56,6 @@ let _geometryEngine: unknown
 let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
-
-const ESRI_GLOBAL_MOCK_KEYS: readonly EsriMockKey[] = [
-  "esriRequest",
-  "esriConfig",
-  "projection",
-  "webMercatorUtils",
-  "SpatialReference",
-] as const
 
 const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
   esriRequest: () => Promise.resolve({ data: null }),
@@ -277,6 +272,29 @@ const API = {
   ],
 } as const
 
+type WebhookErrorCode =
+  | "URL_TOO_LONG"
+  | "WEBHOOK_AUTH_ERROR"
+  | "WEBHOOK_BAD_RESPONSE"
+  | "WEBHOOK_NON_JSON"
+  | "WEBHOOK_TIMEOUT"
+
+const makeError = (
+  code: WebhookErrorCode,
+  status?: number,
+  cause?: unknown
+): Error & { code: WebhookErrorCode; status?: number; cause?: unknown } => {
+  const error = new Error(code) as Error & {
+    code: WebhookErrorCode
+    status?: number
+    cause?: unknown
+  }
+  error.code = code
+  if (status != null) error.status = status
+  if (cause !== undefined) error.cause = cause
+  return error
+}
+
 const hasCachedToken = (hostKey: string): boolean =>
   Object.prototype.hasOwnProperty.call(_fmeTokensByHost, hostKey)
 
@@ -365,11 +383,21 @@ async function addFmeInterceptor(
 // Determine maximum URL length from Esri config or use default
 let _cachedMaxUrlLength: number | null = null
 const getMaxUrlLength = (): number => {
+  const windowLength = (() => {
+    if (typeof window === "undefined") return undefined
+    const raw = (window as any)?.esriConfig?.request?.maxUrlLength
+    const numeric = typeof raw === "number" ? raw : Number(raw)
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
+  })()
+
+  if (windowLength !== undefined) return windowLength
+
   if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength
 
   const cfg = asEsriConfig(_esriConfig)
-  const n = cfg?.request?.maxUrlLength
-  _cachedMaxUrlLength = typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
+  const raw = cfg?.request?.maxUrlLength
+  const numeric = typeof raw === "number" ? raw : Number(raw)
+  _cachedMaxUrlLength = Number.isFinite(numeric) && numeric > 0 ? numeric : 1900
   return _cachedMaxUrlLength
 }
 
@@ -507,6 +535,45 @@ const appendWebhookTmParams = (
   if (tag) params.set("tm_tag", tag)
 }
 
+type TMDirectives = Partial<{
+  ttc: number
+  ttl: number
+  tag: string
+  description: string
+}>
+
+const buildTMDirectives = (params: any): TMDirectives => {
+  const ttc = toPosInt(params?.tm_ttc)
+  const ttl = toPosInt(params?.tm_ttl)
+  const tag = typeof params?.tm_tag === "string" ? params.tm_tag.trim() : ""
+  const description =
+    typeof params?.tm_description === "string"
+      ? params.tm_description.trim().slice(0, 512)
+      : ""
+
+  const out: TMDirectives = {}
+  if (ttc !== undefined) out.ttc = ttc
+  if (ttl !== undefined) out.ttl = ttl
+  if (tag) out.tag = tag
+  if (description) out.description = description
+  return out
+}
+
+const makeSubmitBody = (
+  publishedParameters: any,
+  params: any
+): { publishedParameters: any; TMDirectives?: TMDirectives } => {
+  const directives = buildTMDirectives(params)
+  const body: {
+    publishedParameters: any
+    TMDirectives?: TMDirectives
+  } = { publishedParameters }
+  if (Object.keys(directives).length > 0) {
+    body.TMDirectives = directives
+  }
+  return body
+}
+
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
   status: 0,
@@ -611,14 +678,15 @@ export class FmeFlowApiClient {
     }
 
     const endpoint = buildUrl(this.config.serverUrl, ...segments)
-    const fileName = (file as any)?.name
-      ? String((file as any).name)
-      : `upload_${Date.now()}`
+    const rawName = (file as any)?.name ? String((file as any).name) : ""
+    const safeName =
+      rawName.replace(/[^\w.\- ]+/g, "").slice(0, 128) || `upload_${Date.now()}`
 
     const headers: { [key: string]: string } = {
       Accept: "application/json",
       "Content-Type": "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(safeName)}"`,
+      "X-Content-Type-Options": "nosniff",
     }
 
     const resp = await this.request<{
@@ -633,7 +701,7 @@ export class FmeFlowApiClient {
       signal: options?.signal,
     })
 
-    const resolvedPath = this.resolveUploadPath(resp?.data || {}, fileName, sub)
+    const resolvedPath = this.resolveUploadPath(resp?.data || {}, safeName, sub)
 
     return {
       data: { path: resolvedPath },
@@ -659,36 +727,11 @@ export class FmeFlowApiClient {
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
-    const params = parameters as any
-    const toPosInt = (v: unknown) => {
-      const n = typeof v === "string" ? Number(v) : (v as number)
-      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
-    }
-
     const publishedParameters = Object.entries(parameters)
       .filter(([name]) => !name.startsWith("tm_"))
       .map(([name, value]) => ({ name, value }))
 
-    const tmDirectives: any = {}
-    const ttc = toPosInt(params.tm_ttc)
-    const ttl = toPosInt(params.tm_ttl)
-    const tag = typeof params.tm_tag === "string" ? params.tm_tag.trim() : ""
-    const description =
-      typeof params.tm_description === "string"
-        ? params.tm_description.trim().slice(0, 512)
-        : ""
-
-    if (ttc !== undefined) tmDirectives.ttc = ttc
-    if (ttl !== undefined) tmDirectives.ttl = ttl
-    if (tag) tmDirectives.tag = tag
-    if (description) tmDirectives.description = description
-
-    const job: any = { publishedParameters }
-    if (Object.keys(tmDirectives).length > 0) {
-      job.TMDirectives = tmDirectives
-    }
-
-    return job
+    return makeSubmitBody(publishedParameters, parameters)
   }
 
   // Build repository endpoint
@@ -1033,7 +1076,7 @@ export class FmeFlowApiClient {
         await ensureEsri()
         const esriRequestFn = asEsriRequest(_esriRequest)
         if (!esriRequestFn) {
-          throw makeError("ARCGIS_MODULE_ERROR")
+          throw makeFlowError("ARCGIS_MODULE_ERROR")
         }
 
         // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
@@ -1080,7 +1123,7 @@ export class FmeFlowApiClient {
                 ? response.status
                 : 200
           if (status < 200 || status >= 300) {
-            throw makeError("DATA_STREAMING_ERROR", status)
+            throw makeFlowError("DATA_STREAMING_ERROR", status)
           }
 
           const blob = response?.data as Blob
@@ -1180,19 +1223,10 @@ export class FmeFlowApiClient {
 
       const q = params.toString()
       const fullUrl = `${webhookUrl}?${q}`
-      try {
-        const maxLen = getMaxUrlLength()
-        if (
-          typeof maxLen === "number" &&
-          maxLen > 0 &&
-          fullUrl.length > maxLen
-        ) {
-          // Emit a dedicated error code for URL length issues
-          throw makeError("URL_TOO_LONG", 0)
-        }
-      } catch (lenErr) {
-        if (lenErr instanceof FmeFlowApiError) throw lenErr
-        // If any unexpected error occurs during length validation, proceed with webhook
+
+      const maxLen = getMaxUrlLength()
+      if (Number.isFinite(maxLen) && maxLen > 0 && fullUrl.length > maxLen) {
+        throw makeError("URL_TOO_LONG", 0)
       }
 
       // Best-effort safe logging without sensitive params
@@ -1206,7 +1240,7 @@ export class FmeFlowApiClient {
       await ensureEsri()
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
       // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
@@ -1238,6 +1272,10 @@ export class FmeFlowApiClient {
         const response = await esriRequestFn(fullUrl, {
           method: "get",
           responseType: "json",
+          headers: {
+            Accept: "application/json",
+            "Cache-Control": "no-cache",
+          },
           signal: controller.signal,
           timeout: timeoutMs,
         })
@@ -1246,16 +1284,8 @@ export class FmeFlowApiClient {
       } catch (e: any) {
         if (isAbortError(e)) {
           if (didTimeout) {
-            throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+            throw makeError("WEBHOOK_TIMEOUT", 408, e)
           }
-        }
-        if (
-          e &&
-          typeof e.message === "string" &&
-          /unexpected token|json/i.test(e.message)
-        ) {
-          const status = extractHttpStatus(e) || 0
-          throw makeError("WEBHOOK_AUTH_ERROR", status)
         }
         throw e instanceof Error ? e : new Error(String(e))
       } finally {
@@ -1265,10 +1295,13 @@ export class FmeFlowApiClient {
         } catch {}
       }
     } catch (err) {
+      if ((err as { code?: string } | null)?.code) {
+        throw err instanceof Error ? err : new Error(String(err))
+      }
       if (err instanceof FmeFlowApiError) throw err
       const status = extractHttpStatus(err)
       // Surface a code-only message; services will localize
-      throw makeError("DATA_DOWNLOAD_ERROR", status || 0)
+      throw makeFlowError("DATA_DOWNLOAD_ERROR", status || 0)
     }
   }
 
@@ -1319,78 +1352,69 @@ export class FmeFlowApiClient {
           httpStatus?: number
         }
   ): Promise<ApiResponse> {
-    const isFetchResponse =
-      typeof (response as any)?.json === "function" &&
+    const rawStatus =
+      typeof (response as any)?.status === "number"
+        ? (response as any).status
+        : typeof (response as any)?.httpStatus === "number"
+          ? (response as any).httpStatus
+          : undefined
+    const status = typeof rawStatus === "number" ? rawStatus : 0
+
+    if (status === 401 || status === 403) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    const headers =
       typeof (response as any)?.headers?.get === "function"
+        ? ((response as any).headers as {
+            get: (name: string) => string | null
+          })
+        : undefined
+    const contentType = headers?.get("content-type") || undefined
 
-    if (isFetchResponse) {
-      const fetchResponse = response as Response
-      const contentType = fetchResponse.headers.get("content-type")
+    let data: any
 
-      if (!isJson(contentType)) {
-        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
-      }
-
+    if (typeof (response as any)?.json === "function") {
       try {
-        const responseData = await fetchResponse.json()
-        if (isAuthError(fetchResponse.status)) {
-          throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
-        }
-
-        return {
-          data: responseData,
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-        }
+        data = await (response as any).json()
       } catch (error) {
-        if (error instanceof FmeFlowApiError) throw error
-        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+        throw makeError("WEBHOOK_NON_JSON", status, error)
       }
-    }
-
-    const esriResponse = response as {
-      data?: any
-      headers?: { get: (name: string) => string | null }
-      status?: number
-      statusText?: string
-      httpStatus?: number
-    }
-
-    const status =
-      typeof esriResponse.httpStatus === "number"
-        ? esriResponse.httpStatus
-        : typeof esriResponse.status === "number"
-          ? esriResponse.status
-          : 200
-
-    const headers = esriResponse.headers
-    const contentType =
-      typeof headers?.get === "function" ? headers.get("content-type") : ""
-    if (headers && !isJson(contentType)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
-    }
-
-    if (esriResponse.data === undefined) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
-    }
-
-    let payload = esriResponse.data
-    if (typeof payload === "string") {
+    } else if ((response as any)?.data !== undefined) {
+      data = (response as any).data
+    } else if ((response as any)?.json !== undefined) {
+      data = (response as any).json
+    } else if (typeof (response as any)?.text === "string") {
       try {
-        payload = JSON.parse(payload)
+        data = JSON.parse((response as any).text)
       } catch (error) {
-        throw makeError("WEBHOOK_AUTH_ERROR", status)
+        throw makeError("WEBHOOK_NON_JSON", status, error)
       }
     }
 
-    if (isAuthError(status)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    if (!data || typeof data !== "object") {
+      throw makeError("WEBHOOK_NON_JSON", status, response)
+    }
+
+    if (contentType && !isJson(contentType)) {
+      // Non-JSON content types are suspicious; treat them as non-JSON responses
+      throw makeError("WEBHOOK_NON_JSON", status, { contentType })
+    }
+
+    const hasCoreField =
+      Object.prototype.hasOwnProperty.call(data, "status") ||
+      Object.prototype.hasOwnProperty.call(data, "url") ||
+      Object.prototype.hasOwnProperty.call(data, "jobID") ||
+      Object.prototype.hasOwnProperty.call(data, "jobId")
+
+    if (!hasCoreField) {
+      throw makeError("WEBHOOK_BAD_RESPONSE", status, data)
     }
 
     return {
-      data: payload,
+      data,
       status,
-      statusText: esriResponse.statusText,
+      statusText: (response as any)?.statusText,
     }
   }
 
@@ -1450,7 +1474,7 @@ export class FmeFlowApiClient {
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
     if (this.disposed) {
-      throw makeError("CLIENT_DISPOSED")
+      throw makeFlowError("CLIENT_DISPOSED")
     }
 
     try {
@@ -1460,7 +1484,7 @@ export class FmeFlowApiClient {
       try {
         await this.setupPromise
       } catch {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
     }
     await ensureEsri()
@@ -1529,7 +1553,7 @@ export class FmeFlowApiClient {
       if (options.body !== undefined) requestOptions.body = options.body
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
       const response = await esriRequestFn(url, requestOptions)
@@ -1587,7 +1611,7 @@ export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   try {
     validateRequiredConfig(normalizedConfig)
   } catch {
-    throw makeError("INVALID_CONFIG")
+    throw makeFlowError("INVALID_CONFIG")
   }
 
   return new FmeFlowApiClient({

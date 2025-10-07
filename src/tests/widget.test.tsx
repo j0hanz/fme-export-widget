@@ -8,23 +8,26 @@ import {
   buildSymbols,
   parseSubmissionFormData,
   applyUploadedDatasetParam,
-  sanitizeOptGetUrlParam,
   shouldApplyRemoteDatasetUrl,
   shouldUploadRemoteDataset,
   removeAoiErrorMarker,
-  resolveRemoteDataset,
-  prepareSubmissionParams,
-  useEsriModules,
-  useMapResources,
-  useErrorDispatcher,
-  createLayers,
-  createSketchVM,
   applyPopupSuppression,
   clearPopupSuppression,
   computeWidgetsToClose,
   popupSuppressionManager,
-  type PopupSuppressionRecord,
-} from "../runtime/widget"
+} from "../shared/utils"
+import { sanitizeOptGetUrlParam } from "../shared/validations"
+import {
+  resolveRemoteDataset,
+  prepareSubmissionParams,
+  createLayers,
+  createSketchVM,
+} from "../shared/services"
+import {
+  useEsriModules,
+  useMapResources,
+  useErrorDispatcher,
+} from "../shared/hooks"
 import {
   DEFAULT_DRAWING_HEX,
   ParameterType,
@@ -40,7 +43,8 @@ import {
   type MutableParams,
   type ErrorState,
   type MakeCancelableFn,
-} from "../config"
+  type PopupSuppressionRecord,
+} from "../config/index"
 import * as sharedUtils from "../shared/utils"
 
 jest.mock("../shared/utils", () => {
@@ -48,6 +52,13 @@ jest.mock("../shared/utils", () => {
   return {
     ...actual,
     loadArcgisModules: jest.fn(),
+  }
+})
+
+jest.mock("../shared/hooks", () => {
+  const actual = jest.requireActual("../shared/hooks")
+  return {
+    ...actual,
   }
 })
 
@@ -778,7 +789,7 @@ describe("createLayers and createSketchVM", () => {
 
 describe("popup suppression helpers", () => {
   it("disables popup auto-open and registers a watcher", () => {
-    const ref: { current: PopupSuppressionRecord | null } = { current: null }
+    const ref = { current: null as PopupSuppressionRecord | null }
     const remove = jest.fn()
     let visibleHandler: ((value: boolean) => void) | null = null
     const popup: any = {

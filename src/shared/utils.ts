@@ -10,12 +10,30 @@ import type {
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
-} from "../config"
-import { ErrorType, ErrorSeverity, ParameterType } from "../config"
-import { SessionManager, css, hooks } from "jimu-core"
+  MutableParams,
+  PopupSuppressionRecord,
+  AreaDisplay,
+  UnitConversion,
+} from "../config/index"
+import {
+  ErrorType,
+  ErrorSeverity,
+  ParameterType,
+  SETTING_CONSTANTS,
+  DEFAULT_DRAWING_HEX,
+  UPLOAD_PARAM_TYPES,
+  EMAIL_PLACEHOLDER,
+  EMAIL_REGEX,
+  NO_REPLY_REGEX,
+  FORBIDDEN_HOSTNAME_SUFFIXES,
+  PRIVATE_IPV4_RANGES,
+  ALLOWED_FILE_EXTENSIONS,
+  MAX_URL_LENGTH,
+} from "../config/index"
+import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 
-// Type checking and validation utilities
+// STRING & TYPE UTILITIES
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -32,11 +50,20 @@ export const toTrimmedString = (value: unknown): string | undefined => {
 export const asString = (v: unknown): string =>
   typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
 
-const hasOwn = (target: { [key: string]: unknown }, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(target, key)
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const NO_REPLY_REGEX = /no-?reply/i
+export const toStr = (val: unknown): string => {
+  if (typeof val === "string") return val
+  if (typeof val === "number" || typeof val === "boolean") return String(val)
+  if (val === undefined) return "undefined"
+  if (val === null) return "null"
+  if (val && typeof val === "object") {
+    try {
+      return JSON.stringify(val)
+    } catch {
+      return Object.prototype.toString.call(val)
+    }
+  }
+  return Object.prototype.toString.call(val)
+}
 
 export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
@@ -146,8 +173,6 @@ export const maskEmailForDisplay = (email: unknown): string => {
   return `${visible}****${domain}`
 }
 
-export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-
 export const buildSupportHintText = (
   translate: TranslateFn,
   supportEmail?: string,
@@ -160,6 +185,300 @@ export const buildSupportHintText = (
   }
 
   return toTrimmedString(userFriendly) || ""
+}
+
+export const normalizeLargeAreaMessageInput = (value: string): string =>
+  (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
+
+export const normalizeLargeAreaMessage = (value: string): string => {
+  const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
+  if (!base) return ""
+  return base.slice(0, SETTING_CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX)
+}
+
+const parseIpv4 = (hostname: string): number[] | null => {
+  const parts = hostname.split(".")
+  if (parts.length !== 4) return null
+
+  const octets = parts.map((part) => {
+    if (!/^\d+$/.test(part)) return NaN
+    const value = Number(part)
+    return value >= 0 && value <= 255 ? value : NaN
+  })
+
+  return octets.every(Number.isInteger) ? octets : null
+}
+
+const isPrivateIpv4 = (octets: number[]): boolean => {
+  return PRIVATE_IPV4_RANGES.some(({ start, end }) => {
+    for (let i = 0; i < 4; i++) {
+      if (octets[i] < start[i] || octets[i] > end[i]) return false
+    }
+    return true
+  })
+}
+
+const isPrivateIpv6 = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  return (
+    lower === "::1" ||
+    lower === "0:0:0:0:0:0:0:1" ||
+    lower.startsWith("fc") ||
+    lower.startsWith("fd") ||
+    lower.startsWith("fe80")
+  )
+}
+
+const hasDisallowedSuffix = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  return FORBIDDEN_HOSTNAME_SUFFIXES.some(
+    (suffix) => lower === suffix || lower.endsWith(suffix)
+  )
+}
+
+export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
+  const trimmed = (s || "").trim()
+  if (!trimmed || trimmed.length > MAX_URL_LENGTH) return false
+
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return false
+  }
+
+  if (url.username || url.password || url.protocol !== "https:") return false
+
+  const host = url.hostname.toLowerCase()
+  if (!host || hasDisallowedSuffix(host)) return false
+
+  const ipv4 = parseIpv4(host)
+  if (ipv4 && isPrivateIpv4(ipv4)) return false
+  if (host.includes(":") && isPrivateIpv6(host)) return false
+
+  const hasFileExtension = /\.[^/]+$/.test(url.pathname)
+  if (hasFileExtension) {
+    const pathWithQuery = `${url.pathname}${url.search}`
+    if (!ALLOWED_FILE_EXTENSIONS.test(pathWithQuery)) return false
+  }
+
+  return true
+}
+
+export const buildSymbols = (rgb: readonly [number, number, number]) => {
+  const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
+  const highlight = {
+    type: "simple-fill" as const,
+    color: [...base, 0.2] as [number, number, number, number],
+    outline: {
+      color: base,
+      width: 2,
+      style: "solid" as const,
+    },
+  }
+  const symbols = {
+    polygon: highlight,
+    polyline: {
+      type: "simple-line",
+      color: base,
+      width: 2,
+      style: "solid",
+    },
+    point: {
+      type: "simple-marker",
+      style: "circle",
+      size: 8,
+      color: base,
+      outline: {
+        color: [255, 255, 255],
+        width: 1,
+      },
+    },
+  } as const
+  return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
+}
+
+export const normalizeSketchCreateTool = (
+  tool: string | null | undefined
+): "polygon" | "rectangle" | null => {
+  if (!tool) return null
+  const normalized = tool.toLowerCase()
+  if (normalized === "extent" || normalized === "rectangle") {
+    return "rectangle"
+  }
+  if (normalized === "polygon") {
+    return "polygon"
+  }
+  return null
+}
+
+export const parseSubmissionFormData = (rawData: {
+  [key: string]: unknown
+}): {
+  sanitizedFormData: { [key: string]: unknown }
+  uploadFile: File | null
+  remoteUrl: string
+} => {
+  const {
+    __upload_file__: uploadField,
+    __remote_dataset_url__: remoteDatasetField,
+    opt_geturl: optGetUrlField,
+    ...restFormData
+  } = rawData
+
+  const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
+  const sanitizedFormData = sanitizedOptGetUrl
+    ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
+    : { ...restFormData }
+
+  const normalizedFormData: { [key: string]: unknown } = {}
+  for (const [key, val] of Object.entries(sanitizedFormData)) {
+    normalizedFormData[key] = coerceFormValueForSubmission(val)
+  }
+
+  const uploadFile = uploadField instanceof File ? uploadField : null
+  const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
+
+  return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
+}
+
+export const applyUploadedDatasetParam = ({
+  finalParams,
+  uploadedPath,
+  parameters,
+  explicitTarget,
+}: {
+  finalParams: { [key: string]: unknown }
+  uploadedPath?: string
+  parameters?: readonly WorkspaceParameter[] | null
+  explicitTarget: string | null
+}): void => {
+  if (!uploadedPath) return
+
+  if (explicitTarget) {
+    finalParams[explicitTarget] = uploadedPath
+    return
+  }
+
+  const candidate = (parameters ?? []).find((param) => {
+    const normalizedType = String(
+      param?.type
+    ) as (typeof UPLOAD_PARAM_TYPES)[number]
+    return UPLOAD_PARAM_TYPES.includes(normalizedType)
+  })
+
+  if (candidate?.name) {
+    finalParams[candidate.name] = uploadedPath
+    return
+  }
+
+  if (
+    typeof (finalParams as { SourceDataset?: unknown }).SourceDataset ===
+    "undefined"
+  ) {
+    ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
+  }
+}
+
+export const isNavigatorOffline = (): boolean => {
+  try {
+    const nav = (globalThis as any)?.navigator
+    return Boolean(nav && nav.onLine === false)
+  } catch {
+    return false
+  }
+}
+
+export const shouldApplyRemoteDatasetUrl = (
+  remoteUrl: string,
+  config: FmeExportConfig | null | undefined
+): boolean =>
+  Boolean(
+    config?.allowRemoteUrlDataset &&
+      remoteUrl &&
+      isValidExternalUrlForOptGetUrl(remoteUrl)
+  )
+
+export const shouldUploadRemoteDataset = (
+  config: FmeExportConfig | null | undefined,
+  uploadFile: File | null
+): uploadFile is File => Boolean(config?.allowRemoteDataset && uploadFile)
+
+export const removeAoiErrorMarker = (params: MutableParams): void => {
+  if (typeof params.__aoi_error__ !== "undefined") {
+    delete params.__aoi_error__
+  }
+}
+
+export const computeWidgetsToClose = (
+  runtimeInfo:
+    | { [id: string]: { state?: WidgetState | string } | undefined }
+    | null
+    | undefined,
+  widgetId: string
+): string[] => {
+  if (!runtimeInfo) return []
+
+  const ids: string[] = []
+
+  for (const [id, info] of Object.entries(runtimeInfo)) {
+    if (id === widgetId || !info) continue
+    const stateRaw = info.state
+    if (!stateRaw) continue
+    const normalized =
+      typeof stateRaw === "string"
+        ? stateRaw.toUpperCase()
+        : String(stateRaw).toUpperCase()
+
+    if (
+      normalized === WidgetState.Closed ||
+      normalized === WidgetState.Hidden
+    ) {
+      continue
+    }
+
+    ids.push(id)
+  }
+
+  return ids
+}
+
+export const clearPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined
+): void => {
+  const record = ref?.current
+  if (!record) return
+  releasePopupSuppressionRecord(record)
+  ref.current = null
+}
+
+export const applyPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined,
+  popup: __esri.Popup | null | undefined,
+  view: __esri.MapView | __esri.SceneView | null | undefined
+): void => {
+  if (!ref) return
+
+  if (!popup) {
+    clearPopupSuppression(ref)
+    return
+  }
+
+  if (ref.current?.popup === popup) {
+    try {
+      if (view && typeof (view as any).closePopup === "function") {
+        ;(view as any).closePopup()
+      } else if (typeof popup.close === "function") {
+        popup.close()
+      }
+    } catch {}
+    return
+  }
+
+  clearPopupSuppression(ref)
+
+  const record = createPopupSuppressionRecord(popup, view)
+  ref.current = record
 }
 
 export function formatErrorForView(
@@ -177,9 +496,29 @@ export function formatErrorForView(
 
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
-  return input
+
+  const noTags = input
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
     .replace(/<[^>]*>/g, "")
+
+  const entities: { [key: string]: string } = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+  }
+
+  const decoded = noTags
+    .replace(/&#(\d+);/g, (_, n) =>
+      String.fromCharCode(parseInt(n as string, 10))
+    )
+    .replace(/&#x([\da-f]+);/gi, (_, h) =>
+      String.fromCharCode(parseInt((h as string) || "0", 16))
+    )
+    .replace(/&(?:amp|lt|gt|quot|#39);/g, (match) => entities[match] || match)
+
+  return decoded.replace(/\s+/g, " ").trim()
 }
 
 export const styleCss = (style?: CSSProperties) =>
@@ -216,21 +555,8 @@ export const safeAbort = (ctrl: AbortController | null) => {
 
 const ABORT_REGEX = /abort/i
 
-const toStringSafe = (v: unknown): string => {
-  if (v === null || v === undefined) return ""
-  if (
-    typeof v === "string" ||
-    typeof v === "number" ||
-    typeof v === "boolean"
-  ) {
-    return String(v)
-  }
-  return ""
-}
-
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
-
   if (typeof error === "string") return ABORT_REGEX.test(error)
   if (typeof error !== "object") return false
 
@@ -239,8 +565,8 @@ export const isAbortError = (error: unknown): boolean => {
     code?: unknown
     message?: unknown
   }
-  const name = toStringSafe(candidate.name ?? candidate.code)
-  const message = toStringSafe(candidate.message)
+  const name = toStr(candidate.name ?? candidate.code)
+  const message = toStr(candidate.message)
 
   return ABORT_REGEX.test(name) || ABORT_REGEX.test(message)
 }
@@ -248,13 +574,6 @@ export const isAbortError = (error: unknown): boolean => {
 export const logIfNotAbort = (_context: string, error: unknown): void => {
   // Intentionally no-op to prevent logging sensitive data
   void (_context, error)
-}
-
-export interface PopupSuppressionRecord {
-  popup: __esri.Popup
-  view: __esri.MapView | __esri.SceneView | null
-  handle: __esri.WatchHandle | null
-  prevAutoOpen?: boolean
 }
 
 const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
@@ -448,40 +767,8 @@ export const extractRepositoryNames = (source: unknown): string[] => {
   return []
 }
 
-export const useLatestAbortController = () => {
-  const controllerRef = hooks.useLatest<AbortController | null>(null)
-
-  const cancel = hooks.useEventCallback(() => {
-    const controller = controllerRef.current
-    if (controller) {
-      safeAbort(controller)
-    }
-    controllerRef.current = null
-  })
-
-  const abortAndCreate = hooks.useEventCallback(() => {
-    cancel()
-    const controller = new AbortController()
-    controllerRef.current = controller
-    return controller
-  })
-
-  const finalize = hooks.useEventCallback(
-    (controller?: AbortController | null) => {
-      if (!controller) return
-      if (controllerRef.current === controller) {
-        controllerRef.current = null
-      }
-    }
-  )
-
-  return {
-    controllerRef,
-    abortAndCreate,
-    cancel,
-    finalize,
-  }
-}
+// Re-export useLatestAbortController from hooks for backward compatibility
+export { useLatestAbortController } from "./hooks"
 
 export const maskToken = (token: string): string =>
   token ? `****${token.slice(-4)}` : ""
@@ -560,28 +847,39 @@ export const getErrorIconSrc = (code?: string): string => {
   return DEFAULT_ERROR_ICON
 }
 
-export const MS_LOADING = 500
-
-export const WORKSPACE_ITEM_TYPE = "WORKSPACE"
-
-export const ERROR_NAMES = {
-  CANCELLED_PROMISE: "CancelledPromiseError",
-  ABORT: "AbortError",
-} as const
-
+// AREA & UNIT CONVERSION
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000,
   AREA_DECIMALS: 2,
+  METERS_PER_KILOMETER: 1_000,
+  SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
 } as const
 
-const METERS_PER_KILOMETER = 1_000
-const SQUARE_FEET_PER_SQUARE_MILE = 27_878_400
-
-interface AreaDisplay {
-  value: number
-  label: string
-  decimals: number
-}
+const UNIT_CONVERSIONS: readonly UnitConversion[] = [
+  {
+    factor: 0.3048,
+    label: "ft²",
+    keywords: ["foot", "feet"],
+    largeUnit: {
+      threshold: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      factor: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      label: "mi²",
+    },
+  },
+  { factor: 0.3048006096, label: "ft²", keywords: [] },
+  { factor: 1609.344, label: "mi²", keywords: ["mile"] },
+  {
+    factor: GEOMETRY_CONSTS.METERS_PER_KILOMETER,
+    label: "km²",
+    keywords: ["kilometer"],
+  },
+  { factor: 0.9144, label: "yd²", keywords: ["yard"] },
+  { factor: 0.0254, label: "in²", keywords: ["inch"] },
+  { factor: 0.01, label: "cm²", keywords: ["centimeter"] },
+  { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
+  { factor: 1852, label: "nm²", keywords: ["nautical"] },
+  { factor: 1, label: "m²", keywords: ["meter"] },
+] as const
 
 const approxLengthUnit = (
   value: number | undefined,
@@ -590,6 +888,13 @@ const approxLengthUnit = (
   if (typeof value !== "number" || !Number.isFinite(value)) return false
   const tolerance = Math.max(1e-9, Math.abs(target) * 1e-6)
   return Math.abs(value - target) <= tolerance
+}
+
+const getDecimalPlaces = (value: number, isLargeUnit = false): number => {
+  if (isLargeUnit) return 2
+  if (value >= 100) return 0
+  if (value >= 10) return 1
+  return 2
 }
 
 const normalizeUnitLabel = (unit?: string): string => {
@@ -687,6 +992,38 @@ const resolveMetricDisplay = (area: number): AreaDisplay => {
   }
 }
 
+const matchesUnitKeywords = (
+  unitId: string,
+  keywords: readonly string[]
+): boolean => {
+  return keywords.some((keyword) => unitId.includes(keyword))
+}
+
+const convertAreaByUnit = (
+  area: number,
+  factor: number,
+  conversion: UnitConversion
+): AreaDisplay => {
+  const convertedValue = area / (factor * factor)
+
+  if (
+    conversion.largeUnit &&
+    convertedValue >= conversion.largeUnit.threshold
+  ) {
+    return {
+      value: convertedValue / conversion.largeUnit.factor,
+      label: conversion.largeUnit.label,
+      decimals: 2,
+    }
+  }
+
+  const decimals = getDecimalPlaces(
+    convertedValue,
+    conversion.label.includes("km²") || conversion.label.includes("mi²")
+  )
+  return { value: convertedValue, label: conversion.label, decimals }
+}
+
 const resolveAreaForSpatialReference = (
   area: number,
   spatialReference?: __esri.SpatialReference | null
@@ -699,94 +1036,73 @@ const resolveAreaForSpatialReference = (
   const hasValidFactor =
     typeof metersPerUnit === "number" && Number.isFinite(metersPerUnit)
 
+  if (!hasValidFactor) {
+    return resolveMetricDisplay(area)
+  }
+
   const unitId =
     typeof spatialReference.unit === "string"
       ? spatialReference.unit.toLowerCase()
       : ""
 
-  if (!hasValidFactor) {
-    return resolveMetricDisplay(area)
-  }
-
   const factor = metersPerUnit
 
-  if (
-    approxLengthUnit(factor, 0.3048) ||
-    approxLengthUnit(factor, 0.3048006096) ||
-    unitId.includes("foot") ||
-    unitId.includes("feet")
-  ) {
-    const squareFeet = area / (factor * factor)
-    if (squareFeet >= SQUARE_FEET_PER_SQUARE_MILE) {
-      return {
-        value: squareFeet / SQUARE_FEET_PER_SQUARE_MILE,
-        label: "mi²",
-        decimals: 2,
-      }
+  for (const conversion of UNIT_CONVERSIONS) {
+    if (
+      approxLengthUnit(factor, conversion.factor) ||
+      matchesUnitKeywords(unitId, conversion.keywords)
+    ) {
+      return convertAreaByUnit(area, factor, conversion)
     }
-
-    const decimals = squareFeet >= 100 ? 0 : squareFeet >= 10 ? 1 : 2
-    return { value: squareFeet, label: "ft²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 1609.344) || unitId.includes("mile")) {
-    return {
-      value: area / (1609.344 * 1609.344),
-      label: "mi²",
-      decimals: 2,
-    }
-  }
-
-  if (
-    approxLengthUnit(factor, METERS_PER_KILOMETER) ||
-    unitId.includes("kilometer")
-  ) {
-    const value = area / (METERS_PER_KILOMETER * METERS_PER_KILOMETER)
-    const decimals = value >= 10 ? 1 : 3
-    return { value, label: "km²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.9144) || unitId.includes("yard")) {
-    const value = area / (0.9144 * 0.9144)
-    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
-    return { value, label: "yd²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.0254) || unitId.includes("inch")) {
-    const value = area / (0.0254 * 0.0254)
-    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
-    return { value, label: "in²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.01) || unitId.includes("centimeter")) {
-    const value = area / (0.01 * 0.01)
-    const decimals = value >= 100 ? 0 : 2
-    return { value, label: "cm²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.001) || unitId.includes("millimeter")) {
-    const value = area / (0.001 * 0.001)
-    const decimals = value >= 100 ? 0 : 2
-    return { value, label: "mm²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 1852) || unitId.includes("nautical")) {
-    return {
-      value: area / (1852 * 1852),
-      label: "nm²",
-      decimals: 2,
-    }
-  }
-
-  if (approxLengthUnit(factor, 1) || unitId.includes("meter")) {
-    return resolveMetricDisplay(area)
   }
 
   const value = area / (factor * factor)
-  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+  const decimals = getDecimalPlaces(value)
   return { value, label: normalizeUnitLabel(spatialReference.unit), decimals }
 }
 
+// GEOMETRY VALIDATION & CONVERSION
+
+const isValidCoordinateTuple = (pt: unknown): boolean =>
+  Array.isArray(pt) &&
+  pt.length >= 2 &&
+  pt.length <= 4 &&
+  pt.every((n) => Number.isFinite(n))
+
+const isValidRing = (ring: unknown): boolean =>
+  Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
+
+export const isPolygonGeometry = (
+  value: unknown
+): value is { rings: unknown } | { geometry: { rings: unknown } } => {
+  if (!value || typeof value !== "object") return false
+
+  const geom =
+    "geometry" in (value as any)
+      ? (value as { geometry: unknown }).geometry
+      : value
+
+  if (!geom || typeof geom !== "object") return false
+
+  const rings =
+    "rings" in (geom as any) ? (geom as { rings: unknown }).rings : undefined
+
+  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
+}
+
+export const sanitizeParamKey = (name: unknown, fallback: string): string => {
+  const raw =
+    typeof name === "string"
+      ? name
+      : typeof name === "number" && Number.isFinite(name)
+        ? String(name)
+        : ""
+
+  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
+  return safe || fallback
+}
+
+// FME PARAMETER BUILDING & SERVICE MODE
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "sync",
   "async",
@@ -801,6 +1117,15 @@ const SCHEDULE_METADATA_FIELDS = [
   "trigger",
 ] as const
 const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
+
+const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
+  const startValRaw = data.start
+  const hasStart =
+    typeof startValRaw === "string" && startValRaw.trim().length > 0
+  const category = typeof data.category === "string" ? data.category.trim() : ""
+  const name = typeof data.name === "string" ? data.name.trim() : ""
+  return hasStart && !!category && !!name
+}
 
 const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
@@ -842,57 +1167,15 @@ const sanitizeScheduleMetadata = (
   return sanitized
 }
 
-export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  const raw =
-    typeof name === "string"
-      ? name
-      : typeof name === "number" && Number.isFinite(name)
-        ? String(name)
-        : ""
-
-  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
-  return safe || fallback
-}
-
-// Geometry validation
-const isValidCoordinateTuple = (pt: unknown): boolean =>
-  Array.isArray(pt) &&
-  pt.length >= 2 &&
-  pt.length <= 4 &&
-  pt.every((n) => Number.isFinite(n))
-
-const isValidRing = (ring: unknown): boolean =>
-  Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
-
-export const isPolygonGeometry = (
-  value: unknown
-): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
-
-  const geom =
-    "geometry" in (value as any)
-      ? (value as { geometry: unknown }).geometry
-      : value
-
-  if (!geom || typeof geom !== "object") return false
-
-  const rings =
-    "rings" in (geom as any) ? (geom as { rings: unknown }).rings : undefined
-
-  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
-}
-
 export const determineServiceMode = (
   formData: unknown,
   config?: FmeExportConfig
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
 
-  const startValRaw = data.start as unknown
-  const hasStart =
-    typeof startValRaw === "string" && startValRaw.trim().length > 0
-
-  if (config?.allowScheduleMode && hasStart) return "schedule"
+  if (config?.allowScheduleMode && hasScheduleData(data)) {
+    return "schedule"
+  }
 
   const override =
     typeof data._serviceMode === "string"
@@ -1276,19 +1559,19 @@ export const applyDirectiveDefaults = (
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
   }
 
-  if (!hasOwn(out, "tm_ttc")) {
+  if (!("tm_ttc" in out)) {
     const v = toPosInt(config.tm_ttc)
     if (v !== undefined) out.tm_ttc = v
   }
-  if (!hasOwn(out, "tm_ttl")) {
+  if (!("tm_ttl" in out)) {
     const v = toPosInt(config.tm_ttl)
     if (v !== undefined) out.tm_ttl = v
   }
-  if (!hasOwn(out, "tm_tag")) {
+  if (!("tm_tag" in out)) {
     const tag = toTrimmedString(config.tm_tag)
     if (tag) out.tm_tag = tag.substring(0, 128)
   }
-  if (!hasOwn(out, "tm_description")) {
+  if (!("tm_description" in out)) {
     const description = toTrimmedString(config.tm_description)
     if (description) out.tm_description = description.substring(0, 512)
   }
@@ -1369,35 +1652,17 @@ export function formatArea(
 
 export const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   const user = await SessionManager.getInstance().getUserInfo()
-  const email = user?.email
-  if (!email) {
+  const email = (user?.email || _config?.defaultRequesterEmail || "")
+    .trim()
+    .toLowerCase()
+
+  const isEmail = EMAIL_REGEX.test(email)
+  if (!isEmail) {
     const err = new Error("MISSING_REQUESTER_EMAIL")
     err.name = "MISSING_REQUESTER_EMAIL"
     throw err
   }
-  if (!isValidEmail(email)) {
-    const err = new Error("INVALID_EMAIL")
-    err.name = "INVALID_EMAIL"
-    throw err
-  }
   return email
-}
-
-export const toStr = (val: unknown): string => {
-  if (typeof val === "string") return val
-  if (typeof val === "number" || typeof val === "boolean") return String(val)
-  if (val && typeof val === "object") {
-    try {
-      return JSON.stringify(val)
-    } catch {
-      return Object.prototype.toString.call(val)
-    }
-  }
-  return val === undefined
-    ? "undefined"
-    : val === null
-      ? "null"
-      : Object.prototype.toString.call(val)
 }
 
 export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
@@ -1616,18 +1881,18 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
   return Math.floor(n)
 }
 
+// TEMPORAL UTILITIES (DATE/TIME PARSING & FORMATTING)
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
 const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i
 const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/
 
-export const extractTemporalParts = (
-  raw: string
+const parseTemporalComponents = (
+  input: string
 ): { base: string; fraction: string; offset: string } => {
-  const trimmed = (raw || "").trim()
-  if (!trimmed) return { base: "", fraction: "", offset: "" }
+  if (!input) return { base: "", fraction: "", offset: "" }
 
-  let base = trimmed
+  let base = input
   let offset = ""
   const offsetMatch = OFFSET_SUFFIX_RE.exec(base)
   if (offsetMatch?.[1]) {
@@ -1645,29 +1910,18 @@ export const extractTemporalParts = (
   return { base, fraction, offset }
 }
 
+export const extractTemporalParts = (
+  raw: string
+): { base: string; fraction: string; offset: string } => {
+  const trimmed = (raw || "").trim()
+  return parseTemporalComponents(trimmed)
+}
+
 const normalizeIsoTimeParts = (
   time: string
-): {
-  time: string
-  fraction: string
-  offset: string
-} => {
-  let working = time
-  let offset = ""
-  const offsetMatch = OFFSET_SUFFIX_RE.exec(working)
-  if (offsetMatch?.[1]) {
-    offset = offsetMatch[1]
-    working = working.slice(0, -offset.length)
-  }
-
-  let fraction = ""
-  const fractionMatch = FRACTION_SUFFIX_RE.exec(working)
-  if (fractionMatch?.[0]) {
-    fraction = fractionMatch[0]
-    working = working.slice(0, -fraction.length)
-  }
-
-  return { time: working, fraction, offset }
+): { time: string; fraction: string; offset: string } => {
+  const { base, fraction, offset } = parseTemporalComponents(time)
+  return { time: base, fraction, offset }
 }
 
 const safePad2 = (part?: string): string | null => {
@@ -1766,28 +2020,26 @@ export const inputToFmeTime = (v: string, original?: string): string => {
   return `${base}${fraction}${offset}`
 }
 
-const clamp01 = (value: number): number => {
-  if (!Number.isFinite(value)) return 0
-  if (value <= 0) return 0
-  if (value >= 1) return 1
-  return value
+// COLOR CONVERSION UTILITIES
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, value))
 }
 
-const clamp255 = (value: number): number => {
-  if (!Number.isFinite(value)) return 0
-  if (value <= 0) return 0
-  if (value >= 255) return 255
-  return value
-}
+const clamp01 = (value: number): number => clamp(value, 0, 1)
+const clamp255 = (value: number): number => clamp(value, 0, 255)
 
 const toHexComponent = (value: number): string =>
   Math.round(clamp255(value)).toString(16).padStart(2, "0")
 
-const rgbToHexString = (r: number, g: number, b: number): string =>
-  `#${toHexComponent(r)}${toHexComponent(g)}${toHexComponent(b)}`
-
 const formatUnitFraction = (value: number): string =>
   Number(clamp01(value).toFixed(6)).toString()
+
+const formatRgbFraction = (value: number): string =>
+  formatUnitFraction(value / 255)
+
+const rgbToHexString = (r: number, g: number, b: number): string =>
+  `#${toHexComponent(r)}${toHexComponent(g)}${toHexComponent(b)}`
 
 const cmykToRgb = (
   c: number,
@@ -1799,13 +2051,10 @@ const cmykToRgb = (
   const mm = clamp01(m)
   const yy = clamp01(y)
   const kk = clamp01(k)
-  const r = 255 * (1 - cc) * (1 - kk)
-  const g = 255 * (1 - mm) * (1 - kk)
-  const b = 255 * (1 - yy) * (1 - kk)
   return {
-    r: clamp255(r),
-    g: clamp255(g),
-    b: clamp255(b),
+    r: clamp255(255 * (1 - cc) * (1 - kk)),
+    g: clamp255(255 * (1 - mm) * (1 - kk)),
+    b: clamp255(255 * (1 - yy) * (1 - kk)),
   }
 }
 
@@ -1818,17 +2067,14 @@ const rgbToCmyk = (
   const gn = clamp01(g / 255)
   const bn = clamp01(b / 255)
   const k = 1 - Math.max(rn, gn, bn)
-  if (k >= 0.999999) {
-    return { c: 0, m: 0, y: 0, k: 1 }
-  }
+
+  if (k >= 0.999999) return { c: 0, m: 0, y: 0, k: 1 }
+
   const denom = 1 - k
-  const c = (1 - rn - k) / denom
-  const m = (1 - gn - k) / denom
-  const y = (1 - bn - k) / denom
   return {
-    c: clamp01(c),
-    m: clamp01(m),
-    y: clamp01(y),
+    c: clamp01((1 - rn - k) / denom),
+    m: clamp01((1 - gn - k) / denom),
+    y: clamp01((1 - bn - k) / denom),
     k: clamp01(k),
   }
 }
@@ -1837,11 +2083,14 @@ const parseNormalizedParts = (value: string): number[] =>
   (value || "")
     .split(",")
     .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-    .map((segment) => Number(segment))
+    .filter(Boolean)
+    .map(Number)
 
-const formatRgbFraction = (value: number): string =>
-  formatUnitFraction(value / 255)
+export const hexToRgbArray = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+  const n = m ? parseInt(m[1], 16) : parseInt(DEFAULT_DRAWING_HEX.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
 
 export const normalizedRgbToHex = (
   v: string,
@@ -1855,17 +2104,15 @@ export const normalizedRgbToHex = (
     (!config?.space && !config?.alpha && parts.length === 4)
 
   if (treatAsCmyk) {
-    if (parts.length < 4) return null
+    if (parts.length < 4 || !parts.slice(0, 4).every(Number.isFinite))
+      return null
     const [c, m, y, k] = parts
-    if ([c, m, y, k].some((value) => !Number.isFinite(value))) return null
     const rgb = cmykToRgb(c, m, y, k)
     return rgbToHexString(rgb.r, rgb.g, rgb.b)
   }
 
-  if (parts.length < 3) return null
+  if (parts.length < 3 || !parts.slice(0, 3).every(Number.isFinite)) return null
   const [rPart, gPart, bPart] = parts
-  if ([rPart, gPart, bPart].some((value) => !Number.isFinite(value)))
-    return null
   const r = clamp255(Math.round(clamp01(rPart) * 255))
   const g = clamp255(Math.round(clamp01(gPart) * 255))
   const b = clamp255(Math.round(clamp01(bPart) * 255))
@@ -1878,6 +2125,7 @@ export const hexToNormalizedRgb = (
 ): string | null => {
   const match = /^#?([0-9a-f]{6})$/i.exec(hex || "")
   if (!match) return null
+
   const numeric = parseInt(match[1], 16)
   const r = (numeric >> 16) & 0xff
   const g = (numeric >> 8) & 0xff
@@ -1941,6 +2189,7 @@ export const toSerializable = (error: any): any => {
   return { ...rest, timestampMs: ts, kind: "serializable" as const }
 }
 
+// FORM VALUE HANDLING & FILE UTILITIES
 export const isFileObject = (value: unknown): value is File => {
   try {
     return (
@@ -1961,27 +2210,40 @@ export const getFileDisplayName = (file: File): string => {
   return name || "unnamed-file"
 }
 
+const isCompositeValue = (
+  value: unknown
+): value is { mode: string; [key: string]: unknown } => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "mode" in value
+  )
+}
+
+const extractFileValue = (composite: TextOrFileValue): unknown => {
+  if (isFileObject(composite.file)) {
+    return composite.file
+  }
+  return toTrimmedString(composite.fileName) ?? asString(composite.fileName)
+}
+
 export const coerceFormValueForSubmission = (value: unknown): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value
   }
 
-  if ("mode" in (value as { [key: string]: unknown })) {
-    const composite = value as TextOrFileValue
-    const mode = composite?.mode
+  if (!isCompositeValue(value)) {
+    return value
+  }
 
-    if (mode === "file") {
-      if (isFileObject(composite.file)) {
-        return composite.file
-      }
-      const fallback =
-        toTrimmedString(composite.fileName) ?? asString(composite.fileName)
-      return fallback
-    }
+  const composite = value as TextOrFileValue
+  if (composite.mode === "file") {
+    return extractFileValue(composite)
+  }
 
-    if (mode === "text") {
-      return asString(composite.text)
-    }
+  if (composite.mode === "text") {
+    return asString(composite.text)
   }
 
   return value

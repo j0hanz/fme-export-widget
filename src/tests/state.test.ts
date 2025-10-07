@@ -16,7 +16,7 @@ import {
   type IMFmeGlobalState,
   type IMStateWithFmeExport,
   type WorkspaceParameter,
-} from "../config"
+} from "../config/index"
 
 const widgetId = "widget-test"
 

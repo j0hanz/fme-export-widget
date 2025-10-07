@@ -38,9 +38,14 @@ import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import { useTheme } from "jimu-theme"
+import {
+  useUniqueId,
+  useControlledValue,
+  useLoadingLatch,
+} from "../../shared/hooks"
+import { EMAIL_PLACEHOLDER } from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
-  EMAIL_PLACEHOLDER,
   styleCss,
   getErrorIconSrc,
   getBtnAria,
@@ -79,8 +84,7 @@ import type {
   BtnContentProps,
   StateViewProps,
   TranslateFn,
-  LoadingSnapshot,
-} from "../../config"
+} from "../../config/index"
 
 // Configuration & Constants
 export const config = {
@@ -374,35 +378,11 @@ export const useStyles = (): ReturnType<typeof createStyles> => {
   return createStyles(theme)
 }
 
-// Hooks & Utility Helpers
-let idSeq = 0
+// Alias imported hooks for internal use
+const useId = useUniqueId
+const useValue = useControlledValue
 
-const useId = (): string => {
-  const idRef = React.useRef<string>()
-  if (!idRef.current) {
-    idSeq += 1
-    idRef.current = `fme-${idSeq}`
-  }
-  return idRef.current
-}
-
-const useValue = <T = unknown,>(
-  controlled?: T,
-  defaultValue?: T,
-  onChange?: (value: T) => void
-): readonly [T, (value: T) => void] => {
-  const [value, setValue] = hooks.useControlled({
-    controlled,
-    default: defaultValue,
-  })
-
-  const handleChange = hooks.useEventCallback((newValue: T) => {
-    setValue(newValue)
-    onChange?.(newValue)
-  })
-
-  return [value, handleChange] as const
-}
+// Utility Helpers
 
 const withId = (
   child: React.ReactNode,
@@ -1536,68 +1516,6 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
       })}
     </AdvancedButtonGroup>
   )
-}
-
-const useLoadingLatch = (
-  state: StateViewProps["state"],
-  delay: number
-): { showLoading: boolean; snapshot: LoadingSnapshot } => {
-  const [latched, setLatched] = React.useState(state.kind === "loading")
-  const startRef = React.useRef<number | null>(
-    state.kind === "loading" ? Date.now() : null
-  )
-  const snapshotRef = React.useRef<LoadingSnapshot>(
-    state.kind === "loading"
-      ? { message: (state as any).message, detail: (state as any).detail }
-      : null
-  )
-
-  hooks.useEffectWithPreviousValues(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    if (state.kind === "loading") {
-      snapshotRef.current = {
-        message: (state as any).message,
-        detail: (state as any).detail,
-      }
-      if (startRef.current == null) {
-        startRef.current = Date.now()
-      }
-      setLatched(true)
-    } else if (startRef.current != null) {
-      const elapsed = Date.now() - startRef.current
-      const remaining = Math.max(0, delay - elapsed)
-
-      if (remaining > 0) {
-        timer = setTimeout(() => {
-          setLatched(false)
-          startRef.current = null
-          snapshotRef.current = null
-        }, remaining)
-      } else {
-        setLatched(false)
-        startRef.current = null
-        snapshotRef.current = null
-      }
-    } else {
-      setLatched(false)
-      snapshotRef.current = null
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state, delay])
-
-  const isLoading = state.kind === "loading"
-  const snapshot = isLoading
-    ? { message: (state as any).message, detail: (state as any).detail }
-    : snapshotRef.current
-
-  return {
-    showLoading: isLoading || latched,
-    snapshot,
-  }
 }
 
 // View components

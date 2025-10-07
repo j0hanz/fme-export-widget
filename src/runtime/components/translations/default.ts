@@ -85,6 +85,11 @@ export default {
   tableMoveDown: "Flytta ned",
   textInput: "Textinmatning",
   fileInput: "Filuppladdning",
+  fileTooLarge: "Filen är för stor. Maximal storlek är {maxSize} MB.",
+  fileTypeNotAllowed:
+    "Filtypen är inte tillåten. Tillåtna format: .zip, .kmz, .json, .geojson, .gml",
+  fileInvalid: "Ogiltig fil vald.",
+  fileInputHint: "Accepterar: .zip, .kmz, .json, .geojson, .gml (max 150 MB)",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
   errorLoadingTimeout: "Inläsningen tog för lång tid. Försök igen.",
 }

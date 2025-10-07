@@ -2,7 +2,7 @@ import "@testing-library/jest-dom"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { initGlobal, widgetSettingRender } from "jimu-for-test"
 import { React, Immutable, getAppStore } from "jimu-core"
-import type { FmeExportConfig, IMWidgetConfig } from "../config"
+import type { FmeExportConfig, IMWidgetConfig } from "../config/index"
 import Setting from "../setting/setting"
 
 jest.mock("jimu-ui", () => {

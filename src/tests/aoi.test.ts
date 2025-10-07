@@ -1,7 +1,7 @@
 import { initGlobal } from "jimu-for-test"
 import * as utils from "../shared/utils"
 import * as validations from "../shared/validations"
-import type { FmeExportConfig } from "../config"
+import type { FmeExportConfig } from "../config/index"
 
 const {
   polygonJsonToGeoJson,
