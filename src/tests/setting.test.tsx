@@ -464,8 +464,7 @@ describe("Setting builder interactions", () => {
     expect(
       configs.some(
         (cfg) =>
-          cfg.customInfoMessage ===
-          "Kontrollera {threshold} innan export."
+          cfg.customInfoMessage === "Kontrollera {threshold} innan export."
       )
     ).toBe(true)
 

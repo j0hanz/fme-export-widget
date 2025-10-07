@@ -348,7 +348,7 @@ const reduceOne = (
   action: FmeAction
 ): ImmutableObject<FmeWidgetState> => {
   let nextState = state
-  
+
   switch (action.type) {
     case FmeActionType.SET_VIEW_MODE: {
       const act = action as ActionFrom<"setViewMode">

@@ -1016,7 +1016,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   startupValidationError,
   onRetryValidation,
 }) => {
-  
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
   const reduxDispatch = ReactRedux.useDispatch()
@@ -1525,12 +1524,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     }
 
-
-    
     switch (state) {
       case ViewMode.INITIAL:
-
-
         return renderInitial()
       case ViewMode.DRAWING:
         // If completing drawing, show loading state instead of tabs to prevent flicker
@@ -1552,17 +1547,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.WORKSPACE_SELECTION:
         return renderSelection()
       case ViewMode.EXPORT_FORM:
-
-
         return renderForm()
       case ViewMode.ORDER_RESULT:
-
-
         return renderError(translate("orderResultMissing"), onBack)
     }
-    
-
-
   }
 
   return (

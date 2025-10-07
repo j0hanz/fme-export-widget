@@ -111,6 +111,54 @@ const hasControlCharacters = (token: string): boolean => {
 const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
 
+const isIpv4Host = (hostname: string): number[] | null => {
+  const parts = hostname.split(".")
+  if (parts.length !== 4) return null
+  const octets = parts.map((part) => {
+    if (!/^\d+$/.test(part)) return NaN
+    const value = Number(part)
+    return value >= 0 && value <= 255 ? value : NaN
+  })
+  return octets.every((value) => Number.isInteger(value)) ? octets : null
+}
+
+const isPrivateIpv4 = (octets: number[]): boolean => {
+  if (octets[0] === 10) return true
+  if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true
+  if (octets[0] === 127) return true
+  if (octets[0] === 169 && octets[1] === 254) return true
+  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true
+  if (octets[0] === 192 && octets[1] === 168) return true
+  if (octets[0] === 0) return true
+  return false
+}
+
+const hasDisallowedHostnameSuffix = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  const forbidden = [
+    "localhost",
+    ".localhost",
+    ".local",
+    ".internal",
+    ".intranet",
+    ".home",
+    ".lan",
+    ".localdomain",
+  ]
+  if (forbidden.some((suffix) => lower === suffix || lower.endsWith(suffix))) {
+    return true
+  }
+  return false
+}
+
+const isPrivateIpv6Host = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  if (lower === "::1" || lower === "0:0:0:0:0:0:0:1") return true
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true
+  if (lower.startsWith("fe80")) return true
+  return false
+}
+
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "connection.missingToken" }
 
@@ -257,6 +305,16 @@ export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
   if (!u) return false
   if (!/^https:$/i.test(u.protocol)) return false
   if (u.username || u.password) return false
+  const hostname = u.hostname || ""
+  if (!hostname) return false
+  if (hasDisallowedHostnameSuffix(hostname)) return false
+
+  const ipv4 = isIpv4Host(hostname)
+  if (ipv4 && isPrivateIpv4(ipv4)) return false
+
+  if (hostname.includes(":")) {
+    if (isPrivateIpv6Host(hostname)) return false
+  }
   return true
 }
 

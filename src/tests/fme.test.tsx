@@ -318,6 +318,12 @@ describe("ParameterFormService", () => {
       optional: false,
     },
     {
+      name: "adminPassword",
+      type: ParameterType.PASSWORD,
+      optional: false,
+      defaultValue: "super-secret",
+    },
+    {
       name: "height",
       type: ParameterType.INTEGER,
       optional: false,
@@ -353,6 +359,7 @@ describe("ParameterFormService", () => {
     const rangeField = fields.find((f) => f.name === "range")
     const messageField = fields.find((f) => f.name === "message")
     const docField = fields.find((f) => f.name === "document")
+    const passwordField = fields.find((f) => f.name === "adminPassword")
     const monthField = fields.find((f) => f.name === "reportMonth")
     const weekField = fields.find((f) => f.name === "reportWeek")
 
@@ -365,6 +372,7 @@ describe("ParameterFormService", () => {
     expect(rangeField?.step).toBe(1)
     expect(messageField?.readOnly).toBe(true)
     expect(docField?.type).toBe(FormFieldType.TEXT_OR_FILE)
+    expect(passwordField?.defaultValue).toBeUndefined()
     expect(monthField?.type).toBe(FormFieldType.MONTH)
     expect(weekField?.type).toBe(FormFieldType.WEEK)
   })
@@ -584,6 +592,15 @@ describe("isValidExternalUrlForOptGetUrl", () => {
     expect(
       isValidExternalUrlForOptGetUrl("https://user:pass@example.com/data.zip")
     ).toBe(false)
+  })
+
+  it("rejects URLs targeting private network addresses", () => {
+    expect(isValidExternalUrlForOptGetUrl("https://192.168.1.10/report")).toBe(
+      false
+    )
+    expect(isValidExternalUrlForOptGetUrl("https://localhost/resource")).toBe(
+      false
+    )
   })
 })
 

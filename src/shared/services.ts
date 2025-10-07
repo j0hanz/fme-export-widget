@@ -1245,9 +1245,11 @@ export class ParameterFormService {
         readOnly,
         description: param.description,
         defaultValue:
-          param.type === ParameterType.GEOMETRY
+          type === FormFieldType.PASSWORD
             ? ("" as FormPrimitive)
-            : (param.defaultValue as FormPrimitive),
+            : param.type === ParameterType.GEOMETRY
+              ? ("" as FormPrimitive)
+              : (param.defaultValue as FormPrimitive),
         placeholder: param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),

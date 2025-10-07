@@ -315,14 +315,10 @@ const createTokenInterceptor = (
       params.requestOptions = {}
     }
     const ro: any = params.requestOptions
-    ro.query = ro.query || {}
     ro.headers = ro.headers || {}
 
     const currentToken = getCachedToken(hostKey)
     if (currentToken) {
-      if (!ro.query.fmetoken) {
-        ro.query.fmetoken = currentToken
-      }
       ro.headers.Authorization = `fmetoken token=${currentToken}`
     }
   },
@@ -1512,10 +1508,6 @@ export class FmeFlowApiClient {
           requestHostKey === serverHostKey &&
           this.config.token
         ) {
-          // Add token as query parameter
-          if (!requestOptions.query.fmetoken) {
-            requestOptions.query.fmetoken = this.config.token
-          }
           // Add Authorization header with correct FME Flow format
           requestOptions.headers = requestOptions.headers || {}
           requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
