@@ -300,6 +300,13 @@ const resolveRemoteDataset = async ({
     return
   }
 
+  // When uploading a dataset we must clear any lingering opt_geturl value to
+  // avoid conflicting inputs. Otherwise a previously valid remote URL would
+  // override the uploaded dataset. (SRP & defensive programming)
+  if (typeof params.opt_geturl !== "undefined") {
+    delete params.opt_geturl
+  }
+
   const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
     fmeClient.uploadToTemp(uploadFile, {
       subfolder,
