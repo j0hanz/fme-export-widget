@@ -1064,7 +1064,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         </div>
         {areaInfoMessage && (
           <div css={styles.selection.warning}>
-            <div css={styles.selection.message}>{areaInfoMessage}</div>
+            <Alert type="info" text={areaInfoMessage} variant="default" />
           </div>
         )}
       </div>

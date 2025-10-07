@@ -259,6 +259,7 @@ const createStyles = (theme: IMThemeVariables) => {
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
+      flex: "0 0 auto",
     }),
 
     // Typography styles
@@ -1442,7 +1443,11 @@ export const Alert: React.FC<AlertComponentProps> = ({
       css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
     >
       <div css={styles.alertContent}>
-        {iconKey ? <Icon src={iconKey} /> : null}
+        {iconKey ? (
+          <div css={styles.alertIconOnly}>
+            <Icon src={iconKey} size={config.icon.small}/>
+          </div>
+        ) : null}
         {messageContent ? (
           <div css={styles.alertMessage}>{messageContent}</div>
         ) : null}
