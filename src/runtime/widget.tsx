@@ -55,6 +55,7 @@ import {
   checkMaxArea,
   evaluateArea,
   processFmeResponse,
+  validateRequiredFields,
 } from "../shared/validations"
 import {
   fmeActions,
@@ -1261,8 +1262,18 @@ export default function Widget(
       safeCancelSketch(sketchViewModel)
     }
 
-    // Reset Redux state
-    resetReduxToInitialDrawing()
+    const configValid = validateRequiredFields(configRef.current, translate, {
+      mapConfigured:
+        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0,
+    }).isValid
+
+    if (!configValid) {
+      dispatch(fmeActions.resetState(widgetId))
+      updateAreaWarning(false)
+      updateDrawingSession({ isActive: false, clickCount: 0 })
+    } else {
+      resetReduxToInitialDrawing()
+    }
 
     closeOtherWidgets()
     if (jimuMapView) {
@@ -1292,6 +1303,9 @@ export default function Widget(
       closeOtherWidgets()
       if (jimuMapView) {
         enablePopupGuard(jimuMapView)
+      }
+      if (viewModeRef.current === ViewMode.STARTUP_VALIDATION) {
+        runStartupValidation()
       }
     }
   }, [
