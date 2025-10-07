@@ -910,15 +910,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Lazy load workspaces when entering workspace selection modes
   hooks.useUpdateEffect(() => {
-    if (isWorkspaceSelectionContext) {
-      if (
-        !workspaceItems.length &&
-        !workspaceLoaderIsLoading &&
-        !workspaceError
-      ) {
-        scheduleWsLoad()
-      }
+    if (
+      !isWorkspaceSelectionContext ||
+      workspaceItems.length ||
+      workspaceLoaderIsLoading ||
+      workspaceError
+    ) {
+      return
     }
+    return scheduleWsLoad()
   }, [
     isWorkspaceSelectionContext,
     workspaceItems.length,
