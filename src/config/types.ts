@@ -399,6 +399,7 @@ export interface SettingStyles {
   readonly ROW: SerializedStyles
   readonly ALERT_INLINE: SerializedStyles
   readonly LABEL_WITH_BUTTON: SerializedStyles
+  readonly LABEL_TEXT: SerializedStyles
   readonly STATUS: {
     readonly CONTAINER: SerializedStyles
     readonly LIST: SerializedStyles
@@ -941,6 +942,7 @@ export interface RepositorySelectorProps {
   readonly localToken: string
   readonly localRepository: string
   readonly availableRepos: readonly string[] | null
+  readonly label: React.ReactNode
   readonly fieldErrors: FieldErrors
   readonly validateServerUrl: (
     url: string,

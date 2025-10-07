@@ -148,15 +148,7 @@ export function resolveMessageOrKey(
 ): string {
   if (!raw) return ""
 
-  const exact = translate(raw)
-  if (exact && exact !== raw) return exact
-
-  const camelKey = raw
-    .toLowerCase()
-    .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
-  const camel = translate(camelKey)
-
-  return camel && camel !== camelKey ? camel : raw
+  return translate(raw)
 }
 
 export const maskEmailForDisplay = (email: unknown): string => {

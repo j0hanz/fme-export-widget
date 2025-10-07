@@ -301,7 +301,6 @@ const createStyles = (theme: IMThemeVariables) => {
 
       required: css({
         marginInlineStart: spacing?.(1),
-        color: colors?.error.main,
       }),
     },
 
