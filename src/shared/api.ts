@@ -1295,12 +1295,11 @@ export class FmeFlowApiClient {
         } catch {}
       }
     } catch (err) {
+      if (err instanceof FmeFlowApiError) throw err
       if ((err as { code?: string } | null)?.code) {
         throw err instanceof Error ? err : new Error(String(err))
       }
-      if (err instanceof FmeFlowApiError) throw err
       const status = extractHttpStatus(err)
-      // Surface a code-only message; services will localize
       throw makeFlowError("DATA_DOWNLOAD_ERROR", status || 0)
     }
   }
