@@ -235,6 +235,21 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         paddingBlockStart: spacing?.(1) ?? 8,
       }),
     },
+    // State view layout helpers
+    stateView: {
+      frame: flex("column", {
+        inlineSize: "100%",
+        blockSize: "100%",
+        minBlockSize: 0,
+      }),
+      error: flex("column", {
+        flex: auto,
+        inlineSize: "100%",
+        blockSize: "100%",
+        minBlockSize: 0,
+        gap,
+      }),
+    },
   } as const
 }
 

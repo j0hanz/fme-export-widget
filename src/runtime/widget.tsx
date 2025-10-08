@@ -488,7 +488,6 @@ export default function Widget(
               </div>
             )
           }}
-          center={true}
         />
       )
     }

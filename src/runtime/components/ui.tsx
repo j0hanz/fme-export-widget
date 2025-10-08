@@ -1346,7 +1346,11 @@ const StateView: React.FC<StateViewProps> = ({
     switch (state.kind) {
       case "error":
         return (
-          <div role="alert" aria-live="assertive">
+          <div
+            role="alert"
+            aria-live="assertive"
+            css={styles.stateView.error}
+          >
             <div css={[styles.row, styles.rowAlignCenter]}>
               <Icon
                 src={getErrorIconSrc((state as any).code)}
@@ -1406,7 +1410,7 @@ const StateView: React.FC<StateViewProps> = ({
     <div
       className={className}
       css={applyComponentStyles(
-        [shouldCenter ? styles.centered : undefined],
+        [styles.stateView.frame, shouldCenter ? styles.centered : undefined],
         style as any
       )}
     >
