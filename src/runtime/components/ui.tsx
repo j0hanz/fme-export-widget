@@ -1615,7 +1615,7 @@ export const Field: React.FC<FieldProps> = ({
       )}
       {helper && !error && (
         <div
-          css={styles.typo.label}
+          css={styles.typo.hint}
           id={fieldId ? `${fieldId}-help` : undefined}
         >
           {helper}

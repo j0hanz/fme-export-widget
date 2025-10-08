@@ -128,24 +128,21 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     // Typography
     typo: {
       caption: css({
-        ...typo(typography?.body2),
-        color: colors?.surface?.backgroundText,
+        ...typo(typography?.body1),
         marginBlockEnd: spacing?.(3),
       }),
       label: css({
-        ...typo(typography?.label2),
-        color: colors?.surface?.backgroundText,
+        ...typo(typography?.label1),
+        fontWeight: "400",
         marginBlockEnd: 0,
       }),
       title: css({
-        ...typo(typography?.title2),
-        color: colors?.surface?.backgroundText,
+        ...typo(typography?.title1),
         margin: `${spacing?.(1)} 0`,
       }),
       instruction: css({
         textAlign: "center",
-        ...typo(typography?.body2),
-        color: colors?.surface?.backgroundText,
+        ...typo(typography?.body1),
         margin: `${spacing?.(3)} 0`,
       }),
       link: css({
@@ -159,7 +156,10 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         },
       }),
       required: css({ marginInlineStart: spacing?.(1) }),
-      hint: css({ marginTop: "0.25rem", fontSize: "0.875rem" }),
+      hint: css({
+        ...typo(typography?.label2),
+        marginBlockStart: spacing?.(1),
+      }),
     },
 
     // Buttons
@@ -189,7 +189,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       body: flex("column", { flex: auto, gap, overflowY: "auto" }),
       footer: flex("column", { flex: "0 0 auto", gap }),
     },
-    field: css({ marginBlockEnd: spacing?.(2) }),
+    field: css({ marginBlockEnd: spacing?.(3) }),
     checkLabel: flex("row", {
       alignItems: "center",
       justifyContent: "space-between",
@@ -203,7 +203,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       message: css({
         marginBlockStart: "auto",
         ...typo(typography?.body2),
-        color: colors?.surface?.backgroundText,
       }),
     },
 

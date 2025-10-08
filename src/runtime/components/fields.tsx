@@ -1115,9 +1115,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const trimmed = asString(fieldValue).trim()
         if (!trimmed) {
           return (
-            <React.Fragment data-testid="geometry-field">
+            <div css={styles.typo.hint} data-testid="geometry-field">
               {translate("geometryFieldMissing")}
-            </React.Fragment>
+            </div>
           )
         }
 
@@ -1144,19 +1144,19 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           preview.length > 1500 ? `${preview.slice(0, 1500)}…` : preview
 
         return (
-          <React.Fragment data-testid="geometry-field">
-            <>
+          <div data-testid="geometry-field">
+            <div css={styles.typo.hint}>
               {translate("geometryFieldReady", {
                 rings,
                 vertices,
               })}
-            </>
+            </div>
             {truncated ? (
               <pre aria-label={translate("geometryFieldPreviewLabel")}>
                 {truncated}
               </pre>
             ) : null}
-          </React.Fragment>
+          </div>
         )
       }
       case FormFieldType.SLIDER: {
