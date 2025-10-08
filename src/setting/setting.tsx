@@ -697,7 +697,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const dispatch = useDispatch()
 
   // Builder-aware Redux selectors
-  const fmeSelectors = React.useMemo(() => createFmeSelectors(id), [id])
+  const fmeSelectorsRef = React.useRef<{
+    widgetId: string
+    selectors: ReturnType<typeof createFmeSelectors>
+  } | null>(null)
+  if (
+    fmeSelectorsRef.current === null ||
+    fmeSelectorsRef.current.widgetId !== id
+  ) {
+    fmeSelectorsRef.current = {
+      widgetId: id,
+      selectors: createFmeSelectors(id),
+    }
+  }
+  const fmeSelectors = fmeSelectorsRef.current.selectors
   const isBusy = useBuilderSelector(fmeSelectors.selectIsBusy)
 
   const getStringConfig = useStringConfigValue(config)

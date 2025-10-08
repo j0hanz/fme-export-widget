@@ -52,6 +52,7 @@ jest.mock("../shared/utils", () => {
   return {
     ...actual,
     loadArcgisModules: jest.fn(),
+    toSerializable: actual.toSerializable,
   }
 })
 

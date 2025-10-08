@@ -1112,7 +1112,9 @@ const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
 
 const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   const startVal = toTrimmedString(data.start)
-  return Boolean(startVal)
+  const category = toTrimmedString(data.category)
+  const name = toTrimmedString(data.name)
+  return Boolean(startVal && category && name)
 }
 
 const sanitizeScheduleMetadata = (
