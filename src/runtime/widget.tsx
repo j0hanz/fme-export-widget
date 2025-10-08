@@ -454,34 +454,40 @@ export default function Widget(
             code: suppressSupport ? undefined : error.code,
             actions,
           })}
-          renderActions={(act, ariaLabel) => (
-            <div
-              role="group"
-              aria-label={ariaLabel}
-              data-actions-count={act?.length ?? 0}
-            >
-              {/* Render hint row: for geometry errors show plain text without support email */}
-              <div>
-                {suppressSupport ? (
-                  <div css={styles.typo.caption}>{supportHint}</div>
-                ) : (
-                  renderSupportHint(
-                    supportEmail,
-                    translate,
-                    styles,
-                    supportHint
-                  )
+          renderActions={(act, ariaLabel) => {
+            const actionsArray = Array.isArray(act) ? act : []
+            const actionsCount = actionsArray.length
+
+            return (
+              <div
+                role="group"
+                aria-label={ariaLabel}
+                data-actions-count={actionsCount}
+                css={styles.actions.container}
+              >
+                {/* Render hint row: for geometry errors show plain text without support email */}
+                <div css={styles.actions.support}>
+                  {suppressSupport ? (
+                    <div css={styles.typo.caption}>{supportHint}</div>
+                  ) : (
+                    renderSupportHint(
+                      supportEmail,
+                      translate,
+                      styles,
+                      supportHint
+                    )
+                  )}
+                </div>
+                {actionsCount > 0 && (
+                  <div css={styles.actions.list}>
+                    {actionsArray.map((a, i) => (
+                      <Button key={i} text={a.label} onClick={a.onClick} />
+                    ))}
+                  </div>
                 )}
               </div>
-              {Array.isArray(act) && act.length > 0 && (
-                <div css={styles.actions.list}>
-                  {act.map((a, i) => (
-                    <Button key={i} text={a.label} onClick={a.onClick} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            )
+          }}
           center={true}
         />
       )

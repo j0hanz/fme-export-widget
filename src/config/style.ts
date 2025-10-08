@@ -220,7 +220,20 @@ export const createUiStyles = (theme: IMThemeVariables) => {
 
     // Actions
     actions: {
-      list: css({ marginBlockStart: spacing?.(1) ?? 8 }),
+      container: flex("column", {
+        flex: auto,
+        inlineSize: "100%",
+        blockSize: "100%",
+        minBlockSize: 0,
+      }),
+      support: css({ flex: "0 0 auto" }),
+      list: css({
+        display: "flex",
+        flexDirection: "column",
+        gap,
+        marginBlockStart: "auto",
+        paddingBlockStart: spacing?.(1) ?? 8,
+      }),
     },
   } as const
 }
