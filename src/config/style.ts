@@ -23,7 +23,7 @@ export const config = {
     textPadding: "18px",
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200, delay: 1000 },
+  loading: { width: 215, height: 215, delay: 1000 },
   required: "*",
 } as const
 
@@ -101,6 +101,12 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       minBlockSize: 0,
       gap,
     }),
+    loadingText: css({
+      position: "absolute",
+      inset: "50% auto auto 50%",
+      transform: "translate(-50%, -50%)",
+      textAlign: "center",
+    }),
     overlay: css({
       position: "absolute",
       inset: "50% auto auto 50%",
@@ -154,6 +160,9 @@ export const createUiStyles = (theme: IMThemeVariables) => {
           color: colors?.action.link?.hover,
           textDecoration: "underline",
         },
+      }),
+      loadingMessage: css({
+        ...typo(typography?.body2),
       }),
       required: css({ marginInlineStart: spacing?.(1) }),
       hint: css({

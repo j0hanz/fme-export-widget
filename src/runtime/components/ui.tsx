@@ -1320,6 +1320,8 @@ const StateView: React.FC<StateViewProps> = ({
     const message = snapshot?.message
     const detail = snapshot?.detail
 
+    const displayText = detail || message
+
     return (
       <div css={styles.centered} role="status" aria-live="polite">
         {showLoading && (
@@ -1329,13 +1331,9 @@ const StateView: React.FC<StateViewProps> = ({
             height={config.loading.height}
           />
         )}
-        {(message || detail) && (
-          <div
-            css={styles.overlay}
-            aria-label={translate("ariaLoadingDetails")}
-          >
-            {message && <div>{message}</div>}
-            {detail && <div css={styles.typo.caption}>{detail}</div>}
+        {displayText && (
+          <div css={[styles.typo.loadingMessage, styles.loadingText]}>
+            {displayText}
           </div>
         )}
       </div>

@@ -1011,7 +1011,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const renderInitial = () => {
     const waitMessage = translate("statusPreparingMapTools")
-    const waitDetail = translate("pleaseWait")
+    const waitDetail = translate("statusPreparingMapToolsDetail")
     if (isModulesLoading) {
       return renderLoading(waitMessage, waitDetail)
     }
@@ -1045,7 +1045,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const message = workspaceItems.length
         ? translate("loadingWorkspaceDetails")
         : translate("loadingWorkspaces")
-      return renderLoading(message)
+      const detail = workspaceItems.length
+        ? translate("loadingWorkspaceDetailsDetail")
+        : translate("loadingWorkspacesDetail")
+      return renderLoading(message, detail)
     }
 
     if (workspaceError) {
@@ -1084,7 +1087,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
-      return renderLoading(translate("loadingWorkspaceDetails"))
+      return renderLoading(
+        translate("loadingWorkspaceDetails"),
+        translate("loadingWorkspaceDetailsDetail")
+      )
     }
 
     return (
@@ -1143,25 +1149,40 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const baseMessage = translate(baseKey)
 
       let phaseKey: string | null = null
+      let detailKey: string | null = null
+
       switch (submissionPhase) {
         case "preparing":
           phaseKey = "submissionPhasePreparing"
+          detailKey = "submissionPhasePreparingDetail"
           break
         case "uploading":
           phaseKey = "submissionPhaseUploading"
+          detailKey = "submissionPhaseUploadingDetail"
           break
         case "finalizing":
           phaseKey = "submissionPhaseFinalizing"
+          detailKey = "submissionPhaseFinalizingDetail"
           break
         case "submitting":
           phaseKey = "submissionPhaseSubmitting"
+          detailKey = "submissionPhaseSubmittingDetail"
           break
         default:
           phaseKey = null
+          detailKey = null
       }
 
-      if (phaseKey) {
-        return renderLoading(translate(phaseKey), baseMessage)
+      if (phaseKey && detailKey) {
+        return renderLoading(translate(phaseKey), translate(detailKey))
+      }
+
+      // Fallback for sync mode with enhanced detail
+      if (isSyncMode) {
+        return renderLoading(
+          baseMessage,
+          translate("submittingOrderSyncDetail")
+        )
       }
 
       return renderLoading(baseMessage, translate("pleaseWait"))
@@ -1187,7 +1208,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
             <StateView
               state={makeLoadingView(
                 translate("loadingGeometryValidation"),
-                translate("pleaseWait")
+                translate("loadingGeometryValidationDetail")
               )}
             />
           )
