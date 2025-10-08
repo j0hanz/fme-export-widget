@@ -1572,11 +1572,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
     const validation = validateToken(token)
-    setError(
-      setFieldErrors,
-      "token",
-      !validation.ok ? translate(validation.key || "invalidToken") : undefined
-    )
+    const tokenError =
+      !validation.ok && validation.key ? translate(validation.key) : undefined
+    setError(setFieldErrors, "token", tokenError)
 
     // Save to config
     updateConfig("fmeServerToken", token)

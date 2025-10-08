@@ -486,6 +486,38 @@ export function formatErrorForView(
   return { message, code, hint }
 }
 
+const HTML_ENTITY_MAP = Object.freeze({
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+})
+
+const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g
+
+const MAX_HTML_CODE_POINT = 0x10ffff
+
+const decodeHtmlNumericEntity = (value: string, base: number): string => {
+  const parsed = Number.parseInt(value, base)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_HTML_CODE_POINT)
+    return ""
+  try {
+    return String.fromCodePoint(parsed)
+  } catch {
+    return ""
+  }
+}
+
+const decodeDecimalEntity = (_match: string, value: string): string =>
+  decodeHtmlNumericEntity(value, 10)
+
+const decodeHexEntity = (_match: string, value: string): string =>
+  decodeHtmlNumericEntity(value, 16)
+
+const replaceNamedEntities = (value: string): string =>
+  value.replace(HTML_ENTITY_REGEX, (match) => HTML_ENTITY_MAP[match] || match)
+
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
 
@@ -493,22 +525,11 @@ export const stripHtmlToText = (input?: string): string => {
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
     .replace(/<[^>]*>/g, "")
 
-  const entities: { [key: string]: string } = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-  }
-
-  const decoded = noTags
-    .replace(/&#(\d+);/g, (_, n) =>
-      String.fromCharCode(parseInt(n as string, 10))
-    )
-    .replace(/&#x([\da-f]+);/gi, (_, h) =>
-      String.fromCharCode(parseInt((h as string) || "0", 16))
-    )
-    .replace(/&(?:amp|lt|gt|quot|#39);/g, (match) => entities[match] || match)
+  const decoded = replaceNamedEntities(
+    noTags
+      .replace(/&#(\d+);/g, decodeDecimalEntity)
+      .replace(/&#x([\da-f]+);/gi, decodeHexEntity)
+  )
 
   return decoded.replace(/\s+/g, " ").trim()
 }
@@ -762,8 +783,11 @@ export const extractRepositoryNames = (source: unknown): string[] => {
 // Re-export useLatestAbortController from hooks for backward compatibility
 export { useLatestAbortController } from "./hooks"
 
-export const maskToken = (token: string): string =>
-  token ? `****${token.slice(-4)}` : ""
+export const maskToken = (token: string): string => {
+  if (!token) return ""
+  if (token.length <= 4) return "****"
+  return `****${token.slice(-4)}`
+}
 
 export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
   id ? `${id}-${suffix}` : undefined

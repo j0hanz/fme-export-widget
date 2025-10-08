@@ -403,9 +403,8 @@ export default function Widget(
       }
 
       // Determine base error message with translation
-      const baseMsgKey = error.message
-      const resolvedMessage =
-        resolveMessageOrKey(baseMsgKey, translate) || translate("errorUnknown")
+      const baseMsgKey = error.message || "errorUnknown"
+      const resolvedMessage = resolveMessageOrKey(baseMsgKey, translate)
 
       // Decide how to guide the user depending on error type
       const codeUpper = (error.code || "").toUpperCase()
