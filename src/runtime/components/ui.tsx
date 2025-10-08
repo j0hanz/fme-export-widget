@@ -412,6 +412,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   value: controlled,
   defaultValue,
   onChange,
+  rows = 2,
   onBlur,
   ...props
 }) => {
@@ -441,11 +442,14 @@ export const TextArea: React.FC<TextAreaProps> = ({
     errorSuffix: "error",
   })
 
+  const { rows: _rows, ...restProps } = props as any
+
   return (
     <JimuTextArea
-      {...props}
+      {...restProps}
       value={value}
       onChange={handleChange}
+      rows={rows}
       onBlur={handleBlur}
       css={applyComponentStyles(
         [styles.fullWidth, styles.textareaResize],
@@ -1725,17 +1729,10 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
 
   return (
     <>
-      <Alert
-        type="info"
-        text={translate("scheduleInfoMessage")}
-        variant="default"
-        withIcon={true}
-      />
-
       <Field
         label={translate("scheduleStartLabel")}
         required={true}
-        helper={translate("scheduleStartHelper")}
+        helper={translate("scheduleTimezoneHelper")}
         error={getErrorMessage(startValidation)}
       >
         <DateTimePickerWrapper
@@ -1749,16 +1746,6 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
           aria-label={translate("scheduleStartLabel")}
         />
       </Field>
-
-      {startValidation?.isPast && (
-        <Alert
-          type="warning"
-          text={translate("schedulePastTimeWarning")}
-          variant="default"
-          withIcon={true}
-        />
-      )}
-
       <Field
         label={translate("scheduleNameLabel")}
         required={true}
@@ -1779,7 +1766,6 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
           }
         />
       </Field>
-
       <Field
         label={translate("scheduleCategoryLabel")}
         required={true}
@@ -1800,7 +1786,6 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
           }
         />
       </Field>
-
       <Field label={translate("scheduleDescriptionLabel")} required={false}>
         <TextArea
           value={
@@ -1811,16 +1796,9 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
             onChange("description", newValue)
           }}
           disabled={disabled}
-          rows={3}
+          rows={2}
         />
       </Field>
-
-      <Alert
-        type="warning"
-        text={translate("scheduleTimezoneWarning")}
-        variant="default"
-        withIcon={true}
-      />
     </>
   )
 }

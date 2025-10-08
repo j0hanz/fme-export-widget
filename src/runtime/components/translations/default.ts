@@ -97,14 +97,10 @@ export default {
   scheduleDescriptionLabel: "Beskrivning (valfritt)",
   scheduleDescriptionPlaceholder: "Beskrivning av det schemalagda jobbet",
   scheduleInfoTitle: "Schema: Kör en gång (Runonce)",
-  scheduleInfoMessage:
-    "Det här jobbet kommer att köras EN GÅNG vid den angivna starttiden. FME Flow stöder inte återkommande scheman (CRON) via detta API. För återkommande jobb, använd FME Flows webbgränssnitt.",
-  scheduleTimezoneWarning:
-    "⚠️ VIKTIGT: Starttiden måste anges i FME Servers lokala tidszon, inte din lokala tid.",
+  scheduleTimezoneHelper:
+    "Starttiden måste anges i FME Servers lokala tidszon, inte din lokala tid.",
   scheduleConfirmTitle: "Bekräfta schemalagt jobb",
   scheduleConfirmMessage: "Vill du schemalägga det här jobbet?",
-  schedulePastTimeWarning:
-    "⚠️ VARNING: Den angivna starttiden ligger i det förflutna. Jobbet kan köras omedelbart eller misslyckas.",
   scheduleSummaryTitle: "Schemainformation",
   scheduleJobName: "Jobbnamn",
   scheduleJobCategory: "Kategori",
