@@ -821,40 +821,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
         /* swallow translation errors and keep raw message */
       }
 
+      const supportDetail = !hintText
+        ? undefined
+        : renderSupportHint(rawEmail, translate, styles, hintText)
+
       return (
         <StateView
-          state={makeErrorView(localizedMessage, { code, actions })}
-          renderActions={(viewActions, ariaLabel) => {
-            const supportHint = renderSupportHint(
-              rawEmail,
-              translate,
-              styles,
-              hintText
-            )
-            const hasActions = Boolean(viewActions?.length)
-            if (!hasActions && !supportHint) return null
-
-            return (
-              <div role="group" aria-label={ariaLabel}>
-                {hasActions && (
-                  <div css={styles.btn.group}>
-                    {(viewActions || []).map((action, index) => (
-                      <Button
-                        key={`${action.label}-${index}`}
-                        onClick={action.onClick}
-                        disabled={action.disabled}
-                        variant={action.variant}
-                        text={action.label}
-                        block
-                      />
-                    ))}
-                  </div>
-                )}
-                {supportHint}
-              </div>
-            )
-          }}
-          center={false}
+          state={makeErrorView(localizedMessage, {
+            code,
+            actions,
+            detail: supportDetail,
+          })}
         />
       )
     }

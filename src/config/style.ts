@@ -218,23 +218,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       }),
     },
 
-    // Actions
-    actions: {
-      container: flex("column", {
-        flex: auto,
-        inlineSize: "100%",
-        blockSize: "100%",
-        minBlockSize: 0,
-      }),
-      support: css({ flex: "0 0 auto" }),
-      list: css({
-        display: "flex",
-        flexDirection: "column",
-        gap,
-        marginBlockStart: "auto",
-        paddingBlockStart: spacing?.(1) ?? 8,
-      }),
-    },
     // State view layout helpers
     stateView: {
       frame: flex("column", {
@@ -248,6 +231,30 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         blockSize: "100%",
         minBlockSize: 0,
         gap,
+        alignItems: "center",
+      }),
+      errorContent: flex("column", {
+        gap,
+        alignItems: "center",
+        textAlign: "center",
+        flex: "1 1 auto",
+        justifyContent: "center",
+      }),
+      errorIcon: css({
+        marginBlockEnd: spacing?.(2) ?? 0,
+      }),
+      errorText: flex("column", {
+        gap: spacing?.(1),
+        textAlign: "center",
+      }),
+      errorCode: css({
+        ...typo(typography?.body2),
+        opacity: 0.7,
+      }),
+      errorActions: css({
+        inlineSize: "100%",
+        marginBlockStart: "auto",
+        alignSelf: "stretch",
       }),
     },
   } as const

@@ -92,6 +92,7 @@ export type ViewState =
       readonly code?: string
       readonly recoverable?: boolean
       readonly actions?: readonly ViewAction[]
+      readonly detail?: React.ReactNode
     }
   | {
       readonly kind: "empty"
@@ -122,6 +123,7 @@ export const makeErrorView = (
     readonly code?: string
     readonly actions?: readonly ViewAction[]
     readonly recoverable?: boolean
+    readonly detail?: React.ReactNode
   }
 ): ViewState => ({
   kind: "error",
@@ -129,6 +131,7 @@ export const makeErrorView = (
   code: opts?.code,
   actions: opts?.actions,
   recoverable: opts?.recoverable,
+  detail: opts?.detail,
 })
 
 export type LoadingSnapshot = {

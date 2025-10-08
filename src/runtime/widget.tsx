@@ -13,12 +13,7 @@ import {
 } from "jimu-core"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
-import {
-  Button,
-  StateView,
-  renderSupportHint,
-  useStyles,
-} from "./components/ui"
+import { StateView, renderSupportHint, useStyles } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
@@ -71,6 +66,7 @@ import {
   getSupportEmail,
   formatErrorForView,
   useLatestAbortController,
+  toTrimmedString,
   logIfNotAbort,
   popupSuppressionManager,
   maskToken,
@@ -447,47 +443,20 @@ export default function Widget(
         })
       }
 
+      const hintText = toTrimmedString(supportHint)
+      const supportDetail = !hintText
+        ? undefined
+        : suppressSupport
+          ? hintText
+          : renderSupportHint(supportEmail, translate, styles, hintText)
+
       return (
         <StateView
-          // Show the base error message only; render support hint separately below
           state={makeErrorView(resolvedMessage, {
             code: suppressSupport ? undefined : error.code,
             actions,
+            detail: supportDetail,
           })}
-          renderActions={(act, ariaLabel) => {
-            const actionsArray = Array.isArray(act) ? act : []
-            const actionsCount = actionsArray.length
-
-            return (
-              <div
-                role="group"
-                aria-label={ariaLabel}
-                data-actions-count={actionsCount}
-                css={styles.actions.container}
-              >
-                {/* Render hint row: for geometry errors show plain text without support email */}
-                <div css={styles.actions.support}>
-                  {suppressSupport ? (
-                    <div css={styles.typo.caption}>{supportHint}</div>
-                  ) : (
-                    renderSupportHint(
-                      supportEmail,
-                      translate,
-                      styles,
-                      supportHint
-                    )
-                  )}
-                </div>
-                {actionsCount > 0 && (
-                  <div css={styles.actions.list}>
-                    {actionsArray.map((a, i) => (
-                      <Button key={i} text={a.label} onClick={a.onClick} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          }}
         />
       )
     }

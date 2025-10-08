@@ -1284,7 +1284,7 @@ const StateView: React.FC<StateViewProps> = ({
       if (!actions?.length) return null
 
       return (
-        <div role="group" aria-label={ariaLabel}>
+        <div role="group" aria-label={ariaLabel} css={styles.btn.group}>
           {actions.map((action, index) => (
             <Button
               key={index}
@@ -1344,31 +1344,42 @@ const StateView: React.FC<StateViewProps> = ({
 
   const renderStateByKind = (): React.ReactNode => {
     switch (state.kind) {
-      case "error":
+      case "error": {
+        const actions = renderActionsFn({
+          actions: state.actions,
+          ariaLabel: translate("ariaErrorActions"),
+        })
+
+        const detailNode =
+          state.detail == null ? null : (
+            <div css={styles.typo.caption}>{state.detail}</div>
+          )
+
         return (
-          <div
-            role="alert"
-            aria-live="assertive"
-            css={styles.stateView.error}
-          >
-            <div css={[styles.row, styles.rowAlignCenter]}>
-              <Icon
-                src={getErrorIconSrc((state as any).code)}
-                size={config.icon.medium}
-              />
-              <div css={styles.typo.title}>{state.message}</div>
-            </div>
-            {state.code && (
-              <div css={styles.typo.caption}>
-                {translate("errorCode")}: {state.code}
+          <div role="alert" aria-live="assertive" css={styles.stateView.error}>
+            <div css={styles.stateView.errorContent}>
+              <div css={styles.stateView.errorIcon}>
+                <Icon
+                  src={getErrorIconSrc((state as any).code)}
+                  size={config.icon.large}
+                />
               </div>
-            )}
-            {renderActionsFn({
-              actions: state.actions,
-              ariaLabel: translate("ariaErrorActions"),
-            })}
+              <div css={styles.stateView.errorText}>
+                <div css={styles.typo.title}>{state.message}</div>
+                {detailNode}
+                {state.code ? (
+                  <div css={styles.stateView.errorCode}>
+                    {translate("errorCode")}: {state.code}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {actions ? (
+              <div css={styles.stateView.errorActions}>{actions}</div>
+            ) : null}
           </div>
         )
+      }
       case "empty":
         return (
           <div role="status" aria-live="polite">
