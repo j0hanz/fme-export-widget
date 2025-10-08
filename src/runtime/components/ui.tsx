@@ -1416,13 +1416,8 @@ const StateView: React.FC<StateViewProps> = ({
 }
 
 // ButtonGroup component
-export const ButtonGroup: React.FC<ButtonGroupProps> = ({
-  buttons,
-  secondaryButton,
-  primaryButton,
-  className,
-  style,
-}) => {
+export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
+  const { buttons, secondaryButton, primaryButton, className, style } = props
   const styles = useStyles()
 
   const resolvedButtons: Array<{
@@ -1460,31 +1455,27 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const createButton = ({
-    config,
-    role,
-    key,
-  }: {
-    readonly config: GroupButtonConfig
-    readonly role: "secondary" | "primary"
-    readonly key: string
-  }) => {
-    const fallbackType =
-      role === "primary" ? ("primary" as const) : ("default" as const)
-    const btnConfig = {
-      ...config,
-      type: config.type ?? fallbackType,
-      key,
-    }
-    return <Button {...btnConfig} block={true} css={styles.btn.flex} />
-  }
-
   return (
     <div
       css={applyComponentStyles([styles.btn.group], style as any)}
       className={className}
     >
-      {resolvedButtons.map(createButton)}
+      {resolvedButtons.map(({ config, role, key }) => {
+        const fallbackType =
+          role === "primary" ? ("primary" as const) : ("default" as const)
+        const buttonProps = {
+          ...config,
+          type: config.type ?? fallbackType,
+        }
+        return (
+          <Button
+            key={key}
+            {...buttonProps}
+            block={true}
+            css={styles.btn.flex}
+          />
+        )
+      })}
     </div>
   )
 }

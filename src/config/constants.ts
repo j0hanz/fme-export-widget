@@ -367,6 +367,7 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.COLOR]: FormFieldType.COLOR,
   [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
   [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
+  [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
   [ParameterType.TEXT_OR_FILE]: FormFieldType.TEXT_OR_FILE,
   [ParameterType.REPROJECTION_FILE]: FormFieldType.REPROJECTION_FILE,
   [ParameterType.COORDSYS]: FormFieldType.COORDSYS,

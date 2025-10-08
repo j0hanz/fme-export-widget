@@ -28,6 +28,7 @@ import {
   type TextOrFileMode,
   type NormalizedTextOrFile,
   type TableColumnConfig,
+  type FileFieldConfig,
   type FileValidationResult,
 } from "../../config/index"
 import { useUiStyles } from "../../config/style"
@@ -226,42 +227,112 @@ const FILE_DISPLAY_KEYS = [
 ] as const
 
 // File validation constants
-const MAX_FILE_SIZE_BYTES = 150 * 1024 * 1024 // 150MB
-const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)$/i
-const ALLOWED_MIME_TYPES = [
-  "application/zip",
-  "application/x-zip-compressed",
-  "application/vnd.google-earth.kmz",
-  "application/json",
-  "application/geo+json",
-  "application/gml+xml",
-  "text/plain",
-  "",
-] as const
+const DEFAULT_MAX_FILE_SIZE_MB = 150
+const ONE_MB_IN_BYTES = 1024 * 1024
+const DEFAULT_ALLOWED_FILE_EXTENSIONS: readonly string[] = [
+  ".zip",
+  ".kmz",
+  ".json",
+  ".geojson",
+  ".gml",
+]
+const DEFAULT_ALLOWED_MIME_TYPES = new Set(
+  [
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/vnd.google-earth.kmz",
+    "application/json",
+    "application/geo+json",
+    "application/gml+xml",
+    "text/plain",
+    "",
+  ].map((type) => type.toLowerCase())
+)
+
+const normalizeAcceptToken = (token: string): string | null => {
+  const trimmed = toTrimmedString(token).toLowerCase()
+  if (!trimmed) return null
+  if (trimmed === "*/*" || trimmed.endsWith("/*") || trimmed.includes("/")) {
+    return trimmed
+  }
+  if (trimmed.startsWith("*.")) {
+    return `.${trimmed.slice(2)}`
+  }
+  if (trimmed.startsWith(".")) {
+    return trimmed
+  }
+  return `.${trimmed.replace(/^\*+/, "")}`
+}
+
+const buildAcceptList = (config?: FileFieldConfig): readonly string[] => {
+  if (!config?.accept?.length) return []
+  return config.accept
+    .map((token) => normalizeAcceptToken(token))
+    .filter((token): token is string => Boolean(token))
+}
 
 // Helper: Validate file size and type
-const validateFile = (file: File | null | undefined): FileValidationResult => {
+const validateFile = (
+  file: File | null | undefined,
+  config?: FileFieldConfig
+): FileValidationResult => {
   if (!file) {
     return { valid: false, error: "fileInvalid" }
   }
 
-  // Check file size
-  if (file.size > MAX_FILE_SIZE_BYTES) {
+  const acceptList = buildAcceptList(config)
+  const configuredMaxMb =
+    typeof config?.maxSizeMb === "number" && Number.isFinite(config.maxSizeMb)
+      ? config.maxSizeMb
+      : undefined
+  const effectiveMaxMb =
+    configuredMaxMb === undefined
+      ? DEFAULT_MAX_FILE_SIZE_MB
+      : configuredMaxMb > 0
+        ? configuredMaxMb
+        : undefined
+
+  if (
+    effectiveMaxMb !== undefined &&
+    file.size > effectiveMaxMb * ONE_MB_IN_BYTES
+  ) {
     return {
       valid: false,
       error: "fileTooLarge",
-      maxSizeMB: Math.floor(MAX_FILE_SIZE_BYTES / (1024 * 1024)),
+      maxSizeMB: Math.floor(effectiveMaxMb),
     }
   }
 
-  // Check file extension
-  if (!ALLOWED_FILE_EXTENSIONS.test(file.name)) {
-    return { valid: false, error: "fileTypeNotAllowed" }
-  }
+  const fileNameLower = (file.name || "").toLowerCase()
+  const fileTypeLower = (file.type || "").toLowerCase()
 
-  // Check MIME type if available (some browsers don't provide it)
-  if (file.type && !ALLOWED_MIME_TYPES.includes(file.type as any)) {
-    return { valid: false, error: "fileTypeNotAllowed" }
+  if (acceptList.length) {
+    const matchesAccept = acceptList.some((token) => {
+      if (token === "*/*") return true
+      if (token.endsWith("/*")) {
+        const prefix = token.slice(0, token.length - 1)
+        return fileTypeLower ? fileTypeLower.startsWith(prefix) : false
+      }
+      if (token.includes("/")) {
+        return fileTypeLower ? fileTypeLower === token : false
+      }
+      return fileNameLower.endsWith(token)
+    })
+
+    if (!matchesAccept) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
+  } else {
+    const matchesDefaultExtension = DEFAULT_ALLOWED_FILE_EXTENSIONS.some(
+      (ext) => fileNameLower.endsWith(ext)
+    )
+    if (!matchesDefaultExtension) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
+
+    if (fileTypeLower && !DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
   }
 
   return { valid: true }
@@ -808,6 +879,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.FILE: {
         const selectedFile = isFileObject(value) ? value : null
+        const acceptTokens = buildAcceptList(field.fileConfig)
+        const acceptAttr = acceptTokens.length
+          ? acceptTokens.join(",")
+          : undefined
         const resolvedDefault = !selectedFile
           ? (resolveFileDisplayValue(value) ??
             resolveFileDisplayValue(fieldValue) ??
@@ -830,7 +905,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             return
           }
 
-          const validation = validateFile(file)
+          const validation = validateFile(file, field.fileConfig)
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
@@ -852,6 +927,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <div>
             <Input
               type="file"
+              accept={acceptAttr}
               onFileChange={handleFileChange}
               disabled={field.readOnly}
               aria-label={field.label}
@@ -880,6 +956,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
             : TEXT_OR_FILE_MODES.TEXT
+        const acceptTokens = buildAcceptList(field.fileConfig)
+        const acceptAttr = acceptTokens.length
+          ? acceptTokens.join(",")
+          : undefined
 
         const handleModeChange = (nextMode: TextOrFileMode) => {
           if (nextMode === TEXT_OR_FILE_MODES.FILE) {
@@ -917,7 +997,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             return
           }
 
-          const validation = validateFile(file)
+          const validation = validateFile(file, field.fileConfig)
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
@@ -974,6 +1054,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               <div>
                 <Input
                   type="file"
+                  accept={acceptAttr}
                   onFileChange={handleFileChange}
                   disabled={field.readOnly}
                   aria-label={field.label}

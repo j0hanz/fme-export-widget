@@ -447,8 +447,12 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     const targetRepository = toTrimmedString(config?.repository)
 
     if (!fmeClient || !targetRepository) {
-      if (isMountedRef.current && !targetRepository) {
-        setError(null)
+      cancelCurrent()
+      if (isMountedRef.current) {
+        dispatchAction(fmeActions.clearWorkspaceState(widgetId))
+        if (!targetRepository) {
+          setError(null)
+        }
       }
       return
     }
@@ -618,6 +622,7 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   hooks.useUpdateEffect(() => {
     if (isMountedRef.current) {
       cancelCurrent()
+      dispatchAction(fmeActions.clearWorkspaceState(widgetId))
       setError(null)
       setIsLoading(false)
     }

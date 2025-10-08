@@ -1111,12 +1111,8 @@ const SCHEDULE_METADATA_FIELDS = [
 const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
 
 const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
-  const startValRaw = data.start
-  const hasStart =
-    typeof startValRaw === "string" && startValRaw.trim().length > 0
-  const category = typeof data.category === "string" ? data.category.trim() : ""
-  const name = typeof data.name === "string" ? data.name.trim() : ""
-  return hasStart && !!category && !!name
+  const startVal = toTrimmedString(data.start)
+  return Boolean(startVal)
 }
 
 const sanitizeScheduleMetadata = (

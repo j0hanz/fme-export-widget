@@ -6,6 +6,7 @@ import * as ReactRedux from "react-redux"
 import {
   Tooltip,
   Button,
+  ButtonGroup,
   Alert,
   Icon,
   Input,
@@ -866,6 +867,28 @@ describe("Button component", () => {
   })
 })
 
+describe("ButtonGroup component", () => {
+  it("renders secondary and primary buttons with fallback types", () => {
+    renderWithProviders(
+      <ButtonGroup
+        secondaryButton={{ text: "Back" }}
+        primaryButton={{ text: "Next" }}
+      />
+    )
+    const buttons = screen.getAllByRole("button")
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0]).toHaveTextContent("Back")
+    expect(buttons[0]).toHaveAttribute("type", "default")
+    expect(buttons[1]).toHaveTextContent("Next")
+    expect(buttons[1]).toHaveAttribute("type", "primary")
+  })
+
+  it("returns null when no button configs are provided", () => {
+    const { container } = renderWithProviders(<ButtonGroup />)
+    expect(container).toBeEmptyDOMElement()
+  })
+})
+
 describe("Icon component", () => {
   it("defaults to aria-hidden when no label is provided", () => {
     renderWithProviders(<Icon src="warning" />)
@@ -1287,6 +1310,101 @@ describe("DynamicField component", () => {
     expect(screen.getByTestId("file-field-display")).toHaveTextContent(
       defaultPath
     )
+
+    it("applies custom accept list and allows matching files", async () => {
+      const handleChange = jest.fn()
+      renderWithProviders(
+        <DynamicField
+          field={baseField({
+            type: FormFieldType.FILE,
+            fileConfig: { accept: [".csv"], maxSizeMb: 5 },
+          })}
+          value={null}
+          onChange={handleChange}
+          translate={(key: string) => key}
+        />
+      )
+
+      const input = screen.getByLabelText("Field")
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Expected file input element")
+      }
+      expect(input).toHaveAttribute("type", "file")
+      expect(input).toHaveAttribute("accept", ".csv")
+
+      const file = new File(["col1,col2"], "data.csv", { type: "text/csv" })
+      fireEvent.change(input, { target: { files: [file] } })
+
+      await waitFor(() => {
+        expect(handleChange).toHaveBeenCalledWith(file)
+      })
+      expect(screen.queryByTestId("file-field-error")).toBeNull()
+    })
+
+    it("rejects files outside the configured accept list", async () => {
+      const handleChange = jest.fn()
+      renderWithProviders(
+        <DynamicField
+          field={baseField({
+            type: FormFieldType.FILE,
+            fileConfig: { accept: [".csv"] },
+          })}
+          value={null}
+          onChange={handleChange}
+          translate={(key: string) => key}
+        />
+      )
+
+      const input = screen.getByLabelText("Field")
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Expected file input element")
+      }
+      const file = new File(["binary"], "archive.zip", {
+        type: "application/zip",
+      })
+
+      fireEvent.change(input, { target: { files: [file] } })
+
+      await waitFor(() => {
+        expect(handleChange).toHaveBeenCalledWith(null)
+      })
+
+      const error = screen.getByTestId("file-field-error")
+      expect(error).toHaveTextContent("fileTypeNotAllowed")
+    })
+
+    it("enforces maxSizeMb configured for file fields", async () => {
+      const handleChange = jest.fn()
+      renderWithProviders(
+        <DynamicField
+          field={baseField({
+            type: FormFieldType.FILE,
+            fileConfig: { accept: [".csv"], maxSizeMb: 1 },
+          })}
+          value={null}
+          onChange={handleChange}
+          translate={(key: string, vars?: any) =>
+            vars?.maxSize ? `${key}:${vars.maxSize}` : key
+          }
+        />
+      )
+
+      const input = screen.getByLabelText("Field")
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error("Expected file input element")
+      }
+      const largeContent = new Uint8Array(2 * 1024 * 1024)
+      const file = new File([largeContent], "huge.csv", { type: "text/csv" })
+
+      fireEvent.change(input, { target: { files: [file] } })
+
+      await waitFor(() => {
+        expect(handleChange).toHaveBeenCalledWith(null)
+      })
+
+      const error = screen.getByTestId("file-field-error")
+      expect(error).toHaveTextContent("fileTooLarge:1")
+    })
 
     const fileInput = screen.getByTestId("mock-text-input")
     const file = new File(["dummy"], "example.txt", { type: "text/plain" })

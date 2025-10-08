@@ -1233,7 +1233,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.serverUrl ||
           messages.token ||
           (!skipRepoCheck && messages.repository) ||
-          messages.supportEmail
+          (!skipRepoCheck && messages.supportEmail)
         ),
       }
     }

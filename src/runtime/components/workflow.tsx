@@ -262,7 +262,6 @@ const OrderResult: React.FC<OrderResultProps> = ({
   })
 
   const showDownloadLink = isSuccess && downloadUrl
-  const showMessage = isSuccess || orderResult.message
 
   // Conditional message based on sync mode
   const messageText = isSuccess
@@ -301,9 +300,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
               </a>
             </div>
           )}
-          {showMessage && messageText && (
+          {messageText ? (
             <div css={styles.typo.caption}>{messageText}</div>
-          )}
+          ) : null}
         </div>
         <div css={styles.form.footer}>
           <ButtonGroup

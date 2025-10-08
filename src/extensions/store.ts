@@ -776,13 +776,17 @@ export const createFmeSelectors = (widgetId: string) => {
       const hasWorkspace = Boolean(
         normalizeWorkspaceName(slice.selectedWorkspace)
       )
-      const hasParameters = (slice.workspaceParameters?.length ?? 0) > 0
+      const hasWorkspaceDetails =
+        (slice.workspaceParameters?.length ?? 0) > 0 ||
+        slice.workspaceItem !== null
       const generalError = slice.errors?.general
       const blockingError = generalError
         ? (ERROR_SEVERITY_RANK[generalError.severity] ?? 0) >=
           ERROR_SEVERITY_RANK[ErrorSeverity.ERROR]
         : false
-      return hasGeometry && hasWorkspace && hasParameters && !blockingError
+      return (
+        hasGeometry && hasWorkspace && hasWorkspaceDetails && !blockingError
+      )
     },
     selectIsBusy: (state: IMStateWithFmeExport) => {
       const loading = getSlice(state)?.loading ?? initialFmeState.loading

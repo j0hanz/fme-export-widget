@@ -226,6 +226,7 @@ export interface InputProps extends BaseProps {
     | "search"
     | "tel"
   readonly maxLength?: number
+  readonly accept?: string
   readonly borderless?: boolean
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly "aria-label"?: string

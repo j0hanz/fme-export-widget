@@ -559,4 +559,30 @@ describe("FME selectors", () => {
     expect(Array.isArray(selectedItems)).toBe(true)
     expect((selectedItems as any)[0].name).toBe("Clipper")
   })
+
+  it("allows exports when workspace metadata is loaded without parameters", () => {
+    const selectors = createFmeSelectors(widgetId)
+    const reducer = createReducer()
+
+    const geometry = { toJSON: () => ({}) }
+    let globalState = reducer(
+      undefined,
+      fmeActions.setGeometry(geometry as any, 25, widgetId)
+    )
+
+    globalState = reducer(
+      globalState,
+      fmeActions.applyWorkspaceData(
+        {
+          workspaceName: "NoParams",
+          parameters: [],
+          item: { name: "NoParams", title: "No Parameters" } as any,
+        },
+        widgetId
+      )
+    )
+
+    const wrapped = wrapState(globalState)
+    expect(selectors.selectCanExport(wrapped)).toBe(true)
+  })
 })
