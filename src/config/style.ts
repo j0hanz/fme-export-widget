@@ -143,10 +143,10 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         margin: `${spacing?.(1)} 0`,
       }),
       instruction: css({
+        textAlign: "center",
         ...typo(typography?.body2),
         color: colors?.surface?.backgroundText,
         margin: `${spacing?.(3)} 0`,
-        textAlign: "center",
       }),
       link: css({
         ...typo(typography?.body1),
@@ -231,25 +231,15 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         blockSize: "100%",
         minBlockSize: 0,
         gap,
-        alignItems: "center",
+        alignItems: "stretch",
       }),
       errorContent: flex("column", {
         gap,
-        alignItems: "center",
-        textAlign: "center",
         flex: "1 1 auto",
         justifyContent: "center",
       }),
       errorIcon: css({
         marginBlockEnd: spacing?.(2) ?? 0,
-      }),
-      errorText: flex("column", {
-        gap: spacing?.(1),
-        textAlign: "center",
-      }),
-      errorCode: css({
-        ...typo(typography?.body2),
-        opacity: 0.7,
       }),
       errorActions: css({
         inlineSize: "100%",

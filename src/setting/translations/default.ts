@@ -14,7 +14,7 @@ export default {
     "Ange bas‑URL utan /fmerest när du konfigurerar webhooks.",
   scheduleInvalid: "Kontrollera schemaläggningens starttid, namn och kategori.",
   errorTokenIssue: "API‑nyckeln saknas eller är ogiltig.",
-  testConnection: "Uppdatera och testa anslutning",
+  testConnection: "Kör anslutningstest",
   testing: "Testar anslutningen …",
   testingConnection: "Uppdaterar och testar …",
   loadingRepositories: "Uppdaterar listan …",

@@ -1358,21 +1358,21 @@ const StateView: React.FC<StateViewProps> = ({
         return (
           <div role="alert" aria-live="assertive" css={styles.stateView.error}>
             <div css={styles.stateView.errorContent}>
-              <div css={styles.stateView.errorIcon}>
+              <div css={[styles.row, styles.rowAlignCenter]}>
                 <Icon
                   src={getErrorIconSrc((state as any).code)}
                   size={config.icon.large}
                 />
-              </div>
-              <div css={styles.stateView.errorText}>
                 <div css={styles.typo.title}>{state.message}</div>
+              </div>
+              <>
                 {detailNode}
                 {state.code ? (
-                  <div css={styles.stateView.errorCode}>
+                  <div>
                     {translate("errorCode")}: {state.code}
                   </div>
                 ) : null}
-              </div>
+              </>
             </div>
             {actions ? (
               <div css={styles.stateView.errorActions}>{actions}</div>
