@@ -1,6 +1,7 @@
 export default {
   actionRetry: "Försök igen",
   actionReload: "Ladda om sidan",
+  actionEnd: "Avsluta",
   errorUnknown: "Ett okänt fel inträffade",
   validatingStartup: "Validerar konfiguration...",
   statusValidatingConfig: "Validerar konfiguration...",

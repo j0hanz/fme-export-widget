@@ -14,6 +14,7 @@ export default {
   emailNotificationSent: "E‑postmeddelande skickas när jobbet är klart.",
   clickToDownload: "Ladda ner filen",
   reuseGeography: "Ny beställning",
+  actionEnd: "Avsluta",
   errorCode: "Felkod",
   orderResultMissing: "Inget tillgängligt",
   submittingOrder: "Skickar beställningen...",

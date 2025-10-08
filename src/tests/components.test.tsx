@@ -745,6 +745,68 @@ describe("Workflow component", () => {
       detailNodes.some((node) => !node.closest('[data-testid="mock-alert"]'))
     ).toBe(true)
   })
+
+  it("renders order result actions with end button", () => {
+    const onReuse = jest.fn()
+    const onReset = jest.fn()
+    const onBack = jest.fn()
+
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={{ repository: "repo-1" } as any}
+        state={ViewMode.ORDER_RESULT}
+        instructionText="Order klar"
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
+        canStartDrawing={false}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={{
+          success: true,
+          message: "klar",
+          jobId: 321,
+          workspaceName: "TestWorkspace",
+          downloadUrl: "https://example.com/file.zip",
+          downloadFilename: "file.zip",
+          email: "user@example.com",
+        }}
+        onReuseGeography={onReuse}
+        onBack={onBack}
+        onReset={onReset}
+        drawnArea={0}
+        areaWarning={false}
+        formatArea={(value: number) => `${value}`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        canReset={true}
+        showHeaderActions={false}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Ny beställning" }))
+    expect(onReuse).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "Avsluta" }))
+    expect(onReset).toHaveBeenCalledTimes(1)
+    expect(onBack).not.toHaveBeenCalled()
+  })
 })
 
 describe("Alert component", () => {

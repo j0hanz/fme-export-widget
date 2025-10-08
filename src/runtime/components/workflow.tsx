@@ -3,6 +3,7 @@
 import { React, hooks, ReactRedux, jsx } from "jimu-core"
 import {
   Button,
+  ButtonGroup,
   StateView,
   Form,
   Field,
@@ -156,6 +157,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   translate,
   onReuseGeography,
   onBack,
+  onReset,
   config,
 }) => {
   const styles = useUiStyles()
@@ -239,7 +241,25 @@ const OrderResult: React.FC<OrderResultProps> = ({
     ? translate("reuseGeography")
     : translate("actionRetry")
 
-  const buttonHandler = isSuccess ? onReuseGeography : onBack
+  const primaryTooltip = isSuccess
+    ? translate("tooltipReuseGeography")
+    : undefined
+
+  const handlePrimary = hooks.useEventCallback(() => {
+    if (isSuccess) {
+      onReuseGeography?.()
+      return
+    }
+    onBack?.()
+  })
+
+  const handleEnd = hooks.useEventCallback(() => {
+    if (onReset) {
+      onReset()
+      return
+    }
+    onBack?.()
+  })
 
   const showDownloadLink = isSuccess && downloadUrl
   const showMessage = isSuccess || orderResult.message
@@ -286,13 +306,22 @@ const OrderResult: React.FC<OrderResultProps> = ({
           )}
         </div>
         <div css={styles.form.footer}>
-          <Button
-            text={buttonText}
-            onClick={buttonHandler}
-            type="primary"
-            logging={{ enabled: true, prefix: "FME-Export" }}
-            tooltip={isSuccess ? translate("tooltipReuseGeography") : undefined}
-            tooltipPlacement="bottom"
+          <ButtonGroup
+            secondaryButton={{
+              text: translate("actionEnd"),
+              onClick: handleEnd,
+              tooltip: translate("tooltipCancel"),
+              tooltipPlacement: "bottom",
+              logging: { enabled: true, prefix: "FME-Export" },
+            }}
+            primaryButton={{
+              text: buttonText,
+              onClick: handlePrimary,
+              type: "primary",
+              tooltip: primaryTooltip,
+              tooltipPlacement: "bottom",
+              logging: { enabled: true, prefix: "FME-Export" },
+            }}
           />
         </div>
       </div>
@@ -1124,6 +1153,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           translate={translate}
           onReuseGeography={onReuseGeography}
           onBack={onBack}
+          onReset={onReset}
           config={config}
         />
       )

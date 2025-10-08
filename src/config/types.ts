@@ -461,6 +461,7 @@ export interface OrderResultProps {
   readonly translate?: TranslateFn
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
+  readonly onReset?: () => void
   readonly config?: FmeExportConfig
 }
 
