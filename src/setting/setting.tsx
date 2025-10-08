@@ -95,6 +95,10 @@ const getInitialCheckSteps = (): CheckSteps => ({
   version: "",
 })
 
+const sanitizeRepositoryList = (
+  repositories: Iterable<unknown> | null | undefined
+): string[] => uniqueStrings(collectTrimmedStrings(repositories))
+
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
   checkSteps,
@@ -686,7 +690,9 @@ const handleValidationFailure = (
   }))
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
-  if (repositories) setAvailableRepos(repositories)
+  if (repositories) {
+    setAvailableRepos(sanitizeRepositoryList(repositories))
+  }
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -1080,6 +1086,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     ) => {
       // Cancel previous
       abortReposRequest()
+
+      const trimmedServerUrl = toTrimmedString(serverUrl)
+      const trimmedToken = toTrimmedString(token)
+
+      if (!trimmedServerUrl || !trimmedToken) {
+        setAvailableRepos(null)
+        setReposHint(null)
+        return
+      }
+
+      const normalizedServerUrl = normalizeBaseUrl(trimmedServerUrl)
       const ctrl = new AbortController()
       reposAbortRef.current = ctrl
       const signal = ctrl.signal
@@ -1091,10 +1108,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       try {
         const result = await makeCancelable(
-          fetchRepositoriesService(serverUrl, token, signal)
+          fetchRepositoriesService(normalizedServerUrl, trimmedToken, signal)
         )
         if (signal.aborted) return
-        const next = result.repositories || []
+        const next = sanitizeRepositoryList(result.repositories)
         setAvailableRepos(next)
         clearErrors(setFieldErrors, ["repository"])
         setReposHint(null)
@@ -1293,7 +1310,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       })
 
       if (Array.isArray(validationResult.repositories)) {
-        setAvailableRepos([...(validationResult.repositories || [])])
+        setAvailableRepos(sanitizeRepositoryList(validationResult.repositories))
       }
 
       updateConfig("fmeServerUrl", settings.serverUrl)
@@ -1446,9 +1463,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const refreshRepositories = hooks.useEventCallback(async () => {
     const cfgServer = getStringConfig("fmeServerUrl") || ""
     const cfgToken = getStringConfig("fmeServerToken") || ""
-    if (!cfgServer || !cfgToken) return
-    const cleaned = normalizeBaseUrl(cfgServer)
-    await loadRepositories(cleaned, cfgToken, { indicateLoading: true })
+    const trimmedServer = toTrimmedString(cfgServer)
+    const trimmedToken = toTrimmedString(cfgToken)
+    if (!trimmedServer || !trimmedToken) return
+    const cleaned = normalizeBaseUrl(trimmedServer)
+    await loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
   })
 
   // Clear transient repo list when server URL or token in config changes
@@ -1474,13 +1493,17 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   hooks.useUpdateEffect(() => {
     const cfgServer = getStringConfig("fmeServerUrl") || ""
     const cfgToken = getStringConfig("fmeServerToken") || ""
-    const hasValidServer =
-      !!cfgServer && validateServerUrl(cfgServer, { requireHttps: true }).ok
-    const hasValidToken = !!cfgToken && validateToken(cfgToken).ok
+    const trimmedServer = toTrimmedString(cfgServer)
+    const trimmedToken = toTrimmedString(cfgToken)
+    if (!trimmedServer || !trimmedToken) return
+    const hasValidServer = validateServerUrl(trimmedServer, {
+      requireHttps: true,
+    }).ok
+    const hasValidToken = validateToken(trimmedToken).ok
     if (!hasValidServer || !hasValidToken) return
 
-    const cleaned = normalizeBaseUrl(cfgServer)
-    loadRepositories(cleaned, cfgToken, { indicateLoading: true })
+    const cleaned = normalizeBaseUrl(trimmedServer)
+    loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
     return () => abortReposRequest()
   }, [config])
 
