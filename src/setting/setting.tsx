@@ -4,7 +4,6 @@ import { React, hooks, jsx, css } from "jimu-core"
 import {
   setError,
   clearErrors,
-  safeAbort,
   parseNonNegativeInt,
   isValidEmail,
   toTrimmedString,
@@ -19,6 +18,7 @@ import {
   useBooleanConfigValue,
   useNumberConfigValue,
   useUpdateConfig,
+  useLatestAbortController,
 } from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -769,6 +769,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     () => getStringConfig("fmeServerToken") || ""
   )
   const selectedRepository = getStringConfig("repository") || ""
+  const configServerUrl = getStringConfig("fmeServerUrl") || ""
+  const configToken = getStringConfig("fmeServerToken") || ""
+  const previousConfigServerUrl = hooks.usePrevious(configServerUrl)
+  const previousConfigToken = hooks.usePrevious(configToken)
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(() =>
     getStringConfig("supportEmail")
   )
@@ -1060,10 +1064,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   // Non-blocking hint for repository list fetch issues
   const [reposHint, setReposHint] = React.useState<string | null>(null)
-  // Track in-flight test for cancellation to avoid stale state updates
-  const abortRef = React.useRef<AbortController | null>(null)
-  // Track in-flight repository listing request for cancellation
-  const reposAbortRef = React.useRef<AbortController | null>(null)
+  // Track in-flight cancellation scopes
+  const testAbort = useLatestAbortController()
+  const reposAbort = useLatestAbortController()
   // Auto-cancel promises on unmount and avoid setState-after-unmount
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Keep latest values handy for async readers
@@ -1071,10 +1074,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
-    if (reposAbortRef.current) {
-      safeAbort(reposAbortRef.current)
-      reposAbortRef.current = null
-    }
+    reposAbort.cancel()
   })
 
   // Unified repository loader used by both auto-load and manual refresh
@@ -1097,8 +1097,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       const normalizedServerUrl = normalizeBaseUrl(trimmedServerUrl)
-      const ctrl = new AbortController()
-      reposAbortRef.current = ctrl
+      const ctrl = reposAbort.abortAndCreate()
       const signal = ctrl.signal
 
       if (indicateLoading) {
@@ -1121,7 +1120,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           setReposHint(translateRef.current("errorRepositories"))
         }
       } finally {
-        if (reposAbortRef.current === ctrl) reposAbortRef.current = null
+        reposAbort.finalize(ctrl)
       }
     }
   )
@@ -1133,10 +1132,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
-    if (abortRef.current) {
-      safeAbort(abortRef.current)
-      abortRef.current = null
-    }
+    testAbort.cancel()
     setTestState((prev) => {
       if (
         prev.status === "idle" &&
@@ -1194,7 +1190,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Cleanup on unmount
   hooks.useUnmount(() => {
-    safeAbort(abortRef.current)
+    testAbort.cancel()
     abortReposRequest()
   })
 
@@ -1397,14 +1393,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
-    if (abortRef.current) {
-      abortRef.current.abort()
-    }
+    testAbort.cancel()
 
     const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
     if (hasErrors || !settings) {
-      abortRef.current = null
       if (!silent) {
         setTestState({
           status: "error",
@@ -1416,8 +1409,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return
     }
 
-    const controller = new AbortController()
-    abortRef.current = controller
+    const controller = testAbort.abortAndCreate()
     const signal = controller.signal
 
     // Reset state for new test
@@ -1456,6 +1448,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
     } catch (err) {
       handleTestError(err, silent)
+    } finally {
+      testAbort.finalize(controller)
     }
   })
 
@@ -1471,30 +1465,32 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   // Clear transient repo list when server URL or token in config changes
-  const prevConnRef = React.useRef({
-    server: getStringConfig("fmeServerUrl") || "",
-    token: getStringConfig("fmeServerToken") || "",
-  })
   hooks.useUpdateEffect(() => {
-    const curr = {
-      server: getStringConfig("fmeServerUrl") || "",
-      token: getStringConfig("fmeServerToken") || "",
-    }
     if (
-      curr.server !== prevConnRef.current.server ||
-      curr.token !== prevConnRef.current.token
+      previousConfigServerUrl === undefined &&
+      previousConfigToken === undefined
+    ) {
+      return
+    }
+
+    if (
+      previousConfigServerUrl !== configServerUrl ||
+      previousConfigToken !== configToken
     ) {
       clearRepositoryEphemeralState()
-      prevConnRef.current = curr
     }
-  }, [config])
+  }, [
+    configServerUrl,
+    configToken,
+    previousConfigServerUrl,
+    previousConfigToken,
+    clearRepositoryEphemeralState,
+  ])
 
   // Auto-load repositories when both server URL and token in config are valid
   hooks.useUpdateEffect(() => {
-    const cfgServer = getStringConfig("fmeServerUrl") || ""
-    const cfgToken = getStringConfig("fmeServerToken") || ""
-    const trimmedServer = toTrimmedString(cfgServer)
-    const trimmedToken = toTrimmedString(cfgToken)
+    const trimmedServer = toTrimmedString(configServerUrl)
+    const trimmedToken = toTrimmedString(configToken)
     if (!trimmedServer || !trimmedToken) return
     const hasValidServer = validateServerUrl(trimmedServer, {
       requireHttps: true,
@@ -1505,7 +1501,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const cleaned = normalizeBaseUrl(trimmedServer)
     loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
     return () => abortReposRequest()
-  }, [config])
+  }, [configServerUrl, configToken, loadRepositories, abortReposRequest])
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {

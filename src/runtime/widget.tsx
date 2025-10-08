@@ -491,13 +491,13 @@ export default function Widget(
   } = useEsriModules(moduleRetryKey)
   const mapResources = useMapResources()
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     dispatch(
       fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
     )
-  }, [dispatch, modulesLoading, widgetId])
+  }, [modulesLoading, dispatch, widgetId])
 
-  React.useEffect(() => {
+  hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {
       return
     }
