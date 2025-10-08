@@ -6,7 +6,6 @@ import type {
   PrimitiveParams,
   TextOrFileValue,
   WorkspaceParameter,
-  DerivedParamNames,
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
@@ -19,7 +18,6 @@ import {
   ErrorType,
   ErrorSeverity,
   ParameterType,
-  SETTING_CONSTANTS,
   DEFAULT_DRAWING_HEX,
   UPLOAD_PARAM_TYPES,
   EMAIL_PLACEHOLDER,
@@ -177,15 +175,6 @@ export const buildSupportHintText = (
   }
 
   return toTrimmedString(userFriendly) || ""
-}
-
-export const normalizeLargeAreaMessageInput = (value: string): string =>
-  (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
-
-export const normalizeLargeAreaMessage = (value: string): string => {
-  const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
-  if (!base) return ""
-  return base.slice(0, SETTING_CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX)
 }
 
 const parseIpv4 = (hostname: string): number[] | null => {
@@ -950,29 +939,16 @@ const normalizeUnitLabel = (unit?: string): string => {
 export const buildLargeAreaWarningMessage = ({
   currentAreaText,
   thresholdAreaText,
-  template,
   translate,
 }: {
   currentAreaText?: string | null
   thresholdAreaText?: string | null
-  template?: string | null
   translate: TranslateFn
 }): string | null => {
   const current = toTrimmedString(currentAreaText)
   if (!current) return null
 
   const threshold = toTrimmedString(thresholdAreaText)
-  const sanitizedTemplate = toTrimmedString(template)
-
-  if (sanitizedTemplate) {
-    const normalized = sanitizedTemplate.replace(/\s+/g, " ").trim()
-    const withCurrent = normalized.replace(/\{current\}/gi, current)
-    const withThreshold = threshold
-      ? withCurrent.replace(/\{threshold\}/gi, threshold)
-      : withCurrent.replace(/\{threshold\}/gi, "")
-    const cleaned = withThreshold.replace(/\s+/g, " ").trim()
-    return cleaned || null
-  }
 
   if (threshold) {
     return translate("largeAreaWarningWithThreshold", {
@@ -1439,11 +1415,6 @@ const createAoiSerializationError = (): ErrorState => ({
   timestampMs: Date.now(),
 })
 
-const sanitizeOptionalParamName = (name: unknown): string | undefined => {
-  const sanitized = sanitizeParamKey(name, "")
-  return sanitized || undefined
-}
-
 const collectGeometryParamNames = (
   params?: readonly WorkspaceParameter[] | null
 ): readonly string[] => {
@@ -1459,13 +1430,6 @@ const collectGeometryParamNames = (
   }
   return names
 }
-
-const resolveDerivedParamNames = (
-  config?: FmeExportConfig
-): DerivedParamNames => ({
-  geoJsonName: sanitizeOptionalParamName(config?.aoiGeoJsonParamName),
-  wktName: sanitizeOptionalParamName(config?.aoiWktParamName),
-})
 
 const extractPolygonJson = (
   geometryJson: unknown,
@@ -1488,42 +1452,11 @@ const safeStringify = (value: unknown): string | null => {
   }
 }
 
-const projectToWgs84Safe = (
-  aoiJson: unknown,
-  modules: EsriModules | null | undefined
-): any => {
-  try {
-    return toWgs84PolygonJson(aoiJson, modules)
-  } catch {
-    return null
-  }
-}
-
-const appendDerivedAoiFormats = (
-  target: { [key: string]: unknown },
-  wgs84Polygon: any,
-  names: DerivedParamNames
-) => {
-  if (!wgs84Polygon) return
-  const { geoJsonName, wktName } = names
-
-  if (geoJsonName) {
-    const geojson = polygonJsonToGeoJson(wgs84Polygon)
-    const serialized = geojson ? safeStringify(geojson) : null
-    if (serialized) target[geoJsonName] = serialized
-  }
-
-  if (wktName) {
-    const wkt = polygonJsonToWkt(wgs84Polygon)
-    if (wkt) target[wktName] = wkt
-  }
-}
-
 export const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
-  modules: EsriModules | null | undefined,
+  _modules: EsriModules | null | undefined,
   config?: FmeExportConfig,
   geometryParamNames?: readonly string[]
 ): { [key: string]: unknown } => {
@@ -1552,12 +1485,6 @@ export const attachAoi = (
     }
   }
 
-  const derivedNames = resolveDerivedParamNames(config)
-  if (derivedNames.geoJsonName || derivedNames.wktName) {
-    const wgs84Polygon = projectToWgs84Safe(aoiJson, modules)
-    appendDerivedAoiFormats(result, wgs84Polygon, derivedNames)
-  }
-
   return result
 }
 
@@ -1580,14 +1507,6 @@ export const applyDirectiveDefaults = (
   if (!("tm_ttl" in out)) {
     const v = toPosInt(config.tm_ttl)
     if (v !== undefined) out.tm_ttl = v
-  }
-  if (!("tm_tag" in out)) {
-    const tag = toTrimmedString(config.tm_tag)
-    if (tag) out.tm_tag = tag.substring(0, 128)
-  }
-  if (!("tm_description" in out)) {
-    const description = toTrimmedString(config.tm_description)
-    if (description) out.tm_description = description.substring(0, 512)
   }
 
   return out

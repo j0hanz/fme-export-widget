@@ -570,8 +570,7 @@ export interface FmeExportConfig {
   readonly fmeServerToken: string
   readonly repository: string
   readonly largeArea?: number
-  readonly largeAreaWarningMessage?: string
-  readonly customInfoMessage?: string
+  readonly workspaceName?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
@@ -582,8 +581,6 @@ export interface FmeExportConfig {
   readonly disallowRestForWebhook?: boolean
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
-  readonly tm_tag?: string
-  readonly tm_description?: string
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
@@ -591,8 +588,6 @@ export interface FmeExportConfig {
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
   readonly service?: "download" | "stream"
-  readonly aoiGeoJsonParamName?: string
-  readonly aoiWktParamName?: string
   readonly drawingColor?: string
 }
 
@@ -839,11 +834,6 @@ export interface EsriModules {
   readonly geometryOperators?: EsriGeometryOperators | null
 }
 
-export interface DerivedParamNames {
-  readonly geoJsonName?: string
-  readonly wktName?: string
-}
-
 export type CoordinateTuple = readonly number[]
 
 export interface ExportResult {
@@ -965,29 +955,18 @@ export interface RepositorySelectorProps {
 export interface JobDirectivesSectionProps {
   readonly localTmTtc: string
   readonly localTmTtl: string
-  readonly tmTagEnabled: boolean
-  readonly tmTagPreset: TmTagPreset
-  readonly localTmDescription: string
   readonly onTmTtcChange: (value: string) => void
   readonly onTmTtlChange: (value: string) => void
-  readonly onTmTagEnabledChange: (value: boolean) => void
-  readonly onTmTagPresetChange: (value: TmTagPreset) => void
-  readonly onTmDescriptionChange: (value: string) => void
   readonly onTmTtcBlur: (value: string) => void
   readonly onTmTtlBlur: (value: string) => void
-  readonly onTmDescriptionBlur: (value: string) => void
   readonly fieldErrors: FieldErrors
   readonly translate: TranslateFn
   readonly styles: SettingStyles
   readonly ID: {
     readonly tm_ttc: string
     readonly tm_ttl: string
-    readonly tm_tag: string
-    readonly tm_description: string
   }
 }
-
-export type TmTagPreset = "normal" | "fast"
 
 export interface WorkspaceLoaderOptions {
   readonly config?: FmeExportConfig

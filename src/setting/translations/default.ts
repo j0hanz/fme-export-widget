@@ -39,15 +39,8 @@ export default {
   supportEmailPlaceholder: "support@exempel.se",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
-  tm_tagLabel: "Kötagg",
-  tm_tagOptionNormal: "Normal",
-  tm_tagOptionFast: "Snabb",
   tm_ttcPlaceholder: "Lämna tomt (0 s)",
   tm_ttlPlaceholder: "Lämna tomt (0 s)",
-  tm_descriptionLabel: "Jobbeskrivning",
-  tm_descriptionPlaceholder: "Kort beskrivning av körningen",
-  tm_descriptionHelper:
-    "Visas i FME Flow‑gränssnittet och i e‑postmeddelanden.",
   serviceModeSync: "Direktnedladdning (synkront)",
   serviceModeSyncHelper:
     "På: nedladdning via direktlänk i webbläsaren. Av: länk skickas med e‑post.",
@@ -71,15 +64,10 @@ export default {
   largeAreaPlaceholder: "t.ex. 50000",
   largeAreaExceedsMaxInfo:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
-  largeAreaMessageLabel: "Varningsmeddelande (vid tröskelvarning)",
-  largeAreaMessageHelper:
-    "Anpassat meddelande som visas som varningsikon när ytan överstiger tröskelvärdet. Platshållare: {current} (aktuell yta), {threshold} (tröskelvärde). Lämna tomt för standardmeddelandet. Max {max} tecken.",
-  largeAreaMessagePlaceholder: "Lämna tomt för standardmeddelandet.",
-  customInfoMessageLabel: "Informationsmeddelande",
-  customInfoMessageHelper:
-    "Anpassat meddelande som alltid visas under arbetsytorna. Använd för t.ex. organisationsnamn, allmän information eller instruktioner. Lämna tomt för att inte visa något meddelande. Max {max} tecken.",
-  customInfoMessagePlaceholder:
-    "t.ex. 'Kartdata från Avdelning XYZ' eller 'Kontakta support vid frågor'",
+  workspaceNameLabel: "Arbetsytenamn",
+  workspaceNameHelper:
+    "Valfritt namn som visas i widgeten för att beskriva arbetsytan. Lämna tomt för standardnamnet.",
+  workspaceNamePlaceholder: "t.ex. 'Fastighetskartan'",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",
@@ -90,14 +78,6 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för AOI. Standardvärde: AreaOfInterest.",
-  aoiGeoJsonParamNameLabel: "AOI‑GeoJSON‑parameternamn",
-  aoiGeoJsonParamNamePlaceholder: "t.ex. ExtentGeoJson",
-  aoiGeoJsonParamNameHelper:
-    "Om angivet skickas AOI även som GeoJSON under detta parameternamn.",
-  aoiWktParamNameLabel: "AOI‑WKT‑parameternamn",
-  aoiWktParamNamePlaceholder: "t.ex. AreaOfInterestWKT",
-  aoiWktParamNameHelper:
-    "Om angivet skickas AOI även som WKT under detta parameternamn.",
   uploadTargetParamNameLabel: "Parameternamn för uppladdning",
   uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
   uploadTargetParamNameHelper:
@@ -113,17 +93,10 @@ export default {
   autoCloseOtherWidgetsLabel: "Stäng andra widgets automatiskt",
   autoCloseOtherWidgetsHelper:
     "Stäng andra widgets när FME‑exporten öppnas eller återställs för att hålla kartan ren.",
-  serviceTypeLabel: "Tjänstetyp",
-  serviceTypeDownload: "Download",
-  serviceTypeStream: "Streaming",
-  serviceTypeHelper:
-    "Download: nedladdning av filer när jobbet är klart. Streaming: strömma data direkt från jobbet (om arbetsytan stöder det).",
   drawingColorLabel: "Ritningsfärg",
   // Helpers for individual job directive fields (give clear FME Flow context)
   tm_ttcHelper:
     "Maximal körtid innan jobbet avbryts. Lämna tomt för att använda serverns standard.",
   tm_ttlHelper:
     "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för att använda serverns standard.",
-  tm_tagHelper:
-    "Anger vilken kö (publicerad parameter 'tm_tag') jobbet skickas till. Ange 'fast' för prioriterad kö när sådan finns på servern. Lämna tomt för att använda standardkö.",
 }

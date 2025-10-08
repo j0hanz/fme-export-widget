@@ -264,53 +264,74 @@ const queryByLabel = (text: string): HTMLElement | null =>
   })
 
 describe("Setting builder interactions", () => {
-  it("resets remote dataset options when switching to streaming service", async () => {
+  it("disables schedule and mask email when sync mode is enabled", async () => {
     const { onSettingChange } = renderSetting({
-      allowRemoteDataset: true,
-      allowRemoteUrlDataset: true,
+      allowScheduleMode: true,
       maskEmailOnSuccess: true,
-      uploadTargetParamName: "INPUT_DATASET",
+      syncMode: false,
     })
 
-    const serviceSelect = getByLabel("Tjänstetyp") as HTMLSelectElement
-    const remoteDatasetToggle = getByLabel(
-      "Tillåt filuppladdning (TEMP)"
-    ) as HTMLInputElement
-    const remoteUrlToggle = getByLabel(
-      "Tillåt fjärr-URL (HTTPS)"
+    const syncToggle = getByLabel(
+      "Direktnedladdning (synkront)"
     ) as HTMLInputElement
     const maskEmailToggle = getByLabel(
       "Maskera e-postadress"
     ) as HTMLInputElement
+    const scheduleToggle = getByLabel(
+      "Tillåt schemaläggning"
+    ) as HTMLInputElement
 
-    expect(remoteDatasetToggle).toBeChecked()
-    expect(remoteUrlToggle).toBeChecked()
+    expect(syncToggle).not.toBeChecked()
     expect(maskEmailToggle).toBeChecked()
-    expect(getByLabel("Parameternamn för uppladdning")).toBeInTheDocument()
+    expect(scheduleToggle).toBeChecked()
 
-    fireEvent.change(serviceSelect, { target: { value: "stream" } })
+    fireEvent.click(syncToggle)
 
     await waitFor(() => {
-      expect(serviceSelect.value).toBe("stream")
+      expect(syncToggle).toBeChecked()
     })
+
     await waitFor(() => {
-      expect(
-        queryByLabel("Tillåt filuppladdning (TEMP)")
-      ).not.toBeInTheDocument()
-      expect(queryByLabel("Tillåt fjärr-URL (HTTPS)")).not.toBeInTheDocument()
       expect(queryByLabel("Maskera e-postadress")).not.toBeInTheDocument()
+      expect(queryByLabel("Tillåt schemaläggning")).not.toBeInTheDocument()
     })
-    expect(
-      queryByLabel("Parameternamn för uppladdning")
-    ).not.toBeInTheDocument()
 
     const configs = extractConfigs(onSettingChange)
     const hasConfig = (predicate: (cfg: FmeExportConfig) => boolean) =>
       configs.some(predicate)
-    expect(hasConfig((cfg) => cfg.service === "stream")).toBe(true)
-    expect(hasConfig((cfg) => !cfg.allowRemoteDataset)).toBe(true)
-    expect(hasConfig((cfg) => !cfg.allowRemoteUrlDataset)).toBe(true)
+    expect(hasConfig((cfg) => Boolean(cfg.syncMode))).toBe(true)
     expect(hasConfig((cfg) => !cfg.maskEmailOnSuccess)).toBe(true)
+    expect(hasConfig((cfg) => !cfg.allowScheduleMode)).toBe(true)
+  })
+
+  it("clears upload target when remote dataset is disabled", async () => {
+    const { onSettingChange } = renderSetting({
+      allowRemoteDataset: true,
+      uploadTargetParamName: "INPUT_DATASET",
+    })
+
+    const remoteDatasetToggle = getByLabel(
+      "Tillåt filuppladdning (TEMP)"
+    ) as HTMLInputElement
+
+    expect(remoteDatasetToggle).toBeChecked()
+    expect(getByLabel("Parameternamn för uppladdning")).toBeInTheDocument()
+
+    fireEvent.click(remoteDatasetToggle)
+
+    await waitFor(() => {
+      expect(remoteDatasetToggle).not.toBeChecked()
+    })
+    await waitFor(() => {
+      expect(
+        queryByLabel("Parameternamn för uppladdning")
+      ).not.toBeInTheDocument()
+    })
+
+    const configs = extractConfigs(onSettingChange)
+    const hasConfig = (predicate: (cfg: FmeExportConfig) => boolean) =>
+      configs.some(predicate)
+    expect(hasConfig((cfg) => !cfg.allowRemoteDataset)).toBe(true)
     expect(
       hasConfig((cfg) => typeof cfg.uploadTargetParamName === "undefined")
     ).toBe(true)
@@ -391,92 +412,23 @@ describe("Setting builder interactions", () => {
     expect(screen.queryByText(/lägre än maxgränsen/i)).not.toBeInTheDocument()
   })
 
-  it("disables custom large-area message until threshold is saved", async () => {
-    const { onSettingChange, rerenderWithConfig } = renderSetting()
+  it("persists workspace name override and trims input", () => {
+    const { onSettingChange } = renderSetting()
 
-    const messageField = getByLabel(
-      "Varningsmeddelande (stor AOI)"
-    ) as HTMLTextAreaElement
-    const infoField = getByLabel(
-      "Informationsmeddelande (stor AOI)"
-    ) as HTMLTextAreaElement
-    expect(messageField).toBeDisabled()
-    expect(infoField).toBeDisabled()
-
-    const largeAreaInput = getByLabel("AOI-varning (m²)") as HTMLInputElement
-    fireEvent.change(largeAreaInput, { target: { value: "400" } })
-    fireEvent.blur(largeAreaInput, { target: { value: "400" } })
+    const nameField = getByLabel("Arbetsytenamn") as HTMLInputElement
+    fireEvent.change(nameField, { target: { value: "  Kartservice  " } })
+    fireEvent.blur(nameField, { target: { value: "  Kartservice  " } })
 
     const configs = extractConfigs(onSettingChange)
-    const latestConfig = configs[configs.length - 1]
-    expect(latestConfig?.largeArea).toBe(400)
+    expect(configs.some((cfg) => cfg.workspaceName === "Kartservice")).toBe(
+      true
+    )
 
-    rerenderWithConfig(latestConfig ?? {})
+    fireEvent.change(nameField, { target: { value: "" } })
+    fireEvent.blur(nameField, { target: { value: "" } })
 
-    await waitFor(() => {
-      expect(
-        getByLabel("Varningsmeddelande (stor AOI)") as HTMLTextAreaElement
-      ).not.toBeDisabled()
-      expect(
-        getByLabel("Informationsmeddelande (stor AOI)") as HTMLTextAreaElement
-      ).not.toBeDisabled()
-    })
-  })
-
-  it("persists sanitized large-area message and clears when empty", () => {
-    const { onSettingChange, rerenderWithConfig } = renderSetting({
-      largeArea: 500,
-    })
-
-    rerenderWithConfig({ largeArea: 500 })
-
-    const messageField = getByLabel(
-      "Varningsmeddelande (stor AOI)"
-    ) as HTMLTextAreaElement
-    const infoField = getByLabel(
-      "Informationsmeddelande (stor AOI)"
-    ) as HTMLTextAreaElement
-    expect(messageField).not.toBeDisabled()
-    expect(infoField).not.toBeDisabled()
-
-    fireEvent.change(messageField, {
-      target: { value: "  AOI {current}  är stor." },
-    })
-    fireEvent.blur(messageField, {
-      target: { value: "  AOI {current}  är stor." },
-    })
-
-    let configs = extractConfigs(onSettingChange)
-    expect(
-      configs.some(
-        (cfg) => cfg.largeAreaWarningMessage === "AOI {current} är stor."
-      )
-    ).toBe(true)
-
-    fireEvent.change(infoField, {
-      target: { value: "  Kontrollera {threshold}  innan export." },
-    })
-    fireEvent.blur(infoField, {
-      target: { value: "  Kontrollera {threshold}  innan export." },
-    })
-
-    configs = extractConfigs(onSettingChange)
-    expect(
-      configs.some(
-        (cfg) =>
-          cfg.customInfoMessage === "Kontrollera {threshold} innan export."
-      )
-    ).toBe(true)
-
-    fireEvent.change(messageField, { target: { value: "" } })
-    fireEvent.blur(messageField, { target: { value: "" } })
-
-    fireEvent.change(infoField, { target: { value: "" } })
-    fireEvent.blur(infoField, { target: { value: "" } })
-
-    configs = extractConfigs(onSettingChange)
-    const clearedConfig = configs[configs.length - 1]
-    expect(clearedConfig?.largeAreaWarningMessage).toBeUndefined()
-    expect(clearedConfig?.customInfoMessage).toBeUndefined()
+    const updatedConfigs = extractConfigs(onSettingChange)
+    const latestConfig = updatedConfigs[updatedConfigs.length - 1]
+    expect(latestConfig?.workspaceName).toBeUndefined()
   })
 })

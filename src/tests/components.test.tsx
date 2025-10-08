@@ -569,23 +569,14 @@ describe("Workflow component", () => {
     expect(alert).toHaveTextContent("överstiger")
     expect(alert).toHaveTextContent("50000 kvm")
     expect(alert).toHaveTextContent("40000 kvm")
-
-    const infoMatches = screen.getAllByText(/Exporten kan ta längre tid\./i)
-    expect(
-      infoMatches.some((node) => node.getAttribute("role") !== "alert")
-    ).toBe(true)
   })
 
-  it("uses custom large-area warning message when provided", () => {
+  it("uses workspaceName override for selection buttons", () => {
     renderWithProviders(
       <Workflow
         widgetId={widgetId}
         config={
-          {
-            largeArea: 30000,
-            largeAreaWarningMessage: "AOI {current} passerar gränsen.",
-            repository: "repo-1",
-          } as any
+          { repository: "repo-1", workspaceName: "Fastighetsdata" } as any
         }
         state={ViewMode.WORKSPACE_SELECTION}
         instructionText="Rita AOI"
@@ -602,9 +593,9 @@ describe("Workflow component", () => {
         orderResult={null}
         onReuseGeography={jest.fn()}
         onBack={jest.fn()}
-        drawnArea={42000}
-        areaWarning={true}
-        formatArea={(value: number) => `${value} m²`}
+        drawnArea={50000}
+        areaWarning={false}
+        formatArea={(value: number) => `${value} kvm`}
         drawingMode={DrawingTool.POLYGON}
         onDrawingModeChange={jest.fn()}
         isDrawing={false}
@@ -624,128 +615,12 @@ describe("Workflow component", () => {
       />
     )
 
-    const alert = screen.getByTestId("mock-alert")
-    expect(alert).toHaveTextContent("AOI 42000 m² passerar gränsen.")
-    expect(alert).not.toHaveTextContent("Stora områden")
+    const button = screen.getByRole("button", { name: "Fastighetsdata" })
+    expect(button).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Workspace A" })).toBeNull()
 
-    const strayMessages = screen
-      .getAllByText("AOI 42000 m² passerar gränsen.")
-      .filter((node) => !node.closest('[data-testid="mock-alert"]'))
-    expect(strayMessages).toHaveLength(0)
-  })
-
-  it("respects custom templates without placeholders", () => {
-    renderWithProviders(
-      <Workflow
-        widgetId={widgetId}
-        config={
-          {
-            largeArea: 25000,
-            largeAreaWarningMessage: "Kontrollera AOI innan export.",
-            repository: "repo-1",
-          } as any
-        }
-        state={ViewMode.WORKSPACE_SELECTION}
-        instructionText="Rita AOI"
-        loadingState={{
-          modules: false,
-          parameters: false,
-          workspaces: false,
-          submission: false,
-        }}
-        canStartDrawing={true}
-        error={null}
-        onFormBack={undefined}
-        onFormSubmit={undefined}
-        orderResult={null}
-        onReuseGeography={jest.fn()}
-        onBack={jest.fn()}
-        drawnArea={27500}
-        areaWarning={true}
-        formatArea={(value: number) => `${value} m²`}
-        drawingMode={DrawingTool.POLYGON}
-        onDrawingModeChange={jest.fn()}
-        isDrawing={false}
-        clickCount={0}
-        onReset={jest.fn()}
-        canReset={true}
-        showHeaderActions={true}
-        onWorkspaceSelected={jest.fn()}
-        onWorkspaceBack={jest.fn()}
-        selectedWorkspace={null}
-        workspaceParameters={[]}
-        workspaceItem={null}
-        isStartupValidating={false}
-        startupValidationStep={undefined}
-        startupValidationError={null}
-        onRetryValidation={jest.fn()}
-      />
-    )
-
-    const alert = screen.getByTestId("mock-alert")
-    expect(alert).toHaveTextContent("Kontrollera AOI innan export.")
-    expect(alert).not.toHaveTextContent("27500 m²")
-
-    const strayMessages = screen
-      .getAllByText("Kontrollera AOI innan export.")
-      .filter((node) => !node.closest('[data-testid="mock-alert"]'))
-    expect(strayMessages).toHaveLength(0)
-  })
-
-  it("renders configured large-area detail message", () => {
-    renderWithProviders(
-      <Workflow
-        widgetId={widgetId}
-        config={
-          {
-            largeArea: 18000,
-            customInfoMessage: "AOI {current} är större än {threshold}.",
-            repository: "repo-1",
-          } as any
-        }
-        state={ViewMode.WORKSPACE_SELECTION}
-        instructionText="Rita AOI"
-        loadingState={{
-          modules: false,
-          parameters: false,
-          workspaces: false,
-          submission: false,
-        }}
-        canStartDrawing={true}
-        error={null}
-        onFormBack={undefined}
-        onFormSubmit={undefined}
-        orderResult={null}
-        onReuseGeography={jest.fn()}
-        onBack={jest.fn()}
-        drawnArea={20000}
-        areaWarning={true}
-        formatArea={(value: number) => `${value} m²`}
-        drawingMode={DrawingTool.POLYGON}
-        onDrawingModeChange={jest.fn()}
-        isDrawing={false}
-        clickCount={0}
-        onReset={jest.fn()}
-        canReset={true}
-        showHeaderActions={true}
-        onWorkspaceSelected={jest.fn()}
-        onWorkspaceBack={jest.fn()}
-        selectedWorkspace={null}
-        workspaceParameters={[]}
-        workspaceItem={null}
-        isStartupValidating={false}
-        startupValidationStep={undefined}
-        startupValidationError={null}
-        onRetryValidation={jest.fn()}
-      />
-    )
-
-    const detailNodes = screen.getAllByText(
-      "AOI 20000 m² är större än 18000 m²."
-    )
-    expect(
-      detailNodes.some((node) => !node.closest('[data-testid="mock-alert"]'))
-    ).toBe(true)
+    const infoAlert = screen.getByTestId("mock-alert")
+    expect(infoAlert).toHaveTextContent("Fastighetsdata")
   })
 
   it("renders order result actions with end button", () => {
@@ -802,12 +677,70 @@ describe("Workflow component", () => {
       />
     )
 
+    expect(screen.getByText(/TestWorkspace/)).toBeInTheDocument()
+
     fireEvent.click(screen.getByRole("button", { name: "Ny beställning" }))
     expect(onReuse).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole("button", { name: "Avsluta" }))
     expect(onReset).toHaveBeenCalledTimes(1)
     expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it("prefers workspaceName override in order result summary", () => {
+    renderWithProviders(
+      <Workflow
+        widgetId={widgetId}
+        config={
+          { repository: "repo-1", workspaceName: "Fastighetsdata" } as any
+        }
+        state={ViewMode.ORDER_RESULT}
+        instructionText="Order klar"
+        loadingState={{
+          modules: false,
+          parameters: false,
+          workspaces: false,
+          submission: false,
+        }}
+        canStartDrawing={false}
+        error={null}
+        onFormBack={undefined}
+        onFormSubmit={undefined}
+        orderResult={{
+          success: true,
+          message: "klar",
+          jobId: 654,
+          workspaceName: "OriginalName",
+          downloadUrl: "https://example.com/file.zip",
+          downloadFilename: "file.zip",
+          email: "user@example.com",
+        }}
+        onReuseGeography={jest.fn()}
+        onBack={jest.fn()}
+        onReset={jest.fn()}
+        drawnArea={0}
+        areaWarning={false}
+        formatArea={(value: number) => `${value}`}
+        drawingMode={DrawingTool.POLYGON}
+        onDrawingModeChange={jest.fn()}
+        isDrawing={false}
+        clickCount={0}
+        canReset={true}
+        showHeaderActions={false}
+        onWorkspaceSelected={jest.fn()}
+        onWorkspaceBack={jest.fn()}
+        selectedWorkspace={null}
+        workspaceParameters={[]}
+        workspaceItem={null}
+        isStartupValidating={false}
+        startupValidationStep={undefined}
+        startupValidationError={null}
+        onRetryValidation={jest.fn()}
+      />
+    )
+
+    expect(screen.getByText(/Fastighetsdata/)).toBeInTheDocument()
+    expect(screen.queryByText(/OriginalName/)).toBeNull()
   })
 })
 
