@@ -26,6 +26,8 @@ import type {
   ErrorState,
   SerializableErrorState,
   DrawingSessionState,
+  SubmissionPhase,
+  SubmissionPreparationStatus,
 } from "../config/index"
 import {
   makeErrorView,
@@ -169,11 +171,32 @@ export default function Widget(
       clickCount: 0,
     }))
 
+  const [submissionPhase, setSubmissionPhase] =
+    React.useState<SubmissionPhase>("idle")
+
   const updateDrawingSession = hooks.useEventCallback(
     (updates: Partial<DrawingSessionState>) => {
       setDrawingSession((prev) => {
         return { ...prev, ...updates }
       })
+    }
+  )
+
+  const handlePreparationStatus = hooks.useEventCallback(
+    (status: SubmissionPreparationStatus) => {
+      if (status === "normalizing") {
+        setSubmissionPhase("preparing")
+        return
+      }
+
+      if (status === "resolvingDataset") {
+        setSubmissionPhase("uploading")
+        return
+      }
+
+      if (status === "applyingDefaults" || status === "complete") {
+        setSubmissionPhase("finalizing")
+      }
     }
   )
 
@@ -912,11 +935,13 @@ export default function Widget(
 
     const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
+      setSubmissionPhase("idle")
       dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
       return
     }
 
     dispatch(fmeActions.setLoadingFlag("submission", true, widgetId))
+    setSubmissionPhase("preparing")
 
     let controller: AbortController | null = null
 
@@ -936,6 +961,7 @@ export default function Widget(
 
       const workspace = selectedWorkspace
       if (!workspace) {
+        setSubmissionPhase("idle")
         return
       }
 
@@ -956,9 +982,11 @@ export default function Widget(
         fmeClient,
         signal: controller.signal,
         remoteDatasetSubfolder: subfolder,
+        onStatusChange: handlePreparationStatus,
       })
 
       if (preparation.aoiError) {
+        setSubmissionPhase("idle")
         dispatch(fmeActions.setError("general", preparation.aoiError, widgetId))
         return
       }
@@ -967,6 +995,7 @@ export default function Widget(
       if (!finalParams) {
         throw new Error("Submission parameter preparation failed")
       }
+      setSubmissionPhase("submitting")
       // Submit to FME Flow
       const serviceType = latestConfig?.service || "download"
       const fmeResponse = await makeCancelable(
@@ -982,6 +1011,7 @@ export default function Widget(
     } catch (error) {
       handleSubmissionError(error)
     } finally {
+      setSubmissionPhase("idle")
       dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))
       submissionAbort.finalize(controller)
     }
@@ -1473,6 +1503,7 @@ export default function Widget(
         }}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
+        submissionPhase={submissionPhase}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         getFmeClient={getOrCreateFmeClient}

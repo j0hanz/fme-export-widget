@@ -629,7 +629,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   state,
   instructionText,
   loadingState: loadingStateProp,
-  canStartDrawing: _canStartDrawing,
+  canStartDrawing,
   error,
   onFormBack,
   onFormSubmit,
@@ -666,6 +666,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   startupValidationStep,
   startupValidationError,
   onRetryValidation,
+  submissionPhase = "idle",
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
@@ -683,6 +684,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
   const isWorkspaceLoading = Boolean(loadingState.workspaces)
+  const canDraw = canStartDrawing ?? true
 
   // Stable getter for drawing mode items using event callback
   const getDrawingModeItems = hooks.useEventCallback(() =>
@@ -1013,8 +1015,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderInitial = () => {
+    const waitMessage = translate("statusPreparingMapTools")
+    const waitDetail = translate("pleaseWait")
     if (isModulesLoading) {
-      return renderLoading(undefined, translate("statusPreparingMapTools"))
+      return renderLoading(waitMessage, waitDetail)
+    }
+    if (!canDraw) {
+      return renderLoading(waitMessage, waitDetail)
     }
     return renderDrawingModeTabs()
   }
@@ -1137,10 +1144,32 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     if (isSubmittingOrder) {
       const isSyncMode = Boolean(config?.syncMode)
-      const loadingMessageKey = isSyncMode
-        ? "submittingOrderSync"
-        : "submittingOrder"
-      return renderLoading(translate(loadingMessageKey))
+      const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
+      const baseMessage = translate(baseKey)
+
+      let phaseKey: string | null = null
+      switch (submissionPhase) {
+        case "preparing":
+          phaseKey = "submissionPhasePreparing"
+          break
+        case "uploading":
+          phaseKey = "submissionPhaseUploading"
+          break
+        case "finalizing":
+          phaseKey = "submissionPhaseFinalizing"
+          break
+        case "submitting":
+          phaseKey = "submissionPhaseSubmitting"
+          break
+        default:
+          phaseKey = null
+      }
+
+      if (phaseKey) {
+        return renderLoading(translate(phaseKey), baseMessage)
+      }
+
+      return renderLoading(baseMessage, translate("pleaseWait"))
     }
 
     if (error) {

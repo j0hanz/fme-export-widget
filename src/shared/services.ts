@@ -1776,7 +1776,9 @@ export async function prepareSubmissionParams({
   fmeClient,
   signal,
   remoteDatasetSubfolder,
+  onStatusChange,
 }: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> {
+  onStatusChange?.("normalizing")
   const { sanitizedFormData, uploadFile, remoteUrl } =
     parseSubmissionFormData(rawFormData)
 
@@ -1796,10 +1798,19 @@ export async function prepareSubmissionParams({
 
   const aoiError = (baseParams as MutableParams).__aoi_error__
   if (aoiError) {
+    onStatusChange?.("complete")
     return { params: null, aoiError }
   }
 
   const params: MutableParams = { ...baseParams }
+
+  const shouldResolveRemoteDataset = Boolean(
+    uploadFile || (typeof remoteUrl === "string" && remoteUrl.trim())
+  )
+
+  if (shouldResolveRemoteDataset) {
+    onStatusChange?.("resolvingDataset")
+  }
 
   await resolveRemoteDataset({
     params,
@@ -1813,9 +1824,11 @@ export async function prepareSubmissionParams({
     subfolder: remoteDatasetSubfolder,
   })
 
+  onStatusChange?.("applyingDefaults")
   const paramsWithDefaults = applyDirectiveDefaults(params, config || undefined)
   removeAoiErrorMarker(paramsWithDefaults as MutableParams)
 
+  onStatusChange?.("complete")
   return { params: paramsWithDefaults }
 }
 

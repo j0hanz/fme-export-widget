@@ -882,12 +882,26 @@ export interface SubmissionPreparationOptions {
   readonly fmeClient: FmeFlowApiClient
   readonly signal: AbortSignal
   readonly remoteDatasetSubfolder: string
+  readonly onStatusChange?: (status: SubmissionPreparationStatus) => void
 }
 
 export interface SubmissionPreparationResult {
   readonly params: { readonly [key: string]: unknown } | null
   readonly aoiError?: ErrorState
 }
+
+export type SubmissionPreparationStatus =
+  | "normalizing"
+  | "resolvingDataset"
+  | "applyingDefaults"
+  | "complete"
+
+export type SubmissionPhase =
+  | "idle"
+  | "preparing"
+  | "uploading"
+  | "finalizing"
+  | "submitting"
 
 export interface FmeWidgetState {
   readonly viewMode: ViewMode
@@ -1000,6 +1014,7 @@ export interface WorkflowProps extends BaseProps {
   readonly loadingState?: LoadingState
   readonly modules?: EsriModules | null
   readonly canStartDrawing?: boolean
+  readonly submissionPhase?: SubmissionPhase
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
   readonly getFmeClient?: () => FmeFlowApiClient | null
