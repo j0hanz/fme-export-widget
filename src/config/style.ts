@@ -116,7 +116,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       border: "none !important",
     }),
     alertInline: css({ opacity: 0.8 }),
-    alertContent: flex("row", { alignItems: "flex-start", gap: spacing?.(1) }),
+    alertContent: flex("row", { alignItems: "flex-start", gap }),
     alertMessage: css({ flex: auto, ...typo(typography?.body2) }),
     alertIcon: css({
       display: "inline-flex",
