@@ -95,8 +95,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     content: flex("column", { flex: auto, minBlockSize: 0, gap }),
     centered: flex("column", {
       placeContent: "center",
-      alignItems: "center",
-      textAlign: "center",
       flex: auto,
       minBlockSize: 0,
       gap,
