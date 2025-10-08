@@ -1127,6 +1127,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Clear repository-related state when URL or token change
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
+    abortReposRequest()
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
   })
