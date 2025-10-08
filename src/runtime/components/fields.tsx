@@ -1095,17 +1095,33 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       case FormFieldType.RADIO: {
         const options = field.options || []
-        const val = asString(fieldValue)
+        const coerce = computeSelectCoerce(true, options)
+        const stringValue =
+          fieldValue === null || fieldValue === undefined
+            ? undefined
+            : String(fieldValue)
+
+        const handleChange = (raw: string) => {
+          if (coerce === "number") {
+            const nextNumber = Number(raw)
+            onChange(
+              Number.isFinite(nextNumber)
+                ? (nextNumber as FormPrimitive)
+                : (raw as FormPrimitive)
+            )
+            return
+          }
+          onChange(raw as FormPrimitive)
+        }
+
         return (
           <Radio
             options={options.map((opt) => ({
               label: opt.label,
               value: String(opt.value),
             }))}
-            value={val}
-            onChange={(value) => {
-              onChange(value)
-            }}
+            value={stringValue}
+            onChange={handleChange}
             disabled={field.readOnly}
             aria-label={field.label}
           />
