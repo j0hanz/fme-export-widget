@@ -1,14 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import {
-  React,
-  hooks,
-  css,
-  jsx,
-  type IMThemeVariables,
-  type ImmutableObject,
-} from "jimu-core"
-import type { TypographyStyle } from "jimu-theme"
+import { React, hooks, jsx, type SerializedStyles } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -37,13 +29,16 @@ import {
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
-import { useTheme } from "jimu-theme"
 import {
   useUniqueId,
   useControlledValue,
   useLoadingLatch,
 } from "../../shared/hooks"
-import { EMAIL_PLACEHOLDER } from "../../config/index"
+import {
+  EMAIL_PLACEHOLDER,
+  config as styleConfig,
+  useUiStyles,
+} from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
   styleCss,
@@ -84,33 +79,11 @@ import type {
   BtnContentProps,
   StateViewProps,
   TranslateFn,
+  UiStyles,
 } from "../../config/index"
 
 // Configuration & Constants
-export const config = {
-  icon: { small: 16, medium: 18, large: 24 },
-  tooltip: {
-    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
-    position: {
-      top: "top" as const,
-      bottom: "bottom" as const,
-      left: "left" as const,
-      right: "right" as const,
-    },
-    showArrow: true,
-  },
-  button: {
-    defaults: {
-      block: true,
-      tooltipPosition: "top" as const,
-    },
-    offset: "10px",
-    textPadding: "18px",
-  },
-  zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200, delay: 1000 },
-  required: "*",
-} as const
+export const config = styleConfig
 
 const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   error: errorIcon,
@@ -140,243 +113,7 @@ const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
 }
 
 // Styling Helpers
-const getTypographyStyle = (
-  typographyVariant: ImmutableObject<TypographyStyle>
-) => ({
-  fontFamily: typographyVariant?.fontFamily,
-  fontWeight: typographyVariant?.fontWeight?.toString(),
-  fontSize: typographyVariant?.fontSize,
-  fontStyle: typographyVariant?.fontStyle,
-  lineHeight: typographyVariant?.lineHeight,
-  color: typographyVariant?.color,
-})
-
-const createStyles = (theme: IMThemeVariables) => {
-  // Cache commonly used spacing and color values
-  const spacing = theme.sys.spacing
-  const colors = theme.sys.color
-  const typography = theme.sys.typography
-  const gap = spacing?.(2)
-  const flexAuto = "1 1 auto"
-
-  const flexRow = (styles: { [key: string]: any } = {}) =>
-    css({ display: "flex", ...styles })
-
-  const flexColumn = (styles: { [key: string]: any } = {}) =>
-    css({ display: "flex", flexFlow: "column nowrap", ...styles })
-
-  const inlineFlexRow = (styles: { [key: string]: any } = {}) =>
-    css({ display: "inline-flex", flexFlow: "row wrap", ...styles })
-
-  return {
-    // Layout utilities with better performance
-    row: flexRow({ gap }),
-    btnFlex: css({ flex: flexAuto }),
-    buttonGroup: flexColumn({ inlineSize: "100%", gap }),
-    fullWidth: flexColumn({
-      inlineSize: "100%",
-      flex: flexAuto,
-      minInlineSize: 0,
-    }),
-    relative: css({ position: "relative" }),
-    rowAlignCenter: css({ alignItems: "center" }),
-
-    // Interactive utilities
-    disabledPicker: flexRow({ pointerEvents: "none" }),
-    textareaResize: css({ resize: "vertical" }),
-
-    // Main layout styles
-    parent: flexColumn({
-      overflowY: "auto",
-      blockSize: "100%",
-      position: "relative",
-      gap,
-      padding: spacing?.(1),
-      backgroundColor: colors?.surface?.paper,
-    }),
-
-    header: flexRow({
-      alignItems: "center",
-      justifyContent: "flex-end",
-      gap,
-      marginBlockEnd: spacing?.(2),
-    }),
-
-    headerAlert: css({
-      marginInlineEnd: "auto",
-      display: "flex",
-      alignItems: "center",
-    }),
-
-    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
-    contentCentered: flexColumn({
-      placeContent: "center",
-      alignItems: "center",
-      textAlign: "center",
-      flex: flexAuto,
-      minBlockSize: 0,
-      gap,
-    }),
-
-    // State patterns
-    centered: flexColumn({
-      placeContent: "center",
-      gap,
-      blockSize: "100%",
-    }),
-
-    overlay: css({
-      position: "absolute",
-      inset: "50% auto auto 50%",
-      transform: "translate(-50%, -50%)",
-      textAlign: "center",
-      zIndex: config.zIndex.overlay,
-    }),
-
-    alertStyle: css({
-      backgroundColor: "transparent !important",
-      border: "none !important",
-      width: "100% !important",
-    }),
-
-    alertFullWidth: css({
-      width: "100% !important",
-      backgroundColor: "transparent !important",
-      border: "none !important",
-    }),
-
-    alertContent: flexRow({
-      alignItems: "flex-start",
-      gap,
-    }),
-
-    alertMessage: css({
-      flex: "1 1 auto",
-      ...getTypographyStyle(typography?.label2),
-    }),
-
-    alertIconOnly: css({
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flex: "0 0 auto",
-    }),
-
-    // Typography styles
-    typography: {
-      caption: css({
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-        marginBlockEnd: spacing?.(3),
-      }),
-
-      label: css({
-        ...getTypographyStyle(typography?.label2),
-        color: colors?.surface?.backgroundText,
-        marginBlockEnd: 0,
-      }),
-
-      title: css({
-        ...getTypographyStyle(typography?.title2),
-        color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(1)} 0`,
-      }),
-
-      instruction: css({
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(3)} 0`,
-        textAlign: "center",
-      }),
-
-      link: css({
-        ...getTypographyStyle(typography?.body1),
-        color: colors?.action.link?.default,
-        textDecoration: "underline",
-        wordBreak: "break-all",
-        "&:hover": {
-          color: colors?.action.link?.hover,
-          textDecoration: "underline",
-        },
-      }),
-
-      required: css({
-        marginInlineStart: spacing?.(1),
-      }),
-    },
-
-    // Button styles
-    button: {
-      default: flexColumn({ inlineSize: "100%", gap }),
-
-      text: (align: BtnContentProps["alignText"]) =>
-        css({
-          flex: flexAuto,
-          textAlign: (align || "start") as any,
-          paddingInlineEnd: config.button.textPadding,
-        }),
-
-      icon: css({
-        position: "absolute",
-        zIndex: 1,
-        insetBlockStart: "50%",
-        insetInlineEnd: config.button.offset,
-        transform: "translateY(-50%)",
-      }),
-    },
-
-    form: {
-      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
-      header: css({ flex: "0 0 auto" }),
-      content: flexColumn({
-        flex: flexAuto,
-        gap,
-      }),
-      body: flexColumn({
-        flex: flexAuto,
-        gap,
-        overflowY: "auto",
-      }),
-      footer: flexColumn({ flex: "0 0 auto", gap }),
-    },
-
-    selection: {
-      container: flexColumn({ flex: flexAuto, gap, minBlockSize: 0 }),
-      warning: css({ marginBlockStart: "auto" }),
-      message: css({
-        marginBlockStart: "auto",
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-      }),
-    },
-
-    fieldGroup: css({
-      marginBlockEnd: spacing?.(2),
-    }),
-
-    checkLabel: flexRow({
-      alignItems: "center",
-      justifyContent: "space-between",
-      inlineSize: "100%",
-    }),
-
-    tooltipWrap: {
-      block: flexRow({ inlineSize: "100%", minInlineSize: 0 }),
-      inline: inlineFlexRow({ minInlineSize: 0 }),
-      anchor: flexRow({
-        flex: flexAuto,
-        minInlineSize: 0,
-        "& > *": { flex: flexAuto, minInlineSize: 0 },
-      }),
-    },
-  } as const
-}
-
-// Theme-aware styles hook
-export const useStyles = (): ReturnType<typeof createStyles> => {
-  const theme = useTheme()
-  return createStyles(theme)
-}
+export const useStyles = (): UiStyles => useUiStyles()
 
 // Alias imported hooks for internal use
 const useId = useUniqueId
@@ -406,12 +143,12 @@ const withId = (
 
 // Style composition helpers
 const applyComponentStyles = (
-  base: Array<ReturnType<typeof css> | undefined>,
+  base: Array<SerializedStyles | undefined>,
   customStyle?: React.CSSProperties
 ) => [...base, styleCss(customStyle)].filter(Boolean)
 
 const applyFullWidthStyles = (
-  styles: ReturnType<typeof createStyles>,
+  styles: UiStyles,
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle)
 
@@ -439,7 +176,7 @@ const wrapWithTooltip = (
     block?: boolean
     jimuCss?: any
     jimuStyle?: React.CSSProperties
-    styles: ReturnType<typeof createStyles>
+    styles: UiStyles
   }
 ) => {
   const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts
@@ -484,11 +221,11 @@ const createTooltipAnchor = (
 
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
-  styles: ReturnType<typeof useStyles>
+  styles: UiStyles
 ) => (
   <Tooltip content={translate("requiredField")} placement="bottom">
     <span
-      css={styles.typography.required}
+      css={styles.typo.required}
       aria-label={translate("ariaRequired")}
       role="img"
       aria-hidden="false"
@@ -536,7 +273,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
     )
 
   const iconWithPosition = (
-    <span css={styles.button.icon} aria-hidden="true">
+    <span css={styles.btn.icon} aria-hidden="true">
       {iconEl}
     </span>
   )
@@ -544,7 +281,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {/* left icon not supported */}
-      <div css={styles.button.text(alignText)}>{text}</div>
+      <div css={styles.btn.text(alignText)}>{text}</div>
       {iconWithPosition}
     </>
   )
@@ -1394,12 +1131,12 @@ export const Alert: React.FC<AlertComponentProps> = ({
         variant={jimuVariant}
         className={className}
         css={applyComponentStyles(
-          [styles.alertFullWidth, shouldWrapWithTooltip ? undefined : jimuCss],
+          [styles.alert, shouldWrapWithTooltip ? undefined : jimuCss],
           style as any
         )}
       >
         {iconKey ? (
-          <div css={styles.alertIconOnly}>
+          <div css={styles.alertIcon}>
             <Icon src={iconKey} aria-label={accessibleLabel} />
           </div>
         ) : null}
@@ -1428,7 +1165,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+        css={applyComponentStyles([styles.alert, jimuCss], style as any)}
       />
     )
   }
@@ -1440,12 +1177,12 @@ export const Alert: React.FC<AlertComponentProps> = ({
       withIcon={false}
       variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+      css={applyComponentStyles([styles.alert, jimuCss], style as any)}
     >
       <div css={styles.alertContent}>
         {iconKey ? (
-          <div css={styles.alertIconOnly}>
-            <Icon src={iconKey} size={config.icon.small}/>
+          <div css={styles.alertIcon}>
+            <Icon src={iconKey} size={config.icon.small} />
           </div>
         ) : null}
         {messageContent ? (
@@ -1598,7 +1335,7 @@ const StateView: React.FC<StateViewProps> = ({
             aria-label={translate("ariaLoadingDetails")}
           >
             {message && <div>{message}</div>}
-            {detail && <div css={styles.typography.caption}>{detail}</div>}
+            {detail && <div css={styles.typo.caption}>{detail}</div>}
           </div>
         )}
       </div>
@@ -1615,10 +1352,10 @@ const StateView: React.FC<StateViewProps> = ({
                 src={getErrorIconSrc((state as any).code)}
                 size={config.icon.medium}
               />
-              <div css={styles.typography.title}>{state.message}</div>
+              <div css={styles.typo.title}>{state.message}</div>
             </div>
             {state.code && (
-              <div css={styles.typography.caption}>
+              <div css={styles.typo.caption}>
                 {translate("errorCode")}: {state.code}
               </div>
             )}
@@ -1641,11 +1378,9 @@ const StateView: React.FC<StateViewProps> = ({
       case "success":
         return (
           <div role="status" aria-live="polite">
-            {state.title && (
-              <div css={styles.typography.title}>{state.title}</div>
-            )}
+            {state.title && <div css={styles.typo.title}>{state.title}</div>}
             {state.message && (
-              <div css={styles.typography.caption}>{state.message}</div>
+              <div css={styles.typo.caption}>{state.message}</div>
             )}
             {renderActionsFn({
               actions: state.actions,
@@ -1741,12 +1476,12 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
       type: config.type ?? fallbackType,
       key,
     }
-    return <Button {...btnConfig} block={true} css={styles.btnFlex} />
+    return <Button {...btnConfig} block={true} css={styles.btn.flex} />
   }
 
   return (
     <div
-      css={applyComponentStyles([styles.buttonGroup], style as any)}
+      css={applyComponentStyles([styles.btn.group], style as any)}
       className={className}
     >
       {resolvedButtons.map(createButton)}
@@ -1778,8 +1513,8 @@ export const Form: React.FC<FormProps> = (props) => {
         css={applyComponentStyles([styles.form.layout], style)}
       >
         <div css={styles.form.header}>
-          {title && <div css={styles.typography.title}>{title}</div>}
-          {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
+          {title && <div css={styles.typo.title}>{title}</div>}
+          {subtitle && <div css={styles.typo.caption}>{subtitle}</div>}
         </div>
         <div css={styles.form.content}>
           <div css={styles.form.body}>{children}</div>
@@ -1853,10 +1588,10 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup
       className={className}
-      css={applyComponentStyles([styles.fieldGroup], style)}
+      css={applyComponentStyles([styles.field], style)}
     >
       {check ? (
-        <Label css={[styles.typography.label, styles.checkLabel]} check={true}>
+        <Label css={[styles.typo.label, styles.checkLabel]} check={true}>
           <span>
             {label}
             {required && getRequiredMark(translate, styles)}
@@ -1865,7 +1600,7 @@ export const Field: React.FC<FieldProps> = ({
         </Label>
       ) : (
         <>
-          <Label css={styles.typography.label} check={false} for={fieldId}>
+          <Label css={styles.typo.label} check={false} for={fieldId}>
             {label}
             {required && getRequiredMark(translate, styles)}
           </Label>
@@ -1874,7 +1609,7 @@ export const Field: React.FC<FieldProps> = ({
       )}
       {helper && !error && (
         <div
-          css={styles.typography.label}
+          css={styles.typo.label}
           id={fieldId ? `${fieldId}-help` : undefined}
         >
           {helper}
@@ -1931,7 +1666,7 @@ export const renderSupportHint = (
         {fullText}{" "}
         <a
           href={`mailto:${supportEmail}`}
-          css={styles.typography.link}
+          css={styles.typo.link}
           aria-label={translate("contactSupportEmail", {
             email: supportEmail,
           })}
@@ -1949,7 +1684,7 @@ export const renderSupportHint = (
           {part}
           <a
             href={`mailto:${supportEmail}`}
-            css={styles.typography.link}
+            css={styles.typo.link}
             aria-label={translate("contactSupportEmail", {
               email: supportEmail,
             })}

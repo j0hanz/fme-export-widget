@@ -19,7 +19,6 @@ import {
   useBooleanConfigValue,
   useNumberConfigValue,
   useUpdateConfig,
-  useSettingStyles as useSettingStylesHook,
 } from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -76,6 +75,7 @@ import {
   DEFAULT_DRAWING_HEX,
   FAST_TM_TAG,
   SETTING_CONSTANTS,
+  useSettingStyles,
 } from "../config/index"
 import resetIcon from "../assets/icons/refresh.svg"
 
@@ -112,21 +112,21 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     (s: StepStatus | string): any => {
       switch (s) {
         case "ok":
-          return styles.STATUS.COLOR.OK
+          return styles.status.color.ok
         case "fail":
-          return styles.STATUS.COLOR.FAIL
+          return styles.status.color.fail
         case "skip":
-          return styles.STATUS.COLOR.SKIP
+          return styles.status.color.skip
         case "pending":
         case "idle":
-          return styles.STATUS.COLOR.PENDING
+          return styles.status.color.pending
         default:
           if (isStepStatus(s)) {
             return s.completed
-              ? styles.STATUS.COLOR.OK
-              : styles.STATUS.COLOR.FAIL
+              ? styles.status.color.ok
+              : styles.status.color.fail
           }
-          return styles.STATUS.COLOR.PENDING
+          return styles.status.color.pending
       }
     }
   )
@@ -162,8 +162,8 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }) => {
       const color = getStatusStyle(status)
       return (
-        <div css={css(styles.STATUS.ROW)}>
-          <div css={css(styles.STATUS.LABEL_GROUP)}>
+        <div css={css(styles.status.row)}>
+          <div css={css(styles.status.labelGroup)}>
             <>
               {label}
               <span aria-hidden="true">{translate("colon")}</span>
@@ -180,7 +180,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
 
     return (
       <div
-        css={css(styles.STATUS.CONTAINER)}
+        css={css(styles.status.container)}
         role="status"
         aria-live="polite"
         aria-atomic={true}
@@ -193,13 +193,13 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           />
         )}
 
-        <div css={css(styles.STATUS.LIST)}>
+        <div css={css(styles.status.list)}>
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
           {hasVersion && (
-            <div css={css(styles.STATUS.ROW)}>
-              <div css={css(styles.STATUS.LABEL_GROUP)}>
+            <div css={css(styles.status.row)}>
+              <div css={css(styles.status.labelGroup)}>
                 {translate("fmeVersion")}
                 <span aria-hidden="true">{translate("colon")}</span>
               </div>
@@ -297,8 +297,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     <SettingRow
       flow="wrap"
       label={
-        <div css={styles.LABEL_WITH_BUTTON}>
-          <span css={styles.LABEL_TEXT}>{label}</span>
+        <div css={styles.labelWithButton}>
+          <span css={styles.labelText}>{label}</span>
           {canRefresh && (
             <Button
               size="sm"
@@ -352,7 +352,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           <Alert
             id={`${ID.repository}-error`}
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={fieldErrors.repository}
             type="error"
             closable={false}
@@ -363,7 +363,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         <SettingRow flow="wrap" level={3}>
           <Alert
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={repoHint}
             type="warning"
             closable={false}
@@ -418,11 +418,11 @@ const FieldRow: React.FC<{
       aria-describedby={errorText ? `${id}-error` : undefined}
     />
     {errorText && (
-      <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+      <SettingRow flow="wrap" level={3} css={css(styles.row)}>
         <Alert
           id={`${id}-error`}
           fullWidth
-          css={css(styles.ALERT_INLINE)}
+          css={css(styles.alertInline)}
           text={errorText}
           type="error"
           closable={false}
@@ -478,11 +478,11 @@ const TextAreaRow: React.FC<{
         rows={rows}
       />
       {errorText && (
-        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+        <SettingRow flow="wrap" level={3} css={css(styles.row)}>
           <Alert
             id={`${id}-error`}
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={errorText}
             type="error"
             closable={false}
@@ -616,11 +616,11 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         />
       </SettingRow>
       {fieldErrors.tm_description && (
-        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+        <SettingRow flow="wrap" level={3} css={css(styles.row)}>
           <Alert
             id={`${ID.tm_description}-error`}
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={fieldErrors.tm_description}
             type="error"
             closable={false}
@@ -689,60 +689,11 @@ const handleValidationFailure = (
   if (repositories) setAvailableRepos(repositories)
 }
 
-// Create theme-aware styles for the setting UI
-const createSettingStyles = (theme: any) => {
-  const spacing = theme?.sys?.spacing
-  return {
-    ROW: css({ width: "100%" }),
-    ALERT_INLINE: css({ opacity: 0.8 }),
-    LABEL_WITH_BUTTON: css({
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      width: "100%",
-      gap: theme?.sys?.spacing?.(1) || 8,
-    }),
-    LABEL_TEXT: css({
-      marginInlineStart: spacing?.(1),
-    }),
-    STATUS: {
-      CONTAINER: css({
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }),
-      LIST: css({
-        display: "grid",
-        rowGap: 2,
-        opacity: 0.8,
-        backgroundColor: CONSTANTS.COLORS.BACKGROUND_DARK,
-        padding: 6,
-        borderRadius: theme?.sys?.shape?.shape1 || 2,
-      }),
-      ROW: css({
-        display: "flex",
-        justifyContent: "space-between",
-        lineHeight: 2,
-      }),
-      LABEL_GROUP: css({
-        display: "flex",
-        alignItems: "center",
-      }),
-      COLOR: {
-        OK: css({ color: theme?.sys?.color?.success?.main || "#2e7d32" }),
-        FAIL: css({ color: theme?.sys?.color?.error?.main || "#d32f2f" }),
-        SKIP: css({ color: theme?.sys?.color?.warning?.main || "#ed6c02" }),
-        PENDING: css({ color: theme?.sys?.color?.info?.main || "#0288d1" }),
-      },
-    },
-  } as const
-}
-
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
-  const settingStyles = useSettingStylesHook(createSettingStyles)
+  const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
 
   // Builder-aware Redux selectors
@@ -1230,7 +1181,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       {text}
       <Tooltip content={translate("requiredField")} placement="top">
         <span
-          css={styles.typography.required}
+          css={styles.typo.required}
           aria-label={translate("ariaRequired")}
           role="img"
           aria-hidden={false}
@@ -2086,7 +2037,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               <SettingRow flow="wrap" level={3}>
                 <Alert
                   fullWidth
-                  css={css(settingStyles.ALERT_INLINE)}
+                  css={css(settingStyles.alertInline)}
                   text={translate("largeAreaExceedsMaxInfo", {
                     largeM2: currentLargeAreaValue ?? 0,
                     maxM2: currentMaxAreaValue ?? 0,

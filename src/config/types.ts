@@ -1,7 +1,8 @@
-import type { IMState, ImmutableObject, SerializedStyles } from "jimu-core"
+import type { IMState, ImmutableObject } from "jimu-core"
 import type React from "react"
 
 import type FmeFlowApiClient from "../shared/api"
+import type { SettingStyles } from "./style"
 import type {
   DrawingTool,
   ErrorSeverity,
@@ -393,25 +394,6 @@ export interface TooltipProps {
   readonly disabled?: boolean
   readonly showArrow?: boolean
   readonly id?: string
-}
-
-export interface SettingStyles {
-  readonly ROW: SerializedStyles
-  readonly ALERT_INLINE: SerializedStyles
-  readonly LABEL_WITH_BUTTON: SerializedStyles
-  readonly LABEL_TEXT: SerializedStyles
-  readonly STATUS: {
-    readonly CONTAINER: SerializedStyles
-    readonly LIST: SerializedStyles
-    readonly ROW: SerializedStyles
-    readonly LABEL_GROUP: SerializedStyles
-    readonly COLOR: {
-      readonly OK: SerializedStyles
-      readonly FAIL: SerializedStyles
-      readonly SKIP: SerializedStyles
-      readonly PENDING: SerializedStyles
-    }
-  }
 }
 
 export type GroupButtonConfig = Omit<ButtonProps, "block">

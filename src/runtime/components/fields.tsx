@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, css } from "jimu-core"
+import { React, hooks, jsx } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -30,6 +30,7 @@ import {
   type TableColumnConfig,
   type FileValidationResult,
 } from "../../config/index"
+import { useUiStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
 import {
   asString,
@@ -71,11 +72,6 @@ const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
 }
-
-const fileValueHintStyles = css({
-  marginTop: "0.25rem",
-  fontSize: "0.875rem",
-})
 
 // Helper: Render simple text-based input fields
 const renderTextInput = (
@@ -308,6 +304,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 }) => {
   const fallbackTranslate = hooks.useTranslation(defaultMessages)
   const translate = translateProp ?? fallbackTranslate
+  const styles = useUiStyles()
   const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type)
   const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE
   const fieldValue = bypassNormalization
@@ -868,7 +865,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               <div
                 data-testid="file-field-display"
                 aria-live="polite"
-                css={fileValueHintStyles}
+                css={styles.typo.hint}
               >
                 {message}
               </div>

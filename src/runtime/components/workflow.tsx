@@ -8,7 +8,6 @@ import {
   Field,
   ButtonTabs,
   Alert,
-  useStyles,
   renderSupportHint,
   DateTimePickerWrapper,
   Input,
@@ -36,6 +35,7 @@ import {
   type ErrorState,
   ErrorSeverity,
   makeErrorView,
+  useUiStyles,
 } from "../../config/index"
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
@@ -158,7 +158,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   onBack,
   config,
 }) => {
-  const styles = useStyles()
+  const styles = useUiStyles()
   const isSuccess = !!orderResult.success
   const isSyncMode = Boolean(config?.syncMode)
   const rows: React.ReactNode[] = []
@@ -207,7 +207,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
       : `order-row-${rows.length}`
 
     rows.push(
-      <div css={styles.typography.caption} key={key}>
+      <div css={styles.typo.caption} key={key}>
         {label ? `${label}: ${display}` : display}
       </div>
     )
@@ -266,15 +266,15 @@ const OrderResult: React.FC<OrderResultProps> = ({
     <div css={styles.form.layout}>
       <div css={styles.form.content}>
         <div css={styles.form.body}>
-          <div css={styles.typography.title}>{titleText}</div>
+          <div css={styles.typo.title}>{titleText}</div>
           {rows}
           {showDownloadLink && (
-            <div css={styles.typography.caption}>
+            <div css={styles.typo.caption}>
               <a
                 href={downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                css={styles.typography.link}
+                css={styles.typo.link}
                 download={orderResult.downloadFilename}
               >
                 {translate("clickToDownload")}
@@ -282,7 +282,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
             </div>
           )}
           {showMessage && messageText && (
-            <div css={styles.typography.caption}>{messageText}</div>
+            <div css={styles.typo.caption}>{messageText}</div>
           )}
         </div>
         <div css={styles.form.footer}>
@@ -640,7 +640,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   onRetryValidation,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
-  const styles = useStyles()
+  const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Ensure a non-empty widgetId for internal Redux interactions
@@ -674,9 +674,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return (
       <div css={styles.form.layout}>
         <div css={styles.form.content}>
-          <div css={[styles.form.body, styles.contentCentered]}>
+          <div css={[styles.form.body, styles.centered]}>
             <div
-              css={styles.typography.instruction}
+              css={styles.typo.instruction}
               role="status"
               aria-live="polite"
               aria-atomic={true}
@@ -809,7 +809,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
             return (
               <div role="group" aria-label={ariaLabel}>
                 {hasActions && (
-                  <div css={styles.button.default}>
+                  <div css={styles.btn.group}>
                     {(viewActions || []).map((action, index) => (
                       <Button
                         key={`${action.label}-${index}`}
@@ -1015,9 +1015,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   const renderDrawing = () => (
-    <div css={styles.contentCentered}>
+    <div css={styles.centered}>
       <div
-        css={styles.typography.instruction}
+        css={styles.typo.instruction}
         role="status"
         aria-live="polite"
         aria-atomic={true}
@@ -1059,7 +1059,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     return (
       <div css={styles.selection.container}>
-        <div css={styles.button.default} role="list">
+        <div css={styles.btn.group} role="list">
           {renderWorkspaceButtons()}
         </div>
         {areaInfoMessage && (

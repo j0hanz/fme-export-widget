@@ -5,7 +5,6 @@ import {
   type AllWidgetProps,
   hooks,
   jsx,
-  css,
   ReactRedux,
   type IMState,
   WidgetState,
@@ -464,7 +463,7 @@ export default function Widget(
               {/* Render hint row: for geometry errors show plain text without support email */}
               <div>
                 {suppressSupport ? (
-                  <div css={styles.typography.caption}>{supportHint}</div>
+                  <div css={styles.typo.caption}>{supportHint}</div>
                 ) : (
                   renderSupportHint(
                     supportEmail,
@@ -475,7 +474,7 @@ export default function Widget(
                 )}
               </div>
               {Array.isArray(act) && act.length > 0 && (
-                <div css={css({ marginTop: 8 })}>
+                <div css={styles.actions.list}>
                   {act.map((a, i) => (
                     <Button key={i} text={a.label} onClick={a.onClick} />
                   ))}
