@@ -47,6 +47,9 @@ export default {
   maskEmailOnSuccess: "Maskera e‑postadress",
   maskEmailOnSuccessHelper:
     "Döljer större delen av e‑postadressen i lyckade svar (visar endast början och domänen).",
+  showResultLabel: "Visa resultat i svaret",
+  showResultHelper:
+    "Styr FME‑parametern opt_showresult. Av: svaren innehåller endast jobbinformation utan transformationsresultat.",
   supportEmailHelper:
     "Om en adress anges visas den i felmeddelanden som supportkontakt.",
   requestTimeoutLabel: "Tidsgräns för begäran (ms)",

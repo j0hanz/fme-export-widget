@@ -28,13 +28,15 @@ beforeAll(() => {
 })
 
 const buildConfig = (
-  overrides: Partial<FmeExportConfig> = {}
-): FmeExportConfig => ({
-  fmeServerUrl: "https://example.com",
-  fmeServerToken: "token-1234567890",
-  repository: "demo-repo",
-  ...overrides,
-})
+  overrides: Partial<FmeExportConfig> & { readonly [key: string]: unknown } = {}
+): FmeExportConfig =>
+  ({
+    fmeServerUrl: "https://example.com",
+    fmeServerToken: "token-1234567890",
+    repository: "demo-repo",
+    showResult: true,
+    ...overrides,
+  }) as FmeExportConfig
 
 const makePolygon = () => ({
   rings: [
@@ -209,6 +211,24 @@ describe("prepFmeParams", () => {
     expect(result).toHaveProperty("aoi_geojson")
     expect(result).toHaveProperty("aoi_wkt")
     expect(result.fme_existing).toBe("form")
+  })
+
+  it("respects showResult flag in config", () => {
+    const config = buildConfig({ showResult: false })
+
+    const result = prepFmeParams(
+      { data: {} },
+      "owner@example.com",
+      null,
+      undefined,
+      null,
+      {
+        config,
+        workspaceParameters: [],
+      }
+    )
+
+    expect(result.opt_showresult).toBe("false")
   })
 })
 
@@ -611,19 +631,6 @@ describe("processFmeResponse", () => {
       noDataInResponse: "No data",
       errorJobSubmission: "Failed",
     })[key] ?? key
-
-  it("handles blob responses for streaming services", () => {
-    const blob = new Blob(["test"], { type: "text/plain" })
-    const result = processFmeResponse(
-      { data: { blob } },
-      "workspace1",
-      "user@example.com",
-      translate
-    )
-    expect(result.success).toBe(true)
-    expect(result.downloadFilename).toBe("workspace1_export.zip")
-    expect(result.blob).toBe(blob)
-  })
 
   it("normalizes success responses with direct download URLs", () => {
     const response = {

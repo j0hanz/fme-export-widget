@@ -575,6 +575,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     repository: "setting-repository",
     syncMode: "setting-sync-mode",
     maskEmailOnSuccess: "setting-mask-email-on-success",
+    showResult: "setting-show-result",
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
     workspaceName: "setting-workspace-name",
@@ -618,6 +619,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
     React.useState<boolean>(() => getBooleanConfig("maskEmailOnSuccess"))
+  const [localShowResult, setLocalShowResult] = React.useState<boolean>(() =>
+    getBooleanConfig("showResult", true)
+  )
   const [localAutoCloseOtherWidgets, setLocalAutoCloseOtherWidgets] =
     React.useState<boolean>(() =>
       getBooleanConfig("autoCloseOtherWidgets", true)
@@ -1565,6 +1569,29 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 />
               </SettingRow>
             )}
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("showResultHelper")}
+                  placement="top"
+                >
+                  <span>{translate("showResultLabel")}</span>
+                </Tooltip>
+              }
+              level={1}
+            >
+              <Switch
+                id={ID.showResult}
+                checked={localShowResult}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked = evt?.target?.checked ?? !localShowResult
+                  setLocalShowResult(checked)
+                  updateConfig("showResult", checked)
+                }}
+                aria-label={translate("showResultLabel")}
+              />
+            </SettingRow>
             <SettingRow
               flow="no-wrap"
               label={

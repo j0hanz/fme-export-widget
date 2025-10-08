@@ -64,4 +64,39 @@ export default {
   corsBlocked: "Begäran blockerades av CORS-regler.",
   rateLimitExceeded: "För många förfrågningar. Försök igen senare.",
   configurationInvalid: "Konfigurationen är ogiltig.",
+
+  // SCHEDULE TRANSLATIONS
+  scheduleStartLabel: "Starttid",
+  scheduleStartHelper: "Format: ÅÅÅÅ-MM-DD TT:MM:SS (FME Servers lokala tid)",
+  scheduleStartPlaceholder: "2025-01-15 14:30:00",
+  scheduleNameLabel: "Jobbnamn",
+  scheduleNameHelper: "Namn för det schemalagda jobbet (max 128 tecken)",
+  scheduleNamePlaceholder: "Dataexport Sverige Q1",
+  scheduleCategoryLabel: "Kategori",
+  scheduleCategoryHelper: "Organisera jobbet i en kategori",
+  scheduleCategoryPlaceholder: "Dataexport",
+  scheduleDescriptionLabel: "Beskrivning (valfritt)",
+  scheduleDescriptionPlaceholder: "Beskrivning av det schemalagda jobbet",
+  scheduleInfoTitle: "Schema: Kör en gång (Runonce)",
+  scheduleInfoMessage:
+    "Det här jobbet kommer att köras EN GÅNG vid den angivna starttiden. FME Flow stöder inte återkommande scheman (CRON) via detta API. För återkommande jobb, använd FME Flows webbgränssnitt.",
+  scheduleTimezoneWarning:
+    "⚠️ VIKTIGT: Starttiden måste anges i FME Servers lokala tidszon, inte din lokala tid.",
+  scheduleConfirmTitle: "Bekräfta schemalagt jobb",
+  scheduleConfirmMessage: "Vill du schemalägga det här jobbet?",
+  schedulePastTimeWarning:
+    "⚠️ VARNING: Den angivna starttiden ligger i det förflutna. Jobbet kan köras omedelbart eller misslyckas.",
+
+  // VALIDATION ERRORS
+  SCHEDULE_START_REQUIRED: "Starttid krävs för schemalagda jobb",
+  SCHEDULE_START_INVALID_FORMAT:
+    "Ogiltigt datumformat. Använd: ÅÅÅÅ-MM-DD TT:MM:SS",
+  SCHEDULE_START_INVALID_DATE: "Ogiltigt datum eller tid",
+  SCHEDULE_START_PARSE_ERROR: "Kunde inte tolka starttiden",
+  SCHEDULE_START_IN_PAST: "Starttiden ligger i det förflutna",
+  SCHEDULE_NAME_REQUIRED: "Jobbnamn krävs",
+  SCHEDULE_NAME_TOO_LONG: "Jobbnamnet är för långt (max 128 tecken)",
+  SCHEDULE_NAME_INVALID_CHARS: "Jobbnamnet innehåller ogiltiga tecken",
+  SCHEDULE_CATEGORY_REQUIRED: "Kategori krävs",
+  SCHEDULE_CATEGORY_TOO_LONG: "Kategorin är för lång (max 128 tecken)",
 }

@@ -1093,157 +1093,10 @@ export class FmeFlowApiClient {
     )
   }
 
-  async runDataStreaming(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<
-    ApiResponse<{
-      blob: Blob
-      fileName?: string
-      contentType?: string | null
-    }>
-  > {
-    const targetRepository = this.resolveRepository(repository)
-
-    // Build streaming service URL and POST body
-    const serviceUrl = this.buildServiceUrl(
-      "fmedatastreaming",
-      targetRepository,
-      workspace
-    )
-
-    return this.withApiError(
-      async () => {
-        // Prepare URLSearchParams body, excluding TM directives which are control-plane only
-        const params = buildParams(
-          parameters,
-          ["tm_ttc", "tm_ttl", "tm_tag"],
-          false
-        )
-        // Show result inline (lets FME stream the generated content)
-        params.set("opt_showresult", "true")
-        appendWebhookTmParams(params, parameters)
-
-        // Append token as query param (consistent with webhook auth model)
-        let url = serviceUrl
-        if (this.config.token) {
-          const u = new URL(url, globalThis.location?.origin || "http://d")
-          u.searchParams.set("token", this.config.token)
-          url = u.toString()
-        }
-
-        // Best-effort safe logging without sensitive params
-        safeLogParams(
-          "STREAMING_CALL",
-          url.split("?")[0],
-          params,
-          API.WEBHOOK_LOG_WHITELIST
-        )
-
-        await ensureEsri()
-        const esriRequestFn = asEsriRequest(_esriRequest)
-        if (!esriRequestFn) {
-          throw makeFlowError("ARCGIS_MODULE_ERROR")
-        }
-
-        // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
-        const controller = new AbortController()
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        let didTimeout = false
-        const onAbort = () => {
-          controller.abort()
-        }
-        try {
-          if (signal) {
-            if (signal.aborted) controller.abort()
-            else signal.addEventListener("abort", onAbort)
-          }
-
-          const timeoutMs =
-            typeof this.config.timeout === "number" && this.config.timeout > 0
-              ? this.config.timeout
-              : undefined
-          if (timeoutMs) {
-            timeoutId = setTimeout(() => {
-              didTimeout = true
-              try {
-                controller.abort()
-              } catch {}
-            }, timeoutMs)
-          }
-
-          const response = await esriRequestFn(url, {
-            method: "post",
-            responseType: "blob",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: params.toString(),
-            signal: controller.signal,
-            timeout: timeoutMs,
-          })
-
-          const status =
-            typeof response?.httpStatus === "number"
-              ? response.httpStatus
-              : typeof response?.status === "number"
-                ? response.status
-                : 200
-          if (status < 200 || status >= 300) {
-            throw makeFlowError("DATA_STREAMING_ERROR", status)
-          }
-
-          const blob = response?.data as Blob
-          const headers = response?.headers
-          const contentType =
-            typeof headers?.get === "function"
-              ? headers.get("content-type")
-              : null
-
-          // Attempt to extract filename from Content-Disposition header
-          const cd =
-            typeof headers?.get === "function"
-              ? headers.get("content-disposition") || ""
-              : ""
-          let fileName: string | undefined
-          const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
-          if (m) {
-            const raw = decodeURIComponent(m[1] || m[2] || "").trim()
-            fileName = raw || undefined
-          }
-
-          return {
-            data: { blob, fileName, contentType },
-            status,
-            statusText: response?.statusText,
-          }
-        } catch (e: any) {
-          if (isAbortError(e)) {
-            if (didTimeout) {
-              // Map timeout to HTTP 408 for user-friendly translation
-              throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
-            }
-          }
-          throw e instanceof Error ? e : new Error(String(e))
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId)
-          try {
-            if (signal) signal.removeEventListener("abort", onAbort)
-          } catch {}
-        }
-      },
-      "DATA_STREAMING_ERROR",
-      "DATA_STREAMING_ERROR"
-    )
-  }
-
   async runWorkspace(
     workspace: string,
     parameters: PrimitiveParams = {},
     repository?: string,
-    service: "download" | "stream" = "download",
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     // Detect schedule mode from parameters and route to REST API instead of webhook
@@ -1255,21 +1108,7 @@ export class FmeFlowApiClient {
       return await this.submitJob(workspace, parameters, repository, signal)
     }
 
-    if (service === "stream") {
-      return await this.runDataStreaming(
-        workspace,
-        parameters,
-        repository,
-        signal
-      )
-    } else {
-      return await this.runDataDownload(
-        workspace,
-        parameters,
-        repository,
-        signal
-      )
-    }
+    return await this.runDataDownload(workspace, parameters, repository, signal)
   }
 
   private async runDownloadWebhook(

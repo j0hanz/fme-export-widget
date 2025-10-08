@@ -197,6 +197,7 @@ const buildConfig = (
     allowRemoteUrlDataset: false,
     maskEmailOnSuccess: false,
     allowScheduleMode: false,
+    showResult: true,
     ...overrides,
   }) as IMWidgetConfig
 
@@ -302,6 +303,19 @@ describe("Setting builder interactions", () => {
     expect(hasConfig((cfg) => Boolean(cfg.syncMode))).toBe(true)
     expect(hasConfig((cfg) => !cfg.maskEmailOnSuccess)).toBe(true)
     expect(hasConfig((cfg) => !cfg.allowScheduleMode)).toBe(true)
+  })
+
+  it("allows disabling transformation result in responses", () => {
+    const { onSettingChange } = renderSetting({ showResult: true })
+
+    const toggle = getByLabel("Visa resultat i svaret") as HTMLInputElement
+    expect(toggle).toBeChecked()
+
+    fireEvent.click(toggle)
+
+    const configs = extractConfigs(onSettingChange)
+    const latestConfig = configs[configs.length - 1]
+    expect(latestConfig?.showResult).toBe(false)
   })
 
   it("clears upload target when remote dataset is disabled", async () => {

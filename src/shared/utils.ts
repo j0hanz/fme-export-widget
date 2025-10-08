@@ -30,6 +30,7 @@ import {
 } from "../config/index"
 import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
+import { validateScheduleMetadata } from "./validations"
 
 // STRING & TYPE UTILITIES
 export const isEmpty = (v: unknown): boolean => {
@@ -1114,7 +1115,39 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   const startVal = toTrimmedString(data.start)
   const category = toTrimmedString(data.category)
   const name = toTrimmedString(data.name)
-  return Boolean(startVal && category && name)
+
+  // Quick check for presence
+  const hasRequiredFields = Boolean(startVal && category && name)
+  if (!hasRequiredFields) {
+    return false
+  }
+
+  // Validate schedule metadata
+  const validation = validateScheduleMetadata({
+    start: startVal,
+    name,
+    category,
+    description: toTrimmedString(data.description),
+  })
+
+  // Log warnings for past time
+  if (validation.warnings?.pastTime) {
+    console.warn(
+      "[FME Export] Schedule start time is in the past:",
+      startVal,
+      "- Job may execute immediately or fail"
+    )
+  }
+
+  // Log validation errors
+  if (!validation.valid && validation.errors) {
+    console.error(
+      "[FME Export] Schedule metadata validation failed:",
+      validation.errors
+    )
+  }
+
+  return validation.valid
 }
 
 const sanitizeScheduleMetadata = (
@@ -1179,21 +1212,48 @@ export const determineServiceMode = (
   return config?.syncMode ? "sync" : "async"
 }
 
+export const buildScheduleSummary = (data: {
+  [key: string]: unknown
+}): string | null => {
+  const startVal = toTrimmedString(data.start)
+  const name = toTrimmedString(data.name)
+  const category = toTrimmedString(data.category)
+  const description = toTrimmedString(data.description)
+
+  if (!startVal || !name || !category) {
+    return null
+  }
+
+  const parts = [
+    `Job Name: ${name}`,
+    `Category: ${category}`,
+    `Start Time: ${startVal} (FME Server time)`,
+  ]
+
+  if (description) {
+    parts.push(`Description: ${description}`)
+  }
+
+  return parts.join("\n")
+}
+
 export const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: ServiceMode = "async"
+  serviceMode: ServiceMode = "async",
+  config?: FmeExportConfig | null
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   const mode = ALLOWED_SERVICE_MODES.includes(serviceMode)
     ? serviceMode
     : "async"
+  const includeResult = config?.showResult ?? true
 
   const base: { [key: string]: unknown } = {
     ...data,
     opt_servicemode: mode,
     opt_responseformat: "json",
-    opt_showresult: "true",
+    opt_showresult: includeResult ? "true" : "false",
   }
 
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
@@ -1537,7 +1597,7 @@ export const prepFmeParams = (
 
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 
-  const base = buildFmeParams({ data: sanitized }, userEmail, chosen)
+  const base = buildFmeParams({ data: sanitized }, userEmail, chosen, config)
   const geometryParamNames = collectGeometryParamNames(workspaceParameters)
   const withAoi = attachAoi(
     base,

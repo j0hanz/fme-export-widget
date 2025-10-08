@@ -891,7 +891,8 @@ export default function Widget(
   const handleSubmissionSuccess = (
     fmeResponse: unknown,
     workspace: string,
-    userEmail: string
+    userEmail: string,
+    formData?: { [key: string]: unknown }
   ) => {
     const result = processFmeResponse(
       fmeResponse,
@@ -899,6 +900,24 @@ export default function Widget(
       userEmail,
       translate
     )
+
+    // Extract schedule metadata if present in form data
+    if (formData && config?.allowScheduleMode) {
+      const startVal = toTrimmedString(formData.start)
+      const name = toTrimmedString(formData.name)
+      const category = toTrimmedString(formData.category)
+      const description = toTrimmedString(formData.description)
+
+      if (startVal && name && category) {
+        result.scheduleMetadata = {
+          start: startVal,
+          name,
+          category,
+          description: description || undefined,
+        }
+      }
+    }
+
     finalizeOrder(result)
   }
 
@@ -996,17 +1015,15 @@ export default function Widget(
       }
       setSubmissionPhase("submitting")
       // Submit to FME Flow
-      const serviceType = latestConfig?.service || "download"
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
           finalParams,
           undefined,
-          serviceType,
           controller.signal
         )
       )
-      handleSubmissionSuccess(fmeResponse, workspace, userEmail)
+      handleSubmissionSuccess(fmeResponse, workspace, userEmail, rawDataEarly)
     } catch (error) {
       handleSubmissionError(error)
     } finally {

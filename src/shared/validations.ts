@@ -1168,6 +1168,155 @@ export const resetValidationCachesForTest = () => {
   esriConfigCache = undefined
 }
 
+// SCHEDULE VALIDATION
+const SCHEDULE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+
+export interface ScheduleValidationResult {
+  readonly valid: boolean
+  readonly errors?: {
+    readonly start?: string
+    readonly name?: string
+    readonly category?: string
+  }
+  readonly warnings?: {
+    readonly pastTime?: boolean
+    readonly pastTimeMessage?: string
+  }
+}
+
+export const validateScheduleDateTime = (
+  dateTimeStr: string
+): { valid: boolean; error?: string; isPast?: boolean } => {
+  if (!dateTimeStr || typeof dateTimeStr !== "string") {
+    return { valid: false, error: "SCHEDULE_START_REQUIRED" }
+  }
+
+  const trimmed = dateTimeStr.trim()
+
+  // Validate format: yyyy-MM-dd HH:mm:ss
+  if (!SCHEDULE_DATE_PATTERN.test(trimmed)) {
+    return {
+      valid: false,
+      error: "SCHEDULE_START_INVALID_FORMAT",
+    }
+  }
+
+  // Parse and validate date
+  try {
+    const normalized = trimmed.replace(" ", "T")
+    const parsedDate = new Date(normalized)
+
+    // Check if date is valid
+    if (isNaN(parsedDate.getTime())) {
+      return { valid: false, error: "SCHEDULE_START_INVALID_DATE" }
+    }
+
+    // Check if in the past (with 1-minute tolerance for clock skew)
+    const now = new Date()
+    const oneMinuteAgo = new Date(now.getTime() - 60000)
+    const isPast = parsedDate < oneMinuteAgo
+
+    return { valid: true, isPast }
+  } catch {
+    return { valid: false, error: "SCHEDULE_START_PARSE_ERROR" }
+  }
+}
+
+export const validateScheduleName = (
+  name: string
+): { valid: boolean; error?: string } => {
+  if (!name || typeof name !== "string") {
+    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
+  }
+
+  const trimmed = name.trim()
+
+  if (trimmed.length === 0) {
+    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
+  }
+
+  if (trimmed.length > 128) {
+    return { valid: false, error: "SCHEDULE_NAME_TOO_LONG" }
+  }
+
+  // Check for problematic characters (FME Flow may reject these)
+  // eslint-disable-next-line no-control-regex
+  const problematicChars = /[<>:"|?*\x00-\x1F]/
+  if (problematicChars.test(trimmed)) {
+    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
+  }
+
+  return { valid: true }
+}
+
+export const validateScheduleCategory = (
+  category: string
+): { valid: boolean; error?: string } => {
+  if (!category || typeof category !== "string") {
+    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
+  }
+
+  const trimmed = category.trim()
+
+  if (trimmed.length === 0) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
+  }
+
+  if (trimmed.length > 128) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_TOO_LONG" }
+  }
+
+  return { valid: true }
+}
+
+export const validateScheduleMetadata = (data: {
+  start?: string
+  name?: string
+  category?: string
+  description?: string
+}): ScheduleValidationResult => {
+  const errors: {
+    start?: string
+    name?: string
+    category?: string
+  } = {}
+
+  const warnings: {
+    pastTime?: boolean
+    pastTimeMessage?: string
+  } = {}
+
+  // Validate start time
+  const startValidation = validateScheduleDateTime(data.start || "")
+  if (!startValidation.valid) {
+    errors.start = startValidation.error
+  } else if (startValidation.isPast) {
+    warnings.pastTime = true
+    warnings.pastTimeMessage = "SCHEDULE_START_IN_PAST"
+  }
+
+  // Validate name
+  const nameValidation = validateScheduleName(data.name || "")
+  if (!nameValidation.valid) {
+    errors.name = nameValidation.error
+  }
+
+  // Validate category
+  const categoryValidation = validateScheduleCategory(data.category || "")
+  if (!categoryValidation.valid) {
+    errors.category = categoryValidation.error
+  }
+
+  const hasErrors = Object.keys(errors).length > 0
+  const hasWarnings = Object.keys(warnings).length > 0
+
+  return {
+    valid: !hasErrors,
+    ...(hasErrors && { errors }),
+    ...(hasWarnings && { warnings }),
+  }
+}
+
 // FME Response Factory
 const createFmeResponse = {
   blob: (blob: Blob, workspace: string, userEmail: string) => ({

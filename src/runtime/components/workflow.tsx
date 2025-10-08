@@ -10,9 +10,7 @@ import {
   ButtonTabs,
   Alert,
   renderSupportHint,
-  DateTimePickerWrapper,
-  Input,
-  TextArea,
+  ScheduleFields,
   UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
@@ -43,7 +41,10 @@ import rectangleIcon from "../../assets/icons/rectangle.svg"
 import itemIcon from "../../assets/icons/item.svg"
 import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
-import { validateDateTimeFormat } from "../../shared/validations"
+import {
+  validateDateTimeFormat,
+  validateScheduleDateTime,
+} from "../../shared/validations"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
@@ -54,8 +55,6 @@ import {
   initFormValues,
   canResetButton,
   shouldShowWorkspaceLoading,
-  toIsoLocal,
-  fromIsoLocal,
   toTrimmedString,
   buildLargeAreaWarningMessage,
 } from "../../shared/utils"
@@ -235,6 +234,14 @@ const OrderResult: React.FC<OrderResultProps> = ({
     addRow(translate("errorCode"), orderResult.code)
   }
 
+  // Display schedule metadata if present
+  const scheduleMetadata = orderResult.scheduleMetadata
+  const hasScheduleInfo =
+    scheduleMetadata &&
+    scheduleMetadata.start &&
+    scheduleMetadata.name &&
+    scheduleMetadata.category
+
   const titleText = isSuccess
     ? isSyncMode
       ? translate("orderComplete")
@@ -291,6 +298,44 @@ const OrderResult: React.FC<OrderResultProps> = ({
         <div css={styles.form.body}>
           <div css={styles.typo.title}>{titleText}</div>
           {rows}
+
+          {/* Schedule Summary Section */}
+          {hasScheduleInfo && isSuccess && (
+            <>
+              <div css={styles.typo.caption}>
+                {translate("scheduleJobName")}: {scheduleMetadata.name}
+              </div>
+              <div css={styles.typo.caption}>
+                {translate("scheduleJobCategory")}: {scheduleMetadata.category}
+              </div>
+              <div css={styles.typo.caption}>
+                {translate("scheduleStartTime")}: {scheduleMetadata.start}
+              </div>
+              {scheduleMetadata.description && (
+                <div css={styles.typo.caption}>
+                  {translate("scheduleJobDescription")}:{" "}
+                  {scheduleMetadata.description}
+                </div>
+              )}
+              {(() => {
+                const validation = validateScheduleDateTime(
+                  scheduleMetadata.start || ""
+                )
+                if (validation.isPast) {
+                  return (
+                    <Alert
+                      type="warning"
+                      text={translate("schedulePastTimeWarning")}
+                      variant="default"
+                      withIcon={true}
+                    />
+                  )
+                }
+                return null
+              })()}
+            </>
+          )}
+
           {showDownloadLink && (
             <div css={styles.typo.caption}>
               <a
@@ -487,9 +532,6 @@ const ExportForm: React.FC<
     return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
   })
 
-  // ISO (widget control) -> space-delimited (FME) local datetime string
-  const isoToSpaceLocal = hooks.useEventCallback(fromIsoLocal)
-
   return (
     <Form
       variant="layout"
@@ -504,60 +546,14 @@ const ExportForm: React.FC<
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {/* Optional schedule start field */}
+      {/* Schedule fields component */}
       {config?.allowScheduleMode && (
-        <Field
-          label={translate("scheduleStartLabel")}
-          required={false}
-          error={resolveError(formState.errors.start)}
-          helper={translate("emailNotificationSent")}
-        >
-          <DateTimePickerWrapper
-            value={toIsoLocal(formState.values.start as string | undefined)}
-            onChange={(iso) => {
-              const spaceVal = isoToSpaceLocal(iso)
-              setField("start", spaceVal)
-            }}
-          />
-        </Field>
-      )}
-
-      {/* Optional schedule metadata fields when schedule mode is allowed */}
-      {config?.allowScheduleMode && (
-        <>
-          <Field label={translate("scheduleNameLabel")} required={false}>
-            <Input
-              value={(formState.values.name as string) || ""}
-              onChange={(val: string) =>
-                setField(
-                  "name",
-                  (typeof val === "string" ? val : "").slice(0, 200)
-                )
-              }
-              placeholder={translate("scheduleNamePlaceholder")}
-            />
-          </Field>
-          <Field label={translate("scheduleCategoryLabel")} required={false}>
-            <Input
-              value={(formState.values.category as string) || ""}
-              onChange={(val: string) =>
-                setField(
-                  "category",
-                  (typeof val === "string" ? val : "").slice(0, 200)
-                )
-              }
-              placeholder={translate("scheduleCategoryPlaceholder")}
-            />
-          </Field>
-          <Field label={translate("scheduleDescriptionLabel")} required={false}>
-            <TextArea
-              value={(formState.values.description as string) || ""}
-              onChange={(val) =>
-                setField("description", (val || "").slice(0, 1000))
-              }
-            />
-          </Field>
-        </>
+        <ScheduleFields
+          values={formState.values}
+          onChange={setField}
+          translate={translate}
+          disabled={isSubmitting}
+        />
       )}
 
       {/* Direct upload field - replaces remote dataset URL */}

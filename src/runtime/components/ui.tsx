@@ -706,7 +706,10 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
+const formatIsoLocalDateTime = (
+  value: Date | null | undefined,
+  format: "iso" | "fme" = "iso"
+): string => {
   if (!value) return ""
   const timestamp = value.getTime()
   if (Number.isNaN(timestamp)) return ""
@@ -716,18 +719,26 @@ const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
   const hh = pad2(value.getHours())
   const mi = pad2(value.getMinutes())
   const ss = pad2(value.getSeconds())
+
+  // FME format: YYYY-MM-DD HH:mm:ss (space separator)
+  if (format === "fme") {
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+  }
+
+  // ISO format: YYYY-MM-DDTHH:mm:ss (T separator)
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
 }
 
 // DateTimePicker component
 export const DateTimePickerWrapper: React.FC<{
-  value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  value?: string // ISO local: YYYY-MM-DDTHH:mm:ss or FME: YYYY-MM-DD HH:mm:ss
   defaultValue?: string
   onChange?: (dateTime: string) => void
   style?: React.CSSProperties
   disabled?: boolean
   "aria-label"?: string
   mode?: "date-time" | "date"
+  format?: "iso" | "fme" // Output format: iso (default) or fme (space-separated)
 }> = ({
   value,
   defaultValue,
@@ -736,6 +747,7 @@ export const DateTimePickerWrapper: React.FC<{
   disabled,
   "aria-label": ariaLabel,
   mode = "date-time",
+  format = "iso",
 }) => {
   const styles = useStyles()
   const [currentValue, setCurrentValue] = useValue(
@@ -767,14 +779,14 @@ export const DateTimePickerWrapper: React.FC<{
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
         const next = new Date(rawValue)
         if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next))
+        setCurrentValue(formatIsoLocalDateTime(next, format))
         return
       }
 
       if (rawValue instanceof Date) {
         const next = new Date(rawValue.getTime())
         if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next))
+        setCurrentValue(formatIsoLocalDateTime(next, format))
         return
       }
 
@@ -1649,6 +1661,168 @@ export type {
   TextAreaProps,
   ButtonTabsProps,
   TabItem,
+}
+
+// Schedule Fields Component
+interface ScheduleFieldsProps {
+  readonly values: { [key: string]: unknown }
+  readonly onChange: (field: string, value: string) => void
+  readonly translate: (key: string, params?: any) => string
+  readonly disabled?: boolean
+}
+
+export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
+  values,
+  onChange,
+  translate,
+  disabled = false,
+}) => {
+  // Import validation functions
+  const {
+    validateScheduleDateTime,
+    validateScheduleName,
+    validateScheduleCategory,
+  } = require("../../shared/validations") as {
+    validateScheduleDateTime: (dateTimeStr: string) => {
+      valid: boolean
+      error?: string
+      isPast?: boolean
+    }
+    validateScheduleName: (name: string) => { valid: boolean; error?: string }
+    validateScheduleCategory: (category: string) => {
+      valid: boolean
+      error?: string
+    }
+  }
+
+  // Validate fields in real-time
+  const startValidation = React.useMemo(() => {
+    const start = typeof values.start === "string" ? values.start.trim() : ""
+    if (!start) return null
+    return validateScheduleDateTime(start)
+  }, [values.start, validateScheduleDateTime])
+
+  const nameValidation = React.useMemo(() => {
+    const name = typeof values.name === "string" ? values.name.trim() : ""
+    if (!name) return null
+    return validateScheduleName(name)
+  }, [values.name, validateScheduleName])
+
+  const categoryValidation = React.useMemo(() => {
+    const category =
+      typeof values.category === "string" ? values.category.trim() : ""
+    if (!category) return null
+    return validateScheduleCategory(category)
+  }, [values.category, validateScheduleCategory])
+
+  // Helper to get error message
+  const getErrorMessage = (
+    validation: { valid: boolean; error?: string } | null
+  ): string | undefined => {
+    if (!validation || validation.valid) return undefined
+    return validation.error ? translate(validation.error) : undefined
+  }
+
+  return (
+    <>
+      <Alert
+        type="info"
+        text={translate("scheduleInfoMessage")}
+        variant="default"
+        withIcon={true}
+      />
+
+      <Field
+        label={translate("scheduleStartLabel")}
+        required={true}
+        helper={translate("scheduleStartHelper")}
+        error={getErrorMessage(startValidation)}
+      >
+        <DateTimePickerWrapper
+          value={typeof values.start === "string" ? values.start : ""}
+          onChange={(dateTime: string) => {
+            onChange("start", dateTime)
+          }}
+          mode="date-time"
+          format="fme"
+          disabled={disabled}
+          aria-label={translate("scheduleStartLabel")}
+        />
+      </Field>
+
+      {startValidation?.isPast && (
+        <Alert
+          type="warning"
+          text={translate("schedulePastTimeWarning")}
+          variant="default"
+          withIcon={true}
+        />
+      )}
+
+      <Field
+        label={translate("scheduleNameLabel")}
+        required={true}
+        helper={translate("scheduleNameHelper")}
+        error={getErrorMessage(nameValidation)}
+      >
+        <Input
+          type="text"
+          value={typeof values.name === "string" ? values.name : ""}
+          placeholder={translate("scheduleNamePlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("name", newValue)
+          }}
+          disabled={disabled}
+          aria-required="true"
+          aria-invalid={
+            nameValidation && !nameValidation.valid ? "true" : "false"
+          }
+        />
+      </Field>
+
+      <Field
+        label={translate("scheduleCategoryLabel")}
+        required={true}
+        helper={translate("scheduleCategoryHelper")}
+        error={getErrorMessage(categoryValidation)}
+      >
+        <Input
+          type="text"
+          value={typeof values.category === "string" ? values.category : ""}
+          placeholder={translate("scheduleCategoryPlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("category", newValue)
+          }}
+          disabled={disabled}
+          aria-required="true"
+          aria-invalid={
+            categoryValidation && !categoryValidation.valid ? "true" : "false"
+          }
+        />
+      </Field>
+
+      <Field label={translate("scheduleDescriptionLabel")} required={false}>
+        <TextArea
+          value={
+            typeof values.description === "string" ? values.description : ""
+          }
+          placeholder={translate("scheduleDescriptionPlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("description", newValue)
+          }}
+          disabled={disabled}
+          rows={3}
+        />
+      </Field>
+
+      <Alert
+        type="warning"
+        text={translate("scheduleTimezoneWarning")}
+        variant="default"
+        withIcon={true}
+      />
+    </>
+  )
 }
 
 // Render support hint with optional email link

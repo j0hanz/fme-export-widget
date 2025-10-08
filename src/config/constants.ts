@@ -254,7 +254,6 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   REPOSITORY_ITEMS_ERROR: "errorServerIssue",
   WORKSPACE_ITEM_ERROR: "errorServerIssue",
   JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  DATA_STREAMING_ERROR: "errorServerIssue",
   DATA_DOWNLOAD_ERROR: "errorServerIssue",
   INVALID_CONFIG: "errorSetupRequired",
   GEOMETRY_MISSING: "geometryMissingCode",

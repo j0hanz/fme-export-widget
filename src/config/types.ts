@@ -63,8 +63,35 @@ export type FormPrimitive = Exclude<FormValue, undefined>
 
 export type SelectValue = string | number | ReadonlyArray<string | number>
 
+// SCHEDULE TYPES
+export interface ScheduleMetadata {
+  readonly start: string
+  readonly name: string
+  readonly category: string
+  readonly description?: string
+  readonly trigger?: string
+}
+
+export interface ScheduleValidationResult {
+  readonly valid: boolean
+  readonly errors?: {
+    readonly start?: string
+    readonly name?: string
+    readonly category?: string
+  }
+  readonly warnings?: {
+    readonly pastTime?: boolean
+    readonly pastTimeMessage?: string
+  }
+}
+
 export interface FormValues {
   [key: string]: FormValue
+  start?: string
+  name?: string
+  category?: string
+  description?: string
+  trigger?: string
 }
 
 export interface PrimitiveParams {
@@ -581,13 +608,13 @@ export interface FmeExportConfig {
   readonly disallowRestForWebhook?: boolean
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
+  readonly showResult?: boolean
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
-  readonly service?: "download" | "stream"
   readonly drawingColor?: string
 }
 
@@ -846,6 +873,12 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
+  readonly scheduleMetadata?: {
+    readonly start?: string
+    readonly name?: string
+    readonly category?: string
+    readonly description?: string
+  }
 }
 
 export interface RemoteDatasetOptions {
