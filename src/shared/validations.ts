@@ -1226,7 +1226,13 @@ export const processFmeResponse = (
 
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
 
-  if (serviceInfo.status === "success" || isValidDownloadUrl(serviceInfo.url)) {
+  // Scheduled jobs return a jobId but no download URL (job runs later)
+  const hasValidResult =
+    serviceInfo.status === "success" ||
+    isValidDownloadUrl(serviceInfo.url) ||
+    (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0)
+
+  if (hasValidResult) {
     return createFmeResponse.success(serviceInfo, workspace, userEmail)
   }
 

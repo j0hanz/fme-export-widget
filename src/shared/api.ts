@@ -542,6 +542,13 @@ type TMDirectives = Partial<{
   description: string
 }>
 
+type NMDirectives = Partial<{
+  directives: Array<{
+    name: string
+    [key: string]: any
+  }>
+}>
+
 const buildTMDirectives = (params: any): TMDirectives => {
   const ttc = toPosInt(params?.tm_ttc)
   const ttl = toPosInt(params?.tm_ttl)
@@ -559,18 +566,63 @@ const buildTMDirectives = (params: any): TMDirectives => {
   return out
 }
 
+const buildNMDirectives = (params: any): NMDirectives | null => {
+  const serviceMode = params?.opt_servicemode
+  if (serviceMode !== "schedule") return null
+
+  const start = typeof params?.start === "string" ? params.start.trim() : ""
+  const name = typeof params?.name === "string" ? params.name.trim() : ""
+  const category =
+    typeof params?.category === "string" ? params.category.trim() : ""
+  const trigger =
+    typeof params?.trigger === "string" ? params.trigger.trim() : "runonce"
+  const description =
+    typeof params?.description === "string" ? params.description.trim() : ""
+
+  if (!start || !name || !category) return null
+
+  const scheduleDirective: any = {
+    name: "schedule",
+    begin: start,
+    scheduleName: name,
+    scheduleCategory: category,
+    scheduleTrigger: trigger,
+  }
+
+  if (description) {
+    scheduleDirective.scheduleDescription = description
+  }
+
+  return {
+    directives: [scheduleDirective],
+  }
+}
+
 const makeSubmitBody = (
   publishedParameters: any,
   params: any
-): { publishedParameters: any; TMDirectives?: TMDirectives } => {
-  const directives = buildTMDirectives(params)
+): {
+  publishedParameters: any
+  TMDirectives?: TMDirectives
+  NMDirectives?: NMDirectives
+} => {
+  const tmDirectives = buildTMDirectives(params)
+  const nmDirectives = buildNMDirectives(params)
+
   const body: {
     publishedParameters: any
     TMDirectives?: TMDirectives
+    NMDirectives?: NMDirectives
   } = { publishedParameters }
-  if (Object.keys(directives).length > 0) {
-    body.TMDirectives = directives
+
+  if (Object.keys(tmDirectives).length > 0) {
+    body.TMDirectives = tmDirectives
   }
+
+  if (nmDirectives) {
+    body.NMDirectives = nmDirectives
+  }
+
   return body
 }
 
@@ -727,8 +779,25 @@ export class FmeFlowApiClient {
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
+    // Exclude TM directives and schedule metadata from published parameters
+    const excludeFromPublished = new Set([
+      "tm_ttc",
+      "tm_ttl",
+      "tm_tag",
+      "tm_description",
+      "start",
+      "name",
+      "category",
+      "trigger",
+      "description",
+      "opt_servicemode",
+      "opt_responseformat",
+      "opt_showresult",
+      "opt_requesteremail",
+    ])
+
     const publishedParameters = Object.entries(parameters)
-      .filter(([name]) => !name.startsWith("tm_"))
+      .filter(([name]) => !excludeFromPublished.has(name))
       .map(([name, value]) => ({ name, value }))
 
     return makeSubmitBody(publishedParameters, parameters)
@@ -1177,6 +1246,15 @@ export class FmeFlowApiClient {
     service: "download" | "stream" = "download",
     signal?: AbortSignal
   ): Promise<ApiResponse> {
+    // Detect schedule mode from parameters and route to REST API instead of webhook
+    const serviceMode = parameters?.opt_servicemode
+    const isScheduleMode = serviceMode === "schedule"
+
+    if (isScheduleMode) {
+      // Schedule jobs must use the REST API submit endpoint, not webhooks
+      return await this.submitJob(workspace, parameters, repository, signal)
+    }
+
     if (service === "stream") {
       return await this.runDataStreaming(
         workspace,

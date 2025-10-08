@@ -678,6 +678,24 @@ describe("processFmeResponse", () => {
     expect(result.message).toBe("No data")
     expect(result.code).toBe("NO_DATA")
   })
+
+  it("recognizes jobs with valid jobId as successful (e.g., scheduled jobs)", () => {
+    const response = {
+      data: {
+        jobID: 12345,
+      },
+    }
+
+    const result = processFmeResponse(
+      response,
+      "workspace1",
+      "user@example.com",
+      translate
+    )
+    expect(result.success).toBe(true)
+    expect(result.jobId).toBe(12345)
+    expect(result.downloadUrl).toBeUndefined()
+  })
 })
 
 describe("FmeFlowApiClient webhook parsing", () => {
