@@ -2,7 +2,6 @@ import { css, type IMThemeVariables, type ImmutableObject } from "jimu-core"
 import { useTheme } from "jimu-theme"
 import type { TypographyStyle } from "jimu-theme"
 import type { BtnContentProps } from "./types"
-import { SETTING_CONSTANTS } from "./constants"
 
 // UI component configuration constants
 export const config = {
@@ -137,6 +136,10 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         ...typo(typography?.body1),
         marginBlockEnd: spacing?.(3),
       }),
+      workspaceName: css({
+        ...typo(typography?.title2),
+        marginBlockStart: "auto",
+      }),
       label: css({
         ...typo(typography?.label1),
         fontWeight: "400",
@@ -268,8 +271,8 @@ export const useUiStyles = (): UiStyles => {
 // Settings panel styles factory
 export const createSettingStyles = (theme: IMThemeVariables) => {
   const spacing = theme?.sys?.spacing
-  const shape = theme?.sys?.shape
   const color = theme?.sys?.color
+  const typography = theme?.sys?.typography
 
   return {
     row: css({ width: "100%" }),
@@ -290,11 +293,9 @@ export const createSettingStyles = (theme: IMThemeVariables) => {
       }),
       list: css({
         display: "grid",
-        rowGap: 2,
+        ...typo(typography?.label2),
         opacity: 0.8,
-        backgroundColor: SETTING_CONSTANTS.COLORS.BACKGROUND_DARK,
         padding: 6,
-        borderRadius: shape?.shape1,
       }),
       row: css({
         display: "flex",

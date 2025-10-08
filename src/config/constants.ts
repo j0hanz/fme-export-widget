@@ -312,7 +312,6 @@ export const SKIPPED_PARAMETER_NAMES = Object.freeze(
     "tm_ttc",
     "tm_ttl",
     "tm_tag",
-    "tm_description",
   ])
 )
 

@@ -859,8 +859,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Render workspace buttons
   const renderWorkspaceButtons = hooks.useEventCallback(() =>
     workspaceItems.map((workspace) => {
-      const displayLabel =
-        workspaceNameOverride || workspace.title || workspace.name
+      const displayLabel = workspace.title || workspace.name
       const handleOpen = () => {
         const repoToUse =
           toTrimmedString((workspace as { repository?: string })?.repository) ??
@@ -1052,9 +1051,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           {renderWorkspaceButtons()}
         </div>
         {workspaceNameOverride ? (
-          <div css={styles.selection.warning}>
-            <Alert type="info" text={workspaceNameOverride} variant="default" />
-          </div>
+          <div css={styles.typo.workspaceName}>{workspaceNameOverride}</div>
         ) : null}
       </div>
     )

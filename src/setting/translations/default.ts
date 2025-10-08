@@ -81,10 +81,6 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för AOI. Standardvärde: AreaOfInterest.",
-  uploadTargetParamNameLabel: "Parameternamn för uppladdning",
-  uploadTargetParamNamePlaceholder: "t.ex. INPUT_DATASET",
-  uploadTargetParamNameHelper:
-    "Om angivet skickas uppladdade filer under detta parameternamn.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
   allowScheduleModeHelper: "Tillåt engångskörning vid en schemalagd tidpunkt.",
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",

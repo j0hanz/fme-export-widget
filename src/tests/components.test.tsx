@@ -571,7 +571,7 @@ describe("Workflow component", () => {
     expect(alert).toHaveTextContent("40000 kvm")
   })
 
-  it("uses workspaceName override for selection buttons", () => {
+  it("does not use workspaceName override for selection buttons", () => {
     renderWithProviders(
       <Workflow
         widgetId={widgetId}
@@ -615,10 +615,12 @@ describe("Workflow component", () => {
       />
     )
 
-    const button = screen.getByRole("button", { name: "Fastighetsdata" })
+    // Workspace buttons should display their actual names, not the override
+    const button = screen.getByRole("button", { name: "Workspace A" })
     expect(button).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Workspace A" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Fastighetsdata" })).toBeNull()
 
+    // The override should still appear as supplemental info below the list
     const infoAlert = screen.getByTestId("mock-alert")
     expect(infoAlert).toHaveTextContent("Fastighetsdata")
   })

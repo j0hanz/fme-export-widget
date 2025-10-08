@@ -610,7 +610,6 @@ export interface FmeExportConfig {
   readonly tm_ttl?: number | string
   readonly showResult?: boolean
   readonly aoiParamName?: string
-  readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean

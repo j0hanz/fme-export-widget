@@ -444,7 +444,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   ID,
 }) => {
   return (
-    <SettingSection>
+    <SettingRow flow="wrap" level={2}>
       {/* Job directives (admin defaults) */}
       <FieldRow
         id={ID.tm_ttc}
@@ -474,8 +474,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         errorText={fieldErrors.tm_ttl}
         styles={styles}
       />
-      {/** Helper moved to label tooltips */}
-    </SettingSection>
+    </SettingRow>
   )
 }
 
@@ -583,7 +582,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     aoiParamName: "setting-aoi-param-name",
-    uploadTargetParamName: "setting-upload-target-param-name",
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
@@ -658,8 +656,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
     () => getStringConfig("aoiParamName") || "AreaOfInterest"
   )
-  const [localUploadTargetParamName, setLocalUploadTargetParamName] =
-    React.useState<string>(() => getStringConfig("uploadTargetParamName"))
   const [localAllowScheduleMode, setLocalAllowScheduleMode] =
     React.useState<boolean>(() => getBooleanConfig("allowScheduleMode"))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
@@ -668,7 +664,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
   const shouldShowMaskEmailSetting = !localSyncMode
   const shouldShowScheduleToggle = !localSyncMode
-  const showUploadTargetField = localAllowRemoteDataset
   const hasMapSelection =
     Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
   const hasServerInputs =
@@ -678,53 +673,35 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const shouldShowRemainingSettings =
     hasMapSelection && hasServerInputs && hasRepositorySelection
 
-  const resolveAreaInput = (value: string): number | undefined => {
-    const trimmed = (value ?? "").trim()
-    const parsed = parseNonNegativeInt(trimmed)
-    if (parsed === undefined || parsed <= 0) {
-      return undefined
-    }
-    return parsed
-  }
-
-  const currentLargeAreaValue = resolveAreaInput(localLargeAreaM2)
-  const currentMaxAreaValue = resolveAreaInput(localMaxAreaM2)
-  const showLargeAreaInfo =
-    currentLargeAreaValue !== undefined &&
-    currentMaxAreaValue !== undefined &&
-    currentLargeAreaValue > currentMaxAreaValue
-
   const handleLargeAreaChange = hooks.useEventCallback((val: string) => {
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
     const digitsOnly = (val ?? "").replace(/\D+/g, "")
-    if (!digitsOnly) {
-      setLocalLargeAreaM2("")
-      return
-    }
-    const parsed = parseNonNegativeInt(digitsOnly)
-    if (parsed === undefined || parsed === 0) {
-      setLocalLargeAreaM2("")
-      return
-    }
-    const maxLimit = resolveAreaInput(localMaxAreaM2)
-    const bounded = maxLimit !== undefined ? Math.min(parsed, maxLimit) : parsed
-    setLocalLargeAreaM2(String(bounded))
+    setLocalLargeAreaM2(digitsOnly)
   })
 
   const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
-    const resolved = resolveAreaInput(val ?? "")
-    if (resolved === undefined) {
+    const trimmed = (val ?? "").trim()
+    const parsed = parseNonNegativeInt(trimmed)
+
+    if (parsed === undefined || parsed === 0) {
       updateConfig("largeArea", undefined as any)
       setLocalLargeAreaM2("")
       setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
       return
     }
-    const upperBound = Math.min(resolved, CONSTANTS.LIMITS.MAX_M2_CAP)
-    const maxLimit = resolveAreaInput(localMaxAreaM2)
-    const bounded =
-      maxLimit !== undefined ? Math.min(upperBound, maxLimit) : upperBound
-    updateConfig("largeArea", bounded as any)
-    setLocalLargeAreaM2(String(bounded))
+
+    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        largeArea: translate("errorMaxAreaTooLarge", {
+          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+        }),
+      }))
+      return
+    }
+
+    updateConfig("largeArea", parsed as any)
+    setLocalLargeAreaM2(String(parsed))
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
   })
 
@@ -749,23 +726,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
     const trimmed = (val ?? "").trim()
-    const previousMaxConfig = getNumberConfig("maxArea")
-    const coerced = parseNonNegativeInt(trimmed)
-    if (coerced === undefined || coerced === 0) {
-      if (previousMaxConfig !== undefined) {
-        updateConfig("largeArea", undefined as any)
-        setLocalLargeAreaM2("")
-      }
+    const parsed = parseNonNegativeInt(trimmed)
+
+    if (parsed === undefined || parsed === 0) {
       updateConfig("maxArea", undefined as any)
       setLocalMaxAreaM2("")
-      setFieldErrors((prev) => ({
-        ...prev,
-        maxArea: undefined,
-        largeArea: undefined,
-      }))
+      setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
       return
     }
-    if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
+
+    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
       setFieldErrors((prev) => ({
         ...prev,
         maxArea: translate("errorMaxAreaTooLarge", {
@@ -774,19 +744,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }))
       return
     }
-    const m2 = coerced
-    const maxChanged = previousMaxConfig !== m2
-    updateConfig("maxArea", m2 as any)
-    setLocalMaxAreaM2(String(m2))
-    setFieldErrors((prev) => ({
-      ...prev,
-      maxArea: undefined,
-      largeArea: maxChanged ? undefined : prev.largeArea,
-    }))
-    if (maxChanged) {
-      updateConfig("largeArea", undefined as any)
-      setLocalLargeAreaM2("")
-    }
+
+    updateConfig("maxArea", parsed as any)
+    setLocalMaxAreaM2(String(parsed))
+    setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
   })
 
   // Consolidated effect: reset dependent options when hidden
@@ -802,19 +763,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setLocalMaskEmailOnSuccess(false)
       updateConfig("maskEmailOnSuccess", false as any)
     }
-
-    // Upload target param: clear if no longer shown
-    if (!showUploadTargetField && localUploadTargetParamName) {
-      updateConfig("uploadTargetParamName", undefined as any)
-      setLocalUploadTargetParamName("")
-    }
   }, [
     shouldShowScheduleToggle,
     shouldShowMaskEmailSetting,
-    showUploadTargetField,
     localMaskEmailOnSuccess,
     localAllowScheduleMode,
-    localUploadTargetParamName,
     updateConfig,
   ])
 
@@ -1356,29 +1309,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Helper for rendering input fields with error alerts
   // Reuse FieldRow for consistent input rendering
 
-  // Reusable blur handler for optional string fields
-  const createStringBlurHandler = hooks.useEventCallback(
-    (
-      configKey: keyof FmeExportConfig,
-      setter: (val: string) => void,
-      defaultValue?: string
-    ) => {
-      return (val: string) => {
-        const trimmed = (val ?? "").trim()
-        if (!trimmed) {
-          updateConfig(
-            configKey,
-            defaultValue ? (defaultValue as any) : (undefined as any)
-          )
-          setter(defaultValue || "")
-        } else {
-          updateConfig(configKey, trimmed as any)
-          setter(trimmed)
-        }
-      }
-    }
-  )
-
   // Reusable blur handler for optional numeric fields
   const createNumericBlurHandler = hooks.useEventCallback(
     (
@@ -1407,458 +1337,255 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   }, [config])
 
   return (
-    <>
-      <SettingSection>
-        <SettingRow
-          flow="wrap"
-          level={1}
-          label={<RequiredLabel text={translate("mapConfiguration")} />}
-        >
-          <MapWidgetSelector
-            useMapWidgetIds={useMapWidgetIds}
-            onSelect={onMapWidgetSelected}
+    <SettingSection>
+      <SettingRow
+        flow="wrap"
+        level={1}
+        label={<RequiredLabel text={translate("mapConfiguration")} />}
+      >
+        <MapWidgetSelector
+          useMapWidgetIds={useMapWidgetIds}
+          onSelect={onMapWidgetSelected}
+        />
+      </SettingRow>
+      {hasMapSelection && (
+        <>
+          <FieldRow
+            id={ID.serverUrl}
+            label={<RequiredLabel text={translate("fmeServerUrl")} />}
+            value={localServerUrl}
+            onChange={handleServerUrlChange}
+            onBlur={handleServerUrlBlur}
+            placeholder={translate("serverUrlPlaceholder")}
+            required
+            errorText={fieldErrors.serverUrl}
+            styles={settingStyles}
           />
-        </SettingRow>
-        {hasMapSelection && (
-          <>
-            <FieldRow
-              id={ID.serverUrl}
-              label={<RequiredLabel text={translate("fmeServerUrl")} />}
-              value={localServerUrl}
-              onChange={handleServerUrlChange}
-              onBlur={handleServerUrlBlur}
-              placeholder={translate("serverUrlPlaceholder")}
-              required
-              errorText={fieldErrors.serverUrl}
-              styles={settingStyles}
-            />
-            <FieldRow
-              id={ID.token}
-              label={<RequiredLabel text={translate("fmeServerToken")} />}
-              value={localToken}
-              onChange={handleTokenChange}
-              onBlur={handleTokenBlur}
-              placeholder={translate("tokenPlaceholder")}
-              type="password"
-              required
-              errorText={fieldErrors.token}
-              styles={settingStyles}
-            />
-            <ConnectionTestSection
-              testState={testState}
-              checkSteps={checkSteps}
-              disabled={isTestDisabled}
-              onTestConnection={() => testConnection(false)}
+          <FieldRow
+            id={ID.token}
+            label={<RequiredLabel text={translate("fmeServerToken")} />}
+            value={localToken}
+            onChange={handleTokenChange}
+            onBlur={handleTokenBlur}
+            placeholder={translate("tokenPlaceholder")}
+            type="password"
+            required
+            errorText={fieldErrors.token}
+            styles={settingStyles}
+          />
+          <ConnectionTestSection
+            testState={testState}
+            checkSteps={checkSteps}
+            disabled={isTestDisabled}
+            onTestConnection={() => testConnection(false)}
+            translate={translate}
+            styles={settingStyles}
+          />
+          {shouldShowRepositorySelector && (
+            <RepositorySelector
+              localServerUrl={getStringConfig("fmeServerUrl")}
+              localToken={getStringConfig("fmeServerToken")}
+              localRepository={selectedRepository}
+              availableRepos={availableRepos}
+              label={
+                <RequiredLabel text={translate("availableRepositories")} />
+              }
+              fieldErrors={fieldErrors}
+              validateServerUrl={validateServerUrl}
+              validateToken={validateToken}
+              onRepositoryChange={handleRepositoryChange}
+              onRefreshRepositories={refreshRepositories}
               translate={translate}
               styles={settingStyles}
+              ID={ID}
+              repoHint={reposHint}
+              isBusy={isBusy}
             />
-            {shouldShowRepositorySelector && (
-              <RepositorySelector
-                localServerUrl={getStringConfig("fmeServerUrl")}
-                localToken={getStringConfig("fmeServerToken")}
-                localRepository={selectedRepository}
-                availableRepos={availableRepos}
-                label={
-                  <RequiredLabel text={translate("availableRepositories")} />
-                }
-                fieldErrors={fieldErrors}
-                validateServerUrl={validateServerUrl}
-                validateToken={validateToken}
-                onRepositoryChange={handleRepositoryChange}
-                onRefreshRepositories={refreshRepositories}
-                translate={translate}
-                styles={settingStyles}
-                ID={ID}
-                repoHint={reposHint}
-                isBusy={isBusy}
-              />
-            )}
-          </>
-        )}
-      </SettingSection>
+          )}
+        </>
+      )}
       {shouldShowRemainingSettings && (
         <>
-          <SettingSection>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("serviceModeSyncHelper")}
-                  placement="top"
-                >
-                  <span>{translate("serviceModeSync")}</span>
-                </Tooltip>
-              }
-              level={1}
-            >
-              <Switch
-                id={ID.syncMode}
-                checked={localSyncMode}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked = evt?.target?.checked ?? !localSyncMode
-                  setLocalSyncMode(checked)
-                  updateConfig("syncMode", checked)
-                }}
-                aria-label={translate("serviceModeSync")}
-              />
-            </SettingRow>
-          </SettingSection>
-          <SettingSection>
-            <FieldRow
-              id={ID.supportEmail}
-              label={
-                <Tooltip
-                  content={translate("supportEmailHelper")}
-                  placement="top"
-                >
-                  <span>{translate("supportEmail")}</span>
-                </Tooltip>
-              }
-              type="email"
-              value={localSupportEmail}
-              onChange={(val: string) => {
-                setLocalSupportEmail(val)
-                setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-              }}
-              onBlur={(val: string) => {
-                const trimmed = (val ?? "").trim()
-                if (!trimmed) {
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    supportEmail: undefined,
-                  }))
-                  updateConfig("supportEmail", undefined as any)
-                  setLocalSupportEmail("")
-                  return
-                }
-                const isValid = isValidEmail(trimmed)
-                const err = !isValid ? translate("invalidEmail") : undefined
-                setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-                if (!err) {
-                  updateConfig("supportEmail", trimmed)
-                  setLocalSupportEmail(trimmed)
-                }
-              }}
-              placeholder={translate("supportEmailPlaceholder")}
-              errorText={fieldErrors.supportEmail}
-              styles={settingStyles}
-            />
-            {shouldShowMaskEmailSetting && (
-              <SettingRow
-                flow="no-wrap"
-                label={
-                  <Tooltip
-                    content={translate("maskEmailOnSuccessHelper")}
-                    placement="top"
-                  >
-                    <span>{translate("maskEmailOnSuccess")}</span>
-                  </Tooltip>
-                }
-                level={1}
+          <FieldRow
+            id={ID.supportEmail}
+            label={
+              <Tooltip
+                content={translate("supportEmailHelper")}
+                placement="top"
               >
-                <Switch
-                  id={ID.maskEmailOnSuccess}
-                  checked={localMaskEmailOnSuccess}
-                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked =
-                      evt?.target?.checked ?? !localMaskEmailOnSuccess
-                    setLocalMaskEmailOnSuccess(checked)
-                    updateConfig("maskEmailOnSuccess", checked)
-                  }}
-                  aria-label={translate("maskEmailOnSuccess")}
-                />
-              </SettingRow>
-            )}
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("showResultHelper")}
-                  placement="top"
-                >
-                  <span>{translate("showResultLabel")}</span>
-                </Tooltip>
+                <span>{translate("supportEmail")}</span>
+              </Tooltip>
+            }
+            type="email"
+            value={localSupportEmail}
+            onChange={(val: string) => {
+              setLocalSupportEmail(val)
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (!trimmed) {
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  supportEmail: undefined,
+                }))
+                updateConfig("supportEmail", undefined as any)
+                setLocalSupportEmail("")
+                return
               }
-              level={1}
-            >
-              <Switch
-                id={ID.showResult}
-                checked={localShowResult}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked = evt?.target?.checked ?? !localShowResult
-                  setLocalShowResult(checked)
-                  updateConfig("showResult", checked)
-                }}
-                aria-label={translate("showResultLabel")}
-              />
-            </SettingRow>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("autoCloseOtherWidgetsHelper")}
-                  placement="top"
-                >
-                  <span>{translate("autoCloseOtherWidgetsLabel")}</span>
-                </Tooltip>
+              const isValid = isValidEmail(trimmed)
+              const err = !isValid ? translate("invalidEmail") : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+              if (!err) {
+                updateConfig("supportEmail", trimmed)
+                setLocalSupportEmail(trimmed)
               }
-              level={1}
-            >
-              <Switch
-                id={ID.autoCloseOtherWidgets}
-                checked={localAutoCloseOtherWidgets}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localAutoCloseOtherWidgets
-                  setLocalAutoCloseOtherWidgets(checked)
-                  updateConfig("autoCloseOtherWidgets", checked)
-                }}
-                aria-label={translate("autoCloseOtherWidgetsLabel")}
-              />
-            </SettingRow>
-          </SettingSection>
-          <SettingSection>
-            {shouldShowScheduleToggle && (
-              <SettingRow
-                flow="no-wrap"
-                label={
-                  <Tooltip
-                    content={translate("allowScheduleModeHelper")}
-                    placement="top"
-                  >
-                    <span>{translate("allowScheduleModeLabel")}</span>
-                  </Tooltip>
-                }
-                level={1}
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
+            styles={settingStyles}
+          />
+          <FieldRow
+            id={ID.maxArea}
+            label={
+              <Tooltip
+                content={translate("maxAreaHelper", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                })}
+                placement="top"
               >
-                <Switch
-                  id={ID.allowScheduleMode}
-                  checked={localAllowScheduleMode}
-                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked =
-                      evt?.target?.checked ?? !localAllowScheduleMode
-                    setLocalAllowScheduleMode(checked)
-                    updateConfig("allowScheduleMode", checked)
-                  }}
-                  aria-label={translate("allowScheduleModeLabel")}
-                />
-              </SettingRow>
-            )}
+                <span>{translate("maxAreaLabel")}</span>
+              </Tooltip>
+            }
+            value={localMaxAreaM2}
+            onChange={(val: string) => {
+              setLocalMaxAreaM2(val)
+              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+            }}
+            onBlur={handleMaxAreaBlur}
+            placeholder={translate("maxAreaPlaceholder")}
+            errorText={fieldErrors.maxArea}
+            styles={settingStyles}
+          />
+          <FieldRow
+            id={ID.aoiParamName}
+            label={
+              <Tooltip
+                content={translate("aoiParamNameHelper")}
+                placement="top"
+              >
+                <span>{translate("aoiParamNameLabel")}</span>
+              </Tooltip>
+            }
+            value={localAoiParamName}
+            onChange={(val: string) => {
+              setLocalAoiParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = val.trim()
+              const finalValue = trimmed || "AreaOfInterest"
+              updateConfig("aoiParamName", finalValue)
+              setLocalAoiParamName(finalValue)
+            }}
+            placeholder={translate("aoiParamNamePlaceholder")}
+            styles={settingStyles}
+          />
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("serviceModeSyncHelper")}
+                placement="top"
+              >
+                <span>{translate("serviceModeSync")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.syncMode}
+              checked={localSyncMode}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localSyncMode
+                setLocalSyncMode(checked)
+                updateConfig("syncMode", checked)
+              }}
+              aria-label={translate("serviceModeSync")}
+            />
+          </SettingRow>
+          {shouldShowScheduleToggle && (
             <SettingRow
               flow="no-wrap"
               label={
                 <Tooltip
-                  content={translate("allowRemoteDatasetHelper")}
+                  content={translate("allowScheduleModeHelper")}
                   placement="top"
                 >
-                  <span>{translate("allowRemoteDatasetLabel")}</span>
+                  <span>{translate("allowScheduleModeLabel")}</span>
                 </Tooltip>
               }
               level={1}
             >
               <Switch
-                id={ID.allowRemoteDataset}
-                checked={localAllowRemoteDataset}
+                id={ID.allowScheduleMode}
+                checked={localAllowScheduleMode}
                 onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
                   const checked =
-                    evt?.target?.checked ?? !localAllowRemoteDataset
-                  setLocalAllowRemoteDataset(checked)
-                  updateConfig("allowRemoteDataset", checked)
+                    evt?.target?.checked ?? !localAllowScheduleMode
+                  setLocalAllowScheduleMode(checked)
+                  updateConfig("allowScheduleMode", checked)
                 }}
-                aria-label={translate("allowRemoteDatasetLabel")}
+                aria-label={translate("allowScheduleModeLabel")}
               />
             </SettingRow>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("allowRemoteUrlDatasetHelper")}
-                  placement="top"
-                >
-                  <span>{translate("allowRemoteUrlDatasetLabel")}</span>
-                </Tooltip>
-              }
-              level={1}
-            >
-              <Switch
-                id={ID.allowRemoteUrlDataset}
-                checked={localAllowRemoteUrlDataset}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localAllowRemoteUrlDataset
-                  setLocalAllowRemoteUrlDataset(checked)
-                  updateConfig("allowRemoteUrlDataset", checked)
-                }}
-                aria-label={translate("allowRemoteUrlDatasetLabel")}
-              />
-            </SettingRow>
-          </SettingSection>
-          <SettingSection>
-            <FieldRow
-              id={ID.maxArea}
-              label={
-                <Tooltip
-                  content={translate("maxAreaHelper", {
-                    maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                  })}
-                  placement="top"
-                >
-                  <span>{translate("maxAreaLabel")}</span>
-                </Tooltip>
-              }
-              value={localMaxAreaM2}
-              onChange={(val: string) => {
-                setLocalMaxAreaM2(val)
-                setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+          )}
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("allowRemoteDatasetHelper")}
+                placement="top"
+              >
+                <span>{translate("allowRemoteDatasetLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.allowRemoteDataset}
+              checked={localAllowRemoteDataset}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localAllowRemoteDataset
+                setLocalAllowRemoteDataset(checked)
+                updateConfig("allowRemoteDataset", checked)
               }}
-              onBlur={handleMaxAreaBlur}
-              placeholder={translate("maxAreaPlaceholder")}
-              errorText={fieldErrors.maxArea}
-              styles={settingStyles}
+              aria-label={translate("allowRemoteDatasetLabel")}
             />
-            <FieldRow
-              id={ID.largeArea}
-              label={
-                <Tooltip
-                  content={translate("largeAreaHelper", {
-                    maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                  })}
-                  placement="top"
-                >
-                  <span>{translate("largeAreaLabel")}</span>
-                </Tooltip>
-              }
-              value={localLargeAreaM2}
-              onChange={handleLargeAreaChange}
-              onBlur={handleLargeAreaBlur}
-              placeholder={translate("largeAreaPlaceholder")}
-              errorText={fieldErrors.largeArea}
-              styles={settingStyles}
-            />
-            <FieldRow
-              id={ID.workspaceName}
-              label={
-                <Tooltip
-                  content={translate("workspaceNameHelper")}
-                  placement="top"
-                >
-                  <span>{translate("workspaceNameLabel")}</span>
-                </Tooltip>
-              }
-              value={localWorkspaceName}
-              onChange={handleWorkspaceNameChange}
-              onBlur={handleWorkspaceNameBlur}
-              placeholder={translate("workspaceNamePlaceholder")}
-              errorText={fieldErrors.workspaceName}
-              styles={settingStyles}
-            />
-            {showLargeAreaInfo && (
-              <SettingRow flow="wrap" level={3}>
-                <Alert
-                  fullWidth
-                  css={css(settingStyles.alertInline)}
-                  text={translate("largeAreaExceedsMaxInfo", {
-                    largeM2: currentLargeAreaValue ?? 0,
-                    maxM2: currentMaxAreaValue ?? 0,
-                  })}
-                  type="info"
-                  closable={false}
-                />
-              </SettingRow>
-            )}
-            <SettingRow
-              flow="wrap"
-              label={translate("drawingColorLabel")}
-              level={1}
-              tag="label"
-            >
-              <ColorPickerWrapper
-                value={localDrawingColor}
-                onChange={(hex: string) => {
-                  const val = (hex || "").trim()
-                  const cleaned = /^#?[0-9a-f]{6}$/i.test(val)
-                    ? val.startsWith("#")
-                      ? val
-                      : `#${val}`
-                    : DEFAULT_DRAWING_HEX
-                  setLocalDrawingColor(cleaned)
-                  updateConfig("drawingColor", cleaned as any)
-                }}
-                aria-label={translate("drawingColorLabel")}
-              />
-            </SettingRow>
-            <FieldRow
-              id={ID.aoiParamName}
-              label={
-                <Tooltip
-                  content={translate("aoiParamNameHelper")}
-                  placement="top"
-                >
-                  <span>{translate("aoiParamNameLabel")}</span>
-                </Tooltip>
-              }
-              value={localAoiParamName}
-              onChange={(val: string) => {
-                setLocalAoiParamName(val)
+          </SettingRow>
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("allowRemoteUrlDatasetHelper")}
+                placement="top"
+              >
+                <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.allowRemoteUrlDataset}
+              checked={localAllowRemoteUrlDataset}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked =
+                  evt?.target?.checked ?? !localAllowRemoteUrlDataset
+                setLocalAllowRemoteUrlDataset(checked)
+                updateConfig("allowRemoteUrlDataset", checked)
               }}
-              onBlur={(val: string) => {
-                const trimmed = val.trim()
-                const finalValue = trimmed || "AreaOfInterest"
-                updateConfig("aoiParamName", finalValue)
-                setLocalAoiParamName(finalValue)
-              }}
-              placeholder={translate("aoiParamNamePlaceholder")}
-              styles={settingStyles}
+              aria-label={translate("allowRemoteUrlDatasetLabel")}
             />
-          </SettingSection>
-          <SettingSection>
-            <SettingRow
-              flow="wrap"
-              label={
-                <Tooltip
-                  content={translate("requestTimeoutHelper")}
-                  placement="top"
-                >
-                  <span>{translate("requestTimeoutLabel")}</span>
-                </Tooltip>
-              }
-              level={1}
-              tag="label"
-            >
-              <Input
-                id={ID.requestTimeout}
-                value={localRequestTimeout}
-                onChange={setLocalRequestTimeout}
-                onBlur={createNumericBlurHandler(
-                  "requestTimeout",
-                  setLocalRequestTimeout,
-                  CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
-                )}
-                placeholder={translate("requestTimeoutPlaceholder")}
-              />
-            </SettingRow>
-            {showUploadTargetField && (
-              <FieldRow
-                id={ID.uploadTargetParamName}
-                label={
-                  <Tooltip
-                    content={translate("uploadTargetParamNameHelper")}
-                    placement="top"
-                  >
-                    <span>{translate("uploadTargetParamNameLabel")}</span>
-                  </Tooltip>
-                }
-                value={localUploadTargetParamName}
-                onChange={setLocalUploadTargetParamName}
-                onBlur={createStringBlurHandler(
-                  "uploadTargetParamName",
-                  setLocalUploadTargetParamName
-                )}
-                placeholder={translate("uploadTargetParamNamePlaceholder")}
-                styles={settingStyles}
-              />
-            )}
-          </SettingSection>
+          </SettingRow>
           <JobDirectivesSection
             localTmTtc={localTmTtc}
             localTmTtl={localTmTtl}
@@ -1905,8 +1632,161 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             styles={settingStyles}
             ID={ID}
           />
+          <SettingRow
+            flow="wrap"
+            label={
+              <Tooltip
+                content={translate("requestTimeoutHelper")}
+                placement="top"
+              >
+                <span>{translate("requestTimeoutLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+            tag="label"
+          >
+            <Input
+              id={ID.requestTimeout}
+              value={localRequestTimeout}
+              onChange={setLocalRequestTimeout}
+              onBlur={createNumericBlurHandler(
+                "requestTimeout",
+                setLocalRequestTimeout,
+                CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+              )}
+              placeholder={translate("requestTimeoutPlaceholder")}
+            />
+          </SettingRow>
+          {shouldShowMaskEmailSetting && (
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("maskEmailOnSuccessHelper")}
+                  placement="top"
+                >
+                  <span>{translate("maskEmailOnSuccess")}</span>
+                </Tooltip>
+              }
+              level={1}
+            >
+              <Switch
+                id={ID.maskEmailOnSuccess}
+                checked={localMaskEmailOnSuccess}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localMaskEmailOnSuccess
+                  setLocalMaskEmailOnSuccess(checked)
+                  updateConfig("maskEmailOnSuccess", checked)
+                }}
+                aria-label={translate("maskEmailOnSuccess")}
+              />
+            </SettingRow>
+          )}
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip content={translate("showResultHelper")} placement="top">
+                <span>{translate("showResultLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.showResult}
+              checked={localShowResult}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localShowResult
+                setLocalShowResult(checked)
+                updateConfig("showResult", checked)
+              }}
+              aria-label={translate("showResultLabel")}
+            />
+          </SettingRow>
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("autoCloseOtherWidgetsHelper")}
+                placement="top"
+              >
+                <span>{translate("autoCloseOtherWidgetsLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.autoCloseOtherWidgets}
+              checked={localAutoCloseOtherWidgets}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked =
+                  evt?.target?.checked ?? !localAutoCloseOtherWidgets
+                setLocalAutoCloseOtherWidgets(checked)
+                updateConfig("autoCloseOtherWidgets", checked)
+              }}
+              aria-label={translate("autoCloseOtherWidgetsLabel")}
+            />
+          </SettingRow>
+          <FieldRow
+            id={ID.workspaceName}
+            label={
+              <Tooltip
+                content={translate("workspaceNameHelper")}
+                placement="top"
+              >
+                <span>{translate("workspaceNameLabel")}</span>
+              </Tooltip>
+            }
+            value={localWorkspaceName}
+            onChange={handleWorkspaceNameChange}
+            onBlur={handleWorkspaceNameBlur}
+            placeholder={translate("workspaceNamePlaceholder")}
+            errorText={fieldErrors.workspaceName}
+            maxLength={100}
+            styles={settingStyles}
+          />
+          <FieldRow
+            id={ID.largeArea}
+            label={
+              <Tooltip
+                content={translate("largeAreaHelper", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                })}
+                placement="top"
+              >
+                <span>{translate("largeAreaLabel")}</span>
+              </Tooltip>
+            }
+            value={localLargeAreaM2}
+            onChange={handleLargeAreaChange}
+            onBlur={handleLargeAreaBlur}
+            placeholder={translate("largeAreaPlaceholder")}
+            errorText={fieldErrors.largeArea}
+            styles={settingStyles}
+          />
+          <SettingRow
+            flow="wrap"
+            label={translate("drawingColorLabel")}
+            level={1}
+            tag="label"
+          >
+            <ColorPickerWrapper
+              value={localDrawingColor}
+              onChange={(hex: string) => {
+                const val = (hex || "").trim()
+                const cleaned = /^#?[0-9a-f]{6}$/i.test(val)
+                  ? val.startsWith("#")
+                    ? val
+                    : `#${val}`
+                  : DEFAULT_DRAWING_HEX
+                setLocalDrawingColor(cleaned)
+                updateConfig("drawingColor", cleaned as any)
+              }}
+              aria-label={translate("drawingColorLabel")}
+            />
+          </SettingRow>
         </>
       )}
-    </>
+    </SettingSection>
   )
 }

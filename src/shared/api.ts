@@ -539,7 +539,6 @@ type TMDirectives = Partial<{
   ttc: number
   ttl: number
   tag: string
-  description: string
 }>
 
 type NMDirectives = Partial<{
@@ -553,16 +552,11 @@ const buildTMDirectives = (params: any): TMDirectives => {
   const ttc = toPosInt(params?.tm_ttc)
   const ttl = toPosInt(params?.tm_ttl)
   const tag = typeof params?.tm_tag === "string" ? params.tm_tag.trim() : ""
-  const description =
-    typeof params?.tm_description === "string"
-      ? params.tm_description.trim().slice(0, 512)
-      : ""
 
   const out: TMDirectives = {}
   if (ttc !== undefined) out.ttc = ttc
   if (ttl !== undefined) out.ttl = ttl
   if (tag) out.tag = tag
-  if (description) out.description = description
   return out
 }
 
@@ -784,7 +778,6 @@ export class FmeFlowApiClient {
       "tm_ttc",
       "tm_ttl",
       "tm_tag",
-      "tm_description",
       "start",
       "name",
       "category",
