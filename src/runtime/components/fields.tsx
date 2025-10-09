@@ -802,7 +802,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               overrides: {
                 readOnly: true,
                 disabled: true,
-                borderless: true,
               },
             }
           )

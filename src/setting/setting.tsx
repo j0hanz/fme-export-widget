@@ -1230,7 +1230,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   ])
 
   // Auto-load repositories when both server URL and token in config are valid
-  hooks.useUpdateEffect(() => {
+  hooks.useEffectOnce(() => {
     const trimmedServer = toTrimmedString(configServerUrl)
     const trimmedToken = toTrimmedString(configToken)
     if (!trimmedServer || !trimmedToken) return
@@ -1243,7 +1243,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const cleaned = normalizeBaseUrl(trimmedServer)
     loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
     return () => abortReposRequest()
-  }, [configServerUrl, configToken, loadRepositories, abortReposRequest])
+  })
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {

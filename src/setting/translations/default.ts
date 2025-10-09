@@ -65,7 +65,7 @@ export default {
     "Lämna tomt för att tillåta obegränsad AOI‑yta. Högsta tillåtna värde: {maxM2} m².",
   maxAreaPlaceholder: "t.ex. 100000000",
   errorMaxAreaTooLarge: "Värdet är för stort.",
-  largeAreaLabel: "Hög AOI‑yta (m²)",
+  largeAreaLabel: "Rekommenderad AOI‑yta (m²)",
   largeAreaHelper:
     "Visa en varning när ritad AOI överstiger detta värde. Lämna tomt för att inaktivera varningen. Högsta tillåtna värde: {maxM2} m².",
   largeAreaPlaceholder: "t.ex. 50000",

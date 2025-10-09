@@ -65,9 +65,9 @@ export default {
     "Det gick inte att ladda information om arbetsytan",
   errorUnknown: "Ett okänt fel inträffade",
   largeAreaWarning:
-    "Det markerade området {current} är stort och kan göra att exporten tar längre tid än vanligt.",
+    "Det angivna området ({current}) är stort och kan göra att exporten tar längre tid än vanligt.",
   largeAreaWarningWithThreshold:
-    "Det markerade området {current} är stort och kan göra att exporten tar längre tid än vanligt.",
+    "Det angivna området {current} är stort och kan göra att exporten tar längre tid än vanligt. Rekommenderad yta är under {threshold}.",
   noWorkspacesFound: "Inga arbetsytor hittades i detta repository",
   requiredField: "Detta fält är obligatoriskt.",
   formValidationSingleError: "Vänligen fyll i det obligatoriska fältet.",
