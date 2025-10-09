@@ -83,6 +83,86 @@ const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== ""
 
+// Helper: Format order-related values for captions
+const formatOrderValue = (value: unknown): string | null => {
+  if (value === undefined || value === null) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed || null
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toString() : null
+  }
+  if (value instanceof Date) {
+    const time = value.getTime()
+    return Number.isFinite(time) ? value.toISOString() : null
+  }
+  if (value instanceof Blob) {
+    return value.type ? value.type : "blob"
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false"
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return null
+  }
+}
+
+// Helper: Manage download URL, supporting either remote URL or Blob object
+const useDownloadResource = (
+  remoteUrl?: string | null,
+  blob?: Blob | null
+): string | null => {
+  const [resourceUrl, setResourceUrl] = React.useState<string | null>(null)
+  const objectUrlRef = React.useRef<string | null>(null)
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (objectUrlRef.current) {
+      try {
+        URL.revokeObjectURL(objectUrlRef.current)
+      } catch {
+        /* ignore revoke errors */
+      }
+      objectUrlRef.current = null
+    }
+
+    const trimmedUrl = typeof remoteUrl === "string" ? remoteUrl.trim() : ""
+    if (trimmedUrl) {
+      setResourceUrl(trimmedUrl)
+      return
+    }
+
+    if (blob instanceof Blob) {
+      try {
+        const objectUrl = URL.createObjectURL(blob)
+        objectUrlRef.current = objectUrl
+        setResourceUrl(objectUrl)
+        return
+      } catch {
+        setResourceUrl(null)
+        return
+      }
+    }
+
+    setResourceUrl(null)
+  }, [remoteUrl, blob])
+
+  hooks.useUnmount(() => {
+    if (objectUrlRef.current) {
+      try {
+        URL.revokeObjectURL(objectUrlRef.current)
+      } catch {
+        /* ignore revoke errors */
+      }
+      objectUrlRef.current = null
+    }
+  })
+
+  return resourceUrl
+}
+
 // Helper: Safely stringify geometry object
 const safeStringifyGeometry = (geometry: unknown): string => {
   if (!geometry) return ""
@@ -162,60 +242,30 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const styles = useUiStyles()
   const isSuccess = !!orderResult.success
   const isSyncMode = Boolean(config?.syncMode)
-  const rows: React.ReactNode[] = []
+  const downloadUrl = useDownloadResource(
+    orderResult.downloadUrl,
+    orderResult.blob
+  )
 
-  // Manage download URL lifecycle
-  const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
-  const objectUrlRef = React.useRef<string | null>(null)
+  const infoRows: React.ReactNode[] = []
+  const addInfoRow = (label?: string, value?: unknown) => {
+    const display = formatOrderValue(value)
+    if (!display) return
 
-  hooks.useEffectWithPreviousValues(() => {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current)
-      objectUrlRef.current = null
-    }
-
-    if (orderResult.downloadUrl) {
-      setDownloadUrl(orderResult.downloadUrl)
-      return
-    }
-
-    if (orderResult.blob instanceof Blob) {
-      const url = URL.createObjectURL(orderResult.blob)
-      objectUrlRef.current = url
-      setDownloadUrl(url)
-      return
-    }
-
-    setDownloadUrl(null)
-  }, [orderResult.downloadUrl, orderResult.blob])
-
-  hooks.useUnmount(() => {
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current)
-      objectUrlRef.current = null
-    }
-  })
-
-  const addRow = (label?: string, value?: unknown) => {
-    if (value === undefined || value === null || value === "") return
-
-    const display =
-      typeof value === "string" || typeof value === "number"
-        ? String(value)
-        : JSON.stringify(value)
     const key = label
-      ? `order-row-${label}-${rows.length}`
-      : `order-row-${rows.length}`
+      ? `order-row-${label}-${infoRows.length}`
+      : `order-row-${infoRows.length}`
+    const text = label ? `${label}: ${display}` : display
 
-    rows.push(
+    infoRows.push(
       <div css={styles.typo.caption} key={key}>
-        {label ? `${label}: ${display}` : display}
+        {text}
       </div>
     )
   }
 
-  addRow(translate("jobId"), orderResult.jobId)
-  addRow(translate("workspace"), orderResult.workspaceName)
+  addInfoRow(translate("jobId"), orderResult.jobId)
+  addInfoRow(translate("workspace"), orderResult.workspaceName)
 
   if (!isSyncMode) {
     const emailVal = orderResult.email
@@ -223,11 +273,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
       config?.maskEmailOnSuccess && isSuccess
         ? maskEmailForDisplay(emailVal)
         : emailVal
-    addRow(translate("notificationEmail"), masked)
+    addInfoRow(translate("notificationEmail"), masked)
   }
 
   if (orderResult.code && !isSuccess) {
-    addRow(translate("errorCode"), orderResult.code)
+    addInfoRow(translate("errorCode"), orderResult.code)
   }
 
   // Display schedule metadata if present
@@ -268,69 +318,71 @@ const OrderResult: React.FC<OrderResultProps> = ({
     onBack?.()
   })
 
-  const showDownloadLink = isSuccess && downloadUrl
+  const showDownloadLink = isSuccess && Boolean(downloadUrl)
 
-  // Conditional message based on sync mode
-  const messageText = isSuccess
-    ? !isSyncMode
-      ? translate("emailNotificationSent")
-      : null
-    : (() => {
-        // Localize known failure messages/codes
-        const code = (orderResult.code || "").toString().toUpperCase()
-        const msg = String(orderResult.message || "")
-        if (
-          code === "FME_JOB_FAILURE" ||
-          /FME\s*Flow\s*transformation\s*failed/i.test(msg)
-        ) {
-          return translate("fmeFlowTransformationFailed")
-        }
-        return msg || translate("errorUnknown")
-      })()
+  let messageText: string | null = null
+  if (isSuccess) {
+    if (!isSyncMode) {
+      messageText = translate("emailNotificationSent")
+    }
+  } else {
+    const failureCode = (orderResult.code || "").toString().toUpperCase()
+    const rawMessage = String(orderResult.message ?? "").trim()
+
+    if (
+      failureCode === "FME_JOB_FAILURE" ||
+      /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+    ) {
+      messageText = translate("fmeFlowTransformationFailed")
+    } else if (rawMessage) {
+      messageText = rawMessage
+    } else {
+      messageText = translate("errorUnknown")
+    }
+  }
+
+  let scheduleSection: React.ReactNode = null
+  if (hasScheduleInfo && isSuccess && scheduleMetadata) {
+    const validation = validateScheduleDateTime(
+      scheduleMetadata.start || ""
+    )
+    const scheduleWarning = validation.isPast ? (
+      <Alert
+        type="warning"
+        text={translate("schedulePastTimeWarning")}
+        variant="default"
+        withIcon={true}
+      />
+    ) : null
+
+    scheduleSection = (
+      <>
+        <div css={styles.typo.caption}>
+          {translate("scheduleJobName")}: {scheduleMetadata.name}
+        </div>
+        <div css={styles.typo.caption}>
+          {translate("scheduleJobCategory")}: {scheduleMetadata.category}
+        </div>
+        <div css={styles.typo.caption}>
+          {translate("scheduleStartTime")}: {scheduleMetadata.start}
+        </div>
+        {scheduleMetadata.description ? (
+          <div css={styles.typo.caption}>
+            {translate("scheduleJobDescription")}: {scheduleMetadata.description}
+          </div>
+        ) : null}
+        {scheduleWarning}
+      </>
+    )
+  }
 
   return (
     <div css={styles.form.layout}>
       <div css={styles.form.content}>
         <div css={styles.form.body}>
           <div css={styles.typo.title}>{titleText}</div>
-          {rows}
-
-          {/* Schedule Summary Section */}
-          {hasScheduleInfo && isSuccess && (
-            <>
-              <div css={styles.typo.caption}>
-                {translate("scheduleJobName")}: {scheduleMetadata.name}
-              </div>
-              <div css={styles.typo.caption}>
-                {translate("scheduleJobCategory")}: {scheduleMetadata.category}
-              </div>
-              <div css={styles.typo.caption}>
-                {translate("scheduleStartTime")}: {scheduleMetadata.start}
-              </div>
-              {scheduleMetadata.description && (
-                <div css={styles.typo.caption}>
-                  {translate("scheduleJobDescription")}:{" "}
-                  {scheduleMetadata.description}
-                </div>
-              )}
-              {(() => {
-                const validation = validateScheduleDateTime(
-                  scheduleMetadata.start || ""
-                )
-                if (validation.isPast) {
-                  return (
-                    <Alert
-                      type="warning"
-                      text={translate("schedulePastTimeWarning")}
-                      variant="default"
-                      withIcon={true}
-                    />
-                  )
-                }
-                return null
-              })()}
-            </>
-          )}
+          {infoRows}
+          {scheduleSection}
 
           {showDownloadLink && (
             <div css={styles.typo.caption}>
