@@ -51,6 +51,7 @@ import {
   isFileObject,
   getFileDisplayName,
   toTrimmedString,
+  resolveMessageOrKey,
 } from "../../shared/utils"
 
 // makePlaceholders is now imported from shared/utils
@@ -80,9 +81,13 @@ const renderTextInput = (
   value: FormPrimitive,
   placeholder: string,
   onChange: (value: FormPrimitive) => void,
-  readOnly?: boolean,
-  maxLength?: number
+  options: {
+    readOnly?: boolean
+    maxLength?: number
+    overrides?: Partial<React.ComponentProps<typeof Input>>
+  } = {}
 ): JSX.Element => {
+  const { readOnly, maxLength, overrides } = options
   const handleChange = (val: string) => {
     if (inputType === "number") {
       if (val === "") {
@@ -99,13 +104,19 @@ const renderTextInput = (
   const stringValue =
     typeof value === "string" || typeof value === "number" ? String(value) : ""
 
+  const finalDisabled =
+    overrides && typeof overrides.disabled !== "undefined"
+      ? overrides.disabled
+      : readOnly
+
   return (
     <Input
+      {...overrides}
       type={inputType === "number" ? "text" : inputType}
       value={stringValue}
       placeholder={placeholder}
       onChange={handleChange}
-      disabled={readOnly}
+      disabled={finalDisabled}
       maxLength={maxLength}
     />
   )
@@ -167,12 +178,8 @@ const normalizeTableRows = (
       if (isPlainObject(item)) {
         const normalized: { [key: string]: unknown } = {}
         for (const col of columns) {
-          if (col.key in item) {
-            normalized[col.key] = item[col.key]
-          }
-        }
-        for (const [key, val] of Object.entries(item)) {
-          if (!(key in normalized)) normalized[key] = val
+          normalized[col.key] =
+            (item as { [key: string]: unknown })[col.key] ?? ""
         }
         return normalized
       }
@@ -395,19 +402,52 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   }>
   const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
+  const substitutionLoggedRef = React.useRef(false)
+
+  const enforceSingleOptionValue = hooks.useEventCallback(() => {
+    if (onlyVal === undefined) return
+    const current = fieldValue as SelectValue
+    if (!Object.is(current, onlyVal)) {
+      onChange(onlyVal as FormPrimitive)
+    }
+  })
 
   // Compute if select values can be coerced to numbers
   const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
 
-  hooks.useEffectOnce(() => {
-    if (!isSingleOption) return
+  hooks.useEffectWithPreviousValues(() => {
+    if (!isSingleOption || onlyVal === undefined) return
     const current = fieldValue as SelectValue
     const isUnset =
-      current === undefined || (typeof current === "string" && current === "")
-    if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
+      current === undefined ||
+      current === null ||
+      (typeof current === "string" && current.trim() === "")
+    if (isUnset || !Object.is(current, onlyVal)) {
       onChange(onlyVal as FormPrimitive)
     }
-  })
+  }, [isSingleOption, onlyVal, fieldValue, onChange])
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (!isSingleOption || substitutionLoggedRef.current) {
+      return
+    }
+    substitutionLoggedRef.current = true
+
+    const consoleApi =
+      (typeof globalThis !== "undefined" && globalThis.console) || null
+    if (!consoleApi || typeof consoleApi.info !== "function") {
+      return
+    }
+
+    const resolvedName =
+      toTrimmedString(field.name) ||
+      toTrimmedString(resolveMessageOrKey(field.label, translate)) ||
+      "unnamed-field"
+
+    consoleApi.info(
+      `[FME Export] Select field "${resolvedName}" rendered as read-only text input (single option)`
+    )
+  }, [isSingleOption, field.name, field.label, translate])
 
   // Render field based on its type
   const renderByType = (): JSX.Element => {
@@ -735,24 +775,49 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             fieldValue as FormPrimitive,
             placeholders.enter,
             onChange,
-            field.readOnly
+            {
+              readOnly: field.readOnly,
+            }
+          )
+        }
+
+        if (isSingleOption) {
+          const soleOption = selectOptions[0] as {
+            readonly label?: string
+            readonly value?: unknown
+          }
+          const resolvedLabel = toTrimmedString(
+            resolveMessageOrKey(soleOption?.label || "", translate)
+          )
+          const displayValue =
+            resolvedLabel || toTrimmedString(soleOption?.value) || ""
+
+          return renderTextInput(
+            "text",
+            displayValue,
+            placeholders.select,
+            enforceSingleOptionValue,
+            {
+              readOnly: true,
+              overrides: {
+                readOnly: true,
+                disabled: true,
+                borderless: true,
+              },
+            }
           )
         }
 
         return (
           <Select
-            value={
-              isSingleOption
-                ? (options[0]?.value as SelectValue)
-                : (fieldValue as SelectValue)
-            }
+            value={fieldValue as SelectValue}
             options={options}
             placeholder={placeholders.select}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
             aria-label={field.label}
-            disabled={field.readOnly || isSingleOption}
+            disabled={field.readOnly}
             coerce={selectCoerce}
           />
         )
@@ -822,7 +887,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           fieldValue as FormPrimitive,
           placeholders.enter,
           onChange,
-          field.readOnly
+          {
+            readOnly: field.readOnly,
+          }
         )
       case FormFieldType.CHECKBOX:
         return (
@@ -873,8 +940,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           fieldValue as FormPrimitive,
           placeholder,
           onChange,
-          field.readOnly,
-          field.maxLength
+          {
+            readOnly: field.readOnly,
+            maxLength: field.maxLength,
+          }
         )
       }
       case FormFieldType.FILE: {
