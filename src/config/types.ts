@@ -597,7 +597,6 @@ export interface FmeExportConfig {
   readonly fmeServerToken: string
   readonly repository: string
   readonly largeArea?: number
-  readonly workspaceName?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean

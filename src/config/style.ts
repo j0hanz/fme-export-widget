@@ -136,10 +136,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         ...typo(typography?.body1),
         marginBlockEnd: spacing?.(3),
       }),
-      workspaceName: css({
-        ...typo(typography?.title2),
-        marginBlockStart: "auto",
-      }),
       label: css({
         ...typo(typography?.label1),
         fontWeight: "400",

@@ -641,7 +641,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     showResult: "setting-show-result",
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
-    workspaceName: "setting-workspace-name",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
@@ -705,9 +704,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = getNumberConfig("largeArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
-  const [localWorkspaceName, setLocalWorkspaceName] = React.useState<string>(
-    () => getStringConfig("workspaceName") || ""
-  )
   // Admin job directives (defaults 0/empty)
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = getNumberConfig("tm_ttc")
@@ -772,25 +768,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     updateConfig("largeArea", parsed as any)
     setLocalLargeAreaM2(String(parsed))
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-  })
-
-  const handleWorkspaceNameChange = hooks.useEventCallback((val: string) => {
-    setLocalWorkspaceName(val)
-    setFieldErrors((prev) => ({ ...prev, workspaceName: undefined }))
-  })
-
-  const handleWorkspaceNameBlur = hooks.useEventCallback((val: string) => {
-    const trimmed = (val ?? "").trim()
-    if (!trimmed) {
-      updateConfig("workspaceName", undefined as any)
-      setLocalWorkspaceName("")
-      setFieldErrors((prev) => ({ ...prev, workspaceName: undefined }))
-      return
-    }
-
-    updateConfig("workspaceName", trimmed as any)
-    setLocalWorkspaceName(trimmed)
-    setFieldErrors((prev) => ({ ...prev, workspaceName: undefined }))
   })
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
@@ -1386,8 +1363,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       maxValue?: number
     ) => {
       return (val: string | number | undefined) => {
-        const stringVal =
-          typeof val === "number" ? String(val) : (val ?? "")
+        const stringVal = typeof val === "number" ? String(val) : (val ?? "")
         const trimmed = stringVal.trim()
         const coerced = parseNonNegativeInt(trimmed)
         if (coerced === undefined || coerced === 0) {
@@ -1407,11 +1383,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setLocalRequestTimeout,
     CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
   )
-
-  hooks.useUpdateEffect(() => {
-    const nameFromConfig = getStringConfig("workspaceName") || ""
-    setLocalWorkspaceName(nameFromConfig)
-  }, [config])
 
   return (
     <SettingSection>
@@ -1835,24 +1806,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             }}
             placeholder={translate("supportEmailPlaceholder")}
             errorText={fieldErrors.supportEmail}
-            styles={settingStyles}
-          />
-          <FieldRow
-            id={ID.workspaceName}
-            label={
-              <Tooltip
-                content={translate("workspaceNameHelper")}
-                placement="top"
-              >
-                <span>{translate("workspaceNameLabel")}</span>
-              </Tooltip>
-            }
-            value={localWorkspaceName}
-            onChange={handleWorkspaceNameChange}
-            onBlur={handleWorkspaceNameBlur}
-            placeholder={translate("workspaceNamePlaceholder")}
-            errorText={fieldErrors.workspaceName}
-            maxLength={100}
             styles={settingStyles}
           />
           <SettingRow

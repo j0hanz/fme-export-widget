@@ -67,10 +67,6 @@ export default {
   largeAreaPlaceholder: "t.ex. 50000",
   largeAreaExceedsMaxInfo:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
-  workspaceNameLabel: "Arbetsytenamn",
-  workspaceNameHelper:
-    "Valfritt namn som visas i widgeten för att beskriva arbetsytan. Lämna tomt för standardnamnet.",
-  workspaceNamePlaceholder: "t.ex. 'Fastighetskartan'",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",

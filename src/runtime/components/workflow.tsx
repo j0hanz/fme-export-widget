@@ -215,11 +215,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   }
 
   addRow(translate("jobId"), orderResult.jobId)
-  const workspaceDisplayName = toTrimmedString(config?.workspaceName)
-  addRow(
-    translate("workspace"),
-    workspaceDisplayName || orderResult.workspaceName
-  )
+  addRow(translate("workspace"), orderResult.workspaceName)
 
   if (!isSyncMode) {
     const emailVal = orderResult.email
@@ -670,7 +666,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
-  const workspaceNameOverride = toTrimmedString(config?.workspaceName)
   const reduxDispatch = ReactRedux.useDispatch()
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Ensure a non-empty widgetId for internal Redux interactions
@@ -1050,9 +1045,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
         <div css={styles.btn.group} role="list">
           {renderWorkspaceButtons()}
         </div>
-        {workspaceNameOverride ? (
-          <div css={styles.typo.workspaceName}>{workspaceNameOverride}</div>
-        ) : null}
       </div>
     )
   }

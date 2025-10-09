@@ -185,7 +185,7 @@ jest.mock("../runtime/components/ui", () => {
 type SettingComponentProps = React.ComponentProps<typeof Setting>
 
 const buildConfig = (
-  overrides: Partial<FmeExportConfig> = {}
+  overrides: Partial<FmeExportConfig> & { [key: string]: unknown } = {}
 ): IMWidgetConfig =>
   Immutable({
     fmeServerUrl: "",
@@ -202,7 +202,7 @@ const buildConfig = (
   }) as IMWidgetConfig
 
 const renderSetting = (
-  configOverrides: Partial<FmeExportConfig> = {},
+  configOverrides: Partial<FmeExportConfig> & { [key: string]: unknown } = {},
   propsOverrides: Partial<SettingComponentProps> = {}
 ) => {
   const render = widgetSettingRender(true)
@@ -424,25 +424,5 @@ describe("Setting builder interactions", () => {
 
     expect(screen.queryByText(/Varningsgränsen/)).not.toBeInTheDocument()
     expect(screen.queryByText(/lägre än maxgränsen/i)).not.toBeInTheDocument()
-  })
-
-  it("persists workspace name override and trims input", () => {
-    const { onSettingChange } = renderSetting()
-
-    const nameField = getByLabel("Arbetsytenamn") as HTMLInputElement
-    fireEvent.change(nameField, { target: { value: "  Kartservice  " } })
-    fireEvent.blur(nameField, { target: { value: "  Kartservice  " } })
-
-    const configs = extractConfigs(onSettingChange)
-    expect(configs.some((cfg) => cfg.workspaceName === "Kartservice")).toBe(
-      true
-    )
-
-    fireEvent.change(nameField, { target: { value: "" } })
-    fireEvent.blur(nameField, { target: { value: "" } })
-
-    const updatedConfigs = extractConfigs(onSettingChange)
-    const latestConfig = updatedConfigs[updatedConfigs.length - 1]
-    expect(latestConfig?.workspaceName).toBeUndefined()
   })
 })
