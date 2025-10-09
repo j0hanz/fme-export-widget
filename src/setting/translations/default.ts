@@ -16,6 +16,8 @@ export default {
   testing: "Testar anslutning…",
   testingConnection: "Testar…",
   loadingRepositories: "Hämtar repositories…",
+  validatingServerUrl: "Validerar server-URL…",
+  validatingToken: "Kontrollerar API‑nyckeln…",
   refreshRepositories: "Uppdatera listan",
   fmeVersion: "FME‑version",
   connectionOk: "Anslutningen lyckades.",

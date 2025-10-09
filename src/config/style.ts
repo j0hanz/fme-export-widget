@@ -287,6 +287,15 @@ export const createSettingStyles = (theme: IMThemeVariables) => {
       gap: spacing?.(1),
     }),
     labelText: css({ marginInlineStart: spacing?.(1) }),
+    fieldStatus: css({
+      display: "flex",
+      alignItems: "center",
+      gap: spacing?.(1),
+      opacity: 0.85,
+    }),
+    fieldStatusText: css({
+      ...typo(typography?.label2),
+    }),
     status: {
       container: css({
         width: "100%",

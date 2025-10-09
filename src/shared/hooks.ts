@@ -76,39 +76,89 @@ export const removeLayerFromMap = (
 
 type DebouncedFn<T extends (...args: any[]) => void> = ((
   ...args: Parameters<T>
-) => void) & { cancel: () => void }
+) => void) & {
+  cancel: () => void
+  flush: () => void
+  isPending: () => boolean
+}
+
+interface UseDebounceOptions {
+  onPendingChange?: (pending: boolean) => void
+}
 
 export const useDebounce = <T extends (...args: any[]) => void>(
   callback: T,
-  delay: number
+  delay: number,
+  options?: UseDebounceOptions
 ): DebouncedFn<T> => {
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingRef = React.useRef(false)
+  const lastArgsRef = React.useRef<Parameters<T> | null>(null)
   const callbackRef = hooks.useLatest(callback)
+  const optionsRef = hooks.useLatest(options)
+
+  const notifyPending = hooks.useEventCallback((next: boolean) => {
+    if (pendingRef.current === next) {
+      return
+    }
+    pendingRef.current = next
+    const handler = optionsRef.current?.onPendingChange
+    if (typeof handler === "function") {
+      try {
+        handler(next)
+      } catch {}
+    }
+  })
 
   const cancel = hooks.useEventCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
       timeoutRef.current = null
     }
+    lastArgsRef.current = null
+    if (pendingRef.current) {
+      notifyPending(false)
+    }
   })
 
   const run = hooks.useEventCallback((...args: Parameters<T>) => {
-    cancel()
+    lastArgsRef.current = args
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+    notifyPending(true)
     timeoutRef.current = setTimeout(() => {
-      callbackRef.current(...args)
       timeoutRef.current = null
+      lastArgsRef.current = null
+      try {
+        callbackRef.current(...args)
+      } finally {
+        notifyPending(false)
+      }
     }, delay)
+  })
+
+  const flush = hooks.useEventCallback(() => {
+    if (!lastArgsRef.current) {
+      return
+    }
+    const args = lastArgsRef.current
+    cancel()
+    callbackRef.current(...args)
   })
 
   const debouncedRef = React.useRef<DebouncedFn<T> | null>(null)
   const runRef = hooks.useLatest(run)
   const cancelRef = hooks.useLatest(cancel)
+  const flushRef = hooks.useLatest(flush)
 
   if (!debouncedRef.current) {
     const runner = ((...args: Parameters<T>) => {
       runRef.current(...args)
     }) as DebouncedFn<T>
     runner.cancel = () => cancelRef.current()
+    runner.flush = () => flushRef.current()
+    runner.isPending = () => pendingRef.current
     debouncedRef.current = runner
   }
 
@@ -421,7 +471,9 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const [isLoading, setIsLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const isMountedRef = React.useRef(true)
-  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(null)
+  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(
+    null
+  )
 
   const { abortAndCreate, cancel, finalize } = useLatestAbortController()
 
@@ -443,20 +495,16 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       options?: { resetLocal?: boolean }
     ) => {
       const shouldUpdateLocal = options?.resetLocal ?? true
-      reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
+      dispatchAction(fmeActions.setLoadingFlag(scope, false, widgetId))
+
       if (loadingScopeRef.current === scope) {
         loadingScopeRef.current = null
-        if (shouldUpdateLocal && isMountedRef.current) {
+      }
+
+      if (shouldUpdateLocal && isMountedRef.current) {
+        if (!loadingScopeRef.current) {
           setIsLoading(false)
         }
-        return
-      }
-      if (
-        !loadingScopeRef.current &&
-        shouldUpdateLocal &&
-        isMountedRef.current
-      ) {
-        setIsLoading(false)
       }
     }
   )

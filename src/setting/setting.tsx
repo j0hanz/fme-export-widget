@@ -410,6 +410,8 @@ const FieldRow: React.FC<{
   errorText?: string
   maxLength?: number
   disabled?: boolean
+  isPending?: boolean
+  pendingLabel?: string
   styles: SettingStyles
 }> = ({
   id,
@@ -423,6 +425,8 @@ const FieldRow: React.FC<{
   errorText,
   maxLength,
   disabled,
+  isPending = false,
+  pendingLabel,
   styles,
 }) => (
   <SettingRow flow="wrap" label={label} level={1} tag="label">
@@ -439,7 +443,30 @@ const FieldRow: React.FC<{
       disabled={disabled}
       aria-invalid={errorText ? true : undefined}
       aria-describedby={errorText ? `${id}-error` : undefined}
+      aria-busy={isPending ? true : undefined}
     />
+    {isPending && (
+      <SettingRow
+        flow="wrap"
+        level={3}
+        css={css(styles.row)}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
+        <div css={css(styles.fieldStatus)}>
+          <Loading
+            type={LoadingType.Secondary}
+            width={16}
+            height={16}
+            aria-hidden={pendingLabel ? true : undefined}
+          />
+          {pendingLabel ? (
+            <span css={css(styles.fieldStatusText)}>{pendingLabel}</span>
+          ) : null}
+        </div>
+      </SettingRow>
+    )}
     {errorText && (
       <SettingRow flow="wrap" level={3} css={css(styles.row)}>
         <Alert
@@ -858,6 +885,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const makeCancelable = hooks.useCancelablePromiseMaker()
   // Keep latest values handy for async readers
   const translateRef = hooks.useLatest(translate)
+  const [isServerValidationPending, setServerValidationPending] =
+    React.useState(false)
+  const [isTokenValidationPending, setTokenValidationPending] = React.useState(
+    false
+  )
 
   const runServerValidation = hooks.useEventCallback((value: string) => {
     const trimmed = toTrimmedString(value)
@@ -897,8 +929,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setError(setFieldErrors, "token", message)
   })
 
-  const debouncedServerValidation = useDebounce(runServerValidation, 800)
-  const debouncedTokenValidation = useDebounce(runTokenValidation, 800)
+  const debouncedServerValidation = useDebounce(runServerValidation, 800, {
+    onPendingChange: (pending) => {
+      setServerValidationPending(pending)
+    },
+  })
+  const debouncedTokenValidation = useDebounce(runTokenValidation, 800, {
+    onPendingChange: (pending) => {
+      setTokenValidationPending(pending)
+    },
+  })
 
   // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
@@ -1335,6 +1375,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["serverUrl"])
+    const trimmed = toTrimmedString(val)
+    if (!trimmed) {
+      debouncedServerValidation.cancel()
+      return
+    }
     debouncedServerValidation(val)
   })
 
@@ -1346,6 +1391,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["token"])
+    const trimmed = toTrimmedString(val)
+    if (!trimmed) {
+      debouncedTokenValidation.cancel()
+      return
+    }
     debouncedTokenValidation(val)
   })
 
@@ -1353,39 +1403,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
     debouncedServerValidation.cancel()
-    const validation = validateServerUrl(url, { requireHttps: true })
-    const reasonKey =
-      !validation.ok && "reason" in validation
-        ? mapServerUrlReasonToKey(validation.reason)
-        : undefined
-    setError(
-      setFieldErrors,
-      "serverUrl",
-      reasonKey ? translate(reasonKey) : undefined
-    )
-
-    // Sanitize and save to config
     const cleaned = normalizeBaseUrl(url)
-    const changed = cleaned !== url
-    const finalUrl = changed ? cleaned : url
-    updateConfig("fmeServerUrl", finalUrl)
-
-    // Update local state if sanitized/blurred
-    if (changed) {
+    updateConfig("fmeServerUrl", cleaned)
+    if (cleaned !== url) {
       setLocalServerUrl(cleaned)
-      const cleanedValidation = validateServerUrl(cleaned, {
-        requireHttps: true,
-      })
-      const cleanedReasonKey =
-        !cleanedValidation.ok && "reason" in cleanedValidation
-          ? mapServerUrlReasonToKey(cleanedValidation.reason)
-          : undefined
-      setError(
-        setFieldErrors,
-        "serverUrl",
-        cleanedReasonKey ? translate(cleanedReasonKey) : undefined
-      )
     }
+    runServerValidation(cleaned)
 
     // Clear repository data when server changes
     clearRepositoryEphemeralState()
@@ -1395,10 +1418,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
     debouncedTokenValidation.cancel()
-    const validation = validateToken(token)
-    const tokenError =
-      !validation.ok && validation.key ? translate(validation.key) : undefined
-    setError(setFieldErrors, "token", tokenError)
+    runTokenValidation(token)
 
     // Save to config
     updateConfig("fmeServerToken", token)
@@ -1502,6 +1522,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={translate("serverUrlPlaceholder")}
             required
             errorText={fieldErrors.serverUrl}
+            isPending={isServerValidationPending}
+            pendingLabel={translate("validatingServerUrl")}
             styles={settingStyles}
           />
           <FieldRow
@@ -1514,6 +1536,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             type="password"
             required
             errorText={fieldErrors.token}
+            isPending={isTokenValidationPending}
+            pendingLabel={translate("validatingToken")}
             styles={settingStyles}
           />
           <ConnectionTestSection
