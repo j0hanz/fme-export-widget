@@ -26,6 +26,8 @@ import {
   resolveMessageOrKey,
   toTrimmedString,
   isAbortError,
+  fingerprintToken,
+  normalizeKeySegment,
 } from "./utils"
 
 // ArcGIS Resource Utilities
@@ -72,6 +74,90 @@ export const removeLayerFromMap = (
       jmv.view.map.remove(graphicsLayer)
     }
   })
+}
+
+const buildConnectionFingerprint = (
+  serverUrl?: string | null,
+  token?: string | null
+): string | null => {
+  const normalizedServer = normalizeKeySegment(serverUrl)
+  if (!normalizedServer) return null
+  return `${normalizedServer}|${fingerprintToken(token)}`
+}
+
+const buildWorkspaceCacheKey = (
+  connectionFingerprint: string | null,
+  repository?: string | null,
+  workspace?: string | null
+): string | null => {
+  if (!connectionFingerprint) return null
+  const repo = normalizeKeySegment(repository)
+  const workspaceName = normalizeKeySegment(workspace)
+  if (!repo || !workspaceName) return null
+  return `${connectionFingerprint}|repo:${repo}|ws:${workspaceName}`
+}
+
+class LRUCache<K, V> {
+  private readonly cache = new Map<K, { value: V; timestamp: number }>()
+
+  constructor(
+    private readonly maxSize = 10,
+    private readonly ttlMs = 60000
+  ) {}
+
+  get(key: K): V | undefined {
+    const entry = this.cache.get(key)
+    if (!entry) return undefined
+
+    if (this.ttlMs > 0 && Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key)
+      return undefined
+    }
+
+    this.cache.delete(key)
+    this.cache.set(key, entry)
+    return entry.value
+  }
+
+  set(key: K, value: V): void {
+    if (this.cache.has(key)) {
+      this.cache.delete(key)
+    }
+
+    this.cache.set(key, { value, timestamp: Date.now() })
+
+    if (this.cache.size > this.maxSize) {
+      const firstKey = this.cache.keys().next().value
+      this.cache.delete(firstKey)
+    }
+  }
+
+  delete(key: K): void {
+    this.cache.delete(key)
+  }
+
+  deleteMatching(predicate: (key: K) => boolean): void {
+    for (const key of Array.from(this.cache.keys())) {
+      if (predicate(key)) {
+        this.cache.delete(key)
+      }
+    }
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+const WORKSPACE_CACHE_TTL_MS = 60000
+
+const workspaceMetadataCache = new LRUCache<
+  string,
+  { item: WorkspaceItemDetail; parameters: readonly WorkspaceParameter[] }
+>(10, WORKSPACE_CACHE_TTL_MS)
+
+export const clearWorkspaceMetadataCache = (): void => {
+  workspaceMetadataCache.clear()
 }
 
 // ArcGIS Modules Loader Hook
@@ -371,6 +457,9 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
   const [error, setError] = React.useState<string | null>(null)
   const isMountedRef = React.useRef(true)
   const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(null)
+  const connectionFingerprintRef = React.useRef<string | null>(null)
+  const normalizedRepository = normalizeKeySegment(config?.repository)
+  const previousRepository = hooks.usePrevious(normalizedRepository)
 
   const { abortAndCreate, cancel, finalize } = useLatestAbortController()
 
@@ -409,6 +498,38 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
       }
     }
   )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const nextFingerprint = buildConnectionFingerprint(
+      config?.fmeServerUrl,
+      config?.fmeServerToken
+    )
+    const previous = connectionFingerprintRef.current
+
+    if (previous && previous !== nextFingerprint) {
+      workspaceMetadataCache.deleteMatching((key) => key.startsWith(previous))
+    }
+
+    if (!nextFingerprint) {
+      workspaceMetadataCache.clear()
+    }
+
+    connectionFingerprintRef.current = nextFingerprint
+  }, [config?.fmeServerUrl, config?.fmeServerToken])
+
+  hooks.useUpdateEffect(() => {
+    const connectionFingerprint = connectionFingerprintRef.current
+
+    if (previousRepository && connectionFingerprint) {
+      const prefix = `${connectionFingerprint}|repo:${previousRepository}|`
+      workspaceMetadataCache.deleteMatching((key) => key.startsWith(prefix))
+    }
+
+    if (!normalizedRepository && connectionFingerprint) {
+      const prefix = `${connectionFingerprint}|repo:`
+      workspaceMetadataCache.deleteMatching((key) => key.startsWith(prefix))
+    }
+  }, [normalizedRepository])
 
   const cancelCurrent = hooks.useEventCallback(() => {
     cancel()
@@ -534,6 +655,28 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         return
       }
 
+      const connectionFingerprint =
+        connectionFingerprintRef.current ??
+        buildConnectionFingerprint(config?.fmeServerUrl, config?.fmeServerToken)
+      const cacheKey = buildWorkspaceCacheKey(
+        connectionFingerprint,
+        repoToUse,
+        workspaceName
+      )
+
+      if (cacheKey) {
+        const cached = workspaceMetadataCache.get(cacheKey)
+        if (cached) {
+          finalizeSelection(
+            repoToUse,
+            workspaceName,
+            cached.item,
+            cached.parameters
+          )
+          return
+        }
+      }
+
       let controller: AbortController | null = null
       try {
         cancelCurrent()
@@ -569,6 +712,13 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         const workspaceItem = itemResponse.data as WorkspaceItemDetail
         const parameters = (parametersResponse.data ||
           []) as readonly WorkspaceParameter[]
+
+        if (cacheKey) {
+          workspaceMetadataCache.set(cacheKey, {
+            item: workspaceItem,
+            parameters,
+          })
+        }
 
         finalizeSelection(repoToUse, workspaceName, workspaceItem, parameters)
       } catch (err) {
@@ -743,6 +893,32 @@ export const useControlledValue = <T = unknown>(
   })
 
   return [value, handleChange] as const
+}
+
+export const useDebounce = <T extends (...args: any[]) => void>(
+  callback: T,
+  delay = 300
+): T => {
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const callbackRef = hooks.useLatest(callback)
+
+  hooks.useUnmount(() => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+  })
+
+  return hooks.useEventCallback((...args: Parameters<T>) => {
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current)
+    }
+
+    timeoutRef.current = setTimeout(() => {
+      callbackRef.current(...args)
+      timeoutRef.current = null
+    }, delay)
+  }) as T
 }
 
 // Loading latch hook to prevent flickering during quick state transitions

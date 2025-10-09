@@ -1,5 +1,7 @@
 import type { IMState, ImmutableObject } from "jimu-core"
 import type React from "react"
+import type { AllWidgetSettingProps } from "jimu-for-builder"
+import type { validateServerUrl, validateToken } from "../shared/validations"
 
 import type FmeFlowApiClient from "../shared/api"
 import type { SettingStyles } from "./style"
@@ -1082,6 +1084,50 @@ export interface ValidationResult {
   readonly errors?: { readonly [key: string]: string }
   readonly messages?: { readonly [key: string]: string }
   readonly hasErrors?: boolean
+}
+
+export interface MapConfigurationSectionProps {
+  useMapWidgetIds: AllWidgetSettingProps<IMWidgetConfig>["useMapWidgetIds"]
+  onSelect: (useMapWidgetIds: string[]) => void
+  translate: TranslateFn
+  RequiredLabel: React.FC<{ text: string }>
+}
+
+export interface ConnectionSettingsPanelProps {
+  idMap: {
+    serverUrl: string
+    token: string
+    repository: string
+    [key: string]: string
+  }
+  localServerUrl: string
+  localToken: string
+  fieldErrors: FieldErrors
+  onServerUrlChange: (value: string) => void
+  onServerUrlBlur: (value: string) => void
+  onTokenChange: (value: string) => void
+  onTokenBlur: (value: string) => void
+  testState: TestState
+  checkSteps: CheckSteps
+  isTestDisabled: boolean
+  onTestConnection: () => void
+  shouldShowRepositorySelector: boolean
+  repositoryProps: {
+    localServerUrl: string
+    localToken: string
+    localRepository: string
+    availableRepos: string[] | null
+    onRepositoryChange: (value: string) => void
+    onRefreshRepositories: () => void | Promise<void>
+    repoHint: string | null
+    isBusy: boolean
+    validateServerUrl: typeof validateServerUrl
+    validateToken: typeof validateToken
+  }
+  translate: TranslateFn
+  settingStyles: SettingStyles
+  styles: SettingStyles
+  RequiredLabel: React.FC<{ text: string }>
 }
 
 export type TranslateFn = (

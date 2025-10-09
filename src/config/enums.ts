@@ -65,6 +65,13 @@ export const enum ErrorType {
   GEOMETRY = "geometry",
 }
 
+export const enum ValidationFailureType {
+  SERVER = "server",
+  NETWORK = "network",
+  TOKEN = "token",
+  REPOSITORY = "repository",
+}
+
 export const enum HttpMethod {
   GET = "GET",
   POST = "POST",

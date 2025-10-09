@@ -5,10 +5,13 @@ import {
   setError,
   clearErrors,
   parseNonNegativeInt,
+  parseOptionalNonNegativeInt,
   isValidEmail,
   toTrimmedString,
-  collectTrimmedStrings,
   uniqueStrings,
+  buildConnectionCacheKey,
+  sanitizeRepositoryList,
+  isAbortError,
 } from "../shared/utils"
 import {
   useBuilderSelector,
@@ -17,6 +20,8 @@ import {
   useNumberConfigValue,
   useUpdateConfig,
   useLatestAbortController,
+  useDebounce,
+  clearWorkspaceMetadataCache,
 } from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -51,6 +56,8 @@ import {
 import {
   validateConnection,
   getRepositories as fetchRepositoriesService,
+  clearConnectionValidationCaches,
+  clearRepositoryCache,
 } from "../shared/services"
 import { fmeActions, createFmeSelectors } from "../extensions/store"
 import type {
@@ -67,13 +74,22 @@ import type {
   ConnectionTestSectionProps,
   RepositorySelectorProps,
   JobDirectivesSectionProps,
+  MapConfigurationSectionProps,
+  ConnectionSettingsPanelProps,
 } from "../config/index"
 import {
   DEFAULT_DRAWING_HEX,
   SETTING_CONSTANTS,
+  ValidationFailureType,
   useSettingStyles,
 } from "../config/index"
 import resetIcon from "../assets/icons/refresh.svg"
+
+// Local constants for this settings panel
+const REPOSITORY_CACHE_TTL_MS = 30000 // 30 seconds
+const SERVER_URL_DEBOUNCE_MS = 500
+const TOKEN_DEBOUNCE_MS = 500
+const REPOSITORY_DEBOUNCE_MS = 300
 
 const CONSTANTS = SETTING_CONSTANTS
 
@@ -91,10 +107,6 @@ const getInitialCheckSteps = (): CheckSteps => ({
   version: "",
 })
 
-const sanitizeRepositoryList = (
-  repositories: Iterable<unknown> | null | undefined
-): string[] => uniqueStrings(collectTrimmedStrings(repositories))
-
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
   checkSteps,
@@ -104,9 +116,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   styles,
 }) => {
   const isStepStatus = (v: unknown): v is StepStatus =>
-    typeof v === "object" &&
-    v !== null &&
-    Object.prototype.hasOwnProperty.call(v, "completed")
+    typeof v === "object" && v !== null && "completed" in v
   // Hoisted helpers for readability and stability
   const getStatusStyle = hooks.useEventCallback(
     (s: StepStatus | string): any => {
@@ -266,7 +276,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       if (availableRepos === null) return []
 
       const available = Array.isArray(availableRepos)
-        ? collectTrimmedStrings(availableRepos)
+        ? sanitizeRepositoryList(availableRepos)
         : []
 
       const local = toTrimmedString(localRepository)
@@ -433,12 +443,6 @@ const FieldRow: React.FC<{
   </SettingRow>
 )
 
-const toNumericValue = (value: string): number | undefined => {
-  const trimmed = (value ?? "").trim()
-  if (trimmed === "") return undefined
-  return parseNonNegativeInt(trimmed)
-}
-
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
@@ -466,7 +470,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       >
         <NumericInput
           id={ID.tm_ttc}
-          value={toNumericValue(localTmTtc)}
+          value={parseOptionalNonNegativeInt(localTmTtc)}
           min={0}
           step={1}
           precision={0}
@@ -508,7 +512,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       >
         <NumericInput
           id={ID.tm_ttl}
-          value={toNumericValue(localTmTtl)}
+          value={parseOptionalNonNegativeInt(localTmTtl)}
           min={0}
           step={1}
           precision={0}
@@ -542,9 +546,111 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   )
 }
 
+const MapConfigurationSection: React.FC<MapConfigurationSectionProps> = ({
+  useMapWidgetIds,
+  onSelect,
+  translate,
+  RequiredLabel,
+}) => (
+  <SettingRow
+    flow="wrap"
+    level={1}
+    label={<RequiredLabel text={translate("mapConfiguration")} />}
+  >
+    <MapWidgetSelector useMapWidgetIds={useMapWidgetIds} onSelect={onSelect} />
+  </SettingRow>
+)
+
+const ConnectionSettingsPanel: React.FC<ConnectionSettingsPanelProps> = ({
+  idMap,
+  localServerUrl,
+  localToken,
+  fieldErrors,
+  onServerUrlChange,
+  onServerUrlBlur,
+  onTokenChange,
+  onTokenBlur,
+  testState,
+  checkSteps,
+  isTestDisabled,
+  onTestConnection,
+  shouldShowRepositorySelector,
+  repositoryProps,
+  translate,
+  settingStyles,
+  styles,
+  RequiredLabel,
+}) => (
+  <>
+    <FieldRow
+      id={idMap.serverUrl}
+      label={<RequiredLabel text={translate("fmeServerUrl")} />}
+      value={localServerUrl}
+      onChange={onServerUrlChange}
+      onBlur={onServerUrlBlur}
+      placeholder={translate("serverUrlPlaceholder")}
+      required
+      errorText={fieldErrors.serverUrl}
+      styles={settingStyles}
+    />
+    <FieldRow
+      id={idMap.token}
+      label={<RequiredLabel text={translate("fmeServerToken")} />}
+      value={localToken}
+      onChange={onTokenChange}
+      onBlur={onTokenBlur}
+      placeholder={translate("tokenPlaceholder")}
+      type="password"
+      required
+      errorText={fieldErrors.token}
+      styles={settingStyles}
+    />
+    <ConnectionTestSection
+      testState={testState}
+      checkSteps={checkSteps}
+      disabled={isTestDisabled}
+      onTestConnection={onTestConnection}
+      translate={translate}
+      styles={settingStyles}
+    />
+    {shouldShowRepositorySelector && (
+      <RepositorySelector
+        localServerUrl={repositoryProps.localServerUrl}
+        localToken={repositoryProps.localToken}
+        localRepository={repositoryProps.localRepository}
+        availableRepos={repositoryProps.availableRepos}
+        label={<RequiredLabel text={translate("availableRepositories")} />}
+        fieldErrors={fieldErrors}
+        validateServerUrl={repositoryProps.validateServerUrl}
+        validateToken={repositoryProps.validateToken}
+        onRepositoryChange={repositoryProps.onRepositoryChange}
+        onRefreshRepositories={repositoryProps.onRefreshRepositories}
+        translate={translate}
+        styles={styles}
+        ID={idMap}
+        repoHint={repositoryProps.repoHint}
+        isBusy={repositoryProps.isBusy}
+      />
+    )}
+  </>
+)
+
+const toValidationFailureType = (raw: unknown): ValidationFailureType => {
+  switch (raw) {
+    case ValidationFailureType.NETWORK:
+      return ValidationFailureType.NETWORK
+    case ValidationFailureType.TOKEN:
+      return ValidationFailureType.TOKEN
+    case ValidationFailureType.REPOSITORY:
+      return ValidationFailureType.REPOSITORY
+    default:
+      return ValidationFailureType.SERVER
+  }
+}
+
 // Centralized handler for validation failure -> updates steps and field errors
 const handleValidationFailure = (
-  errorType: "server" | "network" | "token" | "repository",
+  errorType: ValidationFailureType,
   opts: {
     setCheckSteps: React.Dispatch<React.SetStateAction<CheckSteps>>
     setFieldErrors: React.Dispatch<React.SetStateAction<FieldErrors>>
@@ -562,7 +668,10 @@ const handleValidationFailure = (
     repositories,
     setAvailableRepos,
   } = opts
-  if (errorType === "server" || errorType === "network") {
+  if (
+    errorType === ValidationFailureType.SERVER ||
+    errorType === ValidationFailureType.NETWORK
+  ) {
     setCheckSteps((prev) => ({
       ...prev,
       serverUrl: "fail",
@@ -574,7 +683,7 @@ const handleValidationFailure = (
     clearErrors(setFieldErrors, ["token", "repository"])
     return
   }
-  if (errorType === "token") {
+  if (errorType === ValidationFailureType.TOKEN) {
     setCheckSteps((prev) => ({
       ...prev,
       serverUrl: "ok",
@@ -628,7 +737,15 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const getStringConfig = useStringConfigValue(config)
   const getBooleanConfig = useBooleanConfigValue(config)
   const getNumberConfig = useNumberConfigValue(config)
-  const updateConfig = useUpdateConfig(id, config, onSettingChange)
+  const rawUpdateConfig = useUpdateConfig(id, config, onSettingChange)
+  const updateConfig = hooks.useEventCallback(
+    <K extends keyof FmeExportConfig>(
+      key: K,
+      value: FmeExportConfig[K] | undefined
+    ) => {
+      rawUpdateConfig(key, value)
+    }
+  )
 
   // Stable ID references for form fields
   const ID = {
@@ -667,7 +784,48 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
-  const selectedRepository = getStringConfig("repository") || ""
+  const configRepository = getStringConfig("repository") || ""
+  const [localRepository, setLocalRepository] = React.useState<string>(
+    () => configRepository
+  )
+  const [serverUrlPending, setServerUrlPending] = React.useState(false)
+  const [tokenPending, setTokenPending] = React.useState(false)
+  const [repositoryPending, setRepositoryPending] = React.useState(false)
+  const repositoryFetchState = React.useRef<{
+    key: string | null
+    timestamp: number
+  }>({ key: null, timestamp: 0 })
+  const repositoryChangeSeqRef = React.useRef(0)
+
+  hooks.useUpdateEffect(() => {
+    setLocalRepository(configRepository)
+  }, [configRepository])
+
+  const shouldLoadRepositories = hooks.useEventCallback(
+    (serverUrl: string, token: string, force = false): boolean => {
+      if (force) return true
+      const connectionKey = buildConnectionCacheKey(serverUrl, token)
+      if (!connectionKey) return true
+      const { key, timestamp } = repositoryFetchState.current
+      if (key !== connectionKey) return true
+      return Date.now() - timestamp > REPOSITORY_CACHE_TTL_MS
+    }
+  )
+
+  const markRepositoriesFetched = hooks.useEventCallback(
+    (serverUrl: string, token: string) => {
+      const connectionKey = buildConnectionCacheKey(serverUrl, token)
+      repositoryFetchState.current = {
+        key: connectionKey,
+        timestamp: connectionKey ? Date.now() : 0,
+      }
+    }
+  )
+
+  const invalidateRepositoryFetchCache = hooks.useEventCallback(() => {
+    repositoryFetchState.current = { key: null, timestamp: 0 }
+    clearRepositoryCache()
+  })
   const configServerUrl = getStringConfig("fmeServerUrl") || ""
   const configToken = getStringConfig("fmeServerToken") || ""
   const previousConfigServerUrl = hooks.usePrevious(configServerUrl)
@@ -729,7 +887,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const hasServerInputs =
     !!toTrimmedString(localServerUrl) && !!toTrimmedString(localToken)
   const shouldShowRepositorySelector = hasMapSelection && hasServerInputs
-  const hasRepositorySelection = !!toTrimmedString(selectedRepository)
+  const hasRepositorySelection = !!toTrimmedString(configRepository)
   const shouldShowRemainingSettings =
     hasMapSelection && hasServerInputs && hasRepositorySelection
 
@@ -744,56 +902,83 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
-    const trimmed = (val ?? "").trim()
-    const parsed = parseNonNegativeInt(trimmed)
+  const createNumericBlur = hooks.useEventCallback(
+    (
+      configKey: keyof FmeExportConfig,
+      setter: (val: string) => void,
+      errorKey: keyof FieldErrors,
+      options: {
+        maxValue?: number
+        allowZero?: boolean
+        onExceedsMax?: (maxValue: number) => string
+        clampToMax?: boolean
+      } = {}
+    ) => {
+      return (rawValue: string | undefined) => {
+        const stringValue = rawValue ?? ""
+        const trimmed = stringValue.trim()
+        const parsed = parseNonNegativeInt(trimmed)
+        const {
+          maxValue,
+          allowZero = false,
+          onExceedsMax,
+          clampToMax,
+        } = options
 
-    if (parsed === undefined || parsed === 0) {
-      updateConfig("largeArea", undefined as any)
-      setLocalLargeAreaM2("")
-      setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-      return
+        if (parsed === undefined || (!allowZero && parsed === 0)) {
+          updateConfig(configKey, undefined)
+          setter("")
+          setFieldErrors((prev) => ({ ...prev, [errorKey]: undefined }))
+          return
+        }
+
+        if (maxValue && parsed > maxValue) {
+          if (clampToMax) {
+            updateConfig(configKey, maxValue)
+            setter(String(maxValue))
+            setFieldErrors((prev) => ({ ...prev, [errorKey]: undefined }))
+            return
+          }
+          setFieldErrors((prev) => ({
+            ...prev,
+            [errorKey]: onExceedsMax
+              ? onExceedsMax(maxValue)
+              : translate("errorMaxAreaTooLarge", { maxM2: maxValue }),
+          }))
+          return
+        }
+
+        updateConfig(configKey, parsed)
+        setter(String(parsed))
+        setFieldErrors((prev) => ({ ...prev, [errorKey]: undefined }))
+      }
     }
+  )
 
-    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        largeArea: translate("errorMaxAreaTooLarge", {
-          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-        }),
-      }))
-      return
+  const handleLargeAreaBlur = createNumericBlur(
+    "largeArea",
+    setLocalLargeAreaM2,
+    "largeArea",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_M2_CAP,
     }
+  )
 
-    updateConfig("largeArea", parsed as any)
-    setLocalLargeAreaM2(String(parsed))
-    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+  const handleMaxAreaBlur = createNumericBlur(
+    "maxArea",
+    setLocalMaxAreaM2,
+    "maxArea",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_M2_CAP,
+    }
+  )
+
+  const handleTmTtcBlur = createNumericBlur("tm_ttc", setLocalTmTtc, "tm_ttc", {
+    allowZero: true,
   })
 
-  const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
-    const trimmed = (val ?? "").trim()
-    const parsed = parseNonNegativeInt(trimmed)
-
-    if (parsed === undefined || parsed === 0) {
-      updateConfig("maxArea", undefined as any)
-      setLocalMaxAreaM2("")
-      setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-      return
-    }
-
-    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        maxArea: translate("errorMaxAreaTooLarge", {
-          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-        }),
-      }))
-      return
-    }
-
-    updateConfig("maxArea", parsed as any)
-    setLocalMaxAreaM2(String(parsed))
-    setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+  const handleTmTtlBlur = createNumericBlur("tm_ttl", setLocalTmTtl, "tm_ttl", {
+    allowZero: true,
   })
 
   // Consolidated effect: reset dependent options when hidden
@@ -801,13 +986,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     // Schedule mode: clear if no longer shown
     if (!shouldShowScheduleToggle && localAllowScheduleMode) {
       setLocalAllowScheduleMode(false)
-      updateConfig("allowScheduleMode", false as any)
+      updateConfig("allowScheduleMode", false)
     }
 
     // Mask email: clear if no longer shown
     if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false)
-      updateConfig("maskEmailOnSuccess", false as any)
+      updateConfig("maskEmailOnSuccess", false)
     }
   }, [
     shouldShowScheduleToggle,
@@ -845,7 +1030,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     async (
       serverUrl: string,
       token: string,
-      { indicateLoading }: { indicateLoading: boolean }
+      {
+        indicateLoading,
+        force = false,
+      }: { indicateLoading: boolean; force?: boolean }
     ) => {
       // Cancel previous
       abortReposRequest()
@@ -860,6 +1048,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       const normalizedServerUrl = normalizeBaseUrl(trimmedServerUrl)
+      if (!shouldLoadRepositories(normalizedServerUrl, trimmedToken, force)) {
+        return
+      }
       const ctrl = reposAbort.abortAndCreate()
       const signal = ctrl.signal
 
@@ -870,15 +1061,18 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       try {
         const result = await makeCancelable(
-          fetchRepositoriesService(normalizedServerUrl, trimmedToken, signal)
+          fetchRepositoriesService(normalizedServerUrl, trimmedToken, signal, {
+            force,
+          })
         )
         if (signal.aborted) return
         const next = sanitizeRepositoryList(result.repositories)
         setAvailableRepos(next)
         clearErrors(setFieldErrors, ["repository"])
         setReposHint(null)
+        markRepositoriesFetched(normalizedServerUrl, trimmedToken)
       } catch (err) {
-        if ((err as Error)?.name !== "AbortError") {
+        if (!isAbortError(err) && !signal.aborted) {
           setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
           setReposHint(translateRef.current("errorRepositories"))
         }
@@ -893,6 +1087,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest()
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+    invalidateRepositoryFetchCache()
+    clearWorkspaceMetadataCache()
+    repositoryChangeSeqRef.current += 1
+    setRepositoryPending(false)
+    const currentRepository = toTrimmedString(getStringConfig("repository"))
+    if (currentRepository) {
+      updateConfig("repository", undefined)
+      dispatch(fmeActions.clearWorkspaceState(id))
+    }
+    setLocalRepository("")
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
@@ -957,7 +1161,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const composite = validateConnectionInputs({
         url: localServerUrl,
         token: localToken,
-        repository: selectedRepository,
+        repository: localRepository,
         availableRepos: skipRepoCheck ? null : availableRepos,
       })
 
@@ -992,7 +1196,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.serverUrl ||
           messages.token ||
           (!skipRepoCheck && messages.repository) ||
-          (!skipRepoCheck && messages.supportEmail)
+          messages.supportEmail
         ),
       }
     }
@@ -1003,7 +1207,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     (): FmeFlowConfig | null => {
       const rawServerUrl = localServerUrl
       const token = localToken
-      const repository = selectedRepository
+      const repository = localRepository
 
       const cleaned = normalizeBaseUrl(rawServerUrl || "")
       const changed = cleaned !== rawServerUrl
@@ -1026,7 +1230,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Handle "Test Connection" button click - disable when widget is busy
   const isTestDisabled =
-    !!testState.isTesting || !canRunConnectionTest || isBusy
+    !!testState.isTesting ||
+    !canRunConnectionTest ||
+    isBusy ||
+    serverUrlPending ||
+    tokenPending ||
+    repositoryPending
 
   // Connection test sub-functions for better organization
   const handleTestSuccess = hooks.useEventCallback(
@@ -1071,11 +1280,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleTestFailure = hooks.useEventCallback(
     (validationResult: any, silent: boolean) => {
       const error = validationResult.error
-      const failureType = (error?.type || "server") as
-        | "server"
-        | "network"
-        | "token"
-        | "repository"
+      const failureType = toValidationFailureType(error?.type)
 
       handleValidationFailure(failureType, {
         setCheckSteps,
@@ -1103,11 +1308,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const handleTestError = hooks.useEventCallback(
     (err: unknown, silent: boolean) => {
-      if ((err as Error)?.name === "AbortError") return
+      if (isAbortError(err)) return
 
       const errorStatus = extractHttpStatus(err)
       const failureType =
-        !errorStatus || errorStatus === 0 ? "network" : "server"
+        !errorStatus || errorStatus === 0
+          ? ValidationFailureType.NETWORK
+          : ValidationFailureType.SERVER
       handleValidationFailure(failureType, {
         setCheckSteps,
         setFieldErrors,
@@ -1118,13 +1325,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       })
 
       if (!silent) {
-        const status = err instanceof Error ? 0 : extractHttpStatus(err)
-        const errorKey = mapErrorToKey(err, status)
+        const errorKey = mapErrorToKey(err, errorStatus)
         setTestState({
           status: "error",
           isTesting: false,
           message:
-            failureType === "network"
+            failureType === ValidationFailureType.NETWORK
               ? translate("errorInvalidServerUrl")
               : translate(errorKey),
           type: "error",
@@ -1203,7 +1409,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const trimmedToken = toTrimmedString(cfgToken)
     if (!trimmedServer || !trimmedToken) return
     const cleaned = normalizeBaseUrl(trimmedServer)
-    await loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
+    await loadRepositories(cleaned, trimmedToken, {
+      indicateLoading: true,
+      force: true,
+    })
   })
 
   // Clear transient repo list when server URL or token in config changes
@@ -1246,23 +1455,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   // Handle server URL changes with delayed validation
+  const applyServerUrlSideEffects = hooks.useEventCallback(() => {
+    resetConnectionProgress()
+    clearConnectionValidationCaches()
+    clearRepositoryEphemeralState()
+    setServerUrlPending(false)
+  })
+  const debouncedServerUrlSideEffects = useDebounce(
+    applyServerUrlSideEffects,
+    SERVER_URL_DEBOUNCE_MS
+  )
+
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
-    resetConnectionProgress()
-    clearRepositoryEphemeralState()
-
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["serverUrl"])
+    setServerUrlPending(true)
+    debouncedServerUrlSideEffects()
   })
 
   // Handle token changes with delayed validation
+  const applyTokenSideEffects = hooks.useEventCallback(() => {
+    resetConnectionProgress()
+    clearConnectionValidationCaches()
+    clearRepositoryEphemeralState()
+    setTokenPending(false)
+  })
+  const debouncedTokenSideEffects = useDebounce(
+    applyTokenSideEffects,
+    TOKEN_DEBOUNCE_MS
+  )
+
   const handleTokenChange = hooks.useEventCallback((val: string) => {
     setLocalToken(val)
-    resetConnectionProgress()
-    clearRepositoryEphemeralState()
-
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["token"])
+    setTokenPending(true)
+    debouncedTokenSideEffects()
   })
 
   // Handle server URL blur - save to config and clear repository state
@@ -1323,14 +1550,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Keep repository field error in sync when either the list or selection changes
   hooks.useUpdateEffect(() => {
-    if (!selectedRepository) return
+    if (!localRepository) return
     // Validate repository if we have an available list and a selection
     if (
       Array.isArray(availableRepos) &&
       availableRepos.length &&
-      selectedRepository
+      localRepository
     ) {
-      const hasRepo = availableRepos.includes(selectedRepository)
+      const hasRepo = availableRepos.includes(localRepository)
       const errorMessage = hasRepo
         ? undefined
         : translate("errorRepositoryNotFound")
@@ -1338,128 +1565,108 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     } else if (
       Array.isArray(availableRepos) &&
       availableRepos.length === 0 &&
-      selectedRepository
+      localRepository
     ) {
       // Allow manual entry when list is empty
       clearErrors(setFieldErrors, ["repository"])
     }
-  }, [availableRepos, selectedRepository, translate])
+  }, [availableRepos, localRepository, translate])
+
+  const applyRepositorySideEffects = hooks.useEventCallback(
+    ({
+      repository: nextRepository,
+      seq,
+    }: {
+      repository: string
+      seq: number
+    }) => {
+      if (repositoryChangeSeqRef.current !== seq) return
+
+      const currentConfigRepository = getStringConfig("repository") || ""
+      updateConfig("repository", nextRepository)
+
+      if (currentConfigRepository !== nextRepository) {
+        dispatch(fmeActions.clearWorkspaceState(id))
+        clearWorkspaceMetadataCache()
+      }
+
+      setRepositoryPending(false)
+    }
+  )
+  const debouncedRepositorySideEffects = useDebounce(
+    applyRepositorySideEffects,
+    REPOSITORY_DEBOUNCE_MS
+  )
 
   // Handle repository changes with workspace state clearing
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
-      const previousRepository = selectedRepository
-      updateConfig("repository", newRepository)
-
-      // Clear workspace-related state when switching repositories for isolation
-      if (previousRepository !== newRepository) {
-        dispatch(fmeActions.clearWorkspaceState(id))
-      }
-
-      // Clear repository field error but don't bump config revision for minor changes
+      const nextSeq = repositoryChangeSeqRef.current + 1
+      repositoryChangeSeqRef.current = nextSeq
+      setLocalRepository(newRepository)
+      setRepositoryPending(true)
       clearErrors(setFieldErrors, ["repository"])
+      debouncedRepositorySideEffects({
+        repository: newRepository,
+        seq: nextSeq,
+      })
     }
   )
 
   // Helper for rendering input fields with error alerts
   // Reuse FieldRow for consistent input rendering
 
-  // Reusable blur handler for optional numeric fields
-  const createNumericBlurHandler = hooks.useEventCallback(
-    (
-      configKey: keyof FmeExportConfig,
-      setter: (val: string) => void,
-      maxValue?: number
-    ) => {
-      return (val: string | number | undefined) => {
-        const stringVal = typeof val === "number" ? String(val) : (val ?? "")
-        const trimmed = stringVal.trim()
-        const coerced = parseNonNegativeInt(trimmed)
-        if (coerced === undefined || coerced === 0) {
-          updateConfig(configKey, undefined as any)
-          setter("")
-        } else {
-          const final = maxValue ? Math.min(coerced, maxValue) : coerced
-          updateConfig(configKey, final as any)
-          setter(String(final))
-        }
-      }
-    }
-  )
-
-  const handleRequestTimeoutBlur = createNumericBlurHandler(
+  const handleRequestTimeoutBlur = createNumericBlur(
     "requestTimeout",
     setLocalRequestTimeout,
-    CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+    "requestTimeout",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS,
+      clampToMax: true,
+      allowZero: true,
+    }
   )
 
   return (
     <SettingSection>
-      <SettingRow
-        flow="wrap"
-        level={1}
-        label={<RequiredLabel text={translate("mapConfiguration")} />}
-      >
-        <MapWidgetSelector
-          useMapWidgetIds={useMapWidgetIds}
-          onSelect={onMapWidgetSelected}
-        />
-      </SettingRow>
+      <MapConfigurationSection
+        useMapWidgetIds={useMapWidgetIds}
+        onSelect={onMapWidgetSelected}
+        translate={translate}
+        RequiredLabel={RequiredLabel}
+      />
       {hasMapSelection && (
-        <>
-          <FieldRow
-            id={ID.serverUrl}
-            label={<RequiredLabel text={translate("fmeServerUrl")} />}
-            value={localServerUrl}
-            onChange={handleServerUrlChange}
-            onBlur={handleServerUrlBlur}
-            placeholder={translate("serverUrlPlaceholder")}
-            required
-            errorText={fieldErrors.serverUrl}
-            styles={settingStyles}
-          />
-          <FieldRow
-            id={ID.token}
-            label={<RequiredLabel text={translate("fmeServerToken")} />}
-            value={localToken}
-            onChange={handleTokenChange}
-            onBlur={handleTokenBlur}
-            placeholder={translate("tokenPlaceholder")}
-            type="password"
-            required
-            errorText={fieldErrors.token}
-            styles={settingStyles}
-          />
-          <ConnectionTestSection
-            testState={testState}
-            checkSteps={checkSteps}
-            disabled={isTestDisabled}
-            onTestConnection={() => testConnection(false)}
-            translate={translate}
-            styles={settingStyles}
-          />
-          {shouldShowRepositorySelector && (
-            <RepositorySelector
-              localServerUrl={getStringConfig("fmeServerUrl")}
-              localToken={getStringConfig("fmeServerToken")}
-              localRepository={selectedRepository}
-              availableRepos={availableRepos}
-              label={
-                <RequiredLabel text={translate("availableRepositories")} />
-              }
-              fieldErrors={fieldErrors}
-              validateServerUrl={validateServerUrl}
-              validateToken={validateToken}
-              onRepositoryChange={handleRepositoryChange}
-              onRefreshRepositories={refreshRepositories}
-              translate={translate}
-              styles={settingStyles}
-              ID={ID}
-              repoHint={reposHint}
-              isBusy={isBusy}
-            />
-          )}
-        </>
+        <ConnectionSettingsPanel
+          idMap={ID}
+          localServerUrl={localServerUrl}
+          localToken={localToken}
+          fieldErrors={fieldErrors}
+          onServerUrlChange={handleServerUrlChange}
+          onServerUrlBlur={handleServerUrlBlur}
+          onTokenChange={handleTokenChange}
+          onTokenBlur={handleTokenBlur}
+          testState={testState}
+          checkSteps={checkSteps}
+          isTestDisabled={isTestDisabled}
+          onTestConnection={() => testConnection(false)}
+          shouldShowRepositorySelector={shouldShowRepositorySelector}
+          repositoryProps={{
+            localServerUrl: getStringConfig("fmeServerUrl") || "",
+            localToken: getStringConfig("fmeServerToken") || "",
+            localRepository,
+            availableRepos,
+            onRepositoryChange: handleRepositoryChange,
+            onRefreshRepositories: refreshRepositories,
+            repoHint: reposHint,
+            isBusy: isBusy || repositoryPending,
+            validateServerUrl,
+            validateToken,
+          }}
+          translate={translate}
+          settingStyles={settingStyles}
+          styles={settingStyles}
+          RequiredLabel={RequiredLabel}
+        />
       )}
       {shouldShowRemainingSettings && (
         <>
@@ -1576,7 +1783,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           >
             <NumericInput
               id={ID.maxArea}
-              value={toNumericValue(localMaxAreaM2)}
+              value={parseOptionalNonNegativeInt(localMaxAreaM2)}
               min={0}
               step={10000}
               precision={0}
@@ -1611,44 +1818,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <JobDirectivesSection
             localTmTtc={localTmTtc}
             localTmTtl={localTmTtl}
-            onTmTtcChange={(val: string) => {
-              setLocalTmTtc(val)
-            }}
-            onTmTtlChange={(val: string) => {
-              setLocalTmTtl(val)
-            }}
-            onTmTtcBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              if (trimmed === "") {
-                updateConfig("tm_ttc", undefined as any)
-                setLocalTmTtc("")
-                return
-              }
-              const coerced = parseNonNegativeInt(trimmed)
-              if (coerced === undefined) {
-                updateConfig("tm_ttc", undefined as any)
-                setLocalTmTtc("")
-                return
-              }
-              updateConfig("tm_ttc", coerced as any)
-              setLocalTmTtc(String(coerced))
-            }}
-            onTmTtlBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              if (trimmed === "") {
-                updateConfig("tm_ttl", undefined as any)
-                setLocalTmTtl("")
-                return
-              }
-              const coerced = parseNonNegativeInt(trimmed)
-              if (coerced === undefined) {
-                updateConfig("tm_ttl", undefined as any)
-                setLocalTmTtl("")
-                return
-              }
-              updateConfig("tm_ttl", coerced as any)
-              setLocalTmTtl(String(coerced))
-            }}
+            onTmTtcChange={setLocalTmTtc}
+            onTmTtlChange={setLocalTmTtl}
+            onTmTtcBlur={handleTmTtcBlur}
+            onTmTtlBlur={handleTmTtlBlur}
             fieldErrors={fieldErrors}
             translate={translate}
             styles={settingStyles}
@@ -1669,7 +1842,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           >
             <NumericInput
               id={ID.requestTimeout}
-              value={toNumericValue(localRequestTimeout)}
+              value={parseOptionalNonNegativeInt(localRequestTimeout)}
               min={0}
               step={10000}
               precision={0}
@@ -1801,7 +1974,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   ...prev,
                   supportEmail: undefined,
                 }))
-                updateConfig("supportEmail", undefined as any)
+                updateConfig("supportEmail", undefined)
                 setLocalSupportEmail("")
                 return
               }
@@ -1834,7 +2007,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           >
             <NumericInput
               id={ID.largeArea}
-              value={toNumericValue(localLargeAreaM2)}
+              value={parseOptionalNonNegativeInt(localLargeAreaM2)}
               min={0}
               step={10000}
               precision={0}
@@ -1879,7 +2052,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                     : `#${val}`
                   : DEFAULT_DRAWING_HEX
                 setLocalDrawingColor(cleaned)
-                updateConfig("drawingColor", cleaned as any)
+                updateConfig("drawingColor", cleaned)
               }}
               aria-label={translate("drawingColorLabel")}
             />

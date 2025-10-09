@@ -46,6 +46,29 @@ export const toTrimmedString = (value: unknown): string | undefined => {
   return trimmed || undefined
 }
 
+export const fingerprintToken = (token?: string | null): string => {
+  if (!token) return "len0-0"
+  let hash = 0
+  for (let i = 0; i < token.length; i += 1) {
+    hash = (hash * 31 + token.charCodeAt(i)) >>> 0
+  }
+  return `len${token.length}-${hash.toString(36)}`
+}
+
+export const normalizeKeySegment = (value?: string | null): string | null => {
+  const trimmed = toTrimmedString(value)
+  return trimmed ? trimmed.toLowerCase() : null
+}
+
+export const buildConnectionCacheKey = (
+  serverUrl?: string | null,
+  token?: string | null
+): string | null => {
+  const normalizedServer = normalizeKeySegment(serverUrl)
+  if (!normalizedServer) return null
+  return `${normalizedServer}|${fingerprintToken(token)}`
+}
+
 export const asString = (v: unknown): string =>
   typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
 
@@ -777,16 +800,20 @@ export const uniqueStrings = (values: Iterable<string>): string[] => {
   return result
 }
 
+export const sanitizeRepositoryList = (
+  repositories: Iterable<unknown> | null | undefined
+): string[] => uniqueStrings(collectTrimmedStrings(repositories))
+
 export const extractRepositoryNames = (source: unknown): string[] => {
   if (Array.isArray(source)) {
-    return uniqueStrings(collectStringsFromProp(source, "name"))
+    return sanitizeRepositoryList(collectStringsFromProp(source, "name"))
   }
 
   const record = toRecord(source)
   const items = record?.items
 
   if (Array.isArray(items)) {
-    return uniqueStrings(collectStringsFromProp(items, "name"))
+    return sanitizeRepositoryList(collectStringsFromProp(items, "name"))
   }
 
   return []
@@ -1894,6 +1921,18 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
   const n = Number(val)
   if (!Number.isFinite(n) || n < 0) return undefined
   return Math.floor(n)
+}
+
+export const parseOptionalNonNegativeInt = (
+  value: string | number | null | undefined
+): number | undefined => {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined
+  }
+
+  const trimmed = (value ?? "").toString().trim()
+  if (trimmed === "") return undefined
+  return parseNonNegativeInt(trimmed)
 }
 
 // TEMPORAL UTILITIES (DATE/TIME PARSING & FORMATTING)

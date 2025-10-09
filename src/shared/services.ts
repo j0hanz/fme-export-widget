@@ -50,6 +50,8 @@ import {
   extractRepositoryNames,
   isFileObject,
   toTrimmedString,
+  fingerprintToken,
+  normalizeKeySegment,
   extractTemporalParts,
   shouldApplyRemoteDatasetUrl,
   shouldUploadRemoteDataset,
@@ -219,6 +221,21 @@ const createFmeClient = (
   return new FmeFlowApiClient(config)
 }
 
+const makeConnectionKey = (
+  serverUrl: string,
+  token: string,
+  extras: ReadonlyArray<string | undefined | null> = []
+): string => {
+  const normalizedServer = normalizeKeySegment(serverUrl) ?? ""
+  const tokenSegment = fingerprintToken(token)
+  const extraSegment = extras
+    .map((part) => normalizeKeySegment(part) ?? "_")
+    .join("|")
+  return extraSegment
+    ? `${normalizedServer}|${tokenSegment}|${extraSegment}`
+    : `${normalizedServer}|${tokenSegment}`
+}
+
 // Generic in-flight request cache with automatic cleanup
 class InflightCache<T> {
   private readonly cache = new Map<string, Promise<T>>()
@@ -236,27 +253,105 @@ class InflightCache<T> {
   }
 }
 
+class TimedCache<T> {
+  private readonly cache = new Map<string, { value: T; timestamp: number }>()
+
+  constructor(private readonly ttlMs = 10000) {}
+
+  get(key: string): T | undefined {
+    const entry = this.cache.get(key)
+    if (!entry) return undefined
+
+    if (this.ttlMs > 0 && Date.now() - entry.timestamp > this.ttlMs) {
+      this.cache.delete(key)
+      return undefined
+    }
+
+    return entry.value
+  }
+
+  set(key: string, value: T): void {
+    this.cache.set(key, { value, timestamp: Date.now() })
+  }
+
+  delete(key: string): void {
+    this.cache.delete(key)
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+class InflightCacheWithTiming<T> {
+  private readonly inflight = new InflightCache<T>()
+  private readonly timed: TimedCache<T>
+
+  constructor(ttlMs = 10000) {
+    this.timed = new TimedCache<T>(ttlMs)
+  }
+
+  async execute(
+    key: string,
+    factory: () => Promise<T>,
+    options?: { force?: boolean }
+  ): Promise<T> {
+    if (!options?.force) {
+      const cached = this.timed.get(key)
+      if (cached !== undefined) {
+        return cached
+      }
+    } else {
+      this.timed.delete(key)
+    }
+
+    const result = await this.inflight.execute(key, factory)
+    this.timed.set(key, result)
+    return result
+  }
+
+  clear(): void {
+    this.timed.clear()
+  }
+
+  delete(key: string): void {
+    this.timed.delete(key)
+  }
+}
+
 // In-flight request deduplication
 const inFlight = {
-  healthCheck: new InflightCache<{
+  healthCheck: new InflightCacheWithTiming<{
     reachable: boolean
     version?: string
     responseTime?: number
     error?: string
     status?: number
-  }>(),
-  validateConnection: new InflightCache<ConnectionValidationResult>(),
-  testBasicConnection: new InflightCache<{
+  }>(10000),
+  validateConnection: new InflightCacheWithTiming<ConnectionValidationResult>(
+    10000
+  ),
+  testBasicConnection: new InflightCacheWithTiming<{
     success: boolean
     version?: string
     error?: string
     originalError?: unknown
-  }>(),
-  getRepositories: new InflightCache<{
+  }>(10000),
+  getRepositories: new InflightCacheWithTiming<{
     success: boolean
     repositories?: string[]
     error?: string
-  }>(),
+  }>(30000),
+}
+
+export const clearConnectionValidationCaches = (): void => {
+  inFlight.healthCheck.clear()
+  inFlight.validateConnection.clear()
+  inFlight.testBasicConnection.clear()
+}
+
+export const clearRepositoryCache = (): void => {
+  inFlight.getRepositories.clear()
 }
 
 // Network error detection
@@ -1399,7 +1494,7 @@ export async function healthCheck(
   error?: string
   status?: number
 }> {
-  const key = `${serverUrl}|${token}`
+  const key = makeConnectionKey(serverUrl, token)
   const urlValidation = validateServerUrl(serverUrl)
   if (!urlValidation.ok) {
     return {
@@ -1463,7 +1558,7 @@ export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
   const { serverUrl, token, repository, signal } = options
-  const key = `${serverUrl}|${token}|${repository || "_"}`
+  const key = makeConnectionKey(serverUrl, token, [repository])
   const steps: CheckSteps = {
     serverUrl: "pending",
     token: "pending",
@@ -1680,7 +1775,7 @@ export async function testBasicConnection(
   error?: string
   originalError?: unknown
 }> {
-  const key = `${serverUrl}|${token}`
+  const key = makeConnectionKey(serverUrl, token)
   return await inFlight.testBasicConnection.execute(key, async () => {
     try {
       const client = createFmeClient(serverUrl, token)
@@ -1703,7 +1798,8 @@ export async function testBasicConnection(
 export async function getRepositories(
   serverUrl: string,
   token: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { force?: boolean }
 ): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
   if (signal?.aborted) {
     throw createAbortError()
@@ -1737,12 +1833,10 @@ export async function getRepositories(
     }
   }
 
-  if (signal) {
-    return await execute()
-  }
-
-  const key = `${serverUrl}|${token}`
-  return await inFlight.getRepositories.execute(key, execute)
+  const key = makeConnectionKey(serverUrl, token)
+  return await inFlight.getRepositories.execute(key, execute, {
+    force: options?.force,
+  })
 }
 
 export async function resolveRemoteDataset({
