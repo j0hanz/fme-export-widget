@@ -1586,28 +1586,50 @@ export async function validateConnection(
         }
 
         let repositories: string[] = []
+        const warnings: string[] = []
+        let repoFetchStatus: number | undefined
         try {
           const reposResp = await client.getRepositories(signal)
           repositories = parseRepositoryNames(reposResp?.data)
+          repoFetchStatus = reposResp?.status
         } catch (error) {
+          repoFetchStatus = extractHttpStatus(error)
           repositories = []
         }
 
         // Step 3: Validate specific repository if provided
         if (repository) {
-          try {
-            await client.validateRepository(repository, signal)
+          const repoInList = repositories.includes(repository)
+          const listPermDenied =
+            repoFetchStatus === 401 || repoFetchStatus === 403
+
+          if (repoInList) {
             steps.repository = "ok"
-          } catch (error) {
-            steps.repository = "fail"
-            return {
-              success: false,
-              repositories,
-              steps,
-              error: {
-                message: "repositoryNotAccessible",
-                type: "repository",
-              },
+          } else if (listPermDenied) {
+            steps.repository = "skip"
+            warnings.push("repositoryNotAccessible")
+          } else {
+            try {
+              await client.validateRepository(repository, signal)
+              steps.repository = "ok"
+            } catch (error) {
+              const status = extractHttpStatus(error)
+              if (status === 401 || status === 403) {
+                steps.repository = "skip"
+                warnings.push("repositoryNotAccessible")
+              } else {
+                steps.repository = "fail"
+                return {
+                  success: false,
+                  repositories,
+                  steps,
+                  error: {
+                    message: mapErrorToKey(error, status),
+                    type: "repository",
+                    status,
+                  },
+                }
+              }
             }
           }
         }
@@ -1617,6 +1639,7 @@ export async function validateConnection(
           version: typeof steps.version === "string" ? steps.version : "",
           repositories,
           steps,
+          warnings: warnings.length ? warnings : undefined,
         }
       } catch (error) {
         if (isAbortError(error)) {

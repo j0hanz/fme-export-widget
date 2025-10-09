@@ -1046,12 +1046,21 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       updateConfig("fmeServerToken", settings.token)
       clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
 
+      const warnings: readonly string[] = Array.isArray(
+        validationResult.warnings
+      )
+        ? validationResult.warnings
+        : []
+      const hasRepositoryWarning = warnings.includes("repositoryNotAccessible")
+
       if (!silent) {
         setTestState({
           status: "success",
           isTesting: false,
-          message: translate("connectionOk"),
-          type: "success",
+          message: hasRepositoryWarning
+            ? translate("connectionOkRepositoryWarning")
+            : translate("connectionOk"),
+          type: hasRepositoryWarning ? "warning" : "success",
         })
       } else {
         setTestState((prev) => ({ ...prev, isTesting: false }))

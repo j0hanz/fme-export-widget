@@ -1107,6 +1107,7 @@ export interface ConnectionValidationResult {
     readonly status?: number
   }
   readonly steps: CheckSteps
+  readonly warnings?: readonly string[]
 }
 
 export interface StartupValidationResult {

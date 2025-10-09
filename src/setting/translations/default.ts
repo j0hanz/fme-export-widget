@@ -19,6 +19,8 @@ export default {
   refreshRepositories: "Uppdatera listan",
   fmeVersion: "FME‑version",
   connectionOk: "Anslutningen lyckades.",
+  connectionOkRepositoryWarning:
+    "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera FME-behörigheterna.",
   connectionFailed: "Anslutningen misslyckades:",
   availableRepositories: "Tillgängliga repositories",
   mapConfiguration: "Kartinställningar",
@@ -32,6 +34,8 @@ export default {
   errorInvalidServerUrl: "Ogiltig URL.",
   errorTokenIsInvalid: "Ogiltig API‑nyckel.",
   errorRepositoryNotFound: "Det valda repositoryt finns inte i listan.",
+  repositoryNotAccessible:
+    "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter eller välj ett annat repository.",
   fixErrorsAbove: "Åtgärda felen ovan.",
   requiredField: "Obligatoriskt fält",
   ariaRequired: "Obligatoriskt fält",

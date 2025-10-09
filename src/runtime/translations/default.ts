@@ -24,6 +24,8 @@ export default {
   errorServerIssue: "Serverfel vid anslutning.",
   serverUrlSettingsHint: "Granska inställningarna för server-URL.",
   errorRepositoryAccess: "Repositoryt kunde inte nås.",
+  repositoryNotAccessible:
+    "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter eller välj ett annat repository.",
   repositorySettingsHint: "Kontrollera repositoryinställningen.",
   errorNetworkIssue: "Nätverksfel eller proxy blockerar anslutningen.",
   networkConnectionHint: "Kontrollera nätverksanslutningen.",
