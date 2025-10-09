@@ -579,46 +579,30 @@ export const Slider: React.FC<{
 }
 
 // NumericInput component
-export const NumericInput: React.FC<{
-  value?: number
-  defaultValue?: number
-  min?: number
-  max?: number
-  step?: number
-  precision?: number
-  placeholder?: string
-  onChange?: (value: number) => void
+type NumericInputProps = Omit<
+  React.ComponentProps<typeof JimuNumericInput>,
+  "css" | "onChange" | "style"
+> & {
   style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-}> = ({
-  value,
-  defaultValue,
-  min,
-  max,
-  step,
-  precision,
-  placeholder,
-  onChange,
+  onChange?: (value: number | undefined) => void
+}
+
+export const NumericInput: React.FC<NumericInputProps> = ({
   style,
-  disabled,
-  "aria-label": ariaLabel,
+  onChange,
+  ...rest
 }) => {
   const styles = useStyles()
   return (
     <JimuNumericInput
-      value={value}
-      defaultValue={defaultValue}
-      min={min}
-      max={max}
-      step={step}
-      precision={precision}
-      placeholder={placeholder}
-      disabled={disabled}
-      aria-label={ariaLabel}
+      {...rest}
       onChange={(value) => {
         if (typeof value === "number") {
           onChange?.(value)
+          return
+        }
+        if (value == null) {
+          onChange?.(undefined)
         }
       }}
       css={applyFullWidthStyles(styles, style)}

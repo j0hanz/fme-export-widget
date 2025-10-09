@@ -31,6 +31,7 @@ import {
   Button,
   Icon,
   Input,
+  NumericInput,
   Select,
   Tooltip,
   config as uiConfig,
@@ -217,6 +218,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         <Button
           disabled={disabled}
           alignText="center"
+          type="primary"
           text={
             testState.isTesting
               ? translate("testing")
@@ -303,7 +305,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               size="sm"
               block={false}
               onClick={onRefreshRepositories}
-              variant="outlined"
+              type="tertiary"
               title={translate("refreshRepositories")}
               icon={<Icon src={resetIcon} size={14} />}
             />
@@ -431,6 +433,12 @@ const FieldRow: React.FC<{
   </SettingRow>
 )
 
+const toNumericValue = (value: string): number | undefined => {
+  const trimmed = (value ?? "").trim()
+  if (trimmed === "") return undefined
+  return parseNonNegativeInt(trimmed)
+}
+
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
@@ -446,34 +454,90 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   return (
     <SettingRow flow="wrap" level={2}>
       {/* Job directives (admin defaults) */}
-      <FieldRow
-        id={ID.tm_ttc}
+      <SettingRow
+        flow="wrap"
         label={
           <Tooltip content={translate("tm_ttcHelper")} placement="top">
             <span>{translate("tm_ttcLabel")}</span>
           </Tooltip>
         }
-        value={localTmTtc}
-        onChange={onTmTtcChange}
-        onBlur={onTmTtcBlur}
-        placeholder={translate("tm_ttcPlaceholder")}
-        errorText={fieldErrors.tm_ttc}
-        styles={styles}
-      />
-      <FieldRow
-        id={ID.tm_ttl}
+        level={1}
+        tag="label"
+      >
+        <NumericInput
+          id={ID.tm_ttc}
+          value={toNumericValue(localTmTtc)}
+          min={0}
+          step={1}
+          precision={0}
+          placeholder={translate("tm_ttcPlaceholder")}
+          aria-invalid={fieldErrors.tm_ttc ? true : undefined}
+          aria-describedby={
+            fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
+          }
+          onChange={(value) => {
+            onTmTtcChange(value === undefined ? "" : String(value))
+          }}
+          onBlur={(evt) => {
+            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
+            onTmTtcBlur(raw)
+          }}
+        />
+        {fieldErrors.tm_ttc && (
+          <SettingRow flow="wrap" level={3} css={css(styles.row)}>
+            <Alert
+              id={`${ID.tm_ttc}-error`}
+              fullWidth
+              css={css(styles.alertInline)}
+              text={fieldErrors.tm_ttc}
+              type="error"
+              closable={false}
+            />
+          </SettingRow>
+        )}
+      </SettingRow>
+      <SettingRow
+        flow="wrap"
         label={
           <Tooltip content={translate("tm_ttlHelper")} placement="top">
             <span>{translate("tm_ttlLabel")}</span>
           </Tooltip>
         }
-        value={localTmTtl}
-        onChange={onTmTtlChange}
-        onBlur={onTmTtlBlur}
-        placeholder={translate("tm_ttlPlaceholder")}
-        errorText={fieldErrors.tm_ttl}
-        styles={styles}
-      />
+        level={1}
+        tag="label"
+      >
+        <NumericInput
+          id={ID.tm_ttl}
+          value={toNumericValue(localTmTtl)}
+          min={0}
+          step={1}
+          precision={0}
+          placeholder={translate("tm_ttlPlaceholder")}
+          aria-invalid={fieldErrors.tm_ttl ? true : undefined}
+          aria-describedby={
+            fieldErrors.tm_ttl ? `${ID.tm_ttl}-error` : undefined
+          }
+          onChange={(value) => {
+            onTmTtlChange(value === undefined ? "" : String(value))
+          }}
+          onBlur={(evt) => {
+            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
+            onTmTtlBlur(raw)
+          }}
+        />
+        {fieldErrors.tm_ttl && (
+          <SettingRow flow="wrap" level={3} css={css(styles.row)}>
+            <Alert
+              id={`${ID.tm_ttl}-error`}
+              fullWidth
+              css={css(styles.alertInline)}
+              text={fieldErrors.tm_ttl}
+              type="error"
+              closable={false}
+            />
+          </SettingRow>
+        )}
+      </SettingRow>
     </SettingRow>
   )
 }
@@ -673,11 +737,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const shouldShowRemainingSettings =
     hasMapSelection && hasServerInputs && hasRepositorySelection
 
-  const handleLargeAreaChange = hooks.useEventCallback((val: string) => {
-    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-    const digitsOnly = (val ?? "").replace(/\D+/g, "")
-    setLocalLargeAreaM2(digitsOnly)
-  })
+  const handleLargeAreaChange = hooks.useEventCallback(
+    (val: number | undefined) => {
+      setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+      if (val === undefined) {
+        setLocalLargeAreaM2("")
+        return
+      }
+      setLocalLargeAreaM2(String(val))
+    }
+  )
 
   const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
     const trimmed = (val ?? "").trim()
@@ -1316,8 +1385,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setter: (val: string) => void,
       maxValue?: number
     ) => {
-      return (val: string) => {
-        const trimmed = (val ?? "").trim()
+      return (val: string | number | undefined) => {
+        const stringVal =
+          typeof val === "number" ? String(val) : (val ?? "")
+        const trimmed = stringVal.trim()
         const coerced = parseNonNegativeInt(trimmed)
         if (coerced === undefined || coerced === 0) {
           updateConfig(configKey, undefined as any)
@@ -1329,6 +1400,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }
       }
     }
+  )
+
+  const handleRequestTimeoutBlur = createNumericBlurHandler(
+    "requestTimeout",
+    setLocalRequestTimeout,
+    CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
   )
 
   hooks.useUpdateEffect(() => {
@@ -1406,90 +1483,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       )}
       {shouldShowRemainingSettings && (
         <>
-          <FieldRow
-            id={ID.supportEmail}
-            label={
-              <Tooltip
-                content={translate("supportEmailHelper")}
-                placement="top"
-              >
-                <span>{translate("supportEmail")}</span>
-              </Tooltip>
-            }
-            type="email"
-            value={localSupportEmail}
-            onChange={(val: string) => {
-              setLocalSupportEmail(val)
-              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-            }}
-            onBlur={(val: string) => {
-              const trimmed = (val ?? "").trim()
-              if (!trimmed) {
-                setFieldErrors((prev) => ({
-                  ...prev,
-                  supportEmail: undefined,
-                }))
-                updateConfig("supportEmail", undefined as any)
-                setLocalSupportEmail("")
-                return
-              }
-              const isValid = isValidEmail(trimmed)
-              const err = !isValid ? translate("invalidEmail") : undefined
-              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-              if (!err) {
-                updateConfig("supportEmail", trimmed)
-                setLocalSupportEmail(trimmed)
-              }
-            }}
-            placeholder={translate("supportEmailPlaceholder")}
-            errorText={fieldErrors.supportEmail}
-            styles={settingStyles}
-          />
-          <FieldRow
-            id={ID.maxArea}
-            label={
-              <Tooltip
-                content={translate("maxAreaHelper", {
-                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-                })}
-                placement="top"
-              >
-                <span>{translate("maxAreaLabel")}</span>
-              </Tooltip>
-            }
-            value={localMaxAreaM2}
-            onChange={(val: string) => {
-              setLocalMaxAreaM2(val)
-              setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-            }}
-            onBlur={handleMaxAreaBlur}
-            placeholder={translate("maxAreaPlaceholder")}
-            errorText={fieldErrors.maxArea}
-            styles={settingStyles}
-          />
-          <FieldRow
-            id={ID.aoiParamName}
-            label={
-              <Tooltip
-                content={translate("aoiParamNameHelper")}
-                placement="top"
-              >
-                <span>{translate("aoiParamNameLabel")}</span>
-              </Tooltip>
-            }
-            value={localAoiParamName}
-            onChange={(val: string) => {
-              setLocalAoiParamName(val)
-            }}
-            onBlur={(val: string) => {
-              const trimmed = val.trim()
-              const finalValue = trimmed || "AreaOfInterest"
-              updateConfig("aoiParamName", finalValue)
-              setLocalAoiParamName(finalValue)
-            }}
-            placeholder={translate("aoiParamNamePlaceholder")}
-            styles={settingStyles}
-          />
           <SettingRow
             flow="no-wrap"
             label={
@@ -1586,6 +1579,55 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               aria-label={translate("allowRemoteUrlDatasetLabel")}
             />
           </SettingRow>
+          <SettingRow
+            flow="wrap"
+            label={
+              <Tooltip
+                content={translate("maxAreaHelper", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                })}
+                placement="top"
+              >
+                <span>{translate("maxAreaLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+            tag="label"
+          >
+            <NumericInput
+              id={ID.maxArea}
+              value={toNumericValue(localMaxAreaM2)}
+              min={0}
+              step={10000}
+              precision={0}
+              placeholder={translate("maxAreaPlaceholder")}
+              aria-invalid={fieldErrors.maxArea ? true : undefined}
+              aria-describedby={
+                fieldErrors.maxArea ? `${ID.maxArea}-error` : undefined
+              }
+              onChange={(value) => {
+                setLocalMaxAreaM2(value === undefined ? "" : String(value))
+                setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+              }}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleMaxAreaBlur(raw)
+              }}
+            />
+            {fieldErrors.maxArea && (
+              <SettingRow flow="wrap" level={3} css={css(settingStyles.row)}>
+                <Alert
+                  id={`${ID.maxArea}-error`}
+                  fullWidth
+                  css={css(settingStyles.alertInline)}
+                  text={fieldErrors.maxArea}
+                  type="error"
+                  closable={false}
+                />
+              </SettingRow>
+            )}
+          </SettingRow>
           <JobDirectivesSection
             localTmTtc={localTmTtc}
             localTmTtl={localTmTtl}
@@ -1645,18 +1687,47 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             level={1}
             tag="label"
           >
-            <Input
+            <NumericInput
               id={ID.requestTimeout}
-              value={localRequestTimeout}
-              onChange={setLocalRequestTimeout}
-              onBlur={createNumericBlurHandler(
-                "requestTimeout",
-                setLocalRequestTimeout,
-                CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
-              )}
+              value={toNumericValue(localRequestTimeout)}
+              min={0}
+              step={10000}
+              precision={0}
               placeholder={translate("requestTimeoutPlaceholder")}
+              aria-label={translate("requestTimeoutLabel")}
+              onChange={(value) => {
+                setLocalRequestTimeout(value === undefined ? "" : String(value))
+              }}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleRequestTimeoutBlur(raw)
+              }}
             />
           </SettingRow>
+          <FieldRow
+            id={ID.aoiParamName}
+            label={
+              <Tooltip
+                content={translate("aoiParamNameHelper")}
+                placement="top"
+              >
+                <span>{translate("aoiParamNameLabel")}</span>
+              </Tooltip>
+            }
+            value={localAoiParamName}
+            onChange={(val: string) => {
+              setLocalAoiParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = val.trim()
+              const finalValue = trimmed || "AreaOfInterest"
+              updateConfig("aoiParamName", finalValue)
+              setLocalAoiParamName(finalValue)
+            }}
+            placeholder={translate("aoiParamNamePlaceholder")}
+            styles={settingStyles}
+          />
           {shouldShowMaskEmailSetting && (
             <SettingRow
               flow="no-wrap"
@@ -1728,6 +1799,45 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             />
           </SettingRow>
           <FieldRow
+            id={ID.supportEmail}
+            label={
+              <Tooltip
+                content={translate("supportEmailHelper")}
+                placement="top"
+              >
+                <span>{translate("supportEmail")}</span>
+              </Tooltip>
+            }
+            type="email"
+            value={localSupportEmail}
+            onChange={(val: string) => {
+              setLocalSupportEmail(val)
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (!trimmed) {
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  supportEmail: undefined,
+                }))
+                updateConfig("supportEmail", undefined as any)
+                setLocalSupportEmail("")
+                return
+              }
+              const isValid = isValidEmail(trimmed)
+              const err = !isValid ? translate("invalidEmail") : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+              if (!err) {
+                updateConfig("supportEmail", trimmed)
+                setLocalSupportEmail(trimmed)
+              }
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
+            styles={settingStyles}
+          />
+          <FieldRow
             id={ID.workspaceName}
             label={
               <Tooltip
@@ -1745,8 +1855,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             maxLength={100}
             styles={settingStyles}
           />
-          <FieldRow
-            id={ID.largeArea}
+          <SettingRow
+            flow="wrap"
             label={
               <Tooltip
                 content={translate("largeAreaHelper", {
@@ -1757,13 +1867,40 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("largeAreaLabel")}</span>
               </Tooltip>
             }
-            value={localLargeAreaM2}
-            onChange={handleLargeAreaChange}
-            onBlur={handleLargeAreaBlur}
-            placeholder={translate("largeAreaPlaceholder")}
-            errorText={fieldErrors.largeArea}
-            styles={settingStyles}
-          />
+            level={1}
+            tag="label"
+          >
+            <NumericInput
+              id={ID.largeArea}
+              value={toNumericValue(localLargeAreaM2)}
+              min={0}
+              step={10000}
+              precision={0}
+              placeholder={translate("largeAreaPlaceholder")}
+              aria-invalid={fieldErrors.largeArea ? true : undefined}
+              aria-describedby={
+                fieldErrors.largeArea ? `${ID.largeArea}-error` : undefined
+              }
+              onChange={handleLargeAreaChange}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleLargeAreaBlur(raw)
+              }}
+            />
+            {fieldErrors.largeArea && (
+              <SettingRow flow="wrap" level={3} css={css(settingStyles.row)}>
+                <Alert
+                  id={`${ID.largeArea}-error`}
+                  fullWidth
+                  css={css(settingStyles.alertInline)}
+                  text={fieldErrors.largeArea}
+                  type="error"
+                  closable={false}
+                />
+              </SettingRow>
+            )}
+          </SettingRow>
           <SettingRow
             flow="wrap"
             label={translate("drawingColorLabel")}
