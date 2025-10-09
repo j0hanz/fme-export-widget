@@ -1,4 +1,4 @@
-import type { UnitConversion } from "./types"
+import type { ServiceMode, UnitConversion } from "./types"
 
 import { FormFieldType, FmeActionType, ParameterType, ViewMode } from "./enums"
 
@@ -139,8 +139,6 @@ export const SCHEDULE_METADATA_FIELDS = Object.freeze([
   "description",
   "trigger",
 ] as const)
-
-export type ServiceMode = "sync" | "async" | "schedule"
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",

@@ -24,6 +24,7 @@ import {
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
+  type ServiceMode,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -57,6 +58,7 @@ import {
   shouldShowWorkspaceLoading,
   toTrimmedString,
   buildLargeAreaWarningMessage,
+  formatByteSize,
 } from "../../shared/utils"
 import { useFormStateManager, useWorkspaceLoader } from "../../shared/hooks"
 
@@ -241,7 +243,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
 }) => {
   const styles = useUiStyles()
   const isSuccess = !!orderResult.success
-  const isSyncMode = Boolean(config?.syncMode)
+  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+  const serviceMode: ServiceMode =
+    orderResult.serviceMode === "sync" ||
+    orderResult.serviceMode === "async" ||
+    orderResult.serviceMode === "schedule"
+      ? orderResult.serviceMode
+      : fallbackMode
   const downloadUrl = useDownloadResource(
     orderResult.downloadUrl,
     orderResult.blob
@@ -267,7 +275,39 @@ const OrderResult: React.FC<OrderResultProps> = ({
   addInfoRow(translate("jobId"), orderResult.jobId)
   addInfoRow(translate("workspace"), orderResult.workspaceName)
 
-  if (!isSyncMode) {
+  const deliveryModeKey =
+    serviceMode === "schedule"
+      ? "deliveryModeSchedule"
+      : serviceMode === "async"
+        ? "deliveryModeAsync"
+        : "deliveryModeSync"
+  addInfoRow(translate("deliveryMode"), translate(deliveryModeKey))
+
+  if (orderResult.downloadFilename) {
+    addInfoRow(translate("downloadFilename"), orderResult.downloadFilename)
+  }
+
+  const statusValue = toTrimmedString(orderResult.status)
+  if (statusValue) {
+    addInfoRow(translate("flowStatus"), statusValue)
+  }
+
+  const statusMessage = toTrimmedString(orderResult.statusMessage)
+  if (statusMessage && statusMessage !== toTrimmedString(orderResult.message)) {
+    addInfoRow(translate("flowMessage"), statusMessage)
+  }
+
+  const blobType = toTrimmedString(orderResult.blobMetadata?.type)
+  if (blobType) {
+    addInfoRow(translate("blobType"), blobType)
+  }
+
+  const blobSizeFormatted = formatByteSize(orderResult.blobMetadata?.size)
+  if (blobSizeFormatted) {
+    addInfoRow(translate("blobSize"), blobSizeFormatted)
+  }
+
+  if (serviceMode !== "sync") {
     const emailVal = orderResult.email
     const masked =
       config?.maskEmailOnSuccess && isSuccess
@@ -289,7 +329,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
     scheduleMetadata.category
 
   const titleText = isSuccess
-    ? isSyncMode
+    ? serviceMode === "sync"
       ? translate("orderComplete")
       : translate("orderConfirmation")
     : translate("orderSentError")
@@ -322,12 +362,15 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   let messageText: string | null = null
   if (isSuccess) {
-    if (!isSyncMode) {
+    if (serviceMode === "async") {
       messageText = translate("emailNotificationSent")
     }
   } else {
     const failureCode = (orderResult.code || "").toString().toUpperCase()
-    const rawMessage = String(orderResult.message ?? "").trim()
+    const rawMessage =
+      toTrimmedString(orderResult.message) ||
+      toTrimmedString(orderResult.statusMessage) ||
+      ""
 
     if (
       failureCode === "FME_JOB_FAILURE" ||
@@ -343,9 +386,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   let scheduleSection: React.ReactNode = null
   if (hasScheduleInfo && isSuccess && scheduleMetadata) {
-    const validation = validateScheduleDateTime(
-      scheduleMetadata.start || ""
-    )
+    const validation = validateScheduleDateTime(scheduleMetadata.start || "")
     const scheduleWarning = validation.isPast ? (
       <Alert
         type="warning"
@@ -366,9 +407,15 @@ const OrderResult: React.FC<OrderResultProps> = ({
         <div css={styles.typo.caption}>
           {translate("scheduleStartTime")}: {scheduleMetadata.start}
         </div>
+        {scheduleMetadata.trigger ? (
+          <div css={styles.typo.caption}>
+            {translate("scheduleTrigger")}: {scheduleMetadata.trigger}
+          </div>
+        ) : null}
         {scheduleMetadata.description ? (
           <div css={styles.typo.caption}>
-            {translate("scheduleJobDescription")}: {scheduleMetadata.description}
+            {translate("scheduleJobDescription")}:{" "}
+            {scheduleMetadata.description}
           </div>
         ) : null}
         {scheduleWarning}
@@ -393,7 +440,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
                 css={styles.typo.link}
                 download={orderResult.downloadFilename}
               >
-                {translate("clickToDownload")}
+                {orderResult.downloadFilename || translate("clickToDownload")}
               </a>
             </div>
           )}

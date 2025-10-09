@@ -19,6 +19,7 @@ import defaultMessages from "./translations/default"
 import type {
   FmeExportConfig,
   ExportResult,
+  ServiceMode,
   IMStateWithFmeExport,
   FmeWidgetState,
   WorkspaceParameter,
@@ -892,37 +893,49 @@ export default function Widget(
     fmeResponse: unknown,
     workspace: string,
     userEmail: string,
-    formData?: { [key: string]: unknown }
+    formData: { [key: string]: unknown } | undefined,
+    serviceMode?: ServiceMode | null
   ) => {
-    const result = processFmeResponse(
+    const baseResult = processFmeResponse(
       fmeResponse,
       workspace,
       userEmail,
       translate
     )
 
-    // Extract schedule metadata if present in form data
+    let nextResult: ExportResult = {
+      ...baseResult,
+      ...(serviceMode ? { serviceMode } : {}),
+    }
+
     if (formData && config?.allowScheduleMode) {
       const startVal = toTrimmedString(formData.start)
       const name = toTrimmedString(formData.name)
       const category = toTrimmedString(formData.category)
       const description = toTrimmedString(formData.description)
+      const trigger = toTrimmedString(formData.trigger)
 
       if (startVal && name && category) {
-        result.scheduleMetadata = {
+        const scheduleMetadata = {
+          ...(nextResult.scheduleMetadata ?? {}),
           start: startVal,
           name,
           category,
-          description: description || undefined,
+          ...(description ? { description } : {}),
+          ...(trigger ? { trigger } : {}),
         }
+        nextResult = { ...nextResult, scheduleMetadata }
       }
     }
 
-    finalizeOrder(result)
+    finalizeOrder(nextResult)
   }
 
   // Handle submission error
-  const handleSubmissionError = (error: unknown) => {
+  const handleSubmissionError = (
+    error: unknown,
+    serviceMode?: ServiceMode | null
+  ) => {
     // Prefer localized message key resolution
     const rawKey = mapErrorToKey(error) || "errorUnknown"
     let localizedErr = ""
@@ -941,6 +954,7 @@ export default function Widget(
       success: false,
       message: resultMessage,
       code: (error as { code?: string }).code || "SUBMISSION_ERROR",
+      ...(serviceMode ? { serviceMode } : {}),
     }
     finalizeOrder(result)
   }
@@ -962,6 +976,7 @@ export default function Widget(
     setSubmissionPhase("preparing")
 
     let controller: AbortController | null = null
+    let serviceMode: ServiceMode | null = null
 
     try {
       const latestConfig = configRef.current
@@ -969,12 +984,19 @@ export default function Widget(
         [key: string]: unknown
       }
       // Determine mode early from form data for email requirement
-      const earlyMode = determineServiceMode(
+      const determinedMode = determineServiceMode(
         { data: rawDataEarly },
         latestConfig
       )
+      serviceMode =
+        determinedMode === "sync" ||
+        determinedMode === "async" ||
+        determinedMode === "schedule"
+          ? determinedMode
+          : null
       const fmeClient = getOrCreateFmeClient()
-      const requiresEmail = earlyMode === "async" || earlyMode === "schedule"
+      const requiresEmail =
+        serviceMode === "async" || serviceMode === "schedule"
       const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
       const workspace = selectedWorkspace
@@ -1023,9 +1045,15 @@ export default function Widget(
           controller.signal
         )
       )
-      handleSubmissionSuccess(fmeResponse, workspace, userEmail, rawDataEarly)
+      handleSubmissionSuccess(
+        fmeResponse,
+        workspace,
+        userEmail,
+        rawDataEarly,
+        serviceMode
+      )
     } catch (error) {
-      handleSubmissionError(error)
+      handleSubmissionError(error, serviceMode)
     } finally {
       setSubmissionPhase("idle")
       dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))

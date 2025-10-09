@@ -72,6 +72,8 @@ export interface ScheduleMetadata {
   readonly trigger?: string
 }
 
+export type ServiceMode = "sync" | "async" | "schedule"
+
 export interface ScheduleValidationResult {
   readonly valid: boolean
   readonly errors?: {
@@ -609,6 +611,7 @@ export interface FmeExportConfig {
   readonly tm_ttl?: number | string
   readonly showResult?: boolean
   readonly aoiParamName?: string
+  readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
@@ -863,7 +866,7 @@ export type CoordinateTuple = readonly number[]
 
 export interface ExportResult {
   readonly success: boolean
-  readonly message: string
+  readonly message?: string
   readonly code?: string
   readonly jobId?: number
   readonly workspaceName?: string
@@ -876,6 +879,14 @@ export interface ExportResult {
     readonly name?: string
     readonly category?: string
     readonly description?: string
+    readonly trigger?: string
+  }
+  readonly status?: string
+  readonly statusMessage?: string
+  readonly serviceMode?: ServiceMode
+  readonly blobMetadata?: {
+    readonly type?: string
+    readonly size?: number
   }
 }
 

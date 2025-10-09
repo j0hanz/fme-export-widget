@@ -2,6 +2,7 @@ import {
   ErrorSeverity,
   ErrorType,
   type ErrorState,
+  type ExportResult,
   type FmeExportConfig,
   type StartupValidationResult,
   type TranslateFn,
@@ -1325,6 +1326,13 @@ const createFmeResponse = {
     email: userEmail,
     workspaceName: workspace,
     downloadFilename: `${workspace}_export.zip`,
+    blobMetadata: {
+      type: toTrimmedString(blob.type),
+      size:
+        typeof blob.size === "number" && Number.isFinite(blob.size)
+          ? blob.size
+          : undefined,
+    },
   }),
 
   success: (
@@ -1339,6 +1347,8 @@ const createFmeResponse = {
     workspaceName: workspace,
     downloadUrl: serviceInfo.url,
     downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
+    status: serviceInfo.status,
+    statusMessage: serviceInfo.message,
   }),
 
   failure: (message: string) => ({
@@ -1357,7 +1367,7 @@ export const processFmeResponse = (
   workspace: string,
   userEmail: string,
   translateFn: TranslateFn
-): any => {
+): ExportResult => {
   const response = fmeResponse as any
   const data = response?.data
 
