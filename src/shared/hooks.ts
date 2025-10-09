@@ -11,6 +11,7 @@ import type {
   WorkspaceItem,
   FormPrimitive,
   FormValues,
+  LoadingSnapshot,
 } from "../config/index"
 import {
   ErrorSeverity,
@@ -748,25 +749,51 @@ export const useControlledValue = <T = unknown>(
 export const useLoadingLatch = (
   state: { kind: string; [key: string]: any },
   delay: number
-): { showLoading: boolean; snapshot: any } => {
+): { showLoading: boolean; snapshot: LoadingSnapshot } => {
+  const createSnapshot = (
+    source:
+      | {
+          [key: string]: any
+        }
+      | null
+      | undefined
+  ): LoadingSnapshot => {
+    if (!source) return null
+    const message = source.message as React.ReactNode | undefined
+    const detail = source.detail as React.ReactNode | undefined
+    const rawMessages = source.messages as
+      | readonly React.ReactNode[]
+      | undefined
+    const messages = Array.isArray(rawMessages)
+      ? (rawMessages.filter(
+          (entry) => entry !== null && entry !== undefined
+        ) as readonly React.ReactNode[])
+      : undefined
+
+    if (
+      message == null &&
+      detail == null &&
+      (!messages || messages.length === 0)
+    ) {
+      return null
+    }
+
+    return { message, detail, messages }
+  }
+
   const [latched, setLatched] = React.useState(state.kind === "loading")
   const startRef = React.useRef<number | null>(
     state.kind === "loading" ? Date.now() : null
   )
-  const snapshotRef = React.useRef<any>(
-    state.kind === "loading"
-      ? { message: state.message, detail: state.detail }
-      : null
+  const snapshotRef = React.useRef<LoadingSnapshot>(
+    state.kind === "loading" ? createSnapshot(state) : null
   )
 
   hooks.useEffectWithPreviousValues(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
 
     if (state.kind === "loading") {
-      snapshotRef.current = {
-        message: state.message,
-        detail: state.detail,
-      }
+      snapshotRef.current = createSnapshot(state)
       if (startRef.current == null) {
         startRef.current = Date.now()
       }
@@ -797,9 +824,7 @@ export const useLoadingLatch = (
   }, [state, delay])
 
   const isLoading = state.kind === "loading"
-  const snapshot = isLoading
-    ? { message: state.message, detail: state.detail }
-    : snapshotRef.current
+  const snapshot = isLoading ? createSnapshot(state) : snapshotRef.current
 
   return {
     showLoading: isLoading || latched,

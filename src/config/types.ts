@@ -114,6 +114,7 @@ export type ViewState =
       readonly kind: "loading"
       readonly message?: string
       readonly detail?: string
+      readonly messages?: readonly React.ReactNode[]
     }
   | {
       readonly kind: "error"
@@ -138,8 +139,14 @@ export type ViewState =
 
 export const makeLoadingView = (
   message?: string,
-  detail?: string
-): ViewState => ({ kind: "loading", message, detail })
+  detail?: string,
+  messages?: readonly React.ReactNode[]
+): ViewState => ({
+  kind: "loading",
+  message,
+  detail,
+  messages,
+})
 
 export const makeEmptyView = (
   message: string,
@@ -166,6 +173,7 @@ export const makeErrorView = (
 export type LoadingSnapshot = {
   readonly message?: React.ReactNode
   readonly detail?: React.ReactNode
+  readonly messages?: readonly React.ReactNode[]
 } | null
 
 export interface DrawingSessionState {

@@ -22,7 +22,13 @@ export const config = {
     textPadding: "18px",
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 215, height: 215, delay: 1000 },
+  loading: {
+    width: 215,
+    height: 215,
+    delay: 1000,
+    detailDelay: 1600,
+    cycleInterval: 5200,
+  },
   required: "*",
 } as const
 

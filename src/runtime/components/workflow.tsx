@@ -864,9 +864,45 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Small helpers to render common StateViews consistently
   const renderLoading = hooks.useEventCallback(
-    (message?: string, subMessage?: string) => (
-      <StateView state={makeLoadingView(message, subMessage)} />
-    )
+    (
+      message?: string,
+      subMessage?: string,
+      extras?: readonly React.ReactNode[]
+    ) => {
+      const additionalMessages: React.ReactNode[] = []
+
+      if (Array.isArray(extras)) {
+        for (const entry of extras) {
+          if (entry !== null && entry !== undefined) {
+            additionalMessages.push(entry)
+          }
+        }
+      }
+
+      const waitText = translate("pleaseWait")
+      const hasWaitAlready = additionalMessages.some(
+        (entry) => typeof entry === "string" && entry === waitText
+      )
+
+      if (
+        waitText &&
+        waitText !== message &&
+        waitText !== subMessage &&
+        !hasWaitAlready
+      ) {
+        additionalMessages.push(waitText)
+      }
+
+      return (
+        <StateView
+          state={makeLoadingView(
+            message,
+            subMessage,
+            additionalMessages.length ? additionalMessages : undefined
+          )}
+        />
+      )
+    }
   )
 
   const renderError = hooks.useEventCallback(
@@ -1085,10 +1121,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     const waitMessage = translate("statusPreparingMapTools")
     const waitDetail = translate("statusPreparingMapToolsDetail")
     if (isModulesLoading) {
-      return renderLoading(waitMessage, waitDetail)
+      return renderLoading(waitMessage, waitDetail, [
+        translate("drawingModeTooltip"),
+      ])
     }
     if (!canDraw) {
-      return renderLoading(waitMessage, waitDetail)
+      return renderLoading(waitMessage, waitDetail, [
+        translate("drawingModeTooltip"),
+      ])
     }
     return renderDrawingModeTabs()
   }
@@ -1120,7 +1160,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const detail = workspaceItems.length
         ? translate("loadingWorkspaceDetailsDetail")
         : translate("loadingWorkspacesDetail")
-      return renderLoading(message, detail)
+      return renderLoading(message, detail, [translate("tooltipBackToOptions")])
     }
 
     if (workspaceError) {
@@ -1156,7 +1196,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (!workspaceParameters || !selectedWorkspace) {
       return renderLoading(
         translate("loadingWorkspaceDetails"),
-        translate("loadingWorkspaceDetailsDetail")
+        translate("loadingWorkspaceDetailsDetail"),
+        [translate("configureWorkspaceParameters")]
       )
     }
 
@@ -1194,7 +1235,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
       const loadingMessage =
         startupValidationStep || translate("validatingStartup")
-      return <StateView state={makeLoadingView(loadingMessage)} />
+      return renderLoading(loadingMessage)
     }
 
     if (state === ViewMode.ORDER_RESULT && orderResult) {

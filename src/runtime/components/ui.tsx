@@ -1272,6 +1272,121 @@ const StateView: React.FC<StateViewProps> = ({
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
+  const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
+    React.useState(0)
+
+  const seenStrings = new Set<string>()
+  const loadingMessages: React.ReactNode[] = []
+  const appendLoadingMessage = (
+    value: React.ReactNode | null | undefined
+  ): void => {
+    if (value === null || value === undefined) {
+      return
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      if (!trimmed || seenStrings.has(trimmed)) {
+        return
+      }
+      seenStrings.add(trimmed)
+      loadingMessages.push(trimmed)
+      return
+    }
+
+    loadingMessages.push(value)
+  }
+
+  const loadingMessageFromState =
+    state.kind === "loading" ? state.message : undefined
+  const loadingDetailFromState =
+    state.kind === "loading" ? state.detail : undefined
+  const loadingExtrasFromState =
+    state.kind === "loading" && Array.isArray(state.messages)
+      ? state.messages
+      : undefined
+
+  appendLoadingMessage(snapshot?.message ?? loadingMessageFromState)
+  appendLoadingMessage(snapshot?.detail ?? loadingDetailFromState)
+
+  const extraMessages =
+    (snapshot?.messages && Array.isArray(snapshot.messages)
+      ? snapshot.messages
+      : loadingExtrasFromState) ?? []
+
+  for (const message of extraMessages) {
+    appendLoadingMessage(message)
+  }
+
+  const messageCount = loadingMessages.length
+  const messageSignature = loadingMessages
+    .map((value, index) => {
+      if (typeof value === "string") return value
+      if (React.isValidElement(value) && value.key != null) {
+        return String(value.key)
+      }
+      return `node-${index}`
+    })
+    .join("|")
+
+  hooks.useEffectWithPreviousValues(() => {
+    setActiveLoadingMessageIndex(0)
+  }, [messageSignature, showLoading])
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (messageCount === 0 && activeLoadingMessageIndex !== 0) {
+      setActiveLoadingMessageIndex(0)
+      return
+    }
+
+    if (messageCount > 0 && activeLoadingMessageIndex >= messageCount) {
+      setActiveLoadingMessageIndex(messageCount - 1)
+    }
+  }, [messageCount, activeLoadingMessageIndex])
+
+  // Cycle through messages if there's more than one
+  hooks.useEffectWithPreviousValues(() => {
+    if (!showLoading || messageCount <= 1) {
+      return
+    }
+
+    const detailDelay = config.loading.detailDelay ?? config.loading.delay
+    const cycleInterval = config.loading.cycleInterval ?? 0
+
+    let detailTimer: ReturnType<typeof setTimeout> | null = null
+    let cycleTimer: ReturnType<typeof setInterval> | null = null
+
+    detailTimer = setTimeout(() => {
+      setActiveLoadingMessageIndex((prev) => {
+        if (messageCount <= 1) {
+          return 0
+        }
+        const normalized = prev % messageCount
+        return normalized === 0 ? 1 : normalized
+      })
+
+      if (cycleInterval > 0) {
+        cycleTimer = setInterval(() => {
+          setActiveLoadingMessageIndex((prev) => {
+            if (messageCount <= 1) {
+              return 0
+            }
+            return (prev + 1) % messageCount
+          })
+        }, cycleInterval)
+      }
+    }, detailDelay)
+
+    return () => {
+      if (detailTimer) clearTimeout(detailTimer)
+      if (cycleTimer) clearInterval(cycleTimer)
+    }
+  }, [showLoading, messageCount, messageSignature])
+
+  const activeLoadingMessage =
+    messageCount > 0
+      ? loadingMessages[activeLoadingMessageIndex % messageCount]
+      : null
 
   const defaultActionsRenderer = hooks.useEventCallback(
     ({
@@ -1316,29 +1431,27 @@ const StateView: React.FC<StateViewProps> = ({
       }) => renderActions(actions, ariaLabel)
     : defaultActionsRenderer
 
-  const renderLoadingState = () => {
-    const message = snapshot?.message
-    const detail = snapshot?.detail
-
-    const displayText = detail || message
-
-    return (
-      <div css={styles.centered} role="status" aria-live="polite">
-        {showLoading && (
-          <Loading
-            type={LoadingType.Donut}
-            width={config.loading.width}
-            height={config.loading.height}
-          />
-        )}
-        {displayText && (
-          <div css={[styles.typo.loadingMessage, styles.loadingText]}>
-            {displayText}
-          </div>
-        )}
-      </div>
-    )
-  }
+  const renderLoadingState = () => (
+    <div
+      css={styles.centered}
+      role="status"
+      aria-live="polite"
+      aria-atomic={true}
+    >
+      {showLoading && (
+        <Loading
+          type={LoadingType.Donut}
+          width={config.loading.width}
+          height={config.loading.height}
+        />
+      )}
+      {activeLoadingMessage ? (
+        <div css={[styles.typo.loadingMessage, styles.loadingText]}>
+          {activeLoadingMessage}
+        </div>
+      ) : null}
+    </div>
+  )
 
   const renderStateByKind = (): React.ReactNode => {
     switch (state.kind) {
