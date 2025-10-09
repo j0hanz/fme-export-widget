@@ -17,6 +17,7 @@ import {
   useNumberConfigValue,
   useUpdateConfig,
   useLatestAbortController,
+  useDebounce,
 } from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -67,6 +68,7 @@ import type {
   ConnectionTestSectionProps,
   RepositorySelectorProps,
   JobDirectivesSectionProps,
+  ValidationPhase,
 } from "../config/index"
 import {
   DEFAULT_DRAWING_HEX,
@@ -102,6 +104,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   onTestConnection,
   translate,
   styles,
+  validationPhase,
 }) => {
   const isStepStatus = (v: unknown): v is StepStatus =>
     typeof v === "object" &&
@@ -178,22 +181,41 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
       typeof checkSteps.version === "string" ? checkSteps.version : ""
     const hasVersion: boolean = versionText.length > 0
 
+    const phaseKey = (() => {
+      if (validationPhase === "checking") return "testingConnection"
+      if (validationPhase === "fetchingRepos") return "loadingRepositories"
+      return null
+    })()
+
     return (
       <div
         css={css(styles.status.container)}
         role="status"
         aria-live="polite"
         aria-atomic={true}
-        aria-busy={testState.isTesting ? true : undefined}
+        aria-busy={
+          testState.isTesting || validationPhase === "fetchingRepos"
+            ? true
+            : undefined
+        }
       >
-        {testState.isTesting && (
+        {(testState.isTesting || validationPhase === "fetchingRepos") && (
           <Loading
             type={LoadingType.Bar}
-            text={translate("testingConnection")}
+            text={translate(
+              validationPhase === "fetchingRepos"
+                ? "loadingRepositories"
+                : "testingConnection"
+            )}
           />
         )}
 
         <div css={css(styles.status.list)}>
+          {phaseKey && (
+            <div css={css(styles.status.row)}>
+              <div>{translate(phaseKey)}</div>
+            </div>
+          )}
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
@@ -660,6 +682,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [checkSteps, setCheckSteps] = React.useState<CheckSteps>(() =>
     getInitialCheckSteps()
   )
+  const [validationPhase, setValidationPhase] =
+    React.useState<ValidationPhase>("idle")
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
@@ -835,6 +859,47 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Keep latest values handy for async readers
   const translateRef = hooks.useLatest(translate)
 
+  const runServerValidation = hooks.useEventCallback((value: string) => {
+    const trimmed = toTrimmedString(value)
+    if (!trimmed) {
+      setError(setFieldErrors, "serverUrl", undefined)
+      return
+    }
+
+    const validation = validateServerUrl(trimmed, { requireHttps: true })
+    let message: string | undefined
+    if (!validation.ok) {
+      let messageKey: string | undefined
+      if ("reason" in validation) {
+        messageKey = mapServerUrlReasonToKey(validation.reason)
+      } else if ("key" in validation && typeof validation.key === "string") {
+        messageKey = validation.key
+      }
+      message = messageKey ? translateRef.current(messageKey) : undefined
+    } else {
+      message = undefined
+    }
+    setError(setFieldErrors, "serverUrl", message)
+  })
+
+  const runTokenValidation = hooks.useEventCallback((value: string) => {
+    const trimmed = toTrimmedString(value)
+    if (!trimmed) {
+      setError(setFieldErrors, "token", undefined)
+      return
+    }
+
+    const validation = validateToken(trimmed)
+    const message =
+      !validation.ok && validation.key
+        ? translateRef.current(validation.key)
+        : undefined
+    setError(setFieldErrors, "token", message)
+  })
+
+  const debouncedServerValidation = useDebounce(runServerValidation, 800)
+  const debouncedTokenValidation = useDebounce(runTokenValidation, 800)
+
   // Abort any in-flight repository request
   const abortReposRequest = hooks.useEventCallback(() => {
     reposAbort.cancel()
@@ -856,6 +921,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (!trimmedServerUrl || !trimmedToken) {
         setAvailableRepos(null)
         setReposHint(null)
+        setValidationPhase("idle")
         return
       }
 
@@ -866,6 +932,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (indicateLoading) {
         setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
         setReposHint(null)
+        setValidationPhase("fetchingRepos")
       }
 
       try {
@@ -884,6 +951,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }
       } finally {
         reposAbort.finalize(ctrl)
+        if (indicateLoading) {
+          setValidationPhase((prev) =>
+            prev === "fetchingRepos" ? "complete" : prev
+          )
+        }
       }
     }
   )
@@ -893,10 +965,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     abortReposRequest()
     setAvailableRepos(null)
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+    setValidationPhase("idle")
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
     testAbort.cancel()
+    setValidationPhase("idle")
     setTestState((prev) => {
       if (
         prev.status === "idle" &&
@@ -1031,6 +1105,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Connection test sub-functions for better organization
   const handleTestSuccess = hooks.useEventCallback(
     (validationResult: any, settings: FmeFlowConfig, silent: boolean) => {
+      setValidationPhase("complete")
       setCheckSteps({
         serverUrl: validationResult.steps.serverUrl,
         token: validationResult.steps.token,
@@ -1070,6 +1145,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const handleTestFailure = hooks.useEventCallback(
     (validationResult: any, silent: boolean) => {
+      setValidationPhase("complete")
       const error = validationResult.error
       const failureType = (error?.type || "server") as
         | "server"
@@ -1105,6 +1181,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     (err: unknown, silent: boolean) => {
       if ((err as Error)?.name === "AbortError") return
 
+      setValidationPhase("complete")
       const errorStatus = extractHttpStatus(err)
       const failureType =
         !errorStatus || errorStatus === 0 ? "network" : "server"
@@ -1140,6 +1217,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
     if (hasErrors || !settings) {
+      setValidationPhase("idle")
       if (!silent) {
         setTestState({
           status: "error",
@@ -1151,6 +1229,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return
     }
 
+    setValidationPhase("checking")
     const controller = testAbort.abortAndCreate()
     const signal = controller.signal
 
@@ -1191,6 +1270,9 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     } catch (err) {
       handleTestError(err, silent)
     } finally {
+      if (controller.signal.aborted) {
+        setValidationPhase("idle")
+      }
       testAbort.finalize(controller)
     }
   })
@@ -1253,6 +1335,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["serverUrl"])
+    debouncedServerValidation(val)
   })
 
   // Handle token changes with delayed validation
@@ -1263,11 +1346,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     // Clear previous error immediately for better UX, but don't validate on every keystroke
     clearErrors(setFieldErrors, ["token"])
+    debouncedTokenValidation(val)
   })
 
   // Handle server URL blur - save to config and clear repository state
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     // Validate on blur
+    debouncedServerValidation.cancel()
     const validation = validateServerUrl(url, { requireHttps: true })
     const reasonKey =
       !validation.ok && "reason" in validation
@@ -1309,6 +1394,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Handle token blur - save to config and clear repository state
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
     // Validate on blur
+    debouncedTokenValidation.cancel()
     const validation = validateToken(token)
     const tokenError =
       !validation.ok && validation.key ? translate(validation.key) : undefined
@@ -1437,6 +1523,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             onTestConnection={() => testConnection(false)}
             translate={translate}
             styles={settingStyles}
+            validationPhase={validationPhase}
           />
           {shouldShowRepositorySelector && (
             <RepositorySelector

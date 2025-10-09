@@ -24,6 +24,7 @@ import {
   type OrderResultProps,
   type ExportFormProps,
   type DynamicFieldConfig,
+  type LoadingState,
   type ServiceMode,
   ViewMode,
   DrawingTool,
@@ -35,6 +36,7 @@ import {
   type ErrorState,
   ErrorSeverity,
   makeErrorView,
+  MS_LOADING,
   useUiStyles,
 } from "../../config/index"
 import polygonIcon from "../../assets/icons/polygon.svg"
@@ -60,7 +62,11 @@ import {
   buildLargeAreaWarningMessage,
   formatByteSize,
 } from "../../shared/utils"
-import { useFormStateManager, useWorkspaceLoader } from "../../shared/hooks"
+import {
+  useFormStateManager,
+  useWorkspaceLoader,
+  useDebounce,
+} from "../../shared/hooks"
 
 const DRAWING_MODE_TABS = [
   {
@@ -80,6 +86,34 @@ const DRAWING_MODE_TABS = [
 ] as const
 
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
+
+const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
+  modules: false,
+  submission: false,
+  workspaces: false,
+  parameters: false,
+})
+
+const cloneLoadingState = (state: LoadingState): LoadingState => ({
+  modules: Boolean(state.modules),
+  submission: Boolean(state.submission),
+  workspaces: Boolean(state.workspaces),
+  parameters: Boolean(state.parameters),
+})
+
+const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
+  a.modules === b.modules &&
+  a.submission === b.submission &&
+  a.workspaces === b.workspaces &&
+  a.parameters === b.parameters
+
+const isLoadingActive = (state: LoadingState): boolean =>
+  Boolean(
+    state.modules ||
+      state.submission ||
+      state.workspaces ||
+      state.parameters
+  )
 
 // Helper: Check if value is non-empty string
 const isNonEmptyString = (value: unknown): value is string =>
@@ -770,12 +804,48 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Ensure a non-empty widgetId for internal Redux interactions
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
 
-  const loadingState = loadingStateProp ?? {
-    modules: false,
-    submission: false,
-    workspaces: false,
-    parameters: false,
-  }
+  const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
+  const [latchedLoadingState, setLatchedLoadingState] =
+    React.useState<LoadingState>(() =>
+      cloneLoadingState(incomingLoadingState)
+    )
+  const latchedLoadingRef = hooks.useLatest(latchedLoadingState)
+  const releaseLoadingState = useDebounce(
+    (next: LoadingState) => {
+      setLatchedLoadingState(cloneLoadingState(next))
+    },
+    MS_LOADING
+  )
+
+  hooks.useEffectWithPreviousValues(() => {
+    const current = latchedLoadingRef.current
+    const incoming = incomingLoadingState
+
+    if (isLoadingActive(incoming)) {
+      releaseLoadingState.cancel()
+      if (!loadingStatesEqual(current, incoming)) {
+        setLatchedLoadingState(cloneLoadingState(incoming))
+      }
+      return
+    }
+
+    if (isLoadingActive(current)) {
+      releaseLoadingState(incoming)
+      return
+    }
+
+    if (!loadingStatesEqual(current, incoming)) {
+      setLatchedLoadingState(cloneLoadingState(incoming))
+    }
+  }, [
+    incomingLoadingState.modules,
+    incomingLoadingState.parameters,
+    incomingLoadingState.workspaces,
+    incomingLoadingState.submission,
+    releaseLoadingState,
+  ])
+
+  const loadingState = latchedLoadingState
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
   const isWorkspaceLoading = Boolean(loadingState.workspaces)

@@ -942,6 +942,12 @@ export type SubmissionPhase =
   | "finalizing"
   | "submitting"
 
+export type ValidationPhase =
+  | "idle"
+  | "checking"
+  | "fetchingRepos"
+  | "complete"
+
 export interface FmeWidgetState {
   readonly viewMode: ViewMode
   readonly drawingTool: DrawingTool
@@ -975,6 +981,7 @@ export interface ConnectionTestSectionProps {
   readonly onTestConnection: () => void
   readonly translate: TranslateFn
   readonly styles: SettingStyles
+  readonly validationPhase: ValidationPhase
 }
 
 export interface RepositorySelectorProps {

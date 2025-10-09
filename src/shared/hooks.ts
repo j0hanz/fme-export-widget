@@ -74,6 +74,57 @@ export const removeLayerFromMap = (
   })
 }
 
+type DebouncedFn<T extends (...args: any[]) => void> = ((
+  ...args: Parameters<T>
+) => void) & { cancel: () => void }
+
+export const useDebounce = <T extends (...args: any[]) => void>(
+  callback: T,
+  delay: number
+): DebouncedFn<T> => {
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const callbackRef = hooks.useLatest(callback)
+
+  const cancel = hooks.useEventCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+  })
+
+  const run = hooks.useEventCallback((...args: Parameters<T>) => {
+    cancel()
+    timeoutRef.current = setTimeout(() => {
+      callbackRef.current(...args)
+      timeoutRef.current = null
+    }, delay)
+  })
+
+  const debouncedRef = React.useRef<DebouncedFn<T> | null>(null)
+  const runRef = hooks.useLatest(run)
+  const cancelRef = hooks.useLatest(cancel)
+
+  if (!debouncedRef.current) {
+    const runner = ((...args: Parameters<T>) => {
+      runRef.current(...args)
+    }) as DebouncedFn<T>
+    runner.cancel = () => cancelRef.current()
+    debouncedRef.current = runner
+  }
+
+  hooks.useEffectOnce(() => {
+    return () => {
+      cancelRef.current()
+    }
+  })
+
+  const debounced = debouncedRef.current
+  if (!debounced) {
+    throw new Error('debounceUnavailable')
+  }
+  return debounced
+}
+
 // ArcGIS Modules Loader Hook
 export const useEsriModules = (
   reloadSignal: number
@@ -596,13 +647,14 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
     }
   )
 
-  const scheduleLoad = hooks.useEventCallback(() => {
-    const timeoutId = setTimeout(() => {
-      void loadAll()
-    }, MS_LOADING)
+  const debouncedLoadAll = useDebounce(() => {
+    void loadAll()
+  }, MS_LOADING)
 
+  const scheduleLoad = hooks.useEventCallback(() => {
+    debouncedLoadAll()
     return () => {
-      clearTimeout(timeoutId)
+      debouncedLoadAll.cancel()
     }
   })
 
@@ -616,6 +668,7 @@ export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
         reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
         loadingScopeRef.current = null
       }
+      debouncedLoadAll.cancel()
     }
   })
 

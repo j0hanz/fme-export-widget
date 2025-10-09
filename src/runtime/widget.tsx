@@ -38,6 +38,7 @@ import {
   ErrorSeverity,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
+  MS_LOADING,
 } from "../config/index"
 import {
   validateWidgetStartup,
@@ -84,6 +85,7 @@ import {
   useErrorDispatcher,
   safeCancelSketch,
   safeClearLayer,
+  useDebounce,
 } from "../shared/hooks"
 
 export default function Widget(
@@ -490,6 +492,26 @@ export default function Widget(
     loading: modulesLoading,
     errorKey: modulesErrorKey,
   } = useEsriModules(moduleRetryKey)
+  const [latchedModulesLoading, setLatchedModulesLoading] = React.useState(() =>
+    Boolean(modulesLoading)
+  )
+  const debounceModulesLoading = useDebounce((next: boolean) => {
+    setLatchedModulesLoading(next)
+  }, MS_LOADING)
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (modulesLoading) {
+      debounceModulesLoading.cancel()
+      if (!latchedModulesLoading) {
+        setLatchedModulesLoading(true)
+      }
+      return
+    }
+
+    if (latchedModulesLoading) {
+      debounceModulesLoading(false)
+    }
+  }, [modulesLoading, latchedModulesLoading, debounceModulesLoading])
   const mapResources = useMapResources()
 
   hooks.useEffectWithPreviousValues(() => {
@@ -1451,7 +1473,7 @@ export default function Widget(
   })
 
   // Render loading state if modules are still loading
-  if (modulesLoading) {
+  if (latchedModulesLoading) {
     return (
       <div css={styles.parent}>
         <StateView
@@ -1501,7 +1523,7 @@ export default function Widget(
   const showHeaderActions =
     (drawingSession.isActive || drawnArea > 0) &&
     !isSubmitting &&
-    !modulesLoading
+    !latchedModulesLoading
 
   // precompute UI booleans
   const hasSingleMapWidget = Boolean(
@@ -1542,7 +1564,7 @@ export default function Widget(
         )}
         loadingState={{
           ...loadingState,
-          modules: modulesLoading,
+          modules: latchedModulesLoading,
           submission: isSubmitting,
         }}
         modules={modules}
