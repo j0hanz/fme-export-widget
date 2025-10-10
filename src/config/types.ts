@@ -100,6 +100,36 @@ export interface PrimitiveParams {
   [key: string]: unknown
 }
 
+export type WebhookErrorCode =
+  | "URL_TOO_LONG"
+  | "WEBHOOK_AUTH_ERROR"
+  | "WEBHOOK_BAD_RESPONSE"
+  | "WEBHOOK_NON_JSON"
+  | "WEBHOOK_TIMEOUT"
+
+export type TmParamKey = "tm_ttc" | "tm_ttl" | "tm_tag"
+
+export type NumericTmKey = "tm_ttc" | "tm_ttl"
+
+export interface WebhookArtifacts {
+  readonly baseUrl: string
+  readonly params: URLSearchParams
+  readonly fullUrl: string
+}
+
+export type TMDirectives = Partial<{
+  ttc: number
+  ttl: number
+  tag: string
+}>
+
+export type NMDirectives = Partial<{
+  directives: Array<{
+    name: string
+    [key: string]: any
+  }>
+}>
+
 export type MakeCancelableFn = <T>(promise: Promise<T>) => Promise<T>
 
 export interface ViewAction {

@@ -1,20 +1,30 @@
-// types moved to central config
 import type {
+  PrimitiveParams,
+  NetworkConfig,
+  InstrumentedRequestOptions,
+  RequestLog,
   FmeFlowConfig,
   FmeExportConfig,
   RequestConfig,
   ApiResponse,
   WorkspaceParameter,
   JobResult,
-  PrimitiveParams,
   EsriRequestConfig,
   EsriMockKey,
   AbortListenerRecord,
+  WebhookErrorCode,
+  TMDirectives,
+  NMDirectives,
+  WebhookArtifacts,
 } from "../config/index"
 import {
   FmeFlowApiError,
   HttpMethod,
   ESRI_GLOBAL_MOCK_KEYS,
+  FME_FLOW_API,
+  TM_NUMERIC_PARAM_KEYS,
+  PUBLISHED_PARAM_EXCLUDE_SET,
+  WEBHOOK_EXCLUDE_PARAMS,
 } from "../config/index"
 import {
   extractHttpStatus,
@@ -28,6 +38,7 @@ import {
   buildParams,
   createHostPattern,
   interceptorExists,
+  safeParseUrl,
   safeLogParams,
   makeScopeId,
   isJson,
@@ -37,7 +48,304 @@ import {
   extractRepositoryNames,
   loadArcgisModules,
 } from "./utils"
-import { instrumentedRequest, createCorrelationId } from "./transport"
+
+// Configuration
+const DEFAULT_CONFIG: NetworkConfig = {
+  enabled: true,
+  logLevel: "debug",
+  bodyPreviewLimit: 1024,
+  warnSlowMs: 1000,
+}
+
+const config: NetworkConfig = { ...DEFAULT_CONFIG }
+
+// Core Instrumentation
+export function instrumentedRequest<T>(
+  options: InstrumentedRequestOptions<T>
+): Promise<T> {
+  if (!config.enabled) return options.execute()
+
+  const method = options.method.toUpperCase()
+  const correlationId = options.correlationId || createCorrelationId()
+  const startMs = Date.now()
+
+  return options
+    .execute()
+    .then((response) => {
+      const durationMs = Date.now() - startMs
+      const status = options.responseInterpreter?.status?.(response)
+      const ok = options.responseInterpreter?.ok?.(response) ?? inferOk(status)
+      const responseSize = options.responseInterpreter?.size?.(response)
+
+      const log: RequestLog = {
+        timestamp: startMs,
+        method,
+        url: sanitizeUrl(options.url, options.query),
+        path: extractPath(options.url),
+        status,
+        ok,
+        durationMs,
+        correlationId,
+        caller: options.caller,
+        transport: options.transport,
+        retryAttempt: options.retryAttempt,
+        responseSize,
+        isAbort: false,
+      }
+
+      logRequest("success", log, options.body)
+      return response
+    })
+    .catch((error) => {
+      const durationMs = Date.now() - startMs
+      const status = extractHttpStatus(error)
+      const isAbort = isAbortError(error)
+
+      const log: RequestLog = {
+        timestamp: startMs,
+        method,
+        url: sanitizeUrl(options.url, options.query),
+        path: extractPath(options.url),
+        status,
+        ok: false,
+        durationMs,
+        correlationId,
+        caller: options.caller,
+        transport: options.transport,
+        retryAttempt: options.retryAttempt,
+        isAbort,
+      }
+
+      logRequest("error", log, options.body, error)
+      throw error instanceof Error
+        ? error
+        : new Error(extractErrorMessage(error))
+    })
+}
+
+export function createCorrelationId(prefix = "net"): string {
+  const timestamp = Date.now().toString(36)
+  const random = Math.random().toString(36).slice(2, 10)
+  return `${prefix}_${timestamp}_${random}`
+}
+
+// URL & Parameter Sanitization
+function sanitizeUrl(
+  url: string,
+  query?: PrimitiveParams | URLSearchParams | string | null
+): string {
+  const parsed = parseUrl(url)
+  const params = buildSearchParams(parsed, query)
+  const sanitized = sanitizeParams(params)
+  const search = serializeParams(sanitized)
+
+  if (!parsed) {
+    const base = redactSensitiveText(url.split("?")[0] || "")
+    return search ? `${base}?${search}` : base
+  }
+
+  const base = `${parsed.origin}${parsed.pathname}`
+  return search ? `${base}?${search}` : base
+}
+
+function parseUrl(url: string): URL | null {
+  if (!url) return null
+  try {
+    const parsed = safeParseUrl(url)
+    if (parsed) return parsed
+    return new URL(url, "http://localhost")
+  } catch {
+    return null
+  }
+}
+
+function extractPath(url: string): string {
+  const parsed = parseUrl(url)
+  return parsed?.pathname || url.split("?")[0] || url
+}
+
+function buildSearchParams(
+  parsed: URL | null,
+  query?: PrimitiveParams | URLSearchParams | string | null
+): URLSearchParams {
+  const params = new URLSearchParams(parsed?.search || "")
+  if (!query) return params
+
+  if (typeof query === "string") {
+    const extra = new URLSearchParams(query)
+    extra.forEach((value, key) => {
+      params.set(key, value)
+    })
+    return params
+  }
+
+  if (query instanceof URLSearchParams) {
+    query.forEach((value, key) => {
+      params.set(key, value)
+    })
+    return params
+  }
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value == null) return
+    if (Array.isArray(value)) {
+      params.delete(key)
+      value.forEach((v) => {
+        params.append(key, String(v))
+      })
+    } else {
+      const stringValue =
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value)
+      params.set(key, stringValue)
+    }
+  })
+
+  return params
+}
+
+function sanitizeParams(params: URLSearchParams): URLSearchParams {
+  const sanitized = new URLSearchParams()
+  params.forEach((value, key) => {
+    if (isSensitiveKey(key.toLowerCase())) {
+      sanitized.set(key, "[TOKEN]")
+    } else {
+      sanitized.set(key, redactSensitiveText(value))
+    }
+  })
+  return sanitized
+}
+
+function serializeParams(params: URLSearchParams): string {
+  const entries: Array<[string, string]> = []
+  params.forEach((value, key) => entries.push([key, value]))
+  entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))
+  return entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&")
+}
+
+function isSensitiveKey(key: string): boolean {
+  return (
+    key.includes("token") ||
+    key.includes("auth") ||
+    key.includes("secret") ||
+    key.includes("key") ||
+    key.includes("password")
+  )
+}
+
+function redactSensitiveText(text: string): string {
+  let result = text
+  result = result.replace(
+    /authorization="?[^"]+"?/gi,
+    'authorization="[TOKEN]"'
+  )
+  result = result.replace(/(token|fmetoken)=([^&\s]+)/gi, "$1=[TOKEN]")
+  return result
+}
+
+// Body Handling
+function describeBody(body: unknown): string {
+  if (body == null) return ""
+
+  if (typeof body === "string") {
+    const sanitized = redactSensitiveText(body)
+    return truncate(sanitized, config.bodyPreviewLimit)
+  }
+
+  if (typeof body === "object") {
+    if (typeof FormData !== "undefined" && body instanceof FormData) {
+      return "[FormData]"
+    }
+    if (typeof Blob !== "undefined" && body instanceof Blob) {
+      return `[Blob:${body.size}]`
+    }
+    if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer) {
+      const size =
+        body instanceof ArrayBuffer
+          ? body.byteLength
+          : body.buffer?.byteLength || 0
+      return `[Binary:${size}]`
+    }
+  }
+
+  try {
+    const serialized = JSON.stringify(body)
+    const sanitized = redactSensitiveText(serialized)
+    return truncate(sanitized, config.bodyPreviewLimit)
+  } catch {
+    return "[Object]"
+  }
+}
+
+function truncate(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  return `${text.slice(0, limit - 1)}…`
+}
+
+// Logging
+function logRequest(
+  phase: "success" | "error",
+  log: RequestLog,
+  body?: unknown,
+  error?: unknown
+): void {
+  if (config.logLevel === "silent") return
+
+  const bodyPreview = body ? describeBody(body) : undefined
+  const errorMessage = error ? extractErrorMessage(error) : undefined
+
+  try {
+    if (config.logLevel === "debug") {
+      const icon = phase === "success" ? "✓" : "✗"
+      const payload: { [key: string]: unknown } = {
+        phase,
+        method: log.method,
+        url: log.url,
+        status: log.status,
+        durationMs: log.durationMs,
+        correlationId: log.correlationId,
+        caller: log.caller,
+        transport: log.transport,
+      }
+      if (log.responseSize !== undefined)
+        payload.responseSize = log.responseSize
+      if (log.retryAttempt !== undefined) payload.retry = log.retryAttempt
+      if (log.isAbort) payload.aborted = true
+      if (bodyPreview) payload.body = bodyPreview
+      if (errorMessage) payload.error = errorMessage
+
+      console.log(`[FME][net] ${icon}`, payload)
+    } else if (config.logLevel === "warn") {
+      const summary = `[FME][net] ${phase} ${log.method} ${log.path} ${log.status || "?"} ${log.durationMs}ms`
+      console.log(summary, {
+        correlationId: log.correlationId,
+        ...(log.caller && { caller: log.caller }),
+      })
+    }
+
+    if (log.durationMs >= config.warnSlowMs) {
+      console.log("[FME][net] slow", {
+        method: log.method,
+        path: log.path,
+        durationMs: log.durationMs,
+        correlationId: log.correlationId,
+      })
+    }
+  } catch {
+    // Suppress logging errors
+  }
+}
+
+// Utilities
+function inferOk(status?: number): boolean | undefined {
+  if (typeof status !== "number") return undefined
+  return status >= 200 && status < 400
+}
 
 const createAbortReason = (cause?: unknown): unknown => {
   if (cause !== undefined) return cause
@@ -391,24 +699,6 @@ const asProjection = (
   isLoaded?: () => boolean
 } | null => (isObjectType(v) ? (v as any) : null)
 
-const API = {
-  BASE_PATH: "/fmerest/v3",
-  MAX_URL_LENGTH: 4000,
-  WEBHOOK_EXCLUDE_KEYS: [],
-  WEBHOOK_LOG_WHITELIST: [
-    "opt_responseformat",
-    "opt_showresult",
-    "opt_servicemode",
-  ],
-} as const
-
-type WebhookErrorCode =
-  | "URL_TOO_LONG"
-  | "WEBHOOK_AUTH_ERROR"
-  | "WEBHOOK_BAD_RESPONSE"
-  | "WEBHOOK_NON_JSON"
-  | "WEBHOOK_TIMEOUT"
-
 const makeError = (
   code: WebhookErrorCode,
   status?: number,
@@ -541,26 +831,16 @@ export function isWebhookUrlTooLong(
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  maxLen: number = API.MAX_URL_LENGTH,
+  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
   token?: string
 ): boolean {
-  const webhookUrl = buildUrl(
+  const { fullUrl } = createWebhookArtifacts(
     serverUrl,
-    "fmedatadownload",
     repository,
-    workspace
-  )
-  const params = buildParams(
+    workspace,
     parameters,
-    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
-    true
+    token
   )
-  appendWebhookTmParams(params, parameters)
-  // Add tm_* values if present
-  if (token) {
-    params.set("token", token)
-  }
-  const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
 
@@ -576,7 +856,7 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   // Do not reduce a higher platform-provided limit.
   esriConfig.request.maxUrlLength = Math.max(
     Number(esriConfig.request.maxUrlLength) || 0,
-    API.MAX_URL_LENGTH
+    FME_FLOW_API.MAX_URL_LENGTH
   )
 }
 
@@ -587,9 +867,11 @@ const toPosInt = (v: unknown): number | undefined => {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
 }
 
+const toTrimmedString = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : ""
+
 const normalizeText = (value: unknown, limit: number): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
+  const trimmed = toTrimmedString(value)
   return trimmed ? trimmed.slice(0, limit) : undefined
 }
 
@@ -597,8 +879,7 @@ const appendWebhookTmParams = (
   params: URLSearchParams,
   source: PrimitiveParams = {}
 ): void => {
-  const numericKeys: Array<"tm_ttc" | "tm_ttl"> = ["tm_ttc", "tm_ttl"]
-  for (const key of numericKeys) {
+  for (const key of TM_NUMERIC_PARAM_KEYS) {
     const value = toPosInt((source as any)[key])
     if (value !== undefined) params.set(key, String(value))
   }
@@ -607,23 +888,30 @@ const appendWebhookTmParams = (
   if (tag) params.set("tm_tag", tag)
 }
 
-type TMDirectives = Partial<{
-  ttc: number
-  ttl: number
-  tag: string
-}>
-
-type NMDirectives = Partial<{
-  directives: Array<{
-    name: string
-    [key: string]: any
-  }>
-}>
+const createWebhookArtifacts = (
+  serverUrl: string,
+  repository: string,
+  workspace: string,
+  parameters: PrimitiveParams = {},
+  token?: string
+): WebhookArtifacts => {
+  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
+  if (token) {
+    params.set("token", token)
+  }
+  appendWebhookTmParams(params, parameters)
+  return {
+    baseUrl,
+    params,
+    fullUrl: `${baseUrl}?${params.toString()}`,
+  }
+}
 
 const buildTMDirectives = (params: any): TMDirectives => {
   const ttc = toPosInt(params?.tm_ttc)
   const ttl = toPosInt(params?.tm_ttl)
-  const tag = typeof params?.tm_tag === "string" ? params.tm_tag.trim() : ""
+  const tag = toTrimmedString(params?.tm_tag)
 
   const out: TMDirectives = {}
   if (ttc !== undefined) out.ttc = ttc
@@ -636,14 +924,11 @@ const buildNMDirectives = (params: any): NMDirectives | null => {
   const serviceMode = params?.opt_servicemode
   if (serviceMode !== "schedule") return null
 
-  const start = typeof params?.start === "string" ? params.start.trim() : ""
-  const name = typeof params?.name === "string" ? params.name.trim() : ""
-  const category =
-    typeof params?.category === "string" ? params.category.trim() : ""
-  const trigger =
-    typeof params?.trigger === "string" ? params.trigger.trim() : "runonce"
-  const description =
-    typeof params?.description === "string" ? params.description.trim() : ""
+  const start = toTrimmedString(params?.start)
+  const name = toTrimmedString(params?.name)
+  const category = toTrimmedString(params?.category)
+  const trigger = toTrimmedString(params?.trigger) || "runonce"
+  const description = toTrimmedString(params?.description)
 
   if (!start || !name || !category) return null
 
@@ -702,7 +987,7 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
 
 export class FmeFlowApiClient {
   private readonly config: FmeFlowConfig
-  private readonly basePath = API.BASE_PATH
+  private readonly basePath = FME_FLOW_API.BASE_PATH
   private setupPromise: Promise<void>
   private disposed = false
 
@@ -834,24 +1119,8 @@ export class FmeFlowApiClient {
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     if ((parameters as any).publishedParameters) return parameters
 
-    // Exclude TM directives and schedule metadata from published parameters
-    const excludeFromPublished = new Set([
-      "tm_ttc",
-      "tm_ttl",
-      "tm_tag",
-      "start",
-      "name",
-      "category",
-      "trigger",
-      "description",
-      "opt_servicemode",
-      "opt_responseformat",
-      "opt_showresult",
-      "opt_requesteremail",
-    ])
-
     const publishedParameters = Object.entries(parameters)
-      .filter(([name]) => !excludeFromPublished.has(name))
+      .filter(([name]) => !PUBLISHED_PARAM_EXCLUDE_SET.has(name))
       .map(([name, value]) => ({ name, value }))
 
     return makeSubmitBody(publishedParameters, parameters)
@@ -1103,28 +1372,13 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
-      const webhookUrl = buildUrl(
+      const { baseUrl: webhookUrl, params, fullUrl } = createWebhookArtifacts(
         this.config.serverUrl,
-        "fmedatadownload",
         repository,
-        workspace
-      )
-      const params = buildParams(
+        workspace,
         parameters,
-        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
-        true
+        this.config.token
       )
-
-      // Append token if available
-      if (this.config.token) {
-        params.set("token", this.config.token)
-      }
-
-      // Ensure tm_* values are present if provided
-      appendWebhookTmParams(params, parameters)
-
-      const q = params.toString()
-      const fullUrl = `${webhookUrl}?${q}`
 
       const maxLen = getMaxUrlLength()
       if (Number.isFinite(maxLen) && maxLen > 0 && fullUrl.length > maxLen) {
@@ -1136,7 +1390,7 @@ export class FmeFlowApiClient {
         "WEBHOOK_CALL",
         webhookUrl,
         params,
-        API.WEBHOOK_LOG_WHITELIST
+        FME_FLOW_API.WEBHOOK_LOG_WHITELIST
       )
 
       await ensureEsri()

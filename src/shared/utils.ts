@@ -204,9 +204,7 @@ export const createFmeClient = (
     fmeServerUrl: normalizedUrl,
     fmeServerToken: normalizedToken,
     repository: toTrimmedString(repository) || DEFAULT_REPOSITORY,
-    ...(isFiniteNumber(timeout)
-      ? { requestTimeout: timeout }
-      : {}),
+    ...(isFiniteNumber(timeout) ? { requestTimeout: timeout } : {}),
   }
 
   try {
@@ -242,15 +240,18 @@ export const getClientConnectionInfo = (
   return { serverUrl, repository, tokenHash }
 }
 
-export const asString = (v: unknown): string =>
-  typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
+export const asString = (v: unknown): string => {
+  if (typeof v === "string") return v
+  if (typeof v === "number") return String(v)
+  return ""
+}
 
 export const toStr = (val: unknown): string => {
   if (typeof val === "string") return val
   if (typeof val === "number" || typeof val === "boolean") return String(val)
   if (val === undefined) return "undefined"
   if (val === null) return "null"
-  if (val && typeof val === "object") {
+  if (typeof val === "object") {
     try {
       return JSON.stringify(val)
     } catch {
@@ -273,7 +274,6 @@ export const getSupportEmail = (
   return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
-// Placeholder and translation helpers
 export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
@@ -282,6 +282,12 @@ export const makePlaceholders = (
   select: translate("placeholderSelect", { field: fieldLabel }),
 })
 
+const PLACEHOLDER_KIND_MAP = Object.freeze({
+  email: "placeholderEmail",
+  phone: "placeholderPhone",
+  search: "placeholderSearch",
+} as const)
+
 export const getTextPlaceholder = (
   field: { placeholder?: string } | undefined,
   placeholders: { enter: string },
@@ -289,14 +295,8 @@ export const getTextPlaceholder = (
   kind?: "email" | "phone" | "search"
 ): string => {
   if (field?.placeholder) return field.placeholder
-
-  const kindMap = {
-    email: "placeholderEmail",
-    phone: "placeholderPhone",
-    search: "placeholderSearch",
-  }
-
-  return kind ? translate(kindMap[kind]) : placeholders.enter
+  if (kind) return translate(PLACEHOLDER_KIND_MAP[kind])
+  return placeholders.enter
 }
 
 const isNumericSelectOptionValue = (value: unknown): boolean => {
@@ -424,10 +424,11 @@ const isPrivateIpv6 = (hostname: string): boolean => {
   const lower = hostname.toLowerCase()
   return (
     lower === "::1" ||
+    lower.includes("::1") || // Abbreviated loopback (e.g., ::1, 0::1)
     lower === "0:0:0:0:0:0:0:1" ||
     lower.startsWith("fc") ||
     lower.startsWith("fd") ||
-    lower.startsWith("fe80")
+    /^fe[89ab]/.test(lower) // Link-local: fe80-febf
   )
 }
 
@@ -739,10 +740,12 @@ const HTML_ENTITY_MAP = Object.freeze({
 })
 
 const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g
-
 const MAX_HTML_CODE_POINT = 0x10ffff
 
 const decodeHtmlNumericEntity = (value: string, base: number): string => {
+  // Limit input length to prevent overflow: max valid is 10FFFF (6 hex) or 1114111 (7 decimal)
+  if (value.length > 7) return ""
+
   const parsed = Number.parseInt(value, base)
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_HTML_CODE_POINT)
     return ""
@@ -752,12 +755,6 @@ const decodeHtmlNumericEntity = (value: string, base: number): string => {
     return ""
   }
 }
-
-const decodeDecimalEntity = (_match: string, value: string): string =>
-  decodeHtmlNumericEntity(value, 10)
-
-const decodeHexEntity = (_match: string, value: string): string =>
-  decodeHtmlNumericEntity(value, 16)
 
 const replaceNamedEntities = (value: string): string =>
   value.replace(HTML_ENTITY_REGEX, (match) => HTML_ENTITY_MAP[match] || match)
@@ -771,8 +768,12 @@ export const stripHtmlToText = (input?: string): string => {
 
   const decoded = replaceNamedEntities(
     noTags
-      .replace(/&#(\d+);/g, decodeDecimalEntity)
-      .replace(/&#x([\da-f]+);/gi, decodeHexEntity)
+      .replace(/&#(\d+);/g, (_match, value) =>
+        decodeHtmlNumericEntity(value, 10)
+      )
+      .replace(/&#x([\da-f]+);/gi, (_match, value) =>
+        decodeHtmlNumericEntity(value, 16)
+      )
   )
 
   return decoded.replace(/\s+/g, " ").trim()
@@ -979,17 +980,12 @@ export const collectTrimmedStrings = (
   values: Iterable<unknown> | null | undefined
 ): string[] => mapDefined(values, toTrimmedString)
 
-const toRecord = (value: unknown): { [key: string]: unknown } | null =>
-  value && typeof value === "object"
-    ? (value as { [key: string]: unknown })
-    : null
-
 const collectStringsFromProp = (
   values: Iterable<unknown> | null | undefined,
   prop: string
 ): string[] =>
   mapDefined(values, (value) => {
-    const record = toRecord(value)
+    const record = isPlainObject(value) ? value : null
     return record ? toTrimmedString(record[prop]) : undefined
   })
 
@@ -1014,7 +1010,7 @@ export const extractRepositoryNames = (source: unknown): string[] => {
     return uniqueStrings(collectStringsFromProp(source, "name"))
   }
 
-  const record = toRecord(source)
+  const record = isPlainObject(source) ? source : null
   const items = record?.items
 
   if (Array.isArray(items)) {
@@ -1029,8 +1025,9 @@ export { useLatestAbortController } from "./hooks"
 
 export const maskToken = (token: string): string => {
   if (!token) return ""
-  if (token.length <= 4) return "****"
-  return `****${token.slice(-4)}`
+  if (token.length <= 8) return "*".repeat(token.length)
+  // Show first 4 and last 4 chars for debugging, mask the middle
+  return `${token.slice(0, 4)}${"*".repeat(Math.max(4, token.length - 8))}${token.slice(-4)}`
 }
 
 export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
@@ -1315,8 +1312,28 @@ const isValidCoordinateTuple = (pt: unknown): boolean =>
   pt.length <= 4 &&
   pt.every(isFiniteNumber)
 
-const isValidRing = (ring: unknown): boolean =>
-  Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
+const checkCoordinatesEqual = (a: unknown, b: unknown): boolean => {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false
+  const len = Math.min(a.length, b.length, 2)
+  for (let i = 0; i < len; i++) {
+    const av = a[i]
+    const bv = b[i]
+    if (typeof av !== "number" || typeof bv !== "number") return false
+    if (!Number.isFinite(av) || !Number.isFinite(bv)) return false
+    if (Math.abs(av - bv) > 1e-9) return false
+  }
+  return true
+}
+
+const isValidRing = (ring: unknown): boolean => {
+  if (!Array.isArray(ring) || ring.length < 4) return false
+  if (!ring.every(isValidCoordinateTuple)) return false
+
+  // Verify ring closure: first point must equal last point
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  return checkCoordinatesEqual(first, last)
+}
 
 export const isPolygonGeometry = (
   value: unknown
@@ -1338,12 +1355,7 @@ export const isPolygonGeometry = (
 
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   const raw =
-    typeof name === "string"
-      ? name
-      : isFiniteNumber(name)
-        ? String(name)
-        : ""
-
+    typeof name === "string" ? name : isFiniteNumber(name) ? String(name) : ""
   const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
   return safe || fallback
 }
@@ -1369,13 +1381,8 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   const category = toTrimmedString(data.category)
   const name = toTrimmedString(data.name)
 
-  // Quick check for presence
-  const hasRequiredFields = Boolean(startVal && category && name)
-  if (!hasRequiredFields) {
-    return false
-  }
+  if (!startVal || !category || !name) return false
 
-  // Validate schedule metadata
   const validation = validateScheduleMetadata({
     start: startVal,
     name,
@@ -1383,7 +1390,6 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
     description: toTrimmedString(data.description),
   })
 
-  // Log warnings (using logIfNotAbort for consistency)
   if (validation.warnings?.pastTime) {
     logIfNotAbort(
       "Schedule start time is in the past - job may execute immediately or fail",
@@ -1391,7 +1397,6 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
     )
   }
 
-  // Log errors (using logIfNotAbort for consistency)
   if (!validation.valid && validation.errors) {
     logIfNotAbort("Schedule metadata validation failed", {
       errors: validation.errors,
@@ -1408,9 +1413,7 @@ const sanitizeScheduleMetadata = (
   if (mode !== "schedule") {
     const pruned: { [key: string]: unknown } = {}
     for (const [key, value] of Object.entries(data)) {
-      if (!SCHEDULE_METADATA_KEYS.has(key)) {
-        pruned[key] = value
-      }
+      if (!SCHEDULE_METADATA_KEYS.has(key)) pruned[key] = value
     }
     return pruned
   }
@@ -1419,18 +1422,11 @@ const sanitizeScheduleMetadata = (
   for (const [key, value] of Object.entries(data)) {
     if (!SCHEDULE_METADATA_KEYS.has(key)) {
       sanitized[key] = value
-      continue
-    }
-
-    if (key === "trigger") {
-      const trimmedTrigger = toTrimmedString(value)
-      sanitized.trigger = trimmedTrigger ?? SCHEDULE_TRIGGER_DEFAULT
-      continue
-    }
-
-    const trimmedValue = toTrimmedString(value)
-    if (trimmedValue) {
-      sanitized[key] = trimmedValue
+    } else if (key === "trigger") {
+      sanitized.trigger = toTrimmedString(value) ?? SCHEDULE_TRIGGER_DEFAULT
+    } else {
+      const trimmedValue = toTrimmedString(value)
+      if (trimmedValue) sanitized[key] = trimmedValue
     }
   }
 
@@ -1575,19 +1571,21 @@ const extractRuntimeSeconds = (
 }
 
 const toPositiveInteger = (value: unknown): number | null => {
-  if (isFiniteNumber(value) && value >= 0) {
-    return Math.round(value)
-  }
+  if (isFiniteNumber(value) && value >= 0) return Math.round(value)
   if (typeof value === "string") {
     const match = value.match(/(\d+)/)
     if (match) {
       const parsed = Number(match[1])
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        return Math.round(parsed)
-      }
+      if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed)
     }
   }
   return null
+}
+
+export const parseNonNegativeInt = (val: string): number | undefined => {
+  const n = Number(val)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.floor(n)
 }
 
 const extractTransformerCount = (
@@ -1830,16 +1828,12 @@ export const buildFmeParams = (
 
 const normalizeCoordinate = (vertex: unknown): number[] | null => {
   if (!Array.isArray(vertex) || vertex.length < 2) return null
-  const values = vertex.map((part) =>
+  const [x, y, z, m] = vertex.map((part) =>
     typeof part === "string" ? Number(part) : (part as number)
   )
-  const x = values[0]
-  const y = values[1]
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
 
   const result: number[] = [x, y]
-  const z = values[2]
-  const m = values[3]
   if (Number.isFinite(z)) result.push(z)
   if (Number.isFinite(m)) result.push(m)
   return result
@@ -1892,28 +1886,22 @@ const extractRings = (poly: any): any[] => {
 
 const formatNumberForWkt = (value: number): string => {
   if (!Number.isFinite(value)) return "0"
-
   const str = value.toString()
   const hasScientific = /[eE]/.test(str)
   const raw = hasScientific ? value.toFixed(12) : str
   const trimmed = raw.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
-
   return trimmed || "0"
 }
 
 export const polygonJsonToGeoJson = (poly: any): any => {
   if (!poly) return null
-
   try {
     const rings = extractRings(poly)
     if (!rings.length) return null
-
     const normalized = rings
       .map(normalizeRing)
       .filter((ring) => ring.length >= 4)
-
     if (!normalized.length) return null
-
     return {
       type: "Polygon",
       coordinates: normalized,
@@ -1925,26 +1913,22 @@ export const polygonJsonToGeoJson = (poly: any): any => {
 
 const serializeCoordinate = (coords: unknown): string | null => {
   if (!Array.isArray(coords) || coords.length < 2) return null
-
   const values: string[] = []
   for (const raw of coords) {
     const num = typeof raw === "number" ? raw : Number(raw)
     if (!Number.isFinite(num)) return null
     values.push(formatNumberForWkt(num))
   }
-
   return values.length >= 2 ? values.join(" ") : null
 }
 
 const serializeRing = (ring: unknown): string[] => {
   if (!Array.isArray(ring)) return []
-
   const parts: string[] = []
   for (const vertex of ring) {
     const serialized = serializeCoordinate(vertex)
     if (serialized) parts.push(serialized)
   }
-
   return parts
 }
 
@@ -2440,12 +2424,6 @@ export const extractErrorMessage = (error: unknown): string => {
   return "Unknown error occurred"
 }
 
-export const parseNonNegativeInt = (val: string): number | undefined => {
-  const n = Number(val)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.floor(n)
-}
-
 // TEMPORAL UTILITIES (DATE/TIME PARSING & FORMATTING)
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
@@ -2480,13 +2458,6 @@ export const extractTemporalParts = (
 ): { base: string; fraction: string; offset: string } => {
   const trimmed = (raw || "").trim()
   return parseTemporalComponents(trimmed)
-}
-
-const normalizeIsoTimeParts = (
-  time: string
-): { time: string; fraction: string; offset: string } => {
-  const { base, fraction, offset } = parseTemporalComponents(time)
-  return { time: base, fraction, offset }
 }
 
 const safePad2 = (part?: string): string | null => {
@@ -2525,10 +2496,10 @@ export const inputToFmeDateTime = (v: string, original?: string): string => {
 
   const [y, m, d] = date.split("-")
   const {
-    time: timePart,
+    base: timePart,
     fraction: isoFraction,
     offset: isoOffset,
-  } = normalizeIsoTimeParts(time)
+  } = parseTemporalComponents(time)
   const [hh, mi, ssRaw] = timePart.split(":")
 
   if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) return ""
@@ -2561,10 +2532,10 @@ export const fmeTimeToInput = (v: string): string => {
 export const inputToFmeTime = (v: string, original?: string): string => {
   if (!v) return ""
   const {
-    time: timePart,
+    base: timePart,
     fraction: isoFraction,
     offset: isoOffset,
-  } = normalizeIsoTimeParts(v)
+  } = parseTemporalComponents(v)
   const parts = timePart.split(":").map((x) => x || "")
   const hh = parts[0] || ""
   const mm = parts[1] || ""
@@ -2593,7 +2564,6 @@ const clamp = (value: number, min: number, max: number): number => {
 
 const clamp01 = (value: number): number => clamp(value, 0, 1)
 const clamp255 = (value: number): number => clamp(value, 0, 255)
-
 const toHexComponent = (value: number): string =>
   Math.round(clamp255(value)).toString(16).padStart(2, "0")
 

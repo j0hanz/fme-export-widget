@@ -1,16 +1,3 @@
-/**
- * FME Query System - React Query-inspired data fetching for ArcGIS ExB
- *
- * This module provides:
- * - Automatic caching with configurable TTL
- * - Request deduplication
- * - Retry logic with exponential backoff
- * - Type-safe hooks for queries and mutations
- *
- * @module shared/query
- * @created 2025-10-09
- */
-
 import { React, hooks } from "jimu-core"
 import { abortManager } from "./api"
 import { isAbortError, logIfNotAbort } from "./utils"
@@ -25,10 +12,6 @@ import type {
   CacheEntry,
 } from "../config/types"
 
-// ============================================
-// Constants
-// ============================================
-
 const DEFAULTS = Object.freeze({
   STALE_TIME: 5 * 60 * 1000, // 5 minutes
   CACHE_TIME: 10 * 60 * 1000, // 10 minutes
@@ -36,10 +19,6 @@ const DEFAULTS = Object.freeze({
   RETRY_DELAY: 1000, // 1 second
   MAX_CACHE_SIZE: 100, // Maximum entries
 })
-
-// ============================================
-// Utilities
-// ============================================
 
 function stringifyUnknown(value: unknown): string {
   if (value === null) return "null"
@@ -58,9 +37,6 @@ function stringifyUnknown(value: unknown): string {
   }
 }
 
-/**
- * Serialize a query key to a stable string for cache lookup
- */
 export function serializeQueryKey(key: QueryKey): string {
   try {
     return JSON.stringify(key)
@@ -70,9 +46,6 @@ export function serializeQueryKey(key: QueryKey): string {
   }
 }
 
-/**
- * Default exponential backoff calculator
- */
 function defaultRetryDelay(attempt: number): number {
   const base = DEFAULTS.RETRY_DELAY * Math.pow(2, attempt - 1)
   return Math.min(base, 10000)
@@ -92,33 +65,14 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(stringifyUnknown(value))
 }
 
-// ============================================
-// FmeQueryCache - Core cache management
-// ============================================
-
-/**
- * Singleton cache for query results
- *
- * Responsibilities:
- * - Store query results with timestamps
- * - Manage subscribers for reactive updates
- * - Handle garbage collection of stale entries
- * - Provide invalidation mechanisms
- */
 class FmeQueryCache {
   private readonly cache = new Map<string, CacheEntry<any>>()
   private readonly gcTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
-  /**
-   * Get cache entry by query key
-   */
   get<T>(key: QueryKey): CacheEntry<T> | undefined {
     return this.cache.get(serializeQueryKey(key)) as CacheEntry<T> | undefined
   }
 
-  /**
-   * Update cache entry (merges with existing)
-   */
   set<T>(key: QueryKey, entry: Partial<CacheEntry<T>>): void {
     const serialized = serializeQueryKey(key)
     const existing = this.cache.get(serialized)
@@ -147,9 +101,6 @@ class FmeQueryCache {
     }
   }
 
-  /**
-   * Subscribe to cache updates for a specific key
-   */
   subscribe(key: QueryKey, callback: () => void): () => void {
     const entry = this.getOrCreate(key)
     entry.subscribers.add(callback)
@@ -159,9 +110,6 @@ class FmeQueryCache {
     }
   }
 
-  /**
-   * Notify all subscribers of a cache update
-   */
   notify(key: QueryKey): void {
     const entry = this.get(key)
     if (!entry) return
@@ -169,9 +117,6 @@ class FmeQueryCache {
     notifySubscribers(entry.subscribers)
   }
 
-  /**
-   * Invalidate cache entries (mark as stale)
-   */
   invalidate(keyPrefix?: QueryKey): void {
     if (!keyPrefix) {
       this.cache.forEach((entry) => {
@@ -192,16 +137,10 @@ class FmeQueryCache {
     })
   }
 
-  /**
-   * Remove an entry from the cache completely
-   */
   remove(key: QueryKey): void {
     this.removeSerializedKey(serializeQueryKey(key))
   }
 
-  /**
-   * Schedule garbage collection for unused entries
-   */
   scheduleGc(key: QueryKey, cacheTime: number): void {
     const serialized = serializeQueryKey(key)
     const delay = Number.isFinite(cacheTime)
@@ -223,9 +162,6 @@ class FmeQueryCache {
     this.gcTimers.set(serialized, timer)
   }
 
-  /**
-   * Clear all cache entries and timers
-   */
   clear(): void {
     const keys: string[] = []
     this.cache.forEach((_entry, serialized) => {
@@ -237,9 +173,6 @@ class FmeQueryCache {
     })
   }
 
-  /**
-   * Iterate entries (internal helper)
-   */
   forEachEntry(
     callback: (serialized: string, entry: CacheEntry<any>) => void
   ): void {
@@ -248,9 +181,6 @@ class FmeQueryCache {
     })
   }
 
-  /**
-   * Get cache statistics (for debugging)
-   */
   getStats(): {
     size: number
     entries: Array<{ key: string; status: QueryStatus; age: number }>
@@ -310,9 +240,6 @@ class FmeQueryCache {
     }
   }
 
-  /**
-   * Remove by serialized key (internal helper)
-   */
   removeSerializedKey(serialized: string): void {
     const entry = this.cache.get(serialized)
     if (entry?.abortController && !entry.abortController.signal.aborted) {
@@ -333,22 +260,11 @@ class FmeQueryCache {
   }
 }
 
-// Singleton instance
 export const fmeQueryCache = new FmeQueryCache()
 
-// ============================================
-// FmeQueryClient - Query orchestration
-// ============================================
-
-/**
- * Client for managing query execution
- */
 export class FmeQueryClient {
   private readonly cache = fmeQueryCache
 
-  /**
-   * Execute a query with full retry and deduplication logic
-   */
   async fetchQuery<T>(options: QueryOptions<T>): Promise<T> {
     const {
       queryKey,
@@ -521,10 +437,6 @@ export async function prefetchQuery<T>(
   }
 }
 
-// ============================================
-// useFmeQuery - Primary data fetching hook
-// ============================================
-
 export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
   const {
     queryKey,
@@ -642,10 +554,6 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
     status,
   }
 }
-
-// ============================================
-// useFmeMutation - Write operations hook
-// ============================================
 
 export function useFmeMutation<TData, TVariables>(
   options: MutationOptions<TData, TVariables>

@@ -42,6 +42,17 @@ export const UPLOAD_PARAM_TYPES = Object.freeze([
   "REPROJECTION_FILE",
 ] as const)
 
+export const FME_FLOW_API = Object.freeze({
+  BASE_PATH: "/fmerest/v3",
+  MAX_URL_LENGTH: 4000,
+  WEBHOOK_EXCLUDE_KEYS: [] as const,
+  WEBHOOK_LOG_WHITELIST: Object.freeze([
+    "opt_responseformat",
+    "opt_showresult",
+    "opt_servicemode",
+  ] as const),
+})
+
 export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160
 
 export const SETTING_CONSTANTS = Object.freeze({
@@ -107,7 +118,7 @@ export const ERROR_NAMES = Object.freeze({
   ABORT: "AbortError",
 })
 
-export const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/
 export const NO_REPLY_REGEX = /no-?reply/i
 export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
 
@@ -145,6 +156,35 @@ export const SCHEDULE_METADATA_FIELDS = Object.freeze([
   "description",
   "trigger",
 ] as const)
+
+export const TM_PARAM_KEYS = Object.freeze([
+  "tm_ttc",
+  "tm_ttl",
+  "tm_tag",
+] as const)
+
+export const TM_NUMERIC_PARAM_KEYS = Object.freeze([
+  "tm_ttc",
+  "tm_ttl",
+] as const)
+
+export const OPTIONAL_OPT_KEYS = Object.freeze([
+  "opt_servicemode",
+  "opt_responseformat",
+  "opt_showresult",
+  "opt_requesteremail",
+] as const)
+
+export const WEBHOOK_EXCLUDE_PARAMS = Object.freeze([
+  ...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS,
+  ...TM_PARAM_KEYS,
+] as const)
+
+export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([
+  ...TM_PARAM_KEYS,
+  ...SCHEDULE_METADATA_FIELDS,
+  ...OPTIONAL_OPT_KEYS,
+])
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",
