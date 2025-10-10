@@ -37,6 +37,7 @@ import {
   ErrorSeverity,
   makeErrorView,
   MS_LOADING,
+  WORKSPACE_ITEM_TYPE,
   useUiStyles,
 } from "../../config/index"
 import polygonIcon from "../../assets/icons/polygon.svg"
@@ -61,11 +62,13 @@ import {
   toTrimmedString,
   buildLargeAreaWarningMessage,
   formatByteSize,
+  isAbortError,
 } from "../../shared/utils"
 import {
   useFormStateManager,
-  useWorkspaceLoader,
   useDebounce,
+  useWorkspaces,
+  useWorkspaceItem,
 } from "../../shared/hooks"
 
 const DRAWING_MODE_TABS = [
@@ -109,10 +112,7 @@ const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
 
 const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
-    state.modules ||
-      state.submission ||
-      state.workspaces ||
-      state.parameters
+    state.modules || state.submission || state.workspaces || state.parameters
   )
 
 // Helper: Check if value is non-empty string
@@ -762,7 +762,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   error,
   onFormBack,
   onFormSubmit,
-  getFmeClient: getFmeClientProp,
   orderResult,
   onReuseGeography,
   onBack,
@@ -800,22 +799,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
-  const makeCancelable = hooks.useCancelablePromiseMaker()
   // Ensure a non-empty widgetId for internal Redux interactions
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
   const [latchedLoadingState, setLatchedLoadingState] =
-    React.useState<LoadingState>(() =>
-      cloneLoadingState(incomingLoadingState)
-    )
+    React.useState<LoadingState>(() => cloneLoadingState(incomingLoadingState))
   const latchedLoadingRef = hooks.useLatest(latchedLoadingState)
-  const releaseLoadingState = useDebounce(
-    (next: LoadingState) => {
-      setLatchedLoadingState(cloneLoadingState(next))
-    },
-    MS_LOADING
-  )
+  const releaseLoadingState = useDebounce((next: LoadingState) => {
+    setLatchedLoadingState(cloneLoadingState(next))
+  }, MS_LOADING)
 
   hooks.useEffectWithPreviousValues(() => {
     const current = latchedLoadingRef.current
@@ -1016,47 +1009,327 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
-  // FME client - always create fresh instance
-  const getFmeClient = hooks.useEventCallback(() => {
-    if (typeof getFmeClientProp !== "function") {
-      return null
-    }
-    try {
-      return getFmeClientProp()
-    } catch {
-      return null
-    }
-  })
-
   const configuredRepository = toTrimmedString(config?.repository)
   const previousConfiguredRepository = hooks.usePrevious(configuredRepository)
+  const serverUrl = toTrimmedString(
+    (config as { fmeServerUrl?: string })?.fmeServerUrl
+  )
+  const serverToken = toTrimmedString(
+    (config as { fmeServerToken?: string })?.fmeServerToken
+  )
+  const canFetchWorkspaces = Boolean(
+    serverUrl && serverToken && configuredRepository
+  )
 
-  const {
-    isLoading: workspaceLoaderIsLoading,
-    error: workspaceError,
-    loadAll: loadWsList,
-    loadItem: loadWorkspace,
-    scheduleLoad: scheduleWsLoad,
-  } = useWorkspaceLoader({
-    config,
-    getFmeClient,
-    translate,
-    makeCancelable,
-    widgetId: effectiveWidgetId,
-    onWorkspaceSelected,
-    dispatch: reduxDispatch,
-  })
+  const [pendingWorkspace, setPendingWorkspace] = React.useState<{
+    name: string
+    repository?: string
+  } | null>(null)
+
+  const isWorkspaceSelectionContext =
+    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
+
+  const shouldFetchWorkspaces =
+    canFetchWorkspaces && isWorkspaceSelectionContext
+
+  const workspacesQuery = useWorkspaces(
+    {
+      repository: configuredRepository || undefined,
+      fmeServerUrl: serverUrl || undefined,
+      fmeServerToken: serverToken || undefined,
+    },
+    { enabled: shouldFetchWorkspaces }
+  )
+
+  const workspaceItemQuery = useWorkspaceItem(
+    pendingWorkspace?.name,
+    {
+      repository:
+        pendingWorkspace?.repository ?? configuredRepository ?? undefined,
+      fmeServerUrl: serverUrl || undefined,
+      fmeServerToken: serverToken || undefined,
+    },
+    { enabled: Boolean(pendingWorkspace && canFetchWorkspaces) }
+  )
+
+  const workspacesRefetchRef = hooks.useLatest(workspacesQuery.refetch)
+  const workspaceItemRefetchRef = hooks.useLatest(workspaceItemQuery.refetch)
 
   const workspaceItems = Array.isArray(workspaceItemsProp)
     ? workspaceItemsProp
     : EMPTY_WORKSPACES
   const currentRepository = configuredRepository || null
 
-  // Helper: are we in a workspace selection context?
-  const isWorkspaceSelectionContext =
-    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
+  const rawWorkspaceItems = Array.isArray(workspacesQuery.data)
+    ? (workspacesQuery.data as readonly WorkspaceItem[])
+    : EMPTY_WORKSPACES
 
-  // Render workspace buttons
+  const filteredWorkspaces = rawWorkspaceItems.filter(
+    (item) => item?.type === WORKSPACE_ITEM_TYPE
+  )
+
+  const scopedWorkspaces = filteredWorkspaces.filter((item) => {
+    const repoName = toTrimmedString(
+      (item as { repository?: string })?.repository
+    )
+    if (!repoName || !configuredRepository) {
+      return true
+    }
+    return repoName === configuredRepository
+  })
+
+  const sanitizedWorkspaces =
+    scopedWorkspaces.length === 0
+      ? EMPTY_WORKSPACES
+      : scopedWorkspaces.slice().sort((a, b) =>
+          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+            sensitivity: "base",
+          })
+        )
+
+  const workspaceListsEqual = (
+    nextItems: readonly WorkspaceItem[],
+    currentItems: readonly WorkspaceItem[]
+  ): boolean => {
+    if (nextItems.length !== currentItems.length) {
+      return false
+    }
+    for (let index = 0; index < nextItems.length; index += 1) {
+      const next = nextItems[index]
+      const current = currentItems[index]
+      if (!next || !current) {
+        return false
+      }
+      if (next.name !== current.name) {
+        return false
+      }
+      if ((next.title || "") !== (current.title || "")) {
+        return false
+      }
+      const nextRepo = toTrimmedString(
+        (next as { repository?: string })?.repository
+      )
+      const currentRepo = toTrimmedString(
+        (current as { repository?: string })?.repository
+      )
+      if (nextRepo !== currentRepo) {
+        return false
+      }
+    }
+    return true
+  }
+
+  hooks.useUpdateEffect(() => {
+    if (!shouldFetchWorkspaces) {
+      return
+    }
+
+    const nextItems = sanitizedWorkspaces
+    if (nextItems === EMPTY_WORKSPACES && workspaceItems.length === 0) {
+      return
+    }
+
+    if (workspaceListsEqual(nextItems, workspaceItems)) {
+      return
+    }
+
+    reduxDispatch(fmeActions.setWorkspaceItems(nextItems, effectiveWidgetId))
+  }, [
+    sanitizedWorkspaces,
+    workspaceItems,
+    shouldFetchWorkspaces,
+    reduxDispatch,
+    effectiveWidgetId,
+  ])
+
+  hooks.useUpdateEffect(() => {
+    if (canFetchWorkspaces) {
+      return
+    }
+    if (!workspaceItems.length) {
+      return
+    }
+    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+  }, [
+    canFetchWorkspaces,
+    workspaceItems.length,
+    reduxDispatch,
+    effectiveWidgetId,
+  ])
+
+  hooks.useUpdateEffect(() => {
+    if (previousConfiguredRepository === configuredRepository) {
+      return
+    }
+
+    setPendingWorkspace(null)
+    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+
+    if (!configuredRepository || !canFetchWorkspaces) {
+      return
+    }
+
+    if (!isWorkspaceSelectionContext) {
+      return
+    }
+
+    const refetch = workspacesRefetchRef.current
+    if (typeof refetch === "function") {
+      void refetch()
+    }
+  }, [
+    configuredRepository,
+    previousConfiguredRepository,
+    canFetchWorkspaces,
+    isWorkspaceSelectionContext,
+    reduxDispatch,
+    effectiveWidgetId,
+    workspacesRefetchRef,
+  ])
+
+  hooks.useUpdateEffect(() => {
+    if (!pendingWorkspace || !canFetchWorkspaces) {
+      return
+    }
+    const refetch = workspaceItemRefetchRef.current
+    if (typeof refetch === "function") {
+      void refetch()
+    }
+  }, [pendingWorkspace, canFetchWorkspaces, workspaceItemRefetchRef])
+
+  hooks.useUpdateEffect(() => {
+    if (canFetchWorkspaces) {
+      return
+    }
+    if (!pendingWorkspace) {
+      return
+    }
+    setPendingWorkspace(null)
+  }, [canFetchWorkspaces, pendingWorkspace])
+
+  hooks.useUpdateEffect(() => {
+    if (!pendingWorkspace) {
+      return
+    }
+
+    const payload = workspaceItemQuery.data
+    if (!payload) {
+      return
+    }
+
+    const workspaceName = pendingWorkspace.name
+    if (!workspaceName) {
+      return
+    }
+
+    if (onWorkspaceSelected) {
+      onWorkspaceSelected(workspaceName, payload.parameters, payload.item)
+    } else {
+      reduxDispatch(
+        fmeActions.applyWorkspaceData(
+          {
+            workspaceName,
+            parameters: payload.parameters,
+            item: payload.item,
+          },
+          effectiveWidgetId
+        )
+      )
+    }
+
+    setPendingWorkspace(null)
+  }, [
+    pendingWorkspace,
+    workspaceItemQuery.data,
+    onWorkspaceSelected,
+    reduxDispatch,
+    effectiveWidgetId,
+  ])
+
+  const workspacesFetching = Boolean(workspacesQuery.isFetching)
+  const previousWorkspacesFetching = hooks.usePrevious(workspacesFetching)
+  React.useEffect(() => {
+    if (previousWorkspacesFetching === workspacesFetching) {
+      return
+    }
+    reduxDispatch(
+      fmeActions.setLoadingFlag(
+        "workspaces",
+        workspacesFetching,
+        effectiveWidgetId
+      )
+    )
+  }, [
+    workspacesFetching,
+    previousWorkspacesFetching,
+    reduxDispatch,
+    effectiveWidgetId,
+  ])
+
+  const parametersFetching = Boolean(workspaceItemQuery.isFetching)
+  const previousParametersFetching = hooks.usePrevious(parametersFetching)
+  React.useEffect(() => {
+    if (previousParametersFetching === parametersFetching) {
+      return
+    }
+    reduxDispatch(
+      fmeActions.setLoadingFlag(
+        "parameters",
+        parametersFetching,
+        effectiveWidgetId
+      )
+    )
+  }, [
+    parametersFetching,
+    previousParametersFetching,
+    reduxDispatch,
+    effectiveWidgetId,
+  ])
+
+  const translateWorkspaceError = hooks.useEventCallback(
+    (errorValue: unknown, messageKey: string): string | null => {
+      if (!errorValue) {
+        return null
+      }
+      if (isAbortError(errorValue)) {
+        return null
+      }
+      try {
+        return resolveMessageOrKey(messageKey, translate)
+      } catch {
+        return translate(messageKey)
+      }
+    }
+  )
+
+  const workspaceListError =
+    workspacesQuery.isError && canFetchWorkspaces
+      ? translateWorkspaceError(workspacesQuery.error, "failedToLoadWorkspaces")
+      : null
+
+  const workspaceDetailError = workspaceItemQuery.isError
+    ? translateWorkspaceError(
+        workspaceItemQuery.error,
+        "failedToLoadWorkspaceDetails"
+      )
+    : null
+
+  const workspaceError = workspaceDetailError || workspaceListError
+
+  const loadWsList = hooks.useEventCallback(() => {
+    setPendingWorkspace(null)
+
+    if (!canFetchWorkspaces) {
+      reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+      return
+    }
+
+    const refetch = workspacesRefetchRef.current
+    if (typeof refetch === "function") {
+      void refetch()
+    }
+  })
+
   const renderWorkspaceButtons = hooks.useEventCallback(() =>
     workspaceItems.map((workspace) => {
       const displayLabel = workspace.title || workspace.name
@@ -1065,7 +1338,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
           toTrimmedString((workspace as { repository?: string })?.repository) ??
           currentRepository ??
           undefined
-        loadWorkspace(workspace.name, repoToUse)
+        setPendingWorkspace({
+          name: workspace.name,
+          repository: repoToUse,
+        })
       }
 
       return (
@@ -1078,7 +1354,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
           <Button
             text={displayLabel}
             icon={itemIcon}
-            size="lg"
             type="tertiary"
             logging={{
               enabled: true,
@@ -1089,45 +1364,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     })
   )
-
-  // Lazy load workspaces when entering workspace selection modes
-  hooks.useUpdateEffect(() => {
-    if (
-      !isWorkspaceSelectionContext ||
-      workspaceItems.length ||
-      workspaceLoaderIsLoading ||
-      workspaceError
-    ) {
-      return
-    }
-    return scheduleWsLoad()
-  }, [
-    isWorkspaceSelectionContext,
-    workspaceItems.length,
-    workspaceLoaderIsLoading,
-    workspaceError,
-    scheduleWsLoad,
-  ])
-
-  // Clear workspace state when repository changes
-  hooks.useUpdateEffect(() => {
-    if (previousConfiguredRepository === configuredRepository) {
-      return
-    }
-
-    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
-
-    if (configuredRepository && isWorkspaceSelectionContext) {
-      scheduleWsLoad()
-    }
-  }, [
-    configuredRepository,
-    previousConfiguredRepository,
-    reduxDispatch,
-    effectiveWidgetId,
-    isWorkspaceSelectionContext,
-    scheduleWsLoad,
-  ])
 
   // Header
   const renderHeader = () => {

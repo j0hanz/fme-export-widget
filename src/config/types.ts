@@ -942,11 +942,7 @@ export type SubmissionPhase =
   | "finalizing"
   | "submitting"
 
-export type ValidationPhase =
-  | "idle"
-  | "checking"
-  | "fetchingRepos"
-  | "complete"
+export type ValidationPhase = "idle" | "checking" | "fetchingRepos" | "complete"
 
 export interface FmeWidgetState {
   readonly viewMode: ViewMode
@@ -1024,20 +1020,6 @@ export interface JobDirectivesSectionProps {
   }
 }
 
-export interface WorkspaceLoaderOptions {
-  readonly config?: FmeExportConfig
-  readonly getFmeClient: () => FmeFlowApiClient | null
-  readonly translate: (key: string) => string
-  readonly makeCancelable: MakeCancelableFn
-  readonly widgetId: string
-  readonly onWorkspaceSelected?: (
-    workspaceName: string,
-    params: readonly WorkspaceParameter[],
-    item: WorkspaceItemDetail
-  ) => void
-  readonly dispatch: (action: unknown) => void
-}
-
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig
@@ -1052,7 +1034,6 @@ export interface WorkflowProps extends BaseProps {
   readonly submissionPhase?: SubmissionPhase
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
-  readonly getFmeClient?: () => FmeFlowApiClient | null
   readonly orderResult?: ExportResult | null
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
@@ -1239,4 +1220,158 @@ export interface AreaEvaluation {
   readonly maxThreshold?: number
   readonly exceedsMaximum: boolean
   readonly shouldWarn: boolean
+}
+
+// ============================================
+// Query System Types (Added: Oct 9, 2025)
+// ============================================
+
+/**
+ * Query key for cache identification
+ * Must be JSON-serializable for stable cache keys
+ */
+export type QueryKey = ReadonlyArray<
+  string | number | boolean | null | { readonly [key: string]: any }
+>
+
+/**
+ * Query status lifecycle states
+ */
+export type QueryStatus = "idle" | "loading" | "success" | "error"
+
+/**
+ * Configuration options for useFmeQuery hook
+ */
+export interface QueryOptions<T> {
+  /** Unique identifier for this query (used for caching) */
+  queryKey: QueryKey
+
+  /** Function that performs the actual fetch */
+  queryFn: (signal: AbortSignal) => Promise<T>
+
+  /** Whether the query should execute automatically (default: true) */
+  enabled?: boolean
+
+  /** Time in ms before cached data is considered stale (default: 5min) */
+  staleTime?: number
+
+  /** Time in ms before unused cache entry is garbage collected (default: 10min) */
+  cacheTime?: number
+
+  /** Number of retry attempts or false to disable (default: 3) */
+  retry?: number | false
+
+  /** Delay between retries in ms, or function for exponential backoff */
+  retryDelay?: number | ((attempt: number) => number)
+
+  /** Callback invoked on successful fetch */
+  onSuccess?: (data: T) => void
+
+  /** Callback invoked on fetch error */
+  onError?: (error: unknown) => void
+
+  /** Whether to refetch when window regains focus (default: false) */
+  refetchOnWindowFocus?: boolean
+
+  /** Whether to refetch on network reconnect (default: false) */
+  refetchOnReconnect?: boolean
+}
+
+/**
+ * Return type of useFmeQuery hook
+ */
+export interface UseFmeQueryResult<T> {
+  /** The fetched data (undefined until first successful fetch) */
+  data: T | undefined
+
+  /** Error from the last failed fetch attempt */
+  error: unknown
+
+  /** True if query is loading for the first time (no cached data) */
+  isLoading: boolean
+
+  /** True if query completed successfully at least once */
+  isSuccess: boolean
+
+  /** True if query encountered an error */
+  isError: boolean
+
+  /** True if query is currently fetching (may have cached data) */
+  isFetching: boolean
+
+  /** Manually trigger a refetch */
+  refetch: () => Promise<void>
+
+  /** Status of the query */
+  status: QueryStatus
+}
+
+/**
+ * Configuration options for useFmeMutation hook
+ */
+export interface MutationOptions<TData, TVariables> {
+  /** Function that performs the mutation */
+  mutationFn: (variables: TVariables, signal: AbortSignal) => Promise<TData>
+
+  /** Callback invoked on successful mutation */
+  onSuccess?: (data: TData, variables: TVariables) => void
+
+  /** Callback invoked on mutation error */
+  onError?: (error: unknown, variables: TVariables) => void
+
+  /** Callback invoked after mutation completes (success or error) */
+  onSettled?: (
+    data: TData | undefined,
+    error: unknown,
+    variables: TVariables
+  ) => void
+}
+
+/**
+ * Return type of useFmeMutation hook
+ */
+export interface UseFmeMutationResult<TData, TVariables> {
+  /** Trigger the mutation (fire and forget) */
+  mutate: (variables: TVariables) => void
+
+  /** Trigger the mutation and return a promise */
+  mutateAsync: (variables: TVariables) => Promise<TData>
+
+  /** Data returned from the last successful mutation */
+  data: TData | undefined
+
+  /** Error from the last failed mutation */
+  error: unknown
+
+  /** True if mutation is currently executing */
+  isLoading: boolean
+
+  /** True if mutation completed successfully */
+  isSuccess: boolean
+
+  /** True if mutation encountered an error */
+  isError: boolean
+
+  /** True if mutation has never been called */
+  isIdle: boolean
+
+  /** Reset mutation state to idle */
+  reset: () => void
+
+  /** Status of the mutation */
+  status: QueryStatus
+}
+
+/**
+ * Internal cache entry structure
+ * @internal
+ */
+export interface CacheEntry<T> {
+  data: T | undefined
+  error: unknown
+  status: QueryStatus
+  timestamp: number
+  subscribers: Set<() => void>
+  retryCount: number
+  abortController: AbortController | null
 }

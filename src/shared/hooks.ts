@@ -5,28 +5,30 @@ import type {
   EsriModules,
   ErrorState,
   ErrorType,
-  WorkspaceLoaderOptions,
   WorkspaceParameter,
   WorkspaceItemDetail,
   WorkspaceItem,
   FormPrimitive,
   FormValues,
   LoadingSnapshot,
+  ConnectionValidationResult,
+  FmeExportConfig,
 } from "../config/index"
 import {
   ErrorSeverity,
-  LOADING_TIMEOUT_MS,
   ESRI_MODULES_TO_LOAD,
-  MS_LOADING,
   WORKSPACE_ITEM_TYPE,
+  DEFAULT_REPOSITORY,
 } from "../config/index"
 import { fmeActions } from "../extensions/store"
 import {
   loadArcgisModules,
-  resolveMessageOrKey,
+  extractRepositoryNames,
   toTrimmedString,
-  isAbortError,
 } from "./utils"
+import type FmeFlowApiClient from "./api"
+import { createFmeFlowClient } from "./api"
+import { useFmeQuery, useFmeMutation } from "./query"
 
 // ArcGIS Resource Utilities
 const executeSafely = <T>(
@@ -170,7 +172,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
 
   const debounced = debouncedRef.current
   if (!debounced) {
-    throw new Error('debounceUnavailable')
+    throw new Error("debounceUnavailable")
   }
   return debounced
 }
@@ -438,322 +440,6 @@ export const useFormStateManager = (
   }
 }
 
-// Format error message based on error type and context
-const formatLoadError = (
-  err: unknown,
-  baseKey: string,
-  translate: (key: string) => string,
-  isMounted: boolean
-): string | null => {
-  if (isAbortError(err) || !isMounted) {
-    return null
-  }
-
-  try {
-    return resolveMessageOrKey(baseKey, translate)
-  } catch {
-    return translate(baseKey)
-  }
-}
-
-// Custom hook for loading workspace data from FME Flow.
-export const useWorkspaceLoader = (opts: WorkspaceLoaderOptions) => {
-  const {
-    config,
-    getFmeClient,
-    translate,
-    makeCancelable,
-    widgetId,
-    onWorkspaceSelected,
-    dispatch: reduxDispatch,
-  } = opts
-
-  const [isLoading, setIsLoading] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
-  const isMountedRef = React.useRef(true)
-  const loadingScopeRef = React.useRef<"workspaces" | "parameters" | null>(
-    null
-  )
-
-  const { abortAndCreate, cancel, finalize } = useLatestAbortController()
-
-  const dispatchAction = hooks.useEventCallback((action: unknown) => {
-    reduxDispatch(action)
-  })
-
-  const beginLoading = hooks.useEventCallback(
-    (scope: "workspaces" | "parameters") => {
-      loadingScopeRef.current = scope
-      reduxDispatch(fmeActions.setLoadingFlag(scope, true, widgetId))
-      setIsLoading(true)
-    }
-  )
-
-  const finishLoading = hooks.useEventCallback(
-    (
-      scope: "workspaces" | "parameters",
-      options?: { resetLocal?: boolean }
-    ) => {
-      const shouldUpdateLocal = options?.resetLocal ?? true
-      dispatchAction(fmeActions.setLoadingFlag(scope, false, widgetId))
-
-      if (loadingScopeRef.current === scope) {
-        loadingScopeRef.current = null
-      }
-
-      if (shouldUpdateLocal && isMountedRef.current) {
-        if (!loadingScopeRef.current) {
-          setIsLoading(false)
-        }
-      }
-    }
-  )
-
-  const cancelCurrent = hooks.useEventCallback(() => {
-    cancel()
-    const scope = loadingScopeRef.current
-    if (scope) {
-      finishLoading(scope)
-    } else {
-      setIsLoading(false)
-    }
-  })
-
-  const finalizeSelection = hooks.useEventCallback(
-    (
-      repoName: string,
-      workspaceName: string,
-      workspaceItem: WorkspaceItemDetail,
-      parameters: readonly WorkspaceParameter[]
-    ) => {
-      if (!isMountedRef.current) return
-
-      if (onWorkspaceSelected) {
-        onWorkspaceSelected(workspaceName, parameters, workspaceItem)
-        return
-      }
-
-      dispatchAction(
-        fmeActions.applyWorkspaceData(
-          { workspaceName, parameters, item: workspaceItem },
-          widgetId
-        )
-      )
-    }
-  )
-
-  const loadAll = hooks.useEventCallback(async () => {
-    const fmeClient = getFmeClient()
-    const targetRepository = toTrimmedString(config?.repository)
-
-    if (!fmeClient || !targetRepository) {
-      cancelCurrent()
-      if (isMountedRef.current) {
-        dispatchAction(fmeActions.clearWorkspaceState(widgetId))
-        if (!targetRepository) {
-          setError(null)
-        }
-      }
-      return
-    }
-
-    cancelCurrent()
-    const controller = abortAndCreate()
-    beginLoading("workspaces")
-    setError(null)
-
-    try {
-      const response = await makeCancelable(
-        fmeClient.getRepositoryItems(
-          targetRepository,
-          WORKSPACE_ITEM_TYPE,
-          undefined,
-          undefined,
-          controller.signal
-        )
-      )
-
-      if (controller.signal.aborted) return
-
-      if (response.status !== 200 || !response.data.items) {
-        throw new Error(translate("failedToLoadWorkspaces"))
-      }
-
-      const items = (response.data.items as readonly WorkspaceItem[]).filter(
-        (item) => item.type === WORKSPACE_ITEM_TYPE
-      )
-
-      const scoped = items.filter((item) => {
-        const repoName = toTrimmedString(
-          (item as { repository?: string })?.repository
-        )
-        return !repoName || repoName === targetRepository
-      })
-
-      const sorted = scoped.slice().sort((a, b) =>
-        (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-          sensitivity: "base",
-        })
-      )
-
-      if (isMountedRef.current) {
-        dispatchAction(fmeActions.setWorkspaceItems(sorted, widgetId))
-      }
-    } catch (err) {
-      const msg = formatLoadError(
-        err,
-        "failedToLoadWorkspaces",
-        translate,
-        isMountedRef.current
-      )
-      if (msg && isMountedRef.current) {
-        setError(msg)
-      }
-    } finally {
-      if (isMountedRef.current) {
-        finishLoading("workspaces")
-      } else {
-        reduxDispatch(fmeActions.setLoadingFlag("workspaces", false, widgetId))
-        loadingScopeRef.current =
-          loadingScopeRef.current === "workspaces"
-            ? null
-            : loadingScopeRef.current
-      }
-      finalize(controller)
-    }
-  })
-
-  const loadItem = hooks.useEventCallback(
-    async (workspaceName: string, repositoryName?: string) => {
-      const fmeClient = getFmeClient()
-      const repoToUse =
-        toTrimmedString(repositoryName) ?? toTrimmedString(config?.repository)
-
-      if (!fmeClient || !repoToUse) {
-        return
-      }
-
-      let controller: AbortController | null = null
-      try {
-        cancelCurrent()
-        controller = abortAndCreate()
-        beginLoading("parameters")
-        setError(null)
-
-        const [itemResponse, parametersResponse] = await Promise.all([
-          makeCancelable(
-            fmeClient.getWorkspaceItem(
-              workspaceName,
-              repoToUse,
-              controller.signal
-            )
-          ),
-          makeCancelable(
-            fmeClient.getWorkspaceParameters(
-              workspaceName,
-              repoToUse,
-              controller.signal
-            )
-          ),
-        ])
-
-        if (controller.signal.aborted) {
-          return
-        }
-
-        if (itemResponse.status !== 200 || parametersResponse.status !== 200) {
-          throw new Error(translate("failedToLoadWorkspaceDetails"))
-        }
-
-        const workspaceItem = itemResponse.data as WorkspaceItemDetail
-        const parameters = (parametersResponse.data ||
-          []) as readonly WorkspaceParameter[]
-
-        finalizeSelection(repoToUse, workspaceName, workspaceItem, parameters)
-      } catch (err) {
-        const msg = formatLoadError(
-          err,
-          "failedToLoadWorkspaceDetails",
-          translate,
-          isMountedRef.current
-        )
-        if (msg && isMountedRef.current) setError(msg)
-      } finally {
-        if (isMountedRef.current) {
-          finishLoading("parameters")
-        } else {
-          reduxDispatch(
-            fmeActions.setLoadingFlag("parameters", false, widgetId)
-          )
-          loadingScopeRef.current =
-            loadingScopeRef.current === "parameters"
-              ? null
-              : loadingScopeRef.current
-        }
-        if (controller) finalize(controller)
-      }
-    }
-  )
-
-  const debouncedLoadAll = useDebounce(() => {
-    void loadAll()
-  }, MS_LOADING)
-
-  const scheduleLoad = hooks.useEventCallback(() => {
-    debouncedLoadAll()
-    return () => {
-      debouncedLoadAll.cancel()
-    }
-  })
-
-  // Cleanup on unmount
-  hooks.useEffectOnce(() => {
-    return () => {
-      isMountedRef.current = false
-      cancel()
-      const scope = loadingScopeRef.current
-      if (scope) {
-        reduxDispatch(fmeActions.setLoadingFlag(scope, false, widgetId))
-        loadingScopeRef.current = null
-      }
-      debouncedLoadAll.cancel()
-    }
-  })
-
-  // Clear workspaces when repository changes to prevent stale selections
-  hooks.useUpdateEffect(() => {
-    if (isMountedRef.current) {
-      cancelCurrent()
-      dispatchAction(fmeActions.clearWorkspaceState(widgetId))
-      setError(null)
-      setIsLoading(false)
-    }
-  }, [config?.repository])
-
-  // Safety: reset loading state if stuck for too long
-  hooks.useUpdateEffect(() => {
-    if (!isLoading || !isMountedRef.current) return
-
-    const timeoutId = setTimeout(() => {
-      if (isMountedRef.current && isLoading) {
-        const scope = loadingScopeRef.current
-        if (scope) {
-          finishLoading(scope)
-        } else {
-          setIsLoading(false)
-        }
-        setError(translate("errorLoadingTimeout"))
-      }
-    }, LOADING_TIMEOUT_MS)
-
-    return () => {
-      clearTimeout(timeoutId)
-    }
-  }, [isLoading, finishLoading, translate])
-
-  return { isLoading, error, loadAll, loadItem, scheduleLoad }
-}
-
 // Settings Panel Hooks
 export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
   return useSelector((state: any) => {
@@ -969,4 +655,223 @@ export const useLatestAbortController = () => {
     cancel,
     finalize,
   }
+}
+
+// ============================================
+// Query System Domain Hooks
+// ============================================
+
+const buildFmeClient = (
+  serverUrl?: string,
+  token?: string,
+  repository?: string
+): FmeFlowApiClient | null => {
+  const trimmedUrl = toTrimmedString(serverUrl)
+  const trimmedToken = toTrimmedString(token)
+  if (!trimmedUrl || !trimmedToken) {
+    return null
+  }
+
+  const resolvedRepository = toTrimmedString(repository) || DEFAULT_REPOSITORY
+  const baseConfig: FmeExportConfig = {
+    fmeServerUrl: trimmedUrl,
+    fmeServerToken: trimmedToken,
+    repository: resolvedRepository,
+  }
+
+  try {
+    return createFmeFlowClient(baseConfig)
+  } catch {
+    return null
+  }
+}
+
+const buildTokenCacheKey = (token?: string): string => {
+  const trimmed = toTrimmedString(token)
+  if (!trimmed) {
+    return "token:none"
+  }
+
+  let hash = 0
+  for (let i = 0; i < trimmed.length; i += 1) {
+    hash = (hash * 31 + trimmed.charCodeAt(i)) >>> 0
+  }
+
+  return `token:${hash.toString(36)}`
+}
+
+export function useWorkspaces(
+  config: {
+    repository?: string
+    fmeServerUrl?: string
+    fmeServerToken?: string
+  },
+  options?: { enabled?: boolean }
+) {
+  const getFmeClient = hooks.useEventCallback(() =>
+    buildFmeClient(
+      config.fmeServerUrl,
+      config.fmeServerToken,
+      config.repository
+    )
+  )
+
+  return useFmeQuery<WorkspaceItem[]>({
+    queryKey: [
+      "workspaces",
+      config.repository || DEFAULT_REPOSITORY,
+      config.fmeServerUrl,
+      buildTokenCacheKey(config.fmeServerToken),
+    ],
+    queryFn: async (signal) => {
+      const client = getFmeClient()
+      if (!client) {
+        throw new Error("FME client not configured")
+      }
+
+      const response = await client.getRepositoryItems(
+        config.repository || DEFAULT_REPOSITORY,
+        WORKSPACE_ITEM_TYPE,
+        undefined,
+        undefined,
+        signal
+      )
+
+      const items = Array.isArray(response?.data?.items)
+        ? (response.data.items as WorkspaceItem[])
+        : []
+      return items
+    },
+    enabled:
+      (options?.enabled ?? true) &&
+      Boolean(config.fmeServerUrl && config.fmeServerToken),
+    staleTime: 5 * 60 * 1000,
+    retry: 3,
+    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt - 1), 10000),
+  })
+}
+
+export function useWorkspaceItem(
+  workspace: string | undefined,
+  config: {
+    repository?: string
+    fmeServerUrl?: string
+    fmeServerToken?: string
+  },
+  options?: { enabled?: boolean }
+) {
+  const getFmeClient = hooks.useEventCallback(() =>
+    buildFmeClient(
+      config.fmeServerUrl,
+      config.fmeServerToken,
+      config.repository
+    )
+  )
+
+  return useFmeQuery({
+    queryKey: [
+      "workspace-item",
+      workspace,
+      config.repository || DEFAULT_REPOSITORY,
+      config.fmeServerUrl,
+      buildTokenCacheKey(config.fmeServerToken),
+    ],
+    queryFn: async (signal) => {
+      const client = getFmeClient()
+      if (!client || !workspace) {
+        throw new Error("Invalid workspace configuration")
+      }
+
+      const repositoryName = config.repository || DEFAULT_REPOSITORY
+      const [itemResp, paramsResp] = await Promise.all([
+        client.getWorkspaceItem(workspace, repositoryName, signal),
+        client.getWorkspaceParameters(workspace, repositoryName, signal),
+      ])
+
+      const parameters = Array.isArray(paramsResp?.data)
+        ? (paramsResp.data as WorkspaceParameter[])
+        : []
+
+      return {
+        item: itemResp.data as WorkspaceItemDetail,
+        parameters,
+      }
+    },
+    enabled:
+      (options?.enabled ?? true) &&
+      Boolean(workspace && config.fmeServerUrl && config.fmeServerToken),
+    staleTime: 10 * 60 * 1000,
+    retry: 3,
+  })
+}
+
+export function useRepositories(
+  serverUrl: string | undefined,
+  token: string | undefined,
+  options?: { enabled?: boolean }
+) {
+  return useFmeQuery<Array<{ name: string }>>({
+    queryKey: ["repositories", serverUrl, buildTokenCacheKey(token)],
+    queryFn: async (signal) => {
+      if (!serverUrl || !token) {
+        throw new Error("Missing credentials")
+      }
+
+      const client = buildFmeClient(serverUrl, token, DEFAULT_REPOSITORY)
+      if (!client) {
+        throw new Error("Missing credentials")
+      }
+
+      const response = await client.getRepositories(signal)
+      const names = extractRepositoryNames(response?.data)
+      return names.map((name) => ({ name }))
+    },
+    enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  })
+}
+
+export function useHealthCheck(
+  serverUrl: string | undefined,
+  token: string | undefined,
+  options?: { enabled?: boolean; refetchOnWindowFocus?: boolean }
+) {
+  return useFmeQuery({
+    queryKey: ["health", serverUrl, token],
+    queryFn: async (signal) => {
+      if (!serverUrl || !token) {
+        throw new Error("Missing credentials")
+      }
+      const services = await import("./services")
+      return await services.healthCheck(serverUrl, token, signal)
+    },
+    enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
+    staleTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
+    retry: 1,
+  })
+}
+
+interface ValidateConnectionVariables {
+  serverUrl: string
+  token: string
+  repository?: string
+}
+
+export function useValidateConnection() {
+  return useFmeMutation<
+    ConnectionValidationResult,
+    ValidateConnectionVariables
+  >({
+    mutationFn: async (variables, signal) => {
+      const services = await import("./services")
+      return await services.validateConnection({
+        serverUrl: variables.serverUrl,
+        token: variables.token,
+        repository: variables.repository,
+        signal,
+      })
+    },
+  })
 }

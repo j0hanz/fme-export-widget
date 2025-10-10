@@ -19,7 +19,6 @@ import {
   extractHttpStatus,
   validateRequiredConfig,
   mapErrorToKey,
-  calcArea,
 } from "./validations"
 import {
   buildUrl,
@@ -29,7 +28,6 @@ import {
   interceptorExists,
   safeLogParams,
   makeScopeId,
-  makeGeoJson,
   isJson,
   extractHostFromUrl,
   extractErrorMessage,
@@ -52,8 +50,6 @@ let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
-let _geometryEngine: unknown
-let _geometryEngineAsync: unknown
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
@@ -98,32 +94,6 @@ export function resetEsriCache(): void {
   _SpatialReference = undefined
   _loadPromise = null
   _cachedMaxUrlLength = null
-  _geometryEngine = undefined
-  _geometryEngineAsync = undefined
-}
-
-async function ensureGeometryEngines(): Promise<void> {
-  if (!_geometryEngine) {
-    try {
-      const [engineMod] = await loadArcgisModules([
-        "esri/geometry/geometryEngine",
-      ])
-      _geometryEngine = unwrapModule(engineMod)
-    } catch {
-      throw new Error("ARCGIS_MODULE_ERROR")
-    }
-  }
-
-  if (_geometryEngineAsync === undefined) {
-    try {
-      const [engineAsyncMod] = await loadArcgisModules([
-        "esri/geometry/geometryEngineAsync",
-      ])
-      _geometryEngineAsync = unwrapModule(engineAsyncMod)
-    } catch {
-      _geometryEngineAsync = null
-    }
-  }
 }
 
 const areEsriModulesLoaded = (): boolean =>
@@ -246,21 +216,6 @@ const asProjection = (
   isLoaded?: () => boolean
 } | null => (isObjectType(v) ? (v as any) : null)
 
-const asWebMercatorUtils = (
-  v: unknown
-): {
-  webMercatorToGeographic?: (geometry: any) => any
-  geographicToWebMercator?: (geometry: any) => any
-} | null => (isObjectType(v) ? (v as any) : null)
-
-const asSpatialReference = (v: unknown): new (props: any) => any =>
-  typeof v === "function" ? (v as any) : ((() => ({})) as any)
-
-const asGeometryEngine = (v: unknown): any =>
-  isObjectType(v) ? (v as any) : null
-
-const asGeometryEngineAsync = (v: unknown): any =>
-  isObjectType(v) ? (v as any) : null
 const API = {
   BASE_PATH: "/fmerest/v3",
   MAX_URL_LENGTH: 4000,
@@ -438,68 +393,6 @@ export function isWebhookUrlTooLong(
 
 // helper moved to utils.ts: buildParams
 
-const isWgs84SpatialRef = (
-  sr: (__esri.SpatialReference & { isWGS84?: boolean }) | undefined
-): boolean => Boolean(sr?.isWGS84 || sr?.wkid === 4326)
-
-const projectGeometryToWgs84 = (
-  geometry: __esri.Geometry,
-  projection: any,
-  SpatialReference: any
-): __esri.Geometry | null => {
-  if (!projection?.project || !SpatialReference) return null
-
-  const target =
-    SpatialReference?.WGS84 ||
-    (typeof SpatialReference === "function"
-      ? new SpatialReference({ wkid: 4326 })
-      : { wkid: 4326 })
-
-  const projected = projection.project(geometry, target)
-  if (!projected) return null
-
-  if (Array.isArray(projected) && projected[0]) {
-    return (projected[0] as __esri.Geometry) || null
-  }
-
-  return (projected as __esri.Geometry).type
-    ? (projected as __esri.Geometry)
-    : null
-}
-
-// Geometry processing: coordinate transformation
-const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
-  const spatialRef = geometry?.spatialReference as
-    | (__esri.SpatialReference & { isWGS84?: boolean })
-    | undefined
-
-  if (!spatialRef || isWgs84SpatialRef(spatialRef)) {
-    return geometry
-  }
-
-  try {
-    await ensureEsri()
-    const projection = asProjection(_projection)
-    const SpatialReference = asSpatialReference(_SpatialReference) as any
-
-    const projected = projectGeometryToWgs84(
-      geometry,
-      projection,
-      SpatialReference
-    )
-    if (projected) return projected
-
-    const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-    if (webMercatorUtils?.webMercatorToGeographic) {
-      return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
-    }
-  } catch {}
-
-  return geometry
-}
-
-// helper moved to utils.ts: makeGeoJson
-
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   const esriConfig = await getEsriConfig()
   if (!esriConfig) return
@@ -633,9 +526,8 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
 // helper moved to utils.ts: safeLogParams
 
 export class FmeFlowApiClient {
-  private config: FmeFlowConfig
+  private readonly config: FmeFlowConfig
   private readonly basePath = API.BASE_PATH
-  private abortController: AbortController | null = null
   private setupPromise: Promise<void>
   private disposed = false
 
@@ -664,19 +556,9 @@ export class FmeFlowApiClient {
       .catch(() => undefined)
   }
 
-  private safeAbortController(): void {
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch {}
-    }
-    this.abortController = null
-  }
-
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.safeAbortController()
     this.queueTeardown(this.config.serverUrl)
   }
 
@@ -838,11 +720,6 @@ export class FmeFlowApiClient {
       const status = extractHttpStatus(err)
       throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
     }
-  }
-
-  updateConfig(config: Partial<FmeFlowConfig>): void {
-    this.config = { ...this.config, ...config }
-    this.queueSetup(this.config)
   }
 
   /**
@@ -1010,71 +887,6 @@ export class FmeFlowApiClient {
     )
   }
 
-  async submitSyncJob(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const repo = this.resolveRepository(repository)
-    const endpoint = this.transformEndpoint("transact", repo, workspace)
-    const jobRequest = this.formatJobParams(parameters)
-    return this.request<JobResult>(endpoint, {
-      method: HttpMethod.POST,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(jobRequest),
-      signal,
-    })
-  }
-
-  async submitGeometryJob(
-    workspace: string,
-    geometry: __esri.Geometry,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const geometryParams = await this.toFmeParams(geometry)
-    return this.submitJob(
-      workspace,
-      { ...parameters, ...geometryParams },
-      repository,
-      signal
-    )
-  }
-
-  async getJobStatus(
-    jobId: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const endpoint = buildUrl(
-      this.config.serverUrl,
-      this.basePath.slice(1),
-      "transformations",
-      "jobs",
-      jobId.toString()
-    )
-    return this.request<JobResult>(endpoint, { signal })
-  }
-
-  async cancelJob(
-    jobId: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<{ success: boolean }>> {
-    const endpoint = buildUrl(
-      this.config.serverUrl,
-      this.basePath.slice(1),
-      "transformations",
-      "jobs",
-      jobId.toString(),
-      "cancel"
-    )
-    return this.request<{ success: boolean }>(endpoint, {
-      method: HttpMethod.POST,
-      signal,
-    })
-  }
-
   async runDataDownload(
     workspace: string,
     parameters: PrimitiveParams = {},
@@ -1218,42 +1030,6 @@ export class FmeFlowApiClient {
     }
   }
 
-  async customRequest<T>(
-    url: string,
-    method: HttpMethod = HttpMethod.GET,
-    parameters?: PrimitiveParams,
-    contentType?: string
-  ): Promise<ApiResponse<T>> {
-    const headers: { [key: string]: string } = {}
-    if (contentType) headers["Content-Type"] = contentType
-
-    let body: unknown
-    let query: PrimitiveParams | undefined
-
-    if (parameters) {
-      if (method.toUpperCase() === "GET") {
-        query = parameters
-      } else {
-        body =
-          contentType === "application/x-www-form-urlencoded"
-            ? buildParams(parameters).toString()
-            : JSON.stringify(parameters)
-      }
-    }
-
-    return this.request<T>(url, { method, query, headers, body })
-  }
-
-  cancelAllRequests(): void {
-    this.safeAbortController()
-  }
-
-  createAbortController(): AbortController {
-    this.safeAbortController()
-    this.abortController = new AbortController()
-    return this.abortController
-  }
-
   private async parseWebhookResponse(
     response:
       | Response
@@ -1321,57 +1097,6 @@ export class FmeFlowApiClient {
     }
   }
 
-  private async toFmeParams(
-    geometry: __esri.Geometry
-  ): Promise<PrimitiveParams> {
-    if (!geometry) {
-      throw new Error("GEOMETRY_MISSING")
-    }
-
-    if (geometry.type !== "polygon") {
-      throw new Error("GEOMETRY_TYPE_INVALID")
-    }
-
-    const polygon = geometry as __esri.Polygon
-    const extent = polygon.extent
-
-    if (!extent) {
-      throw new Error("GEOMETRY_MISSING")
-    }
-
-    // Reproject to WGS84
-    const projectedGeometry = (await toWgs84(geometry)) as __esri.Polygon
-
-    const geoJsonPolygon = makeGeoJson(projectedGeometry)
-
-    // Convert to Esri JSON for FME
-    const esriJson = projectedGeometry.toJSON()
-
-    let polygonArea = 0
-    try {
-      await ensureGeometryEngines()
-      const areaModules = {
-        geometryEngine: asGeometryEngine(_geometryEngine),
-        geometryEngineAsync: asGeometryEngineAsync(_geometryEngineAsync),
-      }
-      polygonArea = await calcArea(projectedGeometry, areaModules)
-    } catch {}
-
-    const fallbackArea = Math.abs(extent.width * extent.height)
-    const resolvedArea =
-      polygonArea && polygonArea > 0 ? polygonArea : fallbackArea
-
-    return {
-      MAXX: extent.xmax,
-      MAXY: extent.ymax,
-      MINX: extent.xmin,
-      MINY: extent.ymin,
-      AREA: resolvedArea,
-      AreaOfInterest: JSON.stringify(esriJson),
-      ExtentGeoJson: JSON.stringify(geoJsonPolygon),
-    }
-  }
-
   private async request<T>(
     endpoint: string,
     options: Partial<RequestConfig> = {}
@@ -1396,53 +1121,50 @@ export class FmeFlowApiClient {
       this.config.serverUrl,
       this.basePath
     )
+    const headers: { [key: string]: string } = {
+      ...(options.headers || {}),
+    }
+    const query: any = { ...(options.query || {}) }
+    // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
+    const isGet = !options.method || options.method === HttpMethod.GET
+    if (isGet) {
+      const scope = makeScopeId(
+        this.config.serverUrl,
+        this.config.token,
+        options.repositoryContext
+      )
+      if (query.__scope === undefined) query.__scope = scope
+    }
+
+    const requestOptions: any = {
+      method: (options.method?.toLowerCase() as any) || "get",
+      query,
+      responseType: "json",
+      headers,
+      signal: options.signal,
+    }
 
     try {
-      const headers: { [key: string]: string } = {
-        ...(options.headers || {}),
-      }
-      const query: any = { ...(options.query || {}) }
-      // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
-      const isGet = !options.method || options.method === HttpMethod.GET
-      if (isGet) {
-        const scope = makeScopeId(
-          this.config.serverUrl,
-          this.config.token,
-          options.repositoryContext
-        )
-        if (query.__scope === undefined) query.__scope = scope
-      }
-
-      const requestOptions: any = {
-        method: (options.method?.toLowerCase() as any) || "get",
-        query,
-        responseType: "json",
-        headers,
-        signal: options.signal,
-      }
-
       // BYPASS INTERCEPTOR - Add FME authentication directly
-      try {
-        const serverHostKey = extractHostFromUrl(
-          this.config.serverUrl
-        )?.toLowerCase()
-        const requestHostKey = new URL(
-          url,
-          globalThis.location?.origin || "http://d"
-        ).host.toLowerCase()
-        if (
-          serverHostKey &&
-          requestHostKey === serverHostKey &&
-          this.config.token
-        ) {
-          if (!query.fmetoken) {
-            query.fmetoken = this.config.token
-          }
-          // Add Authorization header with correct FME Flow format
-          requestOptions.headers = requestOptions.headers || {}
-          requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+      const serverHostKey = extractHostFromUrl(
+        this.config.serverUrl
+      )?.toLowerCase()
+      const requestHostKey = new URL(
+        url,
+        globalThis.location?.origin || "http://d"
+      ).host.toLowerCase()
+      if (
+        serverHostKey &&
+        requestHostKey === serverHostKey &&
+        this.config.token
+      ) {
+        if (!query.fmetoken) {
+          query.fmetoken = this.config.token
         }
-      } catch {}
+        // Add Authorization header with correct FME Flow format
+        requestOptions.headers = requestOptions.headers || {}
+        requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+      }
 
       // Prefer explicit timeout from options, else fall back to client config
       const timeoutMs =

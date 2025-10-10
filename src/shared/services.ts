@@ -199,12 +199,6 @@ const buildChoiceSet = (
     ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
     : null
 
-const createAbortError = (message = "Operation was aborted"): DOMException => {
-  const err = new DOMException(message, "AbortError")
-  ;(err as any).name = "AbortError"
-  return err
-}
-
 const createFmeClient = (
   serverUrl: string,
   token: string,
@@ -246,17 +240,6 @@ const inFlight = {
     status?: number
   }>(),
   validateConnection: new InflightCache<ConnectionValidationResult>(),
-  testBasicConnection: new InflightCache<{
-    success: boolean
-    version?: string
-    error?: string
-    originalError?: unknown
-  }>(),
-  getRepositories: new InflightCache<{
-    success: boolean
-    repositories?: string[]
-    error?: string
-  }>(),
 }
 
 // Network error detection
@@ -1667,82 +1650,6 @@ export async function validateConnection(
       }
     }
   )
-}
-
-/** Basic connectivity check that returns version string when available. */
-export async function testBasicConnection(
-  serverUrl: string,
-  token: string,
-  signal?: AbortSignal
-): Promise<{
-  success: boolean
-  version?: string
-  error?: string
-  originalError?: unknown
-}> {
-  const key = `${serverUrl}|${token}`
-  return await inFlight.testBasicConnection.execute(key, async () => {
-    try {
-      const client = createFmeClient(serverUrl, token)
-      const info = await client.testConnection(signal)
-      return {
-        success: true,
-        version: extractFmeVersion(info),
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: mapErrorToKey(error, extractHttpStatus(error)),
-        originalError: error,
-      }
-    }
-  })
-}
-
-/** Fetch repositories and normalize to a list of strings; dedupes concurrent calls per (serverUrl|token). */
-export async function getRepositories(
-  serverUrl: string,
-  token: string,
-  signal?: AbortSignal
-): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
-  if (signal?.aborted) {
-    throw createAbortError()
-  }
-
-  const execute = async () => {
-    try {
-      const client = createFmeClient(serverUrl, token)
-      const resp = await client.getRepositories(signal)
-
-      if (
-        (resp as any)?.status === 0 ||
-        (resp as any)?.statusText === "requestAborted"
-      ) {
-        throw createAbortError()
-      }
-
-      const repositories = parseRepositoryNames(resp?.data)
-      return {
-        success: true,
-        repositories,
-      }
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw createAbortError((error as Error).message || undefined)
-      }
-      return {
-        success: false,
-        error: mapErrorToKey(error, extractHttpStatus(error)),
-      }
-    }
-  }
-
-  if (signal) {
-    return await execute()
-  }
-
-  const key = `${serverUrl}|${token}`
-  return await inFlight.getRepositories.execute(key, execute)
 }
 
 export async function resolveRemoteDataset({

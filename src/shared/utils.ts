@@ -394,19 +394,31 @@ export const isNavigatorOffline = (): boolean => {
 }
 
 export const shouldApplyRemoteDatasetUrl = (
-  remoteUrl: string,
+  remoteUrl: unknown,
   config: FmeExportConfig | null | undefined
-): boolean =>
-  Boolean(
-    config?.allowRemoteUrlDataset &&
-      remoteUrl &&
-      isValidExternalUrlForOptGetUrl(remoteUrl)
-  )
+): boolean => {
+  if (!config?.allowRemoteDataset) return false
+  if (!config?.allowRemoteUrlDataset) return false
+
+  const trimmed = toTrimmedString(remoteUrl)
+  if (!trimmed) return false
+
+  return isValidExternalUrlForOptGetUrl(trimmed)
+}
 
 export const shouldUploadRemoteDataset = (
   config: FmeExportConfig | null | undefined,
-  uploadFile: File | null
-): uploadFile is File => Boolean(config?.allowRemoteDataset && uploadFile)
+  uploadFile: File | Blob | null | undefined
+): boolean => {
+  if (!config?.allowRemoteDataset) return false
+  if (!uploadFile) return false
+
+  if (typeof Blob !== "undefined" && uploadFile instanceof Blob) {
+    return true
+  }
+
+  return isFileObject(uploadFile)
+}
 
 export const removeAoiErrorMarker = (params: MutableParams): void => {
   if (typeof params.__aoi_error__ !== "undefined") {
@@ -2205,7 +2217,7 @@ export const toSerializable = (error: any): any => {
 }
 
 // FORM VALUE HANDLING & FILE UTILITIES
-export const isFileObject = (value: unknown): value is File => {
+export function isFileObject(value: unknown): value is File {
   try {
     return (
       value instanceof File ||

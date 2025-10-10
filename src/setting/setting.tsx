@@ -9,6 +9,7 @@ import {
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
+  isAbortError,
 } from "../shared/utils"
 import {
   useBuilderSelector,
@@ -18,6 +19,8 @@ import {
   useUpdateConfig,
   useLatestAbortController,
   useDebounce,
+  useRepositories,
+  useValidateConnection,
 } from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
@@ -49,10 +52,6 @@ import {
   mapServerUrlReasonToKey,
   validateConnectionInputs,
 } from "../shared/validations"
-import {
-  validateConnection,
-  getRepositories as fetchRepositoriesService,
-} from "../shared/services"
 import { fmeActions, createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
@@ -92,10 +91,6 @@ const getInitialCheckSteps = (): CheckSteps => ({
   repository: "idle",
   version: "",
 })
-
-const sanitizeRepositoryList = (
-  repositories: Iterable<unknown> | null | undefined
-): string[] => uniqueStrings(collectTrimmedStrings(repositories))
 
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
@@ -592,6 +587,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
 }
 
 // Centralized handler for validation failure -> updates steps and field errors
+// Centralized handler for validation failure -> updates steps and field errors
 const handleValidationFailure = (
   errorType: "server" | "network" | "token" | "repository",
   opts: {
@@ -600,17 +596,9 @@ const handleValidationFailure = (
     translate: TranslateFn
     version?: string
     repositories?: string[] | null
-    setAvailableRepos: React.Dispatch<React.SetStateAction<string[] | null>>
   }
 ) => {
-  const {
-    setCheckSteps,
-    setFieldErrors,
-    translate,
-    version,
-    repositories,
-    setAvailableRepos,
-  } = opts
+  const { setCheckSteps, setFieldErrors, translate, version } = opts
   if (errorType === "server" || errorType === "network") {
     setCheckSteps((prev) => ({
       ...prev,
@@ -645,9 +633,7 @@ const handleValidationFailure = (
   }))
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
-  if (repositories) {
-    setAvailableRepos(sanitizeRepositoryList(repositories))
-  }
+  // Note: repositories are now managed by useRepositories query hook
 }
 
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
@@ -872,24 +858,41 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
     () => getStringConfig("drawingColor") || DEFAULT_DRAWING_HEX
   )
-  // Server-provided repository list (null = not loaded yet)
-  const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
-    null
+
+  // ============================================
+  // Query Hooks for Data Fetching
+  // ============================================
+
+  // Determine if we should fetch repositories
+  const canFetchRepos = Boolean(
+    toTrimmedString(localServerUrl) && toTrimmedString(localToken)
   )
+  const normalizedServerUrl = canFetchRepos
+    ? normalizeBaseUrl(toTrimmedString(localServerUrl))
+    : undefined
+
+  // Use query hook for repositories (replaces manual loadRepositories)
+  const repositoriesQuery = useRepositories(
+    normalizedServerUrl,
+    toTrimmedString(localToken),
+    { enabled: canFetchRepos }
+  )
+
+  // Use mutation hook for connection validation (replaces manual validateConnection)
+  const validateConnectionMutation = useValidateConnection()
+
   // Non-blocking hint for repository list fetch issues
   const [reposHint, setReposHint] = React.useState<string | null>(null)
-  // Track in-flight cancellation scopes
+
+  // Track in-flight cancellation scopes (only need testAbort now)
   const testAbort = useLatestAbortController()
-  const reposAbort = useLatestAbortController()
-  // Auto-cancel promises on unmount and avoid setState-after-unmount
-  const makeCancelable = hooks.useCancelablePromiseMaker()
+
   // Keep latest values handy for async readers
   const translateRef = hooks.useLatest(translate)
   const [isServerValidationPending, setServerValidationPending] =
     React.useState(false)
-  const [isTokenValidationPending, setTokenValidationPending] = React.useState(
-    false
-  )
+  const [isTokenValidationPending, setTokenValidationPending] =
+    React.useState(false)
 
   const runServerValidation = hooks.useEventCallback((value: string) => {
     const trimmed = toTrimmedString(value)
@@ -940,72 +943,36 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     },
   })
 
-  // Abort any in-flight repository request
-  const abortReposRequest = hooks.useEventCallback(() => {
-    reposAbort.cancel()
-  })
+  // ============================================
+  // Repository Data Management (Query-Based)
+  // ============================================
 
-  // Unified repository loader used by both auto-load and manual refresh
-  const loadRepositories = hooks.useEventCallback(
-    async (
-      serverUrl: string,
-      token: string,
-      { indicateLoading }: { indicateLoading: boolean }
-    ) => {
-      // Cancel previous
-      abortReposRequest()
+  // Transform query data to match expected format
+  const availableRepos: string[] | null = React.useMemo(() => {
+    if (!repositoriesQuery.data) return null
+    return repositoriesQuery.data.map((repo) => repo.name)
+  }, [repositoriesQuery.data])
 
-      const trimmedServerUrl = toTrimmedString(serverUrl)
-      const trimmedToken = toTrimmedString(token)
-
-      if (!trimmedServerUrl || !trimmedToken) {
-        setAvailableRepos(null)
-        setReposHint(null)
-        setValidationPhase("idle")
-        return
-      }
-
-      const normalizedServerUrl = normalizeBaseUrl(trimmedServerUrl)
-      const ctrl = reposAbort.abortAndCreate()
-      const signal = ctrl.signal
-
-      if (indicateLoading) {
-        setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
-        setReposHint(null)
-        setValidationPhase("fetchingRepos")
-      }
-
-      try {
-        const result = await makeCancelable(
-          fetchRepositoriesService(normalizedServerUrl, trimmedToken, signal)
-        )
-        if (signal.aborted) return
-        const next = sanitizeRepositoryList(result.repositories)
-        setAvailableRepos(next)
-        clearErrors(setFieldErrors, ["repository"])
-        setReposHint(null)
-      } catch (err) {
-        if ((err as Error)?.name !== "AbortError") {
-          setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-          setReposHint(translateRef.current("errorRepositories"))
-        }
-      } finally {
-        reposAbort.finalize(ctrl)
-        if (indicateLoading) {
-          setValidationPhase((prev) =>
-            prev === "fetchingRepos" ? "complete" : prev
-          )
-        }
-      }
+  // Handle repository query errors
+  React.useEffect(() => {
+    if (repositoriesQuery.isError && !isAbortError(repositoriesQuery.error)) {
+      setReposHint(translate("errorRepositories"))
+    } else if (repositoriesQuery.isSuccess) {
+      setReposHint(null)
     }
-  )
+  }, [
+    repositoriesQuery.isError,
+    repositoriesQuery.isSuccess,
+    repositoriesQuery.error,
+    translate,
+  ])
 
   // Clear repository-related state when URL or token change
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
-    abortReposRequest()
-    setAvailableRepos(null)
+    // Query hook handles abort automatically
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
     setValidationPhase("idle")
+    setReposHint(null)
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
@@ -1038,7 +1005,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // Cleanup on unmount
   hooks.useUnmount(() => {
     testAbort.cancel()
-    abortReposRequest()
+    // Query hook handles cleanup automatically
   })
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
@@ -1153,9 +1120,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         version: validationResult.version || "",
       })
 
-      if (Array.isArray(validationResult.repositories)) {
-        setAvailableRepos(sanitizeRepositoryList(validationResult.repositories))
-      }
+      // Note: repositories are now fetched by useRepositories query hook
 
       updateConfig("fmeServerUrl", settings.serverUrl)
       updateConfig("fmeServerToken", settings.token)
@@ -1201,7 +1166,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         repositories: Array.isArray(validationResult.repositories)
           ? [...validationResult.repositories]
           : undefined,
-        setAvailableRepos,
       })
 
       if (!silent) {
@@ -1229,7 +1193,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setCheckSteps,
         setFieldErrors,
         translate,
-        setAvailableRepos,
         version: "",
         repositories: null,
       })
@@ -1271,7 +1234,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
     setValidationPhase("checking")
     const controller = testAbort.abortAndCreate()
-    const signal = controller.signal
 
     // Reset state for new test
     setTestState({
@@ -1295,11 +1257,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }))
       }
 
-      const validationResult = await validateConnection({
+      // Use mutation hook for connection validation
+      const validationResult = await validateConnectionMutation.mutateAsync({
         serverUrl: settings.serverUrl,
         token: settings.token,
         repository: settings.repository,
-        signal,
       })
 
       if (validationResult.success) {
@@ -1317,15 +1279,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Enhanced repository refresh for better UX - uses client API directly
+  // Enhanced repository refresh for better UX - uses query hook refetch
   const refreshRepositories = hooks.useEventCallback(async () => {
-    const cfgServer = getStringConfig("fmeServerUrl") || ""
-    const cfgToken = getStringConfig("fmeServerToken") || ""
-    const trimmedServer = toTrimmedString(cfgServer)
-    const trimmedToken = toTrimmedString(cfgToken)
-    if (!trimmedServer || !trimmedToken) return
-    const cleaned = normalizeBaseUrl(trimmedServer)
-    await loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
+    if (repositoriesQuery.refetch) {
+      await repositoriesQuery.refetch()
+    }
   })
 
   // Clear transient repo list when server URL or token in config changes
@@ -1351,21 +1309,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     clearRepositoryEphemeralState,
   ])
 
-  // Auto-load repositories when both server URL and token in config are valid
-  hooks.useEffectOnce(() => {
-    const trimmedServer = toTrimmedString(configServerUrl)
-    const trimmedToken = toTrimmedString(configToken)
-    if (!trimmedServer || !trimmedToken) return
-    const hasValidServer = validateServerUrl(trimmedServer, {
-      requireHttps: true,
-    }).ok
-    const hasValidToken = validateToken(trimmedToken).ok
-    if (!hasValidServer || !hasValidToken) return
-
-    const cleaned = normalizeBaseUrl(trimmedServer)
-    loadRepositories(cleaned, trimmedToken, { indicateLoading: true })
-    return () => abortReposRequest()
-  })
+  // Note: Auto-load repositories is now handled by useRepositories query hook
 
   // Handle server URL changes with delayed validation
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {

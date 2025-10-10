@@ -73,7 +73,6 @@ import {
   toTrimmedString,
   logIfNotAbort,
   popupSuppressionManager,
-  maskToken,
   hexToRgbArray,
   buildSymbols,
   isNavigatorOffline,
@@ -1537,7 +1536,7 @@ export default function Widget(
     delete rest.fmw_server_token
     workflowConfig = {
       ...rest,
-      fmeServerToken: maskToken(config.fmeServerToken || ""),
+      fmeServerToken: config.fmeServerToken,
     } as FmeExportConfig
   }
 
@@ -1572,7 +1571,6 @@ export default function Widget(
         submissionPhase={submissionPhase}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
-        getFmeClient={getOrCreateFmeClient}
         orderResult={orderResult}
         onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onBack={navigateBack}
