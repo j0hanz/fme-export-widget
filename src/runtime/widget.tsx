@@ -248,7 +248,9 @@ export default function Widget(
         } else if (popup && typeof popup.close === "function") {
           popup.close()
         }
-      } catch {}
+      } catch (error) {
+        logIfNotAbort("Failed to close map popup", error)
+      }
     }
   )
 
@@ -298,7 +300,9 @@ export default function Widget(
     if (fmeClientRef.current?.dispose) {
       try {
         fmeClientRef.current.dispose()
-      } catch {}
+      } catch (error) {
+        logIfNotAbort("Failed to dispose FME client", error)
+      }
     }
     fmeClientRef.current = null
     fmeClientKeyRef.current = null

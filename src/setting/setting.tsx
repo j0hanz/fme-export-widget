@@ -943,15 +943,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     },
   })
 
-  // ============================================
-  // Repository Data Management (Query-Based)
-  // ============================================
-
-  // Transform query data to match expected format
-  const availableRepos: string[] | null = React.useMemo(() => {
+  // Extract repository names from query data
+  const availableRepos: string[] | null = (() => {
     if (!repositoriesQuery.data) return null
     return repositoriesQuery.data.map((repo) => repo.name)
-  }, [repositoriesQuery.data])
+  })()
 
   // Handle repository query errors
   React.useEffect(() => {

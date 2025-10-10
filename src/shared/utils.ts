@@ -1164,21 +1164,19 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
     description: toTrimmedString(data.description),
   })
 
-  // Log warnings for past time
+  // Log warnings (using logIfNotAbort for consistency)
   if (validation.warnings?.pastTime) {
-    console.warn(
-      "[FME Export] Schedule start time is in the past:",
-      startVal,
-      "- Job may execute immediately or fail"
+    logIfNotAbort(
+      "Schedule start time is in the past - job may execute immediately or fail",
+      { startTime: startVal, warnings: validation.warnings }
     )
   }
 
-  // Log validation errors
+  // Log errors (using logIfNotAbort for consistency)
   if (!validation.valid && validation.errors) {
-    console.error(
-      "[FME Export] Schedule metadata validation failed:",
-      validation.errors
-    )
+    logIfNotAbort("Schedule metadata validation failed", {
+      errors: validation.errors,
+    })
   }
 
   return validation.valid

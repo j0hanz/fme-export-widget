@@ -39,7 +39,6 @@ import {
   safeParseUrl,
   loadArcgisModules,
   toTrimmedString,
-  isValidExternalUrlForOptGetUrl,
   sanitizeParamKey,
   shouldApplyRemoteDatasetUrl,
 } from "./utils"
@@ -229,7 +228,7 @@ export const sanitizeOptGetUrlParam = (
 export const resolveUploadTargetParam = (
   config: FmeExportConfig | null | undefined
 ): string | null => {
-  if (!config || config.allowRemoteDataset !== true) return null
+  if (!config || !config.allowRemoteDataset) return null
 
   const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
   return sanitized || null
@@ -305,35 +304,6 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
 
   return "errorUnknown"
 }
-
-export const resolveUploadTargetParam = (
-  config: FmeExportConfig | null | undefined
-): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
-
-export const sanitizeOptGetUrlParam = (
-  params: MutableParams,
-  config: FmeExportConfig | null | undefined
-): void => {
-  const value = params.opt_geturl
-
-  if (typeof value !== "string") {
-    delete params.opt_geturl
-    return
-  }
-
-  const trimmed = value.trim()
-  const urlIsAllowed = Boolean(config?.allowRemoteUrlDataset)
-  const urlIsValid = isValidExternalUrlForOptGetUrl(trimmed)
-
-  if (!trimmed || !urlIsAllowed || !urlIsValid) {
-    delete params.opt_geturl
-    return
-  }
-
-  params.opt_geturl = trimmed
-}
-
-export { isValidExternalUrlForOptGetUrl } from "./utils"
 
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string

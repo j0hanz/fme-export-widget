@@ -1796,25 +1796,25 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
     }
   }
 
-  // Validate fields in real-time
-  const startValidation = React.useMemo(() => {
+  // Perform validations
+  const startValidation = (() => {
     const start = typeof values.start === "string" ? values.start.trim() : ""
     if (!start) return null
     return validateScheduleDateTime(start)
-  }, [values.start, validateScheduleDateTime])
+  })()
 
-  const nameValidation = React.useMemo(() => {
+  const nameValidation = (() => {
     const name = typeof values.name === "string" ? values.name.trim() : ""
     if (!name) return null
     return validateScheduleName(name)
-  }, [values.name, validateScheduleName])
+  })()
 
-  const categoryValidation = React.useMemo(() => {
+  const categoryValidation = (() => {
     const category =
       typeof values.category === "string" ? values.category.trim() : ""
     if (!category) return null
     return validateScheduleCategory(category)
-  }, [values.category, validateScheduleCategory])
+  })()
 
   // Helper to get error message
   const getErrorMessage = (

@@ -12,7 +12,7 @@
  */
 
 import { React, hooks } from "jimu-core"
-import { isAbortError } from "./utils"
+import { isAbortError, logIfNotAbort } from "./utils"
 import type {
   QueryKey,
   QueryStatus,
@@ -81,7 +81,7 @@ function notifySubscribers(subscribers: Set<() => void>): void {
     try {
       cb()
     } catch (error) {
-      console.error("[FmeQueryCache] Subscriber error", error)
+      logIfNotAbort("FmeQueryCache subscriber error", error)
     }
   })
 }
