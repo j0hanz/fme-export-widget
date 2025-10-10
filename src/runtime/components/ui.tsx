@@ -80,6 +80,7 @@ import type {
   StateViewProps,
   TranslateFn,
   UiStyles,
+  ScheduleFieldsProps,
 } from "../../config/index"
 
 // Configuration & Constants
@@ -1765,13 +1766,6 @@ export type {
 }
 
 // Schedule Fields Component
-interface ScheduleFieldsProps {
-  readonly values: { [key: string]: unknown }
-  readonly onChange: (field: string, value: string) => void
-  readonly translate: (key: string, params?: any) => string
-  readonly disabled?: boolean
-}
-
 export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
   values,
   onChange,

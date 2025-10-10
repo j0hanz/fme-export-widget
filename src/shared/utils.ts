@@ -15,12 +15,15 @@ import type {
   PopupSuppressionRecord,
   AreaDisplay,
   UnitConversion,
+  DetermineServiceModeOptions,
+  ForceAsyncResult,
 } from "../config/index"
 import {
   ErrorType,
   ErrorSeverity,
   ParameterType,
   DEFAULT_DRAWING_HEX,
+  DEFAULT_REPOSITORY,
   UPLOAD_PARAM_TYPES,
   EMAIL_PLACEHOLDER,
   EMAIL_REGEX,
@@ -30,6 +33,8 @@ import {
   ALLOWED_FILE_EXTENSIONS,
   MAX_URL_LENGTH,
 } from "../config/index"
+import type FmeFlowApiClient from "./api"
+import { createFmeFlowClient } from "./api"
 import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 import { validateScheduleMetadata } from "./validations"
@@ -42,7 +47,7 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
-const isPlainObject = (
+export const isPlainObject = (
   value: unknown
 ): value is { readonly [key: string]: unknown } => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -52,6 +57,186 @@ export const toTrimmedString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined
   const trimmed = value.trim()
   return trimmed || undefined
+}
+
+export const toStringValue = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed || undefined
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value)
+  }
+  return undefined
+}
+
+export const toBooleanValue = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value !== 0
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
+    if (["false", "0", "no", "n", "off"].includes(normalized)) return false
+  }
+  return undefined
+}
+
+export const toNumberValue = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+    const numeric = Number(trimmed)
+    return Number.isFinite(numeric) ? numeric : undefined
+  }
+  return undefined
+}
+
+export const toArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : value == null ? [] : [value]
+
+export const pickFromObject = <T>(
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[],
+  converter: (value: unknown) => T | undefined,
+  fallback?: T
+): T | undefined => {
+  if (!data) return fallback
+  for (const key of keys) {
+    const result = converter((data as { readonly [key: string]: unknown })[key])
+    if (result !== undefined) return result
+  }
+  return fallback
+}
+
+export const pickString = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[]
+): string | undefined => pickFromObject(data, keys, toStringValue)
+
+export const pickBoolean = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[],
+  fallback = false
+): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
+
+export const pickNumber = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[]
+): number | undefined => pickFromObject(data, keys, toNumberValue)
+
+export const mergeMetadata = (
+  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
+): { readonly [key: string]: unknown } => {
+  const merged: { [key: string]: unknown } = {}
+  for (const source of sources) {
+    if (!isPlainObject(source)) continue
+    for (const [key, value] of Object.entries(source)) {
+      if (value != null && !(key in merged)) {
+        merged[key] = value
+      }
+    }
+  }
+  return merged
+}
+
+export const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
+  if (Array.isArray(value)) return value
+  if (isPlainObject(value)) {
+    for (const key of ["data", "items", "options"]) {
+      const arr = (value as { readonly [key: string]: unknown })[key]
+      if (Array.isArray(arr)) return arr
+    }
+  }
+  return undefined
+}
+
+export const toMetadataRecord = (
+  value: unknown
+): { readonly [key: string]: unknown } | undefined => {
+  if (!isPlainObject(value)) return undefined
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined)
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+export const normalizeParameterValue = (value: unknown): string | number => {
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") return value
+  if (typeof value === "boolean") return value ? "true" : "false"
+  return JSON.stringify(value ?? null)
+}
+
+export const buildChoiceSet = (
+  list: WorkspaceParameter["listOptions"]
+): Set<string | number> | null =>
+  list?.length
+    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+    : null
+
+export const buildTokenCacheKey = (token?: string): string => {
+  const trimmed = toTrimmedString(token)
+  if (!trimmed) return "token:none"
+
+  let hash = 0
+  for (let i = 0; i < trimmed.length; i += 1) {
+    hash = (hash * 31 + trimmed.charCodeAt(i)) >>> 0
+  }
+
+  return `token:${hash.toString(36)}`
+}
+
+export const createFmeClient = (
+  serverUrl?: string,
+  token?: string,
+  repository?: string,
+  timeout?: number
+): FmeFlowApiClient | null => {
+  const normalizedUrl = toTrimmedString(serverUrl)
+  const normalizedToken = toTrimmedString(token)
+  if (!normalizedUrl || !normalizedToken) {
+    return null
+  }
+
+  const config: FmeExportConfig = {
+    fmeServerUrl: normalizedUrl,
+    fmeServerToken: normalizedToken,
+    repository: toTrimmedString(repository) || DEFAULT_REPOSITORY,
+    ...(typeof timeout === "number" && Number.isFinite(timeout)
+      ? { requestTimeout: timeout }
+      : {}),
+  }
+
+  try {
+    return createFmeFlowClient(config)
+  } catch {
+    return null
+  }
+}
+
+export const getClientConnectionInfo = (
+  client: FmeFlowApiClient | null | undefined
+): {
+  readonly serverUrl: string
+  readonly repository: string
+  readonly tokenHash: string
+} | null => {
+  if (!client) return null
+  const rawConfig = (Reflect.get(client as object, "config") ?? null) as {
+    serverUrl?: unknown
+    repository?: unknown
+    token?: unknown
+  } | null
+  if (!rawConfig) return null
+
+  const serverUrl = toTrimmedString(rawConfig.serverUrl)
+  if (!serverUrl) return null
+
+  const repository = toTrimmedString(rawConfig.repository) || DEFAULT_REPOSITORY
+  const tokenHash = buildTokenCacheKey(
+    typeof rawConfig.token === "string" ? rawConfig.token : undefined
+  )
+
+  return { serverUrl, repository, tokenHash }
 }
 
 export const asString = (v: unknown): string =>
@@ -1228,27 +1413,6 @@ const sanitizeScheduleMetadata = (
   }
 
   return sanitized
-}
-
-export interface ServiceModeOverrideInfo {
-  readonly forcedMode: ServiceMode
-  readonly previousMode: ServiceMode
-  readonly reason: "runtime" | "transformers" | "fileSize" | "area"
-  readonly value?: number
-  readonly threshold?: number
-}
-
-export interface DetermineServiceModeOptions {
-  readonly workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
-  readonly areaWarning?: boolean
-  readonly drawnArea?: number
-  readonly onModeOverride?: (info: ServiceModeOverrideInfo) => void
-}
-
-interface ForceAsyncResult {
-  readonly reason: ServiceModeOverrideInfo["reason"]
-  readonly value?: number
-  readonly threshold?: number
 }
 
 const RUNTIME_ASYNC_THRESHOLD_SECONDS = 5

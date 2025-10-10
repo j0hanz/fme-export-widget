@@ -9,6 +9,7 @@ import type {
   PrimitiveParams,
   EsriRequestConfig,
   EsriMockKey,
+  AbortListenerRecord,
 } from "../config/index"
 import {
   FmeFlowApiError,
@@ -37,6 +38,143 @@ import {
   loadArcgisModules,
 } from "./utils"
 import { instrumentedRequest, createCorrelationId } from "./transport"
+
+const createAbortReason = (cause?: unknown): unknown => {
+  if (cause !== undefined) return cause
+  if (typeof DOMException === "function") {
+    return new DOMException("Aborted", "AbortError")
+  }
+  const error = new Error("Aborted")
+  error.name = "AbortError"
+  return error
+}
+
+const noop = () => undefined
+
+export class AbortControllerManager {
+  private readonly controllers = new Map<string, AbortController>()
+  private readonly listeners = new Map<string, Set<AbortListenerRecord>>()
+  private readonly pendingReasons = new Map<string, unknown>()
+
+  register(key: string, controller: AbortController): void {
+    if (!key) return
+
+    this.controllers.set(key, controller)
+
+    const pendingReason = this.pendingReasons.get(key)
+    if (pendingReason !== undefined) {
+      try {
+        if (!controller.signal.aborted) {
+          controller.abort(pendingReason)
+        }
+      } catch {
+        try {
+          controller.abort()
+        } catch {}
+      } finally {
+        this.pendingReasons.delete(key)
+      }
+    }
+  }
+
+  release(key: string, controller?: AbortController | null): void {
+    if (!key) return
+
+    const tracked = this.controllers.get(key)
+    if (controller && tracked && tracked !== controller) {
+      return
+    }
+
+    this.controllers.delete(key)
+    this.pendingReasons.delete(key)
+
+    const records = this.listeners.get(key)
+    if (!records?.size) return
+
+    records.forEach((record) => {
+      try {
+        record.signal.removeEventListener("abort", record.handler)
+      } catch {}
+    })
+    this.listeners.delete(key)
+  }
+
+  abort(key: string, reason?: unknown): void {
+    if (!key) return
+
+    const controller = this.controllers.get(key)
+    if (!controller) {
+      this.pendingReasons.set(key, reason ?? createAbortReason())
+      return
+    }
+
+    const abortReason = reason ?? createAbortReason()
+
+    try {
+      if (!controller.signal.aborted) {
+        controller.abort(abortReason)
+      }
+    } catch {
+      try {
+        controller.abort()
+      } catch {}
+    } finally {
+      this.release(key, controller)
+    }
+  }
+
+  linkExternal(key: string, signal?: AbortSignal | null): () => void {
+    if (!key || !signal) {
+      return noop
+    }
+
+    if (signal.aborted) {
+      this.abort(key, (signal as { reason?: unknown }).reason)
+      return noop
+    }
+
+    const record: AbortListenerRecord = {
+      signal,
+      handler: () => {
+        const reason = (signal as { reason?: unknown }).reason
+        this.abort(key, reason)
+      },
+    }
+
+    signal.addEventListener("abort", record.handler)
+
+    let records = this.listeners.get(key)
+    if (!records) {
+      records = new Set()
+      this.listeners.set(key, records)
+    }
+
+    records.add(record)
+
+    return () => {
+      try {
+        signal.removeEventListener("abort", record.handler)
+      } catch {}
+
+      const current = this.listeners.get(key)
+      if (!current) return
+      current.delete(record)
+      if (current.size === 0) {
+        this.listeners.delete(key)
+      }
+    }
+  }
+
+  abortAll(reason?: unknown): void {
+    const entries = Array.from(this.controllers.entries())
+    for (const [key, controller] of entries) {
+      this.abort(key, reason)
+      this.release(key, controller)
+    }
+  }
+}
+
+export const abortManager = new AbortControllerManager()
 
 const isStatusRetryable = (status?: number): boolean => {
   if (!status || status < 100) return true

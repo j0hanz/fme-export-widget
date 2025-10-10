@@ -19,6 +19,7 @@ import {
   type AreasAndLengthsParametersCtor,
   type PolygonMaybe,
   type AreaStrategy,
+  type ScheduleValidationResult,
   MIN_TOKEN_LENGTH,
   FME_REST_PATH,
   WKID,
@@ -1192,19 +1193,6 @@ export const resetValidationCachesForTest = () => {
 
 // SCHEDULE VALIDATION
 const SCHEDULE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
-
-export interface ScheduleValidationResult {
-  readonly valid: boolean
-  readonly errors?: {
-    readonly start?: string
-    readonly name?: string
-    readonly category?: string
-  }
-  readonly warnings?: {
-    readonly pastTime?: boolean
-    readonly pastTimeMessage?: string
-  }
-}
 
 export const validateScheduleDateTime = (
   dateTimeStr: string

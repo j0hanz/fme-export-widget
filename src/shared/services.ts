@@ -17,7 +17,6 @@ import type {
   ConnectionValidationResult,
   StartupValidationResult,
   StartupValidationOptions,
-  FmeFlowConfig,
   TextOrFileValue,
   EsriModules,
   RemoteDatasetOptions,
@@ -29,8 +28,10 @@ import type {
   MutableNode,
   WorkspaceItem,
   WorkspaceItemDetail,
-  WorkspacePrefetchProgress,
+  WorkspacePrefetchOptions,
+  PrefetchableWorkspace,
 } from "../config/index"
+import type FmeFlowApiClient from "./api"
 import {
   ParameterType,
   FormFieldType,
@@ -45,6 +46,7 @@ import {
   MULTI_SELECT_TYPES,
   PARAMETER_FIELD_TYPE_MAP,
   PREFETCH_CONFIG,
+  FmeFlowApiError,
 } from "../config/index"
 import type { JimuMapView } from "jimu-arcgis"
 import {
@@ -64,6 +66,19 @@ import {
   prepFmeParams,
   applyDirectiveDefaults,
   logIfNotAbort,
+  toArray,
+  isPlainObject,
+  pickString,
+  pickBoolean,
+  pickNumber,
+  mergeMetadata,
+  unwrapArray,
+  toMetadataRecord,
+  normalizeParameterValue,
+  buildChoiceSet,
+  createFmeClient,
+  buildTokenCacheKey,
+  getClientConnectionInfo,
 } from "./utils"
 import {
   isInt,
@@ -76,167 +91,13 @@ import {
   sanitizeOptGetUrlParam,
   resolveUploadTargetParam,
 } from "./validations"
-import { buildTokenCacheKey, safeCancelSketch } from "./hooks"
+import { safeCancelSketch } from "./hooks"
 import { fmeActions } from "../extensions/store"
-import FmeFlowApiClient from "./api"
-import { fmeQueryCache, fmeQueryClient } from "./query"
+import { abortManager } from "./api"
+import { prefetchQuery, serializeQueryKey } from "./query"
 
 // Constants
 // Type guards
-const isPlainObject = (
-  value: unknown
-): value is { readonly [key: string]: unknown } =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-// Type coercion utilities
-const toStringValue = (value: unknown): string | undefined => {
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed || undefined
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value)
-  }
-  return undefined
-}
-
-const toBooleanValue = (value: unknown): boolean | undefined => {
-  if (typeof value === "boolean") return value
-  if (typeof value === "number") return value !== 0
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase()
-    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
-    if (["false", "0", "no", "n", "off"].includes(normalized)) return false
-  }
-  return undefined
-}
-
-const toNumberValue = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    if (trimmed) {
-      const parsed = Number(trimmed)
-      if (Number.isFinite(parsed)) return parsed
-    }
-  }
-  return undefined
-}
-
-const toArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : value == null ? [] : [value]
-
-// Metadata extraction utilities
-const pickFromObject = <T>(
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[],
-  converter: (value: unknown) => T | undefined,
-  fallback?: T
-): T | undefined => {
-  for (const key of keys) {
-    const result = converter(data[key])
-    if (result !== undefined) return result
-  }
-  return fallback
-}
-
-const pickString = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[]
-): string | undefined => pickFromObject(data, keys, toStringValue)
-
-const pickBoolean = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[],
-  fallback = false
-): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
-
-const pickNumber = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[]
-): number | undefined => pickFromObject(data, keys, toNumberValue)
-
-const mergeMetadata = (
-  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
-): { readonly [key: string]: unknown } => {
-  const merged: { [key: string]: unknown } = {}
-  for (const source of sources) {
-    if (!isPlainObject(source)) continue
-    for (const [key, value] of Object.entries(source)) {
-      if (value != null && !(key in merged)) {
-        merged[key] = value
-      }
-    }
-  }
-  return merged
-}
-
-const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
-  if (Array.isArray(value)) return value
-  if (isPlainObject(value)) {
-    for (const key of ["data", "items", "options"]) {
-      const arr = (value as any)[key]
-      if (Array.isArray(arr)) return arr
-    }
-  }
-  return undefined
-}
-
-const toMetadataRecord = (
-  value: unknown
-): { readonly [key: string]: unknown } | undefined => {
-  if (!isPlainObject(value)) return undefined
-  const entries = Object.entries(value).filter(([, v]) => v !== undefined)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-const normalizeParameterValue = (value: unknown): string | number => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string") return value
-  if (typeof value === "boolean") return value ? "true" : "false"
-  return JSON.stringify(value ?? null)
-}
-
-const buildChoiceSet = (
-  list: WorkspaceParameter["listOptions"]
-): Set<string | number> | null =>
-  list?.length
-    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
-    : null
-
-const createFmeClient = (
-  serverUrl: string,
-  token: string,
-  overrides: Partial<Pick<FmeFlowConfig, "repository" | "timeout">> = {}
-): FmeFlowApiClient => {
-  const config: FmeFlowConfig = {
-    serverUrl,
-    token,
-    repository: overrides.repository ?? DEFAULT_REPOSITORY,
-    ...(overrides.timeout !== undefined && { timeout: overrides.timeout }),
-  }
-  return new FmeFlowApiClient(config)
-}
-
-const createAbortError = (): Error => {
-  if (typeof DOMException === "function") {
-    return new DOMException("Aborted", "AbortError")
-  }
-  const error = new Error("Aborted")
-  error.name = "AbortError"
-  return error
-}
-
-const toErrorObject = (value: unknown): Error => {
-  if (value instanceof Error) {
-    return value
-  }
-  if (typeof value === "string" && value) {
-    return new Error(value)
-  }
-  return createAbortError()
-}
-
 const clampPositiveInteger = (
   value: number | undefined,
   fallback: number,
@@ -254,17 +115,6 @@ const clampPositiveInteger = (
     return max
   }
   return normalized
-}
-
-export interface WorkspacePrefetchOptions {
-  readonly signal?: AbortSignal
-  readonly chunkSize?: number
-  readonly limit?: number
-  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
-}
-
-type PrefetchableWorkspace = WorkspaceItem & {
-  readonly repository?: string
 }
 
 const resolveWorkspaceRepository = (
@@ -287,7 +137,7 @@ const normalizeWorkspaces = (
 
   for (const workspace of workspaces) {
     if (!workspace) continue
-    const name = toTrimmedString((workspace as { name?: string }).name)
+    const name = toTrimmedString(workspace?.name)
     if (!name || seen.has(name)) {
       continue
     }
@@ -298,67 +148,90 @@ const normalizeWorkspaces = (
   return normalized
 }
 
-const addAbortBridge = (
-  signal: AbortSignal | undefined,
-  queryKey: readonly unknown[]
-): (() => void) | null => {
-  if (!signal) {
-    return null
-  }
-
-  const handleAbort = () => {
-    const entry = fmeQueryCache.get(queryKey as any)
-    const controller = entry?.abortController
-    if (controller && !controller.signal.aborted) {
-      try {
-        controller.abort()
-      } catch {}
-    }
-  }
-
-  if (signal.aborted) {
-    handleAbort()
-    return null
-  }
-
-  signal.addEventListener("abort", handleAbort)
-
-  return () => {
-    try {
-      signal.removeEventListener("abort", handleAbort)
-    } catch {}
-  }
+const isWorkspaceItemDetailRecord = (
+  value: unknown
+): value is WorkspaceItemDetail => {
+  if (!isPlainObject(value)) return false
+  const candidate = value as { readonly name?: unknown }
+  return typeof candidate.name === "string"
 }
 
-export async function prefetchAllWorkspaceDetails(
+const isWorkspaceParameterRecord = (
+  value: unknown
+): value is WorkspaceParameter => {
+  if (!isPlainObject(value)) return false
+  const candidate = value as {
+    readonly name?: unknown
+    readonly type?: unknown
+  }
+  return (
+    typeof candidate.name === "string" && typeof candidate.type === "string"
+  )
+}
+
+const normalizeWorkspaceParameters = (raw: unknown): WorkspaceParameter[] => {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(isWorkspaceParameterRecord)
+}
+
+/**
+ * Warm the workspace-item query cache for a collection of workspaces using the shared query client.
+ * The helper reuses an existing `FmeFlowApiClient` when provided and propagates abort signals to
+ * the underlying queries via the global abort manager.
+ */
+export async function prefetchWorkspaceDetailsBatch(
   workspaces: readonly WorkspaceItem[],
-  config: {
+  context: {
+    readonly client?: FmeFlowApiClient | null
     readonly repository?: string
-    readonly fmeServerUrl: string
-    readonly fmeServerToken: string
+    readonly fmeServerUrl?: string
+    readonly fmeServerToken?: string
+    readonly requestTimeout?: number
   },
   options?: WorkspacePrefetchOptions
 ): Promise<void> {
-  const sanitizedUrl = toTrimmedString(config?.fmeServerUrl)
-  const sanitizedToken = toTrimmedString(config?.fmeServerToken)
-  if (!sanitizedUrl || !sanitizedToken) {
-    return
-  }
-
   const normalizedWorkspaces = normalizeWorkspaces(workspaces)
-  if (!normalizedWorkspaces.length) {
-    return
-  }
+  if (!normalizedWorkspaces.length) return
+
+  const baseClient =
+    context?.client ??
+    createFmeClient(
+      context?.fmeServerUrl,
+      context?.fmeServerToken,
+      context?.repository,
+      context?.requestTimeout
+    )
+
+  if (!baseClient) return
+
+  const connection =
+    getClientConnectionInfo(baseClient) ??
+    (() => {
+      const url = toTrimmedString(context?.fmeServerUrl)
+      if (!url) return null
+      return {
+        serverUrl: url,
+        repository: toTrimmedString(context?.repository) || DEFAULT_REPOSITORY,
+        tokenHash: buildTokenCacheKey(context?.fmeServerToken),
+      }
+    })()
+
+  if (!connection) return
+
+  const repositoryName =
+    toTrimmedString(context?.repository) || connection.repository
 
   const signal = options?.signal
   const throwIfAborted = () => {
-    if (signal?.aborted) {
-      throw toErrorObject((signal as { reason?: unknown })?.reason)
+    if (!signal?.aborted) return
+    const reason = (signal as { reason?: unknown }).reason
+    if (reason instanceof Error) {
+      throw reason
     }
+    const abortError = new Error("Aborted")
+    abortError.name = "AbortError"
+    throw abortError
   }
-
-  const repositoryName =
-    toTrimmedString(config?.repository) || DEFAULT_REPOSITORY
 
   const limit = clampPositiveInteger(
     options?.limit,
@@ -367,10 +240,7 @@ export async function prefetchAllWorkspaceDetails(
     normalizedWorkspaces.length
   )
   const scopedWorkspaces = normalizedWorkspaces.slice(0, limit)
-
-  if (!scopedWorkspaces.length) {
-    return
-  }
+  if (!scopedWorkspaces.length) return
 
   const total = scopedWorkspaces.length
   const chunkSize = clampPositiveInteger(
@@ -379,23 +249,21 @@ export async function prefetchAllWorkspaceDetails(
     PREFETCH_CONFIG.MIN_CHUNK_SIZE,
     PREFETCH_CONFIG.MAX_CHUNK_SIZE
   )
-  const tokenKey = buildTokenCacheKey(sanitizedToken)
 
-  let completed = 0
   const notifyProgress =
     typeof options?.onProgress === "function" ? options.onProgress : undefined
 
-  const reportProgress = () => {
+  const reportProgress = (loaded: number) => {
     if (!notifyProgress) return
     try {
-      notifyProgress({
-        loaded: Math.min(completed, total),
-        total,
-      })
+      notifyProgress({ loaded, total })
     } catch {}
   }
 
-  reportProgress()
+  let completed = 0
+  reportProgress(completed)
+
+  let lastError: unknown = null
 
   try {
     throwIfAborted()
@@ -403,12 +271,14 @@ export async function prefetchAllWorkspaceDetails(
     for (let index = 0; index < scopedWorkspaces.length; index += chunkSize) {
       const chunk = scopedWorkspaces.slice(index, index + chunkSize)
 
-      const prefetchPromises = chunk.map((workspace) => {
+      for (const workspace of chunk) {
+        throwIfAborted()
+
         const workspaceName = toTrimmedString(workspace?.name)
         if (!workspaceName) {
           completed += 1
-          reportProgress()
-          return Promise.resolve(null)
+          reportProgress(completed)
+          continue
         }
 
         const workspaceRepository = resolveWorkspaceRepository(
@@ -420,85 +290,85 @@ export async function prefetchAllWorkspaceDetails(
           "workspace-item",
           workspaceName,
           workspaceRepository,
-          sanitizedUrl,
-          tokenKey,
+          connection.serverUrl,
+          connection.tokenHash,
         ] as const
 
-        const cleanup = addAbortBridge(signal, queryKey)
+        const serializedKey = serializeQueryKey(queryKey)
+        const unlink = abortManager.linkExternal(serializedKey, signal)
 
-        const fetchPromise = fmeQueryClient.fetchQuery({
-          queryKey,
-          queryFn: async (fetchSignal) => {
-            const client = createFmeClient(sanitizedUrl, sanitizedToken, {
-              repository: workspaceRepository,
-            })
+        try {
+          await prefetchQuery({
+            queryKey,
+            staleTime: 10 * 60 * 1000,
+            retry: 1,
+            retryDelay: 1000,
+            queryFn: async (fetchSignal) => {
+              const [itemResp, paramsResp] = await Promise.all([
+                baseClient.getWorkspaceItem(
+                  workspaceName,
+                  workspaceRepository,
+                  fetchSignal
+                ),
+                baseClient.getWorkspaceParameters(
+                  workspaceName,
+                  workspaceRepository,
+                  fetchSignal
+                ),
+              ])
 
-            const [itemResp, paramsResp] = await Promise.all([
-              client.getWorkspaceItem(
-                workspaceName,
-                workspaceRepository,
-                fetchSignal
-              ),
-              client.getWorkspaceParameters(
-                workspaceName,
-                workspaceRepository,
-                fetchSignal
-              ),
-            ])
+              const itemData = itemResp?.data
+              if (!isWorkspaceItemDetailRecord(itemData)) {
+                throw new Error("Invalid workspace item response")
+              }
 
-            const parameters = Array.isArray(paramsResp?.data)
-              ? paramsResp.data
-              : []
+              const parameters = normalizeWorkspaceParameters(paramsResp?.data)
 
-            return {
-              item: itemResp.data as WorkspaceItemDetail,
-              parameters,
-            }
-          },
-          staleTime: 10 * 60 * 1000,
-          retry: 1,
-          retryDelay: 1000,
-          onError: (error) => {
-            if (!isAbortError(error)) {
-              logIfNotAbort(
-                `Workspace prefetch failed: ${workspaceName}`,
-                error
-              )
-            }
-          },
-        })
-
-        return fetchPromise
-          .then((result) => {
-            completed += 1
-            reportProgress()
-            return result
+              return {
+                item: itemData,
+                parameters,
+              }
+            },
+            onError: (error) => {
+              if (!isAbortError(error)) {
+                logIfNotAbort(
+                  `Workspace prefetch failed: ${workspaceName}`,
+                  error
+                )
+              }
+            },
           })
-          .catch((error) => {
-            if (isAbortError(error)) {
-              throw toErrorObject(error)
+        } catch (error) {
+          if (isAbortError(error)) {
+            if (error instanceof Error) {
+              throw error
             }
-            completed += 1
-            reportProgress()
-            logIfNotAbort(`Workspace prefetch error: ${workspaceName}`, error)
-            return null
-          })
-          .finally(() => {
-            if (cleanup) {
-              cleanup()
-            }
-          })
-      })
-
-      await Promise.all(prefetchPromises)
-
-      throwIfAborted()
+            const abortError = new Error("Aborted")
+            abortError.name = "AbortError"
+            throw abortError
+          }
+          lastError = error
+        } finally {
+          unlink()
+          completed += 1
+          reportProgress(completed)
+        }
+      }
     }
   } catch (error) {
-    if (isAbortError(error)) {
-      return
-    }
-    throw toErrorObject(error)
+    if (isAbortError(error)) return
+    lastError = error
+  }
+
+  if (lastError && !isAbortError(lastError)) {
+    const status = extractHttpStatus(lastError)
+    const message = mapErrorToKey(lastError, status)
+    throw new FmeFlowApiError(
+      message,
+      "WORKSPACE_PREFETCH_FAILED",
+      status,
+      false
+    )
   }
 }
 
@@ -1747,11 +1617,19 @@ export async function validateConnection(
     key,
     async (): Promise<ConnectionValidationResult> => {
       try {
-        const client = createFmeClient(
-          serverUrl,
-          token,
-          repository ? { repository } : {}
-        )
+        const client = createFmeClient(serverUrl, token, repository)
+
+        if (!client) {
+          return {
+            success: false,
+            steps,
+            error: {
+              message: "connectionFailedMessage",
+              type: "server",
+              status: 0,
+            },
+          }
+        }
 
         // Step 1: Test connection and get server info
         let serverInfo: any

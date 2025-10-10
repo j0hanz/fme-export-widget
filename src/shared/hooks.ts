@@ -12,9 +12,12 @@ import type {
   FormValues,
   LoadingSnapshot,
   ConnectionValidationResult,
-  FmeExportConfig,
   PrefetchStatus,
   WorkspacePrefetchProgress,
+  WorkspacePrefetchState,
+  PrefetchOptions,
+  ValidateConnectionVariables,
+  UseDebounceOptions,
 } from "../config/index"
 import {
   ErrorSeverity,
@@ -26,17 +29,16 @@ import { fmeActions } from "../extensions/store"
 import {
   loadArcgisModules,
   extractRepositoryNames,
-  toTrimmedString,
   logIfNotAbort,
   isAbortError,
+  createFmeClient,
+  buildTokenCacheKey,
 } from "./utils"
-import type FmeFlowApiClient from "./api"
-import { createFmeFlowClient } from "./api"
 import { useFmeQuery, useFmeMutation } from "./query"
 import {
   healthCheck,
   validateConnection,
-  prefetchAllWorkspaceDetails,
+  prefetchWorkspaceDetailsBatch,
 } from "./services"
 
 // ArcGIS Resource Utilities
@@ -91,10 +93,6 @@ type DebouncedFn<T extends (...args: any[]) => void> = ((
   cancel: () => void
   flush: () => void
   isPending: () => boolean
-}
-
-interface UseDebounceOptions {
-  onPendingChange?: (pending: boolean) => void
 }
 
 export const useDebounce = <T extends (...args: any[]) => void>(
@@ -670,65 +668,6 @@ export const useLatestAbortController = () => {
 // Query System Domain Hooks
 // ============================================
 
-const buildFmeClient = (
-  serverUrl?: string,
-  token?: string,
-  repository?: string
-): FmeFlowApiClient | null => {
-  const trimmedUrl = toTrimmedString(serverUrl)
-  const trimmedToken = toTrimmedString(token)
-  if (!trimmedUrl || !trimmedToken) {
-    return null
-  }
-
-  const resolvedRepository = toTrimmedString(repository) || DEFAULT_REPOSITORY
-  const baseConfig: FmeExportConfig = {
-    fmeServerUrl: trimmedUrl,
-    fmeServerToken: trimmedToken,
-    repository: resolvedRepository,
-  }
-
-  try {
-    return createFmeFlowClient(baseConfig)
-  } catch {
-    return null
-  }
-}
-
-export const buildTokenCacheKey = (token?: string): string => {
-  const trimmed = toTrimmedString(token)
-  if (!trimmed) {
-    return "token:none"
-  }
-
-  let hash = 0
-  for (let i = 0; i < trimmed.length; i += 1) {
-    hash = (hash * 31 + trimmed.charCodeAt(i)) >>> 0
-  }
-
-  return `token:${hash.toString(36)}`
-}
-
-/**
- * Generate a stable cache key for a workspace prefetch operation.
- * Used to prevent redundant prefetch calls for the same workspace set.
- *
- * @param serverUrl - FME Server base URL
- * @param repository - Repository name
- * @param workspaceCount - Number of workspaces
- * @param tokenHash - Hashed token identifier
- * @returns Stable string key for deduplication
- */
-const buildPrefetchCacheKey = (
-  serverUrl: string,
-  repository: string | undefined,
-  workspaceCount: number,
-  tokenHash: string
-): string => {
-  const repo = repository || "default"
-  return `${serverUrl}|${repo}|${workspaceCount}|${tokenHash}`
-}
-
 export function useWorkspaces(
   config: {
     repository?: string
@@ -738,7 +677,7 @@ export function useWorkspaces(
   options?: { enabled?: boolean }
 ) {
   const getFmeClient = hooks.useEventCallback(() =>
-    buildFmeClient(
+    createFmeClient(
       config.fmeServerUrl,
       config.fmeServerToken,
       config.repository
@@ -790,7 +729,7 @@ export function useWorkspaceItem(
   options?: { enabled?: boolean }
 ) {
   const getFmeClient = hooks.useEventCallback(() =>
-    buildFmeClient(
+    createFmeClient(
       config.fmeServerUrl,
       config.fmeServerToken,
       config.repository
@@ -834,11 +773,6 @@ export function useWorkspaceItem(
   })
 }
 
-interface WorkspacePrefetchState {
-  readonly status: PrefetchStatus
-  readonly progress: WorkspacePrefetchProgress | null
-}
-
 export function usePrefetchWorkspaces(
   workspaces: readonly WorkspaceItem[] | undefined,
   config: {
@@ -846,103 +780,103 @@ export function usePrefetchWorkspaces(
     fmeServerUrl?: string
     fmeServerToken?: string
   },
-  options?: { enabled?: boolean }
+  options?: PrefetchOptions
 ) {
-  const [state, setState] = React.useState<WorkspacePrefetchState>(() => ({
+  const [state, setState] = React.useState<WorkspacePrefetchState>({
     status: "idle",
     progress: null,
-  }))
-  const workspacesRef = hooks.useLatest(workspaces ?? [])
-  const configRef = hooks.useLatest(config)
-  const statusRef = hooks.useLatest(state.status)
-
-  // Track last prefetch key to avoid redundant work
-  const lastPrefetchKeyRef = React.useRef<string | null>(null)
-
-  const {
-    cancel: cancelPrefetch,
-    abortAndCreate,
-    finalize,
-  } = useLatestAbortController()
-
-  hooks.useUnmount(() => {
-    cancelPrefetch()
   })
 
-  const handleProgress = hooks.useEventCallback(
-    (progress: WorkspacePrefetchProgress) => {
-      setState((prev) => {
-        if (
-          prev.status === "loading" &&
-          prev.progress &&
-          prev.progress.loaded === progress.loaded &&
-          prev.progress.total === progress.total
-        ) {
-          return prev
+  const workspacesRef = hooks.useLatest(workspaces ?? [])
+  const configRef = hooks.useLatest(config)
+  const optionsRef = hooks.useLatest(options)
+
+  const { cancel, abortAndCreate, finalize } = useLatestAbortController()
+  const localClientRef = React.useRef<ReturnType<typeof createFmeClient>>(null)
+
+  hooks.useUnmount(() => {
+    cancel()
+    const localClient = localClientRef.current
+    if (localClient && typeof localClient.dispose === "function") {
+      try {
+        localClient.dispose()
+      } catch {}
+    }
+    localClientRef.current = null
+  })
+
+  const acquireClient = hooks.useEventCallback(() => {
+    const external = optionsRef.current?.client
+    if (external) {
+      return external
+    }
+
+    if (!localClientRef.current) {
+      const currentConfig = configRef.current
+      localClientRef.current = createFmeClient(
+        currentConfig?.fmeServerUrl,
+        currentConfig?.fmeServerToken,
+        currentConfig?.repository
+      )
+    }
+
+    return localClientRef.current
+  })
+
+  const updateProgress = hooks.useEventCallback(
+    (progress: WorkspacePrefetchProgress | null, status: PrefetchStatus) => {
+      setState({ status, progress })
+      if (progress) {
+        const handler = optionsRef.current?.onProgress
+        if (typeof handler === "function") {
+          try {
+            handler(progress)
+          } catch {}
         }
-        return { status: "loading", progress }
-      })
+      }
     }
   )
 
   const prefetch = hooks.useEventCallback(async () => {
     const latestWorkspaces = workspacesRef.current
-    if (!latestWorkspaces.length) {
-      return
-    }
+    if (!latestWorkspaces.length) return
 
-    const latestConfig = configRef.current
-    const serverUrl = toTrimmedString(latestConfig?.fmeServerUrl)
-    const serverToken = toTrimmedString(latestConfig?.fmeServerToken)
-    if (!serverUrl || !serverToken) {
-      return
-    }
-
-    // Build a stable key for this prefetch operation
-    const tokenHash = buildTokenCacheKey(serverToken)
-    const prefetchKey = buildPrefetchCacheKey(
-      serverUrl,
-      latestConfig?.repository,
-      latestWorkspaces.length,
-      tokenHash
-    )
-
-    // Skip if we've already successfully prefetched this exact set
-    if (lastPrefetchKeyRef.current === prefetchKey) {
-      return
-    }
+    const client = acquireClient()
+    if (!client) return
 
     const controller = abortAndCreate()
-    setState({ status: "loading", progress: null })
+    updateProgress(null, "loading")
 
     try {
-      await prefetchAllWorkspaceDetails(
+      await prefetchWorkspaceDetailsBatch(
         latestWorkspaces,
         {
-          repository: latestConfig?.repository,
-          fmeServerUrl: serverUrl,
-          fmeServerToken: serverToken,
+          client,
+          repository: configRef.current?.repository,
+          fmeServerUrl: configRef.current?.fmeServerUrl,
+          fmeServerToken: configRef.current?.fmeServerToken,
         },
         {
           signal: controller.signal,
-          onProgress: handleProgress,
+          onProgress: (progress) => updateProgress(progress, "loading"),
         }
       )
 
-      setState({
-        status: "success",
-        progress: {
-          loaded: latestWorkspaces.length,
-          total: latestWorkspaces.length,
-        },
-      })
-      lastPrefetchKeyRef.current = prefetchKey
+      if (!controller.signal.aborted) {
+        updateProgress(
+          {
+            loaded: latestWorkspaces.length,
+            total: latestWorkspaces.length,
+          },
+          "success"
+        )
+      }
     } catch (error) {
       if (isAbortError(error)) {
-        setState({ status: "idle", progress: null })
+        updateProgress(null, "idle")
       } else {
         logIfNotAbort("Workspace prefetch error", error)
-        setState({ status: "error", progress: null })
+        updateProgress(null, "error")
       }
     } finally {
       finalize(controller)
@@ -950,21 +884,10 @@ export function usePrefetchWorkspaces(
   })
 
   hooks.useUpdateEffect(() => {
-    if (!options?.enabled) {
-      return
-    }
-    if (!workspaces?.length) {
-      return
-    }
-    if (statusRef.current === "loading") {
-      return
-    }
-
-    const serverUrl = toTrimmedString(config?.fmeServerUrl)
-    const serverToken = toTrimmedString(config?.fmeServerToken)
-    if (!serverUrl || !serverToken) {
-      return
-    }
+    const isEnabled = optionsRef.current?.enabled ?? true
+    if (!isEnabled) return
+    if (!config?.fmeServerUrl || !config?.fmeServerToken) return
+    if (!workspaces?.length) return
 
     void prefetch()
   }, [
@@ -981,7 +904,7 @@ export function usePrefetchWorkspaces(
     prefetchStatus: state.status,
     prefetch,
     progress: state.progress,
-    cancelPrefetch,
+    cancelPrefetch: cancel,
   }
 }
 
@@ -997,7 +920,7 @@ export function useRepositories(
         throw new Error("Missing credentials")
       }
 
-      const client = buildFmeClient(serverUrl, token, DEFAULT_REPOSITORY)
+      const client = createFmeClient(serverUrl, token, DEFAULT_REPOSITORY)
       if (!client) {
         throw new Error("Missing credentials")
       }
@@ -1030,12 +953,6 @@ export function useHealthCheck(
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
     retry: 0,
   })
-}
-
-interface ValidateConnectionVariables {
-  serverUrl: string
-  token: string
-  repository?: string
 }
 
 export function useValidateConnection() {

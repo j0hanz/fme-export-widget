@@ -31,6 +31,7 @@ import type {
   SubmissionPhase,
   SubmissionPreparationStatus,
   ModeNotice,
+  ServiceModeOverrideInfo,
 } from "../config/index"
 import {
   makeErrorView,
@@ -81,7 +82,7 @@ import {
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
-  type ServiceModeOverrideInfo,
+  buildTokenCacheKey,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -91,7 +92,6 @@ import {
   safeClearLayer,
   useDebounce,
   usePrefetchWorkspaces,
-  buildTokenCacheKey,
 } from "../shared/hooks"
 import { fmeQueryClient } from "../shared/query"
 

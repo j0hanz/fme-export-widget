@@ -1,49 +1,11 @@
-import type { PrimitiveParams } from "../config/types"
+import type {
+  PrimitiveParams,
+  NetworkConfig,
+  InstrumentedRequestOptions,
+  RequestLog,
+} from "../config/types"
 import { extractHttpStatus } from "./validations"
 import { extractErrorMessage, isAbortError, safeParseUrl } from "./utils"
-
-// Types
-type LogLevel = "silent" | "warn" | "debug"
-
-interface NetworkConfig {
-  readonly enabled: boolean
-  readonly logLevel: LogLevel
-  readonly bodyPreviewLimit: number
-  readonly warnSlowMs: number
-}
-
-interface InstrumentedRequestOptions<T> {
-  method: string
-  url: string
-  transport: string
-  execute: () => Promise<T>
-  body?: unknown
-  query?: PrimitiveParams | URLSearchParams | string | null
-  caller?: string
-  correlationId?: string
-  retryAttempt?: number
-  responseInterpreter?: {
-    status?: (response: T) => number | undefined
-    ok?: (response: T) => boolean | undefined
-    size?: (response: T) => number | undefined
-  }
-}
-
-interface RequestLog {
-  readonly timestamp: number
-  readonly method: string
-  readonly url: string
-  readonly path: string
-  readonly status?: number
-  readonly ok?: boolean
-  readonly durationMs: number
-  readonly correlationId: string
-  readonly caller?: string
-  readonly transport: string
-  readonly retryAttempt?: number
-  readonly responseSize?: number
-  readonly isAbort?: boolean
-}
 
 // Configuration
 const DEFAULT_CONFIG: NetworkConfig = {

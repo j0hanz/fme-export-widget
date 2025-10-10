@@ -12,6 +12,7 @@
  */
 
 import { React, hooks } from "jimu-core"
+import { abortManager } from "./api"
 import { isAbortError, logIfNotAbort } from "./utils"
 import { isRetryableError } from "./validations"
 import type {
@@ -60,7 +61,7 @@ function stringifyUnknown(value: unknown): string {
 /**
  * Serialize a query key to a stable string for cache lookup
  */
-function serializeKey(key: QueryKey): string {
+export function serializeQueryKey(key: QueryKey): string {
   try {
     return JSON.stringify(key)
   } catch {
@@ -112,14 +113,14 @@ class FmeQueryCache {
    * Get cache entry by query key
    */
   get<T>(key: QueryKey): CacheEntry<T> | undefined {
-    return this.cache.get(serializeKey(key)) as CacheEntry<T> | undefined
+    return this.cache.get(serializeQueryKey(key)) as CacheEntry<T> | undefined
   }
 
   /**
    * Update cache entry (merges with existing)
    */
   set<T>(key: QueryKey, entry: Partial<CacheEntry<T>>): void {
-    const serialized = serializeKey(key)
+    const serialized = serializeQueryKey(key)
     const existing = this.cache.get(serialized)
 
     const next: CacheEntry<T> = {
@@ -181,7 +182,7 @@ class FmeQueryCache {
       return
     }
 
-    const prefix = serializeKey(keyPrefix)
+    const prefix = serializeQueryKey(keyPrefix)
     this.cache.forEach((entry, serialized) => {
       if (serialized.startsWith(prefix)) {
         entry.status = "idle"
@@ -195,14 +196,14 @@ class FmeQueryCache {
    * Remove an entry from the cache completely
    */
   remove(key: QueryKey): void {
-    this.removeSerializedKey(serializeKey(key))
+    this.removeSerializedKey(serializeQueryKey(key))
   }
 
   /**
    * Schedule garbage collection for unused entries
    */
   scheduleGc(key: QueryKey, cacheTime: number): void {
-    const serialized = serializeKey(key)
+    const serialized = serializeQueryKey(key)
     const delay = Number.isFinite(cacheTime)
       ? Math.max(cacheTime, 0)
       : DEFAULTS.CACHE_TIME
@@ -272,7 +273,7 @@ class FmeQueryCache {
   }
 
   private getOrCreate<T>(key: QueryKey): CacheEntry<T> {
-    const serialized = serializeKey(key)
+    const serialized = serializeQueryKey(key)
     let entry = this.cache.get(serialized) as CacheEntry<T> | undefined
 
     if (!entry) {
@@ -320,6 +321,8 @@ class FmeQueryCache {
       } catch {}
     }
 
+    abortManager.release(serialized, entry?.abortController ?? null)
+
     this.cache.delete(serialized)
 
     const timer = this.gcTimers.get(serialized)
@@ -354,6 +357,7 @@ export class FmeQueryClient {
       retryDelay = defaultRetryDelay,
     } = options
 
+    const serializedKey = serializeQueryKey(queryKey)
     const entry = this.cache.get<T>(queryKey)
 
     if (entry?.status === "loading" && entry.abortController) {
@@ -377,6 +381,7 @@ export class FmeQueryClient {
     }
 
     const controller = new AbortController()
+    abortManager.register(serializedKey, controller)
     this.cache.set(queryKey, {
       status: "loading",
       abortController: controller,
@@ -446,6 +451,7 @@ export class FmeQueryClient {
     try {
       return await attemptFetch(1)
     } finally {
+      abortManager.release(serializedKey, controller)
       const current = this.cache.get<T>(queryKey)
       if (current?.abortController === controller) {
         this.cache.set(queryKey, { abortController: null })
@@ -463,7 +469,7 @@ export class FmeQueryClient {
       return
     }
 
-    const prefix = serializeKey(keyPrefix)
+    const prefix = serializeQueryKey(keyPrefix)
     const targets: string[] = []
     this.cache.forEachEntry((serialized) => {
       if (serialized.startsWith(prefix)) {
@@ -483,6 +489,38 @@ export class FmeQueryClient {
 
 export const fmeQueryClient = new FmeQueryClient()
 
+export async function fetchQuery<T>(options: QueryOptions<T>): Promise<T> {
+  return await fmeQueryClient.fetchQuery(options)
+}
+
+export async function prefetchQuery<T>(
+  options: QueryOptions<T>
+): Promise<void> {
+  const isEnabled = options.enabled ?? true
+  if (!isEnabled) return
+
+  const entry = fmeQueryCache.get<T>(options.queryKey)
+  const staleTime =
+    typeof options.staleTime === "number"
+      ? options.staleTime
+      : DEFAULTS.STALE_TIME
+
+  const now = Date.now()
+  if (entry?.status === "success" && now - entry.timestamp <= staleTime) {
+    return
+  }
+
+  try {
+    await fmeQueryClient.fetchQuery(options)
+  } catch (error) {
+    if (!isAbortError(error)) {
+      const finalError =
+        error instanceof Error ? error : new Error(String(error))
+      throw finalError
+    }
+  }
+}
+
 // ============================================
 // useFmeQuery - Primary data fetching hook
 // ============================================
@@ -501,7 +539,7 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
 
   const optionsRef = hooks.useLatest(options)
   const queryKeyRef = hooks.useLatest(queryKey)
-  const serializedKey = serializeKey(queryKey)
+  const serializedKey = serializeQueryKey(queryKey)
 
   hooks.useEffectWithPreviousValues(() => {
     const unsubscribe = fmeQueryCache.subscribe(queryKey, () => {

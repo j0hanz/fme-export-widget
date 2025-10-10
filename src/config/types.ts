@@ -5,7 +5,6 @@ import type FmeFlowApiClient from "../shared/api"
 import type { SettingStyles } from "./style"
 import type {
   DrawingTool,
-  ErrorSeverity,
   ErrorType,
   FormFieldType,
   HttpMethod,
@@ -13,6 +12,7 @@ import type {
   ParameterType,
   ViewMode,
 } from "./enums"
+import { ErrorSeverity } from "./enums"
 
 export interface AreaDisplay {
   readonly value: number
@@ -663,15 +663,37 @@ export interface ApiResponse<T = unknown> {
   readonly statusText: string
 }
 
-export class FmeFlowApiError extends Error {
+export interface FmeError {
+  readonly message: string
+  readonly severity: ErrorSeverity
+  readonly httpStatus?: number
+  readonly code?: string
+  readonly retryable?: boolean
+}
+
+export class FmeFlowApiError extends Error implements FmeError {
+  public readonly code: string
+  public readonly httpStatus?: number
+  public readonly status?: number
+  public readonly severity: ErrorSeverity
+  public readonly retryable: boolean
+  public readonly isRetryable: boolean
+
   constructor(
     message: string,
-    public readonly code: string,
-    public readonly status?: number,
-    public readonly isRetryable?: boolean
+    code: string,
+    httpStatus?: number,
+    isRetryable?: boolean,
+    severity: ErrorSeverity = ErrorSeverity.ERROR
   ) {
     super(message)
     this.name = "FmeFlowApiError"
+    this.code = code
+    this.httpStatus = httpStatus
+    this.status = httpStatus
+    this.retryable = Boolean(isRetryable)
+    this.isRetryable = this.retryable
+    this.severity = severity
   }
 }
 
@@ -999,6 +1021,81 @@ export interface IMStateWithFmeExport extends IMState {
   readonly "fme-state": IMFmeGlobalState
 }
 
+// Types
+type LogLevel = "silent" | "warn" | "debug"
+
+export interface NetworkConfig {
+  readonly enabled: boolean
+  readonly logLevel: LogLevel
+  readonly bodyPreviewLimit: number
+  readonly warnSlowMs: number
+}
+
+export interface InstrumentedRequestOptions<T> {
+  method: string
+  url: string
+  transport: string
+  execute: () => Promise<T>
+  body?: unknown
+  query?: PrimitiveParams | URLSearchParams | string | null
+  caller?: string
+  correlationId?: string
+  retryAttempt?: number
+  responseInterpreter?: {
+    status?: (response: T) => number | undefined
+    ok?: (response: T) => boolean | undefined
+    size?: (response: T) => number | undefined
+  }
+}
+
+export interface WorkspacePrefetchOptions {
+  readonly signal?: AbortSignal
+  readonly chunkSize?: number
+  readonly limit?: number
+  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
+}
+
+export type PrefetchableWorkspace = WorkspaceItem & {
+  readonly repository?: string
+}
+
+export interface RequestLog {
+  readonly timestamp: number
+  readonly method: string
+  readonly url: string
+  readonly path: string
+  readonly status?: number
+  readonly ok?: boolean
+  readonly durationMs: number
+  readonly correlationId: string
+  readonly caller?: string
+  readonly transport: string
+  readonly retryAttempt?: number
+  readonly responseSize?: number
+  readonly isAbort?: boolean
+}
+
+export interface ServiceModeOverrideInfo {
+  readonly forcedMode: ServiceMode
+  readonly previousMode: ServiceMode
+  readonly reason: "runtime" | "transformers" | "fileSize" | "area"
+  readonly value?: number
+  readonly threshold?: number
+}
+
+export interface DetermineServiceModeOptions {
+  readonly workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
+  readonly areaWarning?: boolean
+  readonly drawnArea?: number
+  readonly onModeOverride?: (info: ServiceModeOverrideInfo) => void
+}
+
+export interface ForceAsyncResult {
+  readonly reason: ServiceModeOverrideInfo["reason"]
+  readonly value?: number
+  readonly threshold?: number
+}
+
 export interface ConnectionTestSectionProps {
   readonly testState: TestState
   readonly checkSteps: CheckSteps
@@ -1007,6 +1104,39 @@ export interface ConnectionTestSectionProps {
   readonly translate: TranslateFn
   readonly styles: SettingStyles
   readonly validationPhase: ValidationPhase
+}
+
+export interface AbortListenerRecord {
+  readonly signal: AbortSignal
+  readonly handler: () => void
+}
+
+export interface WorkspacePrefetchState {
+  readonly status: PrefetchStatus
+  readonly progress: WorkspacePrefetchProgress | null
+}
+
+export interface PrefetchOptions {
+  readonly enabled?: boolean
+  readonly client?: FmeFlowApiClient | null
+  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
+}
+
+export interface ValidateConnectionVariables {
+  serverUrl: string
+  token: string
+  repository?: string
+}
+
+export interface UseDebounceOptions {
+  onPendingChange?: (pending: boolean) => void
+}
+
+export interface ScheduleFieldsProps {
+  readonly values: { [key: string]: unknown }
+  readonly onChange: (field: string, value: string) => void
+  readonly translate: (key: string, params?: any) => string
+  readonly disabled?: boolean
 }
 
 export interface RepositorySelectorProps {
@@ -1047,11 +1177,6 @@ export interface JobDirectivesSectionProps {
     readonly tm_ttc: string
     readonly tm_ttl: string
   }
-}
-
-export interface WorkspacePrefetchProgress {
-  readonly loaded: number
-  readonly total: number
 }
 
 export type WorkspacePrefetchStatus = "idle" | "loading" | "success" | "error"
