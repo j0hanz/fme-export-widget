@@ -829,7 +829,7 @@ export function useRepositories(
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
     staleTime: 5 * 60 * 1000,
-    retry: 2,
+    retry: 0,
   })
 }
 
@@ -849,7 +849,7 @@ export function useHealthCheck(
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
     staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
-    retry: 1,
+    retry: 0,
   })
 }
 

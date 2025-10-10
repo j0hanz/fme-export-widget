@@ -13,6 +13,7 @@
 
 import { React, hooks } from "jimu-core"
 import { isAbortError, logIfNotAbort } from "./utils"
+import { isRetryableError } from "./validations"
 import type {
   QueryKey,
   QueryStatus,
@@ -409,7 +410,8 @@ export class FmeQueryClient {
         }
 
         const maxRetries = retry === false ? 0 : retry
-        const shouldRetry = attempt < maxRetries
+        const retryable = isRetryableError(error)
+        const shouldRetry = retryable && attempt < maxRetries
 
         if (shouldRetry) {
           const delay =

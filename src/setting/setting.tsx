@@ -406,7 +406,6 @@ const FieldRow: React.FC<{
   maxLength?: number
   disabled?: boolean
   isPending?: boolean
-  pendingLabel?: string
   styles: SettingStyles
 }> = ({
   id,
@@ -421,7 +420,6 @@ const FieldRow: React.FC<{
   maxLength,
   disabled,
   isPending = false,
-  pendingLabel,
   styles,
 }) => (
   <SettingRow flow="wrap" label={label} level={1} tag="label">
@@ -454,11 +452,8 @@ const FieldRow: React.FC<{
             type={LoadingType.Secondary}
             width={16}
             height={16}
-            aria-hidden={pendingLabel ? true : undefined}
+            aria-hidden={true}
           />
-          {pendingLabel ? (
-            <span css={css(styles.fieldStatusText)}>{pendingLabel}</span>
-          ) : null}
         </div>
       </SettingRow>
     )}
@@ -709,6 +704,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const configToken = getStringConfig("fmeServerToken") || ""
   const previousConfigServerUrl = hooks.usePrevious(configServerUrl)
   const previousConfigToken = hooks.usePrevious(configToken)
+  const trimmedLocalServerUrl = toTrimmedString(localServerUrl)
+  const trimmedLocalToken = toTrimmedString(localToken)
+  const serverValidation = validateServerUrl(localServerUrl, {
+    requireHttps: true,
+  })
+  const tokenValidation = validateToken(localToken)
+  const normalizedLocalServerUrl =
+    serverValidation.ok && trimmedLocalServerUrl
+      ? normalizeBaseUrl(trimmedLocalServerUrl) || undefined
+      : undefined
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(() =>
     getStringConfig("supportEmail")
   )
@@ -763,8 +768,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const shouldShowScheduleToggle = !localSyncMode
   const hasMapSelection =
     Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
-  const hasServerInputs =
-    !!toTrimmedString(localServerUrl) && !!toTrimmedString(localToken)
+  const hasServerInputs = Boolean(trimmedLocalServerUrl && trimmedLocalToken)
   const shouldShowRepositorySelector = hasMapSelection && hasServerInputs
   const hasRepositorySelection = !!toTrimmedString(selectedRepository)
   const shouldShowRemainingSettings =
@@ -864,17 +868,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   // ============================================
 
   // Determine if we should fetch repositories
-  const canFetchRepos = Boolean(
-    toTrimmedString(localServerUrl) && toTrimmedString(localToken)
-  )
-  const normalizedServerUrl = canFetchRepos
-    ? normalizeBaseUrl(toTrimmedString(localServerUrl))
-    : undefined
+  const canFetchRepos = Boolean(normalizedLocalServerUrl && tokenValidation.ok)
 
   // Use query hook for repositories (replaces manual loadRepositories)
   const repositoriesQuery = useRepositories(
-    normalizedServerUrl,
-    toTrimmedString(localToken),
+    normalizedLocalServerUrl,
+    trimmedLocalToken,
     { enabled: canFetchRepos }
   )
 
@@ -1094,11 +1093,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return serverUrl && token ? { serverUrl, token, repository } : null
     }
   )
-
-  const serverValidation = validateServerUrl(localServerUrl, {
-    requireHttps: true,
-  })
-  const tokenValidation = validateToken(localToken)
   const canRunConnectionTest = serverValidation.ok && tokenValidation.ok
 
   // Handle "Test Connection" button click - disable when widget is busy
@@ -1277,9 +1271,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   // Enhanced repository refresh for better UX - uses query hook refetch
   const refreshRepositories = hooks.useEventCallback(async () => {
-    if (repositoriesQuery.refetch) {
-      await repositoriesQuery.refetch()
+    if (!canFetchRepos || !repositoriesQuery.refetch) {
+      return
     }
+    await repositoriesQuery.refetch()
   })
 
   // Clear transient repo list when server URL or token in config changes
@@ -1344,14 +1339,19 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     // Validate on blur
     debouncedServerValidation.cancel()
     const cleaned = normalizeBaseUrl(url)
-    updateConfig("fmeServerUrl", cleaned)
-    if (cleaned !== url) {
+    const hasChanged = cleaned !== configServerUrl
+    if (cleaned !== localServerUrl) {
       setLocalServerUrl(cleaned)
+    }
+    if (hasChanged) {
+      updateConfig("fmeServerUrl", cleaned)
     }
     runServerValidation(cleaned)
 
-    // Clear repository data when server changes
-    clearRepositoryEphemeralState()
+    if (hasChanged) {
+      // Clear repository data when server changes
+      clearRepositoryEphemeralState()
+    }
   })
 
   // Handle token blur - save to config and clear repository state
@@ -1361,10 +1361,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     runTokenValidation(token)
 
     // Save to config
-    updateConfig("fmeServerToken", token)
-
-    // Clear repository data when token changes
-    clearRepositoryEphemeralState()
+    if (token !== configToken) {
+      updateConfig("fmeServerToken", token)
+      // Clear repository data when token changes
+      clearRepositoryEphemeralState()
+    }
   })
 
   // Keep repository field error in sync when either the list or selection changes
@@ -1463,7 +1464,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             required
             errorText={fieldErrors.serverUrl}
             isPending={isServerValidationPending}
-            pendingLabel={translate("validatingServerUrl")}
             styles={settingStyles}
           />
           <FieldRow
@@ -1477,7 +1477,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
             required
             errorText={fieldErrors.token}
             isPending={isTokenValidationPending}
-            pendingLabel={translate("validatingToken")}
             styles={settingStyles}
           />
           <ConnectionTestSection
@@ -1491,8 +1490,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
           {shouldShowRepositorySelector && (
             <RepositorySelector
-              localServerUrl={getStringConfig("fmeServerUrl")}
-              localToken={getStringConfig("fmeServerToken")}
+              localServerUrl={localServerUrl}
+              localToken={localToken}
               localRepository={selectedRepository}
               availableRepos={availableRepos}
               label={

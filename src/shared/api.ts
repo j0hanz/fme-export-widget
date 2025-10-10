@@ -17,6 +17,7 @@ import {
 } from "../config/index"
 import {
   extractHttpStatus,
+  isRetryableError,
   validateRequiredConfig,
   mapErrorToKey,
 } from "./validations"
@@ -36,9 +37,15 @@ import {
   loadArcgisModules,
 } from "./utils"
 
+const isStatusRetryable = (status?: number): boolean => {
+  if (!status || status < 100) return true
+  if (status >= 500) return true
+  return status === 408 || status === 429
+}
+
 // Construct a typed FME Flow API error with identical message and code.
 const makeFlowError = (code: string, status?: number) =>
-  new FmeFlowApiError(code, code, status)
+  new FmeFlowApiError(code, code, status, isStatusRetryable(status))
 
 const unwrapModule = (module: unknown): any =>
   (module as any)?.default ?? module
@@ -718,7 +725,13 @@ export class FmeFlowApiClient {
       return await operation()
     } catch (err) {
       const status = extractHttpStatus(err)
-      throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
+      const retryable = isRetryableError(err)
+      throw new FmeFlowApiError(
+        errorMessage,
+        errorCode,
+        status || 0,
+        retryable
+      )
     }
   }
 
@@ -1204,6 +1217,7 @@ export class FmeFlowApiClient {
       }
 
       const httpStatus = extractHttpStatus(err) || 0
+      const retryable = isRetryableError(err)
       const message = extractErrorMessage(err)
 
       // Determine error code for programmatic identification (simpler logic)
@@ -1215,7 +1229,12 @@ export class FmeFlowApiClient {
       // Get user-friendly translation key using centralized error mapping
       const translationKey = mapErrorToKey(err, httpStatus)
 
-      throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
+      throw new FmeFlowApiError(
+        translationKey,
+        errorCode,
+        httpStatus,
+        retryable
+      )
     }
   }
 }

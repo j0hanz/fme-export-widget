@@ -262,6 +262,21 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
+export const isRetryableError = (error: unknown): boolean => {
+  if (error && typeof error === "object") {
+    const candidate = error as { isRetryable?: unknown }
+    if (typeof candidate.isRetryable === "boolean") {
+      return candidate.isRetryable
+    }
+  }
+
+  const status = extractHttpStatus(error)
+
+  if (!status || status < 100) return true
+  if (status >= 500) return true
+  return status === 408 || status === 429
+}
+
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
   if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
