@@ -29,6 +29,7 @@ import {
 import type FmeFlowApiClient from "./api"
 import { createFmeFlowClient } from "./api"
 import { useFmeQuery, useFmeMutation } from "./query"
+import { healthCheck, validateConnection } from "./services"
 
 // ArcGIS Resource Utilities
 const executeSafely = <T>(
@@ -843,8 +844,7 @@ export function useHealthCheck(
       if (!serverUrl || !token) {
         throw new Error("Missing credentials")
       }
-      const services = await import("./services")
-      return await services.healthCheck(serverUrl, token, signal)
+      return await healthCheck(serverUrl, token, signal)
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
     staleTime: 2 * 60 * 1000,
@@ -865,8 +865,7 @@ export function useValidateConnection() {
     ValidateConnectionVariables
   >({
     mutationFn: async (variables, signal) => {
-      const services = await import("./services")
-      return await services.validateConnection({
+      return await validateConnection({
         serverUrl: variables.serverUrl,
         token: variables.token,
         repository: variables.repository,

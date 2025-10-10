@@ -950,7 +950,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })()
 
   // Handle repository query errors
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (repositoriesQuery.isError && !isAbortError(repositoriesQuery.error)) {
       setReposHint(translate("errorRepositories"))
     } else if (repositoriesQuery.isSuccess) {

@@ -474,7 +474,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
                 css={styles.typo.link}
                 download={orderResult.downloadFilename}
               >
-                {orderResult.downloadFilename || translate("clickToDownload")}
+                {translate("clickToDownload")}
               </a>
             </div>
           )}
@@ -1026,19 +1026,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
     repository?: string
   } | null>(null)
 
-  const isWorkspaceSelectionContext =
-    state === ViewMode.WORKSPACE_SELECTION || state === ViewMode.EXPORT_OPTIONS
-
-  const shouldFetchWorkspaces =
-    canFetchWorkspaces && isWorkspaceSelectionContext
-
   const workspacesQuery = useWorkspaces(
     {
       repository: configuredRepository || undefined,
       fmeServerUrl: serverUrl || undefined,
       fmeServerToken: serverToken || undefined,
     },
-    { enabled: shouldFetchWorkspaces }
+    { enabled: canFetchWorkspaces }
   )
 
   const workspaceItemQuery = useWorkspaceItem(
@@ -1120,7 +1114,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }
 
   hooks.useUpdateEffect(() => {
-    if (!shouldFetchWorkspaces) {
+    if (!canFetchWorkspaces) {
       return
     }
 
@@ -1137,7 +1131,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   }, [
     sanitizedWorkspaces,
     workspaceItems,
-    shouldFetchWorkspaces,
+    canFetchWorkspaces,
     reduxDispatch,
     effectiveWidgetId,
   ])
@@ -1169,10 +1163,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return
     }
 
-    if (!isWorkspaceSelectionContext) {
-      return
-    }
-
     const refetch = workspacesRefetchRef.current
     if (typeof refetch === "function") {
       void refetch()
@@ -1181,7 +1171,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     configuredRepository,
     previousConfiguredRepository,
     canFetchWorkspaces,
-    isWorkspaceSelectionContext,
     reduxDispatch,
     effectiveWidgetId,
     workspacesRefetchRef,

@@ -501,7 +501,7 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
   const queryKeyRef = hooks.useLatest(queryKey)
   const serializedKey = serializeKey(queryKey)
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     const unsubscribe = fmeQueryCache.subscribe(queryKey, () => {
       if (isMountedRef.current) {
         forceUpdate()
@@ -511,7 +511,7 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
     return () => {
       unsubscribe()
     }
-  }, [serializedKey, queryKey])
+  }, [serializedKey])
 
   const executeFetch = hooks.useEventCallback(async () => {
     const currentOptions = optionsRef.current
@@ -545,13 +545,13 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
     }
   })
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (enabled) {
       void executeFetch()
     }
-  }, [enabled, executeFetch, serializedKey, queryKey])
+  }, [enabled, executeFetch, serializedKey])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (!refetchOnWindowFocus || !enabled) return
 
     const handleFocus = () => {
@@ -564,7 +564,7 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
     }
   }, [refetchOnWindowFocus, enabled, executeFetch])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (!refetchOnReconnect || !enabled) return
 
     const handleOnline = () => {
@@ -577,9 +577,9 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
     }
   }, [refetchOnReconnect, enabled, executeFetch])
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     fmeQueryCache.scheduleGc(queryKey, cacheTime)
-  }, [cacheTime, serializedKey, queryKey])
+  }, [cacheTime, serializedKey])
 
   hooks.useEffectOnce(() => {
     return () => {

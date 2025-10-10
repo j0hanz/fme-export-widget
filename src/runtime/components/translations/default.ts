@@ -19,7 +19,7 @@ export default {
   flowMessage: "FME-meddelande",
   contactSupportEmail: "Kontakta supporten via {email}.",
   emailNotificationSent: "E‑postmeddelande skickas när jobbet är klart.",
-  clickToDownload: "Ladda ner filen",
+  clickToDownload: "Ladda ner",
   reuseGeography: "Ny beställning",
   actionEnd: "Avsluta",
   errorCode: "Felkod",
