@@ -90,6 +90,7 @@ import {
   safeCancelSketch,
   safeClearLayer,
   useDebounce,
+  usePrefetchWorkspaces,
   buildTokenCacheKey,
 } from "../shared/hooks"
 import { fmeQueryClient } from "../shared/query"
@@ -153,6 +154,34 @@ export default function Widget(
     generalErrorDetails?.severity === ErrorSeverity.ERROR
   const workflowError = scopedError?.details ?? null
   const configuredRepository = config?.repository ?? null
+
+  const workspacePrefetchResult = usePrefetchWorkspaces(
+    workspaceItems,
+    {
+      repository: config?.repository ?? undefined,
+      fmeServerUrl: (config as { fmeServerUrl?: string })?.fmeServerUrl,
+      fmeServerToken: (config as { fmeServerToken?: string })?.fmeServerToken,
+    },
+    {
+      enabled:
+        viewMode === ViewMode.WORKSPACE_SELECTION &&
+        workspaceItems.length > 0 &&
+        !hasCriticalGeneralError,
+    }
+  )
+
+  const {
+    isPrefetching: isPrefetchingWorkspaces,
+    progress: prefetchProgressState,
+    prefetchStatus: workspacePrefetchStatus,
+  } = workspacePrefetchResult
+
+  const workspacePrefetchProgress = prefetchProgressState
+    ? {
+        loaded: prefetchProgressState.loaded,
+        total: prefetchProgressState.total,
+      }
+    : null
 
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
@@ -749,18 +778,14 @@ export default function Widget(
     }
 
     let forcedInfo: ServiceModeOverrideInfo | null = null
-    determineServiceMode(
-      { data: {} },
-      latestConfig,
-      {
-        workspaceItem,
-        areaWarning,
-        drawnArea,
-        onModeOverride: (info) => {
-          forcedInfo = info
-        },
-      }
-    )
+    determineServiceMode({ data: {} }, latestConfig, {
+      workspaceItem,
+      areaWarning,
+      drawnArea,
+      onModeOverride: (info) => {
+        forcedInfo = info
+      },
+    })
 
     if (forcedInfo) {
       setForcedModeNotice(forcedInfo)
@@ -1276,9 +1301,9 @@ export default function Widget(
         modules,
         config: latestConfig,
         workspaceParameters,
-  workspaceItem,
-  areaWarning,
-  drawnArea,
+        workspaceItem,
+        areaWarning,
+        drawnArea,
         makeCancelable,
         fmeClient,
         signal: controller.signal,
@@ -1806,10 +1831,13 @@ export default function Widget(
           modules: latchedModulesLoading,
           submission: isSubmitting,
         }}
+        isPrefetchingWorkspaces={isPrefetchingWorkspaces}
+        workspacePrefetchProgress={workspacePrefetchProgress}
+        workspacePrefetchStatus={workspacePrefetchStatus}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
         submissionPhase={submissionPhase}
-  modeNotice={modeNotice}
+        modeNotice={modeNotice}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={orderResult}

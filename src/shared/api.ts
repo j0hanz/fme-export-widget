@@ -36,7 +36,7 @@ import {
   extractRepositoryNames,
   loadArcgisModules,
 } from "./utils"
-import { instrumentedRequest } from "./transport"
+import { instrumentedRequest, createCorrelationId } from "./transport"
 
 const isStatusRetryable = (status?: number): boolean => {
   if (!status || status < 100) return true
@@ -47,6 +47,35 @@ const isStatusRetryable = (status?: number): boolean => {
 // Construct a typed FME Flow API error with identical message and code.
 const makeFlowError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status, isStatusRetryable(status))
+
+// Response interpreters for esriRequest responses
+const getEsriResponseStatus = (response: any): number | undefined => {
+  const httpStatus = response?.httpStatus
+  const status = response?.status
+  return typeof httpStatus === "number"
+    ? httpStatus
+    : typeof status === "number"
+      ? status
+      : undefined
+}
+
+const getEsriResponseOk = (response: any): boolean | undefined => {
+  const status = getEsriResponseStatus(response)
+  if (typeof status !== "number") return undefined
+  return status >= 200 && status < 400
+}
+
+const getEsriResponseSize = (response: any): number | undefined => {
+  try {
+    const data = response?.data
+    if (!data) return undefined
+    if (typeof data === "string") return data.length
+    const serialized = JSON.stringify(data)
+    return serialized.length
+  } catch {
+    return undefined
+  }
+}
 
 const unwrapModule = (module: unknown): any =>
   (module as any)?.default ?? module
@@ -223,28 +252,6 @@ const asProjection = (
   load?: () => Promise<void>
   isLoaded?: () => boolean
 } | null => (isObjectType(v) ? (v as any) : null)
-const esriResponseStatus = (response: any): number | undefined => {
-  if (response && typeof response.httpStatus === "number") {
-    return response.httpStatus
-  }
-  if (response && typeof response.status === "number") {
-    return response.status
-  }
-  return undefined
-}
-
-const esriResponseHeaders = (response: any): Headers | undefined => {
-  const headers = response?.headers
-  if (headers && typeof headers.get === "function") {
-    return headers as Headers
-  }
-  return undefined
-}
-
-const esriResponseOk = (response: any): boolean | undefined => {
-  const status = esriResponseStatus(response)
-  return typeof status === "number" ? status >= 200 && status < 400 : undefined
-}
 
 const API = {
   BASE_PATH: "/fmerest/v3",
@@ -1034,14 +1041,13 @@ export class FmeFlowApiClient {
         const response = await instrumentedRequest({
           method: "GET",
           url: fullUrl,
-          transport: "esri-request",
-          headers: requestHeaders,
+          transport: "fme-webhook",
           query: params,
-          caller: "shared/api:runDownloadWebhook",
-          metadata: {
-            repository,
-            workspace,
-            kind: "webhook",
+          correlationId: createCorrelationId("webhook"),
+          responseInterpreter: {
+            status: getEsriResponseStatus,
+            ok: getEsriResponseOk,
+            size: getEsriResponseSize,
           },
           execute: () =>
             esriRequestFn(fullUrl, {
@@ -1051,11 +1057,6 @@ export class FmeFlowApiClient {
               signal: controller.signal,
               timeout: timeoutMs,
             }),
-          responseInterpreter: {
-            status: esriResponseStatus,
-            ok: esriResponseOk,
-            headers: esriResponseHeaders,
-          },
         })
 
         return this.parseWebhookResponse(response)
@@ -1231,36 +1232,27 @@ export class FmeFlowApiClient {
       if (options.cacheHint !== undefined)
         requestOptions.cacheHint = options.cacheHint
       if (options.body !== undefined) requestOptions.body = options.body
+
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
         throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
+      const correlationId = createCorrelationId("fme")
       const response = await instrumentedRequest({
         method:
           typeof requestOptions.method === "string"
             ? requestOptions.method.toUpperCase()
             : "GET",
         url,
-        transport: options.transportTag || "esri-request",
-        headers: requestOptions.headers,
+        transport: "fme-flow-api",
         body: requestOptions.body,
         query,
-        signal: requestOptions.signal,
-        timeoutMs: requestOptions.timeout,
-        caller: options.caller || "shared/api:request",
-        correlationId: options.correlationId,
-        retryAttempt: options.retryAttempt,
-        metadata: {
-          endpoint,
-          repository: options.repositoryContext || this.config.repository,
-          ...options.metadata,
-        },
-        dedupeKey: options.dedupeKey,
+        correlationId,
         responseInterpreter: {
-          status: esriResponseStatus,
-          ok: esriResponseOk,
-          headers: esriResponseHeaders,
+          status: getEsriResponseStatus,
+          ok: getEsriResponseOk,
+          size: getEsriResponseSize,
         },
         execute: () => esriRequestFn(url, requestOptions),
       })

@@ -13,6 +13,8 @@ import type {
   LoadingSnapshot,
   ConnectionValidationResult,
   FmeExportConfig,
+  PrefetchStatus,
+  WorkspacePrefetchProgress,
 } from "../config/index"
 import {
   ErrorSeverity,
@@ -25,11 +27,17 @@ import {
   loadArcgisModules,
   extractRepositoryNames,
   toTrimmedString,
+  logIfNotAbort,
+  isAbortError,
 } from "./utils"
 import type FmeFlowApiClient from "./api"
 import { createFmeFlowClient } from "./api"
 import { useFmeQuery, useFmeMutation } from "./query"
-import { healthCheck, validateConnection } from "./services"
+import {
+  healthCheck,
+  validateConnection,
+  prefetchAllWorkspaceDetails,
+} from "./services"
 
 // ArcGIS Resource Utilities
 const executeSafely = <T>(
@@ -701,6 +709,26 @@ export const buildTokenCacheKey = (token?: string): string => {
   return `token:${hash.toString(36)}`
 }
 
+/**
+ * Generate a stable cache key for a workspace prefetch operation.
+ * Used to prevent redundant prefetch calls for the same workspace set.
+ *
+ * @param serverUrl - FME Server base URL
+ * @param repository - Repository name
+ * @param workspaceCount - Number of workspaces
+ * @param tokenHash - Hashed token identifier
+ * @returns Stable string key for deduplication
+ */
+const buildPrefetchCacheKey = (
+  serverUrl: string,
+  repository: string | undefined,
+  workspaceCount: number,
+  tokenHash: string
+): string => {
+  const repo = repository || "default"
+  return `${serverUrl}|${repo}|${workspaceCount}|${tokenHash}`
+}
+
 export function useWorkspaces(
   config: {
     repository?: string
@@ -804,6 +832,157 @@ export function useWorkspaceItem(
     staleTime: 10 * 60 * 1000,
     retry: 3,
   })
+}
+
+interface WorkspacePrefetchState {
+  readonly status: PrefetchStatus
+  readonly progress: WorkspacePrefetchProgress | null
+}
+
+export function usePrefetchWorkspaces(
+  workspaces: readonly WorkspaceItem[] | undefined,
+  config: {
+    repository?: string
+    fmeServerUrl?: string
+    fmeServerToken?: string
+  },
+  options?: { enabled?: boolean }
+) {
+  const [state, setState] = React.useState<WorkspacePrefetchState>(() => ({
+    status: "idle",
+    progress: null,
+  }))
+  const workspacesRef = hooks.useLatest(workspaces ?? [])
+  const configRef = hooks.useLatest(config)
+  const statusRef = hooks.useLatest(state.status)
+
+  // Track last prefetch key to avoid redundant work
+  const lastPrefetchKeyRef = React.useRef<string | null>(null)
+
+  const {
+    cancel: cancelPrefetch,
+    abortAndCreate,
+    finalize,
+  } = useLatestAbortController()
+
+  hooks.useUnmount(() => {
+    cancelPrefetch()
+  })
+
+  const handleProgress = hooks.useEventCallback(
+    (progress: WorkspacePrefetchProgress) => {
+      setState((prev) => {
+        if (
+          prev.status === "loading" &&
+          prev.progress &&
+          prev.progress.loaded === progress.loaded &&
+          prev.progress.total === progress.total
+        ) {
+          return prev
+        }
+        return { status: "loading", progress }
+      })
+    }
+  )
+
+  const prefetch = hooks.useEventCallback(async () => {
+    const latestWorkspaces = workspacesRef.current
+    if (!latestWorkspaces.length) {
+      return
+    }
+
+    const latestConfig = configRef.current
+    const serverUrl = toTrimmedString(latestConfig?.fmeServerUrl)
+    const serverToken = toTrimmedString(latestConfig?.fmeServerToken)
+    if (!serverUrl || !serverToken) {
+      return
+    }
+
+    // Build a stable key for this prefetch operation
+    const tokenHash = buildTokenCacheKey(serverToken)
+    const prefetchKey = buildPrefetchCacheKey(
+      serverUrl,
+      latestConfig?.repository,
+      latestWorkspaces.length,
+      tokenHash
+    )
+
+    // Skip if we've already successfully prefetched this exact set
+    if (lastPrefetchKeyRef.current === prefetchKey) {
+      return
+    }
+
+    const controller = abortAndCreate()
+    setState({ status: "loading", progress: null })
+
+    try {
+      await prefetchAllWorkspaceDetails(
+        latestWorkspaces,
+        {
+          repository: latestConfig?.repository,
+          fmeServerUrl: serverUrl,
+          fmeServerToken: serverToken,
+        },
+        {
+          signal: controller.signal,
+          onProgress: handleProgress,
+        }
+      )
+
+      setState({
+        status: "success",
+        progress: {
+          loaded: latestWorkspaces.length,
+          total: latestWorkspaces.length,
+        },
+      })
+      lastPrefetchKeyRef.current = prefetchKey
+    } catch (error) {
+      if (isAbortError(error)) {
+        setState({ status: "idle", progress: null })
+      } else {
+        logIfNotAbort("Workspace prefetch error", error)
+        setState({ status: "error", progress: null })
+      }
+    } finally {
+      finalize(controller)
+    }
+  })
+
+  hooks.useUpdateEffect(() => {
+    if (!options?.enabled) {
+      return
+    }
+    if (!workspaces?.length) {
+      return
+    }
+    if (statusRef.current === "loading") {
+      return
+    }
+
+    const serverUrl = toTrimmedString(config?.fmeServerUrl)
+    const serverToken = toTrimmedString(config?.fmeServerToken)
+    if (!serverUrl || !serverToken) {
+      return
+    }
+
+    void prefetch()
+  }, [
+    options?.enabled,
+    workspaces?.length,
+    config?.repository,
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
+    prefetch,
+  ])
+
+  return {
+    isPrefetching: state.status === "loading",
+    prefetchStatus: state.status,
+    prefetch,
+    progress: state.progress,
+    cancelPrefetch,
+  }
 }
 
 export function useRepositories(

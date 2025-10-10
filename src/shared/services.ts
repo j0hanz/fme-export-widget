@@ -27,6 +27,9 @@ import type {
   MutableParams,
   ApiResponse,
   MutableNode,
+  WorkspaceItem,
+  WorkspaceItemDetail,
+  WorkspacePrefetchProgress,
 } from "../config/index"
 import {
   ParameterType,
@@ -41,6 +44,7 @@ import {
   LIST_REQUIRED_TYPES,
   MULTI_SELECT_TYPES,
   PARAMETER_FIELD_TYPE_MAP,
+  PREFETCH_CONFIG,
 } from "../config/index"
 import type { JimuMapView } from "jimu-arcgis"
 import {
@@ -72,9 +76,10 @@ import {
   sanitizeOptGetUrlParam,
   resolveUploadTargetParam,
 } from "./validations"
-import { safeCancelSketch } from "./hooks"
+import { buildTokenCacheKey, safeCancelSketch } from "./hooks"
 import { fmeActions } from "../extensions/store"
 import FmeFlowApiClient from "./api"
+import { fmeQueryCache, fmeQueryClient } from "./query"
 
 // Constants
 // Type guards
@@ -211,6 +216,290 @@ const createFmeClient = (
     ...(overrides.timeout !== undefined && { timeout: overrides.timeout }),
   }
   return new FmeFlowApiClient(config)
+}
+
+const createAbortError = (): Error => {
+  if (typeof DOMException === "function") {
+    return new DOMException("Aborted", "AbortError")
+  }
+  const error = new Error("Aborted")
+  error.name = "AbortError"
+  return error
+}
+
+const toErrorObject = (value: unknown): Error => {
+  if (value instanceof Error) {
+    return value
+  }
+  if (typeof value === "string" && value) {
+    return new Error(value)
+  }
+  return createAbortError()
+}
+
+const clampPositiveInteger = (
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback
+  }
+  const normalized = Math.floor(value)
+  if (!Number.isFinite(normalized) || normalized < min) {
+    return min
+  }
+  if (normalized > max) {
+    return max
+  }
+  return normalized
+}
+
+export interface WorkspacePrefetchOptions {
+  readonly signal?: AbortSignal
+  readonly chunkSize?: number
+  readonly limit?: number
+  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
+}
+
+type PrefetchableWorkspace = WorkspaceItem & {
+  readonly repository?: string
+}
+
+const resolveWorkspaceRepository = (
+  workspace: PrefetchableWorkspace,
+  fallback: string
+): string => {
+  const repoCandidate = toTrimmedString(workspace?.repository)
+  return repoCandidate || fallback
+}
+
+const normalizeWorkspaces = (
+  workspaces: readonly WorkspaceItem[]
+): PrefetchableWorkspace[] => {
+  if (!Array.isArray(workspaces) || !workspaces.length) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const normalized: PrefetchableWorkspace[] = []
+
+  for (const workspace of workspaces) {
+    if (!workspace) continue
+    const name = toTrimmedString((workspace as { name?: string }).name)
+    if (!name || seen.has(name)) {
+      continue
+    }
+    seen.add(name)
+    normalized.push({ ...workspace, name })
+  }
+
+  return normalized
+}
+
+const addAbortBridge = (
+  signal: AbortSignal | undefined,
+  queryKey: readonly unknown[]
+): (() => void) | null => {
+  if (!signal) {
+    return null
+  }
+
+  const handleAbort = () => {
+    const entry = fmeQueryCache.get(queryKey as any)
+    const controller = entry?.abortController
+    if (controller && !controller.signal.aborted) {
+      try {
+        controller.abort()
+      } catch {}
+    }
+  }
+
+  if (signal.aborted) {
+    handleAbort()
+    return null
+  }
+
+  signal.addEventListener("abort", handleAbort)
+
+  return () => {
+    try {
+      signal.removeEventListener("abort", handleAbort)
+    } catch {}
+  }
+}
+
+export async function prefetchAllWorkspaceDetails(
+  workspaces: readonly WorkspaceItem[],
+  config: {
+    readonly repository?: string
+    readonly fmeServerUrl: string
+    readonly fmeServerToken: string
+  },
+  options?: WorkspacePrefetchOptions
+): Promise<void> {
+  const sanitizedUrl = toTrimmedString(config?.fmeServerUrl)
+  const sanitizedToken = toTrimmedString(config?.fmeServerToken)
+  if (!sanitizedUrl || !sanitizedToken) {
+    return
+  }
+
+  const normalizedWorkspaces = normalizeWorkspaces(workspaces)
+  if (!normalizedWorkspaces.length) {
+    return
+  }
+
+  const signal = options?.signal
+  const throwIfAborted = () => {
+    if (signal?.aborted) {
+      throw toErrorObject((signal as { reason?: unknown })?.reason)
+    }
+  }
+
+  const repositoryName =
+    toTrimmedString(config?.repository) || DEFAULT_REPOSITORY
+
+  const limit = clampPositiveInteger(
+    options?.limit,
+    normalizedWorkspaces.length,
+    1,
+    normalizedWorkspaces.length
+  )
+  const scopedWorkspaces = normalizedWorkspaces.slice(0, limit)
+
+  if (!scopedWorkspaces.length) {
+    return
+  }
+
+  const total = scopedWorkspaces.length
+  const chunkSize = clampPositiveInteger(
+    options?.chunkSize,
+    PREFETCH_CONFIG.DEFAULT_CHUNK_SIZE,
+    PREFETCH_CONFIG.MIN_CHUNK_SIZE,
+    PREFETCH_CONFIG.MAX_CHUNK_SIZE
+  )
+  const tokenKey = buildTokenCacheKey(sanitizedToken)
+
+  let completed = 0
+  const notifyProgress =
+    typeof options?.onProgress === "function" ? options.onProgress : undefined
+
+  const reportProgress = () => {
+    if (!notifyProgress) return
+    try {
+      notifyProgress({
+        loaded: Math.min(completed, total),
+        total,
+      })
+    } catch {}
+  }
+
+  reportProgress()
+
+  try {
+    throwIfAborted()
+
+    for (let index = 0; index < scopedWorkspaces.length; index += chunkSize) {
+      const chunk = scopedWorkspaces.slice(index, index + chunkSize)
+
+      const prefetchPromises = chunk.map((workspace) => {
+        const workspaceName = toTrimmedString(workspace?.name)
+        if (!workspaceName) {
+          completed += 1
+          reportProgress()
+          return Promise.resolve(null)
+        }
+
+        const workspaceRepository = resolveWorkspaceRepository(
+          workspace,
+          repositoryName
+        )
+
+        const queryKey = [
+          "workspace-item",
+          workspaceName,
+          workspaceRepository,
+          sanitizedUrl,
+          tokenKey,
+        ] as const
+
+        const cleanup = addAbortBridge(signal, queryKey)
+
+        const fetchPromise = fmeQueryClient.fetchQuery({
+          queryKey,
+          queryFn: async (fetchSignal) => {
+            const client = createFmeClient(sanitizedUrl, sanitizedToken, {
+              repository: workspaceRepository,
+            })
+
+            const [itemResp, paramsResp] = await Promise.all([
+              client.getWorkspaceItem(
+                workspaceName,
+                workspaceRepository,
+                fetchSignal
+              ),
+              client.getWorkspaceParameters(
+                workspaceName,
+                workspaceRepository,
+                fetchSignal
+              ),
+            ])
+
+            const parameters = Array.isArray(paramsResp?.data)
+              ? paramsResp.data
+              : []
+
+            return {
+              item: itemResp.data as WorkspaceItemDetail,
+              parameters,
+            }
+          },
+          staleTime: 10 * 60 * 1000,
+          retry: 1,
+          retryDelay: 1000,
+          onError: (error) => {
+            if (!isAbortError(error)) {
+              logIfNotAbort(
+                `Workspace prefetch failed: ${workspaceName}`,
+                error
+              )
+            }
+          },
+        })
+
+        return fetchPromise
+          .then((result) => {
+            completed += 1
+            reportProgress()
+            return result
+          })
+          .catch((error) => {
+            if (isAbortError(error)) {
+              throw toErrorObject(error)
+            }
+            completed += 1
+            reportProgress()
+            logIfNotAbort(`Workspace prefetch error: ${workspaceName}`, error)
+            return null
+          })
+          .finally(() => {
+            if (cleanup) {
+              cleanup()
+            }
+          })
+      })
+
+      await Promise.all(prefetchPromises)
+
+      throwIfAborted()
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      return
+    }
+    throw toErrorObject(error)
+  }
 }
 
 // Generic in-flight request cache with automatic cleanup

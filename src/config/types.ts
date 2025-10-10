@@ -729,6 +729,25 @@ export interface RepositoryItems {
   readonly offset?: number
 }
 
+/**
+ * Status of a workspace prefetch operation.
+ * - idle: Not started or cancelled
+ * - loading: Currently fetching workspace details
+ * - success: All workspaces successfully prefetched
+ * - error: One or more prefetch operations failed
+ */
+export type PrefetchStatus = "idle" | "loading" | "success" | "error"
+
+/**
+ * Progress information for an ongoing prefetch operation.
+ */
+export interface WorkspacePrefetchProgress {
+  /** Number of workspaces successfully loaded */
+  readonly loaded: number
+  /** Total number of workspaces to prefetch */
+  readonly total: number
+}
+
 export interface ParameterChoice {
   readonly caption?: string
   readonly value: unknown
@@ -1030,6 +1049,13 @@ export interface JobDirectivesSectionProps {
   }
 }
 
+export interface WorkspacePrefetchProgress {
+  readonly loaded: number
+  readonly total: number
+}
+
+export type WorkspacePrefetchStatus = "idle" | "loading" | "success" | "error"
+
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
   readonly config?: FmeExportConfig
@@ -1039,6 +1065,9 @@ export interface WorkflowProps extends BaseProps {
   readonly error?: AnyErrorState | null
   readonly instructionText?: string
   readonly loadingState?: LoadingState
+  readonly isPrefetchingWorkspaces?: boolean
+  readonly workspacePrefetchProgress?: WorkspacePrefetchProgress | null
+  readonly workspacePrefetchStatus?: WorkspacePrefetchStatus
   readonly modules?: EsriModules | null
   readonly canStartDrawing?: boolean
   readonly submissionPhase?: SubmissionPhase

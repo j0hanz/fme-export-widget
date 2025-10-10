@@ -96,6 +96,12 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
 
 export const WORKSPACE_ITEM_TYPE = "WORKSPACE"
 
+export const PREFETCH_CONFIG = Object.freeze({
+  DEFAULT_CHUNK_SIZE: 10,
+  MIN_CHUNK_SIZE: 1,
+  MAX_CHUNK_SIZE: 25,
+} as const)
+
 export const ERROR_NAMES = Object.freeze({
   CANCELLED_PROMISE: "CancelledPromiseError",
   ABORT: "AbortError",

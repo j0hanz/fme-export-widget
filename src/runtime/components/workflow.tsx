@@ -787,6 +787,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   workspaceItems: workspaceItemsProp,
   workspaceParameters,
   workspaceItem,
+  isPrefetchingWorkspaces = false,
+  workspacePrefetchProgress,
+  workspacePrefetchStatus,
   geometryJson,
   // Workspace collection now arrives from the parent widget via props
   // Startup validation props
@@ -842,7 +845,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadingState = latchedLoadingState
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
-  const isWorkspaceLoading = Boolean(loadingState.workspaces)
+  const isWorkspaceLoading = Boolean(
+    loadingState.workspaces || isPrefetchingWorkspaces
+  )
   const canDraw = canStartDrawing ?? true
 
   // Stable getter for drawing mode items using event callback
@@ -1479,12 +1484,24 @@ export const Workflow: React.FC<WorkflowProps> = ({
       Boolean(workspaceError)
     )
     if (shouldShowLoading) {
-      const message = workspaceItems.length
-        ? translate("loadingWorkspaceDetails")
-        : translate("loadingWorkspaces")
-      const detail = workspaceItems.length
-        ? translate("loadingWorkspaceDetailsDetail")
-        : translate("loadingWorkspacesDetail")
+      const isPrefetchLoading = Boolean(
+        isPrefetchingWorkspaces &&
+          workspaceItems.length &&
+          state === ViewMode.WORKSPACE_SELECTION
+      )
+
+      const message = isPrefetchLoading
+        ? translate("prefetchingWorkspaces")
+        : workspaceItems.length
+          ? translate("loadingWorkspaceDetails")
+          : translate("loadingWorkspaces")
+
+      const detail = isPrefetchLoading
+        ? ""
+        : workspaceItems.length
+          ? translate("loadingWorkspaceDetailsDetail")
+          : translate("loadingWorkspacesDetail")
+
       return renderLoading(message, detail, [translate("tooltipBackToOptions")])
     }
 

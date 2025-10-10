@@ -405,10 +405,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const substitutionLoggedRef = React.useRef(false)
 
   const enforceSingleOptionValue = hooks.useEventCallback(() => {
-    if (onlyVal === undefined) return
-    const current = fieldValue as SelectValue
-    if (!Object.is(current, onlyVal)) {
-      onChange(onlyVal as FormPrimitive)
+    if (onlyVal !== undefined) {
+      const current = fieldValue as SelectValue
+      if (!Object.is(current, onlyVal)) {
+        onChange(onlyVal as FormPrimitive)
+      }
     }
   })
 
@@ -436,18 +437,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     const consoleApi =
       (typeof globalThis !== "undefined" && globalThis.console) || null
     if (!consoleApi || typeof consoleApi.info !== "function") {
-      return
+      // No-op: console.info not available
     }
-
-    const resolvedName =
-      toTrimmedString(field.name) ||
-      toTrimmedString(resolveMessageOrKey(field.label, translate)) ||
-      "unnamed-field"
-
-    consoleApi.info(
-      `[FME Export] Select field "${resolvedName}" rendered as read-only text input (single option)`
-    )
-  }, [isSingleOption, field.name, field.label, translate])
+  }, [isSingleOption])
 
   // Render field based on its type
   const renderByType = (): JSX.Element => {

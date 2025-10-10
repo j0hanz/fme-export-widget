@@ -1965,15 +1965,11 @@ export const prepFmeParams = (
   const original = ((formData as any)?.data || {}) as {
     [key: string]: unknown
   }
-  const chosen = determineServiceMode(
-    { data: original },
-    config,
-    {
-      workspaceItem,
-      areaWarning,
-      drawnArea,
-    }
-  )
+  const chosen = determineServiceMode({ data: original }, config, {
+    workspaceItem,
+    areaWarning,
+    drawnArea,
+  })
   const {
     _serviceMode: _ignoredServiceMode,
     __upload_file__: _ignoredUpload,

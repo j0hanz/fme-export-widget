@@ -13,11 +13,6 @@
 
 import { React, hooks } from "jimu-core"
 import { isAbortError, logIfNotAbort } from "./utils"
-import {
-  createCorrelationId,
-  recordQueryEvent,
-  runWithQueryContext,
-} from "./transport"
 import { isRetryableError } from "./validations"
 import type {
   QueryKey,
@@ -90,14 +85,6 @@ function notifySubscribers(subscribers: Set<() => void>): void {
       logIfNotAbort("FmeQueryCache subscriber error", error)
     }
   })
-}
-
-const describeAbort = (signal: AbortSignal | undefined): string => {
-  if (!signal) return "abort"
-  const reason: unknown = (signal as any).reason
-  if (typeof reason === "string" && reason.trim()) return reason.trim()
-  if (reason instanceof Error && reason.message) return reason.message
-  return signal.aborted ? "abort" : "cancel"
 }
 
 function toError(value: unknown): Error {
@@ -390,7 +377,6 @@ export class FmeQueryClient {
     }
 
     const controller = new AbortController()
-    const correlationId = createCorrelationId("qry")
     this.cache.set(queryKey, {
       status: "loading",
       abortController: controller,
@@ -398,24 +384,8 @@ export class FmeQueryClient {
     this.cache.notify(queryKey)
 
     const attemptFetch = async (attempt: number): Promise<T> => {
-      const startedAt = Date.now()
-      recordQueryEvent({
-        type: attempt === 1 ? "fetchStart" : "retry",
-        queryKey,
-        correlationId,
-        attempt,
-      })
-
       try {
-        const data = await runWithQueryContext(
-          {
-            queryKey,
-            correlationId,
-            attempt,
-            startedAt,
-          },
-          () => queryFn(controller.signal)
-        )
+        const data = await queryFn(controller.signal)
 
         this.cache.set(queryKey, {
           data,
@@ -431,27 +401,11 @@ export class FmeQueryClient {
           options.onSuccess?.(data)
         } catch {}
 
-        recordQueryEvent({
-          type: "success",
-          queryKey,
-          correlationId,
-          attempt,
-          durationMs: Date.now() - startedAt,
-        })
-
         return data
       } catch (error) {
         if (isAbortError(error)) {
           const abortError =
             error instanceof Error ? error : new Error("Aborted request")
-          recordQueryEvent({
-            type: "cancel",
-            queryKey,
-            correlationId,
-            attempt,
-            durationMs: Date.now() - startedAt,
-            reason: describeAbort(controller.signal),
-          })
           throw abortError
         }
 
@@ -466,14 +420,6 @@ export class FmeQueryClient {
           await new Promise((resolve) => setTimeout(resolve, delay))
 
           if (controller.signal.aborted) {
-            recordQueryEvent({
-              type: "cancel",
-              queryKey,
-              correlationId,
-              attempt,
-              durationMs: Date.now() - startedAt,
-              reason: "abort-during-delay",
-            })
             throw new Error("Aborted during retry delay")
           }
 
@@ -492,15 +438,6 @@ export class FmeQueryClient {
         try {
           options.onError?.(error)
         } catch {}
-
-        recordQueryEvent({
-          type: "error",
-          queryKey,
-          correlationId,
-          attempt,
-          durationMs: Date.now() - startedAt,
-          error,
-        })
 
         throw toError(error)
       }
@@ -598,25 +535,7 @@ export function useFmeQuery<T>(options: QueryOptions<T>): UseFmeQueryResult<T> {
       now - entry.timestamp > threshold
 
     if (!shouldFetch && entry?.status === "success") {
-      recordQueryEvent({ type: "cacheHit", queryKey: currentKey })
       return
-    }
-
-    if (shouldFetch) {
-      if (entry?.status === "success") {
-        recordQueryEvent({
-          type: "stale",
-          queryKey: currentKey,
-          reason: `age=${now - entry.timestamp}`,
-        })
-        recordQueryEvent({ type: "refresh", queryKey: currentKey })
-      } else {
-        recordQueryEvent({
-          type: "cacheMiss",
-          queryKey: currentKey,
-          reason: entry?.status ? `status=${entry.status}` : "no-entry",
-        })
-      }
     }
 
     try {
