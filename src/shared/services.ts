@@ -1702,6 +1702,9 @@ export async function prepareSubmissionParams({
   modules,
   config,
   workspaceParameters,
+  workspaceItem,
+  areaWarning,
+  drawnArea,
   makeCancelable,
   fmeClient,
   signal,
@@ -1723,6 +1726,9 @@ export async function prepareSubmissionParams({
     {
       config,
       workspaceParameters,
+      workspaceItem,
+      areaWarning,
+      drawnArea,
     }
   )
 

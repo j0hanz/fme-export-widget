@@ -48,6 +48,16 @@ export default {
   loadingGeometryValidation: "Validerar område…",
   loadingGeometryValidationDetail: "Kontrollerar geometri…",
   pleaseWait: "Vänligen vänta…",
+  forcedAsyncDefault:
+    "Exporten körs asynkront för att säkerställa stabil prestanda.",
+  forcedAsyncRuntime:
+    "Exporten körs asynkront eftersom arbetsytan uppskattas ta {seconds} s (gräns {threshold} s).",
+  forcedAsyncTransformers:
+    "Exporten körs asynkront eftersom arbetsytan använder {count} transformatorer (gräns {threshold}).",
+  forcedAsyncFileSize:
+    "Exporten körs asynkront eftersom resultatet uppskattas till {sizeMb} MB (gräns {thresholdMb} MB).",
+  forcedAsyncArea:
+    "Exporten körs asynkront eftersom området är {area} (gräns {threshold}).",
   processingInProgress: "Bearbetning pågår…",
   drawingModeTooltip: "Välj ritläge för att definiera området",
   drawingModePolygon: "Polygon",

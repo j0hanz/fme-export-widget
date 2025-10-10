@@ -6,6 +6,8 @@ import type {
   PrimitiveParams,
   TextOrFileValue,
   WorkspaceParameter,
+  WorkspaceItem,
+  WorkspaceItemDetail,
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
@@ -38,6 +40,12 @@ export const isEmpty = (v: unknown): boolean => {
   if (Array.isArray(v)) return v.length === 0
   if (typeof v === "string") return v.trim().length === 0
   return false
+}
+
+const isPlainObject = (
+  value: unknown
+): value is { readonly [key: string]: unknown } => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 export const toTrimmedString = (value: unknown): string | undefined => {
@@ -1222,9 +1230,319 @@ const sanitizeScheduleMetadata = (
   return sanitized
 }
 
+export interface ServiceModeOverrideInfo {
+  readonly forcedMode: ServiceMode
+  readonly previousMode: ServiceMode
+  readonly reason: "runtime" | "transformers" | "fileSize" | "area"
+  readonly value?: number
+  readonly threshold?: number
+}
+
+export interface DetermineServiceModeOptions {
+  readonly workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
+  readonly areaWarning?: boolean
+  readonly drawnArea?: number
+  readonly onModeOverride?: (info: ServiceModeOverrideInfo) => void
+}
+
+interface ForceAsyncResult {
+  readonly reason: ServiceModeOverrideInfo["reason"]
+  readonly value?: number
+  readonly threshold?: number
+}
+
+const RUNTIME_ASYNC_THRESHOLD_SECONDS = 5
+const TRANSFORMER_ASYNC_THRESHOLD = 120
+const FILE_SIZE_ASYNC_THRESHOLD_BYTES = 25 * 1024 * 1024
+
+const RUNTIME_PROPERTY_KEYS = Object.freeze([
+  "estimatedRuntimeSeconds",
+  "estimatedRunSeconds",
+  "estimatedDurationSeconds",
+  "avgRuntimeSeconds",
+  "averageRuntimeSeconds",
+  "expectedRuntimeSeconds",
+  "expectedRunTimeSeconds",
+  "estimated_runtime_seconds",
+  "estimated_run_seconds",
+  "estimated_duration_seconds",
+])
+
+const TRANSFORMER_PROPERTY_KEYS = Object.freeze([
+  "transformerCount",
+  "transformer_count",
+  "estimatedTransformerCount",
+])
+
+const FILE_SIZE_PROPERTY_KEYS = Object.freeze([
+  "fileSizeBytes",
+  "fileSize",
+  "estimatedDataSizeBytes",
+  "estimatedDataSize",
+  "estimatedFileSize",
+])
+
+const parseRuntimeSeconds = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value
+  }
+
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const lower = trimmed.toLowerCase()
+
+  const isoMatch = lower.match(/^pt(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/)
+  if (isoMatch) {
+    const hours = Number(isoMatch[1] || 0)
+    const minutes = Number(isoMatch[2] || 0)
+    const seconds = Number(isoMatch[3] || 0)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  const hmsMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (hmsMatch) {
+    const hours = Number(hmsMatch[1] || 0)
+    const minutes = Number(hmsMatch[2] || 0)
+    const seconds = Number(hmsMatch[3] || 0)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  const numericMatch = trimmed.match(/(-?\d+(?:\.\d+)?)/)
+  if (!numericMatch) return null
+
+  const numeric = Number(numericMatch[1])
+  if (!Number.isFinite(numeric) || numeric < 0) return null
+
+  if (lower.includes("hour")) return numeric * 3600
+  if (lower.includes("min")) return numeric * 60
+  if (lower.includes("ms")) return numeric / 1000
+  if (lower.includes("sec") || lower.endsWith("s")) return numeric
+
+  return numeric
+}
+
+const getFirstNumericProperty = (
+  source: { readonly [key: string]: unknown } | undefined,
+  keys: readonly string[],
+  parser: (value: unknown) => number | null
+): number | null => {
+  if (!isPlainObject(source)) return null
+  for (const key of keys) {
+    if (!(key in source)) continue
+    const parsed = parser(source[key])
+    if (parsed !== null && parsed !== undefined) {
+      return parsed
+    }
+  }
+  return null
+}
+
+const extractRuntimeSeconds = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
+
+  const direct = parseRuntimeSeconds(
+    (workspace as { estimatedRuntimeSeconds?: unknown }).estimatedRuntimeSeconds
+  )
+  if (direct != null) return direct
+
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
+
+  const fromProps = getFirstNumericProperty(
+    props,
+    RUNTIME_PROPERTY_KEYS,
+    parseRuntimeSeconds
+  )
+  if (fromProps != null) return fromProps
+
+  const nestedPerformance = isPlainObject((props as any)?.performance)
+    ? ((props as any).performance as { readonly [key: string]: unknown })
+    : undefined
+  const fromPerformance = getFirstNumericProperty(
+    nestedPerformance,
+    RUNTIME_PROPERTY_KEYS,
+    parseRuntimeSeconds
+  )
+  if (fromPerformance != null) return fromPerformance
+
+  const fallbackKeys = [
+    "estimatedRuntime",
+    "estimatedRuntimeSec",
+    "expectedRuntime",
+  ]
+  for (const key of fallbackKeys) {
+    const value = parseRuntimeSeconds((workspace as any)[key])
+    if (value != null) return value
+  }
+
+  return null
+}
+
+const toPositiveInteger = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.round(value)
+  }
+  if (typeof value === "string") {
+    const match = value.match(/(\d+)/)
+    if (match) {
+      const parsed = Number(match[1])
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        return Math.round(parsed)
+      }
+    }
+  }
+  return null
+}
+
+const extractTransformerCount = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
+  const direct = toPositiveInteger((workspace as any).transformerCount)
+  if (direct != null) return direct
+
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
+
+  const fromProps = getFirstNumericProperty(
+    props,
+    TRANSFORMER_PROPERTY_KEYS,
+    toPositiveInteger
+  )
+  if (fromProps != null) return fromProps
+
+  return null
+}
+
+const parseFileSizeBytes = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    if (value > 4096) {
+      return value
+    }
+    return value * 1024 * 1024
+  }
+
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return null
+
+  const match = trimmed.match(/(\d+(?:\.\d+)?)/)
+  if (!match) return null
+
+  const numeric = Number(match[1])
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+
+  if (trimmed.includes("gb")) return numeric * 1024 * 1024 * 1024
+  if (trimmed.includes("mb")) return numeric * 1024 * 1024
+  if (trimmed.includes("kb")) return numeric * 1024
+  if (trimmed.includes("byte")) return numeric
+
+  if (numeric > 4096) return numeric
+  if (numeric > 1024) return numeric
+
+  return numeric * 1024 * 1024
+}
+
+const extractFileSizeBytes = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
+  const direct = parseFileSizeBytes((workspace as any).fileSize)
+  if (direct != null) return direct
+
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
+
+  const fromProps = getFirstNumericProperty(
+    props,
+    FILE_SIZE_PROPERTY_KEYS,
+    parseFileSizeBytes
+  )
+  if (fromProps != null) return fromProps
+
+  return null
+}
+
+const shouldForceAsyncMode = (
+  config: FmeExportConfig | undefined,
+  options?: {
+    workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
+    areaWarning?: boolean
+    drawnArea?: number
+  }
+): ForceAsyncResult | null => {
+  if (!options) return null
+
+  if (options.areaWarning) {
+    return {
+      reason: "area",
+      value: options.drawnArea,
+      threshold: config?.largeArea,
+    }
+  }
+
+  if (typeof config?.largeArea === "number" && options.drawnArea != null) {
+    if (options.drawnArea > config.largeArea) {
+      return {
+        reason: "area",
+        value: options.drawnArea,
+        threshold: config.largeArea,
+      }
+    }
+  }
+
+  const runtimeSeconds = extractRuntimeSeconds(options.workspaceItem)
+  if (
+    runtimeSeconds != null &&
+    runtimeSeconds >= RUNTIME_ASYNC_THRESHOLD_SECONDS
+  ) {
+    return {
+      reason: "runtime",
+      value: runtimeSeconds,
+      threshold: RUNTIME_ASYNC_THRESHOLD_SECONDS,
+    }
+  }
+
+  const transformerCount = extractTransformerCount(options.workspaceItem)
+  if (
+    transformerCount != null &&
+    transformerCount >= TRANSFORMER_ASYNC_THRESHOLD
+  ) {
+    return {
+      reason: "transformers",
+      value: transformerCount,
+      threshold: TRANSFORMER_ASYNC_THRESHOLD,
+    }
+  }
+
+  const fileSizeBytes = extractFileSizeBytes(options.workspaceItem)
+  if (
+    fileSizeBytes != null &&
+    fileSizeBytes >= FILE_SIZE_ASYNC_THRESHOLD_BYTES
+  ) {
+    return {
+      reason: "fileSize",
+      value: fileSizeBytes,
+      threshold: FILE_SIZE_ASYNC_THRESHOLD_BYTES,
+    }
+  }
+
+  return null
+}
+
 export const determineServiceMode = (
   formData: unknown,
-  config?: FmeExportConfig
+  config?: FmeExportConfig,
+  options?: DetermineServiceModeOptions
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
 
@@ -1237,11 +1555,35 @@ export const determineServiceMode = (
       ? data._serviceMode.trim().toLowerCase()
       : ""
 
-  if (override === "sync" || override === "async")
-    return override as ServiceMode
-  if (override === "schedule" && config?.allowScheduleMode) return "schedule"
+  if (override === "schedule" && config?.allowScheduleMode) {
+    return "schedule"
+  }
 
-  return config?.syncMode ? "sync" : "async"
+  let resolved: ServiceMode
+  if (override === "sync" || override === "async") {
+    resolved = override as ServiceMode
+  } else {
+    resolved = config?.syncMode ? "sync" : "async"
+  }
+
+  const forceInfo = shouldForceAsyncMode(config, {
+    workspaceItem: options?.workspaceItem,
+    areaWarning: options?.areaWarning,
+    drawnArea: options?.drawnArea,
+  })
+
+  if (forceInfo && resolved === "sync") {
+    options?.onModeOverride?.({
+      forcedMode: "async",
+      previousMode: "sync",
+      reason: forceInfo.reason,
+      value: forceInfo.value,
+      threshold: forceInfo.threshold,
+    })
+    return "async"
+  }
+
+  return resolved
 }
 
 export const buildScheduleSummary = (data: {
@@ -1613,13 +1955,25 @@ export const prepFmeParams = (
   options?: {
     config?: FmeExportConfig
     workspaceParameters?: readonly WorkspaceParameter[] | null
+    workspaceItem?: WorkspaceItemDetail | null
+    areaWarning?: boolean
+    drawnArea?: number
   }
 ): { [key: string]: unknown } => {
-  const { config, workspaceParameters } = options || {}
+  const { config, workspaceParameters, workspaceItem, areaWarning, drawnArea } =
+    options || {}
   const original = ((formData as any)?.data || {}) as {
     [key: string]: unknown
   }
-  const chosen = determineServiceMode({ data: original }, config)
+  const chosen = determineServiceMode(
+    { data: original },
+    config,
+    {
+      workspaceItem,
+      areaWarning,
+      drawnArea,
+    }
+  )
   const {
     _serviceMode: _ignoredServiceMode,
     __upload_file__: _ignoredUpload,

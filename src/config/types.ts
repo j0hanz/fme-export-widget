@@ -635,6 +635,12 @@ export interface RequestConfig {
   readonly timeout?: number
   readonly cacheHint?: boolean
   readonly repositoryContext?: string
+  readonly caller?: string
+  readonly correlationId?: string
+  readonly dedupeKey?: string
+  readonly metadata?: { readonly [key: string]: unknown }
+  readonly retryAttempt?: number
+  readonly transportTag?: string
 }
 
 export interface EsriRequestConfig {
@@ -918,6 +924,9 @@ export interface SubmissionPreparationOptions {
   readonly modules: EsriModules | null
   readonly config: FmeExportConfig | null | undefined
   readonly workspaceParameters?: readonly WorkspaceParameter[] | null
+  readonly workspaceItem?: WorkspaceItemDetail | null
+  readonly areaWarning?: boolean
+  readonly drawnArea?: number
   readonly makeCancelable: MakeCancelableFn
   readonly fmeClient: FmeFlowApiClient
   readonly signal: AbortSignal
@@ -1033,6 +1042,7 @@ export interface WorkflowProps extends BaseProps {
   readonly modules?: EsriModules | null
   readonly canStartDrawing?: boolean
   readonly submissionPhase?: SubmissionPhase
+  readonly modeNotice?: ModeNotice | null
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
   readonly orderResult?: ExportResult | null
@@ -1062,6 +1072,12 @@ export interface WorkflowProps extends BaseProps {
   readonly startupValidationStep?: string
   readonly startupValidationError?: SerializableErrorState | null
   readonly onRetryValidation?: () => void
+}
+
+export interface ModeNotice {
+  readonly messageKey: string
+  readonly severity?: "info" | "warning"
+  readonly params?: { readonly [key: string]: unknown }
 }
 
 export type IMWidgetConfig = ImmutableObject<FmeExportConfig>

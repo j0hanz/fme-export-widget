@@ -36,6 +36,7 @@ import {
   extractRepositoryNames,
   loadArcgisModules,
 } from "./utils"
+import { instrumentedRequest } from "./transport"
 
 const isStatusRetryable = (status?: number): boolean => {
   if (!status || status < 100) return true
@@ -222,6 +223,28 @@ const asProjection = (
   load?: () => Promise<void>
   isLoaded?: () => boolean
 } | null => (isObjectType(v) ? (v as any) : null)
+const esriResponseStatus = (response: any): number | undefined => {
+  if (response && typeof response.httpStatus === "number") {
+    return response.httpStatus
+  }
+  if (response && typeof response.status === "number") {
+    return response.status
+  }
+  return undefined
+}
+
+const esriResponseHeaders = (response: any): Headers | undefined => {
+  const headers = response?.headers
+  if (headers && typeof headers.get === "function") {
+    return headers as Headers
+  }
+  return undefined
+}
+
+const esriResponseOk = (response: any): boolean | undefined => {
+  const status = esriResponseStatus(response)
+  return typeof status === "number" ? status >= 200 && status < 400 : undefined
+}
 
 const API = {
   BASE_PATH: "/fmerest/v3",
@@ -726,12 +749,7 @@ export class FmeFlowApiClient {
     } catch (err) {
       const status = extractHttpStatus(err)
       const retryable = isRetryableError(err)
-      throw new FmeFlowApiError(
-        errorMessage,
-        errorCode,
-        status || 0,
-        retryable
-      )
+      throw new FmeFlowApiError(errorMessage, errorCode, status || 0, retryable)
     }
   }
 
@@ -982,6 +1000,11 @@ export class FmeFlowApiClient {
         throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
+      const requestHeaders = {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+      }
+
       // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
       const controller = new AbortController()
       let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -1008,15 +1031,31 @@ export class FmeFlowApiClient {
           }, timeoutMs)
         }
 
-        const response = await esriRequestFn(fullUrl, {
-          method: "get",
-          responseType: "json",
-          headers: {
-            Accept: "application/json",
-            "Cache-Control": "no-cache",
+        const response = await instrumentedRequest({
+          method: "GET",
+          url: fullUrl,
+          transport: "esri-request",
+          headers: requestHeaders,
+          query: params,
+          caller: "shared/api:runDownloadWebhook",
+          metadata: {
+            repository,
+            workspace,
+            kind: "webhook",
           },
-          signal: controller.signal,
-          timeout: timeoutMs,
+          execute: () =>
+            esriRequestFn(fullUrl, {
+              method: "get",
+              responseType: "json",
+              headers: requestHeaders,
+              signal: controller.signal,
+              timeout: timeoutMs,
+            }),
+          responseInterpreter: {
+            status: esriResponseStatus,
+            ok: esriResponseOk,
+            headers: esriResponseHeaders,
+          },
         })
 
         return this.parseWebhookResponse(response)
@@ -1197,7 +1236,34 @@ export class FmeFlowApiClient {
         throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
-      const response = await esriRequestFn(url, requestOptions)
+      const response = await instrumentedRequest({
+        method:
+          typeof requestOptions.method === "string"
+            ? requestOptions.method.toUpperCase()
+            : "GET",
+        url,
+        transport: options.transportTag || "esri-request",
+        headers: requestOptions.headers,
+        body: requestOptions.body,
+        query,
+        signal: requestOptions.signal,
+        timeoutMs: requestOptions.timeout,
+        caller: options.caller || "shared/api:request",
+        correlationId: options.correlationId,
+        retryAttempt: options.retryAttempt,
+        metadata: {
+          endpoint,
+          repository: options.repositoryContext || this.config.repository,
+          ...options.metadata,
+        },
+        dedupeKey: options.dedupeKey,
+        responseInterpreter: {
+          status: esriResponseStatus,
+          ok: esriResponseOk,
+          headers: esriResponseHeaders,
+        },
+        execute: () => esriRequestFn(url, requestOptions),
+      })
 
       return {
         data: response.data,

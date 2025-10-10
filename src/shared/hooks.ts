@@ -687,7 +687,7 @@ const buildFmeClient = (
   }
 }
 
-const buildTokenCacheKey = (token?: string): string => {
+export const buildTokenCacheKey = (token?: string): string => {
   const trimmed = toTrimmedString(token)
   if (!trimmed) {
     return "token:none"

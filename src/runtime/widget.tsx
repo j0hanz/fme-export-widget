@@ -24,11 +24,13 @@ import type {
   FmeWidgetState,
   WorkspaceParameter,
   WorkspaceItemDetail,
+  WorkspaceItem,
   ErrorState,
   SerializableErrorState,
   DrawingSessionState,
   SubmissionPhase,
   SubmissionPreparationStatus,
+  ModeNotice,
 } from "../config/index"
 import {
   makeErrorView,
@@ -38,6 +40,8 @@ import {
   ErrorSeverity,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
+  DEFAULT_REPOSITORY,
+  WORKSPACE_ITEM_TYPE,
   MS_LOADING,
 } from "../config/index"
 import {
@@ -77,6 +81,7 @@ import {
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
+  type ServiceModeOverrideInfo,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -85,7 +90,11 @@ import {
   safeCancelSketch,
   safeClearLayer,
   useDebounce,
+  buildTokenCacheKey,
 } from "../shared/hooks"
+import { fmeQueryClient } from "../shared/query"
+
+const BYTES_PER_MEGABYTE = 1024 * 1024
 
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
@@ -166,6 +175,7 @@ export default function Widget(
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
   )
+  const warmupTimerRef = React.useRef<number | null>(null)
 
   const [drawingSession, setDrawingSession] =
     React.useState<DrawingSessionState>(() => ({
@@ -211,6 +221,7 @@ export default function Widget(
   })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
+  const [modeNotice, setModeNotice] = React.useState<ModeNotice | null>(null)
   const [startupStep, setStartupStep] = React.useState<string | undefined>()
 
   const isStartupPhase = viewMode === ViewMode.STARTUP_VALIDATION
@@ -222,6 +233,160 @@ export default function Widget(
 
   const updateAreaWarning = hooks.useEventCallback((next: boolean) => {
     setAreaWarning(Boolean(next))
+  })
+
+  const clearModeNotice = hooks.useEventCallback(() => {
+    setModeNotice(null)
+  })
+
+  const setForcedModeNotice = hooks.useEventCallback(
+    (info: ServiceModeOverrideInfo | null) => {
+      if (!info) {
+        setModeNotice(null)
+        return
+      }
+
+      const params: { [key: string]: unknown } = {}
+      let messageKey = "forcedAsyncDefault"
+
+      switch (info.reason) {
+        case "runtime": {
+          if (typeof info.value === "number") {
+            params.seconds = Math.max(0, Math.round(info.value))
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold = Math.max(0, Math.round(info.threshold))
+          }
+          messageKey = "forcedAsyncRuntime"
+          break
+        }
+        case "transformers": {
+          if (typeof info.value === "number") {
+            params.count = Math.max(0, Math.round(info.value))
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold = Math.max(0, Math.round(info.threshold))
+          }
+          messageKey = "forcedAsyncTransformers"
+          break
+        }
+        case "fileSize": {
+          if (typeof info.value === "number") {
+            const sizeMb = info.value / BYTES_PER_MEGABYTE
+            params.sizeMb =
+              sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)
+          }
+          if (typeof info.threshold === "number") {
+            const thresholdMb = info.threshold / BYTES_PER_MEGABYTE
+            params.thresholdMb =
+              thresholdMb >= 10
+                ? Math.round(thresholdMb)
+                : thresholdMb.toFixed(1)
+          }
+          messageKey = "forcedAsyncFileSize"
+          break
+        }
+        case "area": {
+          if (typeof info.value === "number") {
+            params.area =
+              modules && jimuMapView?.view?.spatialReference
+                ? formatArea(
+                    info.value,
+                    modules,
+                    jimuMapView?.view?.spatialReference
+                  )
+                : Math.max(0, Math.round(info.value)).toLocaleString()
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold =
+              modules && jimuMapView?.view?.spatialReference
+                ? formatArea(
+                    info.threshold,
+                    modules,
+                    jimuMapView?.view?.spatialReference
+                  )
+                : Math.max(0, Math.round(info.threshold)).toLocaleString()
+          }
+          messageKey = "forcedAsyncArea"
+          break
+        }
+      }
+
+      setModeNotice({
+        messageKey,
+        severity: "warning",
+        params,
+      })
+    }
+  )
+
+  const clearWarmupTimer = hooks.useEventCallback(() => {
+    if (warmupTimerRef.current != null) {
+      if (typeof window !== "undefined") {
+        window.clearTimeout(warmupTimerRef.current)
+      }
+      warmupTimerRef.current = null
+    }
+  })
+
+  const warmRepositoryCache = hooks.useEventCallback(() => {
+    const latestConfig = configRef.current
+    if (!latestConfig?.fmeServerUrl || !latestConfig?.fmeServerToken) {
+      return
+    }
+
+    const repository = latestConfig.repository || DEFAULT_REPOSITORY
+    const tokenKey = buildTokenCacheKey(latestConfig.fmeServerToken)
+    const queryKey = [
+      "workspaces",
+      repository,
+      latestConfig.fmeServerUrl,
+      tokenKey,
+    ] as const
+
+    try {
+      void fmeQueryClient.fetchQuery<WorkspaceItem[]>({
+        queryKey,
+        staleTime: 5 * 60 * 1000,
+        retry: 1,
+        queryFn: async (signal) => {
+          const client = getOrCreateFmeClient()
+          const response = await client.getRepositoryItems(
+            repository,
+            WORKSPACE_ITEM_TYPE,
+            undefined,
+            undefined,
+            signal
+          )
+          const items = Array.isArray(response?.data?.items)
+            ? (response.data.items as WorkspaceItem[])
+            : []
+          return items
+        },
+        onSuccess: (items) => {
+          if (Array.isArray(items) && items.length) {
+            dispatch(fmeActions.setWorkspaceItems(items, widgetId))
+          }
+        },
+        onError: (error) => {
+          logIfNotAbort("Repository warmup error", error)
+        },
+      })
+    } catch (error) {
+      logIfNotAbort("Repository warmup failed", error)
+    }
+  })
+
+  const scheduleRepositoryWarmup = hooks.useEventCallback(() => {
+    clearWarmupTimer()
+    if (typeof window === "undefined") {
+      warmRepositoryCache()
+      return
+    }
+    warmupTimerRef.current = window.setTimeout(() => {
+      warmupTimerRef.current = null
+      warmRepositoryCache()
+    }, 300)
   })
 
   hooks.useUpdateEffect(() => {
@@ -358,11 +523,27 @@ export default function Widget(
     }
   }, [config, disposeFmeClient])
 
+  hooks.useUpdateEffect(() => {
+    if (!config?.fmeServerUrl || !config?.fmeServerToken) {
+      clearWarmupTimer()
+      return
+    }
+
+    scheduleRepositoryWarmup()
+  }, [
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
+    config?.repository,
+    scheduleRepositoryWarmup,
+    clearWarmupTimer,
+  ])
+
   hooks.useUnmount(() => {
     submissionAbort.cancel()
     startupAbort.cancel()
     disposeFmeClient()
     disablePopupGuard()
+    clearWarmupTimer()
   })
 
   // Centralized Redux reset helpers to avoid duplicated dispatch sequences
@@ -555,6 +736,50 @@ export default function Widget(
     return null
   })
 
+  hooks.useUpdateEffect(() => {
+    if (viewMode !== ViewMode.EXPORT_FORM) {
+      clearModeNotice()
+      return
+    }
+
+    const latestConfig = configRef.current
+    if (!latestConfig) {
+      clearModeNotice()
+      return
+    }
+
+    let forcedInfo: ServiceModeOverrideInfo | null = null
+    determineServiceMode(
+      { data: {} },
+      latestConfig,
+      {
+        workspaceItem,
+        areaWarning,
+        drawnArea,
+        onModeOverride: (info) => {
+          forcedInfo = info
+        },
+      }
+    )
+
+    if (forcedInfo) {
+      setForcedModeNotice(forcedInfo)
+      return
+    }
+
+    clearModeNotice()
+  }, [
+    viewMode,
+    workspaceItem,
+    areaWarning,
+    drawnArea,
+    config?.syncMode,
+    config?.allowScheduleMode,
+    config?.largeArea,
+    clearModeNotice,
+    setForcedModeNotice,
+  ])
+
   // Redux state selector and dispatcher
   const isActive = hooks.useWidgetActived(widgetId)
 
@@ -600,6 +825,7 @@ export default function Widget(
     setStartupStep(undefined)
     dispatch(fmeActions.clearError("general", widgetId))
     dispatch(fmeActions.completeStartup(widgetId))
+    scheduleRepositoryWarmup()
     const currentViewMode = viewModeRef.current
     const isUnset =
       currentViewMode === null || typeof currentViewMode === "undefined"
@@ -1008,10 +1234,17 @@ export default function Widget(
       const rawDataEarly = ((formData as any)?.data || {}) as {
         [key: string]: unknown
       }
+      clearModeNotice()
       // Determine mode early from form data for email requirement
       const determinedMode = determineServiceMode(
         { data: rawDataEarly },
-        latestConfig
+        latestConfig,
+        {
+          workspaceItem,
+          areaWarning,
+          drawnArea,
+          onModeOverride: setForcedModeNotice,
+        }
       )
       serviceMode =
         determinedMode === "sync" ||
@@ -1043,6 +1276,9 @@ export default function Widget(
         modules,
         config: latestConfig,
         workspaceParameters,
+  workspaceItem,
+  areaWarning,
+  drawnArea,
         makeCancelable,
         fmeClient,
         signal: controller.signal,
@@ -1573,6 +1809,7 @@ export default function Widget(
         modules={modules}
         canStartDrawing={!!sketchViewModel}
         submissionPhase={submissionPhase}
+  modeNotice={modeNotice}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={orderResult}

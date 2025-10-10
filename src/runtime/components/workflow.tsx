@@ -795,6 +795,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   startupValidationError,
   onRetryValidation,
   submissionPhase = "idle",
+  modeNotice,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
@@ -884,6 +885,35 @@ export const Workflow: React.FC<WorkflowProps> = ({
       </div>
     )
   })
+
+  const renderModeNotice = (): React.ReactNode => {
+    if (!modeNotice) return null
+
+    const { messageKey, params, severity } = modeNotice
+    if (!messageKey) return null
+
+    let message = ""
+    try {
+      message = translate(messageKey, params || {})
+    } catch {
+      message = translate(messageKey)
+    }
+
+    if (!message) return null
+
+    const alertType: "info" | "warning" =
+      severity === "info" ? "info" : "warning"
+
+    return (
+      <Alert
+        type={alertType}
+        text={message}
+        variant="default"
+        withIcon={true}
+        style={{ marginBlockEnd: 12 }}
+      />
+    )
+  }
 
   const formatAreaValue = (value?: number): string | undefined => {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
@@ -1497,18 +1527,21 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     return (
-      <ExportForm
-        widgetId={effectiveWidgetId}
-        workspaceParameters={workspaceParameters}
-        workspaceName={selectedWorkspace}
-        workspaceItem={workspaceItem}
-        onBack={onFormBack}
-        onSubmit={onFormSubmit}
-        isSubmitting={isSubmittingOrder}
-        translate={translate}
-        config={config}
-        geometryJson={geometryJson}
-      />
+      <>
+        {renderModeNotice()}
+        <ExportForm
+          widgetId={effectiveWidgetId}
+          workspaceParameters={workspaceParameters}
+          workspaceName={selectedWorkspace}
+          workspaceItem={workspaceItem}
+          onBack={onFormBack}
+          onSubmit={onFormSubmit}
+          isSubmitting={isSubmittingOrder}
+          translate={translate}
+          config={config}
+          geometryJson={geometryJson}
+        />
+      </>
     )
   }
 
