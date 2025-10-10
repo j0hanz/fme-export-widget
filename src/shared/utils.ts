@@ -53,6 +53,9 @@ export const isPlainObject = (
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value)
+
 export const toTrimmedString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined
   const trimmed = value.trim()
@@ -64,7 +67,7 @@ export const toStringValue = (value: unknown): string | undefined => {
     const trimmed = value.trim()
     return trimmed || undefined
   }
-  if (typeof value === "number" && Number.isFinite(value)) {
+  if (isFiniteNumber(value)) {
     return String(value)
   }
   return undefined
@@ -82,7 +85,7 @@ export const toBooleanValue = (value: unknown): boolean | undefined => {
 }
 
 export const toNumberValue = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (isFiniteNumber(value)) return value
   if (typeof value === "string") {
     const trimmed = value.trim()
     if (!trimmed) return undefined
@@ -160,7 +163,7 @@ export const toMetadataRecord = (
 }
 
 export const normalizeParameterValue = (value: unknown): string | number => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (isFiniteNumber(value)) return value
   if (typeof value === "string") return value
   if (typeof value === "boolean") return value ? "true" : "false"
   return JSON.stringify(value ?? null)
@@ -201,7 +204,7 @@ export const createFmeClient = (
     fmeServerUrl: normalizedUrl,
     fmeServerToken: normalizedToken,
     repository: toTrimmedString(repository) || DEFAULT_REPOSITORY,
-    ...(typeof timeout === "number" && Number.isFinite(timeout)
+    ...(isFiniteNumber(timeout)
       ? { requestTimeout: timeout }
       : {}),
   }
@@ -296,24 +299,26 @@ export const getTextPlaceholder = (
   return kind ? translate(kindMap[kind]) : placeholders.enter
 }
 
+const isNumericSelectOptionValue = (value: unknown): boolean => {
+  if (isFiniteNumber(value)) return true
+  if (typeof value !== "string") return false
+
+  const trimmed = value.trim()
+  if (!trimmed) return false
+
+  const numeric = Number(trimmed)
+  return Number.isFinite(numeric) && String(numeric) === trimmed
+}
+
 export const computeSelectCoerce = (
   isSelectType: boolean,
   selectOptions: ReadonlyArray<{ readonly value?: unknown }>
 ): "number" | undefined => {
   if (!isSelectType || !selectOptions?.length) return undefined
 
-  const isNumericValue = (v: unknown): boolean => {
-    if (typeof v === "number") return Number.isFinite(v)
-    if (typeof v === "string") {
-      const trimmed = v.trim()
-      if (!trimmed) return false
-      const n = Number(trimmed)
-      return Number.isFinite(n) && String(n) === trimmed
-    }
-    return false
-  }
-
-  const allNumeric = selectOptions.every((o) => isNumericValue(o.value))
+  const allNumeric = selectOptions.every((o) =>
+    isNumericSelectOptionValue(o.value)
+  )
   return allNumeric ? "number" : undefined
 }
 
@@ -335,7 +340,7 @@ export const parseTableRows = (value: unknown): string[] => {
 }
 
 export const formatByteSize = (size: unknown): string | null => {
-  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
+  if (!isFiniteNumber(size) || size < 0) {
     return null
   }
 
@@ -509,6 +514,16 @@ export const normalizeSketchCreateTool = (
   return null
 }
 
+const normalizeFormEntries = (
+  entries: Iterable<[string, unknown]>
+): { [key: string]: unknown } => {
+  const normalized: { [key: string]: unknown } = {}
+  for (const [key, value] of entries) {
+    normalized[key] = coerceFormValueForSubmission(value)
+  }
+  return normalized
+}
+
 export const parseSubmissionFormData = (rawData: {
   [key: string]: unknown
 }): {
@@ -524,19 +539,37 @@ export const parseSubmissionFormData = (rawData: {
   } = rawData
 
   const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
-  const sanitizedFormData = sanitizedOptGetUrl
-    ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
-    : { ...restFormData }
-
-  const normalizedFormData: { [key: string]: unknown } = {}
-  for (const [key, val] of Object.entries(sanitizedFormData)) {
-    normalizedFormData[key] = coerceFormValueForSubmission(val)
+  const sanitizedFormData: { [key: string]: unknown } = { ...restFormData }
+  if (sanitizedOptGetUrl) {
+    sanitizedFormData.opt_geturl = sanitizedOptGetUrl
   }
+
+  const normalizedFormData = normalizeFormEntries(
+    Object.entries(sanitizedFormData)
+  )
 
   const uploadFile = uploadField instanceof File ? uploadField : null
   const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
 
   return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
+}
+
+const findUploadParameterTarget = (
+  parameters?: readonly WorkspaceParameter[] | null
+): string | undefined => {
+  if (!parameters) return undefined
+
+  for (const parameter of parameters) {
+    if (!parameter) continue
+    const normalizedType = String(
+      parameter.type
+    ) as (typeof UPLOAD_PARAM_TYPES)[number]
+    if (UPLOAD_PARAM_TYPES.includes(normalizedType) && parameter.name) {
+      return parameter.name
+    }
+  }
+
+  return undefined
 }
 
 export const applyUploadedDatasetParam = ({
@@ -557,15 +590,9 @@ export const applyUploadedDatasetParam = ({
     return
   }
 
-  const candidate = (parameters ?? []).find((param) => {
-    const normalizedType = String(
-      param?.type
-    ) as (typeof UPLOAD_PARAM_TYPES)[number]
-    return UPLOAD_PARAM_TYPES.includes(normalizedType)
-  })
-
-  if (candidate?.name) {
-    finalParams[candidate.name] = uploadedPath
+  const inferredTarget = findUploadParameterTarget(parameters)
+  if (inferredTarget) {
+    finalParams[inferredTarget] = uploadedPath
     return
   }
 
@@ -1118,7 +1145,7 @@ const approxLengthUnit = (
   value: number | undefined,
   target: number
 ): boolean => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return false
+  if (!isFiniteNumber(value)) return false
   const tolerance = Math.max(1e-9, Math.abs(target) * 1e-6)
   return Math.abs(value - target) <= tolerance
 }
@@ -1253,8 +1280,7 @@ const resolveAreaForSpatialReference = (
   }
 
   const metersPerUnit = spatialReference.metersPerUnit
-  const hasValidFactor =
-    typeof metersPerUnit === "number" && Number.isFinite(metersPerUnit)
+  const hasValidFactor = isFiniteNumber(metersPerUnit)
 
   if (!hasValidFactor) {
     return resolveMetricDisplay(area)
@@ -1287,7 +1313,7 @@ const isValidCoordinateTuple = (pt: unknown): boolean =>
   Array.isArray(pt) &&
   pt.length >= 2 &&
   pt.length <= 4 &&
-  pt.every((n) => Number.isFinite(n))
+  pt.every(isFiniteNumber)
 
 const isValidRing = (ring: unknown): boolean =>
   Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
@@ -1314,7 +1340,7 @@ export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   const raw =
     typeof name === "string"
       ? name
-      : typeof name === "number" && Number.isFinite(name)
+      : isFiniteNumber(name)
         ? String(name)
         : ""
 
@@ -1447,7 +1473,7 @@ const FILE_SIZE_PROPERTY_KEYS = Object.freeze([
 ])
 
 const parseRuntimeSeconds = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+  if (isFiniteNumber(value) && value >= 0) {
     return value
   }
 
@@ -1549,7 +1575,7 @@ const extractRuntimeSeconds = (
 }
 
 const toPositiveInteger = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+  if (isFiniteNumber(value) && value >= 0) {
     return Math.round(value)
   }
   if (typeof value === "string") {
@@ -1586,7 +1612,7 @@ const extractTransformerCount = (
 }
 
 const parseFileSizeBytes = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+  if (isFiniteNumber(value) && value > 0) {
     if (value > 4096) {
       return value
     }
