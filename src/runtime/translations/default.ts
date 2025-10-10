@@ -15,7 +15,7 @@ export default {
   submissionPhasePreparing: "Förbereder beställningen…",
   submissionPhaseUploading: "Laddar upp dataset…",
   submissionPhaseFinalizing: "Slutför begäran…",
-  submissionPhaseSubmitting: "Skickar till FME Flow…",
+  submissionPhaseSubmitting: "Skickar beställning…",
   actionOpenSettings: "Öppna inställningspanelen.",
   errorConnectionIssue: "Anslutningen misslyckades.",
   connectionSettingsHint: "Kontrollera anslutningsinställningarna.",
