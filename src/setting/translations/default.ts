@@ -15,14 +15,14 @@ export default {
   testConnection: "Kör anslutningstest",
   testing: "Testar anslutning…",
   testingConnection: "Testar…",
-  loadingRepositories: "Hämtar repositories…",
+  loadingRepositories: "Läser repositories…",
   validatingServerUrl: "Validerar server-URL…",
-  validatingToken: "Kontrollerar API‑nyckeln…",
+  validatingToken: "Kontrollerar API-nyckel…",
   refreshRepositories: "Uppdatera listan",
   fmeVersion: "FME‑version",
   connectionOk: "Anslutningen lyckades.",
   connectionOkRepositoryWarning:
-    "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera FME-behörigheterna.",
+    "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera behörigheter.",
   connectionFailed: "Anslutningen misslyckades:",
   availableRepositories: "Tillgängliga repositories",
   mapConfiguration: "Kartinställningar",
@@ -32,12 +32,12 @@ export default {
   noRepositoriesFound: "Inga repositories hittades",
   testConnectionFirst: "Testa anslutningen först",
   invalidEmail: "Ogiltig e‑postadress.",
-  errorRepositories: "Det gick inte att hämta repositories.",
+  errorRepositories: "Kunde inte läsa repositories.",
   errorInvalidServerUrl: "Ogiltig URL.",
   errorTokenIsInvalid: "Ogiltig API‑nyckel.",
   errorRepositoryNotFound: "Det valda repositoryt finns inte i listan.",
   repositoryNotAccessible:
-    "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter eller välj ett annat repository.",
+    "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter.",
   fixErrorsAbove: "Åtgärda felen ovan.",
   requiredField: "Obligatoriskt fält",
   ariaRequired: "Obligatoriskt fält",
@@ -45,59 +45,59 @@ export default {
   supportEmailPlaceholder: "support@exempel.se",
   tm_ttcLabel: "Max körtid (s)",
   tm_ttlLabel: "Max kötid (s)",
-  tm_ttcPlaceholder: "Lämna tomt (0 s)",
-  tm_ttlPlaceholder: "Lämna tomt (0 s)",
+  tm_ttcPlaceholder: "Lämna tomt (standard)",
+  tm_ttlPlaceholder: "Lämna tomt (standard)",
   serviceModeSync: "Direktnedladdning (synkront)",
   serviceModeSyncHelper:
-    "På: nedladdning via direktlänk i webbläsaren. Av: länk skickas med e‑post.",
+    "På: direktnedladdning i webbläsaren. Av: länk skickas via e‑post.",
   maskEmailOnSuccess: "Maskera e‑postadress",
   maskEmailOnSuccessHelper:
-    "Döljer större delen av e‑postadressen i lyckade svar (visar endast början och domänen).",
+    "Döljer större delen av e‑postadressen i lyckade svar.",
   showResultLabel: "Visa resultat i svaret",
   showResultHelper:
-    "Styr FME‑parametern opt_showresult. Av: svaren innehåller endast jobbinformation utan transformationsresultat.",
+    "Styr FME‑parametern opt_showresult. Av: svaren innehåller endast jobbinformation.",
   supportEmailHelper:
     "Om en adress anges visas den i felmeddelanden som supportkontakt.",
   requestTimeoutLabel: "Tidsgräns för begäran (ms)",
   requestTimeoutPlaceholder: "30000",
   requestTimeoutHelper:
-    "Maximal väntetid på serversvar i millisekunder. Standard: 30000 (30 sekunder). Lämna tomt för ingen tidsgräns.",
+    "Maximal väntetid på serversvar i millisekunder. Standard: 30 sekunder.",
   maxAreaLabel: "Max AOI‑yta (m²)",
   maxAreaHelper:
-    "Lämna tomt för att tillåta obegränsad AOI‑yta. Högsta tillåtna värde: {maxM2} m².",
+    "Lämna tomt för obegränsad yta. Högsta tillåtna värde: {maxM2} m².",
   maxAreaPlaceholder: "t.ex. 100000000",
   errorMaxAreaTooLarge: "Värdet är för stort.",
   largeAreaLabel: "Rekommenderad AOI‑yta (m²)",
   largeAreaHelper:
-    "Visa en varning när ritad AOI överstiger detta värde. Lämna tomt för att inaktivera varningen. Högsta tillåtna värde: {maxM2} m².",
+    "Visa varning när ritad yta överstiger detta värde. Högsta värde: {maxM2} m².",
   largeAreaPlaceholder: "t.ex. 50000",
   largeAreaExceedsMaxInfo:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
   ok: "OK",
   failed: "Misslyckades",
   skipped: "Välj repository",
-  checking: "Kontrollerar …",
+  checking: "Kontrollerar…",
   error: "Fel",
   colon: ":",
   aoiParamNameLabel: "AOI‑parameternamn",
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
-    "Publicerat parameternamn för AOI. Standardvärde: AreaOfInterest.",
+    "Publicerat parameternamn för området. Standard: AreaOfInterest.",
   allowScheduleModeLabel: "Tillåt schemaläggning",
-  allowScheduleModeHelper: "Tillåt engångskörning vid en schemalagd tidpunkt.",
+  allowScheduleModeHelper: "Tillåt schemalagd engångskörning.",
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
-    "Tillåt att användaren laddar upp en fil direkt till FME Flows TEMP‑resurs som indata.",
+    "Tillåt användaren att ladda upp fil direkt till FME Flows TEMP‑resurs.",
   allowRemoteUrlDatasetLabel: "Tillåt fjärr‑URL (HTTPS)",
   allowRemoteUrlDatasetHelper:
-    "Tillåt att användaren anger en säker (HTTPS) URL som indata.",
+    "Tillåt användaren att ange säker (HTTPS) URL som indata.",
   autoCloseOtherWidgetsLabel: "Stäng andra widgets automatiskt",
   autoCloseOtherWidgetsHelper:
-    "Stäng andra widgets när FME‑exporten öppnas eller återställs för att hålla kartan ren.",
+    "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
   drawingColorLabel: "Ritningsfärg",
   // Helpers for individual job directive fields (give clear FME Flow context)
   tm_ttcHelper:
-    "Maximal körtid innan jobbet avbryts. Lämna tomt för att använda serverns standard.",
+    "Maximal körtid innan jobbet avbryts. Lämna tomt för serverns standard.",
   tm_ttlHelper:
-    "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för att använda serverns standard.",
+    "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för serverns standard.",
 }
