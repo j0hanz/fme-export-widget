@@ -1,6 +1,8 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx, css } from "jimu-core"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { fmeQueryClient } from "../shared/query-client"
 import {
   setError,
   clearErrors,
@@ -631,7 +633,11 @@ const handleValidationFailure = (
   // Note: repositories are now managed by useRepositories query hook
 }
 
-export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
+/**
+ * Inner component that uses React Query hooks.
+ * Must be rendered inside QueryClientProvider.
+ */
+function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
@@ -1937,5 +1943,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         </>
       )}
     </SettingSection>
+  )
+}
+
+/**
+ * Wrapper component that provides QueryClient context to SettingContent.
+ * This is necessary because React Query hooks (useRepositories, useValidateConnection)
+ * require QueryClientProvider to be in the component tree above them.
+ *
+ * Uses shared fmeQueryClient singleton to enable cache sharing with runtime widget.
+ */
+export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
+  return (
+    <QueryClientProvider client={fmeQueryClient}>
+      <SettingContent {...props} />
+    </QueryClientProvider>
   )
 }
