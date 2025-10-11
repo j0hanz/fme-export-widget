@@ -26,12 +26,7 @@ import type {
   MutableParams,
   ApiResponse,
   MutableNode,
-  WorkspaceItem,
-  WorkspaceItemDetail,
-  WorkspacePrefetchOptions,
-  PrefetchableWorkspace,
 } from "../config/index"
-import type FmeFlowApiClient from "./api"
 import {
   ParameterType,
   FormFieldType,
@@ -39,14 +34,11 @@ import {
   LAYER_CONFIG,
   DrawingTool,
   ViewMode,
-  DEFAULT_REPOSITORY,
   SKIPPED_PARAMETER_NAMES,
   ALWAYS_SKIPPED_TYPES,
   LIST_REQUIRED_TYPES,
   MULTI_SELECT_TYPES,
   PARAMETER_FIELD_TYPE_MAP,
-  PREFETCH_CONFIG,
-  FmeFlowApiError,
 } from "../config/index"
 import type { JimuMapView } from "jimu-arcgis"
 import {
@@ -77,8 +69,6 @@ import {
   normalizeParameterValue,
   buildChoiceSet,
   createFmeClient,
-  buildTokenCacheKey,
-  getClientConnectionInfo,
 } from "./utils"
 import {
   isInt,
@@ -93,284 +83,6 @@ import {
 } from "./validations"
 import { safeCancelSketch } from "./hooks"
 import { fmeActions } from "../extensions/store"
-import { abortManager } from "./api"
-import { prefetchQuery, serializeQueryKey } from "./query"
-
-// Constants
-// Type guards
-const clampPositiveInteger = (
-  value: number | undefined,
-  fallback: number,
-  min: number,
-  max: number
-): number => {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback
-  }
-  const normalized = Math.floor(value)
-  if (!Number.isFinite(normalized) || normalized < min) {
-    return min
-  }
-  if (normalized > max) {
-    return max
-  }
-  return normalized
-}
-
-const resolveWorkspaceRepository = (
-  workspace: PrefetchableWorkspace,
-  fallback: string
-): string => {
-  const repoCandidate = toTrimmedString(workspace?.repository)
-  return repoCandidate || fallback
-}
-
-const normalizeWorkspaces = (
-  workspaces: readonly WorkspaceItem[]
-): PrefetchableWorkspace[] => {
-  if (!Array.isArray(workspaces) || !workspaces.length) {
-    return []
-  }
-
-  const seen = new Set<string>()
-  const normalized: PrefetchableWorkspace[] = []
-
-  for (const workspace of workspaces) {
-    if (!workspace) continue
-    const name = toTrimmedString(workspace?.name)
-    if (!name || seen.has(name)) {
-      continue
-    }
-    seen.add(name)
-    normalized.push({ ...workspace, name })
-  }
-
-  return normalized
-}
-
-const isWorkspaceItemDetailRecord = (
-  value: unknown
-): value is WorkspaceItemDetail => {
-  if (!isPlainObject(value)) return false
-  const candidate = value as { readonly name?: unknown }
-  return typeof candidate.name === "string"
-}
-
-const isWorkspaceParameterRecord = (
-  value: unknown
-): value is WorkspaceParameter => {
-  if (!isPlainObject(value)) return false
-  const candidate = value as {
-    readonly name?: unknown
-    readonly type?: unknown
-  }
-  return (
-    typeof candidate.name === "string" && typeof candidate.type === "string"
-  )
-}
-
-const normalizeWorkspaceParameters = (raw: unknown): WorkspaceParameter[] => {
-  if (!Array.isArray(raw)) return []
-  return raw.filter(isWorkspaceParameterRecord)
-}
-
-/**
- * Warm the workspace-item query cache for a collection of workspaces using the shared query client.
- * The helper reuses an existing `FmeFlowApiClient` when provided and propagates abort signals to
- * the underlying queries via the global abort manager.
- */
-export async function prefetchWorkspaceDetailsBatch(
-  workspaces: readonly WorkspaceItem[],
-  context: {
-    readonly client?: FmeFlowApiClient | null
-    readonly repository?: string
-    readonly fmeServerUrl?: string
-    readonly fmeServerToken?: string
-    readonly requestTimeout?: number
-  },
-  options?: WorkspacePrefetchOptions
-): Promise<void> {
-  const normalizedWorkspaces = normalizeWorkspaces(workspaces)
-  if (!normalizedWorkspaces.length) return
-
-  const baseClient =
-    context?.client ??
-    createFmeClient(
-      context?.fmeServerUrl,
-      context?.fmeServerToken,
-      context?.repository,
-      context?.requestTimeout
-    )
-
-  if (!baseClient) return
-
-  const connection =
-    getClientConnectionInfo(baseClient) ??
-    (() => {
-      const url = toTrimmedString(context?.fmeServerUrl)
-      if (!url) return null
-      return {
-        serverUrl: url,
-        repository: toTrimmedString(context?.repository) || DEFAULT_REPOSITORY,
-        tokenHash: buildTokenCacheKey(context?.fmeServerToken),
-      }
-    })()
-
-  if (!connection) return
-
-  const repositoryName =
-    toTrimmedString(context?.repository) || connection.repository
-
-  const signal = options?.signal
-  const throwIfAborted = () => {
-    if (!signal?.aborted) return
-    const reason = (signal as { reason?: unknown }).reason
-    if (reason instanceof Error) {
-      throw reason
-    }
-    const abortError = new Error("Aborted")
-    abortError.name = "AbortError"
-    throw abortError
-  }
-
-  const limit = clampPositiveInteger(
-    options?.limit,
-    normalizedWorkspaces.length,
-    1,
-    normalizedWorkspaces.length
-  )
-  const scopedWorkspaces = normalizedWorkspaces.slice(0, limit)
-  if (!scopedWorkspaces.length) return
-
-  const total = scopedWorkspaces.length
-  const chunkSize = clampPositiveInteger(
-    options?.chunkSize,
-    PREFETCH_CONFIG.DEFAULT_CHUNK_SIZE,
-    PREFETCH_CONFIG.MIN_CHUNK_SIZE,
-    PREFETCH_CONFIG.MAX_CHUNK_SIZE
-  )
-
-  const notifyProgress =
-    typeof options?.onProgress === "function" ? options.onProgress : undefined
-
-  const reportProgress = (loaded: number) => {
-    if (!notifyProgress) return
-    try {
-      notifyProgress({ loaded, total })
-    } catch {}
-  }
-
-  let completed = 0
-  reportProgress(completed)
-
-  let lastError: unknown = null
-
-  try {
-    throwIfAborted()
-
-    for (let index = 0; index < scopedWorkspaces.length; index += chunkSize) {
-      const chunk = scopedWorkspaces.slice(index, index + chunkSize)
-
-      for (const workspace of chunk) {
-        throwIfAborted()
-
-        const workspaceName = toTrimmedString(workspace?.name)
-        if (!workspaceName) {
-          completed += 1
-          reportProgress(completed)
-          continue
-        }
-
-        const workspaceRepository = resolveWorkspaceRepository(
-          workspace,
-          repositoryName
-        )
-
-        const queryKey = [
-          "workspace-item",
-          workspaceName,
-          workspaceRepository,
-          connection.serverUrl,
-          connection.tokenHash,
-        ] as const
-
-        const serializedKey = serializeQueryKey(queryKey)
-        const unlink = abortManager.linkExternal(serializedKey, signal)
-
-        try {
-          await prefetchQuery({
-            queryKey,
-            staleTime: 10 * 60 * 1000,
-            retry: 1,
-            retryDelay: 1000,
-            queryFn: async (fetchSignal) => {
-              const [itemResp, paramsResp] = await Promise.all([
-                baseClient.getWorkspaceItem(
-                  workspaceName,
-                  workspaceRepository,
-                  fetchSignal
-                ),
-                baseClient.getWorkspaceParameters(
-                  workspaceName,
-                  workspaceRepository,
-                  fetchSignal
-                ),
-              ])
-
-              const itemData = itemResp?.data
-              if (!isWorkspaceItemDetailRecord(itemData)) {
-                throw new Error("Invalid workspace item response")
-              }
-
-              const parameters = normalizeWorkspaceParameters(paramsResp?.data)
-
-              return {
-                item: itemData,
-                parameters,
-              }
-            },
-            onError: (error) => {
-              if (!isAbortError(error)) {
-                logIfNotAbort(
-                  `Workspace prefetch failed: ${workspaceName}`,
-                  error
-                )
-              }
-            },
-          })
-        } catch (error) {
-          if (isAbortError(error)) {
-            if (error instanceof Error) {
-              throw error
-            }
-            const abortError = new Error("Aborted")
-            abortError.name = "AbortError"
-            throw abortError
-          }
-          lastError = error
-        } finally {
-          unlink()
-          completed += 1
-          reportProgress(completed)
-        }
-      }
-    }
-  } catch (error) {
-    if (isAbortError(error)) return
-    lastError = error
-  }
-
-  if (lastError && !isAbortError(lastError)) {
-    const status = extractHttpStatus(lastError)
-    const message = mapErrorToKey(lastError, status)
-    throw new FmeFlowApiError(
-      message,
-      "WORKSPACE_PREFETCH_FAILED",
-      status,
-      false
-    )
-  }
-}
 
 // Generic in-flight request cache with automatic cleanup
 class InflightCache<T> {

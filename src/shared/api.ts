@@ -1372,7 +1372,11 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
-      const { baseUrl: webhookUrl, params, fullUrl } = createWebhookArtifacts(
+      const {
+        baseUrl: webhookUrl,
+        params,
+        fullUrl,
+      } = createWebhookArtifacts(
         this.config.serverUrl,
         repository,
         workspace,

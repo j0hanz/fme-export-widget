@@ -1,4 +1,5 @@
 import { React, hooks } from "jimu-core"
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
 import { useSelector } from "react-redux"
 import type { JimuMapView } from "jimu-arcgis"
 import type {
@@ -12,10 +13,6 @@ import type {
   FormValues,
   LoadingSnapshot,
   ConnectionValidationResult,
-  PrefetchStatus,
-  WorkspacePrefetchProgress,
-  WorkspacePrefetchState,
-  PrefetchOptions,
   ValidateConnectionVariables,
   UseDebounceOptions,
 } from "../config/index"
@@ -28,18 +25,11 @@ import {
 import { fmeActions } from "../extensions/store"
 import {
   loadArcgisModules,
-  extractRepositoryNames,
   logIfNotAbort,
-  isAbortError,
   createFmeClient,
   buildTokenCacheKey,
 } from "./utils"
-import { useFmeQuery, useFmeMutation } from "./query"
-import {
-  healthCheck,
-  validateConnection,
-  prefetchWorkspaceDetailsBatch,
-} from "./services"
+import { healthCheck, validateConnection } from "./services"
 
 // ArcGIS Resource Utilities
 const executeSafely = <T>(
@@ -676,29 +666,27 @@ export function useWorkspaces(
   },
   options?: { enabled?: boolean }
 ) {
-  const getFmeClient = hooks.useEventCallback(() =>
-    createFmeClient(
-      config.fmeServerUrl,
-      config.fmeServerToken,
-      config.repository
-    )
-  )
-
-  return useFmeQuery<WorkspaceItem[]>({
+  return useQuery<WorkspaceItem[]>({
     queryKey: [
+      "fme",
       "workspaces",
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
       buildTokenCacheKey(config.fmeServerToken),
     ],
-    queryFn: async (signal) => {
-      const client = getFmeClient()
+    queryFn: async ({ signal }) => {
+      const client = createFmeClient(
+        config.fmeServerUrl,
+        config.fmeServerToken,
+        config.repository
+      )
       if (!client) {
-        throw new Error("FME client not configured")
+        throw new Error("FME client not initialized")
       }
 
+      const repositoryName = config.repository || DEFAULT_REPOSITORY
       const response = await client.getRepositoryItems(
-        config.repository || DEFAULT_REPOSITORY,
+        repositoryName,
         WORKSPACE_ITEM_TYPE,
         undefined,
         undefined,
@@ -713,9 +701,6 @@ export function useWorkspaces(
     enabled:
       (options?.enabled ?? true) &&
       Boolean(config.fmeServerUrl && config.fmeServerToken),
-    staleTime: 5 * 60 * 1000,
-    retry: 3,
-    retryDelay: (attempt) => Math.min(1000 * Math.pow(2, attempt - 1), 10000),
   })
 }
 
@@ -728,26 +713,30 @@ export function useWorkspaceItem(
   },
   options?: { enabled?: boolean }
 ) {
-  const getFmeClient = hooks.useEventCallback(() =>
-    createFmeClient(
-      config.fmeServerUrl,
-      config.fmeServerToken,
-      config.repository
-    )
-  )
-
-  return useFmeQuery({
+  return useQuery<{
+    item: WorkspaceItemDetail
+    parameters: WorkspaceParameter[]
+  }>({
     queryKey: [
+      "fme",
       "workspace-item",
       workspace,
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
       buildTokenCacheKey(config.fmeServerToken),
     ],
-    queryFn: async (signal) => {
-      const client = getFmeClient()
-      if (!client || !workspace) {
-        throw new Error("Invalid workspace configuration")
+    queryFn: async ({ signal }) => {
+      if (!workspace) {
+        throw new Error("Workspace name required")
+      }
+
+      const client = createFmeClient(
+        config.fmeServerUrl,
+        config.fmeServerToken,
+        config.repository
+      )
+      if (!client) {
+        throw new Error("FME client not initialized")
       }
 
       const repositoryName = config.repository || DEFAULT_REPOSITORY
@@ -756,12 +745,10 @@ export function useWorkspaceItem(
         client.getWorkspaceParameters(workspace, repositoryName, signal),
       ])
 
-      const parameters = Array.isArray(paramsResp?.data)
-        ? (paramsResp.data as WorkspaceParameter[])
-        : []
+      const parameters = Array.isArray(paramsResp?.data) ? paramsResp.data : []
 
       return {
-        item: itemResp.data as WorkspaceItemDetail,
+        item: itemResp.data,
         parameters,
       }
     },
@@ -769,7 +756,6 @@ export function useWorkspaceItem(
       (options?.enabled ?? true) &&
       Boolean(workspace && config.fmeServerUrl && config.fmeServerToken),
     staleTime: 10 * 60 * 1000,
-    retry: 3,
   })
 }
 
@@ -780,132 +766,134 @@ export function usePrefetchWorkspaces(
     fmeServerUrl?: string
     fmeServerToken?: string
   },
-  options?: PrefetchOptions
+  options?: {
+    enabled?: boolean
+    chunkSize?: number
+    onProgress?: (loaded: number, total: number) => void
+  }
 ) {
-  const [state, setState] = React.useState<WorkspacePrefetchState>({
-    status: "idle",
+  const queryClient = useQueryClient()
+
+  const [state, setState] = React.useState<{
+    isPrefetching: boolean
+    progress: { loaded: number; total: number } | null
+    prefetchStatus: "idle" | "loading" | "success" | "error"
+  }>(() => ({
+    isPrefetching: false,
     progress: null,
-  })
+    prefetchStatus: "idle",
+  }))
 
-  const workspacesRef = hooks.useLatest(workspaces ?? [])
+  const enabled = options?.enabled ?? true
+  const chunkSize = options?.chunkSize ?? 10
+
   const configRef = hooks.useLatest(config)
-  const optionsRef = hooks.useLatest(options)
+  const workspacesRef = hooks.useLatest(workspaces)
+  const onProgressRef = hooks.useLatest(options?.onProgress)
 
-  const { cancel, abortAndCreate, finalize } = useLatestAbortController()
-  const localClientRef = React.useRef<ReturnType<typeof createFmeClient>>(null)
-
-  hooks.useUnmount(() => {
-    cancel()
-    const localClient = localClientRef.current
-    if (localClient && typeof localClient.dispose === "function") {
-      try {
-        localClient.dispose()
-      } catch {}
-    }
-    localClientRef.current = null
-  })
-
-  const acquireClient = hooks.useEventCallback(() => {
-    const external = optionsRef.current?.client
-    if (external) {
-      return external
+  React.useEffect(() => {
+    const workspacesSnapshot = workspacesRef.current
+    if (!enabled || !workspacesSnapshot?.length) {
+      setState({
+        isPrefetching: false,
+        progress: null,
+        prefetchStatus: "idle",
+      })
+      return
     }
 
-    if (!localClientRef.current) {
-      const currentConfig = configRef.current
-      localClientRef.current = createFmeClient(
-        currentConfig?.fmeServerUrl,
-        currentConfig?.fmeServerToken,
-        currentConfig?.repository
-      )
-    }
+    const configSnapshot = configRef.current ?? {}
+    const repository = configSnapshot.repository || DEFAULT_REPOSITORY
+    const fmeServerUrl = configSnapshot.fmeServerUrl
+    const fmeServerToken = configSnapshot.fmeServerToken
+    if (!fmeServerUrl || !fmeServerToken) return
 
-    return localClientRef.current
-  })
-
-  const updateProgress = hooks.useEventCallback(
-    (progress: WorkspacePrefetchProgress | null, status: PrefetchStatus) => {
-      setState({ status, progress })
-      if (progress) {
-        const handler = optionsRef.current?.onProgress
-        if (typeof handler === "function") {
-          try {
-            handler(progress)
-          } catch {}
-        }
-      }
-    }
-  )
-
-  const prefetch = hooks.useEventCallback(async () => {
-    const latestWorkspaces = workspacesRef.current
-    if (!latestWorkspaces.length) return
-
-    const client = acquireClient()
+    const client = createFmeClient(fmeServerUrl, fmeServerToken, repository)
     if (!client) return
 
-    const controller = abortAndCreate()
-    updateProgress(null, "loading")
+    let cancelled = false
 
-    try {
-      await prefetchWorkspaceDetailsBatch(
-        latestWorkspaces,
-        {
-          client,
-          repository: configRef.current?.repository,
-          fmeServerUrl: configRef.current?.fmeServerUrl,
-          fmeServerToken: configRef.current?.fmeServerToken,
-        },
-        {
-          signal: controller.signal,
-          onProgress: (progress) => updateProgress(progress, "loading"),
+    const prefetch = async () => {
+      setState({
+        isPrefetching: true,
+        progress: { loaded: 0, total: workspacesSnapshot.length },
+        prefetchStatus: "loading",
+      })
+
+      const chunks: WorkspaceItem[][] = []
+      for (let i = 0; i < workspacesSnapshot.length; i += chunkSize) {
+        chunks.push(workspacesSnapshot.slice(i, i + chunkSize))
+      }
+
+      let loaded = 0
+
+      try {
+        for (const chunk of chunks) {
+          if (cancelled) break
+
+          await Promise.all(
+            chunk.map((ws) =>
+              queryClient.prefetchQuery({
+                queryKey: [
+                  "fme",
+                  "workspace-item",
+                  ws.name,
+                  repository,
+                  fmeServerUrl,
+                  buildTokenCacheKey(fmeServerToken),
+                ],
+                queryFn: async ({ signal }) => {
+                  const [itemResp, paramsResp] = await Promise.all([
+                    client.getWorkspaceItem(ws.name, repository, signal),
+                    client.getWorkspaceParameters(ws.name, repository, signal),
+                  ])
+                  return {
+                    item: itemResp.data,
+                    parameters: Array.isArray(paramsResp?.data)
+                      ? paramsResp.data
+                      : [],
+                  }
+                },
+                staleTime: 10 * 60 * 1000,
+              })
+            )
+          )
+
+          loaded += chunk.length
+          setState((prev) => ({
+            ...prev,
+            progress: { loaded, total: workspacesSnapshot.length },
+          }))
+          onProgressRef.current?.(loaded, workspacesSnapshot.length)
         }
-      )
 
-      if (!controller.signal.aborted) {
-        updateProgress(
-          {
-            loaded: latestWorkspaces.length,
-            total: latestWorkspaces.length,
-          },
-          "success"
-        )
+        if (!cancelled) {
+          setState({
+            isPrefetching: false,
+            progress: null,
+            prefetchStatus: "success",
+          })
+        }
+      } catch (error) {
+        if (!cancelled) {
+          logIfNotAbort("Workspace prefetch error", error)
+          setState({
+            isPrefetching: false,
+            progress: null,
+            prefetchStatus: "error",
+          })
+        }
       }
-    } catch (error) {
-      if (isAbortError(error)) {
-        updateProgress(null, "idle")
-      } else {
-        logIfNotAbort("Workspace prefetch error", error)
-        updateProgress(null, "error")
-      }
-    } finally {
-      finalize(controller)
     }
-  })
-
-  hooks.useUpdateEffect(() => {
-    const isEnabled = optionsRef.current?.enabled ?? true
-    if (!isEnabled) return
-    if (!config?.fmeServerUrl || !config?.fmeServerToken) return
-    if (!workspaces?.length) return
 
     void prefetch()
-  }, [
-    options?.enabled,
-    workspaces?.length,
-    config?.repository,
-    config?.fmeServerUrl,
-    config?.fmeServerToken,
-    prefetch,
-  ])
 
-  return {
-    isPrefetching: state.status === "loading",
-    prefetchStatus: state.status,
-    prefetch,
-    progress: state.progress,
-    cancelPrefetch: cancel,
-  }
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, queryClient, configRef, workspacesRef, onProgressRef, chunkSize])
+
+  return state
 }
 
 export function useRepositories(
@@ -913,25 +901,18 @@ export function useRepositories(
   token: string | undefined,
   options?: { enabled?: boolean }
 ) {
-  return useFmeQuery<Array<{ name: string }>>({
-    queryKey: ["repositories", serverUrl, buildTokenCacheKey(token)],
-    queryFn: async (signal) => {
-      if (!serverUrl || !token) {
-        throw new Error("Missing credentials")
-      }
-
+  return useQuery<Array<{ name: string }>>({
+    queryKey: ["fme", "repositories", serverUrl, buildTokenCacheKey(token)],
+    queryFn: async ({ signal }) => {
       const client = createFmeClient(serverUrl, token, DEFAULT_REPOSITORY)
       if (!client) {
-        throw new Error("Missing credentials")
+        throw new Error("FME client not initialized")
       }
 
       const response = await client.getRepositories(signal)
-      const names = extractRepositoryNames(response?.data)
-      return names.map((name) => ({ name }))
+      return response.data ?? []
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
-    staleTime: 5 * 60 * 1000,
-    retry: 0,
   })
 }
 
@@ -940,33 +921,75 @@ export function useHealthCheck(
   token: string | undefined,
   options?: { enabled?: boolean; refetchOnWindowFocus?: boolean }
 ) {
-  return useFmeQuery({
-    queryKey: ["health", serverUrl, token],
-    queryFn: async (signal) => {
+  return useQuery({
+    queryKey: ["fme", "health", serverUrl, buildTokenCacheKey(token)],
+    queryFn: async ({ signal }) => {
       if (!serverUrl || !token) {
         throw new Error("Missing credentials")
       }
       return await healthCheck(serverUrl, token, signal)
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
-    staleTime: 2 * 60 * 1000,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
-    retry: 0,
   })
 }
 
 export function useValidateConnection() {
-  return useFmeMutation<
+  const controllerRef = React.useRef<AbortController | null>(null)
+
+  const cancel = hooks.useEventCallback(() => {
+    const controller = controllerRef.current
+    if (controller && !controller.signal.aborted) {
+      try {
+        controller.abort()
+      } catch {}
+    }
+    controllerRef.current = null
+  })
+
+  const mutation = useMutation<
     ConnectionValidationResult,
+    Error,
     ValidateConnectionVariables
   >({
-    mutationFn: async (variables, signal) => {
+    mutationFn: async (variables) => {
       return await validateConnection({
         serverUrl: variables.serverUrl,
         token: variables.token,
         repository: variables.repository,
-        signal,
+        signal: controllerRef.current?.signal,
       })
     },
   })
+
+  const mutateAsync = hooks.useEventCallback(
+    async (variables: ValidateConnectionVariables) => {
+      cancel()
+      const controller = new AbortController()
+      controllerRef.current = controller
+      try {
+        return await mutation.mutateAsync(variables)
+      } finally {
+        if (controllerRef.current === controller) {
+          controllerRef.current = null
+        }
+      }
+    }
+  )
+
+  const mutate = hooks.useEventCallback(
+    (variables: ValidateConnectionVariables) => {
+      void mutateAsync(variables)
+    }
+  )
+
+  hooks.useUnmount(() => {
+    cancel()
+  })
+
+  return {
+    ...mutation,
+    mutate,
+    mutateAsync,
+  }
 }

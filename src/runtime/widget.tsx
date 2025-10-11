@@ -11,6 +11,8 @@ import {
   appActions,
   getAppStore,
 } from "jimu-core"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
 import { Workflow } from "./components/workflow"
 import { StateView, renderSupportHint, useStyles } from "./components/ui"
@@ -93,7 +95,24 @@ import {
   useDebounce,
   usePrefetchWorkspaces,
 } from "../shared/hooks"
-import { fmeQueryClient } from "../shared/query"
+
+// Create QueryClient singleton for FME queries
+const fmeQueryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,
+      gcTime: 10 * 60 * 1000,
+      retry: (failureCount, error: any) => {
+        const status = error?.status || error?.response?.status
+        if (status === 401 || status === 403) return false
+        if (status && status >= 400 && status < 500) return false
+        return failureCount < 3
+      },
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+})
 
 const BYTES_PER_MEGABYTE = 1024 * 1024
 
@@ -367,18 +386,19 @@ export default function Widget(
     const repository = latestConfig.repository || DEFAULT_REPOSITORY
     const tokenKey = buildTokenCacheKey(latestConfig.fmeServerToken)
     const queryKey = [
+      "fme",
       "workspaces",
       repository,
       latestConfig.fmeServerUrl,
       tokenKey,
     ] as const
 
-    try {
-      void fmeQueryClient.fetchQuery<WorkspaceItem[]>({
+    void fmeQueryClient
+      .fetchQuery<WorkspaceItem[]>({
         queryKey,
         staleTime: 5 * 60 * 1000,
         retry: 1,
-        queryFn: async (signal) => {
+        queryFn: async ({ signal }) => {
           const client = getOrCreateFmeClient()
           const response = await client.getRepositoryItems(
             repository,
@@ -392,18 +412,15 @@ export default function Widget(
             : []
           return items
         },
-        onSuccess: (items) => {
-          if (Array.isArray(items) && items.length) {
-            dispatch(fmeActions.setWorkspaceItems(items, widgetId))
-          }
-        },
-        onError: (error) => {
-          logIfNotAbort("Repository warmup error", error)
-        },
       })
-    } catch (error) {
-      logIfNotAbort("Repository warmup failed", error)
-    }
+      .then((items) => {
+        if (Array.isArray(items) && items.length) {
+          dispatch(fmeActions.setWorkspaceItems(items, widgetId))
+        }
+      })
+      .catch((error) => {
+        logIfNotAbort("Repository warmup error", error)
+      })
   })
 
   const scheduleRepositoryWarmup = hooks.useEventCallback(() => {
@@ -1806,78 +1823,84 @@ export default function Widget(
   }
 
   return (
-    <div css={styles.parent}>
-      {hasSingleMapWidget && (
-        <JimuMapViewComponent
-          useMapWidgetId={useMapWidgetIds[0]}
-          onActiveViewChange={handleMapViewReady}
-        />
-      )}
-
-      <Workflow
-        widgetId={widgetId}
-        config={workflowConfig}
-        geometryJson={geometryJson}
-        workspaceItems={workspaceItems}
-        state={viewMode}
-        error={workflowError}
-        instructionText={getDrawingInstructions(
-          drawingTool,
-          drawingSession.isActive,
-          drawingSession.clickCount
+    <QueryClientProvider client={fmeQueryClient}>
+      <div css={styles.parent}>
+        {hasSingleMapWidget && (
+          <JimuMapViewComponent
+            useMapWidgetId={useMapWidgetIds[0]}
+            onActiveViewChange={handleMapViewReady}
+          />
         )}
-        loadingState={{
-          ...loadingState,
-          modules: latchedModulesLoading,
-          submission: isSubmitting,
-        }}
-        isPrefetchingWorkspaces={isPrefetchingWorkspaces}
-        workspacePrefetchProgress={workspacePrefetchProgress}
-        workspacePrefetchStatus={workspacePrefetchStatus}
-        modules={modules}
-        canStartDrawing={!!sketchViewModel}
-        submissionPhase={submissionPhase}
-        modeNotice={modeNotice}
-        onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
-        onFormSubmit={handleFormSubmit}
-        orderResult={orderResult}
-        onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
-        onBack={navigateBack}
-        drawnArea={drawnArea}
-        areaWarning={areaWarning}
-        formatArea={(area: number) =>
-          formatArea(area, modules, jimuMapView?.view?.spatialReference)
-        }
-        drawingMode={drawingTool}
-        onDrawingModeChange={(tool) => {
-          dispatch(fmeActions.setDrawingTool(tool, widgetId))
-          if (sketchViewModel) {
-            safeCancelSketch(sketchViewModel)
-            updateDrawingSession({ isActive: false, clickCount: 0 })
+
+        <Workflow
+          widgetId={widgetId}
+          config={workflowConfig}
+          geometryJson={geometryJson}
+          workspaceItems={workspaceItems}
+          state={viewMode}
+          error={workflowError}
+          instructionText={getDrawingInstructions(
+            drawingTool,
+            drawingSession.isActive,
+            drawingSession.clickCount
+          )}
+          loadingState={{
+            ...loadingState,
+            modules: latchedModulesLoading,
+            submission: isSubmitting,
+          }}
+          isPrefetchingWorkspaces={isPrefetchingWorkspaces}
+          workspacePrefetchProgress={workspacePrefetchProgress}
+          workspacePrefetchStatus={workspacePrefetchStatus}
+          modules={modules}
+          canStartDrawing={!!sketchViewModel}
+          submissionPhase={submissionPhase}
+          modeNotice={modeNotice}
+          onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
+          onFormSubmit={handleFormSubmit}
+          orderResult={orderResult}
+          onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
+          onBack={navigateBack}
+          drawnArea={drawnArea}
+          areaWarning={areaWarning}
+          formatArea={(area: number) =>
+            formatArea(area, modules, jimuMapView?.view?.spatialReference)
           }
-        }}
-        // Drawing props
-        isDrawing={drawingSession.isActive}
-        clickCount={drawingSession.clickCount}
-        isCompleting={isCompletingRef.current}
-        // Header props
-        showHeaderActions={
-          viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
-        }
-        onReset={handleReset}
-        canReset={true}
-        onWorkspaceSelected={handleWorkspaceSelected}
-        onWorkspaceBack={handleWorkspaceBack}
-        selectedWorkspace={selectedWorkspace}
-        workspaceParameters={workspaceParameters}
-        workspaceItem={workspaceItem}
-        // Startup validation props
-        isStartupValidating={isStartupValidating}
-        startupValidationStep={startupValidationStep}
-        startupValidationError={startupValidationErrorDetails}
-        onRetryValidation={runStartupValidation}
-      />
-    </div>
+          drawingMode={drawingTool}
+          onDrawingModeChange={(tool) => {
+            dispatch(fmeActions.setDrawingTool(tool, widgetId))
+            if (sketchViewModel) {
+              safeCancelSketch(sketchViewModel)
+              updateDrawingSession({ isActive: false, clickCount: 0 })
+            }
+          }}
+          // Drawing props
+          isDrawing={drawingSession.isActive}
+          clickCount={drawingSession.clickCount}
+          isCompleting={isCompletingRef.current}
+          // Header props
+          showHeaderActions={
+            viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
+          }
+          onReset={handleReset}
+          canReset={true}
+          onWorkspaceSelected={handleWorkspaceSelected}
+          onWorkspaceBack={handleWorkspaceBack}
+          selectedWorkspace={selectedWorkspace}
+          workspaceParameters={workspaceParameters}
+          workspaceItem={workspaceItem}
+          // Startup validation props
+          isStartupValidating={isStartupValidating}
+          startupValidationStep={startupValidationStep}
+          startupValidationError={startupValidationErrorDetails}
+          onRetryValidation={runStartupValidation}
+        />
+      </div>
+
+      {process.env.NODE_ENV === "development" && (
+        <ReactQueryDevtools initialIsOpen={false} />
+      )}
+    </QueryClientProvider>
   )
 }
 
