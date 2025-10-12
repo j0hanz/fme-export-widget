@@ -45,7 +45,6 @@ import {
   isEmpty,
   extractErrorMessage,
   isAbortError,
-  extractRepositoryNames,
   isFileObject,
   toTrimmedString,
   extractTemporalParts,
@@ -1184,13 +1183,6 @@ export class ParameterFormService {
   }
 }
 
-/**
- * Parse repository names from API response
- */
-function parseRepositoryNames(data: unknown): string[] {
-  return extractRepositoryNames(data)
-}
-
 // Extract FME version from server response
 function extractFmeVersion(info: unknown): string {
   if (!info) return ""
@@ -1447,50 +1439,28 @@ export async function validateConnection(
           }
         }
 
-        let repositories: string[] = []
         const warnings: string[] = []
-        let repoFetchStatus: number | undefined
-        try {
-          const reposResp = await client.getRepositories(signal)
-          repositories = parseRepositoryNames(reposResp?.data)
-          repoFetchStatus = reposResp?.status
-        } catch (error) {
-          repoFetchStatus = extractHttpStatus(error)
-          repositories = []
-        }
 
         // Step 3: Validate specific repository if provided
         if (repository) {
-          const repoInList = repositories.includes(repository)
-          const listPermDenied =
-            repoFetchStatus === 401 || repoFetchStatus === 403
-
-          if (repoInList) {
+          try {
+            await client.validateRepository(repository, signal)
             steps.repository = "ok"
-          } else if (listPermDenied) {
-            steps.repository = "skip"
-            warnings.push("repositoryNotAccessible")
-          } else {
-            try {
-              await client.validateRepository(repository, signal)
-              steps.repository = "ok"
-            } catch (error) {
-              const status = extractHttpStatus(error)
-              if (status === 401 || status === 403) {
-                steps.repository = "skip"
-                warnings.push("repositoryNotAccessible")
-              } else {
-                steps.repository = "fail"
-                return {
-                  success: false,
-                  repositories,
-                  steps,
-                  error: {
-                    message: mapErrorToKey(error, status),
-                    type: "repository",
-                    status,
-                  },
-                }
+          } catch (error) {
+            const status = extractHttpStatus(error)
+            if (status === 401 || status === 403) {
+              steps.repository = "skip"
+              warnings.push("repositoryNotAccessible")
+            } else {
+              steps.repository = "fail"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: mapErrorToKey(error, status),
+                  type: "repository",
+                  status,
+                },
               }
             }
           }
@@ -1499,7 +1469,6 @@ export async function validateConnection(
         return {
           success: true,
           version: typeof steps.version === "string" ? steps.version : "",
-          repositories,
           steps,
           warnings: warnings.length ? warnings : undefined,
         }

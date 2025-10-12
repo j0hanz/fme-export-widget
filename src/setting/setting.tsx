@@ -592,7 +592,6 @@ const handleValidationFailure = (
     setFieldErrors: React.Dispatch<React.SetStateAction<FieldErrors>>
     translate: TranslateFn
     version?: string
-    repositories?: string[] | null
   }
 ) => {
   const { setCheckSteps, setFieldErrors, translate, version } = opts
@@ -630,7 +629,7 @@ const handleValidationFailure = (
   }))
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
-  // Note: repositories are now managed by useRepositories query hook
+  // Repository list management handled by useRepositories query hook
 }
 
 /**
@@ -1159,9 +1158,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setFieldErrors,
         translate,
         version: validationResult.version,
-        repositories: Array.isArray(validationResult.repositories)
-          ? [...validationResult.repositories]
-          : undefined,
       })
 
       if (!silent) {
@@ -1190,7 +1186,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setFieldErrors,
         translate,
         version: "",
-        repositories: null,
       })
 
       if (!silent) {
