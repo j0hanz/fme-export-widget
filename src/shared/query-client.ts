@@ -1,27 +1,5 @@
-/**
- * Shared React Query client for FME Export widget.
- *
- * This singleton QueryClient is used by BOTH the runtime widget and settings panel
- * to enable cache sharing and automatic request deduplication across components.
- *
- * Benefits:
- * - Prevents duplicate API calls when both runtime and settings are mounted
- * - Shares cached data (repositories, health checks, workspace details)
- * - Automatic request deduplication when same query runs simultaneously
- * - Consistent retry/staleTime behavior across widget
- */
 import { QueryClient } from "@tanstack/react-query"
 
-/**
- * Shared QueryClient singleton for FME Flow API queries.
- *
- * Configuration:
- * - staleTime: 5 minutes - data considered fresh for 5 mins
- * - gcTime: 10 minutes - unused data garbage collected after 10 mins
- * - retry: Smart retry logic (no retry for 4xx errors)
- * - refetchOnWindowFocus: false - don't refetch when user returns to tab
- * - refetchOnReconnect: false - don't refetch on network reconnect
- */
 export const fmeQueryClient = new QueryClient({
   defaultOptions: {
     queries: {

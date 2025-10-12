@@ -366,14 +366,22 @@ export const Input: React.FC<InputProps> = ({
   ...props
 }) => {
   const styles = useStyles()
-  const [value, handleValueChange] = useValue(controlled, defaultValue || "")
+  const isFileInput = type === "file"
+
+  const [hookValue, hookHandleValueChange] = useValue(controlled, defaultValue || "")
+  const [value, handleValueChange] = isFileInput 
+    ? [undefined, undefined] 
+    : [hookValue, hookHandleValueChange]
 
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = evt.target.value
-      handleValueChange(newValue)
+      
+      if (!isFileInput) {
+        handleValueChange(newValue)
+      }
 
-      if (type === "file" && onFileChange) {
+      if (isFileInput && onFileChange) {
         onFileChange(evt)
       } else if (onChange) {
         onChange(newValue)
@@ -391,6 +399,23 @@ export const Input: React.FC<InputProps> = ({
 
   const aria = getFormAria({ id: (props as any).id, required, errorText })
 
+  // For file input, use native input element
+  if (isFileInput) {
+    return (
+      <input
+        {...props}
+        type="file"
+        onChange={handleChange}
+        onBlur={handleBlur}
+        required={required}
+        title={errorText}
+        {...aria}
+        css={applyFullWidthStyles(styles, (props as any).style)}
+      />
+    )
+  }
+
+  // For all other input types, use TextInput with controlled state
   return (
     <TextInput
       {...props}
