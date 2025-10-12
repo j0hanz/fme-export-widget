@@ -756,6 +756,7 @@ export function useWorkspaceItem(
       (options?.enabled ?? true) &&
       Boolean(workspace && config.fmeServerUrl && config.fmeServerToken),
     staleTime: 10 * 60 * 1000,
+    refetchOnMount: false,
   })
 }
 

@@ -1082,7 +1082,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   const workspacesRefetchRef = hooks.useLatest(workspacesQuery.refetch)
-  const workspaceItemRefetchRef = hooks.useLatest(workspaceItemQuery.refetch)
 
   const workspaceItems = Array.isArray(workspaceItemsProp)
     ? workspaceItemsProp
@@ -1210,16 +1209,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
     workspacesRefetchRef,
   ])
-
-  hooks.useUpdateEffect(() => {
-    if (!pendingWorkspace || !canFetchWorkspaces) {
-      return
-    }
-    const refetch = workspaceItemRefetchRef.current
-    if (typeof refetch === "function") {
-      void refetch()
-    }
-  }, [pendingWorkspace, canFetchWorkspaces, workspaceItemRefetchRef])
 
   hooks.useUpdateEffect(() => {
     if (canFetchWorkspaces) {
