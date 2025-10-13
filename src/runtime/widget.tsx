@@ -97,8 +97,10 @@ import {
   usePrefetchWorkspaces,
 } from "../shared/hooks"
 
+/* Konverteringsfaktor för filstorlekar */
 const BYTES_PER_MEGABYTE = 1024 * 1024
 
+/* Huvudkomponent för FME Export widget runtime */
 function WidgetContent(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
@@ -110,11 +112,13 @@ function WidgetContent(
     config,
   } = props
 
-  // Determine widget ID for state management
+  /* Bestämmer unikt widget-ID för Redux state management */
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
+  /* Skapar Redux-selektorer för detta widget */
   const selectors = createFmeSelectors(widgetId)
+  /* Hämtar viewMode och drawingTool med optimerad memoization */
   const { viewMode, drawingTool } = ReactRedux.useSelector(
     (state: IMStateWithFmeExport) => {
       const vm = selectors.selectViewMode(state)
@@ -188,32 +192,40 @@ function WidgetContent(
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
 
-  // Translation function
+  /* Wrapper för översättningsfunktion med stabila callbacks */
   const translate = hooks.useEventCallback((key: string): string => {
     return translateWidget(key)
   })
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
+  /* Refs som alltid håller senaste config/viewMode/drawingTool */
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(viewMode)
   const drawingToolRef = hooks.useLatest(drawingTool)
+  /* Flagga för auto-start av ritning efter initialisering */
   const [shouldAutoStart, setShouldAutoStart] = React.useState(false)
+  /* FME Flow API-klient med cache för att undvika onödiga recreates */
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
   > | null>(null)
   const fmeClientKeyRef = React.useRef<string | null>(null)
+  /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
+  /* Unik identifierare för popup-suppression i denna widget-instans */
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
   )
+  /* Timer för fördröjd repository cache warmup */
   const warmupTimerRef = React.useRef<number | null>(null)
 
+  /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
     React.useState<DrawingSessionState>(() => ({
       isActive: false,
       clickCount: 0,
     }))
 
+  /* Spårar submission-fas för feedback under export */
   const [submissionPhase, setSubmissionPhase] =
     React.useState<SubmissionPhase>("idle")
 
@@ -253,8 +265,10 @@ function WidgetContent(
 
   const [areaWarning, setAreaWarning] = React.useState(false)
   const [modeNotice, setModeNotice] = React.useState<ModeNotice | null>(null)
+  /* Textstatus under startup-validering */
   const [startupStep, setStartupStep] = React.useState<string | undefined>()
 
+  /* Beräknar startup-validerings-tillstånd */
   const isStartupPhase = viewMode === ViewMode.STARTUP_VALIDATION
   const startupValidationErrorDetails: SerializableErrorState | null =
     isStartupPhase && generalErrorDetails ? generalErrorDetails : null
@@ -270,6 +284,7 @@ function WidgetContent(
     setModeNotice(null)
   })
 
+  /* Sätter modenotis baserat på tvingad servicemode (async/schedule) */
   const setForcedModeNotice = hooks.useEventCallback(
     (info: ServiceModeOverrideInfo | null) => {
       if (!info) {
@@ -280,6 +295,7 @@ function WidgetContent(
       const params: { [key: string]: unknown } = {}
       let messageKey = "forcedAsyncDefault"
 
+      /* Bygger meddelandeparametrar beroende på tvångsskäl */
       switch (info.reason) {
         case "runtime": {
           if (typeof info.value === "number") {
@@ -360,6 +376,7 @@ function WidgetContent(
     }
   })
 
+  /* Förladdar workspace-listan från FME Flow för snabbare användarval */
   const warmRepositoryCache = hooks.useEventCallback(() => {
     const latestConfig = configRef.current
     if (!latestConfig?.fmeServerUrl || !latestConfig?.fmeServerToken) {
@@ -424,6 +441,7 @@ function WidgetContent(
     }
   }, [isStartupPhase])
 
+  /* Aktiverar popup-blockering när widget är aktiv */
   const enablePopupGuard = hooks.useEventCallback(
     (view: JimuMapView | null | undefined) => {
       if (!view?.view) return
@@ -452,6 +470,7 @@ function WidgetContent(
     popupSuppressionManager.release(popupClientIdRef.current)
   })
 
+  /* Stänger andra öppna widgets enligt autoCloseOtherWidgets-inställning */
   const closeOtherWidgets = hooks.useEventCallback(() => {
     const autoCloseSetting = configRef.current?.autoCloseOtherWidgets
     if (autoCloseSetting !== undefined && !autoCloseSetting) {
@@ -472,7 +491,7 @@ function WidgetContent(
     }
   })
 
-  // Error handling
+  /* Felhantering via Redux dispatch */
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionAbort = useLatestAbortController()
 
@@ -482,7 +501,7 @@ function WidgetContent(
     dispatch(fmeActions.setViewMode(nextView, widgetId))
   })
 
-  // Compute symbols from configured color (single source of truth = config)
+  /* Bygger symboler från konfigurerad drawingColor (config är källa) */
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
   const symbolsRef = React.useRef(buildSymbols(hexToRgbArray(currentHex)))
 
@@ -490,6 +509,7 @@ function WidgetContent(
     symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
   }, [currentHex])
 
+  /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {
     if (fmeClientRef.current?.dispose) {
       try {
@@ -502,6 +522,7 @@ function WidgetContent(
     fmeClientKeyRef.current = null
   })
 
+  /* Skapar eller återanvänder FME-klient baserat på cache-nyckel */
   const getOrCreateFmeClient = hooks.useEventCallback(() => {
     const latestConfig = configRef.current
     if (!latestConfig) {
@@ -532,6 +553,7 @@ function WidgetContent(
     return fmeClientRef.current
   })
 
+  /* Expanderar serialiserat fel till fullt ErrorState-objekt */
   function expandSerializableError(
     error: SerializableErrorState | null | undefined
   ): ErrorState | null {
@@ -575,7 +597,7 @@ function WidgetContent(
     clearWarmupTimer()
   })
 
-  // Centralized Redux reset helpers to avoid duplicated dispatch sequences
+  /* Centraliserade Redux-återställnings-hjälpfunktioner */
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
     const activeTool = drawingToolRef.current
 
@@ -601,7 +623,7 @@ function WidgetContent(
     setModuleRetryKey((prev) => prev + 1)
   })
 
-  // Render error view with translation and support hints
+  /* Renderar felvy med översättning och support-ledtrådar */
   const renderWidgetError = hooks.useEventCallback(
     (
       error: ErrorState | null,
@@ -609,7 +631,7 @@ function WidgetContent(
     ): React.ReactElement | null => {
       if (!error) return null
 
-      // Suppress cancelled/aborted errors
+      /* Undertrycker avbrutna/cancelled fel från användargränssnittet */
       if (
         error.code === "CANCELLED" ||
         error.code === "ABORT" ||
@@ -618,11 +640,11 @@ function WidgetContent(
         return null
       }
 
-      // Determine base error message with translation
+      /* Översätter felmeddelande och bestämmer användarhjälp */
       const baseMsgKey = error.message || "errorUnknown"
       const resolvedMessage = resolveMessageOrKey(baseMsgKey, translate)
 
-      // Decide how to guide the user depending on error type
+      /* Avgör om support-ledtråd ska visas baserat på feltyp */
       const codeUpper = (error.code || "").toUpperCase()
       const isGeometryInvalid =
         codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
@@ -631,7 +653,7 @@ function WidgetContent(
       const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
       const suppressSupport = isAoiRetryableError || isConfigIncomplete
 
-      // For geometry invalid errors: suppress code and support email; show an explanatory hint
+      /* Bygger kontextuell felhjälp beroende på feltyp */
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
@@ -648,18 +670,18 @@ function WidgetContent(
                 typeof ufm === "string" ? ufm : undefined
               ).hint
 
-      // Create actions (retry clears error by default)
+      /* Bygger retry-action som rensar fel och återgår till ritläge */
       const actions: Array<{ label: string; onClick: () => void }> = []
       const retryHandler =
         onRetry ??
         (() => {
-          // Clear error and return to drawing mode if applicable
+          /* Rensar fel och återgår till ritläge vid geometry-fel */
           dispatch(fmeActions.clearError("general", widgetId))
           if (isAoiRetryableError) {
-            // Mark that we should auto-start once tools are re-initialized
+            /* Markerar att ritning ska auto-starta när verktyg återinits */
             setShouldAutoStart(true)
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-            // If drawing resources were torn down, re-initialize them now
+            /* Om ritresurser rensades, återinitierar dem nu */
             try {
               if (!sketchViewModel && modules && jimuMapView) {
                 handleMapViewReady(jimuMapView)
@@ -669,7 +691,7 @@ function WidgetContent(
         })
       actions.push({ label: translate("actionRetry"), onClick: retryHandler })
 
-      // If offline, offer a reload action for convenience
+      /* Lägger till reload-knapp vid offline-fel */
       if (isNavigatorOffline()) {
         actions.push({
           label: translate("actionReload"),
@@ -727,6 +749,7 @@ function WidgetContent(
   }, [modulesLoading, latchedModulesLoading, debounceModulesLoading])
   const mapResources = useMapResources()
 
+  /* Synkar modulers laddningsstatus med Redux */
   hooks.useEffectWithPreviousValues(() => {
     dispatch(
       fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
@@ -805,10 +828,10 @@ function WidgetContent(
     setForcedModeNotice,
   ])
 
-  // Redux state selector and dispatcher
+  /* Aktivitetsstatus för widgeten från Redux */
   const isActive = hooks.useWidgetActived(widgetId)
 
-  // Destructure map resources
+  /* Destrukturerar kartresurser från custom hook */
   const {
     jimuMapView,
     setJimuMapView,
@@ -867,7 +890,7 @@ function WidgetContent(
     dispatch(fmeActions.setError("general", error, widgetId))
   })
 
-  // Small helper to build consistent startup validation errors
+  /* Skapar konsekvent startup-valideringsfel med retry-callback */
   const createStartupError = hooks.useEventCallback(
     (messageKey: string, code: string, retry?: () => void): ErrorState => ({
       message: translate(messageKey),
@@ -886,22 +909,22 @@ function WidgetContent(
     })
   )
 
-  // Keep track of ongoing startup validation to allow aborting
+  /* AbortController för att kunna avbryta pågående startup-validering */
   const startupAbort = useLatestAbortController()
 
-  // Startup validation
+  /* Kör startup-validering: karta, config, FME-anslutning, e-post */
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
     dispatch(fmeActions.clearError("general", widgetId))
     setValidationStep(translate("validatingStartup"))
 
     try {
-      // Step 1: validate map configuration
+      /* Steg 1: validera kartkonfiguration */
       setValidationStep(translate("statusValidatingMap"))
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
 
-      // Step 2: validate widget configuration and FME connection using shared service
+      /* Steg 2: validera widget-config och FME-anslutning */
       setValidationStep(translate("statusValidatingConnection"))
       const validationResult = await validateWidgetStartup({
         config,
@@ -927,7 +950,7 @@ function WidgetContent(
         return
       }
 
-      // Step 3: validate user email only when async mode is in use
+      /* Steg 3: validera användarens e-post för async-läge */
       if (!config?.syncMode) {
         setValidationStep(translate("statusValidatingEmail"))
         try {
@@ -954,7 +977,7 @@ function WidgetContent(
         }
       }
 
-      // All validation passed
+      /* All validering lyckades */
       setValidationSuccess()
     } catch (err: unknown) {
       const errorKey = mapErrorToKey(err) || "errorUnknown"
@@ -975,7 +998,7 @@ function WidgetContent(
     runStartupValidation()
   })
 
-  // Run startup validation when widget first loads
+  /* Kör startup-validering när widgeten först laddas */
   hooks.useEffectOnce(() => {
     runStartupValidation()
     return () => {
@@ -983,7 +1006,7 @@ function WidgetContent(
     }
   })
 
-  // Reset widget state for re-validation
+  /* Återställer widget-state för ny validering */
   const resetForRevalidation = hooks.useEventCallback(
     (alsoCleanupMapResources = false) => {
       submissionAbort.cancel()
@@ -1003,11 +1026,11 @@ function WidgetContent(
     }
   )
 
-  // Track previous key connection settings to detect what changed
+  /* Spårar tidigare anslutningsinställningar för att upptäcka ändringar */
   hooks.useEffectWithPreviousValues(
     (prevValues) => {
       const prevConfig = prevValues[0] as FmeExportConfig | undefined
-      // Skip on first render to preserve initial load behavior
+      /* Hoppar över första renderingen för att bevara initial laddning */
       if (!prevConfig) return
       const nextConfig = config
 
@@ -1019,12 +1042,11 @@ function WidgetContent(
 
       try {
         if (serverChanged || tokenChanged) {
-          // Full revalidation required when connection credentials change
+          /* Full omvalidering krävs vid byte av anslutning */
           resetForRevalidation(false)
           runStartupValidation()
         } else if (repoChanged) {
-          // Repository change: clear workspace-related state and revalidate
-          // Lightweight reset (keep map resources) then re-run validation
+          /* Repository-byte: rensa workspace-state och omvalidera */
           resetForRevalidation(false)
           runStartupValidation()
         }
@@ -1033,25 +1055,25 @@ function WidgetContent(
     [config]
   )
 
-  // React to map selection changes by re-running startup validation
+  /* Kör om startup-validering vid ändring av kartkonfiguration */
   hooks.useUpdateEffect(() => {
     try {
-      // If no map is configured, also cleanup map resources
+      /* Om ingen karta konfigurerad, rensa även kartresurser */
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
       resetForRevalidation(!hasMapConfigured)
     } catch {}
 
-    // Re-run validation with new map selection
+    /* Kör om validering med ny kartkonfiguration */
     runStartupValidation()
   }, [useMapWidgetIds])
 
-  // Reset/hide measurement UI and clear layers
+  /* Återställer grafik och mätningar utan att röra kartresurser */
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
     safeClearLayer(graphicsLayer)
   })
 
-  // Drawing complete with enhanced Graphic functionality
+  /* Hanterar slutförd ritning med geometri-validering och area-beräkning */
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
@@ -1067,7 +1089,7 @@ function WidgetContent(
         endSketchSession()
         updateAreaWarning(false)
 
-        // Validate
+        /* Validerar geometri och förenklar om nödvändigt */
 
         const validation = await validatePolygon(geometry, modules)
 
@@ -1164,7 +1186,7 @@ function WidgetContent(
     navigateTo(ViewMode.ORDER_RESULT)
   })
 
-  // Handle successful submission
+  /* Hanterar lyckad submission och bygger resultat-objekt */
   const handleSubmissionSuccess = (
     fmeResponse: unknown,
     workspace: string,
@@ -1207,12 +1229,12 @@ function WidgetContent(
     finalizeOrder(nextResult)
   }
 
-  // Handle submission error
+  /* Hanterar submission-fel och bygger användarmeddelande */
   const handleSubmissionError = (
     error: unknown,
     serviceMode?: ServiceMode | null
   ) => {
-    // Prefer localized message key resolution
+    /* Översätter fel till lokaliserad nyckel */
     const rawKey = mapErrorToKey(error) || "errorUnknown"
     let localizedErr = ""
     try {
@@ -1220,7 +1242,7 @@ function WidgetContent(
     } catch {
       localizedErr = translate("errorUnknown")
     }
-    // Build localized failure message and append contact support hint
+    /* Bygger felmeddelande med support-ledtråd */
     const configured = getSupportEmail(configRef.current?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("errorOrderFailed")
@@ -1235,7 +1257,7 @@ function WidgetContent(
     finalizeOrder(result)
   }
 
-  // Form submission handler
+  /* Hanterar formulär-submission: validerar, förbereder, kör workspace */
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
     if (isSubmitting || !canExport) {
       return
@@ -1260,7 +1282,7 @@ function WidgetContent(
         [key: string]: unknown
       }
       clearModeNotice()
-      // Determine mode early from form data for email requirement
+      /* Avgör serviceMode tidigt för e-post-krav */
       const determinedMode = determineServiceMode(
         { data: rawDataEarly },
         latestConfig,
@@ -1288,10 +1310,10 @@ function WidgetContent(
         return
       }
 
-      // Create abort controller for this request (used for optional upload and run)
+      /* Skapar AbortController för denna request (upload + run) */
       controller = submissionAbort.abortAndCreate()
 
-      // Prepare parameters and handle remote URL / direct upload if present
+      /* Förbereder parametrar och hanterar remote URL / fil-upload */
       const subfolder = `widget_${(props as any)?.id || "fme"}`
       const preparation = await prepareSubmissionParams({
         rawFormData: rawDataEarly,
@@ -1322,7 +1344,7 @@ function WidgetContent(
         throw new Error("Submission parameter preparation failed")
       }
       setSubmissionPhase("submitting")
-      // Submit to FME Flow
+      /* Skickar till FME Flow */
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
@@ -1347,20 +1369,20 @@ function WidgetContent(
     }
   })
 
-  // Map view ready handler
+  /* Hanterar ny kartvy: skapar lager och SketchViewModel */
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
-    // Always capture active JimuMapView
+    /* Fångar alltid aktiv JimuMapView */
     setJimuMapView(jmv)
     if (!modules) {
       return
     }
     try {
-      // Ensure map popups are suppressed while the widget is active
+      /* Säkerställer att kart-popups undertrycks när widget är aktiv */
       enablePopupGuard(jmv)
 
       const layer = createLayers(jmv, modules, setGraphicsLayer)
       try {
-        // Localize drawing layer title
+        /* Lokaliserar ritnings-lagrets titel */
         ;(layer as unknown as { [key: string]: any }).title =
           translate("labelDrawingLayer")
       } catch {}
@@ -1415,7 +1437,7 @@ function WidgetContent(
     }
   }, [shouldAutoStart, sketchViewModel, drawingTool])
 
-  // Update symbols on color change
+  /* Uppdaterar symboler när drawingColor ändras */
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (syms) {
@@ -1438,14 +1460,14 @@ function WidgetContent(
     }
   }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
-  // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
+  /* Avbryter ritning om widget förlorar aktivering */
   hooks.useUpdateEffect(() => {
     if (!isActive && sketchViewModel) {
       safeCancelSketch(sketchViewModel)
     }
   }, [isActive, sketchViewModel])
 
-  // Cleanup on map view change
+  /* Rensar resurser vid kartvy-byte */
   hooks.useUpdateEffect(() => {
     return () => {
       if (jimuMapView) {
@@ -1454,30 +1476,30 @@ function WidgetContent(
     }
   }, [jimuMapView])
 
-  // Cleanup on unmount
+  /* Rensar alla resurser vid unmount */
   hooks.useEffectOnce(() => {
     return () => {
-      // Abort any pending requests
+      /* Avbryter väntande requests */
       submissionAbort.cancel()
       startupAbort.cancel()
-      // Dispose FME client and release resources
+      /* Rensar FME-klient och frigör resurser */
       disposeFmeClient()
-      // Clean up map/drawing resources
+      /* Rensar kart-/ritresurser */
       cleanupResources()
-      // Remove widget state from Redux
+      /* Tar bort widget-state från Redux */
       dispatch(fmeActions.removeWidgetState(widgetId))
     }
   })
 
-  // Instruction text
+  /* Returnerar instruktionstext beroende på ritverktyg och fas */
   const getDrawingInstructions = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
-      // Show general instruction before first click
+      /* Visar allmän instruktion före första klicket */
       if (clickCount === 0) {
         return translate("hintStartDrawing")
       }
 
-      // After first click, show tool-specific instructions
+      /* Efter första klicket, visa verktygsspecifika instruktioner */
       if (tool === DrawingTool.RECTANGLE) {
         return translate("hintDrawRectangle")
       }
@@ -1493,14 +1515,13 @@ function WidgetContent(
     }
   )
 
-  // Start drawing
+  /* Startar ritning med valt verktyg */
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     if (!sketchViewModel) {
       return
     }
 
-    // Set tool
-
+    /* Sätter verktyg och uppdaterar session-state */
     updateDrawingSession({ isActive: true, clickCount: 0 })
 
     dispatch(fmeActions.setDrawingTool(tool, widgetId))
@@ -1509,11 +1530,11 @@ function WidgetContent(
 
     updateAreaWarning(false)
 
-    // Clear and hide
+    /* Rensar grafik och döljer mätningar */
 
     resetGraphicsAndMeasurements()
 
-    // Cancel only if SketchViewModel is actively drawing to reduce AbortError races
+    /* Avbryter endast om SketchViewModel är aktivt ritande */
     try {
       const anyVm = sketchViewModel as any
       const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
@@ -1526,7 +1547,7 @@ function WidgetContent(
       safeCancelSketch(sketchViewModel)
     }
 
-    // Start drawing immediately; prior cancel avoids overlap
+    /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
 
@@ -1539,23 +1560,23 @@ function WidgetContent(
           })
         }
       } catch (err: any) {
-        // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
+        /* Sväljer oskadliga AbortError från racing cancel/create */
 
         logIfNotAbort("Sketch create error", err)
       }
     }
   })
 
-  // Track runtime (Controller) state to coordinate auto-start only when visible
+  /* Spårar runtime-state (Controller) för att koordinera auto-start */
   const runtimeState = ReactRedux.useSelector(
     (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
   )
 
-  // Previous runtime state for comparison
+  /* Tidigare runtime-state och repository för jämförelse */
   const prevRuntimeState = hooks.usePrevious(runtimeState)
   const prevRepository = hooks.usePrevious(configuredRepository)
 
-  // Auto-start drawing when in DRAWING mode
+  /* Auto-start ritning när i DRAWING-läge */
   const canAutoStartDrawing =
     viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
@@ -1566,7 +1587,7 @@ function WidgetContent(
     !hasCriticalGeneralError
 
   hooks.useUpdateEffect(() => {
-    // Only auto-start if not already started and widget is not closed
+    /* Auto-startar endast om inte redan startat och widget ej stängd */
     if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
       handleStartDrawing(drawingTool)
     }
@@ -1582,15 +1603,15 @@ function WidgetContent(
     hasCriticalGeneralError,
   ])
 
-  // Reset handler
+  /* Återställer widget vid stängning */
   const handleReset = hooks.useEventCallback(() => {
-    // Clear graphics and measurements but keep map resources alive
+    /* Rensar grafik och mätningar men behåller kartresurser */
     resetGraphicsAndMeasurements()
 
-    // Abort any ongoing submission
+    /* Avbryter pågående submission */
     submissionAbort.cancel()
 
-    // Cancel any in-progress drawing
+    /* Avbryter pågående ritning */
     if (sketchViewModel) {
       safeCancelSketch(sketchViewModel)
     }
@@ -1614,7 +1635,7 @@ function WidgetContent(
     }
   })
   hooks.useUpdateEffect(() => {
-    // Reset when widget is closed
+    /* Återställer vid stängning av widget */
     if (
       runtimeState === WidgetState.Closed &&
       prevRuntimeState !== WidgetState.Closed
@@ -1623,7 +1644,7 @@ function WidgetContent(
     }
   }, [runtimeState, prevRuntimeState, handleReset])
 
-  // Close any open popups when widget is opened
+  /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
     const isShowing =
       runtimeState === WidgetState.Opened || runtimeState === WidgetState.Active
@@ -1649,13 +1670,14 @@ function WidgetContent(
     enablePopupGuard,
   ])
 
-  // Teardown drawing resources on critical errors
+  /* Rensar ritresurser vid kritiska fel */
   hooks.useUpdateEffect(() => {
     if (hasCriticalGeneralError) {
       teardownDrawingResources()
     }
   }, [hasCriticalGeneralError, teardownDrawingResources])
 
+  /* Uppdaterar area-varning när geometri eller trösklar ändras */
   hooks.useUpdateEffect(() => {
     const hasGeometry = Boolean(geometryJson)
     if (!hasGeometry) {
@@ -1682,13 +1704,14 @@ function WidgetContent(
     updateAreaWarning,
   ])
 
+  /* Rensar area-varning vid repository-byte */
   hooks.useUpdateEffect(() => {
     if (configuredRepository !== prevRepository && areaWarning) {
       updateAreaWarning(false)
     }
   }, [configuredRepository, prevRepository, areaWarning, updateAreaWarning])
 
-  // Disable popup guard when widget is closed or hidden
+  /* Inaktiverar popup-guard när widget stängs eller döljs */
   hooks.useUpdateEffect(() => {
     if (
       runtimeState === WidgetState.Closed ||
@@ -1698,14 +1721,14 @@ function WidgetContent(
     }
   }, [runtimeState, disablePopupGuard])
 
-  // Disable popup guard when map view is removed
+  /* Inaktiverar popup-guard när kartvy tas bort */
   hooks.useUpdateEffect(() => {
     if (!jimuMapView) {
       disablePopupGuard()
     }
   }, [jimuMapView, disablePopupGuard])
 
-  // Workspace handlers
+  /* Workspace-hanterare */
   const handleWorkspaceSelected = hooks.useEventCallback(
     (
       workspaceName: string,
@@ -1736,7 +1759,7 @@ function WidgetContent(
     navigateTo(target)
   })
 
-  // Render loading state if modules are still loading
+  /* Renderar laddningsvy om moduler fortfarande laddas */
   if (latchedModulesLoading) {
     return (
       <div css={styles.parent}>
@@ -1768,9 +1791,9 @@ function WidgetContent(
     )
   }
 
-  // Error state - prioritize startup validation errors, then general errors
+  /* Felläge - prioriterar startup-valideringsfel, sedan generella fel */
   if (startupGeneralError) {
-    // Always handle startup validation errors first
+    /* Hanterar alltid startup-valideringsfel först */
     return (
       <div css={styles.parent}>
         {renderWidgetError(startupGeneralError, runStartupValidation)}
@@ -1779,21 +1802,22 @@ function WidgetContent(
   }
 
   if (!isStartupPhase && hasCriticalGeneralError && generalError) {
-    // Handle other errors (non-startup validation)
+    /* Hanterar andra fel (ej startup-validering) */
     return <div css={styles.parent}>{renderWidgetError(generalError)}</div>
   }
 
-  // derive simple view booleans for readability
+  /* Beräknar enkla view-booleans för läsbarhet */
   const showHeaderActions =
     (drawingSession.isActive || drawnArea > 0) &&
     !isSubmitting &&
     !latchedModulesLoading
 
-  // precompute UI booleans
+  /* Förkompilerar UI-booleans */
   const hasSingleMapWidget = Boolean(
     useMapWidgetIds && useMapWidgetIds.length === 1
   )
 
+  /* Säkerhetskopierar config utan känsliga fält */
   let workflowConfig = config
   if (config) {
     const rest = { ...(config as any) }
@@ -1881,6 +1905,7 @@ function WidgetContent(
   )
 }
 
+/* Huvudexport med React Query provider */
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
@@ -1894,7 +1919,7 @@ export default function Widget(
   )
 }
 
-// Map extra state props for the widget
+/* Mappar extra Redux state-props för widgeten */
 Reflect.set(
   Widget as any,
   "mapExtraStateProps",

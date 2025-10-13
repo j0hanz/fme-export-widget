@@ -117,7 +117,9 @@ describe("shared hooks", () => {
         const current = getLatest?.()
         current?.setJimuMapView(viewStub)
         current?.setGraphicsLayer(layerStub as unknown as __esri.GraphicsLayer)
-        current?.setSketchViewModel(sketchStub as unknown as __esri.SketchViewModel)
+        current?.setSketchViewModel(
+          sketchStub as unknown as __esri.SketchViewModel
+        )
         current?.setCleanupHandles(cleanupSpy)
       })
 

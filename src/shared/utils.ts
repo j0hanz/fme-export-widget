@@ -39,7 +39,9 @@ import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 import { validateScheduleMetadata } from "./validations"
 
-// STRING & TYPE UTILITIES
+/* String & Type Utilities - Grundläggande typkonvertering */
+
+// Kontrollerar om värde är tomt (null, undefined, "", [], trimmed "")
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -47,21 +49,25 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
+// Kontrollerar om värde är plain object (ej array eller null)
 export const isPlainObject = (
   value: unknown
 ): value is { readonly [key: string]: unknown } => {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+// Kontrollerar om värde är finit nummer (ej NaN eller Infinity)
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 
+// Konverterar värde till trimmad sträng eller undefined
 export const toTrimmedString = (value: unknown): string | undefined => {
   if (typeof value !== "string") return undefined
   const trimmed = value.trim()
   return trimmed || undefined
 }
 
+// Konverterar värde till sträng eller undefined (trimmar whitespace)
 export const toStringValue = (value: unknown): string | undefined => {
   if (typeof value === "string") {
     const trimmed = value.trim()
@@ -73,6 +79,7 @@ export const toStringValue = (value: unknown): string | undefined => {
   return undefined
 }
 
+// Konverterar värde till boolean eller undefined (hanterar string/number)
 export const toBooleanValue = (value: unknown): boolean | undefined => {
   if (typeof value === "boolean") return value
   if (typeof value === "number") return value !== 0
@@ -84,6 +91,7 @@ export const toBooleanValue = (value: unknown): boolean | undefined => {
   return undefined
 }
 
+// Konverterar värde till nummer eller undefined (parsar strings)
 export const toNumberValue = (value: unknown): number | undefined => {
   if (isFiniteNumber(value)) return value
   if (typeof value === "string") {
@@ -95,9 +103,11 @@ export const toNumberValue = (value: unknown): number | undefined => {
   return undefined
 }
 
+// Wraps värde i array om det inte redan är array
 export const toArray = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : value == null ? [] : [value]
 
+// Hämtar värde från object med fallback genom flera nyckel-alternativ
 export const pickFromObject = <T>(
   data: { readonly [key: string]: unknown } | null | undefined,
   keys: readonly string[],
@@ -112,22 +122,26 @@ export const pickFromObject = <T>(
   return fallback
 }
 
+// Hämtar string från object med flera nyckel-alternativ
 export const pickString = (
   data: { readonly [key: string]: unknown } | null | undefined,
   keys: readonly string[]
 ): string | undefined => pickFromObject(data, keys, toStringValue)
 
+// Hämtar boolean från object med flera nyckel-alternativ
 export const pickBoolean = (
   data: { readonly [key: string]: unknown } | null | undefined,
   keys: readonly string[],
   fallback = false
 ): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
 
+// Hämtar nummer från object med flera nyckel-alternativ
 export const pickNumber = (
   data: { readonly [key: string]: unknown } | null | undefined,
   keys: readonly string[]
 ): number | undefined => pickFromObject(data, keys, toNumberValue)
 
+// Mergar metadata från flera källor (tar första non-null värde per key)
 export const mergeMetadata = (
   sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
 ): { readonly [key: string]: unknown } => {
@@ -143,6 +157,7 @@ export const mergeMetadata = (
   return merged
 }
 
+// Unwraps array från diverse strukturer (direkt array eller nested)
 export const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
   if (Array.isArray(value)) return value
   if (isPlainObject(value)) {
@@ -154,6 +169,7 @@ export const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
   return undefined
 }
 
+// Konverterar plain object till metadata-record (filtrerar undefined)
 export const toMetadataRecord = (
   value: unknown
 ): { readonly [key: string]: unknown } | undefined => {
@@ -162,6 +178,7 @@ export const toMetadataRecord = (
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
+// Normaliserar parameter-värde till string eller nummer för FME Flow
 export const normalizeParameterValue = (value: unknown): string | number => {
   if (isFiniteNumber(value)) return value
   if (typeof value === "string") return value
@@ -169,6 +186,7 @@ export const normalizeParameterValue = (value: unknown): string | number => {
   return JSON.stringify(value ?? null)
 }
 
+// Bygger Set med normaliserade värden från parameter listOptions
 export const buildChoiceSet = (
   list: WorkspaceParameter["listOptions"]
 ): Set<string | number> | null =>
@@ -176,6 +194,7 @@ export const buildChoiceSet = (
     ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
     : null
 
+// Skapar cache-nyckel från token genom enkel hash-funktion
 export const buildTokenCacheKey = (token?: string): string => {
   const trimmed = toTrimmedString(token)
   if (!trimmed) return "token:none"
@@ -188,6 +207,7 @@ export const buildTokenCacheKey = (token?: string): string => {
   return `token:${hash.toString(36)}`
 }
 
+// Skapar FmeFlowApiClient från config eller returnerar null vid fel
 export const createFmeClient = (
   serverUrl?: string,
   token?: string,
@@ -214,6 +234,7 @@ export const createFmeClient = (
   }
 }
 
+// Extraherar anslutningsinfo från FmeFlowApiClient via reflection
 export const getClientConnectionInfo = (
   client: FmeFlowApiClient | null | undefined
 ): {
@@ -240,12 +261,14 @@ export const getClientConnectionInfo = (
   return { serverUrl, repository, tokenHash }
 }
 
+// Konverterar okänd typ till string (används för display)
 export const asString = (v: unknown): string => {
   if (typeof v === "string") return v
   if (typeof v === "number") return String(v)
   return ""
 }
 
+// Konverterar värde till debug-sträng (hanterar objekt via JSON)
 export const toStr = (val: unknown): string => {
   if (typeof val === "string") return val
   if (typeof val === "number" || typeof val === "boolean") return String(val)
@@ -261,12 +284,16 @@ export const toStr = (val: unknown): string => {
   return Object.prototype.toString.call(val)
 }
 
+/* Email Validation & Support */
+
+// Validerar email-format (utesluter no-reply-adresser)
 export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
   if (NO_REPLY_REGEX.test(email)) return false
   return EMAIL_REGEX.test(email)
 }
 
+// Extraherar och validerar support-email från config
 export const getSupportEmail = (
   configuredEmailRaw: unknown
 ): string | undefined => {
@@ -274,6 +301,9 @@ export const getSupportEmail = (
   return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
+/* Placeholder & Form Helpers */
+
+// Skapar översatta placeholder-texter för formulärfält
 export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
@@ -282,12 +312,14 @@ export const makePlaceholders = (
   select: translate("placeholderSelect", { field: fieldLabel }),
 })
 
+// Mapping för specifika placeholder-typer
 const PLACEHOLDER_KIND_MAP = Object.freeze({
   email: "placeholderEmail",
   phone: "placeholderPhone",
   search: "placeholderSearch",
 } as const)
 
+// Returnerar lämplig placeholder för text-fält baserat på typ
 export const getTextPlaceholder = (
   field: { placeholder?: string } | undefined,
   placeholders: { enter: string },
@@ -299,6 +331,7 @@ export const getTextPlaceholder = (
   return placeholders.enter
 }
 
+// Kontrollerar om select-option-värde är numeriskt (för type coercion)
 const isNumericSelectOptionValue = (value: unknown): boolean => {
   if (isFiniteNumber(value)) return true
   if (typeof value !== "string") return false
@@ -310,6 +343,7 @@ const isNumericSelectOptionValue = (value: unknown): boolean => {
   return Number.isFinite(numeric) && String(numeric) === trimmed
 }
 
+// Bestämmer om select-värden ska coerceas till nummer
 export const computeSelectCoerce = (
   isSelectType: boolean,
   selectOptions: ReadonlyArray<{ readonly value?: unknown }>
@@ -322,6 +356,7 @@ export const computeSelectCoerce = (
   return allNumeric ? "number" : undefined
 }
 
+// Parsar tabell-rader från diverse format (array, JSON-string, primitiv)
 export const parseTableRows = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.map((x) => (typeof x === "string" ? x : String(x)))
@@ -339,6 +374,7 @@ export const parseTableRows = (value: unknown): string[] => {
   return []
 }
 
+// Formaterar byte-storlek till läsbar sträng (B, KB, MB, GB, TB)
 export const formatByteSize = (size: unknown): string | null => {
   if (!isFiniteNumber(size) || size < 0) {
     return null
@@ -361,6 +397,9 @@ export const formatByteSize = (size: unknown): string | null => {
   return `${formatted} ${UNITS[unitIndex]}`
 }
 
+/* Message & Display Utilities */
+
+// Översätter meddelande eller key (fallback till raw string)
 export function resolveMessageOrKey(
   raw: string,
   translate: TranslateFn
@@ -370,6 +409,7 @@ export function resolveMessageOrKey(
   return translate(raw)
 }
 
+// Maskerar email för display (visar första 2 tecken + domain)
 export const maskEmailForDisplay = (email: unknown): string => {
   const trimmed = toTrimmedString(email)
   if (!trimmed || !isValidEmail(trimmed)) return trimmed || ""
@@ -384,6 +424,7 @@ export const maskEmailForDisplay = (email: unknown): string => {
   return `${visible}****${domain}`
 }
 
+// Bygger support-hint-text med email eller fallback-meddelande
 export const buildSupportHintText = (
   translate: TranslateFn,
   supportEmail?: string,
@@ -398,6 +439,9 @@ export const buildSupportHintText = (
   return toTrimmedString(userFriendly) || ""
 }
 
+/* URL & Network Validation */
+
+// Parsar IPv4-adress till oktettar eller null vid invalid format
 const parseIpv4 = (hostname: string): number[] | null => {
   const parts = hostname.split(".")
   if (parts.length !== 4) return null
@@ -411,6 +455,7 @@ const parseIpv4 = (hostname: string): number[] | null => {
   return octets.every(Number.isInteger) ? octets : null
 }
 
+// Kontrollerar om IPv4-oktetter matchar privata nätverksranges
 const isPrivateIpv4 = (octets: number[]): boolean => {
   return PRIVATE_IPV4_RANGES.some(({ start, end }) => {
     for (let i = 0; i < 4; i++) {
@@ -420,6 +465,7 @@ const isPrivateIpv4 = (octets: number[]): boolean => {
   })
 }
 
+// Kontrollerar om IPv6-adress är privat (loopback, local, ULA)
 const isPrivateIpv6 = (hostname: string): boolean => {
   const lower = hostname.toLowerCase()
   return (
@@ -432,6 +478,7 @@ const isPrivateIpv6 = (hostname: string): boolean => {
   )
 }
 
+// Kontrollerar om hostname har förbjuden suffix (.local, .test etc.)
 const hasDisallowedSuffix = (hostname: string): boolean => {
   const lower = hostname.toLowerCase()
   return FORBIDDEN_HOSTNAME_SUFFIXES.some(
@@ -439,6 +486,7 @@ const hasDisallowedSuffix = (hostname: string): boolean => {
   )
 }
 
+// Validerar extern URL för opt_geturl (blockerar privata/localhost)
 export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
   const trimmed = (s || "").trim()
   if (!trimmed || trimmed.length > MAX_URL_LENGTH) return false
@@ -468,6 +516,9 @@ export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
   return true
 }
 
+/* ArcGIS Drawing Symbols */
+
+// Bygger drawing-symboler (fill, line, point) från RGB-färg
 export const buildSymbols = (rgb: readonly [number, number, number]) => {
   const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
   const highlight = {
@@ -501,6 +552,7 @@ export const buildSymbols = (rgb: readonly [number, number, number]) => {
   return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
 }
 
+// Normaliserar SketchViewModel tool-namn till enhetligt format
 export const normalizeSketchCreateTool = (
   tool: string | null | undefined
 ): "polygon" | "rectangle" | null => {
@@ -515,6 +567,9 @@ export const normalizeSketchCreateTool = (
   return null
 }
 
+/* Form Data Parsing & Submission */
+
+// Normaliserar form-entries genom coercion av värden
 const normalizeFormEntries = (
   entries: Iterable<[string, unknown]>
 ): { [key: string]: unknown } => {
@@ -525,6 +580,7 @@ const normalizeFormEntries = (
   return normalized
 }
 
+// Parsar submission form-data och extraherar fil/URL separat
 export const parseSubmissionFormData = (rawData: {
   [key: string]: unknown
 }): {
@@ -555,6 +611,7 @@ export const parseSubmissionFormData = (rawData: {
   return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
 }
 
+// Hittar första parameter som accepterar fil-uploads
 const findUploadParameterTarget = (
   parameters?: readonly WorkspaceParameter[] | null
 ): string | undefined => {
@@ -573,6 +630,7 @@ const findUploadParameterTarget = (
   return undefined
 }
 
+// Applicerar uppladdad fil-path till rätt parameter i FME request
 export const applyUploadedDatasetParam = ({
   finalParams,
   uploadedPath,
@@ -605,6 +663,7 @@ export const applyUploadedDatasetParam = ({
   }
 }
 
+// Kontrollerar om navigator är offline (används för UX-varningar)
 export const isNavigatorOffline = (): boolean => {
   try {
     const nav = (globalThis as any)?.navigator
@@ -614,6 +673,7 @@ export const isNavigatorOffline = (): boolean => {
   }
 }
 
+// Kontrollerar om remote URL ska appliceras (kräver config-tillåtelse)
 export const shouldApplyRemoteDatasetUrl = (
   remoteUrl: unknown,
   config: FmeExportConfig | null | undefined
@@ -627,6 +687,7 @@ export const shouldApplyRemoteDatasetUrl = (
   return isValidExternalUrlForOptGetUrl(trimmed)
 }
 
+// Kontrollerar om fil ska laddas upp (kräver config + valid File/Blob)
 export const shouldUploadRemoteDataset = (
   config: FmeExportConfig | null | undefined,
   uploadFile: File | Blob | null | undefined
@@ -641,12 +702,16 @@ export const shouldUploadRemoteDataset = (
   return isFileObject(uploadFile)
 }
 
+// Tar bort AOI-felmarkör från params efter validering
 export const removeAoiErrorMarker = (params: MutableParams): void => {
   if (typeof params.__aoi_error__ !== "undefined") {
     delete params.__aoi_error__
   }
 }
 
+/* Widget Management */
+
+// Beräknar vilka widgets som ska stängas (alla öppna utom aktuell)
 export const computeWidgetsToClose = (
   runtimeInfo:
     | { [id: string]: { state?: WidgetState | string } | undefined }
@@ -680,6 +745,9 @@ export const computeWidgetsToClose = (
   return ids
 }
 
+/* Popup Suppression Management */
+
+// Rensar popup-suppression genom att återställa original-tillstånd
 export const clearPopupSuppression = (
   ref: { current: PopupSuppressionRecord | null } | null | undefined
 ): void => {
@@ -689,6 +757,7 @@ export const clearPopupSuppression = (
   ref.current = null
 }
 
+// Applicerar popup-suppression för att förhindra auto-open
 export const applyPopupSuppression = (
   ref: { current: PopupSuppressionRecord | null } | null | undefined,
   popup: __esri.Popup | null | undefined,
@@ -718,6 +787,7 @@ export const applyPopupSuppression = (
   ref.current = record
 }
 
+// Formaterar fel för visning i UI med översättning och support-hint
 export function formatErrorForView(
   translate: TranslateFn,
   baseKeyOrMessage: string,
@@ -731,6 +801,7 @@ export function formatErrorForView(
   return { message, code, hint }
 }
 
+// Bygger ErrorState för UI från diverse fel-input
 const HTML_ENTITY_MAP = Object.freeze({
   "&amp;": "&",
   "&lt;": "<",
@@ -739,11 +810,14 @@ const HTML_ENTITY_MAP = Object.freeze({
   "&#39;": "'",
 })
 
+// Regex för att hitta HTML-named entities
 const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g
+// Max giltig Unicode code point enligt HTML5-specifikationen
 const MAX_HTML_CODE_POINT = 0x10ffff
 
+// Regex för att hitta HTML-numeric entities (dec och hex)
 const decodeHtmlNumericEntity = (value: string, base: number): string => {
-  // Limit input length to prevent overflow: max valid is 10FFFF (6 hex) or 1114111 (7 decimal)
+  // Max 7 tecken för att undvika överflödiga stora tal
   if (value.length > 7) return ""
 
   const parsed = Number.parseInt(value, base)
@@ -756,9 +830,11 @@ const decodeHtmlNumericEntity = (value: string, base: number): string => {
   }
 }
 
+// Ersätter HTML-named entities med motsvarande tecken
 const replaceNamedEntities = (value: string): string =>
   value.replace(HTML_ENTITY_REGEX, (match) => HTML_ENTITY_MAP[match] || match)
 
+// Tar bort HTML-taggar och ersätter entities för ren text
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
 
@@ -779,9 +855,11 @@ export const stripHtmlToText = (input?: string): string => {
   return decoded.replace(/\s+/g, " ").trim()
 }
 
+// Bygger komplett ErrorState för UI från diverse fel-input
 export const styleCss = (style?: CSSProperties) =>
   style ? css(style as any) : undefined
 
+// Typvakt för File-objekt (finns ej i IE11)
 export const setError = <T extends { [k: string]: any }>(
   set: Dispatch<SetStateAction<T>>,
   key: keyof T,
@@ -790,6 +868,7 @@ export const setError = <T extends { [k: string]: any }>(
   set((prev) => ({ ...prev, [key]: value as any }))
 }
 
+// Rensar flera fel i state-objekt genom att sätta undefined
 export const clearErrors = <T extends { [k: string]: any }>(
   set: Dispatch<SetStateAction<T>>,
   keys: Array<keyof T>
@@ -801,18 +880,21 @@ export const clearErrors = <T extends { [k: string]: any }>(
   })
 }
 
+// Säkerställer att AbortController abort-funktion kallas utan fel
 export const safeAbort = (ctrl: AbortController | null) => {
   if (ctrl) {
     try {
       ctrl.abort()
     } catch {
-      // Ignore abort errors
+      // Ignorera fel vid abort
     }
   }
 }
 
+// Kontrollerar om fel är relaterat till abort (inkl. text-matchning)
 const ABORT_REGEX = /abort/i
 
+// Regex för att identifiera no-reply email-adresser
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
   if (typeof error === "string") return ABORT_REGEX.test(error)
@@ -829,11 +911,13 @@ export const isAbortError = (error: unknown): boolean => {
   return ABORT_REGEX.test(name) || ABORT_REGEX.test(message)
 }
 
+// Loggar fel om de inte är relaterade till abort
 export const logIfNotAbort = (_context: string, error: unknown): void => {
-  // Intentionally no-op to prevent logging sensitive data
+  // Ignorera abort-fel
   void (_context, error)
 }
 
+// Typ för popup-suppression record
 const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
   const popupAny = record.popup as unknown as { autoOpenEnabled?: boolean }
   try {
@@ -843,6 +927,7 @@ const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
   } catch {}
 }
 
+// Säkerställer att popup stängs utan fel
 const closePopupSafely = (
   view: __esri.MapView | __esri.SceneView | null | undefined,
   popup: __esri.Popup | null | undefined
@@ -856,6 +941,7 @@ const closePopupSafely = (
   } catch {}
 }
 
+// Skapar popup-suppression record och applicerar suppression
 export const createPopupSuppressionRecord = (
   popup: __esri.Popup | null | undefined,
   view: __esri.MapView | __esri.SceneView | null | undefined
@@ -893,6 +979,7 @@ export const createPopupSuppressionRecord = (
   }
 }
 
+// Rensar och återställer popup-suppression från record
 export const releasePopupSuppressionRecord = (
   record: PopupSuppressionRecord | null | undefined
 ): void => {
@@ -905,6 +992,7 @@ export const releasePopupSuppressionRecord = (
   restorePopupAutoOpen(record)
 }
 
+// Manager för popup-suppression med referensräkning
 class PopupSuppressionManager {
   private record: PopupSuppressionRecord | null = null
 
@@ -952,9 +1040,10 @@ class PopupSuppressionManager {
   }
 }
 
+// Global singleton för popup-suppression management
 export const popupSuppressionManager = new PopupSuppressionManager()
 
-// Collection utilities
+// Kontrollerar om värde är iterable (utesluter strängar)
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   typeof value !== "string" &&
   typeof (value as any)?.[Symbol.iterator] === "function"
@@ -976,10 +1065,12 @@ const mapDefined = <T, R>(
   return result
 }
 
+// Konverterar värde till trimmad sträng eller undefined
 export const collectTrimmedStrings = (
   values: Iterable<unknown> | null | undefined
 ): string[] => mapDefined(values, toTrimmedString)
 
+// Extraherar trimmade strängar från property i objekt-array
 const collectStringsFromProp = (
   values: Iterable<unknown> | null | undefined,
   prop: string
@@ -989,6 +1080,7 @@ const collectStringsFromProp = (
     return record ? toTrimmedString(record[prop]) : undefined
   })
 
+// Tar bort dubbletter från sträng-array och behåller ordning
 export const uniqueStrings = (values: Iterable<string>): string[] => {
   if (!values || !isIterable(values)) return []
 
@@ -1005,6 +1097,7 @@ export const uniqueStrings = (values: Iterable<string>): string[] => {
   return result
 }
 
+// Extraherar unika repository-namn från diverse API-svar
 export const extractRepositoryNames = (source: unknown): string[] => {
   if (Array.isArray(source)) {
     return uniqueStrings(collectStringsFromProp(source, "name"))
@@ -1020,19 +1113,22 @@ export const extractRepositoryNames = (source: unknown): string[] => {
   return []
 }
 
-// Re-export useLatestAbortController from hooks for backward compatibility
+// Hook för att hantera senaste AbortController i async-effekter
 export { useLatestAbortController } from "./hooks"
 
+// Maskerar token för display (första 4 och sista 4 tecken syns)
 export const maskToken = (token: string): string => {
   if (!token) return ""
   if (token.length <= 8) return "*".repeat(token.length)
-  // Show first 4 and last 4 chars for debugging, mask the middle
+  // Visa första 4 och sista 4 tecken, maskera resten
   return `${token.slice(0, 4)}${"*".repeat(Math.max(4, token.length - 8))}${token.slice(-4)}`
 }
 
+// Bygger token cache key (hash av token eller "no-token")
 export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
   id ? `${id}-${suffix}` : undefined
 
+// Bygger lämplig aria-label för knapp baserat på innehåll
 export const getBtnAria = (
   text?: any,
   icon?: string | boolean,
@@ -1046,14 +1142,17 @@ export const getBtnAria = (
   return (typeof tooltip === "string" && tooltip) || fallbackLabel
 }
 
+// ERROR ICONS
 const DEFAULT_ERROR_ICON = "error"
 
+// Ikoner för exakta felkoder (prioriteras högst)
 const ICON_BY_EXACT_CODE = Object.freeze<{ [code: string]: string }>({
   GEOMETRY_SERIALIZATION_FAILED: "polygon",
   MAP_MODULES_LOAD_FAILED: "map",
   FORM_INVALID: "warning",
 })
 
+// Prioriterad lista av token och motsvarande ikoner för delmatchning
 const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
   Object.freeze([
     { token: "GEOMETRY", icon: "polygon" },
@@ -1078,9 +1177,11 @@ const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
     { token: "EMAIL", icon: "email" },
   ])
 
+// Normaliserar felkod för jämförelse (camelCase -> SNAKE_CASE)
 const normalizeCodeForMatching = (raw: string): string =>
   raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
 
+// Returnerar lämplig ikon-src för given felkod (exakt eller delmatchning)
 export const getErrorIconSrc = (code?: string): string => {
   if (typeof code !== "string") return DEFAULT_ERROR_ICON
 
@@ -1112,6 +1213,7 @@ const GEOMETRY_CONSTS = {
   SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
 } as const
 
+// Typ för area-display (värde, enhet, decimaler)
 const UNIT_CONVERSIONS: readonly UnitConversion[] = [
   {
     factor: 0.3048,
@@ -1138,6 +1240,7 @@ const UNIT_CONVERSIONS: readonly UnitConversion[] = [
   { factor: 1, label: "m²", keywords: ["meter"] },
 ] as const
 
+// Kontrollerar om två längdenheter är ungefär lika (med tolerans)
 const approxLengthUnit = (
   value: number | undefined,
   target: number
@@ -1147,6 +1250,7 @@ const approxLengthUnit = (
   return Math.abs(value - target) <= tolerance
 }
 
+// Bestämmer antal decimaler baserat på värde och om det är stor enhet
 const getDecimalPlaces = (value: number, isLargeUnit = false): number => {
   if (isLargeUnit) return 2
   if (value >= 100) return 0
@@ -1154,6 +1258,7 @@ const getDecimalPlaces = (value: number, isLargeUnit = false): number => {
   return 2
 }
 
+// Normaliserar enhetsetikett (från spatialReference.unit) till lämplig text
 const normalizeUnitLabel = (unit?: string): string => {
   if (!unit) return "units²"
 
@@ -1188,6 +1293,7 @@ const normalizeUnitLabel = (unit?: string): string => {
   }
 }
 
+// Formaterar area-värde med lämplig enhet baserat på spatialReference
 export const buildLargeAreaWarningMessage = ({
   currentAreaText,
   thresholdAreaText,
@@ -1212,6 +1318,7 @@ export const buildLargeAreaWarningMessage = ({
   return translate("largeAreaWarning", { current })
 }
 
+// Resolverar area för display i lämplig enhet (metric om okänt spatialReference)
 const resolveMetricDisplay = (area: number): AreaDisplay => {
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     return {
@@ -1236,6 +1343,7 @@ const resolveMetricDisplay = (area: number): AreaDisplay => {
   }
 }
 
+// Kontrollerar om unitId innehåller någon av keywords (case-insensitive)
 const matchesUnitKeywords = (
   unitId: string,
   keywords: readonly string[]
@@ -1243,6 +1351,7 @@ const matchesUnitKeywords = (
   return keywords.some((keyword) => unitId.includes(keyword))
 }
 
+// Konverterar area till lämplig enhet baserat på faktor och conversion
 const convertAreaByUnit = (
   area: number,
   factor: number,
@@ -1268,6 +1377,7 @@ const convertAreaByUnit = (
   return { value: convertedValue, label: conversion.label, decimals }
 }
 
+// Resolverar area för display baserat på spatialReference (om given)
 const resolveAreaForSpatialReference = (
   area: number,
   spatialReference?: __esri.SpatialReference | null
@@ -1304,14 +1414,16 @@ const resolveAreaForSpatialReference = (
   return { value, label: normalizeUnitLabel(spatialReference.unit), decimals }
 }
 
-// GEOMETRY VALIDATION & CONVERSION
+/* Geometry Validation & Conversion */
 
+// Kontrollerar om koordinat-tupel är valid ([x, y] eller [x, y, z, m])
 const isValidCoordinateTuple = (pt: unknown): boolean =>
   Array.isArray(pt) &&
   pt.length >= 2 &&
   pt.length <= 4 &&
   pt.every(isFiniteNumber)
 
+// Jämför två koordinater för equality (med epsilon-tolerans)
 const checkCoordinatesEqual = (a: unknown, b: unknown): boolean => {
   if (!Array.isArray(a) || !Array.isArray(b)) return false
   const len = Math.min(a.length, b.length, 2)
@@ -1325,16 +1437,18 @@ const checkCoordinatesEqual = (a: unknown, b: unknown): boolean => {
   return true
 }
 
+// Validerar ring (minst 4 punkter, closed, valid coordinates)
 const isValidRing = (ring: unknown): boolean => {
   if (!Array.isArray(ring) || ring.length < 4) return false
   if (!ring.every(isValidCoordinateTuple)) return false
 
-  // Verify ring closure: first point must equal last point
+  // Kontrollerar att första och sista punkt är identiska (closed ring)
   const first = ring[0]
   const last = ring[ring.length - 1]
   return checkCoordinatesEqual(first, last)
 }
 
+// Kontrollerar om värde är polygon-geometri med valid rings
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
@@ -1353,6 +1467,7 @@ export const isPolygonGeometry = (
   return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
 }
 
+// Saniterar parameter-nyckel genom att ta bort ogiltiga tecken
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   const raw =
     typeof name === "string" ? name : isFiniteNumber(name) ? String(name) : ""
@@ -1360,7 +1475,9 @@ export const sanitizeParamKey = (name: unknown, fallback: string): string => {
   return safe || fallback
 }
 
-// FME PARAMETER BUILDING & SERVICE MODE
+/* FME Parameter Building & Service Mode */
+
+// Tillåtna service modes för FME Flow submissions
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "sync",
   "async",
@@ -1376,6 +1493,7 @@ const SCHEDULE_METADATA_FIELDS = [
 ] as const
 const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
 
+// Kontrollerar om data innehåller valid schedule-metadata
 const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   const startVal = toTrimmedString(data.start)
   const category = toTrimmedString(data.category)
@@ -1406,6 +1524,7 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   return validation.valid
 }
 
+// Saniterar schedule-metadata (tar bort eller behåller beroende på mode)
 const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
   mode: ServiceMode
@@ -1922,6 +2041,7 @@ const serializeCoordinate = (coords: unknown): string | null => {
   return values.length >= 2 ? values.join(" ") : null
 }
 
+// Serialiserar ring till WKT-format (array av koordinat-strängar)
 const serializeRing = (ring: unknown): string[] => {
   if (!Array.isArray(ring)) return []
   const parts: string[] = []
@@ -1932,6 +2052,7 @@ const serializeRing = (ring: unknown): string[] => {
   return parts
 }
 
+// Konverterar polygon JSON till WKT-format (Well-Known Text)
 export const polygonJsonToWkt = (poly: any): string => {
   const geojson = polygonJsonToGeoJson(poly)
   if (!geojson) return "POLYGON EMPTY"
@@ -1953,9 +2074,11 @@ export const polygonJsonToWkt = (poly: any): string => {
   return `POLYGON(${serialized.join(", ")})`
 }
 
+// Kontrollerar om spatial reference är WGS84 (WKID 4326)
 const isWgs84Spatial = (sr: any): boolean =>
   sr?.isWGS84 === true || sr?.wkid === 4326
 
+// Projicerar polygon till WGS84 via ArcGIS projection engine
 const projectToWgs84 = (
   poly: __esri.Polygon,
   modules: EsriModules
@@ -1977,6 +2100,7 @@ const projectToWgs84 = (
   return (projected as __esri.Polygon) || null
 }
 
+// Konverterar polygon JSON till WGS84 (projicerar vid behov)
 export const toWgs84PolygonJson = (
   polyJson: any,
   modules: EsriModules | null | undefined
@@ -2013,6 +2137,7 @@ export const toWgs84PolygonJson = (
   }
 }
 
+// Skapar error state för AOI-serialiseringsfel
 const createAoiSerializationError = (): ErrorState => ({
   message: "GEOMETRY_SERIALIZATION_FAILED",
   type: ErrorType.GEOMETRY,
@@ -2023,6 +2148,7 @@ const createAoiSerializationError = (): ErrorState => ({
   timestampMs: Date.now(),
 })
 
+// Samlar alla GEOMETRY-parameter-namn från workspace-parametrar
 const collectGeometryParamNames = (
   params?: readonly WorkspaceParameter[] | null
 ): readonly string[] => {
@@ -2039,6 +2165,7 @@ const collectGeometryParamNames = (
   return names
 }
 
+// Extraherar polygon JSON från geometryJson eller currentGeometry fallback
 const extractPolygonJson = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
@@ -2052,6 +2179,7 @@ const extractPolygonJson = (
   return isPolygonGeometry(fallback) ? fallback : null
 }
 
+// Safe JSON stringify med error-hantering
 const safeStringify = (value: unknown): string | null => {
   try {
     return JSON.stringify(value)
@@ -2060,6 +2188,7 @@ const safeStringify = (value: unknown): string | null => {
   }
 }
 
+// Attachar AOI (polygon) till FME parameters med serialisering
 export const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
@@ -2316,7 +2445,7 @@ export const safeLogParams = (
   _params: URLSearchParams,
   _whitelist: readonly string[]
 ): void => {
-  // Intentionally a no-op to avoid logging sensitive data; reference params to prevent unused-var lint errors
+  // Temporär no-op för att undvika loggning av känsliga data
   void (_label, _url, _params, _whitelist)
 }
 
@@ -2724,7 +2853,9 @@ export const toSerializable = (error: any): any => {
   return { ...rest, timestampMs: ts, kind: "serializable" as const }
 }
 
-// FORM VALUE HANDLING & FILE UTILITIES
+/* Form Value Handling & File Utilities */
+
+// Kontrollerar om värde är File-object (cross-platform check)
 export function isFileObject(value: unknown): value is File {
   try {
     return (
@@ -2740,11 +2871,13 @@ export function isFileObject(value: unknown): value is File {
   }
 }
 
+// Hämtar display-namn från File-object med fallback
 export const getFileDisplayName = (file: File): string => {
   const name = toTrimmedString((file as any)?.name)
   return name || "unnamed-file"
 }
 
+// Kontrollerar om värde är composite (text-or-file structure)
 const isCompositeValue = (
   value: unknown
 ): value is { mode: string; [key: string]: unknown } => {
@@ -2756,6 +2889,7 @@ const isCompositeValue = (
   )
 }
 
+// Extraherar fil-värde från composite text-or-file structure
 const extractFileValue = (composite: TextOrFileValue): unknown => {
   if (isFileObject(composite.file)) {
     return composite.file
@@ -2763,6 +2897,7 @@ const extractFileValue = (composite: TextOrFileValue): unknown => {
   return toTrimmedString(composite.fileName) ?? asString(composite.fileName)
 }
 
+// Coercear form-värde för submission (hanterar composite structures)
 export const coerceFormValueForSubmission = (value: unknown): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value
@@ -2784,6 +2919,7 @@ export const coerceFormValueForSubmission = (value: unknown): unknown => {
   return value
 }
 
+// Strippar error-label (tar bort HTML och prefix före kolon)
 export const stripErrorLabel = (errorText?: string): string | undefined => {
   const text = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
   if (!text) return undefined
@@ -2794,6 +2930,7 @@ export const stripErrorLabel = (errorText?: string): string | undefined => {
   return text
 }
 
+// Initierar form-värden från config med defaultValues
 export const initFormValues = (
   formConfig: readonly any[]
 ): { [key: string]: any } => {
@@ -2820,6 +2957,9 @@ export const canResetButton = (
   return drawnArea > 0 && state !== "initial"
 }
 
+/* UI State Helpers */
+
+// Bestämmer om workspace loading-spinner ska visas
 export const shouldShowWorkspaceLoading = (
   isLoading: boolean,
   workspaces: readonly any[],
@@ -2832,9 +2972,13 @@ export const shouldShowWorkspaceLoading = (
   return isLoading || (!workspaces.length && needsLoading)
 }
 
+/* ArcGIS Module Loading */
+
+// Unwraps dynamic module (hanterar default exports)
 const unwrapDynamicModule = (module: unknown) =>
   (module as any)?.default ?? module
 
+// Laddar ArcGIS JS API modules via jimu-arcgis (med test stub support)
 export async function loadArcgisModules(
   modules: readonly string[]
 ): Promise<unknown[]> {

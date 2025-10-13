@@ -44,6 +44,7 @@ import {
   shouldApplyRemoteDatasetUrl,
 } from "./utils"
 
+// Parsar värde till nummer eller null vid invalid input
 const parseAsNumber = (value: unknown): number | null => {
   if (typeof value === "number") return value
   if (typeof value === "string") {
@@ -53,34 +54,40 @@ const parseAsNumber = (value: unknown): number | null => {
   return null
 }
 
+// Kontrollerar om värde är heltal
 export const isInt = (value: unknown): boolean => {
   const num = parseAsNumber(value)
   return num !== null && Number.isInteger(num)
 }
 
+// Kontrollerar om värde är finit nummer
 export const isNum = (value: unknown): boolean => {
   const num = parseAsNumber(value)
   return num !== null
 }
 
-// Type guards
+// Kontrollerar om nummer är valid HTTP status code (100-599)
 const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" && n >= 100 && n <= 599
 
+// Kontrollerar om värde är Promise-like (har then-metod)
 const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
   typeof value === "object" &&
   value !== null &&
   "then" in value &&
   typeof (value as { then?: unknown }).then === "function"
 
+// Kontrollerar om värde är polygon-geometri via type property
 const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
   typeof value === "object" &&
   value !== null &&
   (value as { type?: unknown }).type === "polygon"
 
+// Kontrollerar om pathname innehåller förbjuden FME REST path
 const hasForbiddenPath = (pathname: string): boolean =>
   pathname.toLowerCase().includes(FME_REST_PATH)
 
+// Normaliserar bas-URL genom att ta bort fmerest och credentials
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
@@ -99,6 +106,7 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   return `${u.origin}${cleanPath}`
 }
 
+// Validerar server-URL med olika strictness-nivåer och options
 export function validateServerUrl(
   url: string,
   opts?: {
@@ -157,11 +165,13 @@ export function validateServerUrl(
   }
 }
 
+// Mappar URL validation reason till översättningsnyckel
 export const mapServerUrlReasonToKey = (reason?: string): string => {
   if (!reason) return "invalid_url"
   return SERVER_URL_REASON_TO_KEY[reason] || "invalid_url"
 }
 
+// Kontrollerar om token innehåller control characters
 const hasControlCharacters = (token: string): boolean => {
   for (let i = 0; i < token.length; i++) {
     const code = token.charCodeAt(i)
@@ -170,9 +180,11 @@ const hasControlCharacters = (token: string): boolean => {
   return false
 }
 
+// Kontrollerar om token har farliga tecken (whitespace, XSS, control)
 const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
 
+// Validerar FME token (längd och tecken-säkerhet)
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "missingToken" }
 
@@ -188,6 +200,7 @@ export const validateToken = (token: string): { ok: boolean; key?: string } => {
   return { ok: true }
 }
 
+// Validerar repository-namn mot lista av tillgängliga repositories
 export const validateRepository = (
   repository: string,
   available: string[] | null
@@ -201,6 +214,7 @@ export const validateRepository = (
   return { ok: true }
 }
 
+// Saniterar opt_geturl parameter baserat på config-tillåtelse
 export const sanitizeOptGetUrlParam = (
   params: MutableParams,
   config: FmeExportConfig | null | undefined
@@ -226,6 +240,7 @@ export const sanitizeOptGetUrlParam = (
   params.opt_geturl = current.trim()
 }
 
+// Löser upload-target parameter från config eller returnerar null
 export const resolveUploadTargetParam = (
   config: FmeExportConfig | null | undefined
 ): string | null => {
@@ -235,6 +250,7 @@ export const resolveUploadTargetParam = (
   return sanitized || null
 }
 
+// Extraherar HTTP status code från error object (flera källor)
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
 
@@ -263,6 +279,7 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
+// Bestämmer om fel är retryable baserat på status code
 export const isRetryableError = (error: unknown): boolean => {
   if (error && typeof error === "object") {
     const candidate = error as { isRetryable?: unknown }
@@ -278,6 +295,7 @@ export const isRetryableError = (error: unknown): boolean => {
   return status === 408 || status === 429
 }
 
+// Mappar HTTP status code till översättningsnyckel
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
   if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
@@ -285,6 +303,7 @@ const statusToKey = (s?: number): string | undefined => {
   return undefined
 }
 
+// Matchar felmeddelande mot pattern-lista och returnerar key
 const matchMessagePattern = (message: string): string | undefined => {
   const lowerMessage = message.toLowerCase()
   for (const { pattern, key } of MESSAGE_PATTERNS) {
@@ -293,6 +312,7 @@ const matchMessagePattern = (message: string): string | undefined => {
   return undefined
 }
 
+// Mappar error till översättningsnyckel via status/code/message
 export const mapErrorToKey = (err: unknown, status?: number): string => {
   if (status == null) {
     status = extractHttpStatus(err)
@@ -321,6 +341,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   return "errorUnknown"
 }
 
+// Validerar att obligatoriska config-fält är satta
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
   readonly token?: string
@@ -331,6 +352,7 @@ export const validateRequiredConfig = (config: {
   }
 }
 
+// Returnerar lista med obligatoriska fält som saknas i config
 const getMissingConfigFields = (
   config: FmeExportConfig | undefined
 ): string[] => {
@@ -339,6 +361,7 @@ const getMissingConfigFields = (
   return REQUIRED_CONFIG_FIELDS.filter((field) => !config[field]?.trim())
 }
 
+// Returnerar isValid flag och lista med saknade config-fält
 export const validateConfigFields = (
   config: FmeExportConfig | undefined
 ): {
@@ -352,6 +375,7 @@ export const validateConfigFields = (
   }
 }
 
+// Kontrollerar om status code indikerar autentiseringsfel
 export const isAuthError = (status: number): boolean => {
   return (
     status === HTTP_STATUS_CODES.UNAUTHORIZED ||
@@ -359,6 +383,7 @@ export const isAuthError = (status: number): boolean => {
   )
 }
 
+// Validerar url, token, repository och returnerar errors per fält
 export function validateConnectionInputs(args: {
   url: string
   token: string
@@ -390,6 +415,7 @@ export function validateConnectionInputs(args: {
   return { ok: Object.keys(errors).length === 0, errors }
 }
 
+// Validerar att alla obligatoriska fält är satta i config
 export const validateRequiredFields = (
   config: FmeExportConfig,
   _translate: TranslateFn,
@@ -413,6 +439,7 @@ export const validateRequiredFields = (
   }
 }
 
+// Validerar schedule-fält: trigger, category, name, start, notTooFarPast
 export function validateScheduleFields(data: any) {
   if (!data || data.opt_servicemode !== "schedule") return { ok: true as const }
 
@@ -437,7 +464,7 @@ export function validateScheduleFields(data: any) {
     : { ok: false as const, key: "scheduleInvalid" }
 }
 
-// Error Factory
+// Skapar ErrorState objekt med default severity & recoverable=true
 const createErrorState = (
   message: string,
   type: ErrorType,
@@ -461,6 +488,7 @@ const createErrorState = (
   kind: "runtime",
 })
 
+// Översätter messageKey via translate-funktionen och skapar ErrorState
 export const createError = (
   messageKey: string,
   type: ErrorType,
@@ -478,6 +506,7 @@ export const createError = (
       options?.suggestion || translate("connectionSettingsHint") || "",
   })
 
+// Skapar geometry error med valid=false och ErrorState objekt
 const makeGeometryError = (
   messageKey: string,
   code: string
@@ -486,12 +515,14 @@ const makeGeometryError = (
   error: createErrorState(messageKey, ErrorType.GEOMETRY, code),
 })
 
+// Validerar datetime-sträng: YYYY-MM-DD HH:MM:SS format
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
   const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
   return dateTimeRegex.test(trimmed)
 }
 
+// Maskerar PASSWORD-fält i form values för loggning
 export const sanitizeFormValues = (
   formValues: any,
   parameters: readonly any[]
@@ -512,6 +543,7 @@ export const sanitizeFormValues = (
   return masked
 }
 
+// Läser wkid & latestWkid från spatial reference object
 const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
   if (typeof sr !== "object" || sr === null) {
     return {}
@@ -525,6 +557,7 @@ const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
   return { wkid, latestWkid }
 }
 
+// Kollar om SR är Web Mercator (3857)
 const isWebMercatorSr = (sr: unknown): boolean => {
   const ref = sr as { isWebMercator?: boolean } | undefined
   if (ref?.isWebMercator) return true
@@ -532,6 +565,7 @@ const isWebMercatorSr = (sr: unknown): boolean => {
   return wkid === WKID.WEB_MERCATOR || latestWkid === WKID.WEB_MERCATOR
 }
 
+// Kollar om SR är WGS84 (4326)
 const isWgs84Sr = (sr: unknown): boolean => {
   const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
   if (ref?.isGeographic || ref?.isWGS84) return true
@@ -539,6 +573,7 @@ const isWgs84Sr = (sr: unknown): boolean => {
   return wkid === WKID.WGS84 || latestWkid === WKID.WGS84
 }
 
+// Avgör om polygon har geographic SR (WGS84/Web Mercator)
 const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   try {
     if (
@@ -559,6 +594,7 @@ const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   return false
 }
 
+// Beräknar area med geodesic/planar via GeometryEngine
 const tryCalcArea = async (
   engine: GeometryEngineLike | undefined,
   polygon: __esri.Polygon,
@@ -581,6 +617,7 @@ const tryCalcArea = async (
   return 0
 }
 
+// Packar upp module-objekt till .default eller själva modulen
 const unwrapModule = (module: unknown): unknown =>
   (module as { default?: unknown }).default ?? module
 
@@ -589,6 +626,7 @@ let geometryServiceCache: GeometryServiceModule | null | undefined
 let areasAndLengthsParamsCache: AreasAndLengthsParametersCtor | null | undefined
 let esriConfigCache: EsriConfigLike | null | undefined
 
+// Laddar & cachar normalizeUtils modul om ej tillgänglig i modules
 const ensureNormalizeUtils = async (
   modules: ArcgisGeometryModules
 ): Promise<NormalizeUtilsModule | null> => {
@@ -612,6 +650,7 @@ const ensureNormalizeUtils = async (
   return normalizeUtilsCache
 }
 
+// Laddar & cachar esriConfig modul om ej tillgänglig i modules
 const ensureEsriConfig = async (
   modules: ArcgisGeometryModules
 ): Promise<EsriConfigLike | null> => {
@@ -628,6 +667,7 @@ const ensureEsriConfig = async (
   return esriConfigCache
 }
 
+// Laddar geometryService & AreasAndLengthsParameters moduler
 const ensureGeometryServiceModules = async (): Promise<{
   geometryService: GeometryServiceModule | null
   AreasAndLengthsParameters: AreasAndLengthsParametersCtor | null
@@ -664,6 +704,7 @@ const ensureGeometryServiceModules = async (): Promise<{
   }
 }
 
+// Hämtar geometryServiceUrl från esriConfig eller portalSelf
 const resolveGeometryServiceUrl = async (
   modules: ArcgisGeometryModules
 ): Promise<string | null> => {
@@ -693,6 +734,7 @@ const resolveGeometryServiceUrl = async (
   return null
 }
 
+// Wrapprar polygon-värden (kan vara Promise eller synkront)
 const maybeResolvePolygon = async (
   value: PolygonMaybe
 ): Promise<__esri.Polygon | null> => {
@@ -706,6 +748,7 @@ const maybeResolvePolygon = async (
   return null
 }
 
+// Försöker densify med geodesicDensify eller planar densify
 const attemptDensify = async (
   engine: GeometryEngineLike | undefined,
   method: "geodesicDensify" | "densify",
@@ -722,6 +765,7 @@ const attemptDensify = async (
   }
 }
 
+// Normaliserar polygon över central meridian (WGS84/Web Mercator)
 const normalizePolygon = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -744,6 +788,7 @@ const normalizePolygon = async (
   return polygon
 }
 
+// Applicerar geodesic eller planar densify beroende på SR
 const applyDensify = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -807,6 +852,7 @@ const applyDensify = async (
   return working
 }
 
+// Förbereder polygon: normalisering + densify för area-beräkning
 const preparePolygonForArea = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -817,6 +863,7 @@ const preparePolygonForArea = async (
   return working
 }
 
+// Beräknar area via remote geometry service som fallback
 const calcAreaViaGeometryService = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -857,6 +904,7 @@ const calcAreaViaGeometryService = async (
   return 0
 }
 
+// Tvingar area operator till function eller null
 const coerceAreaOperator = (
   candidate: unknown
 ):
@@ -865,6 +913,7 @@ const coerceAreaOperator = (
   return typeof candidate === "function" ? (candidate as any) : null
 }
 
+// Väljer geodesic/planar operator från operators record
 const pickGeometryOperator = (
   operators: unknown,
   geographic: boolean
@@ -897,6 +946,7 @@ const pickGeometryOperator = (
   return null
 }
 
+// Skapar lista med area-strategier i fallback-ordning
 const createAreaStrategies = (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules,
@@ -939,6 +989,7 @@ const createAreaStrategies = (
   return strategies
 }
 
+// Beräknar area via fallback chain: operators → engine → service
 export const calcArea = async (
   geometry: __esri.Geometry | undefined,
   modules: ArcgisGeometryModules
@@ -973,6 +1024,7 @@ export const calcArea = async (
   return 0
 }
 
+// Simplifierar polygon och validerar att den är simple
 const simplifyPolygon = async (
   poly: __esri.Polygon,
   engine: GeometryEngineLike | undefined,
@@ -1023,6 +1075,7 @@ const simplifyPolygon = async (
   return poly
 }
 
+// Kontrollerar att ring är stängd (första=sista punkt)
 const isRingClosed = (ring: unknown[]): boolean => {
   if (!Array.isArray(ring) || ring.length === 0) return false
   const first = ring[0] as number[] | undefined
@@ -1037,6 +1090,7 @@ const isRingClosed = (ring: unknown[]): boolean => {
   )
 }
 
+// Validerar att alla rings har >=4 punkter och är stängda
 const validateRingStructure = (rings: unknown[]): boolean => {
   if (!Array.isArray(rings) || rings.length === 0) return false
 
@@ -1048,6 +1102,7 @@ const validateRingStructure = (rings: unknown[]): boolean => {
   return true
 }
 
+// Validerar att alla holes är innanför första ringen (outer)
 const validateHolesWithinOuter = (
   rings: unknown[],
   poly: __esri.Polygon,
@@ -1081,6 +1136,7 @@ const validateHolesWithinOuter = (
   return true
 }
 
+// Validerar polygon: simplify, ring structure, area, holes
 export const validatePolygon = async (
   geometry: __esri.Geometry | undefined,
   modules: ArcgisGeometryModules
@@ -1136,12 +1192,14 @@ export const validatePolygon = async (
   }
 }
 
+// Konverterar area limit till number eller undefined
 const resolveAreaLimit = (limit?: number): number | undefined => {
   if (typeof limit !== "number" || !Number.isFinite(limit)) return undefined
   if (limit <= 0) return undefined
   return limit
 }
 
+// Utvärderar area mot max/warning thresholds
 export const evaluateArea = (
   area: number,
   limits?: { maxArea?: number; largeArea?: number }
@@ -1165,6 +1223,7 @@ export const evaluateArea = (
   }
 }
 
+// Validerar om area överskrider max area
 export const checkMaxArea = (
   area: number,
   maxArea?: number
@@ -1181,9 +1240,11 @@ export const checkMaxArea = (
   }
 }
 
+// Kontrollerar om area ska trigga warning (large area)
 export const checkLargeArea = (area: number, largeArea?: number): boolean =>
   evaluateArea(area, { largeArea }).shouldWarn
 
+// Återställer validation-cachar för test-syfte
 export const resetValidationCachesForTest = () => {
   normalizeUtilsCache = undefined
   geometryServiceCache = undefined
@@ -1191,9 +1252,10 @@ export const resetValidationCachesForTest = () => {
   esriConfigCache = undefined
 }
 
-// SCHEDULE VALIDATION
+/* Schedule Validation (Detailed) */
 const SCHEDULE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
+// Validerar schedule datetime: format, parsing, past check
 export const validateScheduleDateTime = (
   dateTimeStr: string
 ): { valid: boolean; error?: string; isPast?: boolean } => {
@@ -1232,6 +1294,7 @@ export const validateScheduleDateTime = (
   }
 }
 
+// Validerar schedule name: required, length <=128, no invalid chars
 export const validateScheduleName = (
   name: string
 ): { valid: boolean; error?: string } => {
@@ -1249,16 +1312,17 @@ export const validateScheduleName = (
     return { valid: false, error: "SCHEDULE_NAME_TOO_LONG" }
   }
 
-  // Check for problematic characters (FME Flow may reject these)
-  // eslint-disable-next-line no-control-regex
-  const problematicChars = /[<>:"|?*\x00-\x1F]/
-  if (problematicChars.test(trimmed)) {
+  // Kontrollerar ogiltiga tecken: <>:"|?* och kontrolltecken
+  const hasInvalidChars =
+    /[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)
+  if (hasInvalidChars) {
     return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
   }
 
   return { valid: true }
 }
 
+// Validerar schedule category: required, length <=128
 export const validateScheduleCategory = (
   category: string
 ): { valid: boolean; error?: string } => {
@@ -1279,6 +1343,7 @@ export const validateScheduleCategory = (
   return { valid: true }
 }
 
+// Validerar alla schedule metadata: datetime, name, category
 export const validateScheduleMetadata = (data: {
   start?: string
   name?: string
@@ -1327,7 +1392,7 @@ export const validateScheduleMetadata = (data: {
   }
 }
 
-// FME Response Factory
+// Factory för att skapa FME response objekt
 const createFmeResponse = {
   blob: (blob: Blob, workspace: string, userEmail: string) => ({
     success: true,
@@ -1367,10 +1432,11 @@ const createFmeResponse = {
   }),
 }
 
+// Validerar att url är en giltig http/https URL
 const isValidDownloadUrl = (url: unknown): boolean =>
   typeof url === "string" && /^https?:\/\//.test(url)
 
-// FME response processing
+// Processerar FME response och returnerar ExportResult
 export const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
@@ -1409,6 +1475,7 @@ export const processFmeResponse = (
   )
 }
 
+// Normaliserar FME service response till NormalizedServiceInfo
 export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
   const r: any = resp || {}
   const raw = r?.data?.serviceResponse || r?.data || r
@@ -1419,6 +1486,7 @@ export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
   return { status, message, jobId, url }
 }
 
+/* Re-exports från utils */
 export {
   // general utils
   isValidEmail,

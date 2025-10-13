@@ -83,9 +83,10 @@ import type {
   ScheduleFieldsProps,
 } from "../../config/index"
 
-// Configuration & Constants
+// Konfiguration och konstanter
 export const config = styleConfig
 
+// Lokala ikonkällor mappar nyckel till importerad ikon
 const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   error: errorIcon,
   map: mapIcon,
@@ -106,6 +107,7 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
 
 type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>
 
+// Mappar alert-typ till ikonnamn
 const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
   warning: "warning",
   error: "error",
@@ -113,15 +115,16 @@ const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
   success: "success",
 }
 
-// Styling Helpers
+// Stilhjälpare
 export const useStyles = (): UiStyles => useUiStyles()
 
-// Alias imported hooks for internal use
+// Aliaser för importerade hooks för intern användning
 const useId = useUniqueId
 const useValue = useControlledValue
 
-// Utility Helpers
+// Verktygshjälpare
 
+// Tilldelar ID till barn-element om det saknas
 const withId = (
   child: React.ReactNode,
   readOnly: boolean,
@@ -142,18 +145,19 @@ const withId = (
   return { id, child: cloned }
 }
 
-// Style composition helpers
+// Kombinerar bas-stilar med anpassade stilar
 const applyComponentStyles = (
   base: Array<SerializedStyles | undefined>,
   customStyle?: React.CSSProperties
 ) => [...base, styleCss(customStyle)].filter(Boolean)
 
+// Applicerar fullbredd-stil med anpassad stil
 const applyFullWidthStyles = (
   styles: UiStyles,
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle)
 
-// Build common ARIA attributes for form inputs/areas
+// Bygger vanliga ARIA-attribut för formulärinmatningar
 const getFormAria = (opts: {
   id?: string
   required?: boolean
@@ -168,7 +172,7 @@ const getFormAria = (opts: {
   } as const
 }
 
-// Wrap an element with Tooltip and layout wrapper when tooltip is provided
+// Lindar element med Tooltip och layout-wrapper när tooltip finns
 const wrapWithTooltip = (
   element: React.ReactElement,
   opts: {
@@ -198,9 +202,11 @@ const wrapWithTooltip = (
   )
 }
 
+// Sanerar tooltip-placering (ersätter auto med top)
 const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
   (placement as any) === "auto" ? config.tooltip.position.top : placement
 
+// Skapar tooltip-ankare med stöd för disabled element
 const createTooltipAnchor = (
   child: React.ReactElement,
   tooltipContent: React.ReactNode
@@ -220,6 +226,7 @@ const createTooltipAnchor = (
   )
 }
 
+// Returnerar required-markering med tooltip
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
   styles: UiStyles
@@ -236,9 +243,9 @@ const getRequiredMark = (
   </Tooltip>
 )
 
-// Primitive UI Components
+// Primitiva UI-komponenter
 
-// Button content component
+// Knappinnehålls-komponent
 const BtnContent: React.FC<BtnContentProps> = ({
   loading,
   children,
@@ -288,7 +295,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
   )
 }
 
-// Icon component
+// Ikon-komponent
 export const Icon: React.FC<SVGProps> = ({
   src,
   size = config.icon.medium,
@@ -316,7 +323,7 @@ export const Icon: React.FC<SVGProps> = ({
   )
 }
 
-// Tooltip component
+// Tooltip-komponent
 export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
@@ -344,14 +351,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
   )
 }
 
-// Form controls
+// Formulärkontroller
 
-// Checkbox component
+// Checkbox-komponent
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
   props
 ) => <JimuCheckbox {...props} />
 
-// Input Component
+// Input-komponent
 export const Input: React.FC<InputProps> = ({
   value: controlled,
   defaultValue,
@@ -402,7 +409,7 @@ export const Input: React.FC<InputProps> = ({
 
   const aria = getFormAria({ id: (props as any).id, required, errorText })
 
-  // For file input, use native input element
+  // För filinmatning, använd nativt input-element
   if (isFileInput) {
     return (
       <input
@@ -418,7 +425,7 @@ export const Input: React.FC<InputProps> = ({
     )
   }
 
-  // For all other input types, use TextInput with controlled state
+  // För andra inmatningstyper, använd TextInput med kontrollerat state
   return (
     <TextInput
       {...props}
@@ -436,7 +443,7 @@ export const Input: React.FC<InputProps> = ({
   )
 }
 
-// TextArea component
+// TextArea-komponent
 export const TextArea: React.FC<TextAreaProps> = ({
   value: controlled,
   defaultValue,
@@ -489,7 +496,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
-// UrlInput component
+// UrlInput-komponent
 export const UrlInput: React.FC<{
   value?: string
   defaultValue?: string
@@ -514,12 +521,12 @@ export const UrlInput: React.FC<{
   )
 }
 
-// Switch component
+// Switch-komponent
 export const Switch: React.FC<React.ComponentProps<typeof JimuSwitch>> = (
   props
 ) => <JimuSwitch {...props} />
 
-// Radio component
+// Radio-komponent
 export const Radio: React.FC<{
   options: Array<{ label: string; value: string }>
   value?: string
@@ -564,7 +571,7 @@ export const Radio: React.FC<{
   )
 }
 
-// Slider component
+// Slider-komponent
 export const Slider: React.FC<{
   value?: number
   defaultValue?: number
@@ -607,7 +614,7 @@ export const Slider: React.FC<{
   )
 }
 
-// NumericInput component
+// NumericInput-komponent
 type NumericInputProps = Omit<
   React.ComponentProps<typeof JimuNumericInput>,
   "css" | "onChange" | "style"
@@ -639,7 +646,7 @@ export const NumericInput: React.FC<NumericInputProps> = ({
   )
 }
 
-// TagInput component
+// TagInput-komponent
 export const TagInput: React.FC<{
   value?: string[]
   suggestions?: string[]
@@ -661,11 +668,12 @@ export const TagInput: React.FC<{
   )
 }
 
+// Table-komponent
 export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
   props
 ) => <JimuTable {...props} />
 
-// ColorPicker component
+// ColorPicker-komponent
 export const ColorPickerWrapper: React.FC<{
   value?: string
   defaultValue?: string
@@ -687,9 +695,11 @@ export const ColorPickerWrapper: React.FC<{
   )
 }
 
+// Regex för ISO lokal datum och tid
 const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
 const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
 
+// Parsar ISO lokal datum-tid-sträng till Date-objekt
 const parseIsoLocalDateTime = (value?: string): Date | null => {
   if (!value) return null
   const trimmed = value.trim()
@@ -723,6 +733,7 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+// Formaterar Date-objekt till ISO eller FME lokal datum-tid-sträng
 const formatIsoLocalDateTime = (
   value: Date | null | undefined,
   format: "iso" | "fme" = "iso"
@@ -737,25 +748,25 @@ const formatIsoLocalDateTime = (
   const mi = pad2(value.getMinutes())
   const ss = pad2(value.getSeconds())
 
-  // FME format: YYYY-MM-DD HH:mm:ss (space separator)
+  // FME-format: YYYY-MM-DD HH:mm:ss (mellanslag som separator)
   if (format === "fme") {
     return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
   }
 
-  // ISO format: YYYY-MM-DDTHH:mm:ss (T separator)
+  // ISO-format: YYYY-MM-DDTHH:mm:ss (T som separator)
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
 }
 
-// DateTimePicker component
+// DateTimePicker-komponent
 export const DateTimePickerWrapper: React.FC<{
-  value?: string // ISO local: YYYY-MM-DDTHH:mm:ss or FME: YYYY-MM-DD HH:mm:ss
+  value?: string // ISO lokal: YYYY-MM-DDTHH:mm:ss eller FME: YYYY-MM-DD HH:mm:ss
   defaultValue?: string
   onChange?: (dateTime: string) => void
   style?: React.CSSProperties
   disabled?: boolean
   "aria-label"?: string
   mode?: "date-time" | "date"
-  format?: "iso" | "fme" // Output format: iso (default) or fme (space-separated)
+  format?: "iso" | "fme" // Utdataformat: iso (standard) eller fme (mellanslag)
 }> = ({
   value,
   defaultValue,
@@ -773,6 +784,7 @@ export const DateTimePickerWrapper: React.FC<{
     onChange
   )
 
+  // Bygger fallback-datum beroende på läge
   const buildFallbackDate = () => {
     const base = new Date()
     if (mode === "date") base.setHours(0, 0, 0, 0)
@@ -844,6 +856,7 @@ export const DateTimePickerWrapper: React.FC<{
   return picker
 }
 
+// RichText-komponent
 export const RichText: React.FC<{
   html?: string
   placeholder?: string
@@ -863,7 +876,7 @@ export const RichText: React.FC<{
   )
 }
 
-// Select component
+// Select-komponent
 export const Select: React.FC<SelectProps> = ({
   options = [],
   value,
@@ -880,6 +893,7 @@ export const Select: React.FC<SelectProps> = ({
   const resolvedPlaceholder =
     placeholder || translate("placeholderSelectGeneric")
 
+  // Tvingar värde till specificerad typ (t.ex. nummer)
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
     if (coerce === "number") {
       if (Array.isArray(val)) {
@@ -911,7 +925,7 @@ export const Select: React.FC<SelectProps> = ({
     }
   )
 
-  // Normalize internal value to string for comparison
+  // Normaliserar internt värde till sträng för jämförelse
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")
@@ -953,7 +967,7 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
-// MultiSelectControl component
+// MultiSelectControl-komponent
 export const MultiSelectControl: React.FC<{
   options?: readonly OptionItem[]
   values?: Array<string | number>
@@ -979,7 +993,7 @@ export const MultiSelectControl: React.FC<{
     defaultValues
   )
 
-  // Default placeholder if none provided
+  // Standard platshållare om ingen anges
   const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
 
   const handleChange = hooks.useEventCallback(
@@ -989,7 +1003,7 @@ export const MultiSelectControl: React.FC<{
     }
   )
 
-  // Filter out invalid options and map to expected format
+  // Filtrerar bort ogiltiga alternativ och mappar till förväntat format
   const items = options
     .filter((opt) => opt && opt.value != null && opt.label != null)
     .map((opt) => ({
@@ -1013,9 +1027,9 @@ export const MultiSelectControl: React.FC<{
   )
 }
 
-// Composite controls
+// Sammansatta kontroller
 
-// Button component
+// Knapp-komponent
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
@@ -1042,7 +1056,7 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Extract aria-label
+  // Extraherar aria-label
   const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
@@ -1052,7 +1066,7 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Absorb potential style/css from incoming props so no inline style attribute is forwarded
+  // Absorberar stil/css från inkommande props så inga inline-attribut vidare
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
   const hasTooltip = !!tooltip && !tooltipDisabled
@@ -1103,6 +1117,7 @@ export const Button: React.FC<ButtonProps> = ({
     : buttonElement
 }
 
+// Alert-komponent med stöd för ikon och default-varianter
 type AlertDisplayVariant = "default" | "icon"
 
 type AlertComponentBaseProps = React.ComponentProps<typeof JimuAlert>
@@ -1222,7 +1237,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
   )
 }
 
-// ButtonTabs component
+// ButtonTabs-komponent för tabbnavigering
 export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   items,
   value: controlled,
@@ -1288,9 +1303,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   )
 }
 
-// View components
+// Vy-komponenter
 
-// StateView component
+// StateView-komponent med laddningsmeddelande-rotation
 const StateView: React.FC<StateViewProps> = ({
   state,
   className,
@@ -1304,6 +1319,7 @@ const StateView: React.FC<StateViewProps> = ({
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0)
 
+  // Samlar unika laddningsmeddelanden
   const seenStrings = new Set<string>()
   const loadingMessages: React.ReactNode[] = []
   const appendLoadingMessage = (
@@ -1358,6 +1374,7 @@ const StateView: React.FC<StateViewProps> = ({
     })
     .join("|")
 
+  // Återställer meddelandeindex vid ändring
   hooks.useEffectWithPreviousValues(() => {
     setActiveLoadingMessageIndex(0)
   }, [messageSignature, showLoading])
@@ -1373,7 +1390,7 @@ const StateView: React.FC<StateViewProps> = ({
     }
   }, [messageCount, activeLoadingMessageIndex])
 
-  // Cycle through messages if there's more than one
+  // Cyklar genom meddelanden om det finns fler än ett
   hooks.useEffectWithPreviousValues(() => {
     if (!showLoading || messageCount <= 1) {
       return
@@ -1570,7 +1587,7 @@ const StateView: React.FC<StateViewProps> = ({
   )
 }
 
-// ButtonGroup component
+// ButtonGroup-komponent
 export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
   const { buttons, secondaryButton, primaryButton, className, style } = props
   const styles = useStyles()
@@ -1635,9 +1652,9 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
   )
 }
 
-// Form layout components
+// Formulärlayout-komponenter
 
-// Form component
+// Form-komponent
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
@@ -1710,7 +1727,7 @@ export const Form: React.FC<FormProps> = (props) => {
   throw new Error(`Unknown Form variant: ${variant}`)
 }
 
-// Standalone Field component (for reuse outside of Form)
+// Fristående Field-komponent (för återanvändning utanför Form)
 export const Field: React.FC<FieldProps> = ({
   className,
   style,
@@ -1793,14 +1810,14 @@ export type {
   TabItem,
 }
 
-// Schedule Fields Component
+// ScheduleFields-komponent för schemainställningar
 export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
   values,
   onChange,
   translate,
   disabled = false,
 }) => {
-  // Import validation functions
+  // Importerar valideringsfunktioner
   const {
     validateScheduleDateTime,
     validateScheduleName,
@@ -1818,7 +1835,7 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
     }
   }
 
-  // Perform validations
+  // Utför valideringar
   const startValidation = (() => {
     const start = typeof values.start === "string" ? values.start.trim() : ""
     if (!start) return null
@@ -1838,7 +1855,7 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
     return validateScheduleCategory(category)
   })()
 
-  // Helper to get error message
+  // Hjälpfunktion för att hämta felmeddelande
   const getErrorMessage = (
     validation: { valid: boolean; error?: string } | null
   ): string | undefined => {
@@ -1922,7 +1939,7 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
   )
 }
 
-// Render support hint with optional email link
+// Renderar supporthjälp med valfri e-postlänk
 export const renderSupportHint = (
   supportEmail: string | undefined,
   translate: TranslateFn,

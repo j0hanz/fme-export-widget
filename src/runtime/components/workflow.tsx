@@ -71,6 +71,7 @@ import {
   useWorkspaceItem,
 } from "../../shared/hooks"
 
+// Tillgängliga ritverktyg för AOI-ritning (polygon och rektangel)
 const DRAWING_MODE_TABS = [
   {
     value: DrawingTool.POLYGON,
@@ -88,8 +89,10 @@ const DRAWING_MODE_TABS = [
   },
 ] as const
 
+// Tom konstant för workspace-listor
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([])
 
+// Standardvärden för laddningsstatus
 const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   modules: false,
   submission: false,
@@ -97,6 +100,7 @@ const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   parameters: false,
 })
 
+// Skapar kopia av laddningsstatus för immutabilitet
 const cloneLoadingState = (state: LoadingState): LoadingState => ({
   modules: Boolean(state.modules),
   submission: Boolean(state.submission),
@@ -104,22 +108,24 @@ const cloneLoadingState = (state: LoadingState): LoadingState => ({
   parameters: Boolean(state.parameters),
 })
 
+// Jämför två laddningsstatus-objekt för likhet
 const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
   a.modules === b.modules &&
   a.submission === b.submission &&
   a.workspaces === b.workspaces &&
   a.parameters === b.parameters
 
+// Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
     state.modules || state.submission || state.workspaces || state.parameters
   )
 
-// Helper: Check if value is non-empty string
+// Kontrollerar om värde är icke-tom sträng
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim() !== ""
 
-// Helper: Format order-related values for captions
+// Formaterar ordervärden för visning (stöder olika typer)
 const formatOrderValue = (value: unknown): string | null => {
   if (value === undefined || value === null) return null
   if (typeof value === "string") {
@@ -146,7 +152,10 @@ const formatOrderValue = (value: unknown): string | null => {
   }
 }
 
-// Helper: Manage download URL, supporting either remote URL or Blob object
+/*
+ * Hanterar nedladdnings-URL för remote URL eller Blob-objekt.
+ * Skapar och städar upp object URLs automatiskt vid komponentlivscykel.
+ */
 const useDownloadResource = (
   remoteUrl?: string | null,
   blob?: Blob | null
@@ -199,7 +208,7 @@ const useDownloadResource = (
   return resourceUrl
 }
 
-// Helper: Safely stringify geometry object
+// Serialiserar geometri-objekt till JSON-sträng säkert
 const safeStringifyGeometry = (geometry: unknown): string => {
   if (!geometry) return ""
   try {
@@ -209,7 +218,7 @@ const safeStringifyGeometry = (geometry: unknown): string => {
   }
 }
 
-// Helper: Extract unique geometry field names from workspace parameters
+// Extraherar unika geometrifältnamn från workspace-parametrar
 const extractGeometryFieldNames = (
   workspaceParameters?: readonly WorkspaceParameter[]
 ): string[] => {
@@ -232,7 +241,10 @@ const extractGeometryFieldNames = (
   return names
 }
 
-// Form validation: validate workspace parameters and schedule fields
+/*
+ * Skapar formvalidering för workspace-parametrar och schemafält.
+ * Returnerar validator-objekt med metoder för konfiguration och validering.
+ */
 const createFormValidator = (
   parameterService: ParameterFormService,
   workspaceParameters: readonly WorkspaceParameter[]
@@ -247,7 +259,7 @@ const createFormValidator = (
     )
     const errors = { ...baseValidation.errors }
 
-    // Validate schedule start field format when provided
+    // Validerar schema-startfältets format när det anges
     const startRaw = values.start
     if (
       isNonEmptyString(startRaw) &&
@@ -266,7 +278,10 @@ const createFormValidator = (
   return { getFormConfig, validateValues, initializeValues }
 }
 
-// OrderResult component: displays job submission results
+/*
+ * OrderResult: Visar jobbresultat efter FME Flow-inlämning.
+ * Hanterar visning av nedladdningslänkar, metadata och felmeddelanden.
+ */
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -289,6 +304,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
     orderResult.blob
   )
 
+  // Bygger informationsrader för orderresultat-vy
   const infoRows: React.ReactNode[] = []
   const addInfoRow = (label?: string, value?: unknown) => {
     const display = formatOrderValue(value)
@@ -350,11 +366,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
     addInfoRow(translate("notificationEmail"), masked)
   }
 
+  // Visar felkod endast vid misslyckad order
   if (orderResult.code && !isSuccess) {
     addInfoRow(translate("errorCode"), orderResult.code)
   }
 
-  // Display schedule metadata if present
+  // Visar schema-metadata om tillgänglig
   const scheduleMetadata = orderResult.scheduleMetadata
   const hasScheduleInfo =
     scheduleMetadata &&
@@ -394,6 +411,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const showDownloadLink = isSuccess && Boolean(downloadUrl)
 
+  // Bygger meddelande baserat på orderstatus och typ
   let messageText: string | null = null
   if (isSuccess) {
     if (serviceMode === "async") {
@@ -418,6 +436,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
     }
   }
 
+  // Bygger schemasektionen med varningar för tidigare tidpunkter
   let scheduleSection: React.ReactNode = null
   if (hasScheduleInfo && isSuccess && scheduleMetadata) {
     const validation = validateScheduleDateTime(scheduleMetadata.start || "")
@@ -506,7 +525,10 @@ const OrderResult: React.FC<OrderResultProps> = ({
   )
 }
 
-// ExportForm component: dynamic form generation and submission
+/*
+ * ExportForm: Dynamisk formulärgenerering för workspace-parametrar.
+ * Hanterar inmatning, validering och inlämning av FME-jobb.
+ */
 const ExportForm: React.FC<
   ExportFormProps & { widgetId: string; geometryJson?: unknown }
 > = ({
@@ -538,6 +560,7 @@ const ExportForm: React.FC<
     setGeometryString((prev) => (prev === next ? prev : next))
   }, [geometryJson])
 
+  // Extraherar och uppdaterar geometrifältnamn
   const [geometryFieldNames, setGeometryFieldNames] = React.useState<string[]>(
     () => extractGeometryFieldNames(workspaceParameters)
   )
@@ -555,35 +578,36 @@ const ExportForm: React.FC<
     })
   }, [workspaceParameters])
 
-  // Local validation message builder using current translate
+  // Bygger lokalt valideringsmeddelande med aktuell översättning
   const errorMsg = hooks.useEventCallback((count: number): string =>
     count === 1
       ? translate("formValidationSingleError")
       : translate("formValidationMultipleErrors")
   )
 
-  // Create validator with current parameters
+  // Skapar validator med aktuella parametrar
   const validator = createFormValidator(parameterService, workspaceParameters)
 
-  // Use form state manager hook
+  // Använder formulär-state-hanterare
   const formState = useFormStateManager(validator)
 
-  // Validate form on mount and when dependencies change
+  // Validerar formulär vid montering och när beroenden ändras
   hooks.useEffectOnce(() => {
     formState.validateForm()
   })
 
-  // Validate form whenever values change
+  // Validerar formulär när värden ändras
   hooks.useUpdateEffect(() => {
     formState.validateForm()
   }, [formState.values, formState.validateForm])
 
-  // Reset values when workspace or fields change (e.g., switching workspaces)
+  // Återställer värden när workspace eller fält ändras
   hooks.useUpdateEffect(() => {
     formState.resetForm()
     setFileMap({})
   }, [workspaceName, workspaceParameters, formState.resetForm])
 
+  // Hanterar uppdatering av fält (inklusive filinmatning)
   const setField = hooks.useEventCallback(
     (field: string, value: FormPrimitive | File | null) => {
       if (value instanceof File) {
@@ -606,6 +630,7 @@ const ExportForm: React.FC<
   const formValues = formState.values
   const setFormValues = formState.setValues
 
+  // Synkroniserar geometrivärden med geometrifält i formuläret
   hooks.useEffectWithPreviousValues(() => {
     if (!geometryFieldNames.length) return
     const nextValue = geometryString || ""
@@ -623,6 +648,7 @@ const ExportForm: React.FC<
     setFormValues(updated)
   }, [geometryFieldNames, geometryString, formValues, setFormValues])
 
+  // Hanterar formulärinlämning med validering
   const handleSubmit = hooks.useEventCallback(() => {
     const validation = formState.validateForm()
     if (!validation.isValid) {
@@ -651,11 +677,12 @@ const ExportForm: React.FC<
     onSubmit({ type: workspaceName, data: merged })
   })
 
-  // Helper function to strip HTML tags from text safely (reuse shared util)
+  // Tar bort HTML-taggar från text säkert
   const stripHtml = hooks.useEventCallback((html: string): string =>
     stripHtmlToText(html)
   )
 
+  // Löser upp felmeddelanden (med översättning)
   const resolveError = hooks.useEventCallback((err?: string) => {
     const keyOrMsg = stripErrorLabel(err)
     return keyOrMsg ? resolveMessageOrKey(keyOrMsg, translate) : undefined
@@ -723,7 +750,7 @@ const ExportForm: React.FC<
       {validator
         .getFormConfig()
         .map((field: DynamicFieldConfig) => {
-          // Add defensive check to ensure field is valid
+          // Defensiv kontroll för att säkerställa giltigt fält
           if (!field || !field.name || !field.type) {
             return null
           }
@@ -752,7 +779,10 @@ const ExportForm: React.FC<
   )
 }
 
-// Main Workflow component
+/*
+ * Workflow: Huvudkomponent som orkestera widget-vyer och användarflöden.
+ * Hanterar ritning, workspace-val, formulär och jobbinlämning.
+ */
 export const Workflow: React.FC<WorkflowProps> = ({
   widgetId,
   state,
@@ -803,10 +833,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
-  // Ensure a non-empty widgetId for internal Redux interactions
+  // Säkerställer icke-tomt widgetId för Redux-interaktioner
   const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
+  // Latchar laddningsstatus med fördröjning för smidigare UI
   const [latchedLoadingState, setLatchedLoadingState] =
     React.useState<LoadingState>(() => cloneLoadingState(incomingLoadingState))
   const latchedLoadingRef = hooks.useLatest(latchedLoadingState)
@@ -850,7 +881,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
   const canDraw = canStartDrawing ?? true
 
-  // Stable getter for drawing mode items using event callback
+  // Hämtar ritverk tygsläges-items med översättning
   const getDrawingModeItems = hooks.useEventCallback(() =>
     DRAWING_MODE_TABS.map((tab) => ({
       ...tab,
@@ -859,7 +890,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }))
   )
 
-  // Render drawing mode tabs
+  // Renderar ritverktygsläges-flikar
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
     const helperText = isNonEmptyString(instructionText)
       ? instructionText
@@ -891,6 +922,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   })
 
+  // Renderar lägesmeddelande (info eller varning)
   const renderModeNotice = (): React.ReactNode => {
     if (!modeNotice) return null
 
@@ -920,6 +952,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
+  // Formaterar areavärde för visning med enhet
   const formatAreaValue = (value?: number): string | undefined => {
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       return undefined
@@ -939,6 +972,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   }
 
+  // Bygger varningsmeddelande för stora områden
   const areaWarningActive =
     Boolean(areaWarning) &&
     (state === ViewMode.WORKSPACE_SELECTION ||
@@ -960,7 +994,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     })
   }
 
-  // Small helpers to render common StateViews consistently
+  // Renderar StateView-komponenter konsekvent
   const renderLoading = hooks.useEventCallback(
     (
       message?: string,
@@ -1003,6 +1037,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
+  // Renderar felmeddelanden med återförsöks-/bakåt-knappar
   const renderError = hooks.useEventCallback(
     (
       message: string,
@@ -1017,7 +1052,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       } else if (onBack) {
         actions.push({ label: translate("back"), onClick: onBack })
       }
-      // Build consistent support hint and link if email configured
+      // Bygger supporthjälp och länk om e-post konfigurerad
       const rawEmail = getSupportEmail(config?.supportEmail)
       const hintText = buildSupportHintText(translate, rawEmail, supportText)
 
@@ -1044,6 +1079,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   )
 
+  // Hämtar konfigurerade servervärden
   const configuredRepository = toTrimmedString(config?.repository)
   const previousConfiguredRepository = hooks.usePrevious(configuredRepository)
   const serverUrl = toTrimmedString(
@@ -1056,11 +1092,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
     serverUrl && serverToken && configuredRepository
   )
 
+  // Håller pending workspace-val medan metadata hämtas
   const [pendingWorkspace, setPendingWorkspace] = React.useState<{
     name: string
     repository?: string
   } | null>(null)
 
+  // React Query för workspace-listor
   const workspacesQuery = useWorkspaces(
     {
       repository: configuredRepository || undefined,
@@ -1070,6 +1108,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     { enabled: canFetchWorkspaces }
   )
 
+  // React Query för specifik workspace-metadata
   const workspaceItemQuery = useWorkspaceItem(
     pendingWorkspace?.name,
     {
@@ -1088,6 +1127,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     : EMPTY_WORKSPACES
   const currentRepository = configuredRepository || null
 
+  // Filtrerar och sorterar workspace-listor från API
   const rawWorkspaceItems = Array.isArray(workspacesQuery.data)
     ? (workspacesQuery.data as readonly WorkspaceItem[])
     : EMPTY_WORKSPACES
@@ -1115,6 +1155,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           })
         )
 
+  // Jämför workspace-listor för uppdateringsdetektering
   const workspaceListsEqual = (
     nextItems: readonly WorkspaceItem[],
     currentItems: readonly WorkspaceItem[]
@@ -1147,6 +1188,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return true
   }
 
+  // Synkroniserar workspace-items till Redux när de uppdateras
   hooks.useUpdateEffect(() => {
     if (!canFetchWorkspaces) {
       return
@@ -1170,6 +1212,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
   ])
 
+  // Rensar workspace-state när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
     if (canFetchWorkspaces) {
       return
@@ -1185,6 +1228,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
   ])
 
+  // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
     if (previousConfiguredRepository === configuredRepository) {
       return
@@ -1210,6 +1254,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     workspacesRefetchRef,
   ])
 
+  // Rensar pending workspace om hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
     if (canFetchWorkspaces) {
       return
@@ -1220,6 +1265,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     setPendingWorkspace(null)
   }, [canFetchWorkspaces, pendingWorkspace])
 
+  // Processar workspace-val när metadata hämtats
   hooks.useUpdateEffect(() => {
     if (!pendingWorkspace) {
       return
@@ -1259,6 +1305,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
   ])
 
+  // Synkroniserar workspace-hämtningsstatus till Redux
   const workspacesFetching = Boolean(workspacesQuery.isFetching)
   const previousWorkspacesFetching = hooks.usePrevious(workspacesFetching)
   React.useEffect(() => {
@@ -1279,6 +1326,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
   ])
 
+  // Synkroniserar parameterhämtningsstatus till Redux
   const parametersFetching = Boolean(workspaceItemQuery.isFetching)
   const previousParametersFetching = hooks.usePrevious(parametersFetching)
   React.useEffect(() => {
@@ -1299,6 +1347,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     effectiveWidgetId,
   ])
 
+  // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
     (errorValue: unknown, messageKey: string): string | null => {
       if (!errorValue) {
@@ -1329,6 +1378,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   const workspaceError = workspaceDetailError || workspaceListError
 
+  // Laddar workspace-listan på nytt
   const loadWsList = hooks.useEventCallback(() => {
     setPendingWorkspace(null)
 
@@ -1343,6 +1393,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
   })
 
+  // Renderar workspace-knappar från lista
   const renderWorkspaceButtons = hooks.useEventCallback(() =>
     workspaceItems.map((workspace) => {
       const displayLabel = workspace.title || workspace.name
@@ -1378,7 +1429,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     })
   )
 
-  // Header
+  // Renderar huvud med varningsikoner och återställningsknapp
   const renderHeader = () => {
     const showAlertIcon = Boolean(areaWarningActive && areaWarningMessage)
 
@@ -1436,6 +1487,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
+  // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)
   const renderInitial = () => {
     const waitMessage = translate("statusPreparingMapTools")
     const waitDetail = translate("statusPreparingMapToolsDetail")
@@ -1452,6 +1504,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return renderDrawingModeTabs()
   }
 
+  // Renderar rittillstånd med instruktionstext
   const renderDrawing = () => (
     <div css={styles.centered}>
       <div
@@ -1465,6 +1518,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     </div>
   )
 
+  // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
       isWorkspaceLoading,
@@ -1519,6 +1573,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
+  // Renderar exportformulär med parametrar
   const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
       return renderError(translate("missingExportConfiguration"), onBack)
@@ -1551,7 +1606,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
+  // Renderar aktuell vy baserat på state
   const renderCurrent = () => {
+    // Uppstartsvalidering
     if (state === ViewMode.STARTUP_VALIDATION) {
       if (startupValidationError) {
         const supportHint = config?.supportEmail || ""
@@ -1572,6 +1629,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return renderLoading(loadingMessage)
     }
 
+    // Orderresultat
     if (state === ViewMode.ORDER_RESULT && orderResult) {
       return (
         <OrderResult
@@ -1585,6 +1643,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     }
 
+    // Inlämningsprocessen
     if (isSubmittingOrder) {
       const isSyncMode = Boolean(config?.syncMode)
       const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
@@ -1593,6 +1652,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       let phaseKey: string | null = null
       let detailKey: string | null = null
 
+      // Väljer meddelanden baserat på inlämningsfas
       switch (submissionPhase) {
         case "preparing":
           phaseKey = "submissionPhasePreparing"
@@ -1619,7 +1679,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         return renderLoading(translate(phaseKey), translate(detailKey))
       }
 
-      // Fallback for sync mode with enhanced detail
+      // Fallback för sync-läge med förbättrad detalj
       if (isSyncMode) {
         return renderLoading(
           baseMessage,
@@ -1630,6 +1690,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return renderLoading(baseMessage, translate("pleaseWait"))
     }
 
+    // Felhantering
     if (error) {
       return renderError(
         error.message,
@@ -1640,11 +1701,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
     }
 
+    // Väljer vy baserat på state
     switch (state) {
       case ViewMode.INITIAL:
         return renderInitial()
       case ViewMode.DRAWING:
-        // If completing drawing, show loading state instead of tabs to prevent flicker
+        // Vid slutförande av ritning, visa laddning för att undvika flimmer
         if (isCompleting) {
           return (
             <StateView

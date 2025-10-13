@@ -31,7 +31,9 @@ import {
 } from "./utils"
 import { healthCheck, validateConnection } from "./services"
 
-// ArcGIS Resource Utilities
+/* ArcGIS Resource Utilities */
+
+// Kör operation säkert på resurs, ignorerar fel
 const executeSafely = <T>(
   resource: T | null | undefined,
   operation: (value: T) => void
@@ -42,18 +44,21 @@ const executeSafely = <T>(
   } catch {}
 }
 
+// Avbryter aktiv sketch-operation säkert
 export const safeCancelSketch = (vm?: __esri.SketchViewModel | null): void => {
   executeSafely(vm, (model) => {
     model.cancel()
   })
 }
 
+// Rensar alla grafik från layer säkert
 export const safeClearLayer = (layer?: __esri.GraphicsLayer | null): void => {
   executeSafely(layer, (graphics) => {
     graphics.removeAll()
   })
 }
 
+// Förstör GraphicsLayer-objekt säkert
 export const destroyGraphicsLayer = (
   layer?: __esri.GraphicsLayer | null
 ): void => {
@@ -65,6 +70,7 @@ export const destroyGraphicsLayer = (
   })
 }
 
+// Tar bort GraphicsLayer från karta säkert
 export const removeLayerFromMap = (
   jmv?: JimuMapView | null,
   layer?: __esri.GraphicsLayer | null
@@ -77,6 +83,9 @@ export const removeLayerFromMap = (
   })
 }
 
+/* Debounce Hook */
+
+// Debounced-funktion med cancel/flush/isPending-metoder
 type DebouncedFn<T extends (...args: any[]) => void> = ((
   ...args: Parameters<T>
 ) => void) & {
@@ -85,6 +94,7 @@ type DebouncedFn<T extends (...args: any[]) => void> = ((
   isPending: () => boolean
 }
 
+// Hook för debounced callback med delay och optional pending-notifiering
 export const useDebounce = <T extends (...args: any[]) => void>(
   callback: T,
   delay: number,
@@ -96,6 +106,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
   const callbackRef = hooks.useLatest(callback)
   const optionsRef = hooks.useLatest(options)
 
+  // Notifierar pending-state-förändring via callback
   const notifyPending = hooks.useEventCallback((next: boolean) => {
     if (pendingRef.current === next) {
       return
@@ -109,6 +120,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
     }
   })
 
+  // Avbryter pending debounce och rensar state
   const cancel = hooks.useEventCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current)
@@ -120,6 +132,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
     }
   })
 
+  // Kör callback efter delay, notifierar pending under väntan
   const run = hooks.useEventCallback((...args: Parameters<T>) => {
     lastArgsRef.current = args
     if (timeoutRef.current) {
@@ -137,6 +150,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
     }, delay)
   })
 
+  // Kör callback omedelbart med senaste args (avbryter debounce)
   const flush = hooks.useEventCallback(() => {
     if (!lastArgsRef.current) {
       return
@@ -151,6 +165,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
   const cancelRef = hooks.useLatest(cancel)
   const flushRef = hooks.useLatest(flush)
 
+  // Skapar stabil debounced-funktion med cancel/flush/isPending
   if (!debouncedRef.current) {
     const runner = ((...args: Parameters<T>) => {
       runRef.current(...args)
@@ -174,7 +189,9 @@ export const useDebounce = <T extends (...args: any[]) => void>(
   return debounced
 }
 
-// ArcGIS Modules Loader Hook
+/* ArcGIS Modules Loader Hook */
+
+// Hook för att ladda ArcGIS-moduler asynkront med error-hantering
 export const useEsriModules = (
   reloadSignal: number
 ): {
@@ -191,6 +208,7 @@ export const useEsriModules = (
   hooks.useEffectWithPreviousValues(() => {
     let cancelled = false
 
+    // Behåll moduler om reloadSignal är 0, annars rensa och ladda om
     setState((prev) => ({
       modules: reloadSignal === 0 ? prev.modules : null,
       loading: true,
@@ -216,6 +234,7 @@ export const useEsriModules = (
           Graphic,
         ] = loaded
 
+        // Ladda projection-modul om det har load-metod
         try {
           const proj = projection as any
           if (proj?.load && typeof proj.load === "function") {
@@ -223,6 +242,7 @@ export const useEsriModules = (
           }
         } catch {}
 
+        // Extrahera geometry operators från async eller sync engine
         const geometryOperators =
           (geometryEngineAsync as any)?.operators ??
           (geometryEngine as any)?.operators ??
@@ -262,7 +282,9 @@ export const useEsriModules = (
   return state
 }
 
-// Map Resources Management
+/* Map Resources Management Hook */
+
+// Hook för att hantera kartresurser (JimuMapView, SketchViewModel, layers)
 export const useMapResources = () => {
   const [state, setState] = React.useState<{
     jimuMapView: JimuMapView | null
@@ -276,9 +298,11 @@ export const useMapResources = () => {
     cleanupHandles: null,
   })
 
+  // Uppdaterar enskild resurs och kör cleanup om nödvändigt
   const updateResource = hooks.useEventCallback(
     <K extends keyof typeof state>(key: K, value: (typeof state)[K]) => {
       setState((prev) => {
+        // Kör cleanup på gammal SketchViewModel om den ersätts
         if (
           key === "sketchViewModel" &&
           prev.sketchViewModel &&
@@ -292,6 +316,7 @@ export const useMapResources = () => {
           } catch {}
         }
 
+        // Kör cleanup-handles om de ersätts
         if (
           key === "cleanupHandles" &&
           prev.cleanupHandles &&
@@ -307,6 +332,7 @@ export const useMapResources = () => {
     }
   )
 
+  // Frigör drawing-resurser (VM, layer, handles) med optional MapView-reset
   const releaseDrawingResources = hooks.useEventCallback(
     (resetMapView: boolean) => {
       const { sketchViewModel, graphicsLayer, jimuMapView, cleanupHandles } =
@@ -339,10 +365,12 @@ export const useMapResources = () => {
     }
   )
 
+  // Tar ner drawing-resurser utan att rensa JimuMapView
   const teardownDrawingResources = hooks.useEventCallback(() => {
     releaseDrawingResources(false)
   })
 
+  // Rensar alla resurser inklusive JimuMapView
   const cleanupResources = hooks.useEventCallback(() => {
     releaseDrawingResources(true)
   })
@@ -362,7 +390,9 @@ export const useMapResources = () => {
   }
 }
 
-// Error Handling Hooks
+/* Error Handling Hooks */
+
+// Hook för att dispatcha fel till Redux store med standardiserad struktur
 export const useErrorDispatcher = (
   dispatch: (action: unknown) => void,
   widgetId: string
@@ -381,7 +411,9 @@ export const useErrorDispatcher = (
     dispatch(fmeActions.setError("general", error, widgetId))
   })
 
-// Form State Management
+/* Form State Management Hook */
+
+// Hook för formulärhantering med validering och onChange-notifiering
 export const useFormStateManager = (
   validator: {
     initializeValues: () => FormValues
@@ -398,11 +430,13 @@ export const useFormStateManager = (
   const [isValid, setIsValid] = React.useState(true)
   const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
 
+  // Synkar värden och notifierar onChange-callback
   const syncValues = hooks.useEventCallback((next: FormValues) => {
     setValues(next)
     onValuesChange?.(next)
   })
 
+  // Uppdaterar enskilt fält och synkar
   const updateField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
       const updated = { ...values, [field]: value }
@@ -410,6 +444,7 @@ export const useFormStateManager = (
     }
   )
 
+  // Validerar formulär och uppdaterar isValid/errors
   const validateForm = hooks.useEventCallback(() => {
     const validation = validator.validateValues(values)
     setIsValid(validation.isValid)
@@ -417,6 +452,7 @@ export const useFormStateManager = (
     return validation
   })
 
+  // Återställer formulär till initialvärden
   const resetForm = hooks.useEventCallback(() => {
     const nextValues = validator.initializeValues()
     setErrors({})
@@ -437,7 +473,9 @@ export const useFormStateManager = (
   }
 }
 
-// Settings Panel Hooks
+/* Settings Panel Hooks */
+
+// Selector för builder-state (fallback till runtime state)
 export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
   return useSelector((state: any) => {
     const builderState = state?.appStateInBuilder
@@ -446,7 +484,7 @@ export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
   })
 }
 
-// Small helper to centralize config updates
+// Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
 export const useUpdateConfig = (
   id: string,
   config: { [key: string]: any; set?: (key: string, value: any) => any },
@@ -460,7 +498,9 @@ export const useUpdateConfig = (
   })
 }
 
-// Config value getters to avoid repetitive type assertions
+// Config-value getters för type-safe access med defaults
+
+// Hämtar string-värde från config med fallback
 export const useStringConfigValue = (config: { [key: string]: any }) => {
   const configRef = hooks.useLatest(config)
   return hooks.useEventCallback((key: string, defaultValue = ""): string => {
@@ -469,6 +509,7 @@ export const useStringConfigValue = (config: { [key: string]: any }) => {
   })
 }
 
+// Hämtar boolean-värde från config med fallback
 export const useBooleanConfigValue = (config: { [key: string]: any }) => {
   const configRef = hooks.useLatest(config)
   return hooks.useEventCallback(
@@ -479,6 +520,7 @@ export const useBooleanConfigValue = (config: { [key: string]: any }) => {
   )
 }
 
+// Hämtar number-värde från config med fallback
 export const useNumberConfigValue = (config: { [key: string]: any }) => {
   const configRef = hooks.useLatest(config)
   return hooks.useEventCallback(
@@ -490,17 +532,18 @@ export const useNumberConfigValue = (config: { [key: string]: any }) => {
   )
 }
 
-// Theme-aware styles hook for settings
+// Hook för att skapa styled-components från jimu-theme
 export const useSettingStyles = (createStylesFn: (theme: any) => any) => {
   const jimuTheme = require("jimu-theme")
   const theme = jimuTheme.useTheme()
   return createStylesFn(theme)
 }
 
-// UI Component Hooks
+/* UI Component Hooks */
+
 let idSeq = 0
 
-// Generate unique IDs for UI components
+// Genererar unikt ID för UI-komponenter (persistent över renders)
 export const useUniqueId = (): string => {
   const idRef = React.useRef<string>()
   if (!idRef.current) {
@@ -510,7 +553,7 @@ export const useUniqueId = (): string => {
   return idRef.current
 }
 
-// Controlled value hook for form components
+// Hook för controlled value med onChange-callback (via useControlled)
 export const useControlledValue = <T = unknown>(
   controlled?: T,
   defaultValue?: T,
@@ -529,11 +572,14 @@ export const useControlledValue = <T = unknown>(
   return [value, handleChange] as const
 }
 
-// Loading latch hook to prevent flickering during quick state transitions
+/* Loading Latch Hook */
+
+// Hook för att låsa loading-state i minsta tid (undviker flicker)
 export const useLoadingLatch = (
   state: { kind: string; [key: string]: any },
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
+  // Skapar snapshot av loading-meddelanden
   const createSnapshot = (
     source:
       | {
@@ -577,12 +623,14 @@ export const useLoadingLatch = (
     let timer: ReturnType<typeof setTimeout> | null = null
 
     if (state.kind === "loading") {
+      // Uppdatera snapshot och starta latch
       snapshotRef.current = createSnapshot(state)
       if (startRef.current == null) {
         startRef.current = Date.now()
       }
       setLatched(true)
     } else if (startRef.current != null) {
+      // Håll latch tills delay löpt ut
       const elapsed = Date.now() - startRef.current
       const remaining = Math.max(0, delay - elapsed)
 
@@ -616,10 +664,13 @@ export const useLoadingLatch = (
   }
 }
 
-// Abort Controller Hooks
+/* Abort Controller Hooks */
+
+// Hook för att hantera senaste AbortController med cancel/create
 export const useLatestAbortController = () => {
   const controllerRef = hooks.useLatest<AbortController | null>(null)
 
+  // Avbryter aktuell controller och rensar referens
   const cancel = hooks.useEventCallback(() => {
     const controller = controllerRef.current
     if (controller) {
@@ -630,6 +681,7 @@ export const useLatestAbortController = () => {
     controllerRef.current = null
   })
 
+  // Avbryter befintlig och skapar ny AbortController
   const abortAndCreate = hooks.useEventCallback(() => {
     cancel()
     const controller = new AbortController()
@@ -637,6 +689,7 @@ export const useLatestAbortController = () => {
     return controller
   })
 
+  // Rensar controller-referens om den matchar given controller
   const finalize = hooks.useEventCallback(
     (controller?: AbortController | null) => {
       if (!controller) return
@@ -654,10 +707,9 @@ export const useLatestAbortController = () => {
   }
 }
 
-// ============================================
-// Query System Domain Hooks
-// ============================================
+/* Query System Domain Hooks (React Query) */
 
+// Hook för att hämta workspaces från repository
 export function useWorkspaces(
   config: {
     repository?: string
@@ -704,6 +756,7 @@ export function useWorkspaces(
   })
 }
 
+// Hook för att hämta workspace-item med parametrar
 export function useWorkspaceItem(
   workspace: string | undefined,
   config: {
@@ -760,6 +813,7 @@ export function useWorkspaceItem(
   })
 }
 
+// Hook för att prefetcha workspaces i chunks med progress-callback
 export function usePrefetchWorkspaces(
   workspaces: readonly WorkspaceItem[] | undefined,
   config: {
@@ -821,6 +875,7 @@ export function usePrefetchWorkspaces(
         prefetchStatus: "loading",
       })
 
+      // Dela workspaces i chunks för batch-prefetch
       const chunks: WorkspaceItem[][] = []
       for (let i = 0; i < workspacesSnapshot.length; i += chunkSize) {
         chunks.push(workspacesSnapshot.slice(i, i + chunkSize))
@@ -832,6 +887,7 @@ export function usePrefetchWorkspaces(
         for (const chunk of chunks) {
           if (cancelled) break
 
+          // Prefetcha chunk parallellt
           await Promise.all(
             chunk.map((ws) =>
               queryClient.prefetchQuery({
@@ -860,6 +916,7 @@ export function usePrefetchWorkspaces(
             )
           )
 
+          // Uppdatera progress efter varje chunk
           loaded += chunk.length
           setState((prev) => ({
             ...prev,
@@ -897,6 +954,7 @@ export function usePrefetchWorkspaces(
   return state
 }
 
+// Hook för att hämta repositories från FME Flow
 export function useRepositories(
   serverUrl: string | undefined,
   token: string | undefined,
@@ -917,6 +975,7 @@ export function useRepositories(
   })
 }
 
+// Hook för health-check mot FME Flow
 export function useHealthCheck(
   serverUrl: string | undefined,
   token: string | undefined,
@@ -935,9 +994,11 @@ export function useHealthCheck(
   })
 }
 
+// Hook för connection-validering med abort-hantering
 export function useValidateConnection() {
   const controllerRef = React.useRef<AbortController | null>(null)
 
+  // Avbryter pågående validering
   const cancel = hooks.useEventCallback(() => {
     const controller = controllerRef.current
     if (controller && !controller.signal.aborted) {
@@ -963,6 +1024,7 @@ export function useValidateConnection() {
     },
   })
 
+  // Avbryter befintlig och kör ny validering
   const mutateAsync = hooks.useEventCallback(
     async (variables: ValidateConnectionVariables) => {
       cancel()
@@ -978,12 +1040,14 @@ export function useValidateConnection() {
     }
   )
 
+  // Fire-and-forget variant av mutateAsync
   const mutate = hooks.useEventCallback(
     (variables: ValidateConnectionVariables) => {
       void mutateAsync(variables)
     }
   )
 
+  // Avbryt pågående validering vid unmount
   hooks.useUnmount(() => {
     cancel()
   })

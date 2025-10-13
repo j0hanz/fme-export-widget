@@ -83,10 +83,13 @@ import {
 import { safeCancelSketch } from "./hooks"
 import { fmeActions } from "../extensions/store"
 
-// Generic in-flight request cache with automatic cleanup
+/* Inflight Request Cache för request-deduplicering */
+
+// Generisk cache för inflight requests med automatisk cleanup
 class InflightCache<T> {
   private readonly cache = new Map<string, Promise<T>>()
 
+  // Kör factory om inget inflight request finns, annars returnera befintligt
   async execute(key: string, factory: () => Promise<T>): Promise<T> {
     const existing = this.cache.get(key)
     if (existing) return existing
@@ -94,13 +97,14 @@ class InflightCache<T> {
     const promise = factory()
     this.cache.set(key, promise)
 
+    // Rensa cache när request är klar
     return promise.finally(() => {
       this.cache.delete(key)
     })
   }
 }
 
-// In-flight request deduplication
+// Inflight request-cacher för vanliga operationer
 const inFlight = {
   healthCheck: new InflightCache<{
     reachable: boolean
@@ -112,7 +116,9 @@ const inFlight = {
   validateConnection: new InflightCache<ConnectionValidationResult>(),
 }
 
-// Network error detection
+/* Network Error Detection */
+
+// Indikatorer för nätverksfel i felmeddelanden
 const NETWORK_INDICATORS = Object.freeze([
   "Failed to fetch",
   "NetworkError",
@@ -128,25 +134,30 @@ const NETWORK_INDICATORS = Object.freeze([
   "proxy",
 ])
 
+// Indikatorer för proxy-relaterade fel
 const PROXY_INDICATORS = Object.freeze([
   "Unable to load",
   "/sharing/proxy",
   "proxy",
 ])
 
+// Kontrollerar om felmeddelande indikerar nätverksfel
 const hasNetworkError = (message: string): boolean =>
   NETWORK_INDICATORS.some((indicator) =>
     message.toLowerCase().includes(indicator.toLowerCase())
   )
 
+// Kontrollerar om felmeddelande indikerar proxy-fel
 const hasProxyError = (message: string): boolean =>
   PROXY_INDICATORS.some((indicator) =>
     message.toLowerCase().includes(indicator.toLowerCase())
   )
 
-// Parameter service
+/* Parameter Service - Formulärgenerering och validering */
+
+// Service för att konvertera FME-parametrar till dynamiska formulärfält
 export class ParameterFormService {
-  // Determine if a parameter should be rendered as a form field
+  // Kontrollerar om parameter ska renderas som formulärfält
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
@@ -165,12 +176,14 @@ export class ParameterFormService {
     return true
   }
 
+  // Filtrerar och returnerar endast renderbara parametrar
   private getRenderableParameters(
     parameters: readonly WorkspaceParameter[]
   ): WorkspaceParameter[] {
     return parameters.filter((parameter) => this.isRenderableParam(parameter))
   }
 
+  // Mappar FME listOptions till OptionItem-format
   private mapListOptions(
     list: WorkspaceParameter["listOptions"]
   ): readonly OptionItem[] | undefined {
@@ -192,7 +205,7 @@ export class ParameterFormService {
     })
   }
 
-  /** Extract slider metadata from RANGE_SLIDER params. */
+  // Extraherar slider-metadata (min/max/step) från RANGE_SLIDER-parametrar
   private getSliderMeta(param: WorkspaceParameter): {
     min?: number
     max?: number
@@ -208,6 +221,7 @@ export class ParameterFormService {
     return { min, max, step }
   }
 
+  // Samlar metadata från olika källor (metadata, attributes, definition etc.)
   private getParameterMetadata(param: WorkspaceParameter): {
     readonly [key: string]: unknown
   } {
@@ -226,6 +240,7 @@ export class ParameterFormService {
     ])
   }
 
+  // Normaliserar enskilt option-item till enhetligt format
   private normalizeOptionItem(item: unknown, index: number): OptionItem | null {
     if (item == null) return null
 
@@ -292,6 +307,7 @@ export class ParameterFormService {
     }
   }
 
+  // Söker efter options i metadata under vanliga nycklar
   private collectMetaOptions(meta: {
     readonly [key: string]: unknown
   }): readonly OptionItem[] | undefined {
@@ -322,6 +338,7 @@ export class ParameterFormService {
     return undefined
   }
 
+  // Extraherar scriptade options från parameter-metadata
   private extractScriptedOptions(
     param: WorkspaceParameter,
     baseOptions?: readonly OptionItem[]
@@ -332,6 +349,7 @@ export class ParameterFormService {
     return baseOptions
   }
 
+  // Bygger hierarkisk nodstruktur från path-baserade options
   private buildScriptedNodes(
     options: readonly OptionItem[] | undefined,
     separator: string
@@ -347,6 +365,7 @@ export class ParameterFormService {
       : this.buildNodesFromPaths(options, separator)
   }
 
+  // Bygger noder från befintlig children-hierarki
   private buildNodesFromHierarchy(
     options: readonly OptionItem[],
     separator: string
@@ -390,6 +409,7 @@ export class ParameterFormService {
     return options.map((option) => convert(option, undefined))
   }
 
+  // Bygger hierarkisk struktur från path-strängar
   private buildNodesFromPaths(
     options: readonly OptionItem[],
     separator: string
@@ -468,6 +488,7 @@ export class ParameterFormService {
     return roots.map((root) => finalize(root))
   }
 
+  // Extraherar och validerar tabell-konfiguration från metadata
   private deriveTableConfig(
     param: WorkspaceParameter
   ): TableFieldConfig | undefined {
@@ -523,6 +544,7 @@ export class ParameterFormService {
     }
   }
 
+  // Validerar tabell-kolumner och tar bort dubbletter
   private validateTableColumns(
     columns: readonly TableColumnConfig[]
   ): TableColumnConfig[] {
@@ -547,6 +569,7 @@ export class ParameterFormService {
     return valid
   }
 
+  // Normaliserar och säkerställer giltiga min/max-radgränser
   private normalizeRowBounds(
     minRows: number | undefined,
     maxRows: number | undefined
@@ -571,6 +594,7 @@ export class ParameterFormService {
     return { minRows: resolvedMin, maxRows: resolvedMax }
   }
 
+  // Normaliserar enskild tabell-kolumn från metadata
   private normalizeTableColumn(
     column: unknown,
     index: number
@@ -652,6 +676,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar scriptad fält-konfiguration med hierarkiska options
   private deriveScriptedConfig(
     param: WorkspaceParameter,
     baseOptions?: readonly OptionItem[]
@@ -724,6 +749,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar datum/tid-konfiguration från parameter
   private deriveDateTimeConfig(
     param: WorkspaceParameter
   ): DateTimeFieldConfig | undefined {
@@ -795,6 +821,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar select-fält-konfiguration med sökning och options
   private deriveSelectConfig(
     type: FormFieldType,
     param: WorkspaceParameter,
@@ -857,6 +884,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar fil-fält-konfiguration med accept och size-begränsningar
   private deriveFileConfig(
     type: FormFieldType,
     param: WorkspaceParameter
@@ -923,6 +951,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar färg-fält-konfiguration från parameter
   private deriveColorConfig(
     param: WorkspaceParameter
   ): ColorFieldConfig | undefined {
@@ -980,7 +1009,7 @@ export class ParameterFormService {
     }
   }
 
-  /** Validate values object against parameter definitions (required/type/choices). */
+  // Validerar värden mot parameter-definitioner (required/type/choices)
   validateParameters(
     data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
@@ -1016,7 +1045,7 @@ export class ParameterFormService {
     return { isValid: errors.length === 0, errors }
   }
 
-  /** Validate primitive type constraints per parameter type. */
+  // Validerar primitiv typ-matchning för parameter-värde
   private validateParameterType(
     param: WorkspaceParameter,
     value: unknown
@@ -1031,7 +1060,7 @@ export class ParameterFormService {
     }
   }
 
-  /** Validate enum/choice membership for select and multi-select parameters. */
+  // Validerar att värde matchar tillåtna choices i parameter
   private validateParameterChoices(
     param: WorkspaceParameter,
     value: unknown
@@ -1051,6 +1080,7 @@ export class ParameterFormService {
     return null
   }
 
+  // Konverterar parametrar till dynamiska formulärfält
   convertParametersToFields(
     parameters: readonly WorkspaceParameter[]
   ): readonly DynamicFieldConfig[] {
@@ -1109,7 +1139,7 @@ export class ParameterFormService {
     }) as readonly DynamicFieldConfig[]
   }
 
-  /** Map parameter type to a UI field type. */
+  // Mappar parameter-typ till UI-fälttyp
   private getFieldType(param: WorkspaceParameter): FormFieldType {
     const override = PARAMETER_FIELD_TYPE_MAP[param.type]
     if (override) return override
@@ -1124,6 +1154,7 @@ export class ParameterFormService {
     return FormFieldType.TEXT
   }
 
+  // Kontrollerar om fält ska vara read-only baserat på typ och config
   private isReadOnlyField(
     type: FormFieldType,
     scripted?: ScriptedFieldConfig
@@ -1141,6 +1172,7 @@ export class ParameterFormService {
     return false
   }
 
+  // Validerar formulärvärden mot fält-definitioner
   validateFormValues(
     values: { [key: string]: unknown },
     fields: readonly DynamicFieldConfig[]
@@ -1183,7 +1215,9 @@ export class ParameterFormService {
   }
 }
 
-// Extract FME version from server response
+/* Utility Functions för FME Flow Integration */
+
+// Extraherar FME-version från server-respons
 function extractFmeVersion(info: unknown): string {
   if (!info) return ""
 
@@ -1234,6 +1268,7 @@ function extractFmeVersion(info: unknown): string {
   return ""
 }
 
+// Kontrollerar FME Flow server-hälsa och version
 export async function healthCheck(
   serverUrl: string,
   token: string,
@@ -1305,6 +1340,7 @@ export async function healthCheck(
   })
 }
 
+// Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
@@ -1500,6 +1536,7 @@ export async function validateConnection(
   )
 }
 
+// Löser remote dataset genom att ladda upp eller länka via opt_geturl
 export async function resolveRemoteDataset({
   params,
   remoteUrl,
@@ -1542,6 +1579,7 @@ export async function resolveRemoteDataset({
   })
 }
 
+// Förbereder submission-parametrar med AOI och remote dataset-upplösning
 export async function prepareSubmissionParams({
   rawFormData,
   userEmail,
@@ -1616,6 +1654,7 @@ export async function prepareSubmissionParams({
   return { params: paramsWithDefaults }
 }
 
+// Skapar GraphicsLayers för ritning och preview
 export function createLayers(
   jmv: JimuMapView,
   modules: EsriModules,
@@ -1628,6 +1667,7 @@ export function createLayers(
   return layer
 }
 
+// Konfigurerar event-handlers för SketchViewModel (create/update/undo/redo)
 export function setupSketchEventHandlers({
   sketchViewModel,
   onDrawComplete,
@@ -1742,6 +1782,7 @@ export function setupSketchEventHandlers({
   }
 }
 
+// Skapar SketchViewModel med event-handlers och cleanup-funktioner
 export function createSketchVM({
   jmv,
   modules,
@@ -1837,7 +1878,9 @@ export function createSketchVM({
   return { sketchViewModel, cleanup }
 }
 
-// Widget startup validation
+/* Widget Startup Validation */
+
+// Validerar widget-uppstart: config, required fields, FME-anslutning
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {

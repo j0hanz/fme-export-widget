@@ -78,8 +78,10 @@ import {
 } from "../config/index"
 import resetIcon from "../assets/icons/refresh.svg"
 
+/* Hämtar settings-konstanter */
 const CONSTANTS = SETTING_CONSTANTS
 
+/* Returnerar initialt test-state för connection validation */
 const getInitialTestState = (): TestState => ({
   status: "idle",
   isTesting: false,
@@ -87,6 +89,7 @@ const getInitialTestState = (): TestState => ({
   type: "info",
 })
 
+/* Returnerar initiala check-steg för connection validation */
 const getInitialCheckSteps = (): CheckSteps => ({
   serverUrl: "idle",
   token: "idle",
@@ -94,6 +97,7 @@ const getInitialCheckSteps = (): CheckSteps => ({
   version: "",
 })
 
+/* UI-sektion för anslutningstest med steg-för-steg-status */
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
   checkSteps,
@@ -103,11 +107,12 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   styles,
   validationPhase,
 }) => {
+  /* Type guard för att identifiera StepStatus-objekt */
   const isStepStatus = (v: unknown): v is StepStatus =>
     typeof v === "object" &&
     v !== null &&
     Object.prototype.hasOwnProperty.call(v, "completed")
-  // Hoisted helpers for readability and stability
+  /* Stabila hjälpfunktioner för färg och text baserat på status */
   const getStatusStyle = hooks.useEventCallback(
     (s: StepStatus | string): any => {
       switch (s) {
@@ -131,6 +136,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }
   )
 
+  /* Returnerar översatt statustext för varje validerings-steg */
   const getStatusText = hooks.useEventCallback(
     (status: StepStatus | string): string => {
       if (typeof status === "string") {
@@ -145,6 +151,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }
   )
 
+  /* Renderar anslutningsstatus med alla validerings-steg */
   const renderConnectionStatus = (): React.ReactNode => {
     const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
       { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
@@ -173,7 +180,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         </div>
       )
     }
-    // Determine if version string is present on checkSteps
+    /* Extraherar versions-sträng om tillgänglig */
     const versionText =
       typeof checkSteps.version === "string" ? checkSteps.version : ""
     const hasVersion: boolean = versionText.length > 0
@@ -232,7 +239,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
 
   return (
     <>
-      {/* Test connection */}
+      {/* Anslutningstest-knapp */}
       <SettingRow flow="wrap" level={2}>
         <Button
           disabled={disabled}
@@ -255,6 +262,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   )
 }
 
+/* Repository-väljare med auto-refresh och fallback till manuell input */
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   localServerUrl,
   localToken,
@@ -272,13 +280,14 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   repoHint,
   isBusy,
 }) => {
-  // Allow manual refresh whenever URL and token are present and pass basic validation
+  /* Validerar server och token för att avgöra om refresh är tillåten */
   const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
   const tokenCheck = validateToken(localToken)
   const hasValidServer = !!localServerUrl && serverCheck.ok
   const hasValidToken = tokenCheck.ok
   const canRefresh = hasValidServer && hasValidToken && !isBusy
 
+  /* Bygger options-lista från tillgängliga repos och lokalt val */
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
       if (!hasValidServer || !hasValidToken) return []
@@ -297,6 +306,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
 
   const isSelectDisabled =
     !hasValidServer || !hasValidToken || availableRepos === null || isBusy
+  /* Bestämmer placeholder-text baserat på validerings-status */
   const repositoryPlaceholder = (() => {
     if (!hasValidServer || !hasValidToken) {
       return translate("testConnectionFirst")
@@ -334,6 +344,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
       level={1}
       tag="label"
     >
+      {/* Om ingen repo hittades, tillåt manuell input */}
       {Array.isArray(availableRepos) && availableRepos.length === 0 ? (
         // No repositories found - show text input to allow manual entry
         <Input
@@ -394,7 +405,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   )
 }
 
-// Reusable field row to ensure consistent markup and error rendering
+/* Återanvändbar fält-rad för konsekvent markup och felrendering */
 const FieldRow: React.FC<{
   id: string
   label: React.ReactNode
@@ -474,12 +485,14 @@ const FieldRow: React.FC<{
   </SettingRow>
 )
 
+/* Konverterar sträng till numeriskt värde eller undefined */
 const toNumericValue = (value: string): number | undefined => {
   const trimmed = (value ?? "").trim()
   if (trimmed === "") return undefined
   return parseNonNegativeInt(trimmed)
 }
 
+/* Sektion för FME job directives (tm_ttc, tm_ttl) */
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
@@ -494,7 +507,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
 }) => {
   return (
     <SettingRow flow="wrap" level={2}>
-      {/* Job directives (admin defaults) */}
+      {/* Job directives (admin-standardvärden) */}
       <SettingRow
         flow="wrap"
         label={
@@ -583,8 +596,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   )
 }
 
-// Centralized handler for validation failure -> updates steps and field errors
-// Centralized handler for validation failure -> updates steps and field errors
+/* Centraliserad hanterare för valideringsfel - uppdaterar steg och fel */
 const handleValidationFailure = (
   errorType: "server" | "network" | "token" | "repository",
   opts: {
@@ -619,7 +631,7 @@ const handleValidationFailure = (
     clearErrors(setFieldErrors, ["serverUrl", "repository"])
     return
   }
-  // repository
+  /* Repository-fel */
   setCheckSteps((prev) => ({
     ...prev,
     serverUrl: "ok",
@@ -629,12 +641,12 @@ const handleValidationFailure = (
   }))
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
-  // Repository list management handled by useRepositories query hook
+  /* Repository-lista hanteras av useRepositories query hook */
 }
 
-/**
- * Inner component that uses React Query hooks.
- * Must be rendered inside QueryClientProvider.
+/*
+ * Inre komponenten som använder React Query hooks.
+ * Måste renderas inuti QueryClientProvider.
  */
 function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
@@ -643,7 +655,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
 
-  // Builder-aware Redux selectors
+  /* Builder-medvetna Redux-selektorer med caching per widget-ID */
   const fmeSelectorsRef = React.useRef<{
     widgetId: string
     selectors: ReturnType<typeof createFmeSelectors>
@@ -665,7 +677,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const getNumberConfig = useNumberConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
 
-  // Stable ID references for form fields
+  /* Stabila ID-referenser för formulär-fält */
   const ID = {
     supportEmail: "setting-support-email",
     serverUrl: "setting-server-url",
@@ -687,17 +699,18 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     drawingColor: "setting-drawing-color",
   } as const
 
-  // Consolidated test state
+  /* Konsoliderat test-state för connection validation */
   const [testState, setTestState] = React.useState<TestState>(() =>
     getInitialTestState()
   )
-  // Fine-grained step status for the connection test UI
+  /* Finmaskig steg-status för connection test-UI */
   const [checkSteps, setCheckSteps] = React.useState<CheckSteps>(() =>
     getInitialCheckSteps()
   )
   const [validationPhase, setValidationPhase] =
     React.useState<ValidationPhase>("idle")
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
+  /* Lokala state-kopior för redigerbart fält-innehåll */
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
   )
@@ -734,24 +747,24 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<boolean>(() =>
       getBooleanConfig("autoCloseOtherWidgets", true)
     )
-  // Request timeout (ms)
+  /* Request timeout (ms) */
   const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
     () => {
       const v = getNumberConfig("requestTimeout")
       return v !== undefined ? String(v) : ""
     }
   )
-  // Max AOI area (m²) – stored and displayed in m²
+  /* Max AOI area (m²) – lagras och visas i m² */
   const [localMaxAreaM2, setLocalMaxAreaM2] = React.useState<string>(() => {
     const v = getNumberConfig("maxArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
-  // Large-area warning threshold (m²)
+  /* Large-area varningströskel (m²) */
   const [localLargeAreaM2, setLocalLargeAreaM2] = React.useState<string>(() => {
     const v = getNumberConfig("largeArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
-  // Admin job directives (defaults 0/empty)
+  /* Admin job directives (standardvärden 0/tom) */
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = getNumberConfig("tm_ttc")
     return v !== undefined ? String(v) : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
@@ -842,15 +855,15 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
   })
 
-  // Consolidated effect: reset dependent options when hidden
+  /* Konsoliderad effekt: återställ beroende alternativ när dolda */
   hooks.useEffectWithPreviousValues(() => {
-    // Schedule mode: clear if no longer shown
+    /* Schedule mode: rensa om inte längre synlig */
     if (!shouldShowScheduleToggle && localAllowScheduleMode) {
       setLocalAllowScheduleMode(false)
       updateConfig("allowScheduleMode", false as any)
     }
 
-    // Mask email: clear if no longer shown
+    /* Mask email: rensa om inte längre synlig */
     if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false)
       updateConfig("maskEmailOnSuccess", false as any)
@@ -863,35 +876,35 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     updateConfig,
   ])
 
-  // Drawing color (hex) with default ArcGIS brand blue
+  /* Drawing color (hex) med ArcGIS brand blue som standard */
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
     () => getStringConfig("drawingColor") || DEFAULT_DRAWING_HEX
   )
 
-  // ============================================
-  // Query Hooks for Data Fetching
-  // ============================================
+  /* ============================================
+   * Query Hooks för datafetchning
+   * ============================================ */
 
-  // Determine if we should fetch repositories
+  /* Avgör om repositories ska hämtas */
   const canFetchRepos = Boolean(normalizedLocalServerUrl && tokenValidation.ok)
 
-  // Use query hook for repositories (replaces manual loadRepositories)
+  /* Query hook för repositories (ersätter manuell loadRepositories) */
   const repositoriesQuery = useRepositories(
     normalizedLocalServerUrl,
     trimmedLocalToken,
     { enabled: canFetchRepos }
   )
 
-  // Use mutation hook for connection validation (replaces manual validateConnection)
+  /* Mutation hook för connection validation (ersätter manuell validate) */
   const validateConnectionMutation = useValidateConnection()
 
-  // Non-blocking hint for repository list fetch issues
+  /* Icke-blockerande ledtråd för repository-listfetchfel */
   const [reposHint, setReposHint] = React.useState<string | null>(null)
 
-  // Track in-flight cancellation scopes (only need testAbort now)
+  /* Spårar inflight cancellation scopes (endast testAbort behövs nu) */
   const testAbort = useLatestAbortController()
 
-  // Keep latest values handy for async readers
+  /* Håller senaste värden för asynkrona läsare */
   const translateRef = hooks.useLatest(translate)
   const [isServerValidationPending, setServerValidationPending] =
     React.useState(false)
@@ -936,6 +949,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setError(setFieldErrors, "token", message)
   })
 
+  /* Debounced validering för att undvika validering vid varje tangenttryck */
   const debouncedServerValidation = useDebounce(runServerValidation, 800, {
     onPendingChange: (pending) => {
       setServerValidationPending(pending)
@@ -947,13 +961,13 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     },
   })
 
-  // Extract repository names from query data
+  /* Extraherar repository-namn från query data */
   const availableRepos: string[] | null = (() => {
     if (!repositoriesQuery.data) return null
     return repositoriesQuery.data.map((repo) => repo.name)
   })()
 
-  // Handle repository query errors
+  /* Hanterar repository query-fel */
   hooks.useEffectWithPreviousValues(() => {
     if (repositoriesQuery.isError && !isAbortError(repositoriesQuery.error)) {
       setReposHint(translate("errorRepositories"))
@@ -967,9 +981,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     translate,
   ])
 
-  // Clear repository-related state when URL or token change
+  /* Rensar repository-relaterad state när URL eller token ändras */
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
-    // Query hook handles abort automatically
+    /* Query hook hanterar abort automatiskt */
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
     setValidationPhase("idle")
     setReposHint(null)
@@ -1002,10 +1016,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
   })
 
-  // Cleanup on unmount
+  /* Städar upp vid unmount */
   hooks.useUnmount(() => {
     testAbort.cancel()
-    // Query hook handles cleanup automatically
+    /* Query hook hanterar cleanup automatiskt */
   })
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
@@ -1015,7 +1029,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
   }
 
-  // Render required label with tooltip
+  /* Renderar obligatorisk etikett med tooltip */
   const RequiredLabel: React.FC<{ text: string }> = ({ text }) => (
     <>
       {text}
@@ -1032,7 +1046,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     </>
   )
 
-  // Unified input validation
+  /* Unified input-validering */
   const validateAllInputs = hooks.useEventCallback(
     (skipRepoCheck = false): ValidationResult => {
       const composite = validateConnectionInputs({
@@ -1052,7 +1066,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.repository = translate(composite.errors.repository)
       }
 
-      // Support email is optional but must be valid if provided
+      /* Support-email är valfri men måste vara giltig om angiven */
       const trimmedEmail = (localSupportEmail ?? "").trim()
       if (trimmedEmail) {
         const emailValid = isValidEmail(trimmedEmail)
@@ -1079,7 +1093,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  // Validate connection settings
+  /* Validerar connection settings */
   const validateConnectionSettings = hooks.useEventCallback(
     (): FmeFlowConfig | null => {
       const rawServerUrl = localServerUrl
@@ -1088,7 +1102,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       const cleaned = normalizeBaseUrl(rawServerUrl || "")
       const changed = cleaned !== rawServerUrl
-      // If sanitization changed, update config
+      /* Om sanering ändrade, uppdatera config */
       if (changed) {
         updateConfig("fmeServerUrl", cleaned)
       }
@@ -1100,11 +1114,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const canRunConnectionTest = serverValidation.ok && tokenValidation.ok
 
-  // Handle "Test Connection" button click - disable when widget is busy
+  /* Hanterar "Test Connection"-knapp - inaktiverad när widget är busy */
   const isTestDisabled =
     !!testState.isTesting || !canRunConnectionTest || isBusy
 
-  // Connection test sub-functions for better organization
+  /* Connection test-sub-funktioner för bättre organisation */
   const handleTestSuccess = hooks.useEventCallback(
     (validationResult: any, settings: FmeFlowConfig, silent: boolean) => {
       setValidationPhase("complete")
@@ -1115,7 +1129,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         version: validationResult.version || "",
       })
 
-      // Note: repositories are now fetched by useRepositories query hook
+      /* Obs: repositories hämtas nu av useRepositories query hook */
 
       updateConfig("fmeServerUrl", settings.serverUrl)
       updateConfig("fmeServerToken", settings.token)
@@ -1270,7 +1284,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Enhanced repository refresh for better UX - uses query hook refetch
+  /* Förbättrad repository-refresh för bättre UX - använder query refetch */
   const refreshRepositories = hooks.useEventCallback(async () => {
     if (!canFetchRepos || !repositoriesQuery.refetch) {
       return
@@ -1278,7 +1292,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     await repositoriesQuery.refetch()
   })
 
-  // Clear transient repo list when server URL or token in config changes
+  /* Rensar transient repo-lista när server URL eller token i config ändras */
   hooks.useUpdateEffect(() => {
     if (
       previousConfigServerUrl === undefined &&
@@ -1301,15 +1315,15 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     clearRepositoryEphemeralState,
   ])
 
-  // Note: Auto-load repositories is now handled by useRepositories query hook
+  /* Obs: Auto-load repositories hanteras nu av useRepositories query hook */
 
-  // Handle server URL changes with delayed validation
+  /* Hanterar server URL-ändringar med fördröjd validering */
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
     resetConnectionProgress()
     clearRepositoryEphemeralState()
 
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
+    /* Rensar tidigare fel omedelbart för bättre UX */
     clearErrors(setFieldErrors, ["serverUrl"])
     const trimmed = toTrimmedString(val)
     if (!trimmed) {
@@ -1319,13 +1333,13 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     debouncedServerValidation(val)
   })
 
-  // Handle token changes with delayed validation
+  /* Hanterar token-ändringar med fördröjd validering */
   const handleTokenChange = hooks.useEventCallback((val: string) => {
     setLocalToken(val)
     resetConnectionProgress()
     clearRepositoryEphemeralState()
 
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
+    /* Rensar tidigare fel omedelbart för bättre UX */
     clearErrors(setFieldErrors, ["token"])
     const trimmed = toTrimmedString(val)
     if (!trimmed) {
@@ -1335,9 +1349,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     debouncedTokenValidation(val)
   })
 
-  // Handle server URL blur - save to config and clear repository state
+  /* Hanterar server URL blur - sparar till config och rensar repo-state */
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
-    // Validate on blur
+    /* Validerar vid blur */
     debouncedServerValidation.cancel()
     const cleaned = normalizeBaseUrl(url)
     const hasChanged = cleaned !== configServerUrl
@@ -1355,13 +1369,13 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Handle token blur - save to config and clear repository state
+  /* Hanterar token blur - sparar till config och rensar repo-state */
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
-    // Validate on blur
+    /* Validerar vid blur */
     debouncedTokenValidation.cancel()
     runTokenValidation(token)
 
-    // Save to config
+    /* Sparar till config */
     if (token !== configToken) {
       updateConfig("fmeServerToken", token)
       // Clear repository data when token changes
@@ -1369,10 +1383,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   })
 
-  // Keep repository field error in sync when either the list or selection changes
+  /* Håller repository-felfältet synkat när lista eller val ändras */
   hooks.useUpdateEffect(() => {
     if (!selectedRepository) return
-    // Validate repository if we have an available list and a selection
+    /* Validerar repository om vi har tillgänglig lista och val */
     if (
       Array.isArray(availableRepos) &&
       availableRepos.length &&
@@ -1393,26 +1407,23 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [availableRepos, selectedRepository, translate])
 
-  // Handle repository changes with workspace state clearing
+  /* Hanterar repository-ändringar med workspace state-rensning */
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
       const previousRepository = selectedRepository
       updateConfig("repository", newRepository)
 
-      // Clear workspace-related state when switching repositories for isolation
+      /* Rensar workspace-relaterad state vid repository-byte för isolering */
       if (previousRepository !== newRepository) {
         dispatch(fmeActions.clearWorkspaceState(id))
       }
 
-      // Clear repository field error but don't bump config revision for minor changes
+      /* Rensar repository-felfält */
       clearErrors(setFieldErrors, ["repository"])
     }
   )
 
-  // Helper for rendering input fields with error alerts
-  // Reuse FieldRow for consistent input rendering
-
-  // Reusable blur handler for optional numeric fields
+  /* Återanvändbar blur-hanterare för valfria numeriska fält */
   const createNumericBlurHandler = hooks.useEventCallback(
     (
       configKey: keyof FmeExportConfig,
@@ -1443,6 +1454,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   return (
     <SettingSection>
+      {/* Kartval-sektion */}
       <SettingRow
         flow="wrap"
         level={1}
@@ -1455,6 +1467,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       </SettingRow>
       {hasMapSelection && (
         <>
+          {/* FME Server connection-fält */}
           <FieldRow
             id={ID.serverUrl}
             label={<RequiredLabel text={translate("fmeServerUrl")} />}
@@ -1941,12 +1954,12 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 }
 
-/**
- * Wrapper component that provides QueryClient context to SettingContent.
- * This is necessary because React Query hooks (useRepositories, useValidateConnection)
- * require QueryClientProvider to be in the component tree above them.
+/*
+ * Wrapper-komponent som tillhandahåller QueryClient-kontext till SettingContent.
+ * Detta är nödvändigt eftersom React Query hooks (useRepositories,
+ * useValidateConnection) kräver QueryClientProvider i komponentträdet.
  *
- * Uses shared fmeQueryClient singleton to enable cache sharing with runtime widget.
+ * Använder delad fmeQueryClient singleton för cache-delning med runtime.
  */
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   return (
