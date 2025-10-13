@@ -368,15 +368,18 @@ export const Input: React.FC<InputProps> = ({
   const styles = useStyles()
   const isFileInput = type === "file"
 
-  const [hookValue, hookHandleValueChange] = useValue(controlled, defaultValue || "")
-  const [value, handleValueChange] = isFileInput 
-    ? [undefined, undefined] 
+  const [hookValue, hookHandleValueChange] = useValue(
+    controlled,
+    defaultValue || ""
+  )
+  const [value, handleValueChange] = isFileInput
+    ? [undefined, undefined]
     : [hookValue, hookHandleValueChange]
 
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = evt.target.value
-      
+
       if (!isFileInput) {
         handleValueChange(newValue)
       }
