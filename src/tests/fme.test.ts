@@ -7,6 +7,7 @@ import {
   resetEsriCache,
 } from "../shared/api"
 import { sanitizeOptGetUrlParam } from "../shared/validations"
+import { applyUploadedDatasetParam } from "../shared/utils"
 import { ErrorType } from "../config/index"
 
 initGlobal()
@@ -107,6 +108,32 @@ describe("FME shared logic", () => {
       } as any)
 
       expect(params.opt_geturl).toBe("https://example.com/data.zip")
+    })
+
+    it("removes dataset url when URL uploads are disabled", () => {
+      const params = { opt_geturl: "https://example.com/data.geojson" }
+
+      sanitizeOptGetUrlParam(params, {
+        allowRemoteDataset: true,
+        allowRemoteUrlDataset: false,
+      } as any)
+
+      expect(params.opt_geturl).toBeUndefined()
+    })
+  })
+
+  describe("applyUploadedDatasetParam", () => {
+    it("applies uploaded path to explicit target parameter", () => {
+      const params: { [key: string]: unknown } = {}
+
+      applyUploadedDatasetParam({
+        finalParams: params,
+        uploadedPath: "/tmp/data/sample.zip",
+        parameters: [],
+        explicitTarget: "DEST_DATASET",
+      })
+
+      expect(params.DEST_DATASET).toBe("/tmp/data/sample.zip")
     })
   })
 

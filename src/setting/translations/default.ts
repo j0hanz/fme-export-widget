@@ -90,7 +90,7 @@ export default {
     "Tillåt användaren att ladda upp fil direkt till FME Flows TEMP‑resurs.",
   allowRemoteUrlDatasetLabel: "Tillåt fjärr‑URL (HTTPS)",
   allowRemoteUrlDatasetHelper:
-    "Tillåt användaren att ange säker (HTTPS) URL som indata.",
+    "Tillåt användaren att ange säker (HTTPS) URL som indata. Kräver filuppladdning.",
   autoCloseOtherWidgetsLabel: "Stäng andra widgets automatiskt",
   autoCloseOtherWidgetsHelper:
     "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
@@ -99,4 +99,12 @@ export default {
     "Maximal körtid innan jobbet avbryts. Lämna tomt för serverns standard.",
   tm_ttlHelper:
     "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för serverns standard.",
+  uploadTargetParamNameLabel: "Upload‑målparameter",
+  uploadTargetParamNameHelper:
+    "FME‑parameter som tar emot uppladdad fils målsökväg. Krävs om filuppladdning är tillåten.",
+  uploadTargetParamNamePlaceholder: "t.ex. DEST_DATASET",
+  uploadTargetParamNameRequired: "Ange parameter för uppladdad fil.",
+  requireHttpsLabel: "Kräv HTTPS",
+  requireHttpsHelper:
+    "På: Tillåt endast HTTPS för FME‑server‑URL. Av: Tillåt både HTTP och HTTPS.",
 }

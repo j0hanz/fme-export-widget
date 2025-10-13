@@ -12,6 +12,7 @@ import {
   collectTrimmedStrings,
   uniqueStrings,
   isAbortError,
+  sanitizeParamKey,
 } from "../shared/utils"
 import {
   useBuilderSelector,
@@ -692,6 +693,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
     aoiParamName: "setting-aoi-param-name",
+    uploadTargetParamName: "setting-upload-target-param-name",
+    requireHttps: "setting-require-https",
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
@@ -717,6 +720,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
+  const [localRequireHttps, setLocalRequireHttps] = React.useState<boolean>(
+    () => getBooleanConfig("requireHttps")
+  )
   const selectedRepository = getStringConfig("repository") || ""
   const configServerUrl = getStringConfig("fmeServerUrl") || ""
   const configToken = getStringConfig("fmeServerToken") || ""
@@ -725,7 +731,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const trimmedLocalServerUrl = toTrimmedString(localServerUrl)
   const trimmedLocalToken = toTrimmedString(localToken)
   const serverValidation = validateServerUrl(localServerUrl, {
-    requireHttps: true,
+    requireHttps: localRequireHttps,
   })
   const tokenValidation = validateToken(localToken)
   const normalizedLocalServerUrl =
@@ -776,12 +782,20 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
     () => getStringConfig("aoiParamName") || "AreaOfInterest"
   )
+  const [localUploadTargetParamName, setLocalUploadTargetParamName] =
+    React.useState<string>(() => getStringConfig("uploadTargetParamName") || "")
   const [localAllowScheduleMode, setLocalAllowScheduleMode] =
     React.useState<boolean>(() => getBooleanConfig("allowScheduleMode"))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteDataset"))
   const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
+  React.useEffect(() => {
+    if (!localAllowRemoteDataset && localAllowRemoteUrlDataset) {
+      setLocalAllowRemoteUrlDataset(false)
+      updateConfig("allowRemoteUrlDataset", false)
+    }
+  }, [localAllowRemoteDataset, localAllowRemoteUrlDataset, updateConfig])
   const shouldShowMaskEmailSetting = !localSyncMode
   const shouldShowScheduleToggle = !localSyncMode
   const hasMapSelection =
@@ -918,7 +932,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return
     }
 
-    const validation = validateServerUrl(trimmed, { requireHttps: true })
+    const validation = validateServerUrl(trimmed, {
+      requireHttps: localRequireHttps,
+    })
     let message: string | undefined
     if (!validation.ok) {
       let messageKey: string | undefined
@@ -1073,12 +1089,22 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         if (!emailValid) messages.supportEmail = translate("invalidEmail")
       }
 
+      if (localAllowRemoteDataset) {
+        const sanitizedTarget = sanitizeParamKey(localUploadTargetParamName, "")
+        if (!sanitizedTarget) {
+          messages.uploadTargetParamName = translate(
+            "uploadTargetParamNameRequired"
+          )
+        }
+      }
+
       setFieldErrors((prev) => ({
         ...prev,
         serverUrl: messages.serverUrl,
         token: messages.token,
         repository: messages.repository,
         supportEmail: messages.supportEmail,
+        uploadTargetParamName: messages.uploadTargetParamName,
       }))
 
       return {
@@ -1087,7 +1113,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.serverUrl ||
           messages.token ||
           (!skipRepoCheck && messages.repository) ||
-          (!skipRepoCheck && messages.supportEmail)
+          (!skipRepoCheck && messages.supportEmail) ||
+          messages.uploadTargetParamName
         ),
       }
     }
@@ -1595,10 +1622,49 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 const checked = evt?.target?.checked ?? !localAllowRemoteDataset
                 setLocalAllowRemoteDataset(checked)
                 updateConfig("allowRemoteDataset", checked)
+                if (!checked && localAllowRemoteUrlDataset) {
+                  setLocalAllowRemoteUrlDataset(false)
+                  updateConfig("allowRemoteUrlDataset", false)
+                }
+                if (!checked) {
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    uploadTargetParamName: undefined,
+                  }))
+                }
               }}
               aria-label={translate("allowRemoteDatasetLabel")}
             />
           </SettingRow>
+          {localAllowRemoteDataset && (
+            <FieldRow
+              id={ID.uploadTargetParamName}
+              label={
+                <Tooltip
+                  content={translate("uploadTargetParamNameHelper")}
+                  placement="top"
+                >
+                  <span>{translate("uploadTargetParamNameLabel")}</span>
+                </Tooltip>
+              }
+              value={localUploadTargetParamName}
+              onChange={(val: string) => {
+                setLocalUploadTargetParamName(val)
+              }}
+              onBlur={(val: string) => {
+                const sanitized = sanitizeParamKey(val, "")
+                setLocalUploadTargetParamName(sanitized)
+                updateConfig("uploadTargetParamName", sanitized)
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  uploadTargetParamName: undefined,
+                }))
+              }}
+              placeholder={translate("uploadTargetParamNamePlaceholder")}
+              errorText={fieldErrors.uploadTargetParamName}
+              styles={settingStyles}
+            />
+          )}
           <SettingRow
             flow="no-wrap"
             label={
@@ -1615,11 +1681,15 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               id={ID.allowRemoteUrlDataset}
               checked={localAllowRemoteUrlDataset}
               onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                if (!localAllowRemoteDataset) {
+                  return
+                }
                 const checked =
                   evt?.target?.checked ?? !localAllowRemoteUrlDataset
                 setLocalAllowRemoteUrlDataset(checked)
                 updateConfig("allowRemoteUrlDataset", checked)
               }}
+              disabled={!localAllowRemoteDataset}
               aria-label={translate("allowRemoteUrlDatasetLabel")}
             />
           </SettingRow>
@@ -1772,6 +1842,29 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             placeholder={translate("aoiParamNamePlaceholder")}
             styles={settingStyles}
           />
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("requireHttpsHelper")}
+                placement="top"
+              >
+                <span>{translate("requireHttpsLabel")}</span>
+              </Tooltip>
+            }
+            level={1}
+          >
+            <Switch
+              id={ID.requireHttps}
+              checked={localRequireHttps}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localRequireHttps
+                setLocalRequireHttps(checked)
+                updateConfig("requireHttps", checked)
+              }}
+              aria-label={translate("requireHttpsLabel")}
+            />
+          </SettingRow>
           {shouldShowMaskEmailSetting && (
             <SettingRow
               flow="no-wrap"

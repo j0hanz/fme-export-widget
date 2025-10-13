@@ -734,7 +734,7 @@ const ExportForm: React.FC<
       )}
 
       {/* Remote dataset URL (opt_geturl) */}
-      {config?.allowRemoteUrlDataset && (
+      {config?.allowRemoteDataset && config?.allowRemoteUrlDataset && (
         <Field
           label={translate("remoteDatasetUrlLabel")}
           helper={translate("remoteDatasetUrlHelper")}
