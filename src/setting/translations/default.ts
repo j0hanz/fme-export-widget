@@ -95,7 +95,6 @@ export default {
   autoCloseOtherWidgetsHelper:
     "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
   drawingColorLabel: "Ritningsfärg",
-  // Helpers for individual job directive fields (give clear FME Flow context)
   tm_ttcHelper:
     "Maximal körtid innan jobbet avbryts. Lämna tomt för serverns standard.",
   tm_ttlHelper:
