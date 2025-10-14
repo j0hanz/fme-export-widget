@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, ReactRedux, jsx } from "jimu-core"
+import { React, hooks, ReactRedux, jsx, ReactDOM } from "jimu-core"
 import {
   Button,
   ButtonGroup,
@@ -98,14 +98,6 @@ const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   submission: false,
   workspaces: false,
   parameters: false,
-})
-
-// Skapar kopia av laddningsstatus för immutabilitet
-const cloneLoadingState = (state: LoadingState): LoadingState => ({
-  modules: Boolean(state.modules),
-  submission: Boolean(state.submission),
-  workspaces: Boolean(state.workspaces),
-  parameters: Boolean(state.parameters),
 })
 
 // Jämför två laddningsstatus-objekt för likhet
@@ -596,8 +588,25 @@ const ExportForm: React.FC<
       : translate("formValidationMultipleErrors")
   )
 
-  // Skapar validator med aktuella parametrar
-  const validator = createFormValidator(parameterService, workspaceParameters)
+  // Skapar validator med aktuella parametrar - use ref to maintain stable reference
+  const validatorRef = React.useRef<ReturnType<
+    typeof createFormValidator
+  > | null>(null)
+  const prevParamsSignatureRef = React.useRef<string>("")
+  const paramsSignature = workspaceParameters.map((p) => p.name).join(",")
+
+  if (
+    !validatorRef.current ||
+    prevParamsSignatureRef.current !== paramsSignature
+  ) {
+    validatorRef.current = createFormValidator(
+      parameterService,
+      workspaceParameters
+    )
+    prevParamsSignatureRef.current = paramsSignature
+  }
+
+  const validator = validatorRef.current
 
   // Använder formulär-state-hanterare
   const formState = useFormStateManager(validator)
@@ -652,11 +661,14 @@ const ExportForm: React.FC<
     })
     if (!shouldUpdate) return
 
-    const updated = { ...formValues }
-    geometryFieldNames.forEach((name) => {
-      updated[name] = nextValue
+    // Batch update all geometry fields at once
+    ReactDOM.unstable_batchedUpdates(() => {
+      const updated = { ...formValues }
+      geometryFieldNames.forEach((name) => {
+        updated[name] = nextValue
+      })
+      setFormValues(updated)
     })
-    setFormValues(updated)
   }, [geometryFieldNames, geometryString, formValues, setFormValues])
 
   // Hanterar formulärinlämning med validering
@@ -857,10 +869,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
   // Latchar laddningsstatus med fördröjning för smidigare UI
   const [latchedLoadingState, setLatchedLoadingState] =
-    React.useState<LoadingState>(() => cloneLoadingState(incomingLoadingState))
+    React.useState<LoadingState>(incomingLoadingState)
   const latchedLoadingRef = hooks.useLatest(latchedLoadingState)
   const releaseLoadingState = useDebounce((next: LoadingState) => {
-    setLatchedLoadingState(cloneLoadingState(next))
+    setLatchedLoadingState(next)
   }, MS_LOADING)
 
   hooks.useEffectWithPreviousValues(() => {
@@ -870,7 +882,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (isLoadingActive(incoming)) {
       releaseLoadingState.cancel()
       if (!loadingStatesEqual(current, incoming)) {
-        setLatchedLoadingState(cloneLoadingState(incoming))
+        setLatchedLoadingState(incoming)
       }
       return
     }
@@ -881,7 +893,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (!loadingStatesEqual(current, incoming)) {
-      setLatchedLoadingState(cloneLoadingState(incoming))
+      setLatchedLoadingState(incoming)
     }
   }, [
     incomingLoadingState.modules,
@@ -894,19 +906,31 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadingState = latchedLoadingState
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
-  const isWorkspaceLoading = Boolean(
-    loadingState.workspaces || isPrefetchingWorkspaces
-  )
+  const isWorkspaceLoading = Boolean(loadingState.workspaces)
   const canDraw = canStartDrawing ?? true
 
-  // Hämtar ritverk tygsläges-items med översättning
-  const getDrawingModeItems = hooks.useEventCallback(() =>
-    DRAWING_MODE_TABS.map((tab) => ({
+  // Hämtar ritverk tygsläges-items med översättning - use ref for stable reference
+  const drawingModeItemsRef = React.useRef<any[]>([])
+
+  const getDrawingModeItems = hooks.useEventCallback(() => {
+    return DRAWING_MODE_TABS.map((tab) => ({
       ...tab,
       label: translate(tab.label),
       tooltip: translate(tab.tooltip),
     }))
-  )
+  })
+
+  // Update ref on translate changes
+  hooks.useUpdateEffect(() => {
+    drawingModeItemsRef.current = getDrawingModeItems()
+  }, [getDrawingModeItems])
+
+  // Initialize on mount
+  if (drawingModeItemsRef.current.length === 0) {
+    drawingModeItemsRef.current = getDrawingModeItems()
+  }
+
+  const drawingModeItems = drawingModeItemsRef.current
 
   // Renderar ritverktygsläges-flikar
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
@@ -927,7 +951,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               {helperText}
             </div>
             <ButtonTabs
-              items={getDrawingModeItems()}
+              items={drawingModeItems}
               value={drawingMode}
               onChange={(val) => {
                 onDrawingModeChange?.(val as DrawingTool)
@@ -1225,6 +1249,11 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return
     }
 
+    // Early return if lists are referentially equal
+    if (nextItems === workspaceItems) {
+      return
+    }
+
     if (workspaceListsEqual(nextItems, workspaceItems)) {
       return
     }
@@ -1277,7 +1306,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     canFetchWorkspaces,
     reduxDispatch,
     effectiveWidgetId,
-    workspacesRefetchRef,
   ])
 
   // Rensar pending workspace om hämtning ej längre möjlig
@@ -1562,6 +1590,41 @@ export const Workflow: React.FC<WorkflowProps> = ({
     </div>
   )
 
+  const renderPrefetchNotice = hooks.useEventCallback(() => {
+    if (workspacePrefetchStatus === "error") {
+      return (
+        <Alert
+          type="warning"
+          text={translate("failedToLoadWorkspaceDetails")}
+          variant="default"
+          withIcon={true}
+        />
+      )
+    }
+
+    if (!isPrefetchingWorkspaces) {
+      return null
+    }
+
+    const baseMessage = translate("prefetchingWorkspaces")
+    const progress = workspacePrefetchProgress
+    const progressSuffix =
+      progress && progress.total > 0
+        ? ` (${progress.loaded}/${progress.total})`
+        : ""
+
+    return (
+      <div
+        css={styles.typo.caption}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
+        {`${baseMessage}${progressSuffix}`}
+      </div>
+    )
+  })
+
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
@@ -1613,6 +1676,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         <div css={styles.btn.group} role="list">
           {renderWorkspaceButtons()}
         </div>
+        {renderPrefetchNotice()}
       </div>
     )
   }

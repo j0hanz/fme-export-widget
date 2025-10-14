@@ -3078,14 +3078,18 @@ export const canResetButton = (
 // Bestämmer om workspace loading-spinner ska visas
 export const shouldShowWorkspaceLoading = (
   isLoading: boolean,
-  workspaces: readonly any[],
+  _workspaces: readonly any[],
   state: string,
   hasError?: boolean
 ): boolean => {
-  if (hasError) return false
+  if (hasError) {
+    return false
+  }
+
   const needsLoading =
     state === "workspace-selection" || state === "export-options"
-  return isLoading || (!workspaces.length && needsLoading)
+
+  return needsLoading && isLoading
 }
 
 /* ArcGIS Module Loading */

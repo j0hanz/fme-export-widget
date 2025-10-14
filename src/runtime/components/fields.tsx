@@ -566,7 +566,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               ]
 
         // Normaliserar och hämtar konfigurerbara tabellbegränsningar
-        const rows = normalizeTableRows(value, columns)
+        const rows = normalizeTableRows(value, columns).map((row, index) => ({
+          ...row,
+          __rowId: `${field.name}-row-${index}-${Date.now()}`,
+        }))
         const minRows = tableConfig?.minRows ?? 0
         const maxRows = tableConfig?.maxRows
         const allowReorder = tableConfig?.allowReorder ?? false
@@ -737,11 +740,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   </thead>
                 ) : null}
                 <tbody>
-                  {rows.map((row, rowIndex) => (
-                    <tr key={`row-${rowIndex}`}>
+                  {rows.map((row) => (
+                    <tr key={row.__rowId || `fallback-${Math.random()}`}>
                       {columns.map((column) => (
-                        <td key={`${rowIndex}-${column.key}`}>
-                          {renderCell(column, rowIndex, row)}
+                        <td key={`${row.__rowId}-${column.key}`}>
+                          {renderCell(
+                            column,
+                            rows.findIndex((r) => r.__rowId === row.__rowId),
+                            row
+                          )}
                         </td>
                       ))}
                       <td>
@@ -750,7 +757,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                           variant="text"
                           type="tertiary"
                           onClick={() => {
-                            handleRemoveRow(rowIndex)
+                            handleRemoveRow(
+                              rows.findIndex((r) => r.__rowId === row.__rowId)
+                            )
                           }}
                           aria-label={removeLabel}
                           disabled={!canRemove}
@@ -762,21 +771,40 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               variant="text"
                               type="tertiary"
                               onClick={() => {
-                                handleMoveRow(rowIndex, -1)
+                                handleMoveRow(
+                                  rows.findIndex(
+                                    (r) => r.__rowId === row.__rowId
+                                  ),
+                                  -1
+                                )
                               }}
                               aria-label={translate("tableMoveUp")}
-                              disabled={field.readOnly || rowIndex === 0}
+                              disabled={
+                                field.readOnly ||
+                                rows.findIndex(
+                                  (r) => r.__rowId === row.__rowId
+                                ) === 0
+                              }
                             />
                             <Button
                               text={translate("tableMoveDown")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
-                                handleMoveRow(rowIndex, 1)
+                                handleMoveRow(
+                                  rows.findIndex(
+                                    (r) => r.__rowId === row.__rowId
+                                  ),
+                                  1
+                                )
                               }}
                               aria-label={translate("tableMoveDown")}
                               disabled={
-                                field.readOnly || rowIndex === rows.length - 1
+                                field.readOnly ||
+                                rows.findIndex(
+                                  (r) => r.__rowId === row.__rowId
+                                ) ===
+                                  rows.length - 1
                               }
                             />
                           </React.Fragment>

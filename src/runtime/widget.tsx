@@ -10,6 +10,7 @@ import {
   WidgetState,
   appActions,
   getAppStore,
+  ReactDOM,
 } from "jimu-core"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
@@ -35,6 +36,7 @@ import type {
   SubmissionPreparationStatus,
   ModeNotice,
   ServiceModeOverrideInfo,
+  EsriModules,
 } from "../config/index"
 import {
   makeErrorView,
@@ -222,10 +224,10 @@ function WidgetContent(
 
   /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
-    React.useState<DrawingSessionState>(() => ({
+    React.useState<DrawingSessionState>({
       isActive: false,
       clickCount: 0,
-    }))
+    })
 
   /* Spårar submission-fas för feedback under export */
   const [submissionPhase, setSubmissionPhase] =
@@ -288,7 +290,11 @@ function WidgetContent(
 
   /* Sätter modenotis baserat på tvingad servicemode (async/schedule) */
   const setForcedModeNotice = hooks.useEventCallback(
-    (info: ServiceModeOverrideInfo | null) => {
+    (
+      info: ServiceModeOverrideInfo | null,
+      currentModules: EsriModules | null,
+      currentView: JimuMapView | null
+    ) => {
       if (!info) {
         setModeNotice(null)
         return
@@ -337,8 +343,6 @@ function WidgetContent(
         }
         case "area": {
           if (typeof info.value === "number") {
-            const currentModules = modules
-            const currentView = jimuMapView
             params.area =
               currentModules && currentView?.view?.spatialReference
                 ? formatArea(
@@ -349,8 +353,6 @@ function WidgetContent(
                 : Math.max(0, Math.round(info.value)).toLocaleString()
           }
           if (typeof info.threshold === "number") {
-            const currentModules = modules
-            const currentView = jimuMapView
             params.threshold =
               currentModules && currentView?.view?.spatialReference
                 ? formatArea(
@@ -724,6 +726,19 @@ function WidgetContent(
 
   const mapResources = useMapResources()
 
+  /* Destrukturerar kartresurser från custom hook */
+  const {
+    jimuMapView,
+    setJimuMapView,
+    sketchViewModel,
+    setSketchViewModel,
+    graphicsLayer,
+    setGraphicsLayer,
+    setCleanupHandles,
+    teardownDrawingResources,
+    cleanupResources,
+  } = mapResources
+
   /* Synkar modulers laddningsstatus med Redux */
   hooks.useEffectWithPreviousValues(() => {
     dispatch(
@@ -786,7 +801,7 @@ function WidgetContent(
     })
 
     if (forcedInfo) {
-      setForcedModeNotice(forcedInfo)
+      setForcedModeNotice(forcedInfo, modules, jimuMapView)
       return
     }
 
@@ -796,6 +811,8 @@ function WidgetContent(
     workspaceItem,
     areaWarning,
     drawnArea,
+    modules,
+    jimuMapView,
     config?.syncMode,
     config?.allowScheduleMode,
     config?.largeArea,
@@ -805,19 +822,6 @@ function WidgetContent(
 
   /* Aktivitetsstatus för widgeten från Redux */
   const isActive = hooks.useWidgetActived(widgetId)
-
-  /* Destrukturerar kartresurser från custom hook */
-  const {
-    jimuMapView,
-    setJimuMapView,
-    sketchViewModel,
-    setSketchViewModel,
-    graphicsLayer,
-    setGraphicsLayer,
-    setCleanupHandles,
-    teardownDrawingResources,
-    cleanupResources,
-  } = mapResources
 
   const endSketchSession = hooks.useEventCallback(
     (options?: { clearLocalGeometry?: boolean }) => {
@@ -1499,14 +1503,16 @@ function WidgetContent(
       return
     }
 
-    /* Sätter verktyg och uppdaterar session-state */
-    updateDrawingSession({ isActive: true, clickCount: 0 })
+    ReactDOM.unstable_batchedUpdates(() => {
+      /* Sätter verktyg och uppdaterar session-state */
+      updateDrawingSession({ isActive: true, clickCount: 0 })
 
-    dispatch(fmeActions.setDrawingTool(tool, widgetId))
+      dispatch(fmeActions.setDrawingTool(tool, widgetId))
 
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
 
-    updateAreaWarning(false)
+      updateAreaWarning(false)
+    })
 
     /* Rensar grafik och döljer mätningar */
 
