@@ -985,6 +985,7 @@ export interface RemoteDatasetOptions {
   readonly fmeClient: FmeFlowApiClient
   readonly signal: AbortSignal
   readonly subfolder: string
+  readonly workspaceName?: string | null
 }
 
 export interface SubmissionPreparationOptions {
@@ -996,6 +997,7 @@ export interface SubmissionPreparationOptions {
   readonly config: FmeExportConfig | null | undefined
   readonly workspaceParameters?: readonly WorkspaceParameter[] | null
   readonly workspaceItem?: WorkspaceItemDetail | null
+  readonly selectedWorkspaceName?: string | null
   readonly areaWarning?: boolean
   readonly drawnArea?: number
   readonly makeCancelable: MakeCancelableFn
