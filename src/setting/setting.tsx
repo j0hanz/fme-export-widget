@@ -790,12 +790,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<boolean>(() => getBooleanConfig("allowRemoteDataset"))
   const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
-  React.useEffect(() => {
-    if (!localAllowRemoteDataset && localAllowRemoteUrlDataset) {
-      setLocalAllowRemoteUrlDataset(false)
-      updateConfig("allowRemoteUrlDataset", false)
-    }
-  }, [localAllowRemoteDataset, localAllowRemoteUrlDataset, updateConfig])
   const shouldShowMaskEmailSetting = !localSyncMode
   const shouldShowScheduleToggle = !localSyncMode
   const hasMapSelection =
@@ -884,21 +878,30 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       updateConfig("maskEmailOnSuccess", false as any)
     }
 
-    /* Upload target-param: rensa när dataset-stöd är avstängt */
-    if (!shouldShowUploadTargetField && localUploadTargetParamName) {
-      setLocalUploadTargetParamName("")
-      updateConfig("uploadTargetParamName", undefined as any)
-      setFieldErrors((prev) => ({
-        ...prev,
-        uploadTargetParamName: undefined,
-      }))
+    /* Remote dataset: rensa beroende inställningar när avstängt */
+    if (!localAllowRemoteDataset) {
+      /* Stäng av URL-dataset om remote dataset är avstängt */
+      if (localAllowRemoteUrlDataset) {
+        setLocalAllowRemoteUrlDataset(false)
+        updateConfig("allowRemoteUrlDataset", false as any)
+      }
+      /* Rensa upload target-param när dataset-stöd är avstängt */
+      if (localUploadTargetParamName) {
+        setLocalUploadTargetParamName("")
+        updateConfig("uploadTargetParamName", undefined as any)
+        setFieldErrors((prev) => ({
+          ...prev,
+          uploadTargetParamName: undefined,
+        }))
+      }
     }
   }, [
     shouldShowScheduleToggle,
     shouldShowMaskEmailSetting,
     localMaskEmailOnSuccess,
     localAllowScheduleMode,
-    shouldShowUploadTargetField,
+    localAllowRemoteDataset,
+    localAllowRemoteUrlDataset,
     localUploadTargetParamName,
     updateConfig,
   ])
@@ -1648,18 +1651,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 const checked = evt?.target?.checked ?? !localAllowRemoteDataset
                 setLocalAllowRemoteDataset(checked)
                 updateConfig("allowRemoteDataset", checked)
-                if (!checked && localAllowRemoteUrlDataset) {
-                  setLocalAllowRemoteUrlDataset(false)
-                  updateConfig("allowRemoteUrlDataset", false)
-                }
-                if (!checked) {
-                  setLocalUploadTargetParamName("")
-                  updateConfig("uploadTargetParamName", undefined as any)
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    uploadTargetParamName: undefined,
-                  }))
-                }
               }}
               aria-label={translate("allowRemoteDatasetLabel")}
             />
