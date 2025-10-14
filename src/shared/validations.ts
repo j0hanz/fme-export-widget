@@ -428,27 +428,29 @@ export function validateScheduleFields(data: FormValues | null | undefined) {
     : { ok: false as const, key: "scheduleInvalid" }
 }
 
-// Skapar ErrorState objekt med default severity & recoverable=true
-const createErrorState = (
+// Validerar resultat från schemaläggnings-API
+export const createRuntimeError = (
   message: string,
-  type: ErrorType,
-  code: string,
-  options?: {
+  options: {
+    type?: ErrorType
+    code?: string
+    severity?: ErrorSeverity
+    recoverable?: boolean
     userFriendlyMessage?: string
     suggestion?: string
     retry?: () => void
-  }
+  } = {}
 ): ErrorState => ({
   message,
-  type,
-  code,
-  severity: ErrorSeverity.ERROR,
-  recoverable: true,
+  type: options.type ?? ErrorType.NETWORK,
+  code: options.code ?? "UNKNOWN",
+  severity: options.severity ?? ErrorSeverity.ERROR,
+  recoverable: options.recoverable ?? true,
   timestamp: new Date(),
   timestampMs: Date.now(),
-  userFriendlyMessage: options?.userFriendlyMessage || "",
-  suggestion: options?.suggestion || "",
-  retry: options?.retry,
+  userFriendlyMessage: options.userFriendlyMessage ?? "",
+  suggestion: options.suggestion ?? "",
+  retry: options.retry,
   kind: "runtime",
 })
 
@@ -464,7 +466,9 @@ export const createError = (
     retry?: () => void
   }
 ): ErrorState =>
-  createErrorState(translate(messageKey) || messageKey, type, code, {
+  createRuntimeError(translate(messageKey) || messageKey, {
+    type,
+    code,
     ...options,
     suggestion:
       options?.suggestion || translate("connectionSettingsHint") || "",
@@ -476,7 +480,10 @@ const makeGeometryError = (
   code: string
 ): { valid: false; error: ErrorState } => ({
   valid: false,
-  error: createErrorState(messageKey, ErrorType.GEOMETRY, code),
+  error: createRuntimeError(messageKey, {
+    type: ErrorType.GEOMETRY,
+    code,
+  }),
 })
 
 // Validerar datetime-sträng: YYYY-MM-DD HH:MM:SS format
@@ -847,7 +854,7 @@ const preparePolygonForArea = async (
   return working
 }
 
-// Beräknar area via remote geometry service som fallback
+// Beräknar area via remote geometry service (error recovery strategy)
 const calcAreaViaGeometryService = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -930,7 +937,7 @@ const pickGeometryOperator = (
   return null
 }
 
-// Skapar lista med area-strategier i fallback-ordning
+// Skapar lista med area-strategier för resilient beräkning
 const createAreaStrategies = (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules,
@@ -973,7 +980,7 @@ const createAreaStrategies = (
   return strategies
 }
 
-// Beräknar area via fallback chain: operators → engine → service
+// Beräknar area via strategy chain: operators → engine → service
 export const calcArea = async (
   geometry: __esri.Geometry | undefined,
   modules: ArcgisGeometryModules

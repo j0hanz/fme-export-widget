@@ -39,7 +39,31 @@ import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
 import { validateScheduleMetadata } from "./validations"
 
-/* String & Type Utilities - Grundläggande typkonvertering */
+// Normaliserar sträng-värde med flexibla alternativ
+export const normalizeString = (
+  value: unknown,
+  options?: {
+    allowEmpty?: boolean
+    allowNumeric?: boolean
+    nullable?: boolean
+  }
+): string | null | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed && !options?.allowEmpty) {
+      return options?.nullable ? null : undefined
+    }
+    return trimmed
+  }
+  if (
+    options?.allowNumeric &&
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    return String(value)
+  }
+  return options?.nullable ? null : undefined
+}
 
 // Kontrollerar om värde är tomt (null, undefined, "", [], trimmed "")
 export const isEmpty = (v: unknown): boolean => {
@@ -49,6 +73,19 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
+// Konverterar värde till trimmad sträng eller undefined
+export const toTrimmedString = (value: unknown): string | undefined =>
+  normalizeString(value, { allowNumeric: false })
+
+// Konverterar värde till sträng eller undefined (trimmar whitespace, hanterar nummer)
+export const toStringValue = (value: unknown): string | undefined =>
+  normalizeString(value, { allowNumeric: true })
+
+// Normaliserar workspace-namn (trim och null-hantering)
+export const normalizeWorkspaceName = (
+  name: string | null | undefined
+): string | null => normalizeString(name, { nullable: true }) ?? null
+
 // Kontrollerar om värde är plain object (ej array eller null)
 export const isPlainObject = (
   value: unknown
@@ -56,41 +93,18 @@ export const isPlainObject = (
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-const _isObject = (value: unknown): value is object =>
-  typeof value === "object" && value !== null
-
-// Kontrollerar om värde är finit nummer (ej NaN eller Infinity)
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 
 // Kontrollerar om värde är File-objekt (finns ej i IE11)
-const _normalizeString = (
-  value: unknown,
-  allowNumeric = false
-): string | undefined => {
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed || undefined
-  }
-  if (allowNumeric && isFiniteNumber(value)) {
-    return String(value)
-  }
-  return undefined
-}
-
-// Konverterar värde till trimmad sträng eller undefined
-export const toTrimmedString = (value: unknown): string | undefined =>
-  _normalizeString(value, false)
-
-// Konverterar värde till sträng eller undefined (trimmar whitespace, hanterar nummer)
-export const toStringValue = (value: unknown): string | undefined =>
-  _normalizeString(value, true)
+export const isFileObject = (value: unknown): value is File =>
+  typeof File !== "undefined" && value instanceof File
 
 // Konverterar värde till boolean eller undefined (hanterar string/number)
 export const toBooleanValue = (value: unknown): boolean | undefined => {
   if (typeof value === "boolean") return value
   if (typeof value === "number") return value !== 0
-  const str = _normalizeString(value, false)
+  const str = normalizeString(value, { allowNumeric: false })
   if (!str) return undefined
   const normalized = str.toLowerCase()
   if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
@@ -101,20 +115,17 @@ export const toBooleanValue = (value: unknown): boolean | undefined => {
 // Konverterar värde till nummer eller undefined (parsar strings)
 export const toNumberValue = (value: unknown): number | undefined => {
   if (isFiniteNumber(value)) return value
-  const str = _normalizeString(value, false)
+  const str = normalizeString(value, { allowNumeric: false })
   if (!str) return undefined
   const numeric = Number(str)
   return Number.isFinite(numeric) ? numeric : undefined
 }
 
-// Säkerställer att värde är array (wrappar primitiv i array)
-const _ensureArray = (value: unknown): unknown[] =>
+// Wraps värde i array om det inte redan är array
+export const toArray = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : value == null ? [] : [value]
 
-// Wraps värde i array om det inte redan är array
-export const toArray = (value: unknown): unknown[] => _ensureArray(value)
-
-// Hämtar värde från object med fallback genom flera nyckel-alternativ
+// Hämtar värde från object med default genom flera nyckel-alternativ
 export const pickFromObject = <T>(
   data: { readonly [key: string]: unknown } | null | undefined,
   keys: readonly string[],
@@ -123,7 +134,7 @@ export const pickFromObject = <T>(
 ): T | undefined => {
   if (!data) return fallback
   for (const key of keys) {
-    const result = converter((data as { readonly [key: string]: unknown })[key])
+    const result = converter(data[key])
     if (result !== undefined) return result
   }
   return fallback
@@ -269,7 +280,8 @@ export const getClientConnectionInfo = (
 }
 
 // Konverterar okänd typ till string (används för display)
-export const asString = (v: unknown): string => _normalizeString(v, true) ?? ""
+export const asString = (v: unknown): string =>
+  normalizeString(v, { allowNumeric: true }) ?? ""
 
 // Konverterar värde till debug-sträng (hanterar objekt via JSON)
 export const toStr = (val: unknown): string => {
@@ -402,7 +414,7 @@ export const formatByteSize = (size: unknown): string | null => {
 
 /* Message & Display Utilities */
 
-// Översätter meddelande eller key (fallback till raw string)
+// Översätter meddelande eller key (returnerar raw string om translation saknas)
 export function resolveMessageOrKey(
   raw: string,
   translate: TranslateFn
@@ -427,7 +439,7 @@ export const maskEmailForDisplay = (email: unknown): string => {
   return `${visible}****${domain}`
 }
 
-// Bygger support-hint-text med email eller fallback-meddelande
+// Bygger support-hint-text med email eller default-meddelande
 export const buildSupportHintText = (
   translate: TranslateFn,
   supportEmail?: string,
@@ -1498,16 +1510,20 @@ const isValidRing = (ring: unknown): boolean => {
   return checkCoordinatesEqual(first, last)
 }
 
+// Helper: checks if value is a plain object
+const isObjectType = (value: unknown): value is object =>
+  typeof value === "object" && value !== null
+
 // Kontrollerar om värde är polygon-geometri med valid rings
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!_isObject(value)) return false
+  if (!isObjectType(value)) return false
 
   const geom =
     "geometry" in value ? (value as { geometry: unknown }).geometry : value
 
-  if (!_isObject(geom)) return false
+  if (!isObjectType(geom)) return false
 
   const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
 
@@ -1516,7 +1532,7 @@ export const isPolygonGeometry = (
 
 // Saniterar parameter-nyckel genom att ta bort ogiltiga tecken
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  const raw = _normalizeString(name, true) ?? ""
+  const raw = normalizeString(name, { allowNumeric: true }) ?? ""
   const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
   return safe || fallback
 }
@@ -2474,7 +2490,7 @@ export const buildParams = (
   webhookDefaults = false
 ): URLSearchParams => {
   const urlParams = new URLSearchParams()
-  if (!_isObject(params)) return urlParams
+  if (typeof params !== "object" || params === null) return urlParams
 
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
@@ -2969,21 +2985,7 @@ export const toSerializable = (error: any): any => {
 
 /* Form Value Handling & File Utilities */
 
-// Kontrollerar om värde är File-object (cross-platform check)
-export function isFileObject(value: unknown): value is File {
-  try {
-    return (
-      value instanceof File ||
-      (typeof value === "object" &&
-        value !== null &&
-        "name" in (value as any) &&
-        "size" in (value as any) &&
-        "type" in (value as any))
-    )
-  } catch {
-    return false
-  }
-}
+// Duplicate definition removed - using earlier export
 
 // Hämtar display-namn från File-object med fallback
 export const getFileDisplayName = (file: File): string => {

@@ -215,7 +215,6 @@ export const initialFmeState: FmeWidgetState = {
   drawingTool: DrawingTool.POLYGON,
   geometryJson: null,
   drawnArea: 0,
-  geometryRevision: 0,
 
   // Export
   orderResult: null,
@@ -230,7 +229,6 @@ export const initialFmeState: FmeWidgetState = {
   loading: createInitialLoadingState(),
 
   // Errors
-  error: null,
   errors: createInitialErrorMap(),
 }
 
@@ -343,7 +341,7 @@ const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
   return best
 }
 
-// Applicerar partiell error-uppdatering och uppdaterar primärt fel
+// Applicerar partiell error-uppdatering
 function applyErrorPatch(
   state: ImmutableObject<FmeWidgetState>,
   patch: Partial<{ [scope in ErrorScope]: SerializableErrorState | null }>
@@ -384,9 +382,7 @@ function applyErrorPatch(
   }
 
   const readonlyMap = nextMap as ErrorMap
-  const primary = pickPrimaryError(readonlyMap)
-
-  return state.set("errors", readonlyMap).set("error", primary)
+  return state.set("errors", readonlyMap)
 }
 
 /* Reducer för enskild widget-instans */
@@ -423,16 +419,10 @@ const reduceOne = (
       if (!geometryChanged) {
         return state
       }
-      // Uppdaterar geometri och inkrementerar revision för cache-busting
+      // Uppdaterar geometri
       nextState = state
         .set("geometryJson", act.geometryJson)
         .set("drawnArea", area)
-        .set(
-          "geometryRevision",
-          state.geometryRevision >= Number.MAX_SAFE_INTEGER
-            ? 0
-            : state.geometryRevision + 1
-        )
       break
     }
 
@@ -449,12 +439,6 @@ const reduceOne = (
         nextState = nextState
           .set("geometryJson", act.geometryJson)
           .set("drawnArea", area)
-          .set(
-            "geometryRevision",
-            state.geometryRevision >= Number.MAX_SAFE_INTEGER
-              ? 0
-              : state.geometryRevision + 1
-          )
       }
 
       if (nextView !== state.viewMode) {
@@ -641,15 +625,7 @@ const reduceOne = (
       let nextState = state
 
       if (state.geometryJson !== null || state.drawnArea !== 0) {
-        nextState = nextState
-          .set("geometryJson", null)
-          .set("drawnArea", 0)
-          .set(
-            "geometryRevision",
-            state.geometryRevision >= Number.MAX_SAFE_INTEGER
-              ? 0
-              : state.geometryRevision + 1
-          )
+        nextState = nextState.set("geometryJson", null).set("drawnArea", 0)
       }
 
       if (state.selectedWorkspace !== null) {
@@ -762,31 +738,12 @@ const ensureSubState = (
     (createImmutableState() as unknown)) as ImmutableObject<FmeWidgetState>
 
   // Bakåtkompatibilitet: lägg till saknade fält
-  if (typeof (hydrated as any).geometryRevision !== "number") {
-    hydrated = hydrated.set("geometryRevision", 0)
-  }
-
   if (!(hydrated as any).loading) {
     hydrated = hydrated.set("loading", createInitialLoadingState())
   }
 
   if (!(hydrated as any).errors) {
     hydrated = hydrated.set("errors", createInitialErrorMap())
-  }
-
-  // Synkroniserar primärt fel från errors-map
-  const errors = (hydrated as any).errors as ErrorMap
-  const desiredPrimary = pickPrimaryError(errors)
-  const currentPrimary = (hydrated as any).error as ErrorWithScope | null
-  const primaryChanged =
-    (!currentPrimary && desiredPrimary !== null) ||
-    (currentPrimary &&
-      (!desiredPrimary ||
-        currentPrimary.scope !== desiredPrimary.scope ||
-        currentPrimary.details !== desiredPrimary.details))
-
-  if (primaryChanged) {
-    hydrated = hydrated.set("error", desiredPrimary)
   }
 
   return hydrated
@@ -831,8 +788,6 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.geometryJson ?? null,
     selectDrawnArea: (state: IMStateWithFmeExport) =>
       getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
-    selectGeometryRevision: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.geometryRevision ?? initialFmeState.geometryRevision,
     selectWorkspaceItems: (state: IMStateWithFmeExport) =>
       getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
     selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
@@ -844,10 +799,12 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace,
     selectOrderResult: (state: IMStateWithFmeExport) =>
       getSlice(state)?.orderResult ?? initialFmeState.orderResult,
-    selectError: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.error ?? initialFmeState.error,
     selectErrors: (state: IMStateWithFmeExport) =>
       getSlice(state)?.errors ?? initialFmeState.errors,
+    selectPrimaryError: (state: IMStateWithFmeExport) => {
+      const errors = getSlice(state)?.errors ?? initialFmeState.errors
+      return pickPrimaryError(errors)
+    },
     selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
       getSlice(state)?.errors?.[scope] ?? null,
     selectLoading: (state: IMStateWithFmeExport) =>

@@ -1032,14 +1032,12 @@ export interface FmeWidgetState {
   readonly drawingTool: DrawingTool
   readonly geometryJson: unknown
   readonly drawnArea: number
-  readonly geometryRevision: number
   readonly orderResult: ExportResult | null
   readonly workspaceItems: readonly WorkspaceItem[]
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
   readonly loading: LoadingState
-  readonly error: ErrorWithScope | null
   readonly errors: ErrorMap
 }
 

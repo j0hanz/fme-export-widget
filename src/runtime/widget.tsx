@@ -46,7 +46,6 @@ import {
   DEFAULT_DRAWING_HEX,
   DEFAULT_REPOSITORY,
   WORKSPACE_ITEM_TYPE,
-  MS_LOADING,
 } from "../config/index"
 import {
   validateWidgetStartup,
@@ -93,7 +92,6 @@ import {
   useErrorDispatcher,
   safeCancelSketch,
   safeClearLayer,
-  useDebounce,
   usePrefetchWorkspaces,
 } from "../shared/hooks"
 
@@ -118,60 +116,28 @@ function WidgetContent(
 
   /* Skapar Redux-selektorer för detta widget */
   const selectors = createFmeSelectors(widgetId)
-  /* Hämtar viewMode och drawingTool med optimerad memoization */
-  const { viewMode, drawingTool } = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => {
-      const vm = selectors.selectViewMode(state)
-      const dt = selectors.selectDrawingTool(state)
-      return { viewMode: vm, drawingTool: dt }
-    },
-    (prev, next) => {
-      return (
-        prev.viewMode === next.viewMode && prev.drawingTool === next.drawingTool
-      )
-    }
-  )
-  const runtimeSlice = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => ({
-      geometryJson: selectors.selectGeometryJson(state),
-      drawnArea: selectors.selectDrawnArea(state),
-      workspaceItems: selectors.selectWorkspaceItems(state),
-      workspaceParameters: selectors.selectWorkspaceParameters(state),
-      workspaceItem: selectors.selectWorkspaceItem(state),
-      selectedWorkspace: selectors.selectSelectedWorkspace(state),
-      orderResult: selectors.selectOrderResult(state),
-      loadingState: selectors.selectLoading(state),
-      isSubmitting: selectors.selectLoadingFlag("submission")(state),
-      canExport: selectors.selectCanExport(state),
-      scopedError: selectors.selectError(state),
-    }),
-    (prev, next) =>
-      prev.geometryJson === next.geometryJson &&
-      prev.drawnArea === next.drawnArea &&
-      prev.workspaceItems === next.workspaceItems &&
-      prev.workspaceParameters === next.workspaceParameters &&
-      prev.workspaceItem === next.workspaceItem &&
-      prev.selectedWorkspace === next.selectedWorkspace &&
-      prev.orderResult === next.orderResult &&
-      prev.loadingState === next.loadingState &&
-      prev.isSubmitting === next.isSubmitting &&
-      prev.canExport === next.canExport &&
-      prev.scopedError === next.scopedError
-  )
 
-  const {
-    geometryJson,
-    drawnArea,
-    workspaceItems,
-    workspaceParameters,
-    workspaceItem,
-    selectedWorkspace,
-    orderResult,
-    loadingState,
-    isSubmitting,
-    canExport,
-    scopedError,
-  } = runtimeSlice
+  /* Hämtar individuella state-properties med optimerad memoization */
+  const viewMode = ReactRedux.useSelector(selectors.selectViewMode)
+  const drawingTool = ReactRedux.useSelector(selectors.selectDrawingTool)
+  const geometryJson = ReactRedux.useSelector(selectors.selectGeometryJson)
+  const drawnArea = ReactRedux.useSelector(selectors.selectDrawnArea)
+  const workspaceItems = ReactRedux.useSelector(selectors.selectWorkspaceItems)
+  const workspaceParameters = ReactRedux.useSelector(
+    selectors.selectWorkspaceParameters
+  )
+  const workspaceItem = ReactRedux.useSelector(selectors.selectWorkspaceItem)
+  const selectedWorkspace = ReactRedux.useSelector(
+    selectors.selectSelectedWorkspace
+  )
+  const orderResult = ReactRedux.useSelector(selectors.selectOrderResult)
+  const loadingState = ReactRedux.useSelector(selectors.selectLoading)
+  const isSubmitting = ReactRedux.useSelector(
+    selectors.selectLoadingFlag("submission")
+  )
+  const canExport = ReactRedux.useSelector(selectors.selectCanExport)
+  const scopedError = ReactRedux.useSelector(selectors.selectPrimaryError)
+
   const previousViewMode = hooks.usePrevious(viewMode)
 
   /* Expanderar serializable error från Redux till komplett ErrorState */
@@ -755,26 +721,7 @@ function WidgetContent(
     loading: modulesLoading,
     errorKey: modulesErrorKey,
   } = useEsriModules(moduleRetryKey)
-  const [latchedModulesLoading, setLatchedModulesLoading] = React.useState(() =>
-    Boolean(modulesLoading)
-  )
-  const debounceModulesLoading = useDebounce((next: boolean) => {
-    setLatchedModulesLoading(next)
-  }, MS_LOADING)
 
-  hooks.useEffectWithPreviousValues(() => {
-    if (modulesLoading) {
-      debounceModulesLoading.cancel()
-      if (!latchedModulesLoading) {
-        setLatchedModulesLoading(true)
-      }
-      return
-    }
-
-    if (latchedModulesLoading) {
-      debounceModulesLoading(false)
-    }
-  }, [modulesLoading, latchedModulesLoading, debounceModulesLoading])
   const mapResources = useMapResources()
 
   /* Synkar modulers laddningsstatus med Redux */
@@ -1791,7 +1738,7 @@ function WidgetContent(
   })
 
   /* Renderar laddningsvy om moduler fortfarande laddas */
-  if (latchedModulesLoading) {
+  if (modulesLoading) {
     return (
       <div css={styles.parent}>
         <StateView
@@ -1841,7 +1788,7 @@ function WidgetContent(
   const showHeaderActions =
     (drawingSession.isActive || drawnArea > 0) &&
     !isSubmitting &&
-    !latchedModulesLoading
+    !modulesLoading
 
   /* Förkompilerar UI-booleans */
   const hasSingleMapWidget = Boolean(
@@ -1883,7 +1830,7 @@ function WidgetContent(
         )}
         loadingState={{
           ...loadingState,
-          modules: latchedModulesLoading,
+          modules: modulesLoading,
           submission: isSubmitting,
         }}
         isPrefetchingWorkspaces={isPrefetchingWorkspaces}
