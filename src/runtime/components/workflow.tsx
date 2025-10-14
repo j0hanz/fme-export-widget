@@ -1214,8 +1214,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     return true
   }
 
-  // Synkroniserar workspace-items till Redux när de uppdateras
-  hooks.useUpdateEffect(() => {
+  // Synkroniserar workspace-listor till Redux
+  hooks.useEffectWithPreviousValues(() => {
     if (!canFetchWorkspaces) {
       return
     }
@@ -1333,10 +1333,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Synkroniserar workspace-hämtningsstatus till Redux
   const hasWorkspaceItems = workspaceItems.length > 0
+  // Detekterar om det finns cachade workspaces i Redux
+  const hasCachedWorkspaces = sanitizedWorkspaces.length > 0
   const workspaceLoadingActive = canFetchWorkspaces
     ? Boolean(
         workspacesQuery.isLoading ||
-          (!hasWorkspaceItems && workspacesQuery.isFetching)
+          (!hasWorkspaceItems &&
+            !hasCachedWorkspaces &&
+            workspacesQuery.isFetching)
       )
     : false
   const previousWorkspaceLoadingActive = hooks.usePrevious(
