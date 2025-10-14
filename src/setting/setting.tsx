@@ -255,7 +255,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         />
       </SettingRow>
       {(testState.isTesting || testState.message) && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           {renderConnectionStatus()}
         </SettingRow>
       )}
@@ -342,7 +342,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           )}
         </div>
       }
-      level={1}
+      level={2}
       tag="label"
     >
       {/* Om ingen repo hittades, tillåt manuell input */}
@@ -380,7 +380,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         />
       )}
       {fieldErrors.repository && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           <Alert
             id={`${ID.repository}-error`}
             fullWidth
@@ -392,7 +392,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         </SettingRow>
       )}
       {repoHint && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           <Alert
             fullWidth
             css={css(styles.alertInline)}
@@ -436,7 +436,7 @@ const FieldRow: React.FC<{
   isPending = false,
   styles,
 }) => (
-  <SettingRow flow="wrap" label={label} level={1} tag="label">
+  <SettingRow flow="wrap" label={label} level={2} tag="label">
     <Input
       id={id}
       type={type}
@@ -455,7 +455,7 @@ const FieldRow: React.FC<{
     {isPending && (
       <SettingRow
         flow="wrap"
-        level={3}
+        level={2}
         css={css(styles.row)}
         role="status"
         aria-live="polite"
@@ -472,7 +472,7 @@ const FieldRow: React.FC<{
       </SettingRow>
     )}
     {errorText && (
-      <SettingRow flow="wrap" level={3} css={css(styles.row)}>
+      <SettingRow flow="wrap" level={2} css={css(styles.row)}>
         <Alert
           id={`${id}-error`}
           fullWidth
@@ -507,7 +507,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   ID,
 }) => {
   return (
-    <SettingRow flow="wrap" level={2}>
+    <>
       {/* Job directives (admin-standardvärden) */}
       <SettingRow
         flow="wrap"
@@ -516,7 +516,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             <span>{translate("tm_ttcLabel")}</span>
           </Tooltip>
         }
-        level={1}
+        level={2}
         tag="label"
       >
         <NumericInput
@@ -539,7 +539,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           }}
         />
         {fieldErrors.tm_ttc && (
-          <SettingRow flow="wrap" level={3} css={css(styles.row)}>
+          <SettingRow flow="wrap" level={2} css={css(styles.row)}>
             <Alert
               id={`${ID.tm_ttc}-error`}
               fullWidth
@@ -558,7 +558,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             <span>{translate("tm_ttlLabel")}</span>
           </Tooltip>
         }
-        level={1}
+        level={2}
         tag="label"
       >
         <NumericInput
@@ -581,7 +581,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           }}
         />
         {fieldErrors.tm_ttl && (
-          <SettingRow flow="wrap" level={3} css={css(styles.row)}>
+          <SettingRow flow="wrap" level={2} css={css(styles.row)}>
             <Alert
               id={`${ID.tm_ttl}-error`}
               fullWidth
@@ -593,7 +593,7 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           </SettingRow>
         )}
       </SettingRow>
-    </SettingRow>
+    </>
   )
 }
 
@@ -1513,7 +1513,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       {/* Kartval-sektion */}
       <SettingRow
         flow="wrap"
-        level={1}
+        level={2}
         label={<RequiredLabel text={translate("mapConfiguration")} />}
       >
         <MapWidgetSelector
@@ -1593,7 +1593,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("serviceModeSync")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.syncMode}
@@ -1617,7 +1617,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   <span>{translate("allowScheduleModeLabel")}</span>
                 </Tooltip>
               }
-              level={1}
+              level={2}
             >
               <Switch
                 id={ID.allowScheduleMode}
@@ -1642,7 +1642,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("allowRemoteDatasetLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.allowRemoteDataset}
@@ -1695,7 +1695,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   <span>{translate("allowRemoteUrlDatasetLabel")}</span>
                 </Tooltip>
               }
-              level={1}
+              level={2}
             >
               <Switch
                 id={ID.allowRemoteUrlDataset}
@@ -1722,7 +1722,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("maxAreaLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
             tag="label"
           >
             <NumericInput
@@ -1747,7 +1747,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }}
             />
             {fieldErrors.maxArea && (
-              <SettingRow flow="wrap" level={3} css={css(settingStyles.row)}>
+              <SettingRow flow="wrap" level={2} css={css(settingStyles.row)}>
                 <Alert
                   id={`${ID.maxArea}-error`}
                   fullWidth
@@ -1815,7 +1815,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("requestTimeoutLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
             tag="label"
           >
             <NumericInput
@@ -1869,7 +1869,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("requireHttpsLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.requireHttps}
@@ -1893,7 +1893,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   <span>{translate("maskEmailOnSuccess")}</span>
                 </Tooltip>
               }
-              level={1}
+              level={2}
             >
               <Switch
                 id={ID.maskEmailOnSuccess}
@@ -1915,7 +1915,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("showResultLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.showResult}
@@ -1938,7 +1938,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("autoCloseOtherWidgetsLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.autoCloseOtherWidgets}
@@ -2003,7 +2003,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <span>{translate("largeAreaLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
             tag="label"
           >
             <NumericInput
@@ -2025,7 +2025,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               }}
             />
             {fieldErrors.largeArea && (
-              <SettingRow flow="wrap" level={3} css={css(settingStyles.row)}>
+              <SettingRow flow="wrap" level={2} css={css(settingStyles.row)}>
                 <Alert
                   id={`${ID.largeArea}-error`}
                   fullWidth
@@ -2040,7 +2040,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <SettingRow
             flow="wrap"
             label={translate("drawingColorLabel")}
-            level={1}
+            level={2}
             tag="label"
           >
             <ColorPickerWrapper
