@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, ReactRedux, jsx, ReactDOM } from "jimu-core"
+import { React, hooks, ReactRedux, jsx } from "jimu-core"
 import {
   Button,
   ButtonGroup,
@@ -646,27 +646,29 @@ const ExportForm: React.FC<
 
   const formValues = formState.values
   const setFormValues = formState.setValues
+  const formValuesRef = hooks.useLatest(formValues)
 
   // Synkroniserar geometrivärden med geometrifält i formuläret
   hooks.useEffectWithPreviousValues(() => {
     if (!geometryFieldNames.length) return
     const nextValue = geometryString || ""
+    const currentValues = formValuesRef.current
+    if (!currentValues) return
+
     const shouldUpdate = geometryFieldNames.some((name) => {
-      const current = formValues?.[name]
+      const current = currentValues?.[name]
       const currentStr = typeof current === "string" ? current : ""
       return currentStr !== nextValue
     })
+
     if (!shouldUpdate) return
 
-    // Batch update all geometry fields at once
-    ReactDOM.unstable_batchedUpdates(() => {
-      const updated = { ...formValues }
-      geometryFieldNames.forEach((name) => {
-        updated[name] = nextValue
-      })
-      setFormValues(updated)
+    const updated = { ...currentValues }
+    geometryFieldNames.forEach((name) => {
+      updated[name] = nextValue
     })
-  }, [geometryFieldNames, geometryString, formValues, setFormValues])
+    setFormValues(updated)
+  }, [geometryFieldNames, geometryString, formValuesRef, setFormValues])
 
   // Hanterar formulärinlämning med validering
   const handleSubmit = hooks.useEventCallback(() => {
@@ -1478,16 +1480,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
           : `workspace-${index}`
 
       return (
-        <div
-          key={key}
-          role="listitem"
-          aria-label={displayLabel}
-          onClick={handleOpen}
-        >
+        <div key={key} role="listitem" aria-label={displayLabel}>
           <Button
             text={displayLabel}
             icon={itemIcon}
             type="tertiary"
+            onClick={handleOpen}
             logging={{
               enabled: true,
               prefix: "FME-Export-WorkspaceSelection",
