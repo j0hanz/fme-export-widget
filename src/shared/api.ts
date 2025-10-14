@@ -62,11 +62,8 @@ const DEFAULT_CONFIG: NetworkConfig = {
 
 const config: NetworkConfig = { ...DEFAULT_CONFIG }
 
-/* Kärninstrumentering för HTTP-förfrågningar */
-
-// Core Instrumentation
 // Instrumenterar HTTP-förfrågan med logging och timing
-export function instrumentedRequest<T>(
+export async function instrumentedRequest<T>(
   options: InstrumentedRequestOptions<T>
 ): Promise<T> {
   if (!config.enabled) return options.execute()
@@ -75,67 +72,72 @@ export function instrumentedRequest<T>(
   const correlationId = options.correlationId || createCorrelationId()
   const startMs = Date.now()
 
-  return options
-    .execute()
-    .then((response) => {
-      const durationMs = Date.now() - startMs
-      // Extraherar status och ok-flagga från svar via interpreter
-      const status = options.responseInterpreter?.status?.(response)
-      const ok = options.responseInterpreter?.ok?.(response) ?? inferOk(status)
-      const responseSize = options.responseInterpreter?.size?.(response)
+  try {
+    const response = await options.execute()
 
-      const log: RequestLog = {
-        timestamp: startMs,
-        method,
-        url: sanitizeUrl(options.url, options.query),
-        path: extractPath(options.url),
-        status,
-        ok,
-        durationMs,
-        correlationId,
-        caller: options.caller,
-        transport: options.transport,
-        retryAttempt: options.retryAttempt,
-        responseSize,
-        isAbort: false,
-      }
+    const durationMs = Date.now() - startMs
+    const safeDuration =
+      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
+    // Extraherar status och ok-flagga från svar via interpreter
+    const status = options.responseInterpreter?.status?.(response)
+    const ok = options.responseInterpreter?.ok?.(response) ?? inferOk(status)
+    const responseSize = options.responseInterpreter?.size?.(response)
 
-      logRequest("success", log, options.body)
-      return response
-    })
-    .catch((error) => {
-      const durationMs = Date.now() - startMs
-      const status = extractHttpStatus(error)
-      // Kontrollerar om förfrågan avbröts av användare
-      const isAbort = isAbortError(error)
+    const log: RequestLog = {
+      timestamp: startMs,
+      method,
+      url: sanitizeUrl(options.url, options.query),
+      path: extractPath(options.url),
+      status,
+      ok,
+      durationMs: safeDuration,
+      correlationId,
+      caller: options.caller,
+      transport: options.transport,
+      retryAttempt: options.retryAttempt,
+      responseSize,
+      isAbort: false,
+    }
 
-      const log: RequestLog = {
-        timestamp: startMs,
-        method,
-        url: sanitizeUrl(options.url, options.query),
-        path: extractPath(options.url),
-        status,
-        ok: false,
-        durationMs,
-        correlationId,
-        caller: options.caller,
-        transport: options.transport,
-        retryAttempt: options.retryAttempt,
-        isAbort,
-      }
+    logRequest("success", log, options.body)
+    return response
+  } catch (error) {
+    const durationMs = Date.now() - startMs
+    const safeDuration =
+      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
+    const status = extractHttpStatus(error)
+    // Kontrollerar om förfrågan avbröts av användare
+    const isAbort = isAbortError(error)
 
-      logRequest("error", log, options.body, error)
-      throw error instanceof Error
-        ? error
-        : new Error(extractErrorMessage(error))
-    })
+    const log: RequestLog = {
+      timestamp: startMs,
+      method,
+      url: sanitizeUrl(options.url, options.query),
+      path: extractPath(options.url),
+      status,
+      ok: false,
+      durationMs: safeDuration,
+      correlationId,
+      caller: options.caller,
+      transport: options.transport,
+      retryAttempt: options.retryAttempt,
+      isAbort,
+    }
+
+    logRequest("error", log, options.body, error)
+    throw error instanceof Error ? error : new Error(extractErrorMessage(error))
+  }
 }
 
 // Skapar unikt korrelations-ID för request-spårning
 export function createCorrelationId(prefix = "net"): string {
   const timestamp = Date.now().toString(36)
-  const random = Math.random().toString(36).slice(2, 10)
-  return `${prefix}_${timestamp}_${random}`
+  let random = Math.random().toString(36).slice(2, 10)
+  // Säkerställer minst 8 tecken för unikhet
+  while (random.length < 8) {
+    random += Math.random().toString(36).slice(2)
+  }
+  return `${prefix}_${timestamp}_${random.slice(0, 8)}`
 }
 
 /* URL-sanitering och parametervald */

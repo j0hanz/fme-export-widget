@@ -214,7 +214,11 @@ export class ParameterFormService {
     const isRange = param.type === ParameterType.RANGE_SLIDER
     if (!isRange) return {}
     const precision =
-      typeof param.decimalPrecision === "number" ? param.decimalPrecision : 0
+      typeof param.decimalPrecision === "number" &&
+      Number.isFinite(param.decimalPrecision) &&
+      param.decimalPrecision >= 0
+        ? Math.floor(param.decimalPrecision)
+        : 0
     const min = typeof param.minimum === "number" ? param.minimum : 0
     const max = typeof param.maximum === "number" ? param.maximum : 100
     const step = precision > 0 ? Number(`0.${"0".repeat(precision - 1)}1`) : 1
@@ -1296,7 +1300,9 @@ export async function healthCheck(
     try {
       const client = createFmeClient(serverUrl, token)
       const response = await client.testConnection(signal)
-      const responseTime = Date.now() - startTime
+      const elapsed = Date.now() - startTime
+      const responseTime =
+        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
 
       return {
         reachable: true,
@@ -1304,7 +1310,9 @@ export async function healthCheck(
         responseTime,
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime
+      const elapsed = Date.now() - startTime
+      const responseTime =
+        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
       const status = extractHttpStatus(error)
       const errorMessage = extractErrorMessage(error)
 
@@ -1766,6 +1774,7 @@ export function setupSketchEventHandlers({
       if (
         evt.state === "complete" &&
         Array.isArray(evt.graphics) &&
+        evt.graphics.length > 0 &&
         (evt.graphics[0] as any)?.geometry
       ) {
         const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)

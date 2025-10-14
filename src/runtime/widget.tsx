@@ -173,6 +173,22 @@ function WidgetContent(
     scopedError,
   } = runtimeSlice
   const previousViewMode = hooks.usePrevious(viewMode)
+
+  /* Expanderar serializable error från Redux till komplett ErrorState */
+  const expandSerializableError = hooks.useEventCallback(
+    (error: SerializableErrorState | null | undefined): ErrorState | null => {
+      if (!error) return null
+      const timestampMs =
+        typeof error.timestampMs === "number" ? error.timestampMs : Date.now()
+      return {
+        ...error,
+        timestamp: new Date(timestampMs),
+        timestampMs,
+        kind: "runtime",
+      }
+    }
+  )
+
   const generalErrorDetails =
     scopedError?.scope === "general" ? scopedError.details : null
   const generalError = expandSerializableError(generalErrorDetails)
@@ -355,22 +371,26 @@ function WidgetContent(
         }
         case "area": {
           if (typeof info.value === "number") {
+            const currentModules = modules
+            const currentView = jimuMapView
             params.area =
-              modules && jimuMapView?.view?.spatialReference
+              currentModules && currentView?.view?.spatialReference
                 ? formatArea(
                     info.value,
-                    modules,
-                    jimuMapView?.view?.spatialReference
+                    currentModules,
+                    currentView.view.spatialReference
                   )
                 : Math.max(0, Math.round(info.value)).toLocaleString()
           }
           if (typeof info.threshold === "number") {
+            const currentModules = modules
+            const currentView = jimuMapView
             params.threshold =
-              modules && jimuMapView?.view?.spatialReference
+              currentModules && currentView?.view?.spatialReference
                 ? formatArea(
                     info.threshold,
-                    modules,
-                    jimuMapView?.view?.spatialReference
+                    currentModules,
+                    currentView.view.spatialReference
                   )
                 : Math.max(0, Math.round(info.threshold)).toLocaleString()
           }
@@ -573,26 +593,11 @@ function WidgetContent(
     return fmeClientRef.current
   })
 
-  /* Expanderar serialiserat fel till fullt ErrorState-objekt */
-  function expandSerializableError(
-    error: SerializableErrorState | null | undefined
-  ): ErrorState | null {
-    if (!error) return null
-    const timestampMs =
-      typeof error.timestampMs === "number" ? error.timestampMs : Date.now()
-    return {
-      ...error,
-      timestamp: new Date(timestampMs),
-      timestampMs,
-      kind: "runtime",
-    }
-  }
-
   hooks.useUpdateEffect(() => {
     if (!config) {
       disposeFmeClient()
     }
-  }, [config, disposeFmeClient])
+  }, [config])
 
   hooks.useUpdateEffect(() => {
     if (!config?.fmeServerUrl || !config?.fmeServerToken) {
@@ -703,8 +708,11 @@ function WidgetContent(
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
             /* Om ritresurser rensades, återinitierar dem nu */
             try {
-              if (!sketchViewModel && modules && jimuMapView) {
-                handleMapViewReady(jimuMapView)
+              const currentSketchVM = sketchViewModel
+              const currentModules = modules
+              const currentJimuView = jimuMapView
+              if (!currentSketchVM && currentModules && currentJimuView) {
+                handleMapViewReady(currentJimuView)
               }
             } catch {}
           }
@@ -1061,14 +1069,16 @@ function WidgetContent(
       const repoChanged = prevConfig?.repository !== nextConfig?.repository
 
       try {
-        if (serverChanged || tokenChanged) {
-          /* Full omvalidering krävs vid byte av anslutning */
+        if (serverChanged || tokenChanged || repoChanged) {
+          /* Full omvalidering krävs vid byte av anslutning eller repository */
           resetForRevalidation(false)
-          runStartupValidation()
-        } else if (repoChanged) {
-          /* Repository-byte: rensa workspace-state och omvalidera */
-          resetForRevalidation(false)
-          runStartupValidation()
+          /* Fördröjer validering något för att låta ev. UI-övergångar slutföras */
+          const timerId = window.setTimeout(() => {
+            runStartupValidation()
+          }, 50)
+          return () => {
+            window.clearTimeout(timerId)
+          }
         }
       } catch {}
     },
@@ -1127,9 +1137,7 @@ function WidgetContent(
 
           return
         }
-        const geomForUse =
-          (validation as { simplified?: __esri.Polygon | null }).simplified ??
-          (geometry as __esri.Polygon)
+        const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
 
         const calculatedArea = await calcArea(geomForUse, modules)
 
@@ -1491,12 +1499,13 @@ function WidgetContent(
 
   /* Rensar resurser vid kartvy-byte */
   hooks.useUpdateEffect(() => {
+    const currentView = jimuMapView
     return () => {
-      if (jimuMapView) {
+      if (currentView) {
         cleanupResources()
       }
     }
-  }, [jimuMapView])
+  }, [jimuMapView, cleanupResources])
 
   /* Rensar alla resurser vid unmount */
   hooks.useEffectOnce(() => {
@@ -1597,19 +1606,6 @@ function WidgetContent(
   /* Tidigare runtime-state och repository för jämförelse */
   const prevRuntimeState = hooks.usePrevious(runtimeState)
   const prevRepository = hooks.usePrevious(configuredRepository)
-
-  /* Clear isCompletingRef when workspace data is ready or loading starts */
-  hooks.useUpdateEffect(() => {
-    if (isCompletingRef.current && viewMode === ViewMode.WORKSPACE_SELECTION) {
-      // Clear completing flag once workspace loading begins or data exists
-      const hasWorkspaces = workspaceItems.length > 0
-      const isLoading = loadingState.workspaces
-
-      if (hasWorkspaces || isLoading) {
-        isCompletingRef.current = false
-      }
-    }
-  }, [viewMode, workspaceItems.length, loadingState.workspaces])
 
   /* Auto-start ritning när i DRAWING-läge */
   const canAutoStartDrawing =

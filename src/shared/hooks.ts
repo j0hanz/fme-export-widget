@@ -100,6 +100,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
   delay: number,
   options?: UseDebounceOptions
 ): DebouncedFn<T> => {
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingRef = React.useRef(false)
   const lastArgsRef = React.useRef<Parameters<T> | null>(null)
@@ -147,7 +148,7 @@ export const useDebounce = <T extends (...args: any[]) => void>(
       } finally {
         notifyPending(false)
       }
-    }, delay)
+    }, safeDelay)
   })
 
   // Kör callback omedelbart med senaste args (avbryter debounce)
@@ -547,6 +548,9 @@ let idSeq = 0
 export const useUniqueId = (): string => {
   const idRef = React.useRef<string>()
   if (!idRef.current) {
+    if (idSeq >= Number.MAX_SAFE_INTEGER) {
+      idSeq = 0
+    }
     idSeq += 1
     idRef.current = `fme-${idSeq}`
   }
@@ -579,6 +583,7 @@ export const useLoadingLatch = (
   state: { kind: string; [key: string]: any },
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0
   // Skapar snapshot av loading-meddelanden
   const createSnapshot = (
     source:
@@ -632,7 +637,8 @@ export const useLoadingLatch = (
     } else if (startRef.current != null) {
       // Håll latch tills delay löpt ut
       const elapsed = Date.now() - startRef.current
-      const remaining = Math.max(0, delay - elapsed)
+      const safeElapsed = Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
+      const remaining = Math.max(0, safeDelay - safeElapsed)
 
       if (remaining > 0) {
         timer = setTimeout(() => {
@@ -653,7 +659,7 @@ export const useLoadingLatch = (
     return () => {
       if (timer) clearTimeout(timer)
     }
-  }, [state, delay])
+  }, [state, safeDelay])
 
   const isLoading = state.kind === "loading"
   const snapshot = isLoading ? createSnapshot(state) : snapshotRef.current

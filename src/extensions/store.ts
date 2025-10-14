@@ -321,8 +321,14 @@ const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
     [ErrorScope, SerializableErrorState | undefined]
   >) {
     if (!details) continue
-    const rank = ERROR_SEVERITY_RANK[details.severity] ?? 0
-    const scopePriority = ERROR_SCOPE_PRIORITY[scopeKey] ?? 99
+
+    // Validerar att severity är giltig enum-medlem
+    if (!(details.severity in ERROR_SEVERITY_RANK)) continue
+    // Validerar att scope är giltig enum-medlem
+    if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
+
+    const rank = ERROR_SEVERITY_RANK[details.severity]
+    const scopePriority = ERROR_SCOPE_PRIORITY[scopeKey]
 
     if (
       rank > bestRank ||
@@ -355,6 +361,9 @@ function applyErrorPatch(
   for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
     [ErrorScope, SerializableErrorState | null]
   >) {
+    // Validerar att scope är giltig enum-medlem
+    if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
+
     if (!maybeError) {
       if (scopeKey in nextMap) {
         delete nextMap[scopeKey]
@@ -418,7 +427,12 @@ const reduceOne = (
       nextState = state
         .set("geometryJson", act.geometryJson)
         .set("drawnArea", area)
-        .set("geometryRevision", state.geometryRevision + 1)
+        .set(
+          "geometryRevision",
+          state.geometryRevision >= Number.MAX_SAFE_INTEGER
+            ? 0
+            : state.geometryRevision + 1
+        )
       break
     }
 
@@ -435,7 +449,12 @@ const reduceOne = (
         nextState = nextState
           .set("geometryJson", act.geometryJson)
           .set("drawnArea", area)
-          .set("geometryRevision", state.geometryRevision + 1)
+          .set(
+            "geometryRevision",
+            state.geometryRevision >= Number.MAX_SAFE_INTEGER
+              ? 0
+              : state.geometryRevision + 1
+          )
       }
 
       if (nextView !== state.viewMode) {
@@ -625,7 +644,12 @@ const reduceOne = (
         nextState = nextState
           .set("geometryJson", null)
           .set("drawnArea", 0)
-          .set("geometryRevision", state.geometryRevision + 1)
+          .set(
+            "geometryRevision",
+            state.geometryRevision >= Number.MAX_SAFE_INTEGER
+              ? 0
+              : state.geometryRevision + 1
+          )
       }
 
       if (state.selectedWorkspace !== null) {
@@ -841,7 +865,10 @@ export const createFmeSelectors = (widgetId: string) => {
     selectCanExport: (state: IMStateWithFmeExport) => {
       const slice = getSlice(state)
       if (!slice) return false
-      const hasGeometry = Boolean(slice.geometryJson) && slice.drawnArea > 0
+      const hasGeometry =
+        Boolean(slice.geometryJson) &&
+        Number.isFinite(slice.drawnArea) &&
+        slice.drawnArea > 0
       const hasWorkspace = Boolean(
         normalizeWorkspaceName(slice.selectedWorkspace)
       )

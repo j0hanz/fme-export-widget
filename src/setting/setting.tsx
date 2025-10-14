@@ -987,10 +987,16 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   /* Extraherar repository-namn från query data */
-  const availableRepos: string[] | null = (() => {
-    if (!repositoriesQuery.data) return null
-    return repositoriesQuery.data.map((repo) => repo.name)
-  })()
+  const availableReposRef = React.useRef<string[] | null>(null)
+  const prevQueryData = hooks.usePrevious(repositoriesQuery.data)
+
+  if (repositoriesQuery.data !== prevQueryData) {
+    availableReposRef.current = repositoriesQuery.data
+      ? repositoriesQuery.data.map((repo) => repo.name)
+      : null
+  }
+
+  const availableRepos = availableReposRef.current
 
   /* Hanterar repository query-fel */
   hooks.useEffectWithPreviousValues(() => {
@@ -1044,6 +1050,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   /* Städar upp vid unmount */
   hooks.useUnmount(() => {
     testAbort.cancel()
+    debouncedServerValidation.cancel()
+    debouncedTokenValidation.cancel()
     /* Query hook hanterar cleanup automatiskt */
   })
 
@@ -1325,7 +1333,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     if (!canFetchRepos || !repositoriesQuery.refetch) {
       return
     }
-    await repositoriesQuery.refetch()
+    try {
+      await repositoriesQuery.refetch()
+    } catch (err) {
+      /* React Query hanterar error state automatiskt */
+      if (!isAbortError(err)) {
+        console.warn("Repository refresh failed:", err)
+      }
+    }
   })
 
   /* Rensar transient repo-lista när server URL eller token i config ändras */
@@ -1467,9 +1482,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       maxValue?: number
     ) => {
       return (val: string | number | undefined) => {
+        /* Normalisera till sträng för konsekvent hantering */
         const stringVal = typeof val === "number" ? String(val) : (val ?? "")
         const trimmed = stringVal.trim()
         const coerced = parseNonNegativeInt(trimmed)
+
         if (coerced === undefined || coerced === 0) {
           updateConfig(configKey, undefined as any)
           setter("")

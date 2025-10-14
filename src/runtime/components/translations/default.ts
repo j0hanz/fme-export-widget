@@ -92,6 +92,7 @@ export default {
   placeholderSearch: "Sök…",
   geometryFieldMissing: "Ingen geometri vald. Rita ett område i kartan.",
   geometryFieldReady: "Geometri fångad ({rings} ringar, {vertices} hörn).",
+  geometryFieldParseError: "Fel: Kunde inte tolka geometri-JSON.",
   geometryFieldPreviewLabel: "Förhandsgranskning (Esri JSON)",
   placeholderSelectGeneric: "Välj ett alternativ",
   ariaButtonLabel: "Knapp",

@@ -95,11 +95,11 @@ const renderTextInput = (
   const handleChange = (val: string) => {
     if (inputType === "number") {
       if (val === "") {
-        onChange("")
+        onChange(null)
         return
       }
       const num = Number(val.replace(/,/g, "."))
-      onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
+      onChange(Number.isFinite(num) ? num : null)
     } else {
       onChange(val)
     }
@@ -155,7 +155,23 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
     !Array.isArray(rawValue) &&
     "mode" in rawValue
   ) {
-    return rawValue as NormalizedTextOrFile
+    const obj = rawValue as { [key: string]: unknown }
+    if (obj.mode === TEXT_OR_FILE_MODES.FILE && isFileObject(obj.file)) {
+      return {
+        mode: TEXT_OR_FILE_MODES.FILE,
+        file: obj.file,
+        fileName:
+          typeof obj.fileName === "string"
+            ? obj.fileName
+            : getFileDisplayName(obj.file),
+      }
+    }
+    if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
+      return {
+        mode: TEXT_OR_FILE_MODES.TEXT,
+        text: asString(obj.text),
+      }
+    }
   }
   if (isFileObject(rawValue)) {
     return {
@@ -199,6 +215,7 @@ const normalizeTableRows = (
       if (Array.isArray(parsed)) {
         return normalizeTableRows(parsed, columns)
       }
+      return []
     } catch {
       return raw
         .split(/\r?\n/)
@@ -245,6 +262,7 @@ const FILE_DISPLAY_KEYS = [
 // Standardgränser för filuppladdning
 const DEFAULT_MAX_FILE_SIZE_MB = 150
 const ONE_MB_IN_BYTES = 1024 * 1024
+const GEOMETRY_PREVIEW_MAX_LENGTH = 1500
 // Tillåtna filtyper om inget annat specificeras
 const DEFAULT_ALLOWED_FILE_EXTENSIONS: readonly string[] = [
   ".zip",
@@ -301,7 +319,7 @@ const validateFile = (
   }
 
   const acceptList = buildAcceptList(config)
-  // Beräknar maximal tillåten filstorlek från konfiguration
+  // Beräknar maximal tillåten filstorlek från konfiguration, maxSizeMb <= 0 stänger av storlekskontrollen
   const configuredMaxMb =
     typeof config?.maxSizeMb === "number" && Number.isFinite(config.maxSizeMb)
       ? config.maxSizeMb
@@ -355,7 +373,7 @@ const validateFile = (
       return { valid: false, error: "fileTypeNotAllowed" }
     }
 
-    if (fileTypeLower && !DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
+    if (!DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
       return { valid: false, error: "fileTypeNotAllowed" }
     }
   }
@@ -424,7 +442,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   }>
   const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
-  const substitutionLoggedRef = React.useRef(false)
 
   // Tvingar värde till det enda tillgängliga alternativet om select har 1 val
   const enforceSingleOptionValue = hooks.useEventCallback(() => {
@@ -451,19 +468,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       onChange(onlyVal as FormPrimitive)
     }
   }, [isSingleOption, onlyVal, fieldValue, onChange])
-
-  hooks.useEffectWithPreviousValues(() => {
-    if (!isSingleOption || substitutionLoggedRef.current) {
-      return
-    }
-    substitutionLoggedRef.current = true
-
-    const consoleApi =
-      (typeof globalThis !== "undefined" && globalThis.console) || null
-    if (!consoleApi || typeof consoleApi.info !== "function") {
-      // Ingen-op: console.info inte tillgänglig
-    }
-  }, [isSingleOption])
 
   // Renderar fält baserat på fälttyp
   const renderByType = (): JSX.Element => {
@@ -630,7 +634,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   type="number"
                   value={asString(cellValue)}
                   onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                    const numVal =
+                      val === ""
+                        ? null
+                        : Number((val as string).replace(/,/g, "."))
+                    handleCellChange(
+                      rowIndex,
+                      column.key,
+                      Number.isFinite(numVal) ? numVal : null
+                    )
                   }}
                   disabled={disabled}
                   placeholder={placeholder}
@@ -1020,7 +1032,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   : translate("fileInvalid")
             )
             evt.target.value = ""
-            onChange(null)
             return
           }
 
@@ -1116,11 +1127,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   : translate("fileInvalid")
             )
             evt.target.value = ""
-            onChange({
-              mode: TEXT_OR_FILE_MODES.FILE,
-              file: null,
-              fileName: undefined,
-            } as unknown as FormPrimitive)
             return
           }
 
@@ -1216,11 +1222,14 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const handleChange = (raw: string) => {
           if (coerce === "number") {
             const nextNumber = Number(raw)
-            onChange(
-              Number.isFinite(nextNumber)
-                ? (nextNumber as FormPrimitive)
-                : (raw as FormPrimitive)
-            )
+            if (Number.isFinite(nextNumber)) {
+              onChange(nextNumber as FormPrimitive)
+            } else {
+              const matchingOption = options.find(
+                (opt) => String(opt.value) === raw
+              )
+              onChange(matchingOption?.value ?? raw)
+            }
             return
           }
           onChange(raw as FormPrimitive)
@@ -1254,6 +1263,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         let rings = 0
         let vertices = 0
         let preview = trimmed
+        let parseError = false
 
         try {
           const parsed = JSON.parse(trimmed)
@@ -1267,20 +1277,24 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           }, 0)
           preview = JSON.stringify(parsed, null, 2)
         } catch {
-          // Behåller fallback-preview och nollräknare vid fel
+          parseError = true
         }
 
         // Trunkerar för lång geometri-JSON
         const truncated =
-          preview.length > 1500 ? `${preview.slice(0, 1500)}…` : preview
+          preview.length > GEOMETRY_PREVIEW_MAX_LENGTH
+            ? `${preview.slice(0, GEOMETRY_PREVIEW_MAX_LENGTH)}…`
+            : preview
 
         return (
           <div data-testid="geometry-field">
             <div css={styles.typo.hint}>
-              {translate("geometryFieldReady", {
-                rings,
-                vertices,
-              })}
+              {parseError
+                ? translate("geometryFieldParseError")
+                : translate("geometryFieldReady", {
+                    rings,
+                    vertices,
+                  })}
             </div>
             {truncated ? (
               <pre aria-label={translate("geometryFieldPreviewLabel")}>

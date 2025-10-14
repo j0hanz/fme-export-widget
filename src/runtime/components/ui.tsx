@@ -47,6 +47,11 @@ import {
   ariaDesc,
   pad2,
 } from "../../shared/utils"
+import {
+  validateScheduleDateTime,
+  validateScheduleName,
+  validateScheduleCategory,
+} from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg"
 import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
@@ -219,8 +224,9 @@ const createTooltipAnchor = (
   const ariaLabel =
     typeof tooltipContent === "string" ? tooltipContent : undefined
 
+  // Inaktiverade element ska INTE vara fokusbara enligt WCAG 2.1.1
   return (
-    <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>
+    <span aria-disabled="true" aria-label={ariaLabel}>
       {child}
     </span>
   )
@@ -402,7 +408,8 @@ export const Input: React.FC<InputProps> = ({
   const handleBlur = hooks.useEventCallback(
     (evt: React.FocusEvent<HTMLInputElement>) => {
       if (onBlur) {
-        onBlur(evt.target.value)
+        // För filinmatning, skicka tom sträng; för textinmatning, skicka värde
+        onBlur(isFileInput ? "" : evt.target.value)
       }
     }
   )
@@ -546,15 +553,16 @@ export const Radio: React.FC<{
 }) => {
   const styles = useStyles()
   const isControlled = value !== undefined
+
   return (
     <div
       css={applyFullWidthStyles(styles, style)}
       role="radiogroup"
       aria-label={ariaLabel}
     >
-      {options.map((option) => (
+      {options.map((option, index) => (
         <JimuRadio
-          key={option.value}
+          key={`${option.value}-${index}`}
           value={option.value}
           {...(isControlled
             ? { checked: value === option.value }
@@ -633,11 +641,11 @@ export const NumericInput: React.FC<NumericInputProps> = ({
     <JimuNumericInput
       {...rest}
       onChange={(value) => {
-        if (typeof value === "number") {
+        if (typeof value === "number" && !Number.isNaN(value)) {
           onChange?.(value)
           return
         }
-        if (value == null) {
+        if (value == null || Number.isNaN(value)) {
           onChange?.(undefined)
         }
       }}
@@ -718,6 +726,7 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
   const minute = Number(timeMatch[2])
   const second = timeMatch[3] ? Number(timeMatch[3]) : 0
 
+  // Validera numeriska komponenter är finita
   if (
     !Number.isFinite(year) ||
     !Number.isFinite(month) ||
@@ -729,7 +738,27 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
     return null
   }
 
+  // Validera intervall INNAN Date-konstruktion för att förhindra övergång
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+  if (hour < 0 || hour > 23) return null
+  if (minute < 0 || minute > 59) return null
+  if (second < 0 || second > 59) return null
+
   const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
+
+  // Verifiera att Date inte gick över (t.ex. 30 feb → 2 mars)
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day ||
+    parsed.getHours() !== hour ||
+    parsed.getMinutes() !== minute ||
+    parsed.getSeconds() !== second
+  ) {
+    return null
+  }
+
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -895,20 +924,9 @@ export const Select: React.FC<SelectProps> = ({
 
   // Tvingar värde till specificerad typ (t.ex. nummer)
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
-    if (coerce === "number") {
-      if (Array.isArray(val)) {
-        return (val as Array<string | number>).map((v) =>
-          typeof v === "number"
-            ? v
-            : Number.isFinite(Number(v))
-              ? Number(v)
-              : (v as any)
-        )
-      }
-      if (typeof val === "string") {
-        const n = Number(val)
-        return Number.isFinite(n) ? n : val
-      }
+    if (coerce === "number" && typeof val === "string") {
+      const n = Number(val)
+      return Number.isFinite(n) ? n : val
     }
     return val
   })
@@ -1088,7 +1106,7 @@ export const Button: React.FC<ButtonProps> = ({
       title={tooltip ? undefined : jimuProps.title}
       css={[
         styles.relative,
-        // When not using tooltip, carry caller styles directly on the button
+        // När tooltip inte används, använd anroparens stilar direkt på knappen
         !hasTooltip && jimuCss,
         !hasTooltip && styleCss(jimuStyle),
       ]}
@@ -1255,7 +1273,12 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   const currentValue = isControlled ? controlled : uncontrolledValue
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
-    const final = typeof controlled === "number" ? Number(newValue) : newValue
+    // Bevara typen från items-arrayen istället för controlled
+    const targetItem = items.find((item) => item.value === newValue)
+    const final =
+      targetItem && typeof targetItem.value === "number"
+        ? Number(newValue)
+        : newValue
     if (!isControlled) {
       setUncontrolledValue(final as any)
     }
@@ -1430,8 +1453,8 @@ const StateView: React.FC<StateViewProps> = ({
   }, [showLoading, messageCount, messageSignature])
 
   const activeLoadingMessage =
-    messageCount > 0
-      ? loadingMessages[activeLoadingMessageIndex % messageCount]
+    messageCount > 0 && activeLoadingMessageIndex >= 0
+      ? loadingMessages[Math.max(0, activeLoadingMessageIndex) % messageCount]
       : null
 
   const defaultActionsRenderer = hooks.useEventCallback(
@@ -1817,24 +1840,6 @@ export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
   translate,
   disabled = false,
 }) => {
-  // Importerar valideringsfunktioner
-  const {
-    validateScheduleDateTime,
-    validateScheduleName,
-    validateScheduleCategory,
-  } = require("../../shared/validations") as {
-    validateScheduleDateTime: (dateTimeStr: string) => {
-      valid: boolean
-      error?: string
-      isPast?: boolean
-    }
-    validateScheduleName: (name: string) => { valid: boolean; error?: string }
-    validateScheduleCategory: (category: string) => {
-      valid: boolean
-      error?: string
-    }
-  }
-
   // Utför valideringar
   const startValidation = (() => {
     const start = typeof values.start === "string" ? values.start.trim() : ""
@@ -1952,7 +1957,7 @@ export const renderSupportHint = (
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
-    // Fallback if the translation doesn't contain the email placeholder
+    // Fallback om översättningen inte innehåller e-postplatshållaren
     return (
       <>
         {fullText}{" "}

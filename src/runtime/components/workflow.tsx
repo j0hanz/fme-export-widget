@@ -137,7 +137,12 @@ const formatOrderValue = (value: unknown): string | null => {
   }
   if (value instanceof Date) {
     const time = value.getTime()
-    return Number.isFinite(time) ? value.toISOString() : null
+    if (!Number.isFinite(time)) return null
+    try {
+      return value.toISOString()
+    } catch {
+      return null
+    }
   }
   if (value instanceof Blob) {
     return value.type ? value.type : "blob"
@@ -261,11 +266,14 @@ const createFormValidator = (
 
     // Validerar schema-startfältets format när det anges
     const startRaw = values.start
-    if (
-      isNonEmptyString(startRaw) &&
-      !validateDateTimeFormat(startRaw.trim())
-    ) {
-      errors.start = "invalidDateTimeFormat"
+    if (isNonEmptyString(startRaw)) {
+      try {
+        if (!validateDateTimeFormat(startRaw.trim())) {
+          errors.start = "invalidDateTimeFormat"
+        }
+      } catch {
+        errors.start = "invalidDateTimeFormat"
+      }
     }
 
     return {
@@ -375,9 +383,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const scheduleMetadata = orderResult.scheduleMetadata
   const hasScheduleInfo =
     scheduleMetadata &&
-    scheduleMetadata.start &&
-    scheduleMetadata.name &&
-    scheduleMetadata.category
+    typeof scheduleMetadata.start === "string" &&
+    scheduleMetadata.start.trim() !== "" &&
+    typeof scheduleMetadata.name === "string" &&
+    scheduleMetadata.name.trim() !== "" &&
+    typeof scheduleMetadata.category === "string" &&
+    scheduleMetadata.category.trim() !== ""
 
   const titleText = isSuccess
     ? serviceMode === "sync"
@@ -834,7 +845,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
-  const effectiveWidgetId = widgetId && widgetId.trim() ? widgetId : "__local__"
+  const effectiveWidgetIdRef = React.useRef<string>()
+  if (!effectiveWidgetIdRef.current) {
+    effectiveWidgetIdRef.current =
+      widgetId && widgetId.trim()
+        ? widgetId
+        : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
+  }
+  const effectiveWidgetId = effectiveWidgetIdRef.current
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
   // Latchar laddningsstatus med fördröjning för smidigare UI
@@ -963,6 +981,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
         return formatArea(target)
       } catch {
         /* ignore formatting errors and fall back to default */
+      }
+    }
+    // Kontrollera om värdet är inom säkert intervall för Math.round
+    if (target > Number.MAX_SAFE_INTEGER) {
+      try {
+        return `${target.toExponential(2)} m²`
+      } catch {
+        return `${target} m²`
       }
     }
     try {
@@ -1403,7 +1429,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar workspace-knappar från lista
   const renderWorkspaceButtons = hooks.useEventCallback(() =>
-    workspaceItems.map((workspace) => {
+    workspaceItems.map((workspace: WorkspaceItem, index: number) => {
       const displayLabel = workspace.title || workspace.name
       const handleOpen = () => {
         const repoToUse =
@@ -1416,9 +1442,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
         })
       }
 
+      // Använder index som fallback för nyckel om namn saknas
+      const key =
+        workspace.name && workspace.name.trim()
+          ? workspace.name
+          : `workspace-${index}`
+
       return (
         <div
-          key={workspace.name}
+          key={key}
           role="listitem"
           aria-label={displayLabel}
           onClick={handleOpen}
