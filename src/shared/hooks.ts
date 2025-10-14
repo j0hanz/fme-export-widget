@@ -867,6 +867,57 @@ export function usePrefetchWorkspaces(
     if (!client) return
 
     let cancelled = false
+    const abortControllers = new Set<AbortController>()
+
+    const registerAbortController = (
+      controller: AbortController
+    ): (() => void) => {
+      abortControllers.add(controller)
+      return () => {
+        abortControllers.delete(controller)
+      }
+    }
+
+    const abortAllControllers = (reason?: unknown): void => {
+      abortControllers.forEach((controller) => {
+        try {
+          if (!controller.signal.aborted) {
+            controller.abort(reason)
+          }
+        } catch {
+          controller.abort()
+        }
+      })
+      abortControllers.clear()
+    }
+
+    const linkSignals = (
+      source: AbortSignal | undefined,
+      controller: AbortController
+    ): (() => void) => {
+      if (!source) {
+        return () => undefined
+      }
+
+      const abortHandler = () => {
+        const reason = (source as { reason?: unknown }).reason
+        try {
+          if (!controller.signal.aborted) {
+            controller.abort(reason)
+          }
+        } catch {
+          controller.abort()
+        }
+      }
+
+      source.addEventListener("abort", abortHandler)
+
+      return () => {
+        try {
+          source.removeEventListener("abort", abortHandler)
+        } catch {}
+      }
+    }
 
     const prefetch = async () => {
       setState({
@@ -900,15 +951,32 @@ export function usePrefetchWorkspaces(
                   buildTokenCacheKey(fmeServerToken),
                 ],
                 queryFn: async ({ signal }) => {
-                  const [itemResp, paramsResp] = await Promise.all([
-                    client.getWorkspaceItem(ws.name, repository, signal),
-                    client.getWorkspaceParameters(ws.name, repository, signal),
-                  ])
-                  return {
-                    item: itemResp.data,
-                    parameters: Array.isArray(paramsResp?.data)
-                      ? paramsResp.data
-                      : [],
+                  const controller = new AbortController()
+                  const unregister = registerAbortController(controller)
+                  const unlink = linkSignals(signal, controller)
+                  try {
+                    const effectiveSignal = controller.signal
+                    const [itemResp, paramsResp] = await Promise.all([
+                      client.getWorkspaceItem(
+                        ws.name,
+                        repository,
+                        effectiveSignal
+                      ),
+                      client.getWorkspaceParameters(
+                        ws.name,
+                        repository,
+                        effectiveSignal
+                      ),
+                    ])
+                    return {
+                      item: itemResp.data,
+                      parameters: Array.isArray(paramsResp?.data)
+                        ? paramsResp.data
+                        : [],
+                    }
+                  } finally {
+                    unlink()
+                    unregister()
                   }
                 },
                 staleTime: 10 * 60 * 1000,
@@ -941,6 +1009,8 @@ export function usePrefetchWorkspaces(
             prefetchStatus: "error",
           })
         }
+      } finally {
+        abortAllControllers()
       }
     }
 
@@ -948,6 +1018,7 @@ export function usePrefetchWorkspaces(
 
     return () => {
       cancelled = true
+      abortAllControllers()
     }
   }, [enabled, queryClient, configRef, workspacesRef, onProgressRef, chunkSize])
 

@@ -20,6 +20,9 @@ import {
   type PolygonMaybe,
   type AreaStrategy,
   type ScheduleValidationResult,
+  type FormValues,
+  type WorkspaceParameter,
+  ParameterType,
   MIN_TOKEN_LENGTH,
   FME_REST_PATH,
   WKID,
@@ -440,7 +443,7 @@ export const validateRequiredFields = (
 }
 
 // Validerar schedule-fält: trigger, category, name, start, notTooFarPast
-export function validateScheduleFields(data: any) {
+export function validateScheduleFields(data: FormValues | null | undefined) {
   if (!data || data.opt_servicemode !== "schedule") return { ok: true as const }
 
   const isRunOnce = data.trigger === "runonce"
@@ -524,22 +527,42 @@ export const validateDateTimeFormat = (dateTimeString: string): boolean => {
 
 // Maskerar PASSWORD-fält i form values för loggning
 export const sanitizeFormValues = (
-  formValues: any,
-  parameters: readonly any[]
-): any => {
+  formValues: FormValues | null | undefined,
+  parameters: readonly WorkspaceParameter[] | null | undefined
+): FormValues | null | undefined => {
   if (!formValues) return formValues
+
   const secretNames = new Set(
-    (parameters || [])
-      .filter((p) => p && p.type === "PASSWORD")
-      .map((p) => p.name)
+    (parameters ?? [])
+      .filter((param) => param?.type === ParameterType.PASSWORD)
+      .map((param) => param.name)
   )
-  if (secretNames.size === 0) return formValues
-  const masked: any = {}
-  for (const k of Object.keys(formValues || {})) {
-    masked[k] = secretNames.has(k)
-      ? maskToken(formValues[k] || "")
-      : formValues[k]
+
+  if (secretNames.size === 0) {
+    return formValues
   }
+
+  const masked: FormValues = { ...formValues }
+
+  for (const key of Object.keys(formValues)) {
+    if (!secretNames.has(key)) {
+      continue
+    }
+
+    const value = formValues[key]
+    const safeValue =
+      typeof value === "string"
+        ? value
+        : typeof value === "number" || typeof value === "bigint"
+          ? value.toString()
+          : typeof value === "boolean"
+            ? value
+              ? "true"
+              : "false"
+            : ""
+    masked[key] = maskToken(safeValue)
+  }
+
   return masked
 }
 

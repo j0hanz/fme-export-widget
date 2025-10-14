@@ -131,27 +131,47 @@ function WidgetContent(
       )
     }
   )
-  const geometryJson = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
-    return selectors.selectGeometryJson(state)
-  })
-  const drawnArea = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
-    return selectors.selectDrawnArea(state)
-  })
-  const workspaceItems = ReactRedux.useSelector(selectors.selectWorkspaceItems)
-  const workspaceParameters = ReactRedux.useSelector(
-    selectors.selectWorkspaceParameters
+  const runtimeSlice = ReactRedux.useSelector(
+    (state: IMStateWithFmeExport) => ({
+      geometryJson: selectors.selectGeometryJson(state),
+      drawnArea: selectors.selectDrawnArea(state),
+      workspaceItems: selectors.selectWorkspaceItems(state),
+      workspaceParameters: selectors.selectWorkspaceParameters(state),
+      workspaceItem: selectors.selectWorkspaceItem(state),
+      selectedWorkspace: selectors.selectSelectedWorkspace(state),
+      orderResult: selectors.selectOrderResult(state),
+      loadingState: selectors.selectLoading(state),
+      isSubmitting: selectors.selectLoadingFlag("submission")(state),
+      canExport: selectors.selectCanExport(state),
+      scopedError: selectors.selectError(state),
+    }),
+    (prev, next) =>
+      prev.geometryJson === next.geometryJson &&
+      prev.drawnArea === next.drawnArea &&
+      prev.workspaceItems === next.workspaceItems &&
+      prev.workspaceParameters === next.workspaceParameters &&
+      prev.workspaceItem === next.workspaceItem &&
+      prev.selectedWorkspace === next.selectedWorkspace &&
+      prev.orderResult === next.orderResult &&
+      prev.loadingState === next.loadingState &&
+      prev.isSubmitting === next.isSubmitting &&
+      prev.canExport === next.canExport &&
+      prev.scopedError === next.scopedError
   )
-  const workspaceItem = ReactRedux.useSelector(selectors.selectWorkspaceItem)
-  const selectedWorkspace = ReactRedux.useSelector(
-    selectors.selectSelectedWorkspace
-  )
-  const orderResult = ReactRedux.useSelector(selectors.selectOrderResult)
-  const loadingState = ReactRedux.useSelector(selectors.selectLoading)
-  const isSubmitting = ReactRedux.useSelector(
-    selectors.selectLoadingFlag("submission")
-  )
-  const canExport = ReactRedux.useSelector(selectors.selectCanExport)
-  const scopedError = ReactRedux.useSelector(selectors.selectError)
+
+  const {
+    geometryJson,
+    drawnArea,
+    workspaceItems,
+    workspaceParameters,
+    workspaceItem,
+    selectedWorkspace,
+    orderResult,
+    loadingState,
+    isSubmitting,
+    canExport,
+    scopedError,
+  } = runtimeSlice
   const previousViewMode = hooks.usePrevious(viewMode)
   const generalErrorDetails =
     scopedError?.scope === "general" ? scopedError.details : null
@@ -1175,6 +1195,7 @@ function WidgetContent(
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
+      } finally {
         isCompletingRef.current = false
       }
     }
@@ -1578,14 +1599,11 @@ function WidgetContent(
 
   /* Clear isCompletingRef when workspace data is ready or loading starts */
   hooks.useUpdateEffect(() => {
-    if (
-      isCompletingRef.current &&
-      viewMode === ViewMode.WORKSPACE_SELECTION
-    ) {
+    if (isCompletingRef.current && viewMode === ViewMode.WORKSPACE_SELECTION) {
       // Clear completing flag once workspace loading begins or data exists
       const hasWorkspaces = workspaceItems.length > 0
       const isLoading = loadingState.workspaces
-      
+
       if (hasWorkspaces || isLoading) {
         isCompletingRef.current = false
       }

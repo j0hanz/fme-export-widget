@@ -31,6 +31,8 @@ import {
   isRetryableError,
   validateRequiredConfig,
   mapErrorToKey,
+  validateServerUrl,
+  mapServerUrlReasonToKey,
 } from "./validations"
 import {
   buildUrl,
@@ -984,6 +986,19 @@ const createWebhookArtifacts = (
   token?: string
 ): WebhookArtifacts => {
   const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const baseUrlValidation = validateServerUrl(baseUrl, {
+    strict: true,
+    requireHttps: true,
+    disallowRestForWebhook: true,
+  })
+
+  if (!baseUrlValidation.ok) {
+    const reason = mapServerUrlReasonToKey(
+      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
+    )
+    throw makeError("WEBHOOK_AUTH_ERROR", 0, reason)
+  }
+
   const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
   if (token) {
     params.set("token", token)
