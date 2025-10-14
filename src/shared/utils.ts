@@ -56,56 +56,63 @@ export const isPlainObject = (
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const _isObject = (value: unknown): value is object =>
+  typeof value === "object" && value !== null
+
 // Kontrollerar om värde är finit nummer (ej NaN eller Infinity)
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 
-// Konverterar värde till trimmad sträng eller undefined
-export const toTrimmedString = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  return trimmed || undefined
-}
-
-// Konverterar värde till sträng eller undefined (trimmar whitespace)
-export const toStringValue = (value: unknown): string | undefined => {
+// Kontrollerar om värde är File-objekt (finns ej i IE11)
+const _normalizeString = (
+  value: unknown,
+  allowNumeric = false
+): string | undefined => {
   if (typeof value === "string") {
     const trimmed = value.trim()
     return trimmed || undefined
   }
-  if (isFiniteNumber(value)) {
+  if (allowNumeric && isFiniteNumber(value)) {
     return String(value)
   }
   return undefined
 }
 
+// Konverterar värde till trimmad sträng eller undefined
+export const toTrimmedString = (value: unknown): string | undefined =>
+  _normalizeString(value, false)
+
+// Konverterar värde till sträng eller undefined (trimmar whitespace, hanterar nummer)
+export const toStringValue = (value: unknown): string | undefined =>
+  _normalizeString(value, true)
+
 // Konverterar värde till boolean eller undefined (hanterar string/number)
 export const toBooleanValue = (value: unknown): boolean | undefined => {
   if (typeof value === "boolean") return value
   if (typeof value === "number") return value !== 0
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase()
-    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
-    if (["false", "0", "no", "n", "off"].includes(normalized)) return false
-  }
+  const str = _normalizeString(value, false)
+  if (!str) return undefined
+  const normalized = str.toLowerCase()
+  if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
+  if (["false", "0", "no", "n", "off"].includes(normalized)) return false
   return undefined
 }
 
 // Konverterar värde till nummer eller undefined (parsar strings)
 export const toNumberValue = (value: unknown): number | undefined => {
   if (isFiniteNumber(value)) return value
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    if (!trimmed) return undefined
-    const numeric = Number(trimmed)
-    return Number.isFinite(numeric) ? numeric : undefined
-  }
-  return undefined
+  const str = _normalizeString(value, false)
+  if (!str) return undefined
+  const numeric = Number(str)
+  return Number.isFinite(numeric) ? numeric : undefined
 }
 
-// Wraps värde i array om det inte redan är array
-export const toArray = (value: unknown): unknown[] =>
+// Säkerställer att värde är array (wrappar primitiv i array)
+const _ensureArray = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : value == null ? [] : [value]
+
+// Wraps värde i array om det inte redan är array
+export const toArray = (value: unknown): unknown[] => _ensureArray(value)
 
 // Hämtar värde från object med fallback genom flera nyckel-alternativ
 export const pickFromObject = <T>(
@@ -262,11 +269,7 @@ export const getClientConnectionInfo = (
 }
 
 // Konverterar okänd typ till string (används för display)
-export const asString = (v: unknown): string => {
-  if (typeof v === "string") return v
-  if (typeof v === "number") return String(v)
-  return ""
-}
+export const asString = (v: unknown): string => _normalizeString(v, true) ?? ""
 
 // Konverterar värde till debug-sträng (hanterar objekt via JSON)
 export const toStr = (val: unknown): string => {
@@ -430,13 +433,11 @@ export const buildSupportHintText = (
   supportEmail?: string,
   userFriendly?: string
 ): string => {
-  const sanitizedEmail = toTrimmedString(supportEmail)
-  if (sanitizedEmail) {
-    const template = translate("contactSupportEmail")
-    return template.replace(EMAIL_PLACEHOLDER, sanitizedEmail)
-  }
+  const email = toTrimmedString(supportEmail)
+  if (!email) return toTrimmedString(userFriendly) || ""
 
-  return toTrimmedString(userFriendly) || ""
+  const template = translate("contactSupportEmail")
+  return template.replace(EMAIL_PLACEHOLDER, email)
 }
 
 /* URL & Network Validation */
@@ -470,11 +471,11 @@ const isPrivateIpv6 = (hostname: string): boolean => {
   const lower = hostname.toLowerCase()
   return (
     lower === "::1" ||
-    lower.includes("::1") || // Abbreviated loopback (e.g., ::1, 0::1)
+    lower.startsWith("::1:") || // Abbreviated loopback variations
     lower === "0:0:0:0:0:0:0:1" ||
-    lower.startsWith("fc") ||
-    lower.startsWith("fd") ||
-    /^fe[89ab]/.test(lower) // Link-local: fe80-febf
+    lower.startsWith("fc") || // ULA fc00::/7
+    lower.startsWith("fd") || // ULA fd00::/8
+    /^fe[89ab][0-9a-f]/i.test(lower) // Link-local fe80::/10 + site-local fec0::/10
   )
 }
 
@@ -665,6 +666,8 @@ export const applyUploadedDatasetParam = ({
 
 // Kontrollerar om navigator är offline (används för UX-varningar)
 export const isNavigatorOffline = (): boolean => {
+  if (typeof navigator === "undefined") return false
+
   try {
     const nav = (globalThis as any)?.navigator
     return Boolean(nav && nav.onLine === false)
@@ -673,12 +676,17 @@ export const isNavigatorOffline = (): boolean => {
   }
 }
 
+// Coercear form-värde för submission (hanterar arrays, filer, blobs)
+const _isRemoteDatasetEnabled = (
+  config: FmeExportConfig | null | undefined
+): boolean => Boolean(config?.allowRemoteDataset)
+
 // Kontrollerar om remote URL ska appliceras (kräver config-tillåtelse)
 export const shouldApplyRemoteDatasetUrl = (
   remoteUrl: unknown,
   config: FmeExportConfig | null | undefined
 ): boolean => {
-  if (!config?.allowRemoteDataset) return false
+  if (!_isRemoteDatasetEnabled(config)) return false
   if (!config?.allowRemoteUrlDataset) return false
 
   const trimmed = toTrimmedString(remoteUrl)
@@ -692,7 +700,7 @@ export const shouldUploadRemoteDataset = (
   config: FmeExportConfig | null | undefined,
   uploadFile: File | Blob | null | undefined
 ): boolean => {
-  if (!config?.allowRemoteDataset) return false
+  if (!_isRemoteDatasetEnabled(config)) return false
   if (!uploadFile) return false
 
   if (typeof Blob !== "undefined" && uploadFile instanceof Blob) {
@@ -727,10 +735,7 @@ export const computeWidgetsToClose = (
     if (id === widgetId || !info) continue
     const stateRaw = info.state
     if (!stateRaw) continue
-    const normalized =
-      typeof stateRaw === "string"
-        ? stateRaw.toUpperCase()
-        : String(stateRaw).toUpperCase()
+    const normalized = String(stateRaw).toUpperCase()
 
     if (
       normalized === WidgetState.Closed ||
@@ -817,8 +822,9 @@ const MAX_HTML_CODE_POINT = 0x10ffff
 
 // Regex för att hitta HTML-numeric entities (dec och hex)
 const decodeHtmlNumericEntity = (value: string, base: number): string => {
-  // Max 7 tecken för att undvika överflödiga stora tal
-  if (value.length > 7) return ""
+  // Max 6 tecken för att undvika överflödiga stora tal (U+10FFFF = 6 hex digits)
+  if (value.length > 6) return ""
+  if (!/^[0-9a-f]+$/i.test(value)) return ""
 
   const parsed = Number.parseInt(value, base)
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_HTML_CODE_POINT)
@@ -892,23 +898,32 @@ export const safeAbort = (ctrl: AbortController | null) => {
 }
 
 // Kontrollerar om fel är relaterat till abort (inkl. text-matchning)
-const ABORT_REGEX = /abort/i
 
 // Regex för att identifiera no-reply email-adresser
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
-  if (typeof error === "string") return ABORT_REGEX.test(error)
-  if (typeof error !== "object") return false
 
-  const candidate = error as {
-    name?: unknown
-    code?: unknown
-    message?: unknown
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      name?: unknown
+      code?: unknown
+      message?: unknown
+    }
+    const name = toStr(candidate.name ?? candidate.code)
+    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
+      return true
+    if (!name || name === "Error") {
+      const message = toStr(candidate.message)
+      return (
+        /\baborted?\b/i.test(message) || message.includes("signal is aborted")
+      )
+    }
+    return false
   }
-  const name = toStr(candidate.name ?? candidate.code)
-  const message = toStr(candidate.message)
-
-  return ABORT_REGEX.test(name) || ABORT_REGEX.test(message)
+  if (typeof error === "string") {
+    return /\baborted?\b/i.test(error)
+  }
+  return false
 }
 
 // Loggar fel om de inte är relaterade till abort
@@ -1119,7 +1134,9 @@ export { useLatestAbortController } from "./hooks"
 // Maskerar token för display (första 4 och sista 4 tecken syns)
 export const maskToken = (token: string): string => {
   if (!token) return ""
-  if (token.length <= 8) return "*".repeat(token.length)
+  if (token.length <= 4) return "*".repeat(token.length)
+  if (token.length <= 8)
+    return `${token.slice(0, 2)}${"*".repeat(token.length - 4)}${token.slice(-2)}`
   // Visa första 4 och sista 4 tecken, maskera resten
   return `${token.slice(0, 4)}${"*".repeat(Math.max(4, token.length - 8))}${token.slice(-4)}`
 }
@@ -1452,25 +1469,21 @@ const isValidRing = (ring: unknown): boolean => {
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
+  if (!_isObject(value)) return false
 
   const geom =
-    "geometry" in (value as any)
-      ? (value as { geometry: unknown }).geometry
-      : value
+    "geometry" in value ? (value as { geometry: unknown }).geometry : value
 
-  if (!geom || typeof geom !== "object") return false
+  if (!_isObject(geom)) return false
 
-  const rings =
-    "rings" in (geom as any) ? (geom as { rings: unknown }).rings : undefined
+  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
 
   return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
 }
 
 // Saniterar parameter-nyckel genom att ta bort ogiltiga tecken
 export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  const raw =
-    typeof name === "string" ? name : isFiniteNumber(name) ? String(name) : ""
+  const raw = _normalizeString(name, true) ?? ""
   const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
   return safe || fallback
 }
@@ -1524,17 +1537,24 @@ const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
   return validation.valid
 }
 
+// Validerar och normaliserar service mode (sync, async, schedule)
+const _filterScheduleFields = (data: {
+  [key: string]: unknown
+}): { [key: string]: unknown } => {
+  const filtered: { [key: string]: unknown } = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (!SCHEDULE_METADATA_KEYS.has(key)) filtered[key] = value
+  }
+  return filtered
+}
+
 // Saniterar schedule-metadata (tar bort eller behåller beroende på mode)
 const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
   mode: ServiceMode
 ): { [key: string]: unknown } => {
   if (mode !== "schedule") {
-    const pruned: { [key: string]: unknown } = {}
-    for (const [key, value] of Object.entries(data)) {
-      if (!SCHEDULE_METADATA_KEYS.has(key)) pruned[key] = value
-    }
-    return pruned
+    return _filterScheduleFields(data)
   }
 
   const sanitized: { [key: string]: unknown } = {}
@@ -1702,7 +1722,9 @@ const toPositiveInteger = (value: unknown): number | null => {
 }
 
 export const parseNonNegativeInt = (val: string): number | undefined => {
-  const n = Number(val)
+  const trimmed = typeof val === "string" ? val.trim() : String(val)
+  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined
+  const n = Number(trimmed)
   if (!Number.isFinite(n) || n < 0) return undefined
   return Math.floor(n)
 }
@@ -2016,16 +2038,26 @@ export const polygonJsonToGeoJson = (poly: any): any => {
   if (!poly) return null
   try {
     const rings = extractRings(poly)
-    if (!rings.length) return null
+    if (!rings.length) {
+      console.log("polygonJsonToGeoJson: No rings found in polygon", poly)
+      return null
+    }
     const normalized = rings
       .map(normalizeRing)
       .filter((ring) => ring.length >= 4)
-    if (!normalized.length) return null
+    if (!normalized.length) {
+      console.log(
+        "polygonJsonToGeoJson: No valid rings after normalization",
+        poly
+      )
+      return null
+    }
     return {
       type: "Polygon",
       coordinates: normalized,
     }
-  } catch {
+  } catch (err) {
+    console.log("polygonJsonToGeoJson: Serialization failed", err, poly)
     return null
   }
 }
@@ -2109,7 +2141,10 @@ export const toWgs84PolygonJson = (
 
   try {
     const poly = modules.Polygon.fromJSON(polyJson)
-    if (!poly) return polyJson
+    if (!poly) {
+      console.log("toWgs84PolygonJson: Failed to create Polygon from JSON")
+      return polyJson
+    }
 
     const sr = (poly as any).spatialReference
     if (isWgs84Spatial(sr)) {
@@ -2118,7 +2153,14 @@ export const toWgs84PolygonJson = (
 
     const projected = projectToWgs84(poly, modules)
     if (projected?.toJSON) {
-      return projected.toJSON()
+      const result = projected.toJSON()
+      const resultSr = result?.spatialReference
+      if (isWgs84Spatial(resultSr)) {
+        return result
+      }
+      console.log(
+        "toWgs84PolygonJson: Projection did not produce WGS84 geometry"
+      )
     }
 
     const { webMercatorUtils } = modules
@@ -2131,8 +2173,12 @@ export const toWgs84PolygonJson = (
       }
     }
 
+    console.log(
+      "toWgs84PolygonJson: Returning original polygon (projection failed)"
+    )
     return poly.toJSON()
-  } catch {
+  } catch (err) {
+    console.log("toWgs84PolygonJson: Error during projection", err)
     return polyJson
   }
 }
@@ -2343,8 +2389,9 @@ export const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   return email
 }
 
-export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  const base = serverUrl
+// Bygger URL från bas och segment, tar bort ev. fmeserver/fmerest i slutet
+const _composeUrl = (base: string, segments: string[]): string => {
+  const normalizedBase = base
     .replace(/\/(?:fmeserver|fmerest)$/i, "")
     .replace(/\/$/, "")
 
@@ -2360,8 +2407,11 @@ export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
     .map((seg) => encodePath(seg))
     .join("/")
 
-  return path ? `${base}/${path}` : base
+  return path ? `${normalizedBase}/${path}` : normalizedBase
 }
+
+export const buildUrl = (serverUrl: string, ...segments: string[]): string =>
+  _composeUrl(serverUrl, segments)
 
 export const resolveRequestUrl = (
   endpoint: string,
@@ -2391,7 +2441,7 @@ export const buildParams = (
   webhookDefaults = false
 ): URLSearchParams => {
   const urlParams = new URLSearchParams()
-  if (!params || typeof params !== "object") return urlParams
+  if (!_isObject(params)) return urlParams
 
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
@@ -2524,8 +2574,11 @@ export const isJson = (contentType: string | null): boolean =>
   (contentType ?? "").toLowerCase().includes("application/json")
 
 export const safeParseUrl = (raw: string): URL | null => {
+  const trimmed = (raw || "").trim()
+  if (!trimmed) return null
+
   try {
-    return new URL((raw || "").trim())
+    return new URL(trimmed)
   } catch {
     return null
   }
@@ -2595,10 +2648,21 @@ const safePad2 = (part?: string): string | null => {
   return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null
 }
 
+// Datumkonvertering mellan FME-format (YYYYMMDD) och HTML5 input (YYYY-MM-DD)
 export const fmeDateToInput = (v: string): string => {
   const s = (v || "").replace(/\D/g, "")
   if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  const year = s.slice(0, 4)
+  const month = s.slice(4, 6)
+  const day = s.slice(6, 8)
+  const y = Number(year)
+  const m = Number(month)
+  const d = Number(day)
+  if (y < 1000 || y > 9999) return ""
+  if (m < 1 || m > 12) return ""
+  if (d < 1 || d > 31) return ""
+
+  return `${year}-${month}-${day}`
 }
 
 export const inputToFmeDate = (v: string): string =>
@@ -2621,7 +2685,10 @@ export const inputToFmeDateTime = (v: string, original?: string): string => {
   if (!v) return ""
   const s = v.trim()
   const [date, time] = s.split("T")
-  if (!date || !time) return ""
+  if (!date || !time) {
+    console.log("inputToFmeDateTime: Invalid ISO format", v)
+    return ""
+  }
 
   const [y, m, d] = date.split("-")
   const {
@@ -2631,16 +2698,30 @@ export const inputToFmeDateTime = (v: string, original?: string): string => {
   } = parseTemporalComponents(time)
   const [hh, mi, ssRaw] = timePart.split(":")
 
-  if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) return ""
+  if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) {
+    console.log("inputToFmeDateTime: Invalid year", y)
+    return ""
+  }
 
   const m2 = safePad2(m)
   const d2 = safePad2(d)
   const hh2 = safePad2(hh)
   const mi2 = safePad2(mi)
-  if (!m2 || !d2 || !hh2 || !mi2) return ""
+  if (!m2 || !d2 || !hh2 || !mi2) {
+    console.log("inputToFmeDateTime: Invalid date/time components", {
+      m,
+      d,
+      hh,
+      mi,
+    })
+    return ""
+  }
 
   const ss2 = ssRaw ? safePad2(ssRaw) : "00"
-  if (ss2 === null) return ""
+  if (ss2 === null) {
+    console.log("inputToFmeDateTime: Invalid seconds", ssRaw)
+    return ""
+  }
 
   const base = `${y}${m2}${d2}${hh2}${mi2}${ss2}`
   const originalExtras = original ? extractTemporalParts(original) : null
