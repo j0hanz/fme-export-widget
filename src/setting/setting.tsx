@@ -799,7 +799,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const hasRepositorySelection = !!toTrimmedString(selectedRepository)
   const shouldShowRemainingSettings =
     hasMapSelection && hasServerInputs && hasRepositorySelection
-  const shouldShowUploadTargetField = localAllowRemoteDataset
+  const shouldShowRemoteDatasetSettings = localAllowRemoteDataset
 
   const handleLargeAreaChange = hooks.useEventCallback(
     (val: number | undefined) => {
@@ -1655,7 +1655,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               aria-label={translate("allowRemoteDatasetLabel")}
             />
           </SettingRow>
-          {shouldShowUploadTargetField && (
+          {shouldShowRemoteDatasetSettings && (
             <FieldRow
               id={ID.uploadTargetParamName}
               label={
@@ -1684,34 +1684,32 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               styles={settingStyles}
             />
           )}
-          <SettingRow
-            flow="no-wrap"
-            label={
-              <Tooltip
-                content={translate("allowRemoteUrlDatasetHelper")}
-                placement="top"
-              >
-                <span>{translate("allowRemoteUrlDatasetLabel")}</span>
-              </Tooltip>
-            }
-            level={1}
-          >
-            <Switch
-              id={ID.allowRemoteUrlDataset}
-              checked={localAllowRemoteUrlDataset}
-              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                if (!localAllowRemoteDataset) {
-                  return
-                }
-                const checked =
-                  evt?.target?.checked ?? !localAllowRemoteUrlDataset
-                setLocalAllowRemoteUrlDataset(checked)
-                updateConfig("allowRemoteUrlDataset", checked)
-              }}
-              disabled={!localAllowRemoteDataset}
-              aria-label={translate("allowRemoteUrlDatasetLabel")}
-            />
-          </SettingRow>
+          {shouldShowRemoteDatasetSettings && (
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("allowRemoteUrlDatasetHelper")}
+                  placement="top"
+                >
+                  <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+                </Tooltip>
+              }
+              level={1}
+            >
+              <Switch
+                id={ID.allowRemoteUrlDataset}
+                checked={localAllowRemoteUrlDataset}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localAllowRemoteUrlDataset
+                  setLocalAllowRemoteUrlDataset(checked)
+                  updateConfig("allowRemoteUrlDataset", checked)
+                }}
+                aria-label={translate("allowRemoteUrlDatasetLabel")}
+              />
+            </SettingRow>
+          )}
           <SettingRow
             flow="wrap"
             label={
