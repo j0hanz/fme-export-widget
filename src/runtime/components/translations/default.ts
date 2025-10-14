@@ -140,6 +140,8 @@ export default {
   SCHEDULE_NAME_INVALID_CHARS: "Jobbnamnet innehåller ogiltiga tecken",
   SCHEDULE_CATEGORY_REQUIRED: "Kategori krävs",
   SCHEDULE_CATEGORY_TOO_LONG: "Kategorin är för lång (max 128 tecken)",
+  REMOTE_DATASET_WORKSPACE_REQUIRED:
+    "Välj en arbetsyta innan du laddar upp dataset.",
 
   remoteDatasetUploadLabel: "Ladda upp dataset (TEMP)",
   remoteDatasetUploadHelper:

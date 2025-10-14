@@ -805,6 +805,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const hasRepositorySelection = !!toTrimmedString(selectedRepository)
   const shouldShowRemainingSettings =
     hasMapSelection && hasServerInputs && hasRepositorySelection
+  const shouldShowUploadTargetField = localAllowRemoteDataset
 
   const handleLargeAreaChange = hooks.useEventCallback(
     (val: number | undefined) => {
@@ -882,11 +883,23 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       setLocalMaskEmailOnSuccess(false)
       updateConfig("maskEmailOnSuccess", false as any)
     }
+
+    /* Upload target-param: rensa när dataset-stöd är avstängt */
+    if (!shouldShowUploadTargetField && localUploadTargetParamName) {
+      setLocalUploadTargetParamName("")
+      updateConfig("uploadTargetParamName", undefined as any)
+      setFieldErrors((prev) => ({
+        ...prev,
+        uploadTargetParamName: undefined,
+      }))
+    }
   }, [
     shouldShowScheduleToggle,
     shouldShowMaskEmailSetting,
     localMaskEmailOnSuccess,
     localAllowScheduleMode,
+    shouldShowUploadTargetField,
+    localUploadTargetParamName,
     updateConfig,
   ])
 
@@ -894,10 +907,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
     () => getStringConfig("drawingColor") || DEFAULT_DRAWING_HEX
   )
-
-  /* ============================================
-   * Query Hooks för datafetchning
-   * ============================================ */
 
   /* Avgör om repositories ska hämtas */
   const canFetchRepos = Boolean(normalizedLocalServerUrl && tokenValidation.ok)
@@ -1627,6 +1636,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   updateConfig("allowRemoteUrlDataset", false)
                 }
                 if (!checked) {
+                  setLocalUploadTargetParamName("")
+                  updateConfig("uploadTargetParamName", undefined as any)
                   setFieldErrors((prev) => ({
                     ...prev,
                     uploadTargetParamName: undefined,
@@ -1636,7 +1647,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               aria-label={translate("allowRemoteDatasetLabel")}
             />
           </SettingRow>
-          {localAllowRemoteDataset && (
+          {shouldShowUploadTargetField && (
             <FieldRow
               id={ID.uploadTargetParamName}
               label={

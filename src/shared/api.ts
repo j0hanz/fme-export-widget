@@ -1139,89 +1139,86 @@ export class FmeFlowApiClient {
     this.queueTeardown(this.config.serverUrl)
   }
 
-  // Härleder uppladdad fil-sökväg från FME-respons
-  private resolveUploadPath(
-    data: any,
-    fileName: string,
-    subfolder: string
-  ): string {
-    // Försök hämta path direkt från respons
-    const directPath =
-      (typeof data.path === "string" && data.path) ||
-      (typeof data.fullpath === "string" && data.fullpath)
-
-    if (directPath) return directPath
-
-    // Försök hämta från files-array
-    if (Array.isArray(data.files) && data.files.length) {
-      const first = data.files[0]
-      const filePath =
-        (typeof first?.path === "string" && first.path) ||
-        (typeof first?.fullpath === "string" && first.fullpath)
-      if (filePath) return filePath
-    }
-
-    // Fallback: konstruera sökväg från subfolder + fileName
-    const joined =
-      (subfolder ? `${subfolder.replace(/\/+$/g, "")}/` : "") + fileName
-    return `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
-  }
-
   // Laddar upp fil/blob till FME temp shared resource
   async uploadToTemp(
     file: File | Blob,
-    options?: { subfolder?: string; signal?: AbortSignal }
+    options?: {
+      subfolder?: string
+      signal?: AbortSignal
+      repository?: string
+      workspace?: string
+    }
   ): Promise<ApiResponse<{ path: string }>> {
-    await ensureEsri()
-
-    const segments: string[] = [
-      this.basePath.slice(1),
-      "resources",
-      "connections",
-      "FME_SHAREDRESOURCE_TEMP",
-      "filesys",
-    ]
-
-    // Sanera och dela subfolder i segment
-    const sub = (options?.subfolder || "")
-      .replace(/[^A-Za-z0-9_\-/]/g, "")
-      .replace(/^\/+|\/+$/g, "")
-
-    if (sub) {
-      for (const s of sub.split("/")) if (s) segments.push(s)
+    const repository = this.resolveRepository(options?.repository)
+    const workspace = (options?.workspace || "").trim()
+    if (!workspace) {
+      throw makeFlowError("DATA_UPLOAD_ERROR")
     }
 
-    const endpoint = buildUrl(this.config.serverUrl, ...segments)
-    const rawName = (file as any)?.name ? String((file as any).name) : ""
-    // Sanera filnamn och trunkera till 128 tecken
+    const fileNameSource = (file as any)?.name
+    const rawName =
+      typeof fileNameSource === "string" && fileNameSource.trim()
+        ? fileNameSource.trim()
+        : `upload_${Date.now()}`
     const safeName =
-      rawName.replace(/[^\w.\- ]+/g, "").slice(0, 128) || `upload_${Date.now()}`
+      rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
+      `upload_${Date.now()}`
+
+    const rawNamespace = options?.subfolder ? options.subfolder.trim() : ""
+    const sanitizedNamespace = rawNamespace
+      .replace(/[^A-Za-z0-9_-]/g, "-")
+      .slice(0, 64)
+    const namespace = sanitizedNamespace || createCorrelationId("upload")
+
+    const endpoint = buildUrl(
+      this.config.serverUrl,
+      "fmedataupload",
+      repository,
+      workspace,
+      safeName
+    )
+
+    const query: PrimitiveParams = {
+      opt_fullpath: "true",
+      opt_responseformat: "json",
+      opt_namespace: namespace,
+    }
 
     const headers: { [key: string]: string } = {
       Accept: "application/json",
-      "Content-Type": "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(safeName)}"`,
-      "X-Content-Type-Options": "nosniff",
+      "Content-Type":
+        file instanceof File && file.type
+          ? file.type
+          : "application/octet-stream",
     }
 
-    const resp = await this.request<{
-      path?: string
-      fullpath?: string
-      files?: any[]
+    const response = await this.request<{
+      file?: { path?: string; name?: string; size?: number }
+      session?: string
     }>(endpoint, {
-      method: HttpMethod.POST,
+      method: HttpMethod.PUT,
       headers,
-      body: file as unknown as any,
-      query: { createDirectories: "true" },
+      body: file,
+      query,
       signal: options?.signal,
+      cacheHint: false,
+      repositoryContext: repository,
     })
 
-    const resolvedPath = this.resolveUploadPath(resp?.data || {}, safeName, sub)
+    const fileInfo = response.data?.file
+    const resolvedPath =
+      typeof fileInfo?.path === "string" && fileInfo.path.trim()
+        ? fileInfo.path
+        : null
+
+    if (!resolvedPath) {
+      throw makeFlowError("DATA_UPLOAD_ERROR", response.status)
+    }
 
     return {
       data: { path: resolvedPath },
-      status: resp.status,
-      statusText: resp.statusText,
+      status: response.status,
+      statusText: response.statusText,
     }
   }
 

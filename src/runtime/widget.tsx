@@ -1345,6 +1345,7 @@ function WidgetContent(
         config: latestConfig,
         workspaceParameters,
         workspaceItem,
+        selectedWorkspaceName: workspace,
         areaWarning,
         drawnArea,
         makeCancelable,

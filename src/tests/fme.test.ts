@@ -6,8 +6,10 @@ import {
   instrumentedRequest,
   resetEsriCache,
 } from "../shared/api"
-import { sanitizeOptGetUrlParam } from "../shared/validations"
-import { applyUploadedDatasetParam } from "../shared/utils"
+import {
+  applyUploadedDatasetParam,
+  sanitizeOptGetUrlParam,
+} from "../shared/utils"
 import { ErrorType } from "../config/index"
 
 initGlobal()

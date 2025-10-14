@@ -68,6 +68,8 @@ import {
   normalizeParameterValue,
   buildChoiceSet,
   createFmeClient,
+  sanitizeOptGetUrlParam,
+  resolveUploadTargetParam,
 } from "./utils"
 import {
   isInt,
@@ -77,8 +79,6 @@ import {
   validateRequiredFields,
   createError,
   mapErrorToKey,
-  sanitizeOptGetUrlParam,
-  resolveUploadTargetParam,
 } from "./validations"
 import { safeCancelSketch } from "./hooks"
 import { fmeActions } from "../extensions/store"
@@ -1547,6 +1547,7 @@ export async function resolveRemoteDataset({
   fmeClient,
   signal,
   subfolder,
+  workspaceName,
 }: RemoteDatasetOptions): Promise<void> {
   sanitizeOptGetUrlParam(params, config)
 
@@ -1559,6 +1560,11 @@ export async function resolveRemoteDataset({
     return
   }
 
+  const targetWorkspace = toTrimmedString(workspaceName)
+  if (!targetWorkspace) {
+    throw new Error("REMOTE_DATASET_WORKSPACE_REQUIRED")
+  }
+
   if (typeof params.opt_geturl !== "undefined") {
     delete params.opt_geturl
   }
@@ -1567,6 +1573,8 @@ export async function resolveRemoteDataset({
     fmeClient.uploadToTemp(uploadFile, {
       subfolder,
       signal,
+      repository: config?.repository,
+      workspace: targetWorkspace,
     })
   )
 
@@ -1589,6 +1597,7 @@ export async function prepareSubmissionParams({
   config,
   workspaceParameters,
   workspaceItem,
+  selectedWorkspaceName,
   areaWarning,
   drawnArea,
   makeCancelable,
@@ -1644,6 +1653,10 @@ export async function prepareSubmissionParams({
     fmeClient,
     signal,
     subfolder: remoteDatasetSubfolder,
+    workspaceName:
+      toTrimmedString(workspaceItem?.name) ||
+      toTrimmedString(selectedWorkspaceName) ||
+      null,
   })
 
   onStatusChange?.("applyingDefaults")

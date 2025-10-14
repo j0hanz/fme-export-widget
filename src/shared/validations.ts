@@ -8,7 +8,6 @@ import {
   type TranslateFn,
   type FmeResponse,
   type NormalizedServiceInfo,
-  type MutableParams,
   type UrlValidation,
   type AreaEvaluation,
   type GeometryEngineLike,
@@ -43,8 +42,6 @@ import {
   safeParseUrl,
   loadArcgisModules,
   toTrimmedString,
-  sanitizeParamKey,
-  shouldApplyRemoteDatasetUrl,
 } from "./utils"
 
 // Parsar värde till nummer eller null vid invalid input
@@ -215,42 +212,6 @@ export const validateRepository = (
     return { ok: false, key: "invalidRepository" }
   }
   return { ok: true }
-}
-
-// Saniterar opt_geturl parameter baserat på config-tillåtelse
-export const sanitizeOptGetUrlParam = (
-  params: MutableParams,
-  config: FmeExportConfig | null | undefined
-): void => {
-  if (!params || typeof params !== "object") return
-
-  const current = params.opt_geturl
-  if (current === undefined || current === null) {
-    return
-  }
-
-  if (typeof current !== "string") {
-    delete params.opt_geturl
-    return
-  }
-
-  const shouldKeep = shouldApplyRemoteDatasetUrl(current, config)
-  if (!shouldKeep) {
-    delete params.opt_geturl
-    return
-  }
-
-  params.opt_geturl = current.trim()
-}
-
-// Löser upload-target parameter från config eller returnerar null
-export const resolveUploadTargetParam = (
-  config: FmeExportConfig | null | undefined
-): string | null => {
-  if (!config || !config.allowRemoteDataset) return null
-
-  const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
-  return sanitized || null
 }
 
 // Extraherar HTTP status code från error object (flera källor)

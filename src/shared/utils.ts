@@ -664,6 +664,39 @@ export const applyUploadedDatasetParam = ({
   }
 }
 
+export const sanitizeOptGetUrlParam = (
+  params: MutableParams,
+  config: FmeExportConfig | null | undefined
+): void => {
+  if (!params) return
+
+  const featureEnabled = Boolean(
+    config?.allowRemoteDataset && config?.allowRemoteUrlDataset
+  )
+
+  if (!featureEnabled) {
+    if (typeof params.opt_geturl !== "undefined") delete params.opt_geturl
+    return
+  }
+
+  const trimmed = toTrimmedString(params.opt_geturl)
+  if (trimmed && isValidExternalUrlForOptGetUrl(trimmed)) {
+    params.opt_geturl = trimmed
+    return
+  }
+
+  if (typeof params.opt_geturl !== "undefined") delete params.opt_geturl
+}
+
+export const resolveUploadTargetParam = (
+  config: FmeExportConfig | null | undefined
+): string | null => {
+  if (!config?.uploadTargetParamName) return null
+
+  const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
+  return sanitized || null
+}
+
 // Kontrollerar om navigator är offline (används för UX-varningar)
 export const isNavigatorOffline = (): boolean => {
   if (typeof navigator === "undefined") return false
