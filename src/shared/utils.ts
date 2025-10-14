@@ -73,6 +73,10 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
+// Kontrollerar om värde är icke-tom sträng (type guard)
+export const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== ""
+
 // Konverterar värde till trimmad sträng eller undefined
 export const toTrimmedString = (value: unknown): string | undefined =>
   normalizeString(value, { allowNumeric: false })

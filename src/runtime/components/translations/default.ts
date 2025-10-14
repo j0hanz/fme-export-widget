@@ -45,7 +45,6 @@ export default {
   loadingWorkspacesDetail: "Hämtar från repository…",
   loadingWorkspaceDetails: "Läser arbetsytedata…",
   loadingWorkspaceDetailsDetail: "Hämtar parametrar…",
-  prefetchingWorkspaces: "Läser arbetsytor…",
   loadingGeometryValidation: "Validerar område…",
   loadingGeometryValidationDetail: "Kontrollerar geometri…",
   pleaseWait: "Vänligen vänta…",

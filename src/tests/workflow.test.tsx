@@ -126,6 +126,5 @@ describe("Workflow workspace view", () => {
     )
 
     expect(screen.getByRole("button", { name: "Demo Arbetsyta" })).toBeVisible()
-    expect(screen.getByText("Läser arbetsytor… (1/3)")).toBeInTheDocument()
   })
 })

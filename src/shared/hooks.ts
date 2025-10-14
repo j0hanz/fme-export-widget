@@ -674,7 +674,7 @@ export const useLoadingLatch = (
 
 // Hook för att hantera senaste AbortController med cancel/create
 export const useLatestAbortController = () => {
-  const controllerRef = hooks.useLatest<AbortController | null>(null)
+  const controllerRef = React.useRef<AbortController | null>(null)
 
   // Avbryter aktuell controller och rensar referens
   const cancel = hooks.useEventCallback(() => {

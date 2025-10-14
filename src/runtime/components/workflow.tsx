@@ -63,6 +63,7 @@ import {
   buildLargeAreaWarningMessage,
   formatByteSize,
   isAbortError,
+  isNonEmptyString,
 } from "../../shared/utils"
 import {
   useFormStateManager,
@@ -112,10 +113,6 @@ const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
     state.modules || state.submission || state.workspaces || state.parameters
   )
-
-// Kontrollerar om värde är icke-tom sträng
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.trim() !== ""
 
 // Formaterar ordervärden för visning (stöder olika typer)
 const formatOrderValue = (value: unknown): string | null => {
@@ -1590,41 +1587,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
     </div>
   )
 
-  const renderPrefetchNotice = hooks.useEventCallback(() => {
-    if (workspacePrefetchStatus === "error") {
-      return (
-        <Alert
-          type="warning"
-          text={translate("failedToLoadWorkspaceDetails")}
-          variant="default"
-          withIcon={true}
-        />
-      )
-    }
-
-    if (!isPrefetchingWorkspaces) {
-      return null
-    }
-
-    const baseMessage = translate("prefetchingWorkspaces")
-    const progress = workspacePrefetchProgress
-    const progressSuffix =
-      progress && progress.total > 0
-        ? ` (${progress.loaded}/${progress.total})`
-        : ""
-
-    return (
-      <div
-        css={styles.typo.caption}
-        role="status"
-        aria-live="polite"
-        aria-atomic={true}
-      >
-        {`${baseMessage}${progressSuffix}`}
-      </div>
-    )
-  })
-
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
@@ -1676,7 +1638,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
         <div css={styles.btn.group} role="list">
           {renderWorkspaceButtons()}
         </div>
-        {renderPrefetchNotice()}
       </div>
     )
   }
