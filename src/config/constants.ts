@@ -321,6 +321,10 @@ export const MESSAGE_PATTERNS = Object.freeze([
   { pattern: /timeout/i, key: "requestTimedOut" },
   { pattern: /cors/i, key: "corsBlocked" },
   { pattern: /url.*too/i, key: "urlTooLongMessage" },
+  {
+    pattern: /remote_dataset_workspace_required/i,
+    key: "REMOTE_DATASET_WORKSPACE_REQUIRED",
+  },
 ] as const)
 
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
