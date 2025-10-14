@@ -1306,22 +1306,30 @@ export const Workflow: React.FC<WorkflowProps> = ({
   ])
 
   // Synkroniserar workspace-hämtningsstatus till Redux
-  const workspacesFetching = Boolean(workspacesQuery.isFetching)
-  const previousWorkspacesFetching = hooks.usePrevious(workspacesFetching)
+  const hasWorkspaceItems = workspaceItems.length > 0
+  const workspaceLoadingActive = canFetchWorkspaces
+    ? Boolean(
+        workspacesQuery.isLoading ||
+          (!hasWorkspaceItems && workspacesQuery.isFetching)
+      )
+    : false
+  const previousWorkspaceLoadingActive = hooks.usePrevious(
+    workspaceLoadingActive
+  )
   React.useEffect(() => {
-    if (previousWorkspacesFetching === workspacesFetching) {
+    if (previousWorkspaceLoadingActive === workspaceLoadingActive) {
       return
     }
     reduxDispatch(
       fmeActions.setLoadingFlag(
         "workspaces",
-        workspacesFetching,
+        workspaceLoadingActive,
         effectiveWidgetId
       )
     )
   }, [
-    workspacesFetching,
-    previousWorkspacesFetching,
+    workspaceLoadingActive,
+    previousWorkspaceLoadingActive,
     reduxDispatch,
     effectiveWidgetId,
   ])
@@ -1723,6 +1731,17 @@ export const Workflow: React.FC<WorkflowProps> = ({
         return renderDrawing()
       case ViewMode.EXPORT_OPTIONS:
       case ViewMode.WORKSPACE_SELECTION:
+        // Vid slutförande av ritning, visa laddning för att undvika flimmer
+        if (isCompleting) {
+          return (
+            <StateView
+              state={makeLoadingView(
+                translate("loadingGeometryValidation"),
+                translate("loadingGeometryValidationDetail")
+              )}
+            />
+          )
+        }
         return renderSelection()
       case ViewMode.EXPORT_FORM:
         return renderForm()

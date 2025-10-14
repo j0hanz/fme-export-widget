@@ -89,7 +89,7 @@ export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
 }
 
 export const LOADING_TIMEOUT_MS = 30000
-export const MS_LOADING = 1000
+export const MS_LOADING = 500
 
 export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/widgets/Sketch/SketchViewModel",

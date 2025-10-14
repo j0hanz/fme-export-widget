@@ -1167,6 +1167,7 @@ function WidgetContent(
             widgetId
           )
         )
+        // Göm ritverktygen tills vidare
       } catch (error) {
         updateAreaWarning(false)
         dispatchError(
@@ -1174,7 +1175,6 @@ function WidgetContent(
           ErrorType.VALIDATION,
           "DRAWING_COMPLETE_ERROR"
         )
-      } finally {
         isCompletingRef.current = false
       }
     }
@@ -1575,6 +1575,22 @@ function WidgetContent(
   /* Tidigare runtime-state och repository för jämförelse */
   const prevRuntimeState = hooks.usePrevious(runtimeState)
   const prevRepository = hooks.usePrevious(configuredRepository)
+
+  /* Clear isCompletingRef when workspace data is ready or loading starts */
+  hooks.useUpdateEffect(() => {
+    if (
+      isCompletingRef.current &&
+      viewMode === ViewMode.WORKSPACE_SELECTION
+    ) {
+      // Clear completing flag once workspace loading begins or data exists
+      const hasWorkspaces = workspaceItems.length > 0
+      const isLoading = loadingState.workspaces
+      
+      if (hasWorkspaces || isLoading) {
+        isCompletingRef.current = false
+      }
+    }
+  }, [viewMode, workspaceItems.length, loadingState.workspaces])
 
   /* Auto-start ritning när i DRAWING-läge */
   const canAutoStartDrawing =
