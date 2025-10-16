@@ -76,6 +76,15 @@ const TEXT_OR_FILE_MODES = {
   FILE: "file" as const,
 }
 
+// Formaterar numeriskt värde enligt angiven precision
+const formatNumericDisplay = (value: number, precision?: number): string => {
+  if (!Number.isFinite(value)) return ""
+  if (typeof precision === "number" && precision >= 0) {
+    return value.toFixed(precision)
+  }
+  return value.toString()
+}
+
 /* Hjälpfunktioner för rendering */
 
 // Renderar textbaserade inmatningsfält med typvalidering
@@ -1333,37 +1342,80 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.SLIDER: {
-        // Renderar slider-kontroll med min/max/step
-        const val = typeof fieldValue === "number" ? fieldValue : 0
+        // Renderar slider-kontroll med min/max/step och aktuell värdeetikett
+        const numericValue =
+          typeof fieldValue === "number"
+            ? fieldValue
+            : typeof fieldValue === "string" && fieldValue.trim() !== ""
+              ? Number(fieldValue)
+              : typeof field.defaultValue === "number"
+                ? field.defaultValue
+                : (field.min ?? 0)
+        const safeValue = Number.isFinite(numericValue)
+          ? numericValue
+          : (field.min ?? 0)
+        const precision =
+          typeof field.decimalPrecision === "number" &&
+          field.decimalPrecision >= 0
+            ? field.decimalPrecision
+            : undefined
+        const formattedValue = formatNumericDisplay(safeValue, precision)
         return (
-          <Slider
-            value={val}
-            min={field.min ?? 0}
-            max={field.max ?? 100}
-            step={field.step ?? 1}
-            onChange={(value) => {
-              onChange(value)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
+          <div css={styles.form.sliderField}>
+            <Slider
+              value={safeValue}
+              min={field.min ?? 0}
+              max={field.max ?? 100}
+              step={field.step ?? 1}
+              onChange={(value) => {
+                onChange(value)
+              }}
+              disabled={field.readOnly}
+              aria-label={field.label}
+            />
+            <div css={styles.form.sliderValue} aria-live="polite">
+              {formattedValue}
+            </div>
+          </div>
         )
       }
       case FormFieldType.NUMERIC_INPUT: {
         // Renderar numerisk input med precision och begränsningar
-        const val = typeof fieldValue === "number" ? fieldValue : undefined
+        const numericValue =
+          typeof fieldValue === "number"
+            ? fieldValue
+            : typeof fieldValue === "string" && fieldValue.trim() !== ""
+              ? Number(fieldValue)
+              : undefined
+        const defaultNumeric =
+          numericValue === undefined && typeof field.defaultValue === "number"
+            ? field.defaultValue
+            : undefined
+        const precision =
+          typeof field.decimalPrecision === "number" &&
+          field.decimalPrecision >= 0
+            ? field.decimalPrecision
+            : 2
+        const numericProps =
+          numericValue === undefined && defaultNumeric !== undefined
+            ? { defaultValue: defaultNumeric }
+            : { value: numericValue }
         return (
           <NumericInput
-            value={val}
+            {...numericProps}
             placeholder={field.placeholder || placeholders.enter}
             min={field.min}
             max={field.max}
             step={field.step}
-            precision={2}
+            precision={precision}
             disabled={field.readOnly}
             aria-label={field.label}
             onChange={(value) => {
-              onChange(value as FormPrimitive)
+              if (value === undefined) {
+                onChange(null)
+                return
+              }
+              onChange(value)
             }}
           />
         )

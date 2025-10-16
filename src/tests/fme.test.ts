@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom"
 import { initGlobal } from "jimu-for-test"
-import { validateWidgetStartup } from "../shared/services"
+import { ParameterFormService, validateWidgetStartup } from "../shared/services"
 import {
   createFmeFlowClient,
   instrumentedRequest,
@@ -10,7 +10,13 @@ import {
   applyUploadedDatasetParam,
   sanitizeOptGetUrlParam,
 } from "../shared/utils"
-import { ErrorType } from "../config/index"
+import {
+  ErrorType,
+  FormFieldType,
+  ParameterType,
+  type WorkspaceParameter,
+} from "../config/index"
+import { processFmeResponse } from "../shared/validations"
 
 initGlobal()
 
@@ -136,6 +142,131 @@ describe("FME shared logic", () => {
       })
 
       expect(params.DEST_DATASET).toBe("/tmp/data/sample.zip")
+    })
+  })
+
+  describe("processFmeResponse", () => {
+    const translate = (key: string): string => {
+      const map: { [key: string]: string } = {
+        jobCancelled: "Jobbet avbröts",
+        jobCancelledTimeout: "Jobbet avbröts på grund av tidsgräns",
+        jobFailed: "Jobbet misslyckades",
+        errorJobSubmission: "Beställningen misslyckades",
+        noDataInResponse: "Ingen data",
+      }
+      return map[key] ?? key
+    }
+
+    it("marks timeout cancellations with dedicated messaging", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "CANCELLED",
+            message: "Job cancelled after max execution time",
+            jobID: 501,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.code).toBe("FME_JOB_CANCELLED_TIMEOUT")
+      expect(result.message).toBe("Jobbet avbröts på grund av tidsgräns")
+      expect(result.jobId).toBe(501)
+      expect(result.status).toBe("CANCELLED")
+    })
+
+    it("maps generic cancellations to cancelled message", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "CANCELLED",
+            message: "Job cancelled by user",
+            jobID: 777,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.code).toBe("FME_JOB_CANCELLED")
+      expect(result.message).toBe("Jobbet avbröts")
+      expect(result.jobId).toBe(777)
+    })
+
+    it("falls back to failure messaging when status indicates failure", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "FAILURE",
+            message: "",
+            jobID: 900,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.code).toBe("FME_JOB_FAILURE")
+      expect(result.message).toBe("Jobbet misslyckades")
+      expect(result.status).toBe("FAILURE")
+    })
+  })
+
+  describe("ParameterFormService - range slider rendering", () => {
+    const service = new ParameterFormService()
+
+    it("returns numeric input when slider UI is disabled", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 6,
+        maximum: 8,
+        decimalPrecision: 0,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
+      expect(field.min).toBe(6)
+      expect(field.max).toBe(8)
+      expect(field.decimalPrecision).toBe(0)
+    })
+
+    it("retains slider UI when metadata prefers slider", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 1,
+        maximum: 5,
+        decimalPrecision: 2,
+        control: { useRangeSlider: true },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.SLIDER)
+      expect(field.step).toBeCloseTo(0.01)
+      expect(field.decimalPrecision).toBe(2)
     })
   })
 

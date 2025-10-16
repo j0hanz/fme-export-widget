@@ -199,6 +199,12 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     form: {
       layout: flex("column", { flex: auto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),
+      sliderField: flex("column", { gap: spacing?.(1) }),
+      sliderValue: css({
+        ...typo(typography?.label2),
+        textAlign: "center",
+        userSelect: "none",
+      }),
       content: flex("column", { flex: auto, gap }),
       body: flex("column", { flex: auto, gap, overflowY: "auto" }),
       footer: flex("column", { flex: "0 0 auto", gap }),

@@ -608,6 +608,9 @@ export interface DynamicFieldConfig {
   readonly min?: number
   readonly max?: number
   readonly step?: number
+  readonly decimalPrecision?: number
+  readonly minExclusive?: boolean
+  readonly maxExclusive?: boolean
   readonly helper?: string
   readonly scripted?: ScriptedFieldConfig
   readonly tableConfig?: TableFieldConfig

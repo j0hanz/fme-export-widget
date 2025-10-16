@@ -1416,10 +1416,19 @@ const createFmeResponse = {
     statusMessage: serviceInfo.message,
   }),
 
-  failure: (message: string) => ({
+  failure: (
+    message: string,
+    serviceInfo?: NormalizedServiceInfo,
+    code = "FME_JOB_FAILURE"
+  ) => ({
     success: false,
     message,
-    code: "FME_JOB_FAILURE",
+    code,
+    ...(typeof serviceInfo?.jobId === "number" && {
+      jobId: serviceInfo.jobId,
+    }),
+    ...(serviceInfo?.status && { status: serviceInfo.status }),
+    ...(serviceInfo?.message && { statusMessage: serviceInfo.message }),
   }),
 }
 
@@ -1450,10 +1459,58 @@ export const processFmeResponse = (
   }
 
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
+  const normalizedStatus = (serviceInfo.status || "")
+    .toString()
+    .trim()
+    .toUpperCase()
 
-  // Scheduled jobs return a jobId but no download URL (job runs later)
+  if (normalizedStatus === "CANCELLED" || normalizedStatus === "CANCELED") {
+    const statusMessage = serviceInfo.message || ""
+    const normalizedMessage = statusMessage.toLowerCase()
+    const timeoutIndicators = [
+      "timeout",
+      "time limit",
+      "time-limit",
+      "max execution",
+      "maximum execution",
+      "max runtime",
+      "maximum runtime",
+      "max run time",
+    ]
+    const isTimeout = timeoutIndicators.some((indicator) =>
+      normalizedMessage.includes(indicator)
+    )
+    const translationKey = isTimeout ? "jobCancelledTimeout" : "jobCancelled"
+    return {
+      success: false,
+      message: translateFn(translationKey),
+      code: isTimeout ? "FME_JOB_CANCELLED_TIMEOUT" : "FME_JOB_CANCELLED",
+      status: serviceInfo.status,
+      statusMessage,
+      jobId:
+        typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+    }
+  }
+
+  const failureStatuses = new Set([
+    "FAILURE",
+    "FAILED",
+    "JOB_FAILURE",
+    "FME_FAILURE",
+  ])
+
+  if (failureStatuses.has(normalizedStatus)) {
+    const failureMessage =
+      toTrimmedString(serviceInfo.message) || translateFn("jobFailed")
+    return createFmeResponse.failure(
+      failureMessage,
+      serviceInfo,
+      "FME_JOB_FAILURE"
+    )
+  }
+
   const hasValidResult =
-    serviceInfo.status === "success" ||
+    normalizedStatus === "SUCCESS" ||
     isValidDownloadUrl(serviceInfo.url) ||
     (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0)
 
@@ -1462,7 +1519,8 @@ export const processFmeResponse = (
   }
 
   return createFmeResponse.failure(
-    serviceInfo.message || translateFn("errorJobSubmission")
+    serviceInfo.message || translateFn("errorJobSubmission"),
+    serviceInfo
   )
 }
 

@@ -424,7 +424,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
       toTrimmedString(orderResult.statusMessage) ||
       ""
 
-    if (
+    if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
+      messageText = translate("jobCancelledTimeout")
+    } else if (failureCode === "FME_JOB_CANCELLED") {
+      messageText = translate("jobCancelled")
+    } else if (
       failureCode === "FME_JOB_FAILURE" ||
       /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
     ) {

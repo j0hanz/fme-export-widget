@@ -2,11 +2,20 @@ import "@testing-library/jest-dom"
 import { act, screen } from "@testing-library/react"
 import { React } from "jimu-core"
 import { initGlobal, mockTheme, withThemeIntlRender } from "jimu-for-test"
+import { DynamicField } from "../runtime/components/fields"
 import { StateView, Icon } from "../runtime/components/ui"
+import { FormFieldType } from "../config/index"
 
 initGlobal()
 
 const renderWithTheme = withThemeIntlRender(mockTheme as any)
+
+const getSliderLiveValue = (expected: string) =>
+  screen.getByText((content, element) => {
+    return (
+      content === expected && element?.getAttribute("aria-live") === "polite"
+    )
+  })
 
 describe("runtime components", () => {
   describe("StateView", () => {
@@ -77,6 +86,68 @@ describe("runtime components", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Finalising")
 
       jest.useRealTimers()
+    })
+  })
+
+  describe("DynamicField - range slider", () => {
+    it("shows current slider value with integer precision", () => {
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "range",
+            label: "Range",
+            type: FormFieldType.SLIDER,
+            required: true,
+            readOnly: false,
+            min: 6,
+            max: 8,
+            step: 1,
+            decimalPrecision: 0,
+          }}
+          value={7}
+          onChange={jest.fn()}
+          translate={(key) => key}
+        />
+      )
+
+      expect(getSliderLiveValue("7")).toBeInTheDocument()
+    })
+
+    it("formats slider label using provided decimal precision", () => {
+      const field = {
+        name: "range",
+        label: "Range",
+        type: FormFieldType.SLIDER,
+        required: true,
+        readOnly: false,
+        min: 1,
+        max: 10,
+        step: 0.01,
+        decimalPrecision: 2,
+      } as const
+      const handleChange = jest.fn()
+
+      const { rerender } = renderWithTheme(
+        <DynamicField
+          field={field}
+          value={7.25}
+          onChange={handleChange}
+          translate={(key) => key}
+        />
+      )
+
+      expect(getSliderLiveValue("7.25")).toBeInTheDocument()
+
+      rerender(
+        <DynamicField
+          field={field}
+          value={6.5}
+          onChange={handleChange}
+          translate={(key) => key}
+        />
+      )
+
+      expect(getSliderLiveValue("6.50")).toBeInTheDocument()
     })
   })
 
