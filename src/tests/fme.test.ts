@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom"
 import { initGlobal } from "jimu-for-test"
-import { validateWidgetStartup } from "../shared/services"
+import { ParameterFormService, validateWidgetStartup } from "../shared/services"
 import {
   createFmeFlowClient,
   instrumentedRequest,
@@ -10,7 +10,13 @@ import {
   applyUploadedDatasetParam,
   sanitizeOptGetUrlParam,
 } from "../shared/utils"
-import { ErrorType } from "../config/index"
+import {
+  ErrorType,
+  FormFieldType,
+  ParameterType,
+  type WorkspaceParameter,
+} from "../config/index"
+import { processFmeResponse } from "../shared/validations"
 
 initGlobal()
 
@@ -136,6 +142,322 @@ describe("FME shared logic", () => {
       })
 
       expect(params.DEST_DATASET).toBe("/tmp/data/sample.zip")
+    })
+  })
+
+  describe("processFmeResponse", () => {
+    const translate = (key: string): string => {
+      const map: { [key: string]: string } = {
+        jobCancelled: "Jobbet avbröts",
+        jobCancelledTimeout: "Jobbet avbröts på grund av tidsgräns",
+        jobFailed: "Jobbet misslyckades",
+        errorJobSubmission: "Beställningen misslyckades",
+        noDataInResponse: "Ingen data",
+      }
+      return map[key] ?? key
+    }
+
+    it("marks timeout cancellations with dedicated messaging", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "CANCELLED",
+            message: "Job cancelled after max execution time",
+            jobID: 501,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.code).toBe("FME_JOB_CANCELLED_TIMEOUT")
+      expect(result.message).toBe("Jobbet avbröts på grund av tidsgräns")
+      expect(result.jobId).toBe(501)
+      expect(result.status).toBe("CANCELLED")
+    })
+
+    it("maps generic cancellations to cancelled message", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "CANCELLED",
+            message: "Job cancelled by user",
+            jobID: 777,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.code).toBe("FME_JOB_CANCELLED")
+      expect(result.message).toBe("Jobbet avbröts")
+      expect(result.jobId).toBe(777)
+    })
+
+    it("falls back to failure messaging when status indicates failure", () => {
+      const response = {
+        data: {
+          serviceResponse: {
+            status: "FAILURE",
+            message: "",
+            jobID: 900,
+          },
+        },
+      }
+
+      const result = processFmeResponse(
+        response,
+        "Workspace",
+        "user@example.com",
+        translate
+      )
+
+      expect(result.code).toBe("FME_JOB_FAILURE")
+      expect(result.message).toBe("Jobbet misslyckades")
+      expect(result.status).toBe("FAILURE")
+    })
+  })
+
+  describe("ParameterFormService - range slider rendering", () => {
+    const service = new ParameterFormService()
+
+    it("returns numeric input when description says NO Slider", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER",
+        type: ParameterType.RANGE_SLIDER,
+        description: "Enter seven NO Slider",
+        optional: false,
+        minimum: 6,
+        maximum: 8,
+        decimalPrecision: 0,
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
+      expect(field.min).toBe(6)
+      expect(field.max).toBe(8)
+      expect(field.decimalPrecision).toBe(0)
+    })
+
+    it("returns slider UI when description mentions Slider", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER_2",
+        type: ParameterType.RANGE_SLIDER,
+        description: "Enter greater then seven less then 12 Slider",
+        optional: false,
+        minimum: 1,
+        maximum: 12,
+        decimalPrecision: 0,
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.SLIDER)
+      expect(field.step).toBe(1)
+      expect(field.decimalPrecision).toBe(0)
+    })
+
+    it("returns numeric input when control.useRangeSlider is false", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 6,
+        maximum: 8,
+        decimalPrecision: 0,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
+      expect(field.min).toBe(6)
+      expect(field.max).toBe(8)
+      expect(field.decimalPrecision).toBe(0)
+    })
+
+    it("retains slider UI when control.useRangeSlider is true", () => {
+      const param: WorkspaceParameter = {
+        name: "NUMBER",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 1,
+        maximum: 5,
+        decimalPrecision: 2,
+        control: { useRangeSlider: true },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.SLIDER)
+      expect(field.step).toBeCloseTo(0.01)
+      expect(field.decimalPrecision).toBe(2)
+    })
+
+    it("defaults to numeric input when no slider indicator present", () => {
+      const param: WorkspaceParameter = {
+        name: "DEFAULT_SLIDER",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 0,
+        maximum: 10,
+        decimalPrecision: 0,
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.SLIDER)
+      expect(field.min).toBe(0)
+      expect(field.max).toBe(10)
+      expect(field.step).toBe(1)
+    })
+
+    it("validates integer precision (no decimals allowed)", () => {
+      const param: WorkspaceParameter = {
+        name: "INT_PARAM",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 1,
+        maximum: 10,
+        decimalPrecision: 0,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
+      expect(field.decimalPrecision).toBe(0)
+
+      // Validate that decimal values are rejected
+      const validation = service.validateFormValues(
+        { INT_PARAM: 7.5 },
+        [field]
+      )
+      expect(validation.isValid).toBe(false)
+      expect(validation.errors.INT_PARAM).toBeDefined()
+    })
+
+    it("validates float precision (decimals allowed)", () => {
+      const param: WorkspaceParameter = {
+        name: "FLOAT_PARAM",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 0,
+        maximum: 100,
+        decimalPrecision: 2,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
+      expect(field.decimalPrecision).toBe(2)
+
+      // Validate that decimal values are accepted
+      const validation1 = service.validateFormValues(
+        { FLOAT_PARAM: 75.25 },
+        [field]
+      )
+      expect(validation1.isValid).toBe(true)
+
+      // Validate that integer values are also accepted
+      const validation2 = service.validateFormValues(
+        { FLOAT_PARAM: 75 },
+        [field]
+      )
+      expect(validation2.isValid).toBe(true)
+    })
+
+    it("validates min/max exclusive boundaries", () => {
+      const param: WorkspaceParameter = {
+        name: "EXCLUSIVE_PARAM",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 5,
+        maximum: 10,
+        minimumExclusive: true,
+        maximumExclusive: true,
+        decimalPrecision: 0,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.minExclusive).toBe(true)
+      expect(field.maxExclusive).toBe(true)
+
+      // Value equal to min should fail (exclusive)
+      const validation1 = service.validateFormValues(
+        { EXCLUSIVE_PARAM: 5 },
+        [field]
+      )
+      expect(validation1.isValid).toBe(false)
+
+      // Value equal to max should fail (exclusive)
+      const validation2 = service.validateFormValues(
+        { EXCLUSIVE_PARAM: 10 },
+        [field]
+      )
+      expect(validation2.isValid).toBe(false)
+
+      // Value within exclusive range should pass
+      const validation3 = service.validateFormValues(
+        { EXCLUSIVE_PARAM: 7 },
+        [field]
+      )
+      expect(validation3.isValid).toBe(true)
+    })
+
+    it("validates min/max inclusive boundaries", () => {
+      const param: WorkspaceParameter = {
+        name: "INCLUSIVE_PARAM",
+        type: ParameterType.RANGE_SLIDER,
+        optional: false,
+        minimum: 5,
+        maximum: 10,
+        minimumExclusive: false,
+        maximumExclusive: false,
+        decimalPrecision: 0,
+        control: { useRangeSlider: false },
+      }
+
+      const [field] = service.convertParametersToFields([param])
+
+      expect(field.minExclusive).toBe(false)
+      expect(field.maxExclusive).toBe(false)
+
+      // Value equal to min should pass (inclusive)
+      const validation1 = service.validateFormValues(
+        { INCLUSIVE_PARAM: 5 },
+        [field]
+      )
+      expect(validation1.isValid).toBe(true)
+
+      // Value equal to max should pass (inclusive)
+      const validation2 = service.validateFormValues(
+        { INCLUSIVE_PARAM: 10 },
+        [field]
+      )
+      expect(validation2.isValid).toBe(true)
+
+      // Value outside range should fail
+      const validation3 = service.validateFormValues(
+        { INCLUSIVE_PARAM: 11 },
+        [field]
+      )
+      expect(validation3.isValid).toBe(false)
     })
   })
 

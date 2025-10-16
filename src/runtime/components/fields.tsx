@@ -76,6 +76,15 @@ const TEXT_OR_FILE_MODES = {
   FILE: "file" as const,
 }
 
+// Formaterar numeriskt värde enligt angiven precision
+const formatNumericDisplay = (value: number, precision?: number): string => {
+  if (!Number.isFinite(value)) return ""
+  if (typeof precision === "number" && precision >= 0) {
+    return value.toFixed(precision)
+  }
+  return value.toString()
+}
+
 /* Hjälpfunktioner för rendering */
 
 // Renderar textbaserade inmatningsfält med typvalidering
@@ -1333,39 +1342,136 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.SLIDER: {
-        // Renderar slider-kontroll med min/max/step
-        const val = typeof fieldValue === "number" ? fieldValue : 0
+        // Renderar slider-kontroll med min/max/step och aktuell värdeetikett
+        const numericValue =
+          typeof fieldValue === "number"
+            ? fieldValue
+            : typeof fieldValue === "string" && fieldValue.trim() !== ""
+              ? Number(fieldValue)
+              : typeof field.defaultValue === "number"
+                ? field.defaultValue
+                : (field.min ?? 0)
+        const safeValue = Number.isFinite(numericValue)
+          ? numericValue
+          : (field.min ?? 0)
+        const precision =
+          typeof field.decimalPrecision === "number" &&
+          field.decimalPrecision >= 0
+            ? field.decimalPrecision
+            : undefined
+        const formattedValue = formatNumericDisplay(safeValue, precision)
         return (
-          <Slider
-            value={val}
-            min={field.min ?? 0}
-            max={field.max ?? 100}
-            step={field.step ?? 1}
-            onChange={(value) => {
-              onChange(value)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
+          <div css={styles.form.sliderField}>
+            <Slider
+              value={safeValue}
+              min={field.min ?? 0}
+              max={field.max ?? 100}
+              step={field.step ?? 1}
+              onChange={(value) => {
+                onChange(value)
+              }}
+              disabled={field.readOnly}
+              aria-label={field.label}
+            />
+            <div css={styles.form.sliderValue} aria-live="polite">
+              {formattedValue}
+            </div>
+          </div>
         )
       }
       case FormFieldType.NUMERIC_INPUT: {
         // Renderar numerisk input med precision och begränsningar
-        const val = typeof fieldValue === "number" ? fieldValue : undefined
+        const numericValue =
+          typeof fieldValue === "number"
+            ? fieldValue
+            : typeof fieldValue === "string" && fieldValue.trim() !== ""
+              ? Number(fieldValue)
+              : undefined
+        const defaultNumeric =
+          numericValue === undefined && typeof field.defaultValue === "number"
+            ? field.defaultValue
+            : undefined
+        const precision =
+          typeof field.decimalPrecision === "number" &&
+          field.decimalPrecision >= 0
+            ? field.decimalPrecision
+            : 2
+
+        // Validera numerisk input och generera felmeddelande
+        let validationError: string | null = null
+        if (numericValue !== undefined && Number.isFinite(numericValue)) {
+          // Kontrollera om decimaltal är tillåtet (precision = 0 => endast heltal)
+          if (precision === 0) {
+            const hasDecimals = numericValue % 1 !== 0
+            if (hasDecimals) {
+              validationError = translate("integerRequired")
+            }
+          }
+
+          // Kontrollera min-begränsning
+          if (!validationError && typeof field.min === "number") {
+            const belowMin = field.minExclusive
+              ? numericValue <= field.min
+              : numericValue < field.min
+            if (belowMin) {
+              validationError = field.minExclusive
+                ? translate("mustBeGreaterThan", { value: field.min })
+                : translate("mustBeAtLeast", { value: field.min })
+            }
+          }
+
+          // Kontrollera max-begränsning
+          if (!validationError && typeof field.max === "number") {
+            const aboveMax = field.maxExclusive
+              ? numericValue >= field.max
+              : numericValue > field.max
+            if (aboveMax) {
+              validationError = field.maxExclusive
+                ? translate("mustBeLessThan", { value: field.max })
+                : translate("mustBeAtMost", { value: field.max })
+            }
+          }
+        }
+
+        const numericProps =
+          numericValue === undefined && defaultNumeric !== undefined
+            ? { defaultValue: defaultNumeric }
+            : { value: numericValue }
+
         return (
-          <NumericInput
-            value={val}
-            placeholder={field.placeholder || placeholders.enter}
-            min={field.min}
-            max={field.max}
-            step={field.step}
-            precision={2}
-            disabled={field.readOnly}
-            aria-label={field.label}
-            onChange={(value) => {
-              onChange(value as FormPrimitive)
-            }}
-          />
+          <div>
+            <NumericInput
+              {...numericProps}
+              placeholder={field.placeholder || placeholders.enter}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              precision={precision}
+              disabled={field.readOnly}
+              aria-label={field.label}
+              aria-invalid={!!validationError}
+              aria-describedby={
+                validationError ? `${field.name}-error` : undefined
+              }
+              onChange={(value) => {
+                if (value === undefined) {
+                  onChange(null)
+                  return
+                }
+                onChange(value)
+              }}
+            />
+            {validationError && (
+              <div
+                id={`${field.name}-error`}
+                css={styles.typo.hint}
+                role="alert"
+                data-testid="numeric-input-error"
+              >
+                {validationError}
+              </div>
+            )}
+          </div>
         )
       }
       case FormFieldType.TAG_INPUT: {

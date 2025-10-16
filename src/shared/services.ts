@@ -205,24 +205,129 @@ export class ParameterFormService {
     })
   }
 
-  // Extraherar slider-metadata (min/max/step) från RANGE_SLIDER-parametrar
-  private getSliderMeta(param: WorkspaceParameter): {
+  // Normaliserar decimalprecision till heltal >= 0 (max 6 för att undvika flyttalsfel)
+  private getDecimalPrecision(param: WorkspaceParameter): number | undefined {
+    const raw = param.decimalPrecision
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+      return undefined
+    }
+    const clamped = Math.floor(raw)
+    return clamped >= 0 ? Math.min(clamped, 6) : undefined
+  }
+
+  // Extraherar slider-/range-metadata (min/max/step/exklusivitet)
+  private getSliderMeta(
+    param: WorkspaceParameter,
+    precision: number | undefined,
+    useSliderUi: boolean
+  ): {
     min?: number
     max?: number
     step?: number
+    minExclusive?: boolean
+    maxExclusive?: boolean
   } {
-    const isRange = param.type === ParameterType.RANGE_SLIDER
-    if (!isRange) return {}
-    const precision =
-      typeof param.decimalPrecision === "number" &&
-      Number.isFinite(param.decimalPrecision) &&
-      param.decimalPrecision >= 0
-        ? Math.floor(param.decimalPrecision)
-        : 0
-    const min = typeof param.minimum === "number" ? param.minimum : 0
-    const max = typeof param.maximum === "number" ? param.maximum : 100
-    const step = precision > 0 ? Number(`0.${"0".repeat(precision - 1)}1`) : 1
-    return { min, max, step }
+    const minExclusive =
+      typeof param.minimumExclusive === "boolean"
+        ? param.minimumExclusive
+        : false
+    const maxExclusive =
+      typeof param.maximumExclusive === "boolean"
+        ? param.maximumExclusive
+        : false
+
+    if (param.type !== ParameterType.RANGE_SLIDER) {
+      return {
+        min: typeof param.minimum === "number" ? param.minimum : undefined,
+        max: typeof param.maximum === "number" ? param.maximum : undefined,
+        minExclusive,
+        maxExclusive,
+      }
+    }
+
+    const hasMin = typeof param.minimum === "number"
+    const hasMax = typeof param.maximum === "number"
+    const resolvedPrecision =
+      typeof precision === "number" && precision >= 0
+        ? Math.floor(precision)
+        : undefined
+
+    const min = hasMin ? param.minimum : useSliderUi ? 0 : undefined
+    const max = hasMax ? param.maximum : useSliderUi ? 100 : undefined
+
+    let step: number | undefined
+    if (resolvedPrecision !== undefined) {
+      step =
+        resolvedPrecision > 0
+          ? Number(`0.${"0".repeat(resolvedPrecision - 1)}1`)
+          : 1
+    } else if (useSliderUi) {
+      step = 1
+    }
+
+    return {
+      min,
+      max,
+      step,
+      minExclusive,
+      maxExclusive,
+    }
+  }
+
+  // Tolkar booleanliknande värden från metadata
+  private resolveBooleanFlag(
+    source: { readonly [key: string]: unknown } | null | undefined,
+    keys: readonly string[]
+  ): boolean | undefined {
+    if (!isPlainObject(source)) return undefined
+    for (const key of keys) {
+      if (!(key in source)) continue
+      const raw = (source as { readonly [key: string]: unknown })[key]
+      if (typeof raw === "boolean") return raw
+      if (typeof raw === "number") {
+        if (raw === 1) return true
+        if (raw === 0) return false
+      }
+      if (typeof raw === "string") {
+        const normalized = raw.trim().toLowerCase()
+        if (["true", "1", "yes", "y", "on"].includes(normalized)) {
+          return true
+        }
+        if (["false", "0", "no", "n", "off"].includes(normalized)) {
+          return false
+        }
+      }
+    }
+    return undefined
+  }
+
+  // Avgör om RANGE_SLIDER ska använda slider-UI eller numeriskt fält
+  private shouldUseRangeSliderUi(param: WorkspaceParameter): boolean {
+    if (param.type !== ParameterType.RANGE_SLIDER) return false
+    if (param.control && typeof param.control === "object") {
+      const controlAny = param.control as any
+      if (typeof controlAny.useRangeSlider === "boolean") {
+        return controlAny.useRangeSlider
+      }
+      if (typeof controlAny.useSlider === "boolean") {
+        return controlAny.useSlider
+      }
+    }
+    const description = (param.description || "").toLowerCase()
+    const name = (param.name || "").toLowerCase()
+    if (
+      description.includes("no slider") ||
+      description.includes("noslider") ||
+      description.includes("without slider")
+    ) {
+      return false
+    }
+
+    // Om beskrivningen innehåller "slider", använd slider-UI
+    if (description.includes("slider") || name.includes("slider")) {
+      return true
+    }
+    return false
   }
 
   // Samlar metadata från olika källor (metadata, attributes, definition etc.)
@@ -1091,7 +1196,16 @@ export class ParameterFormService {
     if (!parameters?.length) return []
 
     return this.getRenderableParameters(parameters).map((param) => {
-      const type = this.getFieldType(param)
+      const baseType = this.getFieldType(param)
+      const decimalPrecision = this.getDecimalPrecision(param)
+      const sliderUiPreferred =
+        param.type === ParameterType.RANGE_SLIDER
+          ? this.shouldUseRangeSliderUi(param)
+          : false
+      const type =
+        param.type === ParameterType.RANGE_SLIDER && !sliderUiPreferred
+          ? FormFieldType.NUMERIC_INPUT
+          : baseType
       const options = this.mapListOptions(param.listOptions)
       const scripted = this.deriveScriptedConfig(param, options)
       const tableConfig = this.deriveTableConfig(param)
@@ -1106,7 +1220,11 @@ export class ParameterFormService {
         dateTimeConfig?.helperText ??
         fileConfig?.helperText ??
         selectConfig?.instructions
-      const { min, max, step } = this.getSliderMeta(param)
+      const { min, max, step, minExclusive, maxExclusive } = this.getSliderMeta(
+        param,
+        decimalPrecision,
+        sliderUiPreferred
+      )
 
       const field: DynamicFieldConfig = {
         name: param.name,
@@ -1131,6 +1249,21 @@ export class ParameterFormService {
           max,
           step,
         }),
+        ...((type === FormFieldType.SLIDER ||
+          type === FormFieldType.NUMERIC_INPUT) &&
+          decimalPrecision !== undefined && {
+            decimalPrecision,
+          }),
+        ...((type === FormFieldType.SLIDER ||
+          type === FormFieldType.NUMERIC_INPUT) &&
+          minExclusive !== undefined && {
+            minExclusive,
+          }),
+        ...((type === FormFieldType.SLIDER ||
+          type === FormFieldType.NUMERIC_INPUT) &&
+          maxExclusive !== undefined && {
+            maxExclusive,
+          }),
         ...(helper && { helper }),
         ...(scripted && { scripted }),
         ...(tableConfig && { tableConfig }),
@@ -1208,10 +1341,65 @@ export class ParameterFormService {
         errors[field.name] = ""
       } else if (
         hasValue &&
-        field.type === FormFieldType.NUMBER &&
+        (field.type === FormFieldType.NUMBER ||
+          field.type === FormFieldType.NUMERIC_INPUT) &&
         !isNum(value)
       ) {
         errors[field.name] = ""
+        continue
+      }
+
+      if (
+        hasValue &&
+        (field.type === FormFieldType.NUMBER ||
+          field.type === FormFieldType.NUMERIC_INPUT ||
+          field.type === FormFieldType.SLIDER)
+      ) {
+        const numericValue = Number(value)
+        if (!Number.isFinite(numericValue)) {
+          errors[field.name] = ""
+          continue
+        }
+
+        if (typeof field.min === "number") {
+          const belowMin = field.minExclusive
+            ? numericValue <= field.min
+            : numericValue < field.min
+          if (belowMin) {
+            errors[field.name] = ""
+            continue
+          }
+        }
+
+        if (typeof field.max === "number") {
+          const aboveMax = field.maxExclusive
+            ? numericValue >= field.max
+            : numericValue > field.max
+          if (aboveMax) {
+            errors[field.name] = ""
+            continue
+          }
+        }
+      }
+
+      if (
+        hasValue &&
+        field.type === FormFieldType.NUMERIC_INPUT &&
+        typeof field.decimalPrecision === "number" &&
+        field.decimalPrecision >= 0 &&
+        Number.isFinite(Number(value))
+      ) {
+        const numericValue = Number(value)
+        const precisionScale = Math.pow(10, field.decimalPrecision)
+        if (Number.isFinite(precisionScale)) {
+          const scaled = numericValue * precisionScale
+          const rounded = Math.round(scaled)
+          if (Math.abs(scaled - rounded) > Number.EPSILON) {
+            errors[field.name] = ""
+          }
+        } else {
+          errors[field.name] = ""
+        }
       }
     }
 

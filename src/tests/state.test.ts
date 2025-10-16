@@ -20,7 +20,7 @@ const wrapState = (state: ReturnType<typeof reducer>) =>
   }) as any
 
 describe("fme Redux state", () => {
-  it("tracks geometry updates and revisions", () => {
+  it("tracks geometry updates", () => {
     let state = reducer(undefined, { type: "@@INIT" })
     const selectors = createFmeSelectors(widgetId)
 
@@ -34,14 +34,12 @@ describe("fme Redux state", () => {
     const wrapped = wrapState(state)
     expect(selectors.selectGeometryJson(wrapped)).toEqual(stubGeometryJson)
     expect(selectors.selectDrawnArea(wrapped)).toBe(1250)
-    const revisionAfterFirst = selectors.selectGeometryRevision(wrapped)
-    expect(revisionAfterFirst).toBeGreaterThan(0)
 
     state = reducer(state, fmeActions.setGeometry(stubGeometry, 1250, widgetId))
-    const revisionAfterSecond = selectors.selectGeometryRevision(
-      wrapState(state)
+    expect(selectors.selectGeometryJson(wrapState(state))).toEqual(
+      stubGeometryJson
     )
-    expect(revisionAfterSecond).toBeGreaterThanOrEqual(revisionAfterFirst)
+    expect(selectors.selectDrawnArea(wrapState(state))).toBe(1250)
 
     const updatedGeometry = {
       toJSON: () => ({ rings: [[[1, 1]]] }),
@@ -50,10 +48,10 @@ describe("fme Redux state", () => {
       state,
       fmeActions.setGeometry(updatedGeometry, 3000, widgetId)
     )
-    const revisionAfterChange = selectors.selectGeometryRevision(
-      wrapState(state)
-    )
-    expect(revisionAfterChange).toBeGreaterThan(revisionAfterSecond)
+    expect(selectors.selectGeometryJson(wrapState(state))).toEqual({
+      rings: [[[1, 1]]],
+    })
+    expect(selectors.selectDrawnArea(wrapState(state))).toBe(3000)
   })
 
   it("derives export availability from combined state", () => {
@@ -133,11 +131,13 @@ describe("fme Redux state", () => {
     }
 
     state = reducer(state, fmeActions.setErrors({ general: warning }, widgetId))
-    expect(selectors.selectError(wrapState(state))?.scope).toBe("general")
+    expect(selectors.selectPrimaryError(wrapState(state))?.scope).toBe(
+      "general"
+    )
 
     state = reducer(state, fmeActions.setErrors({ export: critical }, widgetId))
 
-    const active = selectors.selectError(wrapState(state))
+    const active = selectors.selectPrimaryError(wrapState(state))
     expect(active?.scope).toBe("export")
     expect(active?.details.severity).toBe(ErrorSeverity.ERROR)
   })
