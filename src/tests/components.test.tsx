@@ -154,7 +154,8 @@ describe("runtime components", () => {
   describe("DynamicField - numeric input validation", () => {
     it("displays error for decimal input when integer required", () => {
       const translate = (key: string, params?: any) => {
-        if (key === "integerRequired") return "Heltal krävs (decimaler ej tillåtna)"
+        if (key === "integerRequired")
+          return "Heltal krävs (decimaler ej tillåtna)"
         return key
       }
 
@@ -183,7 +184,8 @@ describe("runtime components", () => {
 
     it("displays error when value exceeds exclusive maximum", () => {
       const translate = (key: string, params?: any) => {
-        if (key === "mustBeLessThan") return `Måste vara mindre än ${params.value}`
+        if (key === "mustBeLessThan")
+          return `Måste vara mindre än ${params.value}`
         return key
       }
 
@@ -212,7 +214,8 @@ describe("runtime components", () => {
 
     it("displays error when value is below exclusive minimum", () => {
       const translate = (key: string, params?: any) => {
-        if (key === "mustBeGreaterThan") return `Måste vara större än ${params.value}`
+        if (key === "mustBeGreaterThan")
+          return `Måste vara större än ${params.value}`
         return key
       }
 

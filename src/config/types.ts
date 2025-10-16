@@ -1210,6 +1210,7 @@ export interface JobDirectivesSectionProps {
     readonly tm_ttc: string
     readonly tm_ttl: string
   }
+  readonly showTmTtc?: boolean
 }
 
 export type WorkspacePrefetchStatus = "idle" | "loading" | "success" | "error"
