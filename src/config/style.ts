@@ -204,6 +204,8 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         ...typo(typography?.label2),
         textAlign: "center",
         userSelect: "none",
+        marginBlockStart: spacing?.(0.5) || "4px",
+        fontSize: typography?.body2?.fontSize || "0.875rem",
       }),
       content: flex("column", { flex: auto, gap }),
       body: flex("column", { flex: auto, gap, overflowY: "auto" }),

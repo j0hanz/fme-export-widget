@@ -1396,28 +1396,82 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           field.decimalPrecision >= 0
             ? field.decimalPrecision
             : 2
+
+        // Validera numerisk input och generera felmeddelande
+        let validationError: string | null = null
+        if (numericValue !== undefined && Number.isFinite(numericValue)) {
+          // Kontrollera om decimaltal är tillåtet (precision = 0 => endast heltal)
+          if (precision === 0) {
+            const hasDecimals = numericValue % 1 !== 0
+            if (hasDecimals) {
+              validationError = translate("integerRequired")
+            }
+          }
+
+          // Kontrollera min-begränsning
+          if (!validationError && typeof field.min === "number") {
+            const belowMin = field.minExclusive
+              ? numericValue <= field.min
+              : numericValue < field.min
+            if (belowMin) {
+              validationError = field.minExclusive
+                ? translate("mustBeGreaterThan", { value: field.min })
+                : translate("mustBeAtLeast", { value: field.min })
+            }
+          }
+
+          // Kontrollera max-begränsning
+          if (!validationError && typeof field.max === "number") {
+            const aboveMax = field.maxExclusive
+              ? numericValue >= field.max
+              : numericValue > field.max
+            if (aboveMax) {
+              validationError = field.maxExclusive
+                ? translate("mustBeLessThan", { value: field.max })
+                : translate("mustBeAtMost", { value: field.max })
+            }
+          }
+        }
+
         const numericProps =
           numericValue === undefined && defaultNumeric !== undefined
             ? { defaultValue: defaultNumeric }
             : { value: numericValue }
+
         return (
-          <NumericInput
-            {...numericProps}
-            placeholder={field.placeholder || placeholders.enter}
-            min={field.min}
-            max={field.max}
-            step={field.step}
-            precision={precision}
-            disabled={field.readOnly}
-            aria-label={field.label}
-            onChange={(value) => {
-              if (value === undefined) {
-                onChange(null)
-                return
+          <div>
+            <NumericInput
+              {...numericProps}
+              placeholder={field.placeholder || placeholders.enter}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              precision={precision}
+              disabled={field.readOnly}
+              aria-label={field.label}
+              aria-invalid={!!validationError}
+              aria-describedby={
+                validationError ? `${field.name}-error` : undefined
               }
-              onChange(value)
-            }}
-          />
+              onChange={(value) => {
+                if (value === undefined) {
+                  onChange(null)
+                  return
+                }
+                onChange(value)
+              }}
+            />
+            {validationError && (
+              <div
+                id={`${field.name}-error`}
+                css={styles.typo.hint}
+                role="alert"
+                data-testid="numeric-input-error"
+              >
+                {validationError}
+              </div>
+            )}
+          </div>
         )
       }
       case FormFieldType.TAG_INPUT: {

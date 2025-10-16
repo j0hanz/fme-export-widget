@@ -304,77 +304,30 @@ export class ParameterFormService {
   // Avgör om RANGE_SLIDER ska använda slider-UI eller numeriskt fält
   private shouldUseRangeSliderUi(param: WorkspaceParameter): boolean {
     if (param.type !== ParameterType.RANGE_SLIDER) return false
-
-    const booleanKeys = [
-      "useRangeSlider",
-      "useSlider",
-      "rangeSlider",
-      "slider",
-      "sliderEnabled",
-      "isSlider",
-      "showSlider",
-    ] as const
-
-    const sources = [
-      param.control,
-      param.metadata,
-      param.definition,
-      param.attributes,
-      param.ui,
-      param.extra,
-    ]
-
-    for (const source of sources) {
-      const resolved = this.resolveBooleanFlag(source, booleanKeys)
-      if (resolved !== undefined) return resolved
-      if (isPlainObject(source) && isPlainObject((source as any).slider)) {
-        const nested = this.resolveBooleanFlag((source as any).slider, [
-          "enabled",
-          "visible",
-          "useRangeSlider",
-        ])
-        if (nested !== undefined) return nested
+    if (param.control && typeof param.control === "object") {
+      const controlAny = param.control as any
+      if (typeof controlAny.useRangeSlider === "boolean") {
+        return controlAny.useRangeSlider
+      }
+      if (typeof controlAny.useSlider === "boolean") {
+        return controlAny.useSlider
       }
     }
-
-    const meta = this.getParameterMetadata(param)
-    const metaFlag = this.resolveBooleanFlag(meta, booleanKeys)
-    if (metaFlag !== undefined) return metaFlag
-
-    if (isPlainObject((meta as any)?.slider)) {
-      const nested = this.resolveBooleanFlag((meta as any).slider, [
-        "enabled",
-        "visible",
-        "useRangeSlider",
-      ])
-      if (nested !== undefined) return nested
+    const description = (param.description || "").toLowerCase()
+    const name = (param.name || "").toLowerCase()
+    if (
+      description.includes("no slider") ||
+      description.includes("noslider") ||
+      description.includes("without slider")
+    ) {
+      return false
     }
 
-    const controlType =
-      pickString(meta, [
-        "controlType",
-        "uiControl",
-        "component",
-        "editor",
-        "widget",
-        "control",
-      ]) ||
-      pickString(param.control as any, ["type", "controlType", "component"])
-
-    if (typeof controlType === "string" && controlType.trim()) {
-      const normalized = controlType.trim().toLowerCase()
-      if (normalized.includes("slider")) return true
-      if (
-        normalized.includes("textbox") ||
-        normalized.includes("input") ||
-        normalized.includes("field") ||
-        normalized.includes("text")
-      ) {
-        return false
-      }
+    // Om beskrivningen innehåller "slider", använd slider-UI
+    if (description.includes("slider") || name.includes("slider")) {
+      return true
     }
-
-    return true
+    return false
   }
 
   // Samlar metadata från olika källor (metadata, attributes, definition etc.)

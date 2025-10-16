@@ -151,6 +151,166 @@ describe("runtime components", () => {
     })
   })
 
+  describe("DynamicField - numeric input validation", () => {
+    it("displays error for decimal input when integer required", () => {
+      const translate = (key: string, params?: any) => {
+        if (key === "integerRequired") return "Heltal krävs (decimaler ej tillåtna)"
+        return key
+      }
+
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "int_param",
+            label: "Integer Parameter",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 1,
+            max: 10,
+            decimalPrecision: 0,
+          }}
+          value={7.5}
+          onChange={jest.fn()}
+          translate={translate}
+        />
+      )
+
+      const error = screen.getByTestId("numeric-input-error")
+      expect(error).toHaveTextContent("Heltal krävs (decimaler ej tillåtna)")
+      expect(error).toHaveAttribute("role", "alert")
+    })
+
+    it("displays error when value exceeds exclusive maximum", () => {
+      const translate = (key: string, params?: any) => {
+        if (key === "mustBeLessThan") return `Måste vara mindre än ${params.value}`
+        return key
+      }
+
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "exclusive_param",
+            label: "Exclusive Parameter",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 0,
+            max: 10,
+            maxExclusive: true,
+            decimalPrecision: 0,
+          }}
+          value={10}
+          onChange={jest.fn()}
+          translate={translate}
+        />
+      )
+
+      const error = screen.getByTestId("numeric-input-error")
+      expect(error).toHaveTextContent("Måste vara mindre än 10")
+    })
+
+    it("displays error when value is below exclusive minimum", () => {
+      const translate = (key: string, params?: any) => {
+        if (key === "mustBeGreaterThan") return `Måste vara större än ${params.value}`
+        return key
+      }
+
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "exclusive_min",
+            label: "Exclusive Min",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 5,
+            max: 15,
+            minExclusive: true,
+            decimalPrecision: 0,
+          }}
+          value={5}
+          onChange={jest.fn()}
+          translate={translate}
+        />
+      )
+
+      const error = screen.getByTestId("numeric-input-error")
+      expect(error).toHaveTextContent("Måste vara större än 5")
+    })
+
+    it("does not display error for valid decimal input with float precision", () => {
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "float_param",
+            label: "Float Parameter",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 0,
+            max: 100,
+            decimalPrecision: 2,
+          }}
+          value={75.25}
+          onChange={jest.fn()}
+          translate={(key) => key}
+        />
+      )
+
+      const error = screen.queryByTestId("numeric-input-error")
+      expect(error).not.toBeInTheDocument()
+    })
+
+    it("does not display error for integer value with float precision", () => {
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "float_param",
+            label: "Float Parameter",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 0,
+            max: 100,
+            decimalPrecision: 2,
+          }}
+          value={75}
+          onChange={jest.fn()}
+          translate={(key) => key}
+        />
+      )
+
+      const error = screen.queryByTestId("numeric-input-error")
+      expect(error).not.toBeInTheDocument()
+    })
+
+    it("does not display error for value within inclusive bounds", () => {
+      renderWithTheme(
+        <DynamicField
+          field={{
+            name: "inclusive_param",
+            label: "Inclusive Parameter",
+            type: FormFieldType.NUMERIC_INPUT,
+            required: true,
+            readOnly: false,
+            min: 5,
+            max: 10,
+            minExclusive: false,
+            maxExclusive: false,
+            decimalPrecision: 0,
+          }}
+          value={5}
+          onChange={jest.fn()}
+          translate={(key) => key}
+        />
+      )
+
+      const error = screen.queryByTestId("numeric-input-error")
+      expect(error).not.toBeInTheDocument()
+    })
+  })
+
   describe("Icon", () => {
     it("resolves bundled icons to inline svg", () => {
       const { container } = renderWithTheme(

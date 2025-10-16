@@ -104,8 +104,6 @@ export default {
   ariaSuccessActions: "Lyckade åtgärder",
   ariaRequired: "Obligatoriskt",
   configureWorkspaceParameters: "Konfigurera arbetsytans parametrar",
-
-  // SCHEDULE FIELDS
   scheduleStartLabel: "Starttid",
   scheduleStartHelper: "Format: ÅÅÅÅ-MM-DD TT:MM:SS (FME Servers lokala tid)",
   scheduleStartPlaceholder: "2025-01-15 14:30:00",
@@ -130,8 +128,6 @@ export default {
   scheduleTrigger: "Utlösare",
   blobType: "Filtyp",
   blobSize: "Filstorlek",
-
-  // VALIDATION ERRORS
   SCHEDULE_START_REQUIRED: "Starttid krävs för schemalagda jobb",
   SCHEDULE_START_INVALID_FORMAT:
     "Ogiltigt datumformat. Använd: ÅÅÅÅ-MM-DD TT:MM:SS",
@@ -166,4 +162,10 @@ export default {
   fileInputHint: "Accepterar: .zip, .kmz, .json, .geojson, .gml (max 150 MB)",
   invalidDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
   errorLoadingTimeout: "Inläsningen tog för lång tid. Försök igen.",
+  integerRequired: "Heltal krävs (decimaler ej tillåtna)",
+  invalidNumber: "Ogiltigt nummer",
+  mustBeGreaterThan: "Måste vara större än {value}",
+  mustBeAtLeast: "Måste vara minst {value}",
+  mustBeLessThan: "Måste vara mindre än {value}",
+  mustBeAtMost: "Måste vara högst {value}",
 }
