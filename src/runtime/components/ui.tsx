@@ -46,6 +46,7 @@ import {
   getBtnAria,
   ariaDesc,
   pad2,
+  formatNumericDisplay,
 } from "../../shared/utils"
 import {
   validateScheduleDateTime,
@@ -590,6 +591,8 @@ export const Slider: React.FC<{
   style?: React.CSSProperties
   disabled?: boolean
   "aria-label"?: string
+  decimalPrecision?: number
+  showValue?: boolean
 }> = ({
   value,
   defaultValue,
@@ -600,25 +603,52 @@ export const Slider: React.FC<{
   style,
   disabled,
   "aria-label": ariaLabel,
+  decimalPrecision,
+  showValue = true,
 }) => {
   const styles = useStyles()
+
+  const formatValue = hooks.useEventCallback((val: number): string => {
+    return formatNumericDisplay(val, decimalPrecision)
+  })
+
+  const resolvedValue = (() => {
+    if (typeof value === "number" && Number.isFinite(value)) return value
+    if (typeof defaultValue === "number" && Number.isFinite(defaultValue)) {
+      return defaultValue
+    }
+    return undefined
+  })()
+
+  const displayValue =
+    showValue && typeof resolvedValue === "number"
+      ? formatValue(resolvedValue)
+      : ""
+
   return (
-    <JimuSlider
-      value={value}
-      defaultValue={defaultValue}
-      min={min}
-      max={max}
-      step={step}
-      disabled={disabled}
-      aria-label={ariaLabel}
-      onChange={(e) => {
-        const numValue = parseFloat(e.target.value)
-        if (!Number.isNaN(numValue) && Number.isFinite(numValue)) {
-          onChange?.(numValue)
-        }
-      }}
-      css={applyFullWidthStyles(styles, style)}
-    />
+    <div css={styles.form.sliderField}>
+      <JimuSlider
+        value={value}
+        defaultValue={defaultValue}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        onChange={(e) => {
+          const numValue = parseFloat(e.target.value)
+          if (!Number.isNaN(numValue) && Number.isFinite(numValue)) {
+            onChange?.(numValue)
+          }
+        }}
+        css={applyFullWidthStyles(styles, style)}
+      />
+      {showValue && displayValue !== "" ? (
+        <div css={styles.form.sliderValue} aria-live="polite" role="status">
+          {displayValue}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

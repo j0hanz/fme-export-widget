@@ -76,15 +76,6 @@ const TEXT_OR_FILE_MODES = {
   FILE: "file" as const,
 }
 
-// Formaterar numeriskt värde enligt angiven precision
-const formatNumericDisplay = (value: number, precision?: number): string => {
-  if (!Number.isFinite(value)) return ""
-  if (typeof precision === "number" && precision >= 0) {
-    return value.toFixed(precision)
-  }
-  return value.toString()
-}
-
 /* Hjälpfunktioner för rendering */
 
 // Renderar textbaserade inmatningsfält med typvalidering
@@ -1359,24 +1350,19 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           field.decimalPrecision >= 0
             ? field.decimalPrecision
             : undefined
-        const formattedValue = formatNumericDisplay(safeValue, precision)
         return (
-          <div css={styles.form.sliderField}>
-            <Slider
-              value={safeValue}
-              min={field.min ?? 0}
-              max={field.max ?? 100}
-              step={field.step ?? 1}
-              onChange={(value) => {
-                onChange(value)
-              }}
-              disabled={field.readOnly}
-              aria-label={field.label}
-            />
-            <div css={styles.form.sliderValue} aria-live="polite">
-              {formattedValue}
-            </div>
-          </div>
+          <Slider
+            value={safeValue}
+            min={field.min ?? 0}
+            max={field.max ?? 100}
+            step={field.step ?? 1}
+            decimalPrecision={precision}
+            onChange={(value) => {
+              onChange(value)
+            }}
+            disabled={field.readOnly}
+            aria-label={field.label}
+          />
         )
       }
       case FormFieldType.NUMERIC_INPUT: {

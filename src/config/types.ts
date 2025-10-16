@@ -954,6 +954,7 @@ export type CoordinateTuple = readonly number[]
 
 export interface ExportResult {
   readonly success: boolean
+  readonly cancelled?: boolean
   readonly message?: string
   readonly code?: string
   readonly jobId?: number
@@ -1210,6 +1211,7 @@ export interface JobDirectivesSectionProps {
     readonly tm_ttc: string
     readonly tm_ttl: string
   }
+  readonly showTmTtc?: boolean
 }
 
 export type WorkspacePrefetchStatus = "idle" | "loading" | "success" | "error"

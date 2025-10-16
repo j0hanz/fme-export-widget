@@ -70,6 +70,7 @@ import {
   createFmeClient,
   sanitizeOptGetUrlParam,
   resolveUploadTargetParam,
+  normalizeServiceModeConfig,
 } from "./utils"
 import {
   isInt,
@@ -1805,6 +1806,7 @@ export async function prepareSubmissionParams({
   onStatusChange?.("normalizing")
   const { sanitizedFormData, uploadFile, remoteUrl } =
     parseSubmissionFormData(rawFormData)
+  const normalizedConfig = normalizeServiceModeConfig(config || undefined)
 
   const baseParams = prepFmeParams(
     {
@@ -1815,7 +1817,7 @@ export async function prepareSubmissionParams({
     geometry || undefined,
     modules,
     {
-      config,
+      config: normalizedConfig,
       workspaceParameters,
       workspaceItem,
       areaWarning,
@@ -1843,7 +1845,7 @@ export async function prepareSubmissionParams({
     params,
     remoteUrl,
     uploadFile,
-    config,
+    config: normalizedConfig,
     workspaceParameters,
     makeCancelable,
     fmeClient,
@@ -1856,7 +1858,7 @@ export async function prepareSubmissionParams({
   })
 
   onStatusChange?.("applyingDefaults")
-  const paramsWithDefaults = applyDirectiveDefaults(params, config || undefined)
+  const paramsWithDefaults = applyDirectiveDefaults(params, normalizedConfig)
   removeAoiErrorMarker(paramsWithDefaults as MutableParams)
 
   onStatusChange?.("complete")
