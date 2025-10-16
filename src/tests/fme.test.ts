@@ -247,6 +247,7 @@ describe("FME shared logic", () => {
       )
 
       expect(result.success).toBe(false)
+      expect(result.cancelled).toBe(true)
       expect(result.code).toBe("FME_JOB_CANCELLED_TIMEOUT")
       expect(result.message).toBe("Jobbet avbröts på grund av tidsgräns")
       expect(result.jobId).toBe(501)
@@ -273,6 +274,7 @@ describe("FME shared logic", () => {
 
       expect(result.code).toBe("FME_JOB_CANCELLED")
       expect(result.message).toBe("Jobbet avbröts")
+      expect(result.cancelled).toBe(true)
       expect(result.jobId).toBe(777)
     })
 

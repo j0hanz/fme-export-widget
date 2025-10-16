@@ -62,7 +62,6 @@ import {
   checkMaxArea,
   evaluateArea,
   processFmeResponse,
-  validateRequiredFields,
 } from "../shared/validations"
 import {
   fmeActions,
@@ -87,6 +86,7 @@ import {
   isNavigatorOffline,
   computeWidgetsToClose,
   buildTokenCacheKey,
+  isAbortError,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -1160,8 +1160,13 @@ function WidgetContent(
     }
   )
 
-  // Handle successful submission
+  // Slutför orderprocessen genom att spara resultat i Redux och navigera
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
+    const currentRuntimeState = runtimeState
+    if (currentRuntimeState === WidgetState.Closed) {
+      return
+    }
+
     dispatch(fmeActions.setOrderResult(result, widgetId))
     navigateTo(ViewMode.ORDER_RESULT)
   })
@@ -1214,6 +1219,10 @@ function WidgetContent(
     error: unknown,
     serviceMode?: ServiceMode | null
   ) => {
+    if (isAbortError(error)) {
+      return
+    }
+
     /* Översätter fel till lokaliserad nyckel */
     const rawKey = mapErrorToKey(error) || "errorUnknown"
     let localizedErr = ""
@@ -1334,6 +1343,10 @@ function WidgetContent(
           controller.signal
         )
       )
+      if (controller.signal.aborted) {
+        return
+      }
+
       handleSubmissionSuccess(
         fmeResponse,
         workspace,
@@ -1589,11 +1602,10 @@ function WidgetContent(
 
   /* Återställer widget vid stängning */
   const handleReset = hooks.useEventCallback(() => {
+    submissionAbort.cancel()
+    setSubmissionPhase("idle")
     /* Rensar grafik och mätningar men behåller kartresurser */
     resetGraphicsAndMeasurements()
-
-    /* Avbryter pågående submission */
-    submissionAbort.cancel()
 
     /* Rensar varningar och lokalt rittillstånd */
     updateAreaWarning(false)
@@ -1603,22 +1615,7 @@ function WidgetContent(
     if (sketchViewModel) {
       safeCancelSketch(sketchViewModel)
     }
-
-    const configValid = validateRequiredFields(configRef.current, translate, {
-      mapConfigured:
-        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0,
-    }).isValid
-
-    const currentViewMode = viewModeRef.current ?? viewMode
-    const preserveStartupValidation =
-      currentViewMode === ViewMode.STARTUP_VALIDATION && hasCriticalGeneralError
-
-    if (!configValid) {
-      dispatch(fmeActions.resetState(widgetId))
-    } else if (!preserveStartupValidation) {
-      resetReduxToInitialDrawing()
-    }
-
+    resetReduxToInitialDrawing()
     closeOtherWidgets()
     if (jimuMapView) {
       enablePopupGuard(jimuMapView)
@@ -1648,6 +1645,15 @@ function WidgetContent(
       if (jimuMapView) {
         enablePopupGuard(jimuMapView)
       }
+      const currentViewMode = viewModeRef.current
+      if (
+        currentViewMode === ViewMode.ORDER_RESULT ||
+        currentViewMode === ViewMode.EXPORT_FORM ||
+        currentViewMode === ViewMode.WORKSPACE_SELECTION
+      ) {
+        resetReduxToInitialDrawing()
+      }
+
       if (viewModeRef.current === ViewMode.STARTUP_VALIDATION) {
         runStartupValidation()
       }
@@ -1658,6 +1664,7 @@ function WidgetContent(
     jimuMapView,
     closeOtherWidgets,
     enablePopupGuard,
+    resetReduxToInitialDrawing,
   ])
 
   /* Rensar ritresurser vid kritiska fel */

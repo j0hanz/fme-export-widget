@@ -7,6 +7,11 @@ export default {
   orderConfirmation: "Beställningen är bekräftad",
   orderComplete: "Exporten är klar",
   orderSentError: "Beställningen misslyckades",
+  orderCancelled: "Beställningen avbröts",
+  orderCancelledTitle: "Beställning avbruten",
+  orderCancelledMessage: "Beställningen avbröts innan den slutfördes.",
+  orderCancelledTimeoutMessage:
+    "Beställningen avbröts på grund av tidsgräns. Arbetsytan tog för lång tid att köra.",
   jobId: "Jobb-ID",
   workspace: "Arbetsyta",
   notificationEmail: "E‑post",
@@ -24,6 +29,7 @@ export default {
   emailNotificationSent: "E‑postmeddelande skickas när jobbet är klart.",
   clickToDownload: "Ladda ner",
   reuseGeography: "Ny beställning",
+  actionNewOrder: "Skapa ny beställning",
   actionEnd: "Avsluta",
   errorCode: "Felkod",
   orderResultMissing: "Inget tillgängligt",
@@ -71,6 +77,7 @@ export default {
   tooltipSubmitOrder: "Skicka beställningen för bearbetning",
   tooltipCancel: "Avbryt nuvarande åtgärd och börja om",
   tooltipReuseGeography: "Skapa ny beställning med samma geografi",
+  tooltipNewOrder: "Starta en ny beställning med samma geografi",
   fmeFlowTransformationFailed:
     "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
   failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",

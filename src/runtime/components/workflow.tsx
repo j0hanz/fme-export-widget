@@ -288,7 +288,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
   config,
 }) => {
   const styles = useUiStyles()
-  const isSuccess = !!orderResult.success
+  const isCancelled = Boolean(orderResult.cancelled)
+  const isSuccess = !isCancelled && !!orderResult.success
+  const isFailure = !isCancelled && !isSuccess
   const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
   const serviceMode: ServiceMode =
     orderResult.serviceMode === "sync" ||
@@ -364,7 +366,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   }
 
   // Visar felkod endast vid misslyckad order
-  if (orderResult.code && !isSuccess) {
+  if (orderResult.code && isFailure) {
     addInfoRow(translate("errorCode"), orderResult.code)
   }
 
@@ -379,22 +381,28 @@ const OrderResult: React.FC<OrderResultProps> = ({
     typeof scheduleMetadata.category === "string" &&
     scheduleMetadata.category.trim() !== ""
 
-  const titleText = isSuccess
-    ? serviceMode === "sync"
-      ? translate("orderComplete")
-      : translate("orderConfirmation")
-    : translate("orderSentError")
+  const titleText = isCancelled
+    ? translate("orderCancelledTitle")
+    : isSuccess
+      ? serviceMode === "sync"
+        ? translate("orderComplete")
+        : translate("orderConfirmation")
+      : translate("orderSentError")
 
-  const buttonText = isSuccess
-    ? translate("reuseGeography")
-    : translate("actionRetry")
+  const buttonText = isCancelled
+    ? translate("actionNewOrder")
+    : isSuccess
+      ? translate("reuseGeography")
+      : translate("actionRetry")
 
-  const primaryTooltip = isSuccess
-    ? translate("tooltipReuseGeography")
-    : undefined
+  const primaryTooltip = isCancelled
+    ? translate("tooltipNewOrder")
+    : isSuccess
+      ? translate("tooltipReuseGeography")
+      : undefined
 
   const handlePrimary = hooks.useEventCallback(() => {
-    if (isSuccess) {
+    if (isCancelled || isSuccess) {
       onReuseGeography?.()
       return
     }
@@ -413,7 +421,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   // Bygger meddelande baserat på orderstatus och typ
   let messageText: string | null = null
-  if (isSuccess) {
+  if (isCancelled) {
+    const failureCode = (orderResult.code || "").toString().toUpperCase()
+    const isTimeout = failureCode.includes("TIMEOUT")
+    messageText = isTimeout
+      ? translate("orderCancelledTimeoutMessage")
+      : translate("orderCancelledMessage")
+  } else if (isSuccess) {
     if (serviceMode === "async") {
       messageText = translate("emailNotificationSent")
     }

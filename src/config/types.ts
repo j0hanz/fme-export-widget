@@ -954,6 +954,7 @@ export type CoordinateTuple = readonly number[]
 
 export interface ExportResult {
   readonly success: boolean
+  readonly cancelled?: boolean
   readonly message?: string
   readonly code?: string
   readonly jobId?: number

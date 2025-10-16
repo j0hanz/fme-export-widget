@@ -416,6 +416,18 @@ export const formatByteSize = (size: unknown): string | null => {
   return `${formatted} ${UNITS[unitIndex]}`
 }
 
+// Formaterar numeriska värden baserat på valfri decimalprecision
+export const formatNumericDisplay = (
+  value: number,
+  precision?: number
+): string => {
+  if (!Number.isFinite(value)) return ""
+  if (typeof precision === "number" && precision >= 0) {
+    return value.toFixed(precision)
+  }
+  return value.toString()
+}
+
 /* Message & Display Utilities */
 
 // Översätter meddelande eller key (returnerar raw string om translation saknas)

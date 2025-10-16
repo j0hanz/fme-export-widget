@@ -1,10 +1,46 @@
 import "@testing-library/jest-dom"
-import { act, screen } from "@testing-library/react"
+import { act, screen, fireEvent } from "@testing-library/react"
 import { React } from "jimu-core"
 import { initGlobal, mockTheme, withThemeIntlRender } from "jimu-for-test"
 import { DynamicField } from "../runtime/components/fields"
-import { StateView, Icon } from "../runtime/components/ui"
+import { StateView, Icon, Slider } from "../runtime/components/ui"
 import { FormFieldType } from "../config/index"
+
+// Mock jimu-ui NumericInput to prevent theme/Tooltip initialization errors
+jest.mock("jimu-ui", () => {
+  const actual = jest.requireActual("jimu-ui")
+  return {
+    ...actual,
+    NumericInput: jest.fn((props) => {
+      const {
+        value,
+        defaultValue,
+        onChange,
+        min,
+        max,
+        placeholder,
+        disabled,
+        ...rest
+      } = props
+      return (
+        <input
+          {...rest}
+          type="number"
+          value={value ?? defaultValue ?? ""}
+          onChange={(e) => {
+            const val =
+              e.target.value === "" ? undefined : parseFloat(e.target.value)
+            onChange?.(val)
+          }}
+          min={min}
+          max={max}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+      )
+    }),
+  }
+})
 
 initGlobal()
 
@@ -12,9 +48,10 @@ const renderWithTheme = withThemeIntlRender(mockTheme as any)
 
 const getSliderLiveValue = (expected: string) =>
   screen.getByText((content, element) => {
-    return (
-      content === expected && element?.getAttribute("aria-live") === "polite"
-    )
+    if (content !== expected || !element) return false
+    const ariaLive = element.getAttribute("aria-live")
+    const role = element.getAttribute("role")
+    return ariaLive === "polite" && role === "status"
   })
 
 describe("runtime components", () => {
@@ -148,6 +185,52 @@ describe("runtime components", () => {
       )
 
       expect(getSliderLiveValue("6.50")).toBeInTheDocument()
+    })
+  })
+
+  describe("Slider component", () => {
+    it("hides value display when showValue is false", () => {
+      renderWithTheme(
+        <Slider
+          value={5}
+          min={0}
+          max={10}
+          showValue={false}
+          onChange={jest.fn()}
+        />
+      )
+
+      expect(screen.queryByRole("status")).toBeNull()
+    })
+
+    it("falls back to string formatting without decimal precision", () => {
+      renderWithTheme(
+        <Slider value={6.5} min={0} max={10} onChange={jest.fn()} />
+      )
+
+      expect(getSliderLiveValue("6.5")).toBeInTheDocument()
+    })
+
+    it("updates displayed value when user changes slider", () => {
+      const Wrapper: React.FC = () => {
+        const [current, setCurrent] = React.useState(2)
+        return (
+          <Slider
+            value={current}
+            min={0}
+            max={10}
+            decimalPrecision={0}
+            onChange={setCurrent}
+          />
+        )
+      }
+
+      renderWithTheme(<Wrapper />)
+
+      const input = screen.getByRole("slider")
+      fireEvent.change(input, { target: { value: "5" } })
+
+      expect(getSliderLiveValue("5")).toBeInTheDocument()
     })
   })
 

@@ -1,8 +1,67 @@
 import "@testing-library/jest-dom"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { React } from "jimu-core"
-import { initGlobal, mockTheme, withThemeIntlRender } from "jimu-for-test"
+import { initGlobal, mockTheme, widgetSettingRender } from "jimu-for-test"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { fmeQueryClient } from "../shared/query-client"
 import Setting from "../setting/setting"
+
+// Mock jimu-ui NumericInput to prevent theme/Tooltip initialization errors
+jest.mock("jimu-ui", () => {
+  const actual = jest.requireActual("jimu-ui")
+  return {
+    ...actual,
+    NumericInput: jest.fn((props) => {
+      const {
+        value,
+        defaultValue,
+        onChange,
+        min,
+        max,
+        placeholder,
+        disabled,
+        ...rest
+      } = props
+      return (
+        <input
+          {...rest}
+          type="number"
+          value={value ?? defaultValue ?? ""}
+          onChange={(e) => {
+            const val =
+              e.target.value === "" ? undefined : parseFloat(e.target.value)
+            onChange?.(val)
+          }}
+          min={min}
+          max={max}
+          placeholder={placeholder}
+          disabled={disabled}
+        />
+      )
+    }),
+  }
+})
+
+// Mock jimu-ui/advanced/setting-components to prevent module loading errors
+jest.mock("jimu-ui/advanced/setting-components", () => ({
+  MapWidgetSelector: jest.fn(({ onSelect, useMapWidgetIds }) => (
+    <div data-testid="map-widget-selector">
+      <button onClick={() => onSelect?.(useMapWidgetIds)}>
+        Select Map Widgets
+      </button>
+    </div>
+  )),
+  SettingSection: jest.fn(({ children, title }) => (
+    <div data-testid="setting-section" title={title}>
+      {children}
+    </div>
+  )),
+  SettingRow: jest.fn(({ children, label }) => (
+    <div data-testid="setting-row" aria-label={label}>
+      {children}
+    </div>
+  )),
+}))
 
 const repositoriesMock = {
   data: [{ name: "RepoOne" }],
@@ -39,13 +98,25 @@ jest.mock("../shared/hooks", () => {
     useRepositories: jest.fn(() => repositoriesMock),
     useValidateConnection: jest.fn(() => validateConnectionMock),
     useLatestAbortController: jest.fn(() => abortControllerMock),
-    useDebounce: jest.fn((fn: any) => fn),
+    useDebounce: jest.fn((fn: any) => {
+      const debounced: any = (...args: any[]) => fn(...args)
+      debounced.cancel = jest.fn()
+      debounced.flush = jest.fn()
+      debounced.isPending = jest.fn(() => false)
+      return debounced
+    }),
   }
 })
 
 initGlobal()
 
-const renderWithTheme = withThemeIntlRender(mockTheme as any)
+const baseRender = widgetSettingRender(true, mockTheme as any)
+
+// Wrapper that includes QueryClientProvider for React Query hooks and Redux Provider
+const renderWithTheme = (ui: React.ReactElement) =>
+  baseRender(
+    <QueryClientProvider client={fmeQueryClient}>{ui}</QueryClientProvider>
+  )
 
 const createConfig = (overrides?: { [key: string]: any }) => {
   const base = {
