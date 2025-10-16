@@ -20,19 +20,23 @@ import {
   type LoadingState,
   type LoadingFlagKey,
   type ErrorMap,
-} from "../config"
+} from "../config/index"
 import { toSerializable } from "../shared/utils"
 
+/* Action creators för FME-widget state management */
 export const fmeActions = {
+  // Sätter aktuellt vyläge (drawing, selection, form, result)
   setViewMode: (viewMode: ViewMode, widgetId: string) => ({
     type: FmeActionType.SET_VIEW_MODE,
     viewMode,
     widgetId,
   }),
+  // Återställer widget till initialtillstånd
   resetState: (widgetId: string) => ({
     type: FmeActionType.RESET_STATE,
     widgetId,
   }),
+  // Lagrar geometri och beräknad yta från ritverktyg
   setGeometry: (
     geometry: __esri.Geometry | null,
     drawnArea: number | undefined,
@@ -43,11 +47,13 @@ export const fmeActions = {
     drawnArea,
     widgetId,
   }),
+  // Ändrar aktivt ritverktyg (polygon, rectangle, circle)
   setDrawingTool: (drawingTool: DrawingTool, widgetId: string) => ({
     type: FmeActionType.SET_DRAWING_TOOL,
     drawingTool,
     widgetId,
   }),
+  // Slutför ritning och byter vyläge
   completeDrawing: (
     geometry: __esri.Geometry,
     drawnArea: number,
@@ -60,11 +66,13 @@ export const fmeActions = {
     nextViewMode,
     widgetId,
   }),
+  // Lagrar FME-jobbresultat (URL, jobId, etc.)
   setOrderResult: (orderResult: ExportResult | null, widgetId: string) => ({
     type: FmeActionType.SET_ORDER_RESULT,
     orderResult,
     widgetId,
   }),
+  // Uppdaterar listan över tillgängliga workspaces
   setWorkspaceItems: (
     workspaceItems: readonly WorkspaceItem[],
     widgetId: string
@@ -73,6 +81,7 @@ export const fmeActions = {
     workspaceItems,
     widgetId,
   }),
+  // Lagrar parametrar för valt workspace
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string,
@@ -83,11 +92,13 @@ export const fmeActions = {
     workspaceName,
     widgetId,
   }),
+  // Väljer aktivt workspace efter namn
   setSelectedWorkspace: (workspaceName: string | null, widgetId: string) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE,
     workspaceName,
     widgetId,
   }),
+  // Lagrar detaljerad workspace-metadata
   setWorkspaceItem: (
     workspaceItem: WorkspaceItemDetail | null,
     widgetId: string
@@ -96,6 +107,7 @@ export const fmeActions = {
     workspaceItem,
     widgetId,
   }),
+  // Sätter enskilt fel för specifik scope (general/import/export)
   setError: (
     scope: ErrorScope,
     error: ErrorState | SerializableErrorState | null,
@@ -106,6 +118,7 @@ export const fmeActions = {
     error: error ? toSerializable(error) : null,
     widgetId,
   }),
+  // Sätter flera fel samtidigt (batch-uppdatering)
   setErrors: (
     errors: Partial<{
       [scope in ErrorScope]?:
@@ -116,6 +129,7 @@ export const fmeActions = {
     }>,
     widgetId: string
   ) => {
+    // Serialiserar alla fel till Redux-kompatibelt format
     const serialized: Partial<{
       [scope in ErrorScope]?: SerializableErrorState | null
     }> = {}
@@ -133,29 +147,35 @@ export const fmeActions = {
       widgetId,
     }
   },
+  // Rensar fel för specifik scope eller alla
   clearError: (scope: ErrorScope | "all", widgetId: string) => ({
     type: FmeActionType.CLEAR_ERROR,
     scope,
     widgetId,
   }),
+  // Rensar workspace-relaterad state (items, parameters, etc.)
   clearWorkspaceState: (widgetId: string) => ({
     type: FmeActionType.CLEAR_WORKSPACE_STATE,
     widgetId,
   }),
+  // Återgår till ritläge, rensar geometri och workspace-data
   resetToDrawing: (widgetId: string) => ({
     type: FmeActionType.RESET_TO_DRAWING,
     widgetId,
   }),
+  // Markerar uppstart som slutförd
   completeStartup: (widgetId: string) => ({
     type: FmeActionType.COMPLETE_STARTUP,
     widgetId,
   }),
+  // Sätter laddningsflagga (workspaces, parameters, modules, submission)
   setLoadingFlag: (flag: LoadingFlagKey, value: boolean, widgetId: string) => ({
     type: FmeActionType.SET_LOADING_FLAG,
     flag,
     value,
     widgetId,
   }),
+  // Applicerar komplett workspace-data (namn, parametrar, item) atomärt
   applyWorkspaceData: (
     payload: {
       readonly workspaceName: string
@@ -170,6 +190,7 @@ export const fmeActions = {
     workspaceItem: payload.item,
     widgetId,
   }),
+  // Intern action för att ta bort widget-state vid unmount
   // Internal action to remove entire widget state (e.g. on unmount)
   removeWidgetState: (widgetId: string) => ({
     type: FmeActionType.REMOVE_WIDGET_STATE,
@@ -177,12 +198,15 @@ export const fmeActions = {
   }),
 }
 
+/* Type helpers och initial state */
+
 export type FmeAction = ReturnType<(typeof fmeActions)[keyof typeof fmeActions]>
 
 type ActionFrom<K extends keyof typeof fmeActions> = ReturnType<
   (typeof fmeActions)[K]
 >
 
+// Initial state för en widget-instans
 export const initialFmeState: FmeWidgetState = {
   // View
   viewMode: ViewMode.STARTUP_VALIDATION,
@@ -191,7 +215,6 @@ export const initialFmeState: FmeWidgetState = {
   drawingTool: DrawingTool.POLYGON,
   geometryJson: null,
   drawnArea: 0,
-  geometryRevision: 0,
 
   // Export
   orderResult: null,
@@ -206,18 +229,21 @@ export const initialFmeState: FmeWidgetState = {
   loading: createInitialLoadingState(),
 
   // Errors
-  error: null,
   errors: createInitialErrorMap(),
 }
 
+// Seamless-immutable typing är trasig, tvingar typning här
 // Seamless-immutable typing is broken, so we need to force it here
 const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
 
+/* Hjälpfunktioner för state-hantering */
+
 const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
   Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
 
+// Normaliserar workspace-namn (trim och null-hantering)
 const normalizeWorkspaceName = (
   name: string | null | undefined
 ): string | null => {
@@ -226,6 +252,7 @@ const normalizeWorkspaceName = (
   return trimmed || null
 }
 
+// Serialiserar ArcGIS-geometri till JSON för Redux-lagring
 const serializeGeometry = (
   geometry: __esri.Geometry | null | undefined
 ): unknown => {
@@ -239,6 +266,7 @@ const serializeGeometry = (
   }
 }
 
+// Skapar initial laddningstillstånd med alla flaggor false
 function createInitialLoadingState(): LoadingState {
   return {
     workspaces: false,
@@ -248,10 +276,12 @@ function createInitialLoadingState(): LoadingState {
   }
 }
 
+// Skapar tom error-map
 function createInitialErrorMap(): ErrorMap {
   return {}
 }
 
+// Jämför om två laddningstillstånd är identiska
 function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
   return (
     a.workspaces === b.workspaces &&
@@ -261,6 +291,9 @@ function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
   )
 }
 
+/* Error-hantering och prioritering */
+
+// Prioritetsrangordning för felallvarlighet (högre = allvarligare)
 const ERROR_SEVERITY_RANK: {
   readonly [key in ErrorSeverity]: number
 } = {
@@ -269,12 +302,14 @@ const ERROR_SEVERITY_RANK: {
   [ErrorSeverity.INFO]: 1,
 }
 
+// Prioritet för error-scopes (lägre = högre prioritet)
 const ERROR_SCOPE_PRIORITY: { readonly [scope in ErrorScope]: number } = {
   general: 0,
   export: 1,
   import: 2,
 }
 
+// Väljer primärt fel baserat på severity och scope-prioritet
 const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
   let best: ErrorWithScope | null = null
   let bestRank = -1
@@ -284,8 +319,14 @@ const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
     [ErrorScope, SerializableErrorState | undefined]
   >) {
     if (!details) continue
-    const rank = ERROR_SEVERITY_RANK[details.severity] ?? 0
-    const scopePriority = ERROR_SCOPE_PRIORITY[scopeKey] ?? 99
+
+    // Validerar att severity är giltig enum-medlem
+    if (!(details.severity in ERROR_SEVERITY_RANK)) continue
+    // Validerar att scope är giltig enum-medlem
+    if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
+
+    const rank = ERROR_SEVERITY_RANK[details.severity]
+    const scopePriority = ERROR_SCOPE_PRIORITY[scopeKey]
 
     if (
       rank > bestRank ||
@@ -300,6 +341,7 @@ const pickPrimaryError = (errors: ErrorMap): ErrorWithScope | null => {
   return best
 }
 
+// Applicerar partiell error-uppdatering
 function applyErrorPatch(
   state: ImmutableObject<FmeWidgetState>,
   patch: Partial<{ [scope in ErrorScope]: SerializableErrorState | null }>
@@ -317,6 +359,9 @@ function applyErrorPatch(
   for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
     [ErrorScope, SerializableErrorState | null]
   >) {
+    // Validerar att scope är giltig enum-medlem
+    if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
+
     if (!maybeError) {
       if (scopeKey in nextMap) {
         delete nextMap[scopeKey]
@@ -337,10 +382,10 @@ function applyErrorPatch(
   }
 
   const readonlyMap = nextMap as ErrorMap
-  const primary = pickPrimaryError(readonlyMap)
-
-  return state.set("errors", readonlyMap).set("error", primary)
+  return state.set("errors", readonlyMap)
 }
+
+/* Reducer för enskild widget-instans */
 
 // Reducer for a single widget instance
 const reduceOne = (
@@ -352,6 +397,7 @@ const reduceOne = (
   switch (action.type) {
     case FmeActionType.SET_VIEW_MODE: {
       const act = action as ActionFrom<"setViewMode">
+      // Ingen ändring om samma vyläge redan aktivt
       if (state.viewMode === act.viewMode) {
         return state
       }
@@ -360,21 +406,23 @@ const reduceOne = (
     }
 
     case FmeActionType.RESET_STATE:
+      // Återställer till initial immutable state
       nextState = createImmutableState()
       break
 
     case FmeActionType.SET_GEOMETRY: {
       const act = action as ActionFrom<"setGeometry">
       const area = act.drawnArea ?? 0
+      // Kontrollerar om geometri eller yta faktiskt ändrats
       const geometryChanged =
         state.geometryJson !== act.geometryJson || state.drawnArea !== area
       if (!geometryChanged) {
         return state
       }
+      // Uppdaterar geometri
       nextState = state
         .set("geometryJson", act.geometryJson)
         .set("drawnArea", area)
-        .set("geometryRevision", state.geometryRevision + 1)
       break
     }
 
@@ -382,6 +430,7 @@ const reduceOne = (
       const act = action as ActionFrom<"completeDrawing">
       const area = act.drawnArea ?? 0
       const nextView = act.nextViewMode ?? state.viewMode
+      // Kontrollerar om geometri ändrats
       const geometryChanged =
         state.geometryJson !== act.geometryJson || state.drawnArea !== area
 
@@ -390,7 +439,6 @@ const reduceOne = (
         nextState = nextState
           .set("geometryJson", act.geometryJson)
           .set("drawnArea", area)
-          .set("geometryRevision", state.geometryRevision + 1)
       }
 
       if (nextView !== state.viewMode) {
@@ -429,6 +477,7 @@ const reduceOne = (
       const requested = normalizeWorkspaceName(act.workspaceName)
       const currentSelection = normalizeWorkspaceName(state.selectedWorkspace)
 
+      // Inget workspace specificerat: uppdatera bara parametrar
       if (!requested) {
         if (state.workspaceParameters === act.workspaceParameters) {
           return state
@@ -436,6 +485,7 @@ const reduceOne = (
         return state.set("workspaceParameters", act.workspaceParameters)
       }
 
+      // Inget valt workspace: sätt både workspace och parametrar
       if (!currentSelection) {
         return state
           .set("selectedWorkspace", requested)
@@ -443,10 +493,12 @@ const reduceOne = (
           .set("orderResult", null)
       }
 
+      // Parametrar för annat workspace: ignorera
       if (requested !== currentSelection) {
         return state
       }
 
+      // Parametrar för aktuellt workspace: uppdatera och rensa result
       if (state.workspaceParameters === act.workspaceParameters) {
         return state
       }
@@ -463,9 +515,11 @@ const reduceOne = (
       const act = action as ActionFrom<"setSelectedWorkspace">
       const desired = normalizeWorkspaceName(act.workspaceName)
       const current = normalizeWorkspaceName(state.selectedWorkspace)
+      // Ingen ändring om samma workspace redan valt
       if (current === desired) {
         return state
       }
+      // Rensar parametrar, item och resultat vid workspace-byte
       let nextState = state.set("selectedWorkspace", desired)
 
       if (state.workspaceParameters.length) {
@@ -493,6 +547,7 @@ const reduceOne = (
       const current = normalizeWorkspaceName(state.selectedWorkspace)
       const itemName = normalizeWorkspaceName(act.workspaceItem?.name)
 
+      // Ignorerar item om namnet inte matchar valt workspace
       if (act.workspaceItem && current && itemName && itemName !== current) {
         return state
       }
@@ -505,6 +560,7 @@ const reduceOne = (
     }
 
     case FmeActionType.CLEAR_WORKSPACE_STATE: {
+      // Rensar all workspace-relaterad data och laddningsflaggor
       const clearedLoading = createInitialLoadingState()
       let nextState = state
 
@@ -564,14 +620,12 @@ const reduceOne = (
     }
 
     case FmeActionType.RESET_TO_DRAWING: {
+      // Återgår till ritläge och rensar all data utom drawing tool
       const clearedLoading = createInitialLoadingState()
       let nextState = state
 
       if (state.geometryJson !== null || state.drawnArea !== 0) {
-        nextState = nextState
-          .set("geometryJson", null)
-          .set("drawnArea", 0)
-          .set("geometryRevision", state.geometryRevision + 1)
+        nextState = nextState.set("geometryJson", null).set("drawnArea", 0)
       }
 
       if (state.selectedWorkspace !== null) {
@@ -611,6 +665,7 @@ const reduceOne = (
       const act = action as ActionFrom<"setLoadingFlag">
       const currentValue = state.loading[act.flag]
       const nextValue = Boolean(act.value)
+      // Ingen ändring om flaggan redan har rätt värde
       if (currentValue === nextValue) {
         return state
       }
@@ -621,6 +676,7 @@ const reduceOne = (
     }
 
     case FmeActionType.APPLY_WORKSPACE_DATA: {
+      // Applicerar workspace-data atomärt (namn, parametrar, item)
       const act = action as ActionFrom<"applyWorkspaceData">
       const normalized = normalizeWorkspaceName(act.workspaceName)
       if (!normalized) {
@@ -657,6 +713,7 @@ const reduceOne = (
     }
 
     case FmeActionType.COMPLETE_STARTUP:
+      // Byter från STARTUP_VALIDATION till INITIAL
       nextState = state.set("viewMode", ViewMode.INITIAL)
       break
 
@@ -667,6 +724,9 @@ const reduceOne = (
   return nextState
 }
 
+/* State-access och hydration helpers */
+
+// Säkerställer att sub-state finns och är korrekt hydrerad
 const ensureSubState = (
   global: IMFmeGlobalState,
   widgetId: string
@@ -677,10 +737,7 @@ const ensureSubState = (
   let hydrated = (current ??
     (createImmutableState() as unknown)) as ImmutableObject<FmeWidgetState>
 
-  if (typeof (hydrated as any).geometryRevision !== "number") {
-    hydrated = hydrated.set("geometryRevision", 0)
-  }
-
+  // Bakåtkompatibilitet: lägg till saknade fält
   if (!(hydrated as any).loading) {
     hydrated = hydrated.set("loading", createInitialLoadingState())
   }
@@ -689,23 +746,10 @@ const ensureSubState = (
     hydrated = hydrated.set("errors", createInitialErrorMap())
   }
 
-  const errors = (hydrated as any).errors as ErrorMap
-  const desiredPrimary = pickPrimaryError(errors)
-  const currentPrimary = (hydrated as any).error as ErrorWithScope | null
-  const primaryChanged =
-    (!currentPrimary && desiredPrimary !== null) ||
-    (currentPrimary &&
-      (!desiredPrimary ||
-        currentPrimary.scope !== desiredPrimary.scope ||
-        currentPrimary.details !== desiredPrimary.details))
-
-  if (primaryChanged) {
-    hydrated = hydrated.set("error", desiredPrimary)
-  }
-
   return hydrated
 }
 
+// Uppdaterar sub-state för specifik widget i global state
 const setSubState = (
   global: IMFmeGlobalState,
   widgetId: string,
@@ -716,6 +760,9 @@ const setSubState = (
   return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
 
+/* Selectors för att hämta state från Redux store */
+
+// Hämtar FME-slice för specifik widget från global state
 export const selectFmeSlice = (
   state: IMStateWithFmeExport,
   widgetId: string
@@ -726,6 +773,7 @@ export const selectFmeSlice = (
   return slice ?? null
 }
 
+// Skapar memoized selectors för specifik widget-instans
 export const createFmeSelectors = (widgetId: string) => {
   const getSlice = (state: IMStateWithFmeExport) =>
     selectFmeSlice(state, widgetId)
@@ -740,8 +788,6 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.geometryJson ?? null,
     selectDrawnArea: (state: IMStateWithFmeExport) =>
       getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
-    selectGeometryRevision: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.geometryRevision ?? initialFmeState.geometryRevision,
     selectWorkspaceItems: (state: IMStateWithFmeExport) =>
       getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
     selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
@@ -753,10 +799,12 @@ export const createFmeSelectors = (widgetId: string) => {
       getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace,
     selectOrderResult: (state: IMStateWithFmeExport) =>
       getSlice(state)?.orderResult ?? initialFmeState.orderResult,
-    selectError: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.error ?? initialFmeState.error,
     selectErrors: (state: IMStateWithFmeExport) =>
       getSlice(state)?.errors ?? initialFmeState.errors,
+    selectPrimaryError: (state: IMStateWithFmeExport) => {
+      const errors = getSlice(state)?.errors ?? initialFmeState.errors
+      return pickPrimaryError(errors)
+    },
     selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
       getSlice(state)?.errors?.[scope] ?? null,
     selectLoading: (state: IMStateWithFmeExport) =>
@@ -764,26 +812,36 @@ export const createFmeSelectors = (widgetId: string) => {
     selectLoadingFlag:
       (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
         getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
+    // Beräknad selector: kontrollerar om giltig AOI finns
     selectHasValidAoi: (state: IMStateWithFmeExport) => {
       const slice = getSlice(state)
       if (!slice) return false
       return Boolean(slice.geometryJson) && (slice.drawnArea ?? 0) > 0
     },
+    // Beräknad selector: kan export utföras?
     selectCanExport: (state: IMStateWithFmeExport) => {
       const slice = getSlice(state)
       if (!slice) return false
-      const hasGeometry = Boolean(slice.geometryJson) && slice.drawnArea > 0
+      const hasGeometry =
+        Boolean(slice.geometryJson) &&
+        Number.isFinite(slice.drawnArea) &&
+        slice.drawnArea > 0
       const hasWorkspace = Boolean(
         normalizeWorkspaceName(slice.selectedWorkspace)
       )
-      const hasParameters = (slice.workspaceParameters?.length ?? 0) > 0
+      const hasWorkspaceDetails =
+        (slice.workspaceParameters?.length ?? 0) > 0 ||
+        slice.workspaceItem !== null
       const generalError = slice.errors?.general
       const blockingError = generalError
         ? (ERROR_SEVERITY_RANK[generalError.severity] ?? 0) >=
           ERROR_SEVERITY_RANK[ErrorSeverity.ERROR]
         : false
-      return hasGeometry && hasWorkspace && hasParameters && !blockingError
+      return (
+        hasGeometry && hasWorkspace && hasWorkspaceDetails && !blockingError
+      )
     },
+    // Beräknad selector: pågår någon laddning?
     selectIsBusy: (state: IMStateWithFmeExport) => {
       const loading = getSlice(state)?.loading ?? initialFmeState.loading
       return (
@@ -796,11 +854,14 @@ export const createFmeSelectors = (widgetId: string) => {
   }
 }
 
+/* Root reducer och action guards */
+
 // Root reducer that delegates to per-widget reducer
 const initialGlobalState = Immutable({
   byId: {},
 }) as unknown as IMFmeGlobalState
 
+// Type guard: kontrollerar om action är en giltig FME-action
 const isFmeAction = (candidate: unknown): candidate is FmeAction => {
   if (!candidate || typeof candidate !== "object") return false
   const action = candidate as { type?: unknown; widgetId?: unknown }
@@ -809,6 +870,7 @@ const isFmeAction = (candidate: unknown): candidate is FmeAction => {
   return typeof action.widgetId === "string"
 }
 
+// Root reducer som delegerar till per-widget reducer
 const fmeReducer = (
   state: IMFmeGlobalState = initialGlobalState,
   action: unknown
@@ -816,6 +878,7 @@ const fmeReducer = (
   if (!isFmeAction(action)) {
     return state
   }
+  // Specialfall: ta bort hela widget-state vid unmount
   // Special: remove entire widget state
   if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
@@ -828,6 +891,7 @@ const fmeReducer = (
 
   const widgetId: string | undefined = action?.widgetId
   if (!widgetId) {
+    // Inget widgetId: returnera oförändrad state för säkerhet
     // No widgetId provided — return state unchanged for safety
     return state
   }
@@ -838,17 +902,21 @@ const fmeReducer = (
   return setSubState(state, widgetId, nextSub)
 }
 
+/* Redux store extension för jimu-core */
+
 // Store extension
 export default class FmeReduxStoreExtension
   implements extensionSpec.ReduxStoreExtension
 {
   readonly id = "fme-export_store"
 
+  // Returnerar alla action-typer som string-array
   getActions(): string[] {
     // Return all action types as string array
     return [...FME_ACTION_TYPES]
   }
 
+  // Returnerar initial lokal state-struktur
   getInitLocalState(): { byId: { [id: string]: FmeWidgetState } } {
     return { byId: {} }
   }

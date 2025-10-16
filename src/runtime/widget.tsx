@@ -5,59 +5,64 @@ import {
   type AllWidgetProps,
   hooks,
   jsx,
-  css,
   ReactRedux,
   type IMState,
   WidgetState,
   appActions,
   getAppStore,
+  ReactDOM,
 } from "jimu-core"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
+import { fmeQueryClient } from "../shared/query-client"
 import { Workflow } from "./components/workflow"
-import {
-  Button,
-  StateView,
-  renderSupportHint,
-  useStyles,
-} from "./components/ui"
+import { StateView, renderSupportHint, useStyles } from "./components/ui"
 import { createFmeFlowClient } from "../shared/api"
 import defaultMessages from "./translations/default"
 import type {
   FmeExportConfig,
-  EsriModules,
   ExportResult,
+  ServiceMode,
   IMStateWithFmeExport,
   FmeWidgetState,
   WorkspaceParameter,
   WorkspaceItemDetail,
+  WorkspaceItem,
   ErrorState,
   SerializableErrorState,
-  ApiResponse,
   DrawingSessionState,
-  MutableParams,
-  RemoteDatasetOptions,
-  SubmissionPreparationOptions,
-  SubmissionPreparationResult,
-} from "../config"
+  SubmissionPhase,
+  SubmissionPreparationStatus,
+  ModeNotice,
+  ServiceModeOverrideInfo,
+  EsriModules,
+} from "../config/index"
 import {
   makeErrorView,
   DrawingTool,
   ViewMode,
   ErrorType,
   ErrorSeverity,
-  LAYER_CONFIG,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
-} from "../config"
-import { validateWidgetStartup } from "../shared/services"
+  DEFAULT_REPOSITORY,
+  WORKSPACE_ITEM_TYPE,
+} from "../config/index"
+import {
+  validateWidgetStartup,
+  prepareSubmissionParams,
+  createLayers,
+  createSketchVM,
+} from "../shared/services"
 import {
   mapErrorToKey,
-  isValidExternalUrlForOptGetUrl,
   calcArea,
   validatePolygon,
   checkMaxArea,
   evaluateArea,
   processFmeResponse,
+  validateRequiredFields,
 } from "../shared/validations"
 import {
   fmeActions,
@@ -68,923 +73,35 @@ import {
   resolveMessageOrKey,
   buildSupportHintText,
   getEmail,
-  attachAoi,
-  prepFmeParams,
   determineServiceMode,
-  applyDirectiveDefaults,
   formatArea,
   isValidEmail,
   getSupportEmail,
   formatErrorForView,
   useLatestAbortController,
   toTrimmedString,
-  coerceFormValueForSubmission,
   logIfNotAbort,
-  loadArcgisModules,
-  createPopupSuppressionRecord,
-  releasePopupSuppressionRecord,
   popupSuppressionManager,
-  maskToken,
+  hexToRgbArray,
+  buildSymbols,
+  isNavigatorOffline,
+  computeWidgetsToClose,
+  buildTokenCacheKey,
 } from "../shared/utils"
-import type { PopupSuppressionRecord } from "../shared/utils"
-
-// Styling and symbols derived from config
-
-const hexToRgbArray = (hex: string): [number, number, number] => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
-  const n = m ? parseInt(m[1], 16) : parseInt(DEFAULT_DRAWING_HEX.slice(1), 16)
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
-}
-
-const buildSymbols = (rgb: readonly [number, number, number]) => {
-  const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
-  const highlight = {
-    type: "simple-fill" as const,
-    color: [...base, 0.2] as [number, number, number, number],
-    outline: {
-      color: base,
-      width: 2,
-      style: "solid" as const,
-    },
-  }
-  const symbols = {
-    polygon: highlight,
-    polyline: {
-      type: "simple-line",
-      color: base,
-      width: 2,
-      style: "solid",
-    },
-    point: {
-      type: "simple-marker",
-      style: "circle",
-      size: 8,
-      color: base,
-      outline: {
-        color: [255, 255, 255],
-        width: 1,
-      },
-    },
-  } as const
-  return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
-}
-
-const normalizeSketchCreateTool = (
-  tool: string | null | undefined
-): "polygon" | "rectangle" | null => {
-  if (!tool) return null
-  const normalized = tool.toLowerCase()
-  if (normalized === "extent" || normalized === "rectangle") {
-    return "rectangle"
-  }
-  if (normalized === "polygon") {
-    return "polygon"
-  }
-  return null
-}
-
-const UPLOAD_PARAM_TYPES = [
-  "FILENAME",
-  "FILENAME_MUSTEXIST",
-  "DIRNAME",
-  "DIRNAME_MUSTEXIST",
-  "DIRNAME_SRC",
-  "LOOKUP_FILE",
-  "REPROJECTION_FILE",
-] as const
-
-const resolveUploadTargetParam = (
-  config: FmeExportConfig | null | undefined
-): string | null => toTrimmedString(config?.uploadTargetParamName) ?? null
-
-const parseSubmissionFormData = (rawData: {
-  [key: string]: unknown
-}): {
-  sanitizedFormData: { [key: string]: unknown }
-  uploadFile: File | null
-  remoteUrl: string
-} => {
-  const {
-    __upload_file__: uploadField,
-    __remote_dataset_url__: remoteDatasetField,
-    opt_geturl: optGetUrlField,
-    ...restFormData
-  } = rawData
-
-  const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
-  const sanitizedFormData = sanitizedOptGetUrl
-    ? { ...restFormData, opt_geturl: sanitizedOptGetUrl }
-    : { ...restFormData }
-
-  const normalizedFormData: { [key: string]: unknown } = {}
-  for (const [key, val] of Object.entries(sanitizedFormData)) {
-    normalizedFormData[key] = coerceFormValueForSubmission(val)
-  }
-
-  const uploadFile = uploadField instanceof File ? uploadField : null
-  const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
-
-  return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
-}
-
-const applyUploadedDatasetParam = ({
-  finalParams,
-  uploadedPath,
-  parameters,
-  explicitTarget,
-}: {
-  finalParams: { [key: string]: unknown }
-  uploadedPath?: string
-  parameters?: readonly WorkspaceParameter[] | null
-  explicitTarget: string | null
-}): void => {
-  if (!uploadedPath) return
-
-  if (explicitTarget) {
-    finalParams[explicitTarget] = uploadedPath
-    return
-  }
-
-  const candidate = (parameters ?? []).find((param) => {
-    const normalizedType = String(
-      param?.type
-    ) as (typeof UPLOAD_PARAM_TYPES)[number]
-    return UPLOAD_PARAM_TYPES.includes(normalizedType)
-  })
-
-  if (candidate?.name) {
-    finalParams[candidate.name] = uploadedPath
-    return
-  }
-
-  if (
-    typeof (finalParams as { SourceDataset?: unknown }).SourceDataset ===
-    "undefined"
-  ) {
-    ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
-  }
-}
-
-const isNavigatorOffline = (): boolean => {
-  try {
-    const nav = (globalThis as any)?.navigator
-    return Boolean(nav && nav.onLine === false)
-  } catch {
-    return false
-  }
-}
-
-const sanitizeOptGetUrlParam = (
-  params: MutableParams,
-  config: FmeExportConfig | null | undefined
-): void => {
-  const value = params.opt_geturl
-
-  if (typeof value !== "string") {
-    delete params.opt_geturl
-    return
-  }
-
-  const trimmed = value.trim()
-  const urlIsAllowed = Boolean(config?.allowRemoteUrlDataset)
-  const urlIsValid = isValidExternalUrlForOptGetUrl(trimmed)
-
-  if (!trimmed || !urlIsAllowed || !urlIsValid) {
-    delete params.opt_geturl
-    return
-  }
-
-  params.opt_geturl = trimmed
-}
-
-const shouldApplyRemoteDatasetUrl = (
-  remoteUrl: string,
-  config: FmeExportConfig | null | undefined
-): boolean =>
-  Boolean(
-    config?.allowRemoteUrlDataset &&
-      remoteUrl &&
-      isValidExternalUrlForOptGetUrl(remoteUrl)
-  )
-
-const shouldUploadRemoteDataset = (
-  config: FmeExportConfig | null | undefined,
-  uploadFile: File | null
-): uploadFile is File => Boolean(config?.allowRemoteDataset && uploadFile)
-
-const removeAoiErrorMarker = (params: MutableParams): void => {
-  if (typeof params.__aoi_error__ !== "undefined") {
-    delete params.__aoi_error__
-  }
-}
-
-const resolveRemoteDataset = async ({
-  params,
-  remoteUrl,
-  uploadFile,
-  config,
-  workspaceParameters,
-  makeCancelable,
-  fmeClient,
-  signal,
-  subfolder,
-}: RemoteDatasetOptions): Promise<void> => {
-  sanitizeOptGetUrlParam(params, config)
-
-  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
-    params.opt_geturl = remoteUrl
-    return
-  }
-
-  if (!shouldUploadRemoteDataset(config, uploadFile)) {
-    return
-  }
-
-  // When uploading a dataset we must clear any lingering opt_geturl value to
-  // avoid conflicting inputs. Otherwise a previously valid remote URL would
-  // override the uploaded dataset. (SRP & defensive programming)
-  if (typeof params.opt_geturl !== "undefined") {
-    delete params.opt_geturl
-  }
-
-  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
-    fmeClient.uploadToTemp(uploadFile, {
-      subfolder,
-      signal,
-    })
-  )
-
-  const uploadedPath = uploadResponse.data?.path
-  applyUploadedDatasetParam({
-    finalParams: params,
-    uploadedPath,
-    parameters: workspaceParameters,
-    explicitTarget: resolveUploadTargetParam(config),
-  })
-}
-
-const prepareSubmissionParams = async ({
-  rawFormData,
-  userEmail,
-  geometryJson,
-  geometry,
-  modules,
-  config,
-  workspaceParameters,
-  makeCancelable,
-  fmeClient,
-  signal,
-  remoteDatasetSubfolder,
-}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> => {
-  const { sanitizedFormData, uploadFile, remoteUrl } =
-    parseSubmissionFormData(rawFormData)
-
-  const baseParams = prepFmeParams(
-    {
-      data: sanitizedFormData,
-    },
-    userEmail,
-    geometryJson,
-    geometry || undefined,
-    modules,
-    {
-      config,
-      workspaceParameters,
-    }
-  )
-
-  const aoiError = (baseParams as MutableParams).__aoi_error__
-  if (aoiError) {
-    return { params: null, aoiError }
-  }
-
-  const params: MutableParams = { ...baseParams }
-
-  await resolveRemoteDataset({
-    params,
-    remoteUrl,
-    uploadFile,
-    config,
-    workspaceParameters,
-    makeCancelable,
-    fmeClient,
-    signal,
-    subfolder: remoteDatasetSubfolder,
-  })
-
-  const paramsWithDefaults = applyDirectiveDefaults(params, config as any)
-  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
-
-  return { params: paramsWithDefaults }
-}
-
-// ArcGIS JS API modules
-const MODULES = [
-  "esri/widgets/Sketch/SketchViewModel",
-  "esri/layers/GraphicsLayer",
-  "esri/geometry/geometryEngine",
-  "esri/geometry/geometryEngineAsync",
-  "esri/geometry/support/webMercatorUtils",
-  "esri/geometry/projection",
-  "esri/geometry/SpatialReference",
-  "esri/geometry/support/normalizeUtils",
-  "esri/geometry/Polyline",
-  "esri/geometry/Polygon",
-  "esri/Graphic",
-] as const
-
-// Safe operation helpers
-const safely = <T,>(
-  resource: T | null | undefined,
-  _context = "ArcGIS safe operation failed",
-  operation: (value: T) => void
-): void => {
-  if (!resource) return
-  try {
-    operation(resource)
-  } catch {}
-}
-
-const safeCancelSketch = (
-  vm?: __esri.SketchViewModel | null,
-  context = "Failed to cancel SketchViewModel"
-): void => {
-  safely(vm, context, (model) => {
-    model.cancel()
-  })
-}
-
-const safeClearLayer = (
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to clear GraphicsLayer"
-): void => {
-  safely(layer, context, (graphics) => {
-    graphics.removeAll()
-  })
-}
-
-const destroyGraphicsLayer = (
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to destroy GraphicsLayer"
-): void => {
-  safely(layer, context, (graphics) => {
-    const destroyFn = (graphics as { destroy?: () => void }).destroy
-    if (typeof destroyFn === "function") {
-      destroyFn.call(graphics)
-    }
-  })
-}
-
-const removeLayerFromMap = (
-  jmv?: JimuMapView | null,
-  layer?: __esri.GraphicsLayer | null,
-  context = "Failed to remove GraphicsLayer from map"
-): void => {
-  if (!jmv?.view?.map) return
-  safely(layer, context, (graphicsLayer) => {
-    if (graphicsLayer.parent) {
-      jmv.view.map.remove(graphicsLayer)
-    }
-  })
-}
-
-export const computeWidgetsToClose = (
-  runtimeInfo:
-    | { [id: string]: { state?: WidgetState | string } | undefined }
-    | null
-    | undefined,
-  widgetId: string
-): string[] => {
-  if (!runtimeInfo) return []
-
-  const ids: string[] = []
-
-  for (const [id, info] of Object.entries(runtimeInfo)) {
-    if (id === widgetId || !info) continue
-    const stateRaw = info.state
-    if (!stateRaw) continue
-    const normalized =
-      typeof stateRaw === "string"
-        ? stateRaw.toUpperCase()
-        : String(stateRaw).toUpperCase()
-
-    if (
-      normalized === WidgetState.Closed ||
-      normalized === WidgetState.Hidden
-    ) {
-      continue
-    }
-
-    ids.push(id)
-  }
-
-  return ids
-}
-
-export const clearPopupSuppression = (
-  ref: { current: PopupSuppressionRecord | null } | null | undefined
-): void => {
-  const record = ref?.current
-  if (!record) return
-  releasePopupSuppressionRecord(record)
-  ref.current = null
-}
-
-export const applyPopupSuppression = (
-  ref: { current: PopupSuppressionRecord | null } | null | undefined,
-  popup: __esri.Popup | null | undefined,
-  view: __esri.MapView | __esri.SceneView | null | undefined
-): void => {
-  if (!ref) return
-
-  if (!popup) {
-    clearPopupSuppression(ref)
-    return
-  }
-
-  if (ref.current?.popup === popup) {
-    try {
-      if (view && typeof (view as any).closePopup === "function") {
-        ;(view as any).closePopup()
-      } else if (typeof popup.close === "function") {
-        popup.close()
-      }
-    } catch {}
-    return
-  }
-
-  clearPopupSuppression(ref)
-
-  const record = createPopupSuppressionRecord(popup, view)
-  ref.current = record
-}
-
-// Consolidated module and resource management
-const useEsriModules = (
-  reloadSignal: number
-): {
-  modules: EsriModules | null
-  loading: boolean
-  errorKey: string | null
-} => {
-  const [state, setState] = React.useState<{
-    modules: EsriModules | null
-    loading: boolean
-    errorKey: string | null
-  }>({ modules: null, loading: true, errorKey: null })
-
-  hooks.useEffectWithPreviousValues(() => {
-    let cancelled = false
-
-    setState((prev) => ({
-      modules: reloadSignal === 0 ? prev.modules : null,
-      loading: true,
-      errorKey: null,
-    }))
-
-    const loadModules = async () => {
-      try {
-        const loaded = await loadArcgisModules(MODULES)
-        if (cancelled) return
-
-        const [
-          SketchViewModel,
-          GraphicsLayer,
-          geometryEngine,
-          geometryEngineAsync,
-          webMercatorUtils,
-          projection,
-          SpatialReference,
-          normalizeUtils,
-          Polyline,
-          Polygon,
-          Graphic,
-        ] = loaded
-
-        try {
-          const proj = projection as any
-          if (proj?.load && typeof proj.load === "function") {
-            await proj.load()
-          }
-        } catch {}
-
-        const geometryOperators =
-          (geometryEngineAsync as any)?.operators ??
-          (geometryEngine as any)?.operators ??
-          null
-
-        setState({
-          modules: {
-            SketchViewModel,
-            GraphicsLayer,
-            geometryEngine,
-            geometryEngineAsync,
-            webMercatorUtils,
-            projection,
-            SpatialReference,
-            normalizeUtils,
-            Polyline,
-            Polygon,
-            Graphic,
-            geometryOperators,
-          } as EsriModules,
-          loading: false,
-          errorKey: null,
-        })
-      } catch (error) {
-        if (!cancelled) {
-          setState({ modules: null, loading: false, errorKey: "errorMapInit" })
-        }
-      }
-    }
-
-    void loadModules()
-    return () => {
-      cancelled = true
-    }
-  }, [reloadSignal])
-
-  return state
-}
-
-// Consolidated map state and resource management
-const useMapResources = () => {
-  const [state, setState] = React.useState<{
-    jimuMapView: JimuMapView | null
-    sketchViewModel: __esri.SketchViewModel | null
-    graphicsLayer: __esri.GraphicsLayer | null
-    cleanupHandles: (() => void) | null
-  }>({
-    jimuMapView: null,
-    sketchViewModel: null,
-    graphicsLayer: null,
-    cleanupHandles: null,
-  })
-
-  const updateResource = hooks.useEventCallback(
-    <K extends keyof typeof state>(key: K, value: (typeof state)[K]) => {
-      setState((prev) => {
-        let next = prev
-
-        if (
-          key === "sketchViewModel" &&
-          prev.sketchViewModel &&
-          prev.sketchViewModel !== value
-        ) {
-          try {
-            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__
-            if (typeof cleaner === "function") {
-              cleaner()
-            }
-          } catch {}
-        }
-
-        if (
-          key === "cleanupHandles" &&
-          prev.cleanupHandles &&
-          prev.cleanupHandles !== value
-        ) {
-          try {
-            prev.cleanupHandles()
-          } catch {}
-        }
-
-        next = { ...prev, [key]: value }
-
-        if (key === "cleanupHandles" && value === null) {
-          return { ...next, cleanupHandles: null }
-        }
-
-        return next
-      })
-    }
-  )
-
-  const releaseDrawingResources = hooks.useEventCallback(
-    (logSuffix: string, resetMapView: boolean) => {
-      const { sketchViewModel, graphicsLayer, jimuMapView, cleanupHandles } =
-        state
-
-      if (cleanupHandles) {
-        try {
-          cleanupHandles()
-        } catch {}
-      }
-
-      safeCancelSketch(
-        sketchViewModel,
-        `Error ${logSuffix} SketchViewModel (cancel)`
-      )
-
-      safely(
-        sketchViewModel,
-        `Error ${logSuffix} SketchViewModel (destroy)`,
-        (model) => {
-          if (typeof model.destroy === "function") {
-            model.destroy()
-          }
-        }
-      )
-
-      removeLayerFromMap(
-        jimuMapView,
-        graphicsLayer,
-        `Error ${logSuffix} GraphicsLayer (remove)`
-      )
-      safeClearLayer(graphicsLayer, `Error ${logSuffix} GraphicsLayer (clear)`)
-      destroyGraphicsLayer(
-        graphicsLayer,
-        `Error ${logSuffix} GraphicsLayer (destroy)`
-      )
-
-      setState((prev) => ({
-        ...prev,
-        jimuMapView: resetMapView ? null : prev.jimuMapView,
-        sketchViewModel: null,
-        graphicsLayer: null,
-        cleanupHandles: null,
-      }))
-    }
-  )
-
-  // Teardown drawing resources
-  const teardownDrawingResources = hooks.useEventCallback(() => {
-    releaseDrawingResources("tearing down", false)
-  })
-
-  const cleanupResources = hooks.useEventCallback(() => {
-    releaseDrawingResources("cleaning up", true)
-  })
-
-  return {
-    ...state,
-    setJimuMapView: (view: JimuMapView | null) =>
-      updateResource("jimuMapView", view),
-    setSketchViewModel: (vm: __esri.SketchViewModel | null) =>
-      updateResource("sketchViewModel", vm),
-    setGraphicsLayer: (layer: __esri.GraphicsLayer | null) =>
-      updateResource("graphicsLayer", layer),
-    setCleanupHandles: (cleanup: (() => void) | null) =>
-      updateResource("cleanupHandles", cleanup),
-    teardownDrawingResources,
-    cleanupResources,
-  }
-}
-
-// Error handling
-const useErrorDispatcher = (
-  dispatch: (action: unknown) => void,
-  widgetId: string
-) =>
-  hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
-    const error: ErrorState = {
-      message,
-      type,
-      code: code || "UNKNOWN",
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      timestamp: new Date(),
-      timestampMs: Date.now(),
-      kind: "runtime",
-    }
-    dispatch(fmeActions.setError("general", error, widgetId))
-  })
-
-// Initialize graphics layers for drawing
-const createLayers = (
-  jmv: JimuMapView,
-  modules: EsriModules,
-  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
-) => {
-  // Main sketch layer
-  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
-  jmv.view.map.add(layer)
-  setGraphicsLayer(layer)
-
-  return layer
-}
-
-// Create and configure SketchViewModel
-const createSketchVM = ({
-  jmv,
-  modules,
-  layer,
-  onDrawComplete,
-  dispatch,
-  widgetId,
-  symbols,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  jmv: JimuMapView
-  modules: EsriModules
-  layer: __esri.GraphicsLayer
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
-  symbols: {
-    polygon: any
-    polyline: any
-    point: any
-  }
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}): {
-  sketchViewModel: __esri.SketchViewModel
-  cleanup: () => void
-} => {
-  const sketchViewModel = new modules.SketchViewModel({
-    view: jmv.view,
-    layer,
-    polygonSymbol: symbols.polygon,
-    polylineSymbol: symbols.polyline,
-    pointSymbol: symbols.point,
-    defaultCreateOptions: {
-      hasZ: false,
-      mode: "click",
-    },
-    defaultUpdateOptions: {
-      tool: "reshape",
-      toggleToolOnClick: false,
-      enableRotation: true,
-      enableScaling: true,
-      preserveAspectRatio: false,
-    },
-    snappingOptions: {
-      enabled: true,
-      selfEnabled: true,
-      featureEnabled: true,
-    },
-    tooltipOptions: {
-      enabled: true,
-      inputEnabled: true,
-      visibleElements: {
-        area: true,
-        totalLength: true,
-        distance: true,
-        coordinates: false,
-        elevation: false,
-        rotation: false,
-        scale: false,
-        size: false,
-        radius: true,
-        direction: true,
-        header: true,
-        helpMessage: true,
-      },
-    },
-    valueOptions: {
-      directionMode: "relative",
-      displayUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-      inputUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-    },
-  })
-
-  const cleanup = setupSketchEventHandlers({
-    sketchViewModel,
-    onDrawComplete,
-    dispatch,
-    modules,
-    widgetId,
-    onDrawingSessionChange,
-    onSketchToolStart,
-  })
-  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
-  return { sketchViewModel, cleanup }
-}
-
-// Setup SketchViewModel event handlers
-const setupSketchEventHandlers = ({
-  sketchViewModel,
-  onDrawComplete,
-  dispatch,
-  modules,
-  widgetId,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  sketchViewModel: __esri.SketchViewModel
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  modules: EsriModules
-  widgetId: string
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}) => {
-  let clickCount = 0
-
-  const createHandle = sketchViewModel.on(
-    "create",
-    (evt: __esri.SketchCreateEvent) => {
-      switch (evt.state) {
-        case "start": {
-          clickCount = 0
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (!normalizedTool) {
-            safeCancelSketch(
-              sketchViewModel,
-              "Error blocking unsupported Sketch tool"
-            )
-            onDrawingSessionChange({ isActive: false, clickCount: 0 })
-            return
-          }
-          onDrawingSessionChange({ isActive: true, clickCount: 0 })
-          onSketchToolStart(
-            normalizedTool === "rectangle"
-              ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON
-          )
-          break
-        }
-
-        case "active": {
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
-            const geometry = evt.graphic.geometry as __esri.Polygon
-            const vertices = geometry.rings?.[0]
-            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
-            if (actualClicks > clickCount) {
-              clickCount = actualClicks
-              onDrawingSessionChange({
-                clickCount: actualClicks,
-                isActive: true,
-              })
-              if (actualClicks === 1) {
-                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-              }
-            }
-          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
-            clickCount = 1
-            onDrawingSessionChange({ clickCount: 1, isActive: true })
-          }
-          break
-        }
-
-        case "complete":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          try {
-            onDrawComplete(evt)
-          } catch (err: any) {
-            logIfNotAbort("onDrawComplete error", err)
-          }
-          break
-
-        case "cancel":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          break
-      }
-    }
-  )
-
-  // Re-run the same completion pipeline when a reshape finishes
-  const updateHandle = sketchViewModel.on(
-    "update",
-    (evt: __esri.SketchUpdateEvent) => {
-      if (
-        evt.state === "complete" &&
-        Array.isArray(evt.graphics) &&
-        (evt.graphics[0] as any)?.geometry
-      ) {
-        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
-        try {
-          onDrawComplete({
-            graphic: evt.graphics[0] as any,
-            state: "complete",
-            tool: normalizedTool ?? (evt as any).tool,
-          } as any)
-        } catch (err: any) {
-          logIfNotAbort("onDrawComplete update error", err)
-        }
-      }
-    }
-  )
-
-  return () => {
-    try {
-      createHandle?.remove()
-    } catch {}
-    try {
-      updateHandle?.remove()
-    } catch {}
-    try {
-      ;(sketchViewModel as any).__fmeCleanup__ = undefined
-    } catch {}
-  }
-}
-
-// Area formatting is imported from shared/utils
-
-export default function Widget(
+import {
+  useEsriModules,
+  useMapResources,
+  useErrorDispatcher,
+  safeCancelSketch,
+  safeClearLayer,
+  usePrefetchWorkspaces,
+} from "../shared/hooks"
+
+/* Konverteringsfaktor för filstorlekar */
+const BYTES_PER_MEGABYTE = 1024 * 1024
+
+/* Huvudkomponent för FME Export widget runtime */
+function WidgetContent(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
   const {
@@ -995,29 +112,18 @@ export default function Widget(
     config,
   } = props
 
-  // Determine widget ID for state management
+  /* Bestämmer unikt widget-ID för Redux state management */
   const widgetId =
     (id as unknown as string) ?? (widgetIdProp as unknown as string)
 
+  /* Skapar Redux-selektorer för detta widget */
   const selectors = createFmeSelectors(widgetId)
-  const { viewMode, drawingTool } = ReactRedux.useSelector(
-    (state: IMStateWithFmeExport) => {
-      const vm = selectors.selectViewMode(state)
-      const dt = selectors.selectDrawingTool(state)
-      return { viewMode: vm, drawingTool: dt }
-    },
-    (prev, next) => {
-      return (
-        prev.viewMode === next.viewMode && prev.drawingTool === next.drawingTool
-      )
-    }
-  )
-  const geometryJson = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
-    return selectors.selectGeometryJson(state)
-  })
-  const drawnArea = ReactRedux.useSelector((state: IMStateWithFmeExport) => {
-    return selectors.selectDrawnArea(state)
-  })
+
+  /* Hämtar individuella state-properties med optimerad memoization */
+  const viewMode = ReactRedux.useSelector(selectors.selectViewMode)
+  const drawingTool = ReactRedux.useSelector(selectors.selectDrawingTool)
+  const geometryJson = ReactRedux.useSelector(selectors.selectGeometryJson)
+  const drawnArea = ReactRedux.useSelector(selectors.selectDrawnArea)
   const workspaceItems = ReactRedux.useSelector(selectors.selectWorkspaceItems)
   const workspaceParameters = ReactRedux.useSelector(
     selectors.selectWorkspaceParameters
@@ -1032,8 +138,25 @@ export default function Widget(
     selectors.selectLoadingFlag("submission")
   )
   const canExport = ReactRedux.useSelector(selectors.selectCanExport)
-  const scopedError = ReactRedux.useSelector(selectors.selectError)
+  const scopedError = ReactRedux.useSelector(selectors.selectPrimaryError)
+
   const previousViewMode = hooks.usePrevious(viewMode)
+
+  /* Expanderar serializable error från Redux till komplett ErrorState */
+  const expandSerializableError = hooks.useEventCallback(
+    (error: SerializableErrorState | null | undefined): ErrorState | null => {
+      if (!error) return null
+      const timestampMs =
+        typeof error.timestampMs === "number" ? error.timestampMs : Date.now()
+      return {
+        ...error,
+        timestamp: new Date(timestampMs),
+        timestampMs,
+        kind: "runtime",
+      }
+    }
+  )
+
   const generalErrorDetails =
     scopedError?.scope === "general" ? scopedError.details : null
   const generalError = expandSerializableError(generalErrorDetails)
@@ -1042,39 +165,97 @@ export default function Widget(
   const workflowError = scopedError?.details ?? null
   const configuredRepository = config?.repository ?? null
 
+  const workspacePrefetchResult = usePrefetchWorkspaces(
+    workspaceItems,
+    {
+      repository: config?.repository ?? undefined,
+      fmeServerUrl: (config as { fmeServerUrl?: string })?.fmeServerUrl,
+      fmeServerToken: (config as { fmeServerToken?: string })?.fmeServerToken,
+    },
+    {
+      enabled:
+        viewMode === ViewMode.WORKSPACE_SELECTION &&
+        workspaceItems.length > 0 &&
+        !hasCriticalGeneralError,
+    }
+  )
+
+  const {
+    isPrefetching: isPrefetchingWorkspaces,
+    progress: prefetchProgressState,
+    prefetchStatus: workspacePrefetchStatus,
+  } = workspacePrefetchResult
+
+  const workspacePrefetchProgress = prefetchProgressState
+    ? {
+        loaded: prefetchProgressState.loaded,
+        total: prefetchProgressState.total,
+      }
+    : null
+
   const styles = useStyles()
   const translateWidget = hooks.useTranslation(defaultMessages)
 
-  // Translation function
+  /* Wrapper för översättningsfunktion med stabila callbacks */
   const translate = hooks.useEventCallback((key: string): string => {
     return translateWidget(key)
   })
 
   const makeCancelable = hooks.useCancelablePromiseMaker()
+  /* Refs som alltid håller senaste config/viewMode/drawingTool */
   const configRef = hooks.useLatest(config)
   const viewModeRef = hooks.useLatest(viewMode)
   const drawingToolRef = hooks.useLatest(drawingTool)
+  /* Flagga för auto-start av ritning efter initialisering */
   const [shouldAutoStart, setShouldAutoStart] = React.useState(false)
+  /* FME Flow API-klient med cache för att undvika onödiga recreates */
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
   > | null>(null)
   const fmeClientKeyRef = React.useRef<string | null>(null)
+  /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
+  /* Unik identifierare för popup-suppression i denna widget-instans */
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
   )
+  /* Timer för fördröjd repository cache warmup */
+  const warmupTimerRef = React.useRef<number | null>(null)
 
+  /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
-    React.useState<DrawingSessionState>(() => ({
+    React.useState<DrawingSessionState>({
       isActive: false,
       clickCount: 0,
-    }))
+    })
+
+  /* Spårar submission-fas för feedback under export */
+  const [submissionPhase, setSubmissionPhase] =
+    React.useState<SubmissionPhase>("idle")
 
   const updateDrawingSession = hooks.useEventCallback(
     (updates: Partial<DrawingSessionState>) => {
       setDrawingSession((prev) => {
         return { ...prev, ...updates }
       })
+    }
+  )
+
+  const handlePreparationStatus = hooks.useEventCallback(
+    (status: SubmissionPreparationStatus) => {
+      if (status === "normalizing") {
+        setSubmissionPhase("preparing")
+        return
+      }
+
+      if (status === "resolvingDataset") {
+        setSubmissionPhase("uploading")
+        return
+      }
+
+      if (status === "applyingDefaults" || status === "complete") {
+        setSubmissionPhase("finalizing")
+      }
     }
   )
 
@@ -1087,8 +268,11 @@ export default function Widget(
   })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
+  const [modeNotice, setModeNotice] = React.useState<ModeNotice | null>(null)
+  /* Textstatus under startup-validering */
   const [startupStep, setStartupStep] = React.useState<string | undefined>()
 
+  /* Beräknar startup-validerings-tillstånd */
   const isStartupPhase = viewMode === ViewMode.STARTUP_VALIDATION
   const startupValidationErrorDetails: SerializableErrorState | null =
     isStartupPhase && generalErrorDetails ? generalErrorDetails : null
@@ -1100,12 +284,172 @@ export default function Widget(
     setAreaWarning(Boolean(next))
   })
 
+  const clearModeNotice = hooks.useEventCallback(() => {
+    setModeNotice(null)
+  })
+
+  /* Sätter modenotis baserat på tvingad servicemode (async/schedule) */
+  const setForcedModeNotice = hooks.useEventCallback(
+    (
+      info: ServiceModeOverrideInfo | null,
+      currentModules: EsriModules | null,
+      currentView: JimuMapView | null
+    ) => {
+      if (!info) {
+        setModeNotice(null)
+        return
+      }
+
+      const params: { [key: string]: unknown } = {}
+      let messageKey = "forcedAsyncDefault"
+
+      /* Bygger meddelandeparametrar beroende på tvångsskäl */
+      switch (info.reason) {
+        case "runtime": {
+          if (typeof info.value === "number") {
+            params.seconds = Math.max(0, Math.round(info.value))
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold = Math.max(0, Math.round(info.threshold))
+          }
+          messageKey = "forcedAsyncRuntime"
+          break
+        }
+        case "transformers": {
+          if (typeof info.value === "number") {
+            params.count = Math.max(0, Math.round(info.value))
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold = Math.max(0, Math.round(info.threshold))
+          }
+          messageKey = "forcedAsyncTransformers"
+          break
+        }
+        case "fileSize": {
+          if (typeof info.value === "number") {
+            const sizeMb = info.value / BYTES_PER_MEGABYTE
+            params.sizeMb =
+              sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)
+          }
+          if (typeof info.threshold === "number") {
+            const thresholdMb = info.threshold / BYTES_PER_MEGABYTE
+            params.thresholdMb =
+              thresholdMb >= 10
+                ? Math.round(thresholdMb)
+                : thresholdMb.toFixed(1)
+          }
+          messageKey = "forcedAsyncFileSize"
+          break
+        }
+        case "area": {
+          if (typeof info.value === "number") {
+            params.area =
+              currentModules && currentView?.view?.spatialReference
+                ? formatArea(
+                    info.value,
+                    currentModules,
+                    currentView.view.spatialReference
+                  )
+                : Math.max(0, Math.round(info.value)).toLocaleString()
+          }
+          if (typeof info.threshold === "number") {
+            params.threshold =
+              currentModules && currentView?.view?.spatialReference
+                ? formatArea(
+                    info.threshold,
+                    currentModules,
+                    currentView.view.spatialReference
+                  )
+                : Math.max(0, Math.round(info.threshold)).toLocaleString()
+          }
+          messageKey = "forcedAsyncArea"
+          break
+        }
+      }
+
+      setModeNotice({
+        messageKey,
+        severity: "warning",
+        params,
+      })
+    }
+  )
+
+  const clearWarmupTimer = hooks.useEventCallback(() => {
+    if (warmupTimerRef.current != null) {
+      if (typeof window !== "undefined") {
+        window.clearTimeout(warmupTimerRef.current)
+      }
+      warmupTimerRef.current = null
+    }
+  })
+
+  /* Förladdar workspace-listan från FME Flow för snabbare användarval */
+  const warmRepositoryCache = hooks.useEventCallback(() => {
+    const latestConfig = configRef.current
+    if (!latestConfig?.fmeServerUrl || !latestConfig?.fmeServerToken) {
+      return
+    }
+
+    const repository = latestConfig.repository || DEFAULT_REPOSITORY
+    const tokenKey = buildTokenCacheKey(latestConfig.fmeServerToken)
+    const queryKey = [
+      "fme",
+      "workspaces",
+      repository,
+      latestConfig.fmeServerUrl,
+      tokenKey,
+    ] as const
+
+    void fmeQueryClient
+      .fetchQuery<WorkspaceItem[]>({
+        queryKey,
+        staleTime: 5 * 60 * 1000,
+        retry: 1,
+        queryFn: async ({ signal }) => {
+          const client = getOrCreateFmeClient()
+          const response = await client.getRepositoryItems(
+            repository,
+            WORKSPACE_ITEM_TYPE,
+            undefined,
+            undefined,
+            signal
+          )
+          const items = Array.isArray(response?.data?.items)
+            ? (response.data.items as WorkspaceItem[])
+            : []
+          return items
+        },
+      })
+      .then((items) => {
+        if (Array.isArray(items) && items.length) {
+          dispatch(fmeActions.setWorkspaceItems(items, widgetId))
+        }
+      })
+      .catch((error) => {
+        logIfNotAbort("Repository warmup error", error)
+      })
+  })
+
+  const scheduleRepositoryWarmup = hooks.useEventCallback(() => {
+    clearWarmupTimer()
+    if (typeof window === "undefined") {
+      warmRepositoryCache()
+      return
+    }
+    warmupTimerRef.current = window.setTimeout(() => {
+      warmupTimerRef.current = null
+      warmRepositoryCache()
+    }, 300)
+  })
+
   hooks.useUpdateEffect(() => {
     if (!isStartupPhase) {
       setStartupStep(undefined)
     }
   }, [isStartupPhase])
 
+  /* Aktiverar popup-blockering när widget är aktiv */
   const enablePopupGuard = hooks.useEventCallback(
     (view: JimuMapView | null | undefined) => {
       if (!view?.view) return
@@ -1124,7 +468,9 @@ export default function Widget(
         } else if (popup && typeof popup.close === "function") {
           popup.close()
         }
-      } catch {}
+      } catch (error) {
+        logIfNotAbort("Failed to close map popup", error)
+      }
     }
   )
 
@@ -1132,6 +478,7 @@ export default function Widget(
     popupSuppressionManager.release(popupClientIdRef.current)
   })
 
+  /* Stänger andra öppna widgets enligt autoCloseOtherWidgets-inställning */
   const closeOtherWidgets = hooks.useEventCallback(() => {
     const autoCloseSetting = configRef.current?.autoCloseOtherWidgets
     if (autoCloseSetting !== undefined && !autoCloseSetting) {
@@ -1152,7 +499,7 @@ export default function Widget(
     }
   })
 
-  // Error handling
+  /* Felhantering via Redux dispatch */
   const dispatchError = useErrorDispatcher(dispatch, widgetId)
   const submissionAbort = useLatestAbortController()
 
@@ -1162,7 +509,7 @@ export default function Widget(
     dispatch(fmeActions.setViewMode(nextView, widgetId))
   })
 
-  // Compute symbols from configured color (single source of truth = config)
+  /* Bygger symboler från konfigurerad drawingColor (config är källa) */
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
   const symbolsRef = React.useRef(buildSymbols(hexToRgbArray(currentHex)))
 
@@ -1170,16 +517,20 @@ export default function Widget(
     symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
   }, [currentHex])
 
+  /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {
     if (fmeClientRef.current?.dispose) {
       try {
         fmeClientRef.current.dispose()
-      } catch {}
+      } catch (error) {
+        logIfNotAbort("Failed to dispose FME client", error)
+      }
     }
     fmeClientRef.current = null
     fmeClientKeyRef.current = null
   })
 
+  /* Skapar eller återanvänder FME-klient baserat på cache-nyckel */
   const getOrCreateFmeClient = hooks.useEventCallback(() => {
     const latestConfig = configRef.current
     if (!latestConfig) {
@@ -1210,32 +561,36 @@ export default function Widget(
     return fmeClientRef.current
   })
 
-  function expandSerializableError(
-    error: SerializableErrorState | null | undefined
-  ): ErrorState | null {
-    if (!error) return null
-    const timestampMs =
-      typeof error.timestampMs === "number" ? error.timestampMs : Date.now()
-    return {
-      ...error,
-      timestamp: new Date(timestampMs),
-      timestampMs,
-      kind: "runtime",
-    }
-  }
-
   hooks.useUpdateEffect(() => {
     if (!config) {
       disposeFmeClient()
     }
-  }, [config, disposeFmeClient])
+  }, [config])
+
+  hooks.useUpdateEffect(() => {
+    if (!config?.fmeServerUrl || !config?.fmeServerToken) {
+      clearWarmupTimer()
+      return
+    }
+
+    scheduleRepositoryWarmup()
+  }, [
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
+    config?.repository,
+    scheduleRepositoryWarmup,
+    clearWarmupTimer,
+  ])
 
   hooks.useUnmount(() => {
+    submissionAbort.cancel()
+    startupAbort.cancel()
     disposeFmeClient()
     disablePopupGuard()
+    clearWarmupTimer()
   })
 
-  // Centralized Redux reset helpers to avoid duplicated dispatch sequences
+  /* Centraliserade Redux-återställnings-hjälpfunktioner */
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
     const activeTool = drawingToolRef.current
 
@@ -1261,7 +616,7 @@ export default function Widget(
     setModuleRetryKey((prev) => prev + 1)
   })
 
-  // Render error view with translation and support hints
+  /* Renderar felvy med översättning och support-ledtrådar */
   const renderWidgetError = hooks.useEventCallback(
     (
       error: ErrorState | null,
@@ -1269,7 +624,7 @@ export default function Widget(
     ): React.ReactElement | null => {
       if (!error) return null
 
-      // Suppress cancelled/aborted errors
+      /* Undertrycker avbrutna/cancelled fel från användargränssnittet */
       if (
         error.code === "CANCELLED" ||
         error.code === "ABORT" ||
@@ -1278,12 +633,11 @@ export default function Widget(
         return null
       }
 
-      // Determine base error message with translation
-      const baseMsgKey = error.message
-      const resolvedMessage =
-        resolveMessageOrKey(baseMsgKey, translate) || translate("errorUnknown")
+      /* Översätter felmeddelande och bestämmer användarhjälp */
+      const baseMsgKey = error.message || "errorUnknown"
+      const resolvedMessage = resolveMessageOrKey(baseMsgKey, translate)
 
-      // Decide how to guide the user depending on error type
+      /* Avgör om support-ledtråd ska visas baserat på feltyp */
       const codeUpper = (error.code || "").toUpperCase()
       const isGeometryInvalid =
         codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
@@ -1292,7 +646,7 @@ export default function Widget(
       const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
       const suppressSupport = isAoiRetryableError || isConfigIncomplete
 
-      // For geometry invalid errors: suppress code and support email; show an explanatory hint
+      /* Bygger kontextuell felhjälp beroende på feltyp */
       const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
       const supportHint = isGeometryInvalid
@@ -1309,28 +663,31 @@ export default function Widget(
                 typeof ufm === "string" ? ufm : undefined
               ).hint
 
-      // Create actions (retry clears error by default)
+      /* Bygger retry-action som rensar fel och återgår till ritläge */
       const actions: Array<{ label: string; onClick: () => void }> = []
       const retryHandler =
         onRetry ??
         (() => {
-          // Clear error and return to drawing mode if applicable
+          /* Rensar fel och återgår till ritläge vid geometry-fel */
           dispatch(fmeActions.clearError("general", widgetId))
           if (isAoiRetryableError) {
-            // Mark that we should auto-start once tools are re-initialized
+            /* Markerar att ritning ska auto-starta när verktyg återinits */
             setShouldAutoStart(true)
             dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-            // If drawing resources were torn down, re-initialize them now
+            /* Om ritresurser rensades, återinitierar dem nu */
             try {
-              if (!sketchViewModel && modules && jimuMapView) {
-                handleMapViewReady(jimuMapView)
+              const currentSketchVM = sketchViewModel
+              const currentModules = modules
+              const currentJimuView = jimuMapView
+              if (!currentSketchVM && currentModules && currentJimuView) {
+                handleMapViewReady(currentJimuView)
               }
             } catch {}
           }
         })
       actions.push({ label: translate("actionRetry"), onClick: retryHandler })
 
-      // If offline, offer a reload action for convenience
+      /* Lägger till reload-knapp vid offline-fel */
       if (isNavigatorOffline()) {
         actions.push({
           label: translate("actionReload"),
@@ -1342,42 +699,20 @@ export default function Widget(
         })
       }
 
+      const hintText = toTrimmedString(supportHint)
+      const supportDetail = !hintText
+        ? undefined
+        : suppressSupport
+          ? hintText
+          : renderSupportHint(supportEmail, translate, styles, hintText)
+
       return (
         <StateView
-          // Show the base error message only; render support hint separately below
           state={makeErrorView(resolvedMessage, {
             code: suppressSupport ? undefined : error.code,
             actions,
+            detail: supportDetail,
           })}
-          renderActions={(act, ariaLabel) => (
-            <div
-              role="group"
-              aria-label={ariaLabel}
-              data-actions-count={act?.length ?? 0}
-            >
-              {/* Render hint row: for geometry errors show plain text without support email */}
-              <div>
-                {suppressSupport ? (
-                  <div css={styles.typography.caption}>{supportHint}</div>
-                ) : (
-                  renderSupportHint(
-                    supportEmail,
-                    translate,
-                    styles,
-                    supportHint
-                  )
-                )}
-              </div>
-              {Array.isArray(act) && act.length > 0 && (
-                <div css={css({ marginTop: 8 })}>
-                  {act.map((a, i) => (
-                    <Button key={i} text={a.label} onClick={a.onClick} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          center={true}
         />
       )
     }
@@ -1388,15 +723,30 @@ export default function Widget(
     loading: modulesLoading,
     errorKey: modulesErrorKey,
   } = useEsriModules(moduleRetryKey)
+
   const mapResources = useMapResources()
 
-  React.useEffect(() => {
+  /* Destrukturerar kartresurser från custom hook */
+  const {
+    jimuMapView,
+    setJimuMapView,
+    sketchViewModel,
+    setSketchViewModel,
+    graphicsLayer,
+    setGraphicsLayer,
+    setCleanupHandles,
+    teardownDrawingResources,
+    cleanupResources,
+  } = mapResources
+
+  /* Synkar modulers laddningsstatus med Redux */
+  hooks.useEffectWithPreviousValues(() => {
     dispatch(
       fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
     )
-  }, [dispatch, modulesLoading, widgetId])
+  }, [modulesLoading, dispatch, widgetId])
 
-  React.useEffect(() => {
+  hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {
       return
     }
@@ -1428,21 +778,50 @@ export default function Widget(
     return null
   })
 
-  // Redux state selector and dispatcher
-  const isActive = hooks.useWidgetActived(widgetId)
+  hooks.useUpdateEffect(() => {
+    if (viewMode !== ViewMode.EXPORT_FORM) {
+      clearModeNotice()
+      return
+    }
 
-  // Destructure map resources
-  const {
+    const latestConfig = configRef.current
+    if (!latestConfig) {
+      clearModeNotice()
+      return
+    }
+
+    let forcedInfo: ServiceModeOverrideInfo | null = null
+    determineServiceMode({ data: {} }, latestConfig, {
+      workspaceItem,
+      areaWarning,
+      drawnArea,
+      onModeOverride: (info) => {
+        forcedInfo = info
+      },
+    })
+
+    if (forcedInfo) {
+      setForcedModeNotice(forcedInfo, modules, jimuMapView)
+      return
+    }
+
+    clearModeNotice()
+  }, [
+    viewMode,
+    workspaceItem,
+    areaWarning,
+    drawnArea,
+    modules,
     jimuMapView,
-    setJimuMapView,
-    sketchViewModel,
-    setSketchViewModel,
-    graphicsLayer,
-    setGraphicsLayer,
-    setCleanupHandles,
-    teardownDrawingResources,
-    cleanupResources,
-  } = mapResources
+    config?.syncMode,
+    config?.allowScheduleMode,
+    config?.largeArea,
+    clearModeNotice,
+    setForcedModeNotice,
+  ])
+
+  /* Aktivitetsstatus för widgeten från Redux */
+  const isActive = hooks.useWidgetActived(widgetId)
 
   const endSketchSession = hooks.useEventCallback(
     (options?: { clearLocalGeometry?: boolean }) => {
@@ -1451,10 +830,7 @@ export default function Widget(
         updateDrawingSession({ clickCount: 0 })
       }
       if (sketchViewModel) {
-        safeCancelSketch(
-          sketchViewModel,
-          "Error cancelling SketchViewModel while exiting drawing mode"
-        )
+        safeCancelSketch(sketchViewModel)
       }
       updateDrawingSession({ isActive: false })
     }
@@ -1476,6 +852,7 @@ export default function Widget(
     setStartupStep(undefined)
     dispatch(fmeActions.clearError("general", widgetId))
     dispatch(fmeActions.completeStartup(widgetId))
+    scheduleRepositoryWarmup()
     const currentViewMode = viewModeRef.current
     const isUnset =
       currentViewMode === null || typeof currentViewMode === "undefined"
@@ -1492,7 +869,7 @@ export default function Widget(
     dispatch(fmeActions.setError("general", error, widgetId))
   })
 
-  // Small helper to build consistent startup validation errors
+  /* Skapar konsekvent startup-valideringsfel med retry-callback */
   const createStartupError = hooks.useEventCallback(
     (messageKey: string, code: string, retry?: () => void): ErrorState => ({
       message: translate(messageKey),
@@ -1511,22 +888,22 @@ export default function Widget(
     })
   )
 
-  // Keep track of ongoing startup validation to allow aborting
+  /* AbortController för att kunna avbryta pågående startup-validering */
   const startupAbort = useLatestAbortController()
 
-  // Startup validation
+  /* Kör startup-validering: karta, config, FME-anslutning, e-post */
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
     dispatch(fmeActions.clearError("general", widgetId))
     setValidationStep(translate("validatingStartup"))
 
     try {
-      // Step 1: validate map configuration
+      /* Steg 1: validera kartkonfiguration */
       setValidationStep(translate("statusValidatingMap"))
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
 
-      // Step 2: validate widget configuration and FME connection using shared service
+      /* Steg 2: validera widget-config och FME-anslutning */
       setValidationStep(translate("statusValidatingConnection"))
       const validationResult = await validateWidgetStartup({
         config,
@@ -1538,8 +915,7 @@ export default function Widget(
       if (!validationResult.isValid) {
         if (validationResult.error) {
           setValidationError(validationResult.error)
-        } else {
-          // Fallback error
+        } else if (validationResult.requiresSettings) {
           setValidationError(
             createStartupError(
               "configurationInvalid",
@@ -1547,11 +923,13 @@ export default function Widget(
               runStartupValidation
             )
           )
+        } else {
+          setStartupStep(undefined)
         }
         return
       }
 
-      // Step 3: validate user email only when async mode is in use
+      /* Steg 3: validera användarens e-post för async-läge */
       if (!config?.syncMode) {
         setValidationStep(translate("statusValidatingEmail"))
         try {
@@ -1578,7 +956,7 @@ export default function Widget(
         }
       }
 
-      // All validation passed
+      /* All validering lyckades */
       setValidationSuccess()
     } catch (err: unknown) {
       const errorKey = mapErrorToKey(err) || "errorUnknown"
@@ -1599,7 +977,7 @@ export default function Widget(
     runStartupValidation()
   })
 
-  // Run startup validation when widget first loads
+  /* Kör startup-validering när widgeten först laddas */
   hooks.useEffectOnce(() => {
     runStartupValidation()
     return () => {
@@ -1607,7 +985,7 @@ export default function Widget(
     }
   })
 
-  // Reset widget state for re-validation
+  /* Återställer widget-state för ny validering */
   const resetForRevalidation = hooks.useEventCallback(
     (alsoCleanupMapResources = false) => {
       submissionAbort.cancel()
@@ -1627,11 +1005,11 @@ export default function Widget(
     }
   )
 
-  // Track previous key connection settings to detect what changed
+  /* Spårar tidigare anslutningsinställningar för att upptäcka ändringar */
   hooks.useEffectWithPreviousValues(
     (prevValues) => {
       const prevConfig = prevValues[0] as FmeExportConfig | undefined
-      // Skip on first render to preserve initial load behavior
+      /* Hoppar över första renderingen för att bevara initial laddning */
       if (!prevConfig) return
       const nextConfig = config
 
@@ -1642,43 +1020,41 @@ export default function Widget(
       const repoChanged = prevConfig?.repository !== nextConfig?.repository
 
       try {
-        if (serverChanged || tokenChanged) {
-          // Full revalidation required when connection credentials change
+        if (serverChanged || tokenChanged || repoChanged) {
+          /* Full omvalidering krävs vid byte av anslutning eller repository */
           resetForRevalidation(false)
-          runStartupValidation()
-        } else if (repoChanged) {
-          // Repository change: clear workspace-related state and revalidate
-          // Lightweight reset (keep map resources) then re-run validation
-          resetForRevalidation(false)
-          runStartupValidation()
+          /* Fördröjer validering något för att låta ev. UI-övergångar slutföras */
+          const timerId = window.setTimeout(() => {
+            runStartupValidation()
+          }, 50)
+          return () => {
+            window.clearTimeout(timerId)
+          }
         }
       } catch {}
     },
     [config]
   )
 
-  // React to map selection changes by re-running startup validation
+  /* Kör om startup-validering vid ändring av kartkonfiguration */
   hooks.useUpdateEffect(() => {
     try {
-      // If no map is configured, also cleanup map resources
+      /* Om ingen karta konfigurerad, rensa även kartresurser */
       const hasMapConfigured =
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
       resetForRevalidation(!hasMapConfigured)
     } catch {}
 
-    // Re-run validation with new map selection
+    /* Kör om validering med ny kartkonfiguration */
     runStartupValidation()
   }, [useMapWidgetIds])
 
-  // Reset/hide measurement UI and clear layers
+  /* Återställer grafik och mätningar utan att röra kartresurser */
   const resetGraphicsAndMeasurements = hooks.useEventCallback(() => {
-    safeClearLayer(
-      graphicsLayer,
-      "Error clearing graphics during measurement reset"
-    )
+    safeClearLayer(graphicsLayer)
   })
 
-  // Drawing complete with enhanced Graphic functionality
+  /* Hanterar slutförd ritning med geometri-validering och area-beräkning */
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
       const geometry = evt.graphic?.geometry
@@ -1694,7 +1070,7 @@ export default function Widget(
         endSketchSession()
         updateAreaWarning(false)
 
-        // Validate
+        /* Validerar geometri och förenklar om nödvändigt */
 
         const validation = await validatePolygon(geometry, modules)
 
@@ -1712,9 +1088,7 @@ export default function Widget(
 
           return
         }
-        const geomForUse =
-          (validation as { simplified?: __esri.Polygon | null }).simplified ??
-          (geometry as __esri.Polygon)
+        const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
 
         const calculatedArea = await calcArea(geomForUse, modules)
 
@@ -1772,6 +1146,7 @@ export default function Widget(
             widgetId
           )
         )
+        // Göm ritverktygen tills vidare
       } catch (error) {
         updateAreaWarning(false)
         dispatchError(
@@ -1791,24 +1166,55 @@ export default function Widget(
     navigateTo(ViewMode.ORDER_RESULT)
   })
 
-  // Handle successful submission
+  /* Hanterar lyckad submission och bygger resultat-objekt */
   const handleSubmissionSuccess = (
     fmeResponse: unknown,
     workspace: string,
-    userEmail: string
+    userEmail: string,
+    formData: { [key: string]: unknown } | undefined,
+    serviceMode?: ServiceMode | null
   ) => {
-    const result = processFmeResponse(
+    const baseResult = processFmeResponse(
       fmeResponse,
       workspace,
       userEmail,
       translate
     )
-    finalizeOrder(result)
+
+    let nextResult: ExportResult = {
+      ...baseResult,
+      ...(serviceMode ? { serviceMode } : {}),
+    }
+
+    if (formData && config?.allowScheduleMode) {
+      const startVal = toTrimmedString(formData.start)
+      const name = toTrimmedString(formData.name)
+      const category = toTrimmedString(formData.category)
+      const description = toTrimmedString(formData.description)
+      const trigger = toTrimmedString(formData.trigger)
+
+      if (startVal && name && category) {
+        const scheduleMetadata = {
+          ...(nextResult.scheduleMetadata ?? {}),
+          start: startVal,
+          name,
+          category,
+          ...(description ? { description } : {}),
+          ...(trigger ? { trigger } : {}),
+        }
+        nextResult = { ...nextResult, scheduleMetadata }
+      }
+    }
+
+    finalizeOrder(nextResult)
   }
 
-  // Handle submission error
-  const handleSubmissionError = (error: unknown) => {
-    // Prefer localized message key resolution
+  /* Hanterar submission-fel och bygger användarmeddelande */
+  const handleSubmissionError = (
+    error: unknown,
+    serviceMode?: ServiceMode | null
+  ) => {
+    /* Översätter fel till lokaliserad nyckel */
     const rawKey = mapErrorToKey(error) || "errorUnknown"
     let localizedErr = ""
     try {
@@ -1816,7 +1222,7 @@ export default function Widget(
     } catch {
       localizedErr = translate("errorUnknown")
     }
-    // Build localized failure message and append contact support hint
+    /* Bygger felmeddelande med support-ledtråd */
     const configured = getSupportEmail(configRef.current?.supportEmail)
     const contactHint = buildSupportHintText(translate, configured)
     const baseFailMessage = translate("errorOrderFailed")
@@ -1826,11 +1232,12 @@ export default function Widget(
       success: false,
       message: resultMessage,
       code: (error as { code?: string }).code || "SUBMISSION_ERROR",
+      ...(serviceMode ? { serviceMode } : {}),
     }
     finalizeOrder(result)
   }
 
-  // Form submission handler
+  /* Hanterar formulär-submission: validerar, förbereder, kör workspace */
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
     if (isSubmitting || !canExport) {
       return
@@ -1838,37 +1245,55 @@ export default function Widget(
 
     const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
+      setSubmissionPhase("idle")
       dispatchError(maxCheck.message, ErrorType.VALIDATION, maxCheck.code)
       return
     }
 
     dispatch(fmeActions.setLoadingFlag("submission", true, widgetId))
+    setSubmissionPhase("preparing")
 
     let controller: AbortController | null = null
+    let serviceMode: ServiceMode | null = null
 
     try {
       const latestConfig = configRef.current
       const rawDataEarly = ((formData as any)?.data || {}) as {
         [key: string]: unknown
       }
-      // Determine mode early from form data for email requirement
-      const earlyMode = determineServiceMode(
+      clearModeNotice()
+      /* Avgör serviceMode tidigt för e-post-krav */
+      const determinedMode = determineServiceMode(
         { data: rawDataEarly },
-        latestConfig
+        latestConfig,
+        {
+          workspaceItem,
+          areaWarning,
+          drawnArea,
+          onModeOverride: setForcedModeNotice,
+        }
       )
+      serviceMode =
+        determinedMode === "sync" ||
+        determinedMode === "async" ||
+        determinedMode === "schedule"
+          ? determinedMode
+          : null
       const fmeClient = getOrCreateFmeClient()
-      const requiresEmail = earlyMode === "async" || earlyMode === "schedule"
+      const requiresEmail =
+        serviceMode === "async" || serviceMode === "schedule"
       const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
       const workspace = selectedWorkspace
       if (!workspace) {
+        setSubmissionPhase("idle")
         return
       }
 
-      // Create abort controller for this request (used for optional upload and run)
+      /* Skapar AbortController för denna request (upload + run) */
       controller = submissionAbort.abortAndCreate()
 
-      // Prepare parameters and handle remote URL / direct upload if present
+      /* Förbereder parametrar och hanterar remote URL / fil-upload */
       const subfolder = `widget_${(props as any)?.id || "fme"}`
       const preparation = await prepareSubmissionParams({
         rawFormData: rawDataEarly,
@@ -1878,13 +1303,19 @@ export default function Widget(
         modules,
         config: latestConfig,
         workspaceParameters,
+        workspaceItem,
+        selectedWorkspaceName: workspace,
+        areaWarning,
+        drawnArea,
         makeCancelable,
         fmeClient,
         signal: controller.signal,
         remoteDatasetSubfolder: subfolder,
+        onStatusChange: handlePreparationStatus,
       })
 
       if (preparation.aoiError) {
+        setSubmissionPhase("idle")
         dispatch(fmeActions.setError("general", preparation.aoiError, widgetId))
         return
       }
@@ -1893,40 +1324,46 @@ export default function Widget(
       if (!finalParams) {
         throw new Error("Submission parameter preparation failed")
       }
-      // Submit to FME Flow
-      const serviceType = latestConfig?.service || "download"
+      setSubmissionPhase("submitting")
+      /* Skickar till FME Flow */
       const fmeResponse = await makeCancelable(
         fmeClient.runWorkspace(
           workspace,
           finalParams,
           undefined,
-          serviceType,
           controller.signal
         )
       )
-      handleSubmissionSuccess(fmeResponse, workspace, userEmail)
+      handleSubmissionSuccess(
+        fmeResponse,
+        workspace,
+        userEmail,
+        rawDataEarly,
+        serviceMode
+      )
     } catch (error) {
-      handleSubmissionError(error)
+      handleSubmissionError(error, serviceMode)
     } finally {
+      setSubmissionPhase("idle")
       dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))
       submissionAbort.finalize(controller)
     }
   })
 
-  // Map view ready handler
+  /* Hanterar ny kartvy: skapar lager och SketchViewModel */
   const handleMapViewReady = hooks.useEventCallback((jmv: JimuMapView) => {
-    // Always capture active JimuMapView
+    /* Fångar alltid aktiv JimuMapView */
     setJimuMapView(jmv)
     if (!modules) {
       return
     }
     try {
-      // Ensure map popups are suppressed while the widget is active
+      /* Säkerställer att kart-popups undertrycks när widget är aktiv */
       enablePopupGuard(jmv)
 
       const layer = createLayers(jmv, modules, setGraphicsLayer)
       try {
-        // Localize drawing layer title
+        /* Lokaliserar ritnings-lagrets titel */
         ;(layer as unknown as { [key: string]: any }).title =
           translate("labelDrawingLayer")
       } catch {}
@@ -1981,72 +1418,70 @@ export default function Widget(
     }
   }, [shouldAutoStart, sketchViewModel, drawingTool])
 
-  // Update symbols on color change
+  /* Uppdaterar symboler när drawingColor ändras */
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (syms) {
-      safely(
-        sketchViewModel,
-        "Error applying drawing symbols to SketchViewModel",
-        (model) => {
-          ;(model as any).polygonSymbol = syms.polygon
-          ;(model as any).polylineSymbol = syms.polyline
-          ;(model as any).pointSymbol = syms.point
-        }
-      )
-      safely(
-        graphicsLayer,
-        "Error updating drawing symbols on GraphicsLayer",
-        (layer) => {
-          layer.graphics.forEach((g: any) => {
+      if (sketchViewModel) {
+        try {
+          ;(sketchViewModel as any).polygonSymbol = syms.polygon
+          ;(sketchViewModel as any).polylineSymbol = syms.polyline
+          ;(sketchViewModel as any).pointSymbol = syms.point
+        } catch {}
+      }
+      if (graphicsLayer) {
+        try {
+          graphicsLayer.graphics.forEach((g: any) => {
             if (g?.geometry?.type === "polygon") {
               g.symbol = syms.polygon
             }
           })
-        }
-      )
+        } catch {}
+      }
     }
   }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
 
-  // If widget loses activation, cancel any in-progress drawing to avoid dangling operations
+  /* Avbryter ritning om widget förlorar aktivering */
   hooks.useUpdateEffect(() => {
     if (!isActive && sketchViewModel) {
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling drawing when widget deactivates"
-      )
+      safeCancelSketch(sketchViewModel)
     }
   }, [isActive, sketchViewModel])
 
-  // Cleanup on map view change
+  /* Rensar resurser vid kartvy-byte */
   hooks.useUpdateEffect(() => {
+    const currentView = jimuMapView
     return () => {
-      if (jimuMapView) {
+      if (currentView) {
         cleanupResources()
       }
     }
-  }, [jimuMapView])
+  }, [jimuMapView, cleanupResources])
 
-  // Cleanup
+  /* Rensar alla resurser vid unmount */
   hooks.useEffectOnce(() => {
     return () => {
-      // Cleanup resources on unmount
+      /* Avbryter väntande requests */
       submissionAbort.cancel()
       startupAbort.cancel()
+      /* Rensar FME-klient och frigör resurser */
+      disposeFmeClient()
+      /* Rensar kart-/ritresurser */
       cleanupResources()
+      /* Tar bort widget-state från Redux */
       dispatch(fmeActions.removeWidgetState(widgetId))
     }
   })
 
-  // Instruction text
+  /* Returnerar instruktionstext beroende på ritverktyg och fas */
   const getDrawingInstructions = hooks.useEventCallback(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
-      // Show general instruction before first click
+      /* Visar allmän instruktion före första klicket */
       if (clickCount === 0) {
         return translate("hintStartDrawing")
       }
 
-      // After first click, show tool-specific instructions
+      /* Efter första klicket, visa verktygsspecifika instruktioner */
       if (tool === DrawingTool.RECTANGLE) {
         return translate("hintDrawRectangle")
       }
@@ -2062,47 +1497,41 @@ export default function Widget(
     }
   )
 
-  // Start drawing
+  /* Startar ritning med valt verktyg */
   const handleStartDrawing = hooks.useEventCallback((tool: DrawingTool) => {
     if (!sketchViewModel) {
       return
     }
 
-    // Set tool
+    ReactDOM.unstable_batchedUpdates(() => {
+      /* Sätter verktyg och uppdaterar session-state */
+      updateDrawingSession({ isActive: true, clickCount: 0 })
 
-    updateDrawingSession({ isActive: true, clickCount: 0 })
+      dispatch(fmeActions.setDrawingTool(tool, widgetId))
 
-    dispatch(fmeActions.setDrawingTool(tool, widgetId))
+      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
 
-    dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+      updateAreaWarning(false)
+    })
 
-    updateAreaWarning(false)
-
-    // Clear and hide
+    /* Rensar grafik och döljer mätningar */
 
     resetGraphicsAndMeasurements()
 
-    // Cancel only if SketchViewModel is actively drawing to reduce AbortError races
+    /* Avbryter endast om SketchViewModel är aktivt ritande */
     try {
       const anyVm = sketchViewModel as any
       const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating)
 
       if (isActive) {
-        safeCancelSketch(
-          sketchViewModel,
-          "Error cancelling active SketchViewModel before starting new drawing"
-        )
+        safeCancelSketch(sketchViewModel)
       }
     } catch {
       // fallback best-effort cancel
-
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling SketchViewModel after exception in handleStartDrawing"
-      )
+      safeCancelSketch(sketchViewModel)
     }
 
-    // Start drawing immediately; prior cancel avoids overlap
+    /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
 
@@ -2115,23 +1544,23 @@ export default function Widget(
           })
         }
       } catch (err: any) {
-        // Swallow benign AbortError triggered by racing cancel/create; keep UI responsive
+        /* Sväljer oskadliga AbortError från racing cancel/create */
 
         logIfNotAbort("Sketch create error", err)
       }
     }
   })
 
-  // Track runtime (Controller) state to coordinate auto-start only when visible
+  /* Spårar runtime-state (Controller) för att koordinera auto-start */
   const runtimeState = ReactRedux.useSelector(
     (state: IMState) => state.widgetsRuntimeInfo?.[widgetId]?.state
   )
 
-  // Previous runtime state for comparison
+  /* Tidigare runtime-state och repository för jämförelse */
   const prevRuntimeState = hooks.usePrevious(runtimeState)
   const prevRepository = hooks.usePrevious(configuredRepository)
 
-  // Auto-start drawing when in DRAWING mode
+  /* Auto-start ritning när i DRAWING-läge */
   const canAutoStartDrawing =
     viewMode === ViewMode.DRAWING &&
     drawingSession.clickCount === 0 &&
@@ -2142,7 +1571,7 @@ export default function Widget(
     !hasCriticalGeneralError
 
   hooks.useUpdateEffect(() => {
-    // Only auto-start if not already started and widget is not closed
+    /* Auto-startar endast om inte redan startat och widget ej stängd */
     if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
       handleStartDrawing(drawingTool)
     }
@@ -2158,31 +1587,35 @@ export default function Widget(
     hasCriticalGeneralError,
   ])
 
-  // Reset handler
+  /* Återställer widget vid stängning */
   const handleReset = hooks.useEventCallback(() => {
-    // Clear graphics and measurements but keep map resources alive
+    /* Rensar grafik och mätningar men behåller kartresurser */
     resetGraphicsAndMeasurements()
 
-    // Abort any ongoing submission
+    /* Avbryter pågående submission */
     submissionAbort.cancel()
 
-    // Clear warnings and local drawing state
+    /* Rensar varningar och lokalt rittillstånd */
     updateAreaWarning(false)
     updateDrawingSession({ isActive: false, clickCount: 0 })
 
-    // Cancel any in-progress drawing
+    /* Avbryter pågående ritning */
     if (sketchViewModel) {
-      safeCancelSketch(
-        sketchViewModel,
-        "Error cancelling drawing during handleReset"
-      )
+      safeCancelSketch(sketchViewModel)
     }
+
+    const configValid = validateRequiredFields(configRef.current, translate, {
+      mapConfigured:
+        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0,
+    }).isValid
 
     const currentViewMode = viewModeRef.current ?? viewMode
     const preserveStartupValidation =
       currentViewMode === ViewMode.STARTUP_VALIDATION && hasCriticalGeneralError
 
-    if (!preserveStartupValidation) {
+    if (!configValid) {
+      dispatch(fmeActions.resetState(widgetId))
+    } else if (!preserveStartupValidation) {
       resetReduxToInitialDrawing()
     }
 
@@ -2192,7 +1625,7 @@ export default function Widget(
     }
   })
   hooks.useUpdateEffect(() => {
-    // Reset when widget is closed
+    /* Återställer vid stängning av widget */
     if (
       runtimeState === WidgetState.Closed &&
       prevRuntimeState !== WidgetState.Closed
@@ -2201,7 +1634,7 @@ export default function Widget(
     }
   }, [runtimeState, prevRuntimeState, handleReset])
 
-  // Close any open popups when widget is opened
+  /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
     const isShowing =
       runtimeState === WidgetState.Opened || runtimeState === WidgetState.Active
@@ -2215,6 +1648,9 @@ export default function Widget(
       if (jimuMapView) {
         enablePopupGuard(jimuMapView)
       }
+      if (viewModeRef.current === ViewMode.STARTUP_VALIDATION) {
+        runStartupValidation()
+      }
     }
   }, [
     runtimeState,
@@ -2224,13 +1660,14 @@ export default function Widget(
     enablePopupGuard,
   ])
 
-  // Teardown drawing resources on critical errors
+  /* Rensar ritresurser vid kritiska fel */
   hooks.useUpdateEffect(() => {
     if (hasCriticalGeneralError) {
       teardownDrawingResources()
     }
   }, [hasCriticalGeneralError, teardownDrawingResources])
 
+  /* Uppdaterar area-varning när geometri eller trösklar ändras */
   hooks.useUpdateEffect(() => {
     const hasGeometry = Boolean(geometryJson)
     if (!hasGeometry) {
@@ -2257,13 +1694,14 @@ export default function Widget(
     updateAreaWarning,
   ])
 
+  /* Rensar area-varning vid repository-byte */
   hooks.useUpdateEffect(() => {
     if (configuredRepository !== prevRepository && areaWarning) {
       updateAreaWarning(false)
     }
   }, [configuredRepository, prevRepository, areaWarning, updateAreaWarning])
 
-  // Disable popup guard when widget is closed or hidden
+  /* Inaktiverar popup-guard när widget stängs eller döljs */
   hooks.useUpdateEffect(() => {
     if (
       runtimeState === WidgetState.Closed ||
@@ -2273,14 +1711,14 @@ export default function Widget(
     }
   }, [runtimeState, disablePopupGuard])
 
-  // Disable popup guard when map view is removed
+  /* Inaktiverar popup-guard när kartvy tas bort */
   hooks.useUpdateEffect(() => {
     if (!jimuMapView) {
       disablePopupGuard()
     }
   }, [jimuMapView, disablePopupGuard])
 
-  // Workspace handlers
+  /* Workspace-hanterare */
   const handleWorkspaceSelected = hooks.useEventCallback(
     (
       workspaceName: string,
@@ -2311,7 +1749,7 @@ export default function Widget(
     navigateTo(target)
   })
 
-  // Render loading state if modules are still loading
+  /* Renderar laddningsvy om moduler fortfarande laddas */
   if (modulesLoading) {
     return (
       <div css={styles.parent}>
@@ -2343,9 +1781,9 @@ export default function Widget(
     )
   }
 
-  // Error state - prioritize startup validation errors, then general errors
+  /* Felläge - prioriterar startup-valideringsfel, sedan generella fel */
   if (startupGeneralError) {
-    // Always handle startup validation errors first
+    /* Hanterar alltid startup-valideringsfel först */
     return (
       <div css={styles.parent}>
         {renderWidgetError(startupGeneralError, runStartupValidation)}
@@ -2354,21 +1792,22 @@ export default function Widget(
   }
 
   if (!isStartupPhase && hasCriticalGeneralError && generalError) {
-    // Handle other errors (non-startup validation)
+    /* Hanterar andra fel (ej startup-validering) */
     return <div css={styles.parent}>{renderWidgetError(generalError)}</div>
   }
 
-  // derive simple view booleans for readability
+  /* Beräknar enkla view-booleans för läsbarhet */
   const showHeaderActions =
     (drawingSession.isActive || drawnArea > 0) &&
     !isSubmitting &&
     !modulesLoading
 
-  // precompute UI booleans
+  /* Förkompilerar UI-booleans */
   const hasSingleMapWidget = Boolean(
     useMapWidgetIds && useMapWidgetIds.length === 1
   )
 
+  /* Säkerhetskopierar config utan känsliga fält */
   let workflowConfig = config
   if (config) {
     const rest = { ...(config as any) }
@@ -2376,7 +1815,7 @@ export default function Widget(
     delete rest.fmw_server_token
     workflowConfig = {
       ...rest,
-      fmeServerToken: maskToken(config.fmeServerToken || ""),
+      fmeServerToken: config.fmeServerToken,
     } as FmeExportConfig
   }
 
@@ -2406,11 +1845,15 @@ export default function Widget(
           modules: modulesLoading,
           submission: isSubmitting,
         }}
+        isPrefetchingWorkspaces={isPrefetchingWorkspaces}
+        workspacePrefetchProgress={workspacePrefetchProgress}
+        workspacePrefetchStatus={workspacePrefetchStatus}
         modules={modules}
         canStartDrawing={!!sketchViewModel}
+        submissionPhase={submissionPhase}
+        modeNotice={modeNotice}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
-        getFmeClient={getOrCreateFmeClient}
         orderResult={orderResult}
         onReuseGeography={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onBack={navigateBack}
@@ -2423,10 +1866,7 @@ export default function Widget(
         onDrawingModeChange={(tool) => {
           dispatch(fmeActions.setDrawingTool(tool, widgetId))
           if (sketchViewModel) {
-            safeCancelSketch(
-              sketchViewModel,
-              "Error cancelling drawing while switching tool"
-            )
+            safeCancelSketch(sketchViewModel)
             updateDrawingSession({ isActive: false, clickCount: 0 })
           }
         }}
@@ -2455,7 +1895,21 @@ export default function Widget(
   )
 }
 
-// Map extra state props for the widget
+/* Huvudexport med React Query provider */
+export default function Widget(
+  props: AllWidgetProps<FmeExportConfig>
+): React.ReactElement {
+  return (
+    <QueryClientProvider client={fmeQueryClient}>
+      <WidgetContent {...props} />
+      {process.env.NODE_ENV === "development" && (
+        <ReactQueryDevtools initialIsOpen={false} />
+      )}
+    </QueryClientProvider>
+  )
+}
+
+/* Mappar extra Redux state-props för widgeten */
 Reflect.set(
   Widget as any,
   "mapExtraStateProps",
@@ -2469,35 +1923,3 @@ Reflect.set(
     return { state: sub || initialFmeState }
   }
 )
-
-// Consolidated exports (internal helpers exposed strictly for unit tests)
-export {
-  hexToRgbArray,
-  buildSymbols,
-  resolveUploadTargetParam,
-  parseSubmissionFormData,
-  applyUploadedDatasetParam,
-  sanitizeOptGetUrlParam,
-  shouldApplyRemoteDatasetUrl,
-  shouldUploadRemoteDataset,
-  removeAoiErrorMarker,
-  resolveRemoteDataset,
-  prepareSubmissionParams,
-  getEmail,
-  attachAoi,
-  isValidExternalUrlForOptGetUrl,
-  prepFmeParams,
-  formatArea,
-  calcArea,
-  validatePolygon,
-  processFmeResponse,
-  useEsriModules,
-  useMapResources,
-  useErrorDispatcher,
-  createLayers,
-  createSketchVM,
-  setupSketchEventHandlers,
-  popupSuppressionManager,
-}
-
-export type { PopupSuppressionRecord } from "../shared/utils"

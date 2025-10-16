@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, css } from "jimu-core"
+import { React, hooks, jsx } from "jimu-core"
 import {
   Select,
   MultiSelectControl,
@@ -28,7 +28,10 @@ import {
   type TextOrFileMode,
   type NormalizedTextOrFile,
   type TableColumnConfig,
-} from "../../config"
+  type FileFieldConfig,
+  type FileValidationResult,
+} from "../../config/index"
+import { useUiStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
 import {
   asString,
@@ -48,10 +51,10 @@ import {
   isFileObject,
   getFileDisplayName,
   toTrimmedString,
+  resolveMessageOrKey,
 } from "../../shared/utils"
 
-// makePlaceholders is now imported from shared/utils
-
+// Fälttyper som använder select/dropdown-komponenter
 const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
   FormFieldType.SELECT,
   FormFieldType.COORDSYS,
@@ -61,59 +64,71 @@ const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
   FormFieldType.REPROJECTION_FILE,
 ])
 
+// Fälttyper som stödjer flera värden (array)
 const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
   FormFieldType.MULTI_SELECT,
   FormFieldType.ATTRIBUTE_LIST,
 ])
 
+// Lägen för TEXT_OR_FILE-fält (text vs filuppladdning)
 const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
 }
 
-const fileValueHintStyles = css({
-  marginTop: "0.25rem",
-  fontSize: "0.875rem",
-})
+/* Hjälpfunktioner för rendering */
 
-// Helper: Render simple text-based input fields
+// Renderar textbaserade inmatningsfält med typvalidering
 const renderTextInput = (
   inputType: "text" | "email" | "tel" | "search" | "password" | "number",
   value: FormPrimitive,
   placeholder: string,
   onChange: (value: FormPrimitive) => void,
-  readOnly?: boolean,
-  maxLength?: number
+  options: {
+    readOnly?: boolean
+    maxLength?: number
+    overrides?: Partial<React.ComponentProps<typeof Input>>
+  } = {}
 ): JSX.Element => {
+  const { readOnly, maxLength, overrides } = options
+  // Hanterar numerisk input med komma-till-punkt-konvertering
   const handleChange = (val: string) => {
     if (inputType === "number") {
       if (val === "") {
-        onChange("")
+        onChange(null)
         return
       }
       const num = Number(val.replace(/,/g, "."))
-      onChange(Number.isFinite(num) ? (num as FormPrimitive) : "")
+      onChange(Number.isFinite(num) ? num : null)
     } else {
       onChange(val)
     }
   }
 
+  // Konverterar värde till sträng för input
   const stringValue =
     typeof value === "string" || typeof value === "number" ? String(value) : ""
 
+  // Kombinerar readOnly och overrides.disabled
+  const finalDisabled =
+    overrides && typeof overrides.disabled !== "undefined"
+      ? overrides.disabled
+      : readOnly
+
   return (
     <Input
+      {...overrides}
       type={inputType === "number" ? "text" : inputType}
       value={stringValue}
       placeholder={placeholder}
       onChange={handleChange}
-      disabled={readOnly}
+      disabled={finalDisabled}
       maxLength={maxLength}
     />
   )
 }
 
-// Helper: Render date/time input with HTML5 types
+// Renderar datum/tid-fält med HTML5-inputtyper
 const renderDateTimeInput = (
   inputType: "date" | "time" | "month" | "week",
   value: FormPrimitive,
@@ -132,7 +147,7 @@ const renderDateTimeInput = (
   />
 )
 
-// Helper: Normalize TEXT_OR_FILE value to consistent shape
+// Normaliserar TEXT_OR_FILE-värde till konsistent struktur
 const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
   if (
     rawValue &&
@@ -140,7 +155,23 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
     !Array.isArray(rawValue) &&
     "mode" in rawValue
   ) {
-    return rawValue as NormalizedTextOrFile
+    const obj = rawValue as { [key: string]: unknown }
+    if (obj.mode === TEXT_OR_FILE_MODES.FILE && isFileObject(obj.file)) {
+      return {
+        mode: TEXT_OR_FILE_MODES.FILE,
+        file: obj.file,
+        fileName:
+          typeof obj.fileName === "string"
+            ? obj.fileName
+            : getFileDisplayName(obj.file),
+      }
+    }
+    if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
+      return {
+        mode: TEXT_OR_FILE_MODES.TEXT,
+        text: asString(obj.text),
+      }
+    }
   }
   if (isFileObject(rawValue)) {
     return {
@@ -155,11 +186,11 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
   }
 }
 
-// Helper: Check if value is a plain object
+// Kontrollerar om värde är ett vanligt objekt (ej array/null)
 const isPlainObject = (value: unknown): value is { [key: string]: unknown } =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-// Helper: Normalize table rows from various input formats
+// Normaliserar tabellrader från olika inputformat till enhetlig struktur
 const normalizeTableRows = (
   raw: unknown,
   columns: readonly TableColumnConfig[]
@@ -169,12 +200,8 @@ const normalizeTableRows = (
       if (isPlainObject(item)) {
         const normalized: { [key: string]: unknown } = {}
         for (const col of columns) {
-          if (col.key in item) {
-            normalized[col.key] = item[col.key]
-          }
-        }
-        for (const [key, val] of Object.entries(item)) {
-          if (!(key in normalized)) normalized[key] = val
+          normalized[col.key] =
+            (item as { [key: string]: unknown })[col.key] ?? ""
         }
         return normalized
       }
@@ -188,6 +215,7 @@ const normalizeTableRows = (
       if (Array.isArray(parsed)) {
         return normalizeTableRows(parsed, columns)
       }
+      return []
     } catch {
       return raw
         .split(/\r?\n/)
@@ -200,7 +228,7 @@ const normalizeTableRows = (
   return []
 }
 
-// Helper: Create a new table row with default values
+// Skapar en ny tabellrad med standardvärden från kolumnkonfiguration
 const prepareNewTableRow = (
   columns: readonly TableColumnConfig[]
 ): { [key: string]: unknown } => {
@@ -212,6 +240,7 @@ const prepareNewTableRow = (
   return row
 }
 
+// Nycklar som används för att extrahera filnamn från dataset-metadata
 const FILE_DISPLAY_KEYS = [
   "text",
   "path",
@@ -228,7 +257,131 @@ const FILE_DISPLAY_KEYS = [
   "name",
 ] as const
 
-// Helper: Extract a readable path/name from FME dataset metadata objects
+/* Filvalidering */
+
+// Standardgränser för filuppladdning
+const DEFAULT_MAX_FILE_SIZE_MB = 150
+const ONE_MB_IN_BYTES = 1024 * 1024
+const GEOMETRY_PREVIEW_MAX_LENGTH = 1500
+// Tillåtna filtyper om inget annat specificeras
+const DEFAULT_ALLOWED_FILE_EXTENSIONS: readonly string[] = [
+  ".zip",
+  ".kmz",
+  ".json",
+  ".geojson",
+  ".gml",
+]
+// Tillåtna MIME-typer för standardvalidering
+const DEFAULT_ALLOWED_MIME_TYPES = new Set(
+  [
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/vnd.google-earth.kmz",
+    "application/json",
+    "application/geo+json",
+    "application/gml+xml",
+    "text/plain",
+    "",
+  ].map((type) => type.toLowerCase())
+)
+
+// Normaliserar accept-token (filtyp/MIME) till enhetligt format
+const normalizeAcceptToken = (token: string): string | null => {
+  const trimmed = toTrimmedString(token).toLowerCase()
+  if (!trimmed) return null
+  if (trimmed === "*/*" || trimmed.endsWith("/*") || trimmed.includes("/")) {
+    return trimmed
+  }
+  if (trimmed.startsWith("*.")) {
+    return `.${trimmed.slice(2)}`
+  }
+  if (trimmed.startsWith(".")) {
+    return trimmed
+  }
+  return `.${trimmed.replace(/^\*+/, "")}`
+}
+
+// Bygger lista med accepterade filtyper från fältkonfiguration
+const buildAcceptList = (config?: FileFieldConfig): readonly string[] => {
+  if (!config?.accept?.length) return []
+  return config.accept
+    .map((token) => normalizeAcceptToken(token))
+    .filter((token): token is string => Boolean(token))
+}
+
+// Validerar filstorlek och filtyp mot konfiguration
+const validateFile = (
+  file: File | null | undefined,
+  config?: FileFieldConfig
+): FileValidationResult => {
+  if (!file) {
+    return { valid: false, error: "fileInvalid" }
+  }
+
+  const acceptList = buildAcceptList(config)
+  // Beräknar maximal tillåten filstorlek från konfiguration, maxSizeMb <= 0 stänger av storlekskontrollen
+  const configuredMaxMb =
+    typeof config?.maxSizeMb === "number" && Number.isFinite(config.maxSizeMb)
+      ? config.maxSizeMb
+      : undefined
+  const effectiveMaxMb =
+    configuredMaxMb === undefined
+      ? DEFAULT_MAX_FILE_SIZE_MB
+      : configuredMaxMb > 0
+        ? configuredMaxMb
+        : undefined
+
+  // Kontrollerar om filen överskrider storleksgränsen
+  if (
+    effectiveMaxMb !== undefined &&
+    file.size > effectiveMaxMb * ONE_MB_IN_BYTES
+  ) {
+    return {
+      valid: false,
+      error: "fileTooLarge",
+      maxSizeMB: Math.floor(effectiveMaxMb),
+    }
+  }
+
+  // Normaliserar filnamn och MIME-typ till gemener
+  const fileNameLower = (file.name || "").toLowerCase()
+  const fileTypeLower = (file.type || "").toLowerCase()
+
+  // Validerar mot accept-listan om angiven
+  if (acceptList.length) {
+    const matchesAccept = acceptList.some((token) => {
+      if (token === "*/*") return true
+      if (token.endsWith("/*")) {
+        const prefix = token.slice(0, token.length - 1)
+        return fileTypeLower ? fileTypeLower.startsWith(prefix) : false
+      }
+      if (token.includes("/")) {
+        return fileTypeLower ? fileTypeLower === token : false
+      }
+      return fileNameLower.endsWith(token)
+    })
+
+    if (!matchesAccept) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
+  } else {
+    // Använder standardvalidering om ingen accept-lista angavs
+    const matchesDefaultExtension = DEFAULT_ALLOWED_FILE_EXTENSIONS.some(
+      (ext) => fileNameLower.endsWith(ext)
+    )
+    if (!matchesDefaultExtension) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
+
+    if (!DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
+      return { valid: false, error: "fileTypeNotAllowed" }
+    }
+  }
+
+  return { valid: true }
+}
+
+// Extraherar läsbar sökväg/namn från FME dataset-metadata
 const resolveFileDisplayValue = (raw: unknown): string | undefined => {
   if (typeof raw === "string") return raw
   if (typeof raw === "number" || typeof raw === "boolean") {
@@ -257,6 +410,8 @@ const resolveFileDisplayValue = (raw: unknown): string | undefined => {
   return undefined
 }
 
+/* Huvudkomponent för dynamiska formulärfält */
+
 export const DynamicField: React.FC<DynamicFieldProps> = ({
   field,
   value,
@@ -265,14 +420,20 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 }) => {
   const fallbackTranslate = hooks.useTranslation(defaultMessages)
   const translate = translateProp ?? fallbackTranslate
+  const styles = useUiStyles()
+  // Bestämmer om fältet är flervärdigt (multi-select, attribute list)
   const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type)
+  // TEXT_OR_FILE kräver särskild hantering utan normalisering
   const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE
   const fieldValue = bypassNormalization
     ? value
     : normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
 
-  // Determine if the field is a select type
+  // Felmeddelande för filvalidering
+  const [fileError, setFileError] = React.useState<string | null>(null)
+
+  // Kontrollerar om fältet är select-typ och hanterar single-option-fall
   const isSelectType =
     SELECT_FIELD_TYPES.has(field.type) ||
     MULTI_VALUE_FIELD_TYPES.has(field.type)
@@ -282,32 +443,47 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const isSingleOption = isSelectType && !isMulti && selectOptions.length === 1
   const onlyVal = isSingleOption ? selectOptions[0]?.value : undefined
 
-  // Compute if select values can be coerced to numbers
-  const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
-
-  hooks.useEffectOnce(() => {
-    if (!isSingleOption) return
-    const current = fieldValue as SelectValue
-    const isUnset =
-      current === undefined || (typeof current === "string" && current === "")
-    if (onlyVal !== undefined && (isUnset || current !== onlyVal)) {
-      onChange(onlyVal as FormPrimitive)
+  // Tvingar värde till det enda tillgängliga alternativet om select har 1 val
+  const enforceSingleOptionValue = hooks.useEventCallback(() => {
+    if (onlyVal !== undefined) {
+      const current = fieldValue as SelectValue
+      if (!Object.is(current, onlyVal)) {
+        onChange(onlyVal as FormPrimitive)
+      }
     }
   })
 
-  // Render field based on its type
+  // Beräknar om select-värden kan tvingas till nummer (coerce)
+  const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
+
+  // Initialiserar fält med single-option till det värdet
+  hooks.useEffectWithPreviousValues(() => {
+    if (!isSingleOption || onlyVal === undefined) return
+    const current = fieldValue as SelectValue
+    const isUnset =
+      current === undefined ||
+      current === null ||
+      (typeof current === "string" && current.trim() === "")
+    if (isUnset || !Object.is(current, onlyVal)) {
+      onChange(onlyVal as FormPrimitive)
+    }
+  }, [isSingleOption, onlyVal, fieldValue, onChange])
+
+  // Renderar fält baserat på fälttyp
   const renderByType = (): JSX.Element => {
     switch (field.type) {
       case FormFieldType.HIDDEN: {
-        // Hidden field: keep value in form but render nothing
+        // Dolt fält: behåll värde i form men rendera inget
         return <></>
       }
       case FormFieldType.MESSAGE: {
+        // Renderar meddelande/instruktion som rich text
         const html = field.description || field.label || ""
         return <RichText html={html} />
       }
       case FormFieldType.TABLE: {
         const tableConfig = field.tableConfig
+        // Enkel tabellrad-vy om inga kolumner konfigurerats
         if (!tableConfig?.columns?.length) {
           const rows = parseTableRows(value)
 
@@ -377,6 +553,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           )
         }
 
+        // Normaliserar kolumner från config eller använder standardkolumn
         const columns =
           tableConfig.columns && tableConfig.columns.length
             ? tableConfig.columns
@@ -388,7 +565,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 },
               ]
 
-        const rows = normalizeTableRows(value, columns)
+        // Normaliserar och hämtar konfigurerbara tabellbegränsningar
+        const rows = normalizeTableRows(value, columns).map((row, index) => ({
+          ...row,
+          __rowId: `${field.name}-row-${index}-${Date.now()}`,
+        }))
         const minRows = tableConfig?.minRows ?? 0
         const maxRows = tableConfig?.maxRows
         const allowReorder = tableConfig?.allowReorder ?? false
@@ -397,10 +578,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const removeLabel =
           tableConfig?.removeRowLabel || translate("deleteRow")
 
+        // Bestämmer om användaren kan lägga till/ta bort rader
         const canRemove = !field.readOnly && rows.length > minRows
         const canAddRow =
           !field.readOnly && (maxRows === undefined || rows.length < maxRows)
 
+        // Uppdaterar en cells värde i en specifik rad
         const handleCellChange = (
           rowIndex: number,
           columnKey: string,
@@ -412,18 +595,21 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           onChange(next as unknown as FormPrimitive)
         }
 
+        // Lägger till ny tabellrad med standardvärden
         const handleAddRow = () => {
           if (!canAddRow) return
           const nextRow = prepareNewTableRow(columns)
           onChange([...rows, nextRow] as unknown as FormPrimitive)
         }
 
+        // Tar bort rad från tabell
         const handleRemoveRow = (rowIndex: number) => {
           if (!canRemove) return
           const next = rows.filter((_, idx) => idx !== rowIndex)
           onChange(next as unknown as FormPrimitive)
         }
 
+        // Flyttar rad uppåt eller nedåt i tabell
         const handleMoveRow = (rowIndex: number, direction: -1 | 1) => {
           const target = rowIndex + direction
           if (target < 0 || target >= rows.length) return
@@ -433,6 +619,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           onChange(next as unknown as FormPrimitive)
         }
 
+        // Renderar enskild tabellcell baserat på kolumntyp
         const renderCell = (
           column: TableColumnConfig,
           rowIndex: number,
@@ -450,7 +637,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   type="number"
                   value={asString(cellValue)}
                   onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
+                    const numVal =
+                      val === ""
+                        ? null
+                        : Number((val as string).replace(/,/g, "."))
+                    handleCellChange(
+                      rowIndex,
+                      column.key,
+                      Number.isFinite(numVal) ? numVal : null
+                    )
                   }}
                   disabled={disabled}
                   placeholder={placeholder}
@@ -545,11 +740,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   </thead>
                 ) : null}
                 <tbody>
-                  {rows.map((row, rowIndex) => (
-                    <tr key={`row-${rowIndex}`}>
+                  {rows.map((row) => (
+                    <tr key={row.__rowId || `fallback-${Math.random()}`}>
                       {columns.map((column) => (
-                        <td key={`${rowIndex}-${column.key}`}>
-                          {renderCell(column, rowIndex, row)}
+                        <td key={`${row.__rowId}-${column.key}`}>
+                          {renderCell(
+                            column,
+                            rows.findIndex((r) => r.__rowId === row.__rowId),
+                            row
+                          )}
                         </td>
                       ))}
                       <td>
@@ -558,7 +757,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                           variant="text"
                           type="tertiary"
                           onClick={() => {
-                            handleRemoveRow(rowIndex)
+                            handleRemoveRow(
+                              rows.findIndex((r) => r.__rowId === row.__rowId)
+                            )
                           }}
                           aria-label={removeLabel}
                           disabled={!canRemove}
@@ -570,21 +771,40 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               variant="text"
                               type="tertiary"
                               onClick={() => {
-                                handleMoveRow(rowIndex, -1)
+                                handleMoveRow(
+                                  rows.findIndex(
+                                    (r) => r.__rowId === row.__rowId
+                                  ),
+                                  -1
+                                )
                               }}
                               aria-label={translate("tableMoveUp")}
-                              disabled={field.readOnly || rowIndex === 0}
+                              disabled={
+                                field.readOnly ||
+                                rows.findIndex(
+                                  (r) => r.__rowId === row.__rowId
+                                ) === 0
+                              }
                             />
                             <Button
                               text={translate("tableMoveDown")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
-                                handleMoveRow(rowIndex, 1)
+                                handleMoveRow(
+                                  rows.findIndex(
+                                    (r) => r.__rowId === row.__rowId
+                                  ),
+                                  1
+                                )
                               }}
                               aria-label={translate("tableMoveDown")}
                               disabled={
-                                field.readOnly || rowIndex === rows.length - 1
+                                field.readOnly ||
+                                rows.findIndex(
+                                  (r) => r.__rowId === row.__rowId
+                                ) ===
+                                  rows.length - 1
                               }
                             />
                           </React.Fragment>
@@ -613,38 +833,65 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.WEB_CONNECTION:
       case FormFieldType.REPROJECTION_FILE:
       case FormFieldType.SELECT: {
+        // Hanterar select-fält med dynamiska alternativ
         const options = field.options || []
 
+        // Fallback till textinput om inga alternativ finns
         if (options.length === 0) {
           return renderTextInput(
             "text",
             fieldValue as FormPrimitive,
             placeholders.enter,
             onChange,
-            field.readOnly
+            {
+              readOnly: field.readOnly,
+            }
+          )
+        }
+
+        // Renderar read-only textfält när endast ett alternativ finns
+        if (isSingleOption) {
+          const soleOption = selectOptions[0] as {
+            readonly label?: string
+            readonly value?: unknown
+          }
+          const resolvedLabel = toTrimmedString(
+            resolveMessageOrKey(soleOption?.label || "", translate)
+          )
+          const displayValue =
+            resolvedLabel || toTrimmedString(soleOption?.value) || ""
+
+          return renderTextInput(
+            "text",
+            displayValue,
+            placeholders.select,
+            enforceSingleOptionValue,
+            {
+              readOnly: true,
+              overrides: {
+                readOnly: true,
+                disabled: true,
+              },
+            }
           )
         }
 
         return (
           <Select
-            value={
-              isSingleOption
-                ? (options[0]?.value as SelectValue)
-                : (fieldValue as SelectValue)
-            }
+            value={fieldValue as SelectValue}
             options={options}
             placeholder={placeholders.select}
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
             aria-label={field.label}
-            disabled={field.readOnly || isSingleOption}
+            disabled={field.readOnly}
             coerce={selectCoerce}
           />
         )
       }
       case FormFieldType.DATE_TIME: {
-        // Render as local datetime without seconds; store as FME datetime string
+        // Renderar lokal datetime (utan sekunder), lagrar som FME datetime-sträng
         const val =
           typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
         return (
@@ -674,6 +921,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.ATTRIBUTE_LIST:
       case FormFieldType.MULTI_SELECT: {
+        // Renderar multi-select för flera val
         const options = field.options || []
         const values = Array.isArray(fieldValue)
           ? (fieldValue as ReadonlyArray<string | number>)
@@ -691,6 +939,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.TEXTAREA:
+        // Renderar flerradigt textfält
         return (
           <TextArea
             value={asString(fieldValue)}
@@ -703,14 +952,18 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.NUMBER:
+        // Renderar numeriskt inmatningsfält
         return renderTextInput(
           "number",
           fieldValue as FormPrimitive,
           placeholders.enter,
           onChange,
-          field.readOnly
+          {
+            readOnly: field.readOnly,
+          }
         )
       case FormFieldType.CHECKBOX:
+        // Renderar checkbox för boolean-värde
         return (
           <Checkbox
             checked={Boolean(fieldValue)}
@@ -726,6 +979,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.PHONE:
       case FormFieldType.SEARCH:
       case FormFieldType.TEXT: {
+        // Mappar fälttyp till HTML input-typ
         const inputTypeMap: {
           [key: string]: "text" | "email" | "tel" | "search" | "password"
         } = {
@@ -736,6 +990,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           [FormFieldType.TEXT]: "text",
         }
         const inputType = inputTypeMap[field.type] || "text"
+        // Bestämmer placeholder-typ baserat på fälttyp
         const placeholderType =
           field.type === FormFieldType.PHONE
             ? "phone"
@@ -759,12 +1014,19 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           fieldValue as FormPrimitive,
           placeholder,
           onChange,
-          field.readOnly,
-          field.maxLength
+          {
+            readOnly: field.readOnly,
+            maxLength: field.maxLength,
+          }
         )
       }
-      case FormFieldType.FILE:
+      case FormFieldType.FILE: {
+        // Renderar filuppladdningsfält med validering
         const selectedFile = isFileObject(value) ? value : null
+        const acceptTokens = buildAcceptList(field.fileConfig)
+        const acceptAttr = acceptTokens.length
+          ? acceptTokens.join(",")
+          : undefined
         const resolvedDefault = !selectedFile
           ? (resolveFileDisplayValue(value) ??
             resolveFileDisplayValue(fieldValue) ??
@@ -777,36 +1039,74 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const hasDisplay = Boolean(displayText)
         const message = hasDisplay ? displayText : null
 
+        // Hanterar filändring och validerar fil
+        const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+          const files = evt.target.files
+          const file = files && files.length > 0 ? files[0] : null
+
+          if (!file) {
+            setFileError(null)
+            onChange(null)
+            return
+          }
+
+          const validation = validateFile(file, field.fileConfig)
+          if (!validation.valid) {
+            setFileError(
+              validation.error === "fileTooLarge"
+                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                : validation.error === "fileTypeNotAllowed"
+                  ? translate("fileTypeNotAllowed")
+                  : translate("fileInvalid")
+            )
+            evt.target.value = ""
+            return
+          }
+
+          setFileError(null)
+          onChange(file)
+        }
+
         return (
           <div>
             <Input
               type="file"
-              onFileChange={(evt) => {
-                const files = evt.target.files
-                onChange(files ? files[0] : null)
-              }}
+              accept={acceptAttr}
+              onFileChange={handleFileChange}
               disabled={field.readOnly}
               aria-label={field.label}
             />
-            {message ? (
+            {fileError ? (
+              <div data-testid="file-field-error" role="alert">
+                {fileError}
+              </div>
+            ) : null}
+            {message && !fileError ? (
               <div
                 data-testid="file-field-display"
                 aria-live="polite"
-                css={fileValueHintStyles}
+                css={styles.typo.hint}
               >
                 {message}
               </div>
             ) : null}
           </div>
         )
+      }
       case FormFieldType.TEXT_OR_FILE: {
+        // Renderar fält med växel mellan text- och filuppladdningsläge
         const currentValue: NormalizedTextOrFile =
           normalizeTextOrFileValue(fieldValue)
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
             : TEXT_OR_FILE_MODES.TEXT
+        const acceptTokens = buildAcceptList(field.fileConfig)
+        const acceptAttr = acceptTokens.length
+          ? acceptTokens.join(",")
+          : undefined
 
+        // Växlar mellan text- och filläge
         const handleModeChange = (nextMode: TextOrFileMode) => {
           if (nextMode === TEXT_OR_FILE_MODES.FILE) {
             onChange({
@@ -822,6 +1122,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           }
         }
 
+        // Uppdaterar textlägets värde
         const handleTextChange = (val: string) => {
           onChange({
             mode: TEXT_OR_FILE_MODES.TEXT,
@@ -829,13 +1130,39 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           } as unknown as FormPrimitive)
         }
 
+        // Hanterar filuppladdning i TEXT_OR_FILE-läge
         const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
           const files = evt.target.files
           const file = files && files.length > 0 ? files[0] : null
+
+          if (!file) {
+            setFileError(null)
+            onChange({
+              mode: TEXT_OR_FILE_MODES.FILE,
+              file: null,
+              fileName: undefined,
+            } as unknown as FormPrimitive)
+            return
+          }
+
+          const validation = validateFile(file, field.fileConfig)
+          if (!validation.valid) {
+            setFileError(
+              validation.error === "fileTooLarge"
+                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                : validation.error === "fileTypeNotAllowed"
+                  ? translate("fileTypeNotAllowed")
+                  : translate("fileInvalid")
+            )
+            evt.target.value = ""
+            return
+          }
+
+          setFileError(null)
           onChange({
             mode: TEXT_OR_FILE_MODES.FILE,
             file,
-            fileName: file ? getFileDisplayName(file) : undefined,
+            fileName: getFileDisplayName(file),
           } as unknown as FormPrimitive)
         }
 
@@ -870,11 +1197,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               <div>
                 <Input
                   type="file"
+                  accept={acceptAttr}
                   onFileChange={handleFileChange}
                   disabled={field.readOnly}
                   aria-label={field.label}
                 />
-                {isFileObject(currentValue.file) ? (
+                {fileError ? (
+                  <div data-testid="text-or-file-error" role="alert">
+                    {fileError}
+                  </div>
+                ) : null}
+                {isFileObject(currentValue.file) && !fileError ? (
                   <div data-testid="text-or-file-name">
                     {currentValue.fileName ||
                       getFileDisplayName(currentValue.file)}
@@ -886,6 +1219,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.SCRIPTED: {
+        // Renderar skriptgenererat innehåll som rich text
         const content =
           typeof fieldValue === "string" && fieldValue.trim().length > 0
             ? fieldValue
@@ -893,6 +1227,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return <RichText html={content || ""} />
       }
       case FormFieldType.SWITCH:
+        // Renderar switch-kontroll för boolean-värde
         return (
           <Switch
             checked={Boolean(fieldValue)}
@@ -904,36 +1239,59 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       case FormFieldType.RADIO: {
+        // Renderar radioknappsgrupp med coerce-stöd
         const options = field.options || []
-        const val = asString(fieldValue)
+        const coerce = computeSelectCoerce(true, options)
+        const stringValue =
+          fieldValue === null || fieldValue === undefined
+            ? undefined
+            : String(fieldValue)
+
+        const handleChange = (raw: string) => {
+          if (coerce === "number") {
+            const nextNumber = Number(raw)
+            if (Number.isFinite(nextNumber)) {
+              onChange(nextNumber as FormPrimitive)
+            } else {
+              const matchingOption = options.find(
+                (opt) => String(opt.value) === raw
+              )
+              onChange(matchingOption?.value ?? raw)
+            }
+            return
+          }
+          onChange(raw as FormPrimitive)
+        }
+
         return (
           <Radio
             options={options.map((opt) => ({
               label: opt.label,
               value: String(opt.value),
             }))}
-            value={val}
-            onChange={(value) => {
-              onChange(value)
-            }}
+            value={stringValue}
+            onChange={handleChange}
             disabled={field.readOnly}
             aria-label={field.label}
           />
         )
       }
       case FormFieldType.GEOMETRY: {
+        // Renderar geometri (AOI polygon) med statistik
         const trimmed = asString(fieldValue).trim()
         if (!trimmed) {
           return (
-            <React.Fragment data-testid="geometry-field">
+            <div css={styles.typo.hint} data-testid="geometry-field">
               {translate("geometryFieldMissing")}
-            </React.Fragment>
+            </div>
           )
         }
 
+        // Parsar geometri och beräknar statistik (ringar, hörn)
         let rings = 0
         let vertices = 0
         let preview = trimmed
+        let parseError = false
 
         try {
           const parsed = JSON.parse(trimmed)
@@ -947,29 +1305,35 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           }, 0)
           preview = JSON.stringify(parsed, null, 2)
         } catch {
-          // Keep fallback preview and zero counts
+          parseError = true
         }
 
+        // Trunkerar för lång geometri-JSON
         const truncated =
-          preview.length > 1500 ? `${preview.slice(0, 1500)}…` : preview
+          preview.length > GEOMETRY_PREVIEW_MAX_LENGTH
+            ? `${preview.slice(0, GEOMETRY_PREVIEW_MAX_LENGTH)}…`
+            : preview
 
         return (
-          <React.Fragment data-testid="geometry-field">
-            <>
-              {translate("geometryFieldReady", {
-                rings,
-                vertices,
-              })}
-            </>
+          <div data-testid="geometry-field">
+            <div css={styles.typo.hint}>
+              {parseError
+                ? translate("geometryFieldParseError")
+                : translate("geometryFieldReady", {
+                    rings,
+                    vertices,
+                  })}
+            </div>
             {truncated ? (
               <pre aria-label={translate("geometryFieldPreviewLabel")}>
                 {truncated}
               </pre>
             ) : null}
-          </React.Fragment>
+          </div>
         )
       }
       case FormFieldType.SLIDER: {
+        // Renderar slider-kontroll med min/max/step
         const val = typeof fieldValue === "number" ? fieldValue : 0
         return (
           <Slider
@@ -986,6 +1350,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.NUMERIC_INPUT: {
+        // Renderar numerisk input med precision och begränsningar
         const val = typeof fieldValue === "number" ? fieldValue : undefined
         return (
           <NumericInput
@@ -1004,6 +1369,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.TAG_INPUT: {
+        // Renderar tag-input för array av strängar
         const values = Array.isArray(fieldValue) ? (fieldValue as string[]) : []
         return (
           <TagInput
@@ -1016,6 +1382,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.COLOR: {
+        // Renderar färgväljare; lagrar normaliserade RGB-värden
         // Accept normalized floats string or hex; render as hex, store normalized string
         const colorConfig = field.colorConfig
         const initial =
@@ -1037,6 +1404,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.DATE: {
+        // Renderar datumväljare (utan tid), lagrar som FME date-sträng
         const val =
           typeof fieldValue === "string" ? fmeDateToInput(fieldValue) : ""
         const isoValue = val ? `${val}T00:00:00` : ""
@@ -1057,6 +1425,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.MONTH:
       case FormFieldType.WEEK: {
+        // Renderar månad/vecka-väljare med HTML5-inputtyp
         const inputType = field.type === FormFieldType.MONTH ? "month" : "week"
         return renderDateTimeInput(
           inputType,
@@ -1067,6 +1436,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.TIME: {
+        // Renderar tidsväljare, lagrar som FME time-sträng
         const val =
           typeof fieldValue === "string" ? fmeTimeToInput(fieldValue) : ""
         return (

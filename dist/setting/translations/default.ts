@@ -2,7 +2,6 @@ export default {
   fmeServerUrl: "FME‑server‑URL",
   fmeServerToken: "API‑nyckel",
   fmeRepository: "Repository",
-  missingServerUrl: "Ange FME‑server‑URL.",
   missingToken: "Ange API‑nyckeln.",
   tokenWithWhitespace: "API‑nyckeln får inte innehålla blanksteg.",
   missingRepository: "Välj ett repository.",

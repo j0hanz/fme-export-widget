@@ -1,14 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import {
-  React,
-  hooks,
-  css,
-  jsx,
-  type IMThemeVariables,
-  type ImmutableObject,
-} from "jimu-core"
-import type { TypographyStyle } from "jimu-theme"
+import { React, hooks, jsx, type SerializedStyles } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -37,16 +29,29 @@ import {
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
-import { useTheme } from "jimu-theme"
-import defaultMessages from "./translations/default"
+import {
+  useUniqueId,
+  useControlledValue,
+  useLoadingLatch,
+} from "../../shared/hooks"
 import {
   EMAIL_PLACEHOLDER,
+  config as styleConfig,
+  useUiStyles,
+} from "../../config/index"
+import defaultMessages from "./translations/default"
+import {
   styleCss,
   getErrorIconSrc,
   getBtnAria,
   ariaDesc,
   pad2,
 } from "../../shared/utils"
+import {
+  validateScheduleDateTime,
+  validateScheduleName,
+  validateScheduleCategory,
+} from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg"
 import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
@@ -79,35 +84,14 @@ import type {
   BtnContentProps,
   StateViewProps,
   TranslateFn,
-  LoadingSnapshot,
-} from "../../config"
+  UiStyles,
+  ScheduleFieldsProps,
+} from "../../config/index"
 
-// Configuration & Constants
-export const config = {
-  icon: { small: 16, medium: 18, large: 24 },
-  tooltip: {
-    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
-    position: {
-      top: "top" as const,
-      bottom: "bottom" as const,
-      left: "left" as const,
-      right: "right" as const,
-    },
-    showArrow: true,
-  },
-  button: {
-    defaults: {
-      block: true,
-      tooltipPosition: "top" as const,
-    },
-    offset: "10px",
-    textPadding: "18px",
-  },
-  zIndex: { selectMenu: 1005, overlay: 1000 },
-  loading: { width: 200, height: 200, delay: 1000 },
-  required: "*",
-} as const
+// Konfiguration och konstanter
+export const config = styleConfig
 
+// Lokala ikonkällor mappar nyckel till importerad ikon
 const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   error: errorIcon,
   map: mapIcon,
@@ -128,6 +112,7 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
 
 type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>
 
+// Mappar alert-typ till ikonnamn
 const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
   warning: "warning",
   error: "error",
@@ -135,275 +120,16 @@ const ALERT_ICON_MAP: { [K in AlertVariant]: string | undefined } = {
   success: "success",
 }
 
-// Styling Helpers
-const getTypographyStyle = (
-  typographyVariant: ImmutableObject<TypographyStyle>
-) => ({
-  fontFamily: typographyVariant?.fontFamily,
-  fontWeight: typographyVariant?.fontWeight?.toString(),
-  fontSize: typographyVariant?.fontSize,
-  fontStyle: typographyVariant?.fontStyle,
-  lineHeight: typographyVariant?.lineHeight,
-  color: typographyVariant?.color,
-})
+// Stilhjälpare
+export const useStyles = (): UiStyles => useUiStyles()
 
-const createStyles = (theme: IMThemeVariables) => {
-  // Cache commonly used spacing and color values
-  const spacing = theme.sys.spacing
-  const colors = theme.sys.color
-  const typography = theme.sys.typography
-  const gap = spacing?.(2)
-  const flexAuto = "1 1 auto"
+// Aliaser för importerade hooks för intern användning
+const useId = useUniqueId
+const useValue = useControlledValue
 
-  const flexRow = (styles: { [key: string]: any } = {}) =>
-    css({ display: "flex", ...styles })
+// Verktygshjälpare
 
-  const flexColumn = (styles: { [key: string]: any } = {}) =>
-    css({ display: "flex", flexFlow: "column nowrap", ...styles })
-
-  const inlineFlexRow = (styles: { [key: string]: any } = {}) =>
-    css({ display: "inline-flex", flexFlow: "row wrap", ...styles })
-
-  return {
-    // Layout utilities with better performance
-    row: flexRow({ gap }),
-    btnFlex: css({ flex: flexAuto }),
-    buttonGroup: flexColumn({ inlineSize: "100%", gap }),
-    fullWidth: flexColumn({
-      inlineSize: "100%",
-      flex: flexAuto,
-      minInlineSize: 0,
-    }),
-    relative: css({ position: "relative" }),
-    rowAlignCenter: css({ alignItems: "center" }),
-
-    // Interactive utilities
-    disabledPicker: flexRow({ pointerEvents: "none" }),
-    textareaResize: css({ resize: "vertical" }),
-
-    // Main layout styles
-    parent: flexColumn({
-      overflowY: "auto",
-      blockSize: "100%",
-      position: "relative",
-      gap,
-      padding: spacing?.(1),
-      backgroundColor: colors?.surface?.paper,
-    }),
-
-    header: flexRow({
-      alignItems: "center",
-      justifyContent: "flex-end",
-      gap,
-      marginBlockEnd: spacing?.(2),
-    }),
-
-    headerAlert: css({
-      marginInlineEnd: "auto",
-      display: "flex",
-      alignItems: "center",
-    }),
-
-    content: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
-    contentCentered: flexColumn({
-      placeContent: "center",
-      alignItems: "center",
-      textAlign: "center",
-      flex: flexAuto,
-      minBlockSize: 0,
-      gap,
-    }),
-
-    // State patterns
-    centered: flexColumn({
-      placeContent: "center",
-      gap,
-      blockSize: "100%",
-    }),
-
-    overlay: css({
-      position: "absolute",
-      inset: "50% auto auto 50%",
-      transform: "translate(-50%, -50%)",
-      textAlign: "center",
-      zIndex: config.zIndex.overlay,
-    }),
-
-    alertStyle: css({
-      backgroundColor: "transparent !important",
-      border: "none !important",
-      width: "100% !important",
-    }),
-
-    alertFullWidth: css({
-      width: "100% !important",
-      backgroundColor: "transparent !important",
-      border: "none !important",
-    }),
-
-    alertContent: flexRow({
-      alignItems: "flex-start",
-      gap,
-    }),
-
-    alertMessage: css({
-      flex: "1 1 auto",
-      ...getTypographyStyle(typography?.label2),
-    }),
-
-    alertIconOnly: css({
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-    }),
-
-    // Typography styles
-    typography: {
-      caption: css({
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-        marginBlockEnd: spacing?.(3),
-      }),
-
-      label: css({
-        ...getTypographyStyle(typography?.label2),
-        color: colors?.surface?.backgroundText,
-        marginBlockEnd: 0,
-      }),
-
-      title: css({
-        ...getTypographyStyle(typography?.title2),
-        color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(1)} 0`,
-      }),
-
-      instruction: css({
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-        margin: `${spacing?.(3)} 0`,
-        textAlign: "center",
-      }),
-
-      link: css({
-        ...getTypographyStyle(typography?.body1),
-        color: colors?.action.link?.default,
-        textDecoration: "underline",
-        wordBreak: "break-all",
-        "&:hover": {
-          color: colors?.action.link?.hover,
-          textDecoration: "underline",
-        },
-      }),
-
-      required: css({
-        marginInlineStart: spacing?.(1),
-        color: colors?.error.main,
-      }),
-    },
-
-    // Button styles
-    button: {
-      default: flexColumn({ inlineSize: "100%", gap }),
-
-      text: (align: BtnContentProps["alignText"]) =>
-        css({
-          flex: flexAuto,
-          textAlign: (align || "start") as any,
-          paddingInlineEnd: config.button.textPadding,
-        }),
-
-      icon: css({
-        position: "absolute",
-        zIndex: 1,
-        insetBlockStart: "50%",
-        insetInlineEnd: config.button.offset,
-        transform: "translateY(-50%)",
-      }),
-    },
-
-    form: {
-      layout: flexColumn({ flex: flexAuto, minBlockSize: 0, gap }),
-      header: css({ flex: "0 0 auto" }),
-      content: flexColumn({
-        flex: flexAuto,
-        gap,
-      }),
-      body: flexColumn({
-        flex: flexAuto,
-        gap,
-        overflowY: "auto",
-      }),
-      footer: flexColumn({ flex: "0 0 auto", gap }),
-    },
-
-    selection: {
-      container: flexColumn({ flex: flexAuto, gap, minBlockSize: 0 }),
-      warning: css({ marginBlockStart: "auto" }),
-      message: css({
-        marginBlockStart: "auto",
-        ...getTypographyStyle(typography?.body2),
-        color: colors?.surface?.backgroundText,
-      }),
-    },
-
-    fieldGroup: css({
-      marginBlockEnd: spacing?.(2),
-    }),
-
-    checkLabel: flexRow({
-      alignItems: "center",
-      justifyContent: "space-between",
-      inlineSize: "100%",
-    }),
-
-    tooltipWrap: {
-      block: flexRow({ inlineSize: "100%", minInlineSize: 0 }),
-      inline: inlineFlexRow({ minInlineSize: 0 }),
-      anchor: flexRow({
-        flex: flexAuto,
-        minInlineSize: 0,
-        "& > *": { flex: flexAuto, minInlineSize: 0 },
-      }),
-    },
-  } as const
-}
-
-// Theme-aware styles hook
-export const useStyles = (): ReturnType<typeof createStyles> => {
-  const theme = useTheme()
-  return createStyles(theme)
-}
-
-// Hooks & Utility Helpers
-let idSeq = 0
-
-const useId = (): string => {
-  const idRef = React.useRef<string>()
-  if (!idRef.current) {
-    idSeq += 1
-    idRef.current = `fme-${idSeq}`
-  }
-  return idRef.current
-}
-
-const useValue = <T = unknown,>(
-  controlled?: T,
-  defaultValue?: T,
-  onChange?: (value: T) => void
-): readonly [T, (value: T) => void] => {
-  const [value, setValue] = hooks.useControlled({
-    controlled,
-    default: defaultValue,
-  })
-
-  const handleChange = hooks.useEventCallback((newValue: T) => {
-    setValue(newValue)
-    onChange?.(newValue)
-  })
-
-  return [value, handleChange] as const
-}
-
+// Tilldelar ID till barn-element om det saknas
 const withId = (
   child: React.ReactNode,
   readOnly: boolean,
@@ -424,18 +150,19 @@ const withId = (
   return { id, child: cloned }
 }
 
-// Style composition helpers
+// Kombinerar bas-stilar med anpassade stilar
 const applyComponentStyles = (
-  base: Array<ReturnType<typeof css> | undefined>,
+  base: Array<SerializedStyles | undefined>,
   customStyle?: React.CSSProperties
 ) => [...base, styleCss(customStyle)].filter(Boolean)
 
+// Applicerar fullbredd-stil med anpassad stil
 const applyFullWidthStyles = (
-  styles: ReturnType<typeof createStyles>,
+  styles: UiStyles,
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle)
 
-// Build common ARIA attributes for form inputs/areas
+// Bygger vanliga ARIA-attribut för formulärinmatningar
 const getFormAria = (opts: {
   id?: string
   required?: boolean
@@ -450,7 +177,7 @@ const getFormAria = (opts: {
   } as const
 }
 
-// Wrap an element with Tooltip and layout wrapper when tooltip is provided
+// Lindar element med Tooltip och layout-wrapper när tooltip finns
 const wrapWithTooltip = (
   element: React.ReactElement,
   opts: {
@@ -459,7 +186,7 @@ const wrapWithTooltip = (
     block?: boolean
     jimuCss?: any
     jimuStyle?: React.CSSProperties
-    styles: ReturnType<typeof createStyles>
+    styles: UiStyles
   }
 ) => {
   const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts
@@ -480,9 +207,11 @@ const wrapWithTooltip = (
   )
 }
 
+// Sanerar tooltip-placering (ersätter auto med top)
 const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
   (placement as any) === "auto" ? config.tooltip.position.top : placement
 
+// Skapar tooltip-ankare med stöd för disabled element
 const createTooltipAnchor = (
   child: React.ReactElement,
   tooltipContent: React.ReactNode
@@ -495,20 +224,22 @@ const createTooltipAnchor = (
   const ariaLabel =
     typeof tooltipContent === "string" ? tooltipContent : undefined
 
+  // Inaktiverade element ska INTE vara fokusbara enligt WCAG 2.1.1
   return (
-    <span aria-disabled="true" tabIndex={0} aria-label={ariaLabel}>
+    <span aria-disabled="true" aria-label={ariaLabel}>
       {child}
     </span>
   )
 }
 
+// Returnerar required-markering med tooltip
 const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
-  styles: ReturnType<typeof useStyles>
+  styles: UiStyles
 ) => (
   <Tooltip content={translate("requiredField")} placement="bottom">
     <span
-      css={styles.typography.required}
+      css={styles.typo.required}
       aria-label={translate("ariaRequired")}
       role="img"
       aria-hidden="false"
@@ -518,9 +249,9 @@ const getRequiredMark = (
   </Tooltip>
 )
 
-// Primitive UI Components
+// Primitiva UI-komponenter
 
-// Button content component
+// Knappinnehålls-komponent
 const BtnContent: React.FC<BtnContentProps> = ({
   loading,
   children,
@@ -556,7 +287,7 @@ const BtnContent: React.FC<BtnContentProps> = ({
     )
 
   const iconWithPosition = (
-    <span css={styles.button.icon} aria-hidden="true">
+    <span css={styles.btn.icon} aria-hidden="true">
       {iconEl}
     </span>
   )
@@ -564,13 +295,13 @@ const BtnContent: React.FC<BtnContentProps> = ({
   return (
     <>
       {/* left icon not supported */}
-      <div css={styles.button.text(alignText)}>{text}</div>
+      <div css={styles.btn.text(alignText)}>{text}</div>
       {iconWithPosition}
     </>
   )
 }
 
-// Icon component
+// Ikon-komponent
 export const Icon: React.FC<SVGProps> = ({
   src,
   size = config.icon.medium,
@@ -598,7 +329,7 @@ export const Icon: React.FC<SVGProps> = ({
   )
 }
 
-// Tooltip component
+// Tooltip-komponent
 export const Tooltip: React.FC<TooltipProps> = ({
   content,
   children,
@@ -626,14 +357,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
   )
 }
 
-// Form controls
+// Formulärkontroller
 
-// Checkbox component
+// Checkbox-komponent
 export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
   props
 ) => <JimuCheckbox {...props} />
 
-// Input Component
+// Input-komponent
 export const Input: React.FC<InputProps> = ({
   value: controlled,
   defaultValue,
@@ -648,14 +379,25 @@ export const Input: React.FC<InputProps> = ({
   ...props
 }) => {
   const styles = useStyles()
-  const [value, handleValueChange] = useValue(controlled, defaultValue || "")
+  const isFileInput = type === "file"
+
+  const [hookValue, hookHandleValueChange] = useValue(
+    controlled,
+    defaultValue || ""
+  )
+  const [value, handleValueChange] = isFileInput
+    ? [undefined, undefined]
+    : [hookValue, hookHandleValueChange]
 
   const handleChange = hooks.useEventCallback(
     (evt: React.ChangeEvent<HTMLInputElement>) => {
       const newValue = evt.target.value
-      handleValueChange(newValue)
 
-      if (type === "file" && onFileChange) {
+      if (!isFileInput) {
+        handleValueChange(newValue)
+      }
+
+      if (isFileInput && onFileChange) {
         onFileChange(evt)
       } else if (onChange) {
         onChange(newValue)
@@ -666,13 +408,31 @@ export const Input: React.FC<InputProps> = ({
   const handleBlur = hooks.useEventCallback(
     (evt: React.FocusEvent<HTMLInputElement>) => {
       if (onBlur) {
-        onBlur(evt.target.value)
+        // För filinmatning, skicka tom sträng; för textinmatning, skicka värde
+        onBlur(isFileInput ? "" : evt.target.value)
       }
     }
   )
 
   const aria = getFormAria({ id: (props as any).id, required, errorText })
 
+  // För filinmatning, använd nativt input-element
+  if (isFileInput) {
+    return (
+      <input
+        {...props}
+        type="file"
+        onChange={handleChange}
+        onBlur={handleBlur}
+        required={required}
+        title={errorText}
+        {...aria}
+        css={applyFullWidthStyles(styles, (props as any).style)}
+      />
+    )
+  }
+
+  // För andra inmatningstyper, använd TextInput med kontrollerat state
   return (
     <TextInput
       {...props}
@@ -690,11 +450,12 @@ export const Input: React.FC<InputProps> = ({
   )
 }
 
-// TextArea component
+// TextArea-komponent
 export const TextArea: React.FC<TextAreaProps> = ({
   value: controlled,
   defaultValue,
   onChange,
+  rows = 2,
   onBlur,
   ...props
 }) => {
@@ -724,11 +485,14 @@ export const TextArea: React.FC<TextAreaProps> = ({
     errorSuffix: "error",
   })
 
+  const { rows: _rows, ...restProps } = props as any
+
   return (
     <JimuTextArea
-      {...props}
+      {...restProps}
       value={value}
       onChange={handleChange}
+      rows={rows}
       onBlur={handleBlur}
       css={applyComponentStyles(
         [styles.fullWidth, styles.textareaResize],
@@ -739,7 +503,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
   )
 }
 
-// UrlInput component
+// UrlInput-komponent
 export const UrlInput: React.FC<{
   value?: string
   defaultValue?: string
@@ -764,12 +528,12 @@ export const UrlInput: React.FC<{
   )
 }
 
-// Switch component
+// Switch-komponent
 export const Switch: React.FC<React.ComponentProps<typeof JimuSwitch>> = (
   props
 ) => <JimuSwitch {...props} />
 
-// Radio component
+// Radio-komponent
 export const Radio: React.FC<{
   options: Array<{ label: string; value: string }>
   value?: string
@@ -789,15 +553,16 @@ export const Radio: React.FC<{
 }) => {
   const styles = useStyles()
   const isControlled = value !== undefined
+
   return (
     <div
       css={applyFullWidthStyles(styles, style)}
       role="radiogroup"
       aria-label={ariaLabel}
     >
-      {options.map((option) => (
+      {options.map((option, index) => (
         <JimuRadio
-          key={option.value}
+          key={`${option.value}-${index}`}
           value={option.value}
           {...(isControlled
             ? { checked: value === option.value }
@@ -814,7 +579,7 @@ export const Radio: React.FC<{
   )
 }
 
-// Slider component
+// Slider-komponent
 export const Slider: React.FC<{
   value?: number
   defaultValue?: number
@@ -857,47 +622,31 @@ export const Slider: React.FC<{
   )
 }
 
-// NumericInput component
-export const NumericInput: React.FC<{
-  value?: number
-  defaultValue?: number
-  min?: number
-  max?: number
-  step?: number
-  precision?: number
-  placeholder?: string
-  onChange?: (value: number) => void
+// NumericInput-komponent
+type NumericInputProps = Omit<
+  React.ComponentProps<typeof JimuNumericInput>,
+  "css" | "onChange" | "style"
+> & {
   style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-}> = ({
-  value,
-  defaultValue,
-  min,
-  max,
-  step,
-  precision,
-  placeholder,
-  onChange,
+  onChange?: (value: number | undefined) => void
+}
+
+export const NumericInput: React.FC<NumericInputProps> = ({
   style,
-  disabled,
-  "aria-label": ariaLabel,
+  onChange,
+  ...rest
 }) => {
   const styles = useStyles()
   return (
     <JimuNumericInput
-      value={value}
-      defaultValue={defaultValue}
-      min={min}
-      max={max}
-      step={step}
-      precision={precision}
-      placeholder={placeholder}
-      disabled={disabled}
-      aria-label={ariaLabel}
+      {...rest}
       onChange={(value) => {
-        if (typeof value === "number") {
+        if (typeof value === "number" && !Number.isNaN(value)) {
           onChange?.(value)
+          return
+        }
+        if (value == null || Number.isNaN(value)) {
+          onChange?.(undefined)
         }
       }}
       css={applyFullWidthStyles(styles, style)}
@@ -905,7 +654,7 @@ export const NumericInput: React.FC<{
   )
 }
 
-// TagInput component
+// TagInput-komponent
 export const TagInput: React.FC<{
   value?: string[]
   suggestions?: string[]
@@ -927,11 +676,12 @@ export const TagInput: React.FC<{
   )
 }
 
+// Table-komponent
 export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
   props
 ) => <JimuTable {...props} />
 
-// ColorPicker component
+// ColorPicker-komponent
 export const ColorPickerWrapper: React.FC<{
   value?: string
   defaultValue?: string
@@ -953,9 +703,11 @@ export const ColorPickerWrapper: React.FC<{
   )
 }
 
+// Regex för ISO lokal datum och tid
 const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
 const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
 
+// Parsar ISO lokal datum-tid-sträng till Date-objekt
 const parseIsoLocalDateTime = (value?: string): Date | null => {
   if (!value) return null
   const trimmed = value.trim()
@@ -974,6 +726,7 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
   const minute = Number(timeMatch[2])
   const second = timeMatch[3] ? Number(timeMatch[3]) : 0
 
+  // Validera numeriska komponenter är finita
   if (
     !Number.isFinite(year) ||
     !Number.isFinite(month) ||
@@ -985,11 +738,35 @@ const parseIsoLocalDateTime = (value?: string): Date | null => {
     return null
   }
 
+  // Validera intervall INNAN Date-konstruktion för att förhindra övergång
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+  if (hour < 0 || hour > 23) return null
+  if (minute < 0 || minute > 59) return null
+  if (second < 0 || second > 59) return null
+
   const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
+
+  // Verifiera att Date inte gick över (t.ex. 30 feb → 2 mars)
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day ||
+    parsed.getHours() !== hour ||
+    parsed.getMinutes() !== minute ||
+    parsed.getSeconds() !== second
+  ) {
+    return null
+  }
+
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
-const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
+// Formaterar Date-objekt till ISO eller FME lokal datum-tid-sträng
+const formatIsoLocalDateTime = (
+  value: Date | null | undefined,
+  format: "iso" | "fme" = "iso"
+): string => {
   if (!value) return ""
   const timestamp = value.getTime()
   if (Number.isNaN(timestamp)) return ""
@@ -999,18 +776,26 @@ const formatIsoLocalDateTime = (value: Date | null | undefined): string => {
   const hh = pad2(value.getHours())
   const mi = pad2(value.getMinutes())
   const ss = pad2(value.getSeconds())
+
+  // FME-format: YYYY-MM-DD HH:mm:ss (mellanslag som separator)
+  if (format === "fme") {
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+  }
+
+  // ISO-format: YYYY-MM-DDTHH:mm:ss (T som separator)
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
 }
 
-// DateTimePicker component
+// DateTimePicker-komponent
 export const DateTimePickerWrapper: React.FC<{
-  value?: string // ISO local: YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss
+  value?: string // ISO lokal: YYYY-MM-DDTHH:mm:ss eller FME: YYYY-MM-DD HH:mm:ss
   defaultValue?: string
   onChange?: (dateTime: string) => void
   style?: React.CSSProperties
   disabled?: boolean
   "aria-label"?: string
   mode?: "date-time" | "date"
+  format?: "iso" | "fme" // Utdataformat: iso (standard) eller fme (mellanslag)
 }> = ({
   value,
   defaultValue,
@@ -1019,6 +804,7 @@ export const DateTimePickerWrapper: React.FC<{
   disabled,
   "aria-label": ariaLabel,
   mode = "date-time",
+  format = "iso",
 }) => {
   const styles = useStyles()
   const [currentValue, setCurrentValue] = useValue(
@@ -1027,6 +813,7 @@ export const DateTimePickerWrapper: React.FC<{
     onChange
   )
 
+  // Bygger fallback-datum beroende på läge
   const buildFallbackDate = () => {
     const base = new Date()
     if (mode === "date") base.setHours(0, 0, 0, 0)
@@ -1050,14 +837,14 @@ export const DateTimePickerWrapper: React.FC<{
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
         const next = new Date(rawValue)
         if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next))
+        setCurrentValue(formatIsoLocalDateTime(next, format))
         return
       }
 
       if (rawValue instanceof Date) {
         const next = new Date(rawValue.getTime())
         if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next))
+        setCurrentValue(formatIsoLocalDateTime(next, format))
         return
       }
 
@@ -1098,6 +885,7 @@ export const DateTimePickerWrapper: React.FC<{
   return picker
 }
 
+// RichText-komponent
 export const RichText: React.FC<{
   html?: string
   placeholder?: string
@@ -1117,7 +905,7 @@ export const RichText: React.FC<{
   )
 }
 
-// Select component
+// Select-komponent
 export const Select: React.FC<SelectProps> = ({
   options = [],
   value,
@@ -1134,21 +922,11 @@ export const Select: React.FC<SelectProps> = ({
   const resolvedPlaceholder =
     placeholder || translate("placeholderSelectGeneric")
 
+  // Tvingar värde till specificerad typ (t.ex. nummer)
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
-    if (coerce === "number") {
-      if (Array.isArray(val)) {
-        return (val as Array<string | number>).map((v) =>
-          typeof v === "number"
-            ? v
-            : Number.isFinite(Number(v))
-              ? Number(v)
-              : (v as any)
-        )
-      }
-      if (typeof val === "string") {
-        const n = Number(val)
-        return Number.isFinite(n) ? n : val
-      }
+    if (coerce === "number" && typeof val === "string") {
+      const n = Number(val)
+      return Number.isFinite(n) ? n : val
     }
     return val
   })
@@ -1165,7 +943,7 @@ export const Select: React.FC<SelectProps> = ({
     }
   )
 
-  // Normalize internal value to string for comparison
+  // Normaliserar internt värde till sträng för jämförelse
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")
@@ -1207,7 +985,7 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
-// MultiSelectControl component
+// MultiSelectControl-komponent
 export const MultiSelectControl: React.FC<{
   options?: readonly OptionItem[]
   values?: Array<string | number>
@@ -1233,7 +1011,7 @@ export const MultiSelectControl: React.FC<{
     defaultValues
   )
 
-  // Default placeholder if none provided
+  // Standard platshållare om ingen anges
   const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
 
   const handleChange = hooks.useEventCallback(
@@ -1243,7 +1021,7 @@ export const MultiSelectControl: React.FC<{
     }
   )
 
-  // Filter out invalid options and map to expected format
+  // Filtrerar bort ogiltiga alternativ och mappar till förväntat format
   const items = options
     .filter((opt) => opt && opt.value != null && opt.label != null)
     .map((opt) => ({
@@ -1267,9 +1045,9 @@ export const MultiSelectControl: React.FC<{
   )
 }
 
-// Composite controls
+// Sammansatta kontroller
 
-// Button component
+// Knapp-komponent
 export const Button: React.FC<ButtonProps> = ({
   text,
   icon,
@@ -1296,7 +1074,7 @@ export const Button: React.FC<ButtonProps> = ({
     onClick()
   })
 
-  // Extract aria-label
+  // Extraherar aria-label
   const explicitAriaLabel = jimuProps["aria-label"]
   const ariaLabel = getBtnAria(
     text,
@@ -1306,7 +1084,7 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButtonLabel")
   )
 
-  // Absorb potential style/css from incoming props so no inline style attribute is forwarded
+  // Absorberar stil/css från inkommande props så inga inline-attribut vidare
   const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any
 
   const hasTooltip = !!tooltip && !tooltipDisabled
@@ -1328,7 +1106,7 @@ export const Button: React.FC<ButtonProps> = ({
       title={tooltip ? undefined : jimuProps.title}
       css={[
         styles.relative,
-        // When not using tooltip, carry caller styles directly on the button
+        // När tooltip inte används, använd anroparens stilar direkt på knappen
         !hasTooltip && jimuCss,
         !hasTooltip && styleCss(jimuStyle),
       ]}
@@ -1357,6 +1135,7 @@ export const Button: React.FC<ButtonProps> = ({
     : buttonElement
 }
 
+// Alert-komponent med stöd för ikon och default-varianter
 type AlertDisplayVariant = "default" | "icon"
 
 type AlertComponentBaseProps = React.ComponentProps<typeof JimuAlert>
@@ -1414,12 +1193,12 @@ export const Alert: React.FC<AlertComponentProps> = ({
         variant={jimuVariant}
         className={className}
         css={applyComponentStyles(
-          [styles.alertFullWidth, shouldWrapWithTooltip ? undefined : jimuCss],
+          [styles.alert, shouldWrapWithTooltip ? undefined : jimuCss],
           style as any
         )}
       >
         {iconKey ? (
-          <div css={styles.alertIconOnly}>
+          <div css={styles.alertIcon}>
             <Icon src={iconKey} aria-label={accessibleLabel} />
           </div>
         ) : null}
@@ -1448,7 +1227,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+        css={applyComponentStyles([styles.alert, jimuCss], style as any)}
       />
     )
   }
@@ -1460,10 +1239,14 @@ export const Alert: React.FC<AlertComponentProps> = ({
       withIcon={false}
       variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alertStyle, jimuCss], style as any)}
+      css={applyComponentStyles([styles.alert, jimuCss], style as any)}
     >
       <div css={styles.alertContent}>
-        {iconKey ? <Icon src={iconKey} /> : null}
+        {iconKey ? (
+          <div css={styles.alertIcon}>
+            <Icon src={iconKey} size={config.icon.small} />
+          </div>
+        ) : null}
         {messageContent ? (
           <div css={styles.alertMessage}>{messageContent}</div>
         ) : null}
@@ -1472,7 +1255,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
   )
 }
 
-// ButtonTabs component
+// ButtonTabs-komponent för tabbnavigering
 export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   items,
   value: controlled,
@@ -1490,7 +1273,12 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   const currentValue = isControlled ? controlled : uncontrolledValue
 
   const handleChange = hooks.useEventCallback((newValue: string | number) => {
-    const final = typeof controlled === "number" ? Number(newValue) : newValue
+    // Bevara typen från items-arrayen istället för controlled
+    const targetItem = items.find((item) => item.value === newValue)
+    const final =
+      targetItem && typeof targetItem.value === "number"
+        ? Number(newValue)
+        : newValue
     if (!isControlled) {
       setUncontrolledValue(final as any)
     }
@@ -1538,71 +1326,9 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   )
 }
 
-const useLoadingLatch = (
-  state: StateViewProps["state"],
-  delay: number
-): { showLoading: boolean; snapshot: LoadingSnapshot } => {
-  const [latched, setLatched] = React.useState(state.kind === "loading")
-  const startRef = React.useRef<number | null>(
-    state.kind === "loading" ? Date.now() : null
-  )
-  const snapshotRef = React.useRef<LoadingSnapshot>(
-    state.kind === "loading"
-      ? { message: (state as any).message, detail: (state as any).detail }
-      : null
-  )
+// Vy-komponenter
 
-  hooks.useEffectWithPreviousValues(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    if (state.kind === "loading") {
-      snapshotRef.current = {
-        message: (state as any).message,
-        detail: (state as any).detail,
-      }
-      if (startRef.current == null) {
-        startRef.current = Date.now()
-      }
-      setLatched(true)
-    } else if (startRef.current != null) {
-      const elapsed = Date.now() - startRef.current
-      const remaining = Math.max(0, delay - elapsed)
-
-      if (remaining > 0) {
-        timer = setTimeout(() => {
-          setLatched(false)
-          startRef.current = null
-          snapshotRef.current = null
-        }, remaining)
-      } else {
-        setLatched(false)
-        startRef.current = null
-        snapshotRef.current = null
-      }
-    } else {
-      setLatched(false)
-      snapshotRef.current = null
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state, delay])
-
-  const isLoading = state.kind === "loading"
-  const snapshot = isLoading
-    ? { message: (state as any).message, detail: (state as any).detail }
-    : snapshotRef.current
-
-  return {
-    showLoading: isLoading || latched,
-    snapshot,
-  }
-}
-
-// View components
-
-// StateView component
+// StateView-komponent med laddningsmeddelande-rotation
 const StateView: React.FC<StateViewProps> = ({
   state,
   className,
@@ -1613,6 +1339,123 @@ const StateView: React.FC<StateViewProps> = ({
   const styles = useStyles()
   const translate = hooks.useTranslation(defaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
+  const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
+    React.useState(0)
+
+  // Samlar unika laddningsmeddelanden
+  const seenStrings = new Set<string>()
+  const loadingMessages: React.ReactNode[] = []
+  const appendLoadingMessage = (
+    value: React.ReactNode | null | undefined
+  ): void => {
+    if (value === null || value === undefined) {
+      return
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      if (!trimmed || seenStrings.has(trimmed)) {
+        return
+      }
+      seenStrings.add(trimmed)
+      loadingMessages.push(trimmed)
+      return
+    }
+
+    loadingMessages.push(value)
+  }
+
+  const loadingMessageFromState =
+    state.kind === "loading" ? state.message : undefined
+  const loadingDetailFromState =
+    state.kind === "loading" ? state.detail : undefined
+  const loadingExtrasFromState =
+    state.kind === "loading" && Array.isArray(state.messages)
+      ? state.messages
+      : undefined
+
+  appendLoadingMessage(snapshot?.message ?? loadingMessageFromState)
+  appendLoadingMessage(snapshot?.detail ?? loadingDetailFromState)
+
+  const extraMessages =
+    (snapshot?.messages && Array.isArray(snapshot.messages)
+      ? snapshot.messages
+      : loadingExtrasFromState) ?? []
+
+  for (const message of extraMessages) {
+    appendLoadingMessage(message)
+  }
+
+  const messageCount = loadingMessages.length
+  const messageSignature = loadingMessages
+    .map((value, index) => {
+      if (typeof value === "string") return value
+      if (React.isValidElement(value) && value.key != null) {
+        return String(value.key)
+      }
+      return `node-${index}`
+    })
+    .join("|")
+
+  // Återställer meddelandeindex vid ändring
+  hooks.useEffectWithPreviousValues(() => {
+    setActiveLoadingMessageIndex(0)
+  }, [messageSignature, showLoading])
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (messageCount === 0 && activeLoadingMessageIndex !== 0) {
+      setActiveLoadingMessageIndex(0)
+      return
+    }
+
+    if (messageCount > 0 && activeLoadingMessageIndex >= messageCount) {
+      setActiveLoadingMessageIndex(messageCount - 1)
+    }
+  }, [messageCount, activeLoadingMessageIndex])
+
+  // Cyklar genom meddelanden om det finns fler än ett
+  hooks.useEffectWithPreviousValues(() => {
+    if (!showLoading || messageCount <= 1) {
+      return
+    }
+
+    const detailDelay = config.loading.detailDelay ?? config.loading.delay
+    const cycleInterval = config.loading.cycleInterval ?? 0
+
+    let detailTimer: ReturnType<typeof setTimeout> | null = null
+    let cycleTimer: ReturnType<typeof setInterval> | null = null
+
+    detailTimer = setTimeout(() => {
+      setActiveLoadingMessageIndex((prev) => {
+        if (messageCount <= 1) {
+          return 0
+        }
+        const normalized = prev % messageCount
+        return normalized === 0 ? 1 : normalized
+      })
+
+      if (cycleInterval > 0) {
+        cycleTimer = setInterval(() => {
+          setActiveLoadingMessageIndex((prev) => {
+            if (messageCount <= 1) {
+              return 0
+            }
+            return (prev + 1) % messageCount
+          })
+        }, cycleInterval)
+      }
+    }, detailDelay)
+
+    return () => {
+      if (detailTimer) clearTimeout(detailTimer)
+      if (cycleTimer) clearInterval(cycleTimer)
+    }
+  }, [showLoading, messageCount, messageSignature])
+
+  const activeLoadingMessage =
+    messageCount > 0 && activeLoadingMessageIndex >= 0
+      ? loadingMessages[Math.max(0, activeLoadingMessageIndex) % messageCount]
+      : null
 
   const defaultActionsRenderer = hooks.useEventCallback(
     ({
@@ -1625,7 +1468,7 @@ const StateView: React.FC<StateViewProps> = ({
       if (!actions?.length) return null
 
       return (
-        <div role="group" aria-label={ariaLabel}>
+        <div role="group" aria-label={ariaLabel} css={styles.btn.group}>
           {actions.map((action, index) => (
             <Button
               key={index}
@@ -1657,55 +1500,66 @@ const StateView: React.FC<StateViewProps> = ({
       }) => renderActions(actions, ariaLabel)
     : defaultActionsRenderer
 
-  const renderLoadingState = () => {
-    const message = snapshot?.message
-    const detail = snapshot?.detail
-
-    return (
-      <div css={styles.centered} role="status" aria-live="polite">
-        {showLoading && (
-          <Loading
-            type={LoadingType.Donut}
-            width={config.loading.width}
-            height={config.loading.height}
-          />
-        )}
-        {(message || detail) && (
-          <div
-            css={styles.overlay}
-            aria-label={translate("ariaLoadingDetails")}
-          >
-            {message && <div>{message}</div>}
-            {detail && <div css={styles.typography.caption}>{detail}</div>}
-          </div>
-        )}
-      </div>
-    )
-  }
+  const renderLoadingState = () => (
+    <div
+      css={styles.centered}
+      role="status"
+      aria-live="polite"
+      aria-atomic={true}
+    >
+      {showLoading && (
+        <Loading
+          type={LoadingType.Donut}
+          width={config.loading.width}
+          height={config.loading.height}
+        />
+      )}
+      {activeLoadingMessage ? (
+        <div css={[styles.typo.loadingMessage, styles.loadingText]}>
+          {activeLoadingMessage}
+        </div>
+      ) : null}
+    </div>
+  )
 
   const renderStateByKind = (): React.ReactNode => {
     switch (state.kind) {
-      case "error":
+      case "error": {
+        const actions = renderActionsFn({
+          actions: state.actions,
+          ariaLabel: translate("ariaErrorActions"),
+        })
+
+        const detailNode =
+          state.detail == null ? null : (
+            <div css={styles.typo.caption}>{state.detail}</div>
+          )
+
         return (
-          <div role="alert" aria-live="assertive">
-            <div css={[styles.row, styles.rowAlignCenter]}>
-              <Icon
-                src={getErrorIconSrc((state as any).code)}
-                size={config.icon.medium}
-              />
-              <div css={styles.typography.title}>{state.message}</div>
-            </div>
-            {state.code && (
-              <div css={styles.typography.caption}>
-                {translate("errorCode")}: {state.code}
+          <div role="alert" aria-live="assertive" css={styles.stateView.error}>
+            <div css={styles.stateView.errorContent}>
+              <div css={[styles.row, styles.rowAlignCenter]}>
+                <Icon
+                  src={getErrorIconSrc((state as any).code)}
+                  size={config.icon.large}
+                />
+                <div css={styles.typo.title}>{state.message}</div>
               </div>
-            )}
-            {renderActionsFn({
-              actions: state.actions,
-              ariaLabel: translate("ariaErrorActions"),
-            })}
+              <>
+                {detailNode}
+                {state.code ? (
+                  <div>
+                    {translate("errorCode")}: {state.code}
+                  </div>
+                ) : null}
+              </>
+            </div>
+            {actions ? (
+              <div css={styles.stateView.errorActions}>{actions}</div>
+            ) : null}
           </div>
         )
+      }
       case "empty":
         return (
           <div role="status" aria-live="polite">
@@ -1719,11 +1573,9 @@ const StateView: React.FC<StateViewProps> = ({
       case "success":
         return (
           <div role="status" aria-live="polite">
-            {state.title && (
-              <div css={styles.typography.title}>{state.title}</div>
-            )}
+            {state.title && <div css={styles.typo.title}>{state.title}</div>}
             {state.message && (
-              <div css={styles.typography.caption}>{state.message}</div>
+              <div css={styles.typo.caption}>{state.message}</div>
             )}
             {renderActionsFn({
               actions: state.actions,
@@ -1749,7 +1601,7 @@ const StateView: React.FC<StateViewProps> = ({
     <div
       className={className}
       css={applyComponentStyles(
-        [shouldCenter ? styles.centered : undefined],
+        [styles.stateView.frame, shouldCenter ? styles.centered : undefined],
         style as any
       )}
     >
@@ -1758,14 +1610,9 @@ const StateView: React.FC<StateViewProps> = ({
   )
 }
 
-// ButtonGroup component
-export const ButtonGroup: React.FC<ButtonGroupProps> = ({
-  buttons,
-  secondaryButton,
-  primaryButton,
-  className,
-  style,
-}) => {
+// ButtonGroup-komponent
+export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
+  const { buttons, secondaryButton, primaryButton, className, style } = props
   const styles = useStyles()
 
   const resolvedButtons: Array<{
@@ -1803,38 +1650,34 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     return null
   }
 
-  const createButton = ({
-    config,
-    role,
-    key,
-  }: {
-    readonly config: GroupButtonConfig
-    readonly role: "secondary" | "primary"
-    readonly key: string
-  }) => {
-    const fallbackType =
-      role === "primary" ? ("primary" as const) : ("default" as const)
-    const btnConfig = {
-      ...config,
-      type: config.type ?? fallbackType,
-      key,
-    }
-    return <Button {...btnConfig} block={true} css={styles.btnFlex} />
-  }
-
   return (
     <div
-      css={applyComponentStyles([styles.buttonGroup], style as any)}
+      css={applyComponentStyles([styles.btn.group], style as any)}
       className={className}
     >
-      {resolvedButtons.map(createButton)}
+      {resolvedButtons.map(({ config, role, key }) => {
+        const fallbackType =
+          role === "primary" ? ("primary" as const) : ("default" as const)
+        const buttonProps = {
+          ...config,
+          type: config.type ?? fallbackType,
+        }
+        return (
+          <Button
+            key={key}
+            {...buttonProps}
+            block={true}
+            css={styles.btn.flex}
+          />
+        )
+      })}
     </div>
   )
 }
 
-// Form layout components
+// Formulärlayout-komponenter
 
-// Form component
+// Form-komponent
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
   const translate = hooks.useTranslation(defaultMessages)
@@ -1856,8 +1699,8 @@ export const Form: React.FC<FormProps> = (props) => {
         css={applyComponentStyles([styles.form.layout], style)}
       >
         <div css={styles.form.header}>
-          {title && <div css={styles.typography.title}>{title}</div>}
-          {subtitle && <div css={styles.typography.caption}>{subtitle}</div>}
+          {title && <div css={styles.typo.title}>{title}</div>}
+          {subtitle && <div css={styles.typo.caption}>{subtitle}</div>}
         </div>
         <div css={styles.form.content}>
           <div css={styles.form.body}>{children}</div>
@@ -1907,7 +1750,7 @@ export const Form: React.FC<FormProps> = (props) => {
   throw new Error(`Unknown Form variant: ${variant}`)
 }
 
-// Standalone Field component (for reuse outside of Form)
+// Fristående Field-komponent (för återanvändning utanför Form)
 export const Field: React.FC<FieldProps> = ({
   className,
   style,
@@ -1931,10 +1774,10 @@ export const Field: React.FC<FieldProps> = ({
   return (
     <FormGroup
       className={className}
-      css={applyComponentStyles([styles.fieldGroup], style)}
+      css={applyComponentStyles([styles.field], style)}
     >
       {check ? (
-        <Label css={[styles.typography.label, styles.checkLabel]} check={true}>
+        <Label css={[styles.typo.label, styles.checkLabel]} check={true}>
           <span>
             {label}
             {required && getRequiredMark(translate, styles)}
@@ -1943,7 +1786,7 @@ export const Field: React.FC<FieldProps> = ({
         </Label>
       ) : (
         <>
-          <Label css={styles.typography.label} check={false} for={fieldId}>
+          <Label css={styles.typo.label} check={false} for={fieldId}>
             {label}
             {required && getRequiredMark(translate, styles)}
           </Label>
@@ -1952,7 +1795,7 @@ export const Field: React.FC<FieldProps> = ({
       )}
       {helper && !error && (
         <div
-          css={styles.typography.label}
+          css={styles.typo.hint}
           id={fieldId ? `${fieldId}-help` : undefined}
         >
           {helper}
@@ -1990,7 +1833,118 @@ export type {
   TabItem,
 }
 
-// Render support hint with optional email link
+// ScheduleFields-komponent för schemainställningar
+export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
+  values,
+  onChange,
+  translate,
+  disabled = false,
+}) => {
+  // Utför valideringar
+  const startValidation = (() => {
+    const start = typeof values.start === "string" ? values.start.trim() : ""
+    if (!start) return null
+    return validateScheduleDateTime(start)
+  })()
+
+  const nameValidation = (() => {
+    const name = typeof values.name === "string" ? values.name.trim() : ""
+    if (!name) return null
+    return validateScheduleName(name)
+  })()
+
+  const categoryValidation = (() => {
+    const category =
+      typeof values.category === "string" ? values.category.trim() : ""
+    if (!category) return null
+    return validateScheduleCategory(category)
+  })()
+
+  // Hjälpfunktion för att hämta felmeddelande
+  const getErrorMessage = (
+    validation: { valid: boolean; error?: string } | null
+  ): string | undefined => {
+    if (!validation || validation.valid) return undefined
+    return validation.error ? translate(validation.error) : undefined
+  }
+
+  return (
+    <>
+      <Field
+        label={translate("scheduleStartLabel")}
+        required={true}
+        helper={translate("scheduleTimezoneHelper")}
+        error={getErrorMessage(startValidation)}
+      >
+        <DateTimePickerWrapper
+          value={typeof values.start === "string" ? values.start : ""}
+          onChange={(dateTime: string) => {
+            onChange("start", dateTime)
+          }}
+          mode="date-time"
+          format="fme"
+          disabled={disabled}
+          aria-label={translate("scheduleStartLabel")}
+        />
+      </Field>
+      <Field
+        label={translate("scheduleNameLabel")}
+        required={true}
+        helper={translate("scheduleNameHelper")}
+        error={getErrorMessage(nameValidation)}
+      >
+        <Input
+          type="text"
+          value={typeof values.name === "string" ? values.name : ""}
+          placeholder={translate("scheduleNamePlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("name", newValue)
+          }}
+          disabled={disabled}
+          aria-required="true"
+          aria-invalid={
+            nameValidation && !nameValidation.valid ? "true" : "false"
+          }
+        />
+      </Field>
+      <Field
+        label={translate("scheduleCategoryLabel")}
+        required={true}
+        helper={translate("scheduleCategoryHelper")}
+        error={getErrorMessage(categoryValidation)}
+      >
+        <Input
+          type="text"
+          value={typeof values.category === "string" ? values.category : ""}
+          placeholder={translate("scheduleCategoryPlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("category", newValue)
+          }}
+          disabled={disabled}
+          aria-required="true"
+          aria-invalid={
+            categoryValidation && !categoryValidation.valid ? "true" : "false"
+          }
+        />
+      </Field>
+      <Field label={translate("scheduleDescriptionLabel")} required={false}>
+        <TextArea
+          value={
+            typeof values.description === "string" ? values.description : ""
+          }
+          placeholder={translate("scheduleDescriptionPlaceholder")}
+          onChange={(newValue: string) => {
+            onChange("description", newValue)
+          }}
+          disabled={disabled}
+          rows={2}
+        />
+      </Field>
+    </>
+  )
+}
+
+// Renderar supporthjälp med valfri e-postlänk
 export const renderSupportHint = (
   supportEmail: string | undefined,
   translate: TranslateFn,
@@ -2003,13 +1957,13 @@ export const renderSupportHint = (
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
-    // Fallback if the translation doesn't contain the email placeholder
+    // Fallback om översättningen inte innehåller e-postplatshållaren
     return (
       <>
         {fullText}{" "}
         <a
           href={`mailto:${supportEmail}`}
-          css={styles.typography.link}
+          css={styles.typo.link}
           aria-label={translate("contactSupportEmail", {
             email: supportEmail,
           })}
@@ -2027,7 +1981,7 @@ export const renderSupportHint = (
           {part}
           <a
             href={`mailto:${supportEmail}`}
-            css={styles.typography.link}
+            css={styles.typo.link}
             aria-label={translate("contactSupportEmail", {
               email: supportEmail,
             })}

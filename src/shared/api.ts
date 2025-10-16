@@ -1,22 +1,38 @@
-// types moved to central config
 import type {
+  PrimitiveParams,
+  NetworkConfig,
+  InstrumentedRequestOptions,
+  RequestLog,
   FmeFlowConfig,
   FmeExportConfig,
   RequestConfig,
   ApiResponse,
   WorkspaceParameter,
   JobResult,
-  PrimitiveParams,
   EsriRequestConfig,
   EsriMockKey,
-} from "../config"
-import { FmeFlowApiError, HttpMethod } from "../config"
+  AbortListenerRecord,
+  WebhookErrorCode,
+  TMDirectives,
+  NMDirectives,
+  WebhookArtifacts,
+} from "../config/index"
+import {
+  FmeFlowApiError,
+  HttpMethod,
+  ESRI_GLOBAL_MOCK_KEYS,
+  FME_FLOW_API,
+  TM_NUMERIC_PARAM_KEYS,
+  PUBLISHED_PARAM_EXCLUDE_SET,
+  WEBHOOK_EXCLUDE_PARAMS,
+} from "../config/index"
 import {
   extractHttpStatus,
+  isRetryableError,
   validateRequiredConfig,
-  isAuthError,
   mapErrorToKey,
-  calcArea,
+  validateServerUrl,
+  mapServerUrlReasonToKey,
 } from "./validations"
 import {
   buildUrl,
@@ -24,9 +40,9 @@ import {
   buildParams,
   createHostPattern,
   interceptorExists,
+  safeParseUrl,
   safeLogParams,
   makeScopeId,
-  makeGeoJson,
   isJson,
   extractHostFromUrl,
   extractErrorMessage,
@@ -35,33 +51,548 @@ import {
   loadArcgisModules,
 } from "./utils"
 
-// Construct a typed FME Flow API error with identical message and code.
-const makeError = (code: string, status?: number) =>
-  new FmeFlowApiError(code, code, status)
+// Configuration
+/* Standardkonfiguration för nätverksinstrumentering */
+const DEFAULT_CONFIG: NetworkConfig = {
+  enabled: true,
+  logLevel: "debug",
+  bodyPreviewLimit: 1024,
+  warnSlowMs: 1000,
+}
 
+const config: NetworkConfig = { ...DEFAULT_CONFIG }
+
+// Instrumenterar HTTP-förfrågan med logging och timing
+export async function instrumentedRequest<T>(
+  options: InstrumentedRequestOptions<T>
+): Promise<T> {
+  if (!config.enabled) return options.execute()
+
+  const method = options.method.toUpperCase()
+  const correlationId = options.correlationId || createCorrelationId()
+  const startMs = Date.now()
+
+  try {
+    const response = await options.execute()
+
+    const durationMs = Date.now() - startMs
+    const safeDuration =
+      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
+    // Extraherar status och ok-flagga från svar via interpreter
+    const status = options.responseInterpreter?.status?.(response)
+    const ok = options.responseInterpreter?.ok?.(response) ?? inferOk(status)
+    const responseSize = options.responseInterpreter?.size?.(response)
+
+    const log: RequestLog = {
+      timestamp: startMs,
+      method,
+      url: sanitizeUrl(options.url, options.query),
+      path: extractPath(options.url),
+      status,
+      ok,
+      durationMs: safeDuration,
+      correlationId,
+      caller: options.caller,
+      transport: options.transport,
+      retryAttempt: options.retryAttempt,
+      responseSize,
+      isAbort: false,
+    }
+
+    logRequest("success", log, options.body)
+    return response
+  } catch (error) {
+    const durationMs = Date.now() - startMs
+    const safeDuration =
+      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0
+    const status = extractHttpStatus(error)
+    // Kontrollerar om förfrågan avbröts av användare
+    const isAbort = isAbortError(error)
+
+    const log: RequestLog = {
+      timestamp: startMs,
+      method,
+      url: sanitizeUrl(options.url, options.query),
+      path: extractPath(options.url),
+      status,
+      ok: false,
+      durationMs: safeDuration,
+      correlationId,
+      caller: options.caller,
+      transport: options.transport,
+      retryAttempt: options.retryAttempt,
+      isAbort,
+    }
+
+    logRequest("error", log, options.body, error)
+    throw error instanceof Error ? error : new Error(extractErrorMessage(error))
+  }
+}
+
+// Skapar unikt korrelations-ID för request-spårning
+export function createCorrelationId(prefix = "net"): string {
+  const timestamp = Date.now().toString(36)
+  let random = Math.random().toString(36).slice(2, 10)
+  // Säkerställer minst 8 tecken för unikhet
+  while (random.length < 8) {
+    random += Math.random().toString(36).slice(2)
+  }
+  return `${prefix}_${timestamp}_${random.slice(0, 8)}`
+}
+
+/* URL-sanitering och parametervald */
+
+// URL & Parameter Sanitization
+// Sanerar URL och query-parametrar, maskerar känsliga värden
+function sanitizeUrl(
+  url: string,
+  query?: PrimitiveParams | URLSearchParams | string | null
+): string {
+  const parsed = parseUrl(url)
+  const params = buildSearchParams(parsed, query)
+  const sanitized = sanitizeParams(params)
+  const search = serializeParams(sanitized)
+
+  if (!parsed) {
+    const base = redactSensitiveText(url.split("?")[0] || "")
+    return search ? `${base}?${search}` : base
+  }
+
+  const base = `${parsed.origin}${parsed.pathname}`
+  return search ? `${base}?${search}` : base
+}
+
+// Parsar URL-sträng till URL-objekt med felhantering
+function parseUrl(url: string): URL | null {
+  if (!url) return null
+  try {
+    const parsed = safeParseUrl(url)
+    if (parsed) return parsed
+    return new URL(url, "http://localhost")
+  } catch {
+    return null
+  }
+}
+
+// Extraherar sökväg från URL (utan query-string)
+function extractPath(url: string): string {
+  const parsed = parseUrl(url)
+  return parsed?.pathname || url.split("?")[0] || url
+}
+
+// Bygger URLSearchParams från URL och ytterligare query-parameter
+function buildSearchParams(
+  parsed: URL | null,
+  query?: PrimitiveParams | URLSearchParams | string | null
+): URLSearchParams {
+  const params = new URLSearchParams(parsed?.search || "")
+  if (!query) return params
+
+  if (typeof query === "string") {
+    const extra = new URLSearchParams(query)
+    extra.forEach((value, key) => {
+      params.set(key, value)
+    })
+    return params
+  }
+
+  if (query instanceof URLSearchParams) {
+    query.forEach((value, key) => {
+      params.set(key, value)
+    })
+    return params
+  }
+
+  Object.entries(query).forEach(([key, value]) => {
+    if (value == null) return
+    if (Array.isArray(value)) {
+      params.delete(key)
+      value.forEach((v) => {
+        params.append(key, String(v))
+      })
+    } else {
+      const stringValue =
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+          ? String(value)
+          : JSON.stringify(value)
+      params.set(key, stringValue)
+    }
+  })
+
+  return params
+}
+
+// Sanerar URLSearchParams, maskerar känsliga nycklar (token, auth, etc.)
+function sanitizeParams(params: URLSearchParams): URLSearchParams {
+  const sanitized = new URLSearchParams()
+  params.forEach((value, key) => {
+    if (isSensitiveKey(key.toLowerCase())) {
+      sanitized.set(key, "[TOKEN]")
+    } else {
+      sanitized.set(key, redactSensitiveText(value))
+    }
+  })
+  return sanitized
+}
+
+// Serialiserar URLSearchParams till query-sträng, sorterad alfabetiskt
+function serializeParams(params: URLSearchParams): string {
+  const entries: Array<[string, string]> = []
+  params.forEach((value, key) => entries.push([key, value]))
+  entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))
+  return entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&")
+}
+
+// Kontrollerar om parameter-nyckel är känslig (innehåller token/auth/etc.)
+function isSensitiveKey(key: string): boolean {
+  return (
+    key.includes("token") ||
+    key.includes("auth") ||
+    key.includes("secret") ||
+    key.includes("key") ||
+    key.includes("password")
+  )
+}
+
+// Maskerar känsliga värden i fritext (auth-headers, tokens i URL)
+function redactSensitiveText(text: string): string {
+  let result = text
+  result = result.replace(
+    /authorization="?[^"]+"?/gi,
+    'authorization="[TOKEN]"'
+  )
+  result = result.replace(/(token|fmetoken)=([^&\s]+)/gi, "$1=[TOKEN]")
+  return result
+}
+
+/* Body-hantering för logging */
+
+// Body Handling
+// Beskriver request-body för logging (trunkerar och maskerar känsligt)
+function describeBody(body: unknown): string {
+  if (body == null) return ""
+
+  if (typeof body === "string") {
+    const sanitized = redactSensitiveText(body)
+    return truncate(sanitized, config.bodyPreviewLimit)
+  }
+
+  if (typeof body === "object") {
+    if (typeof FormData !== "undefined" && body instanceof FormData) {
+      return "[FormData]"
+    }
+    if (typeof Blob !== "undefined" && body instanceof Blob) {
+      return `[Blob:${body.size}]`
+    }
+    if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer) {
+      const size =
+        body instanceof ArrayBuffer
+          ? body.byteLength
+          : body.buffer?.byteLength || 0
+      return `[Binary:${size}]`
+    }
+  }
+
+  try {
+    const serialized = JSON.stringify(body)
+    const sanitized = redactSensitiveText(serialized)
+    return truncate(sanitized, config.bodyPreviewLimit)
+  } catch {
+    return "[Object]"
+  }
+}
+
+// Trunkerar text till maxlängd, lägger till ellips
+function truncate(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  return `${text.slice(0, limit - 1)}…`
+}
+
+/* Logging */
+
+// Logging
+// Loggar HTTP-förfrågan med saniterad info
+function logRequest(
+  phase: "success" | "error",
+  log: RequestLog,
+  body?: unknown,
+  error?: unknown
+): void {
+  if (config.logLevel === "silent") return
+
+  const bodyPreview = body ? describeBody(body) : undefined
+  const errorMessage = error ? extractErrorMessage(error) : undefined
+
+  try {
+    if (config.logLevel === "debug") {
+      const icon = phase === "success" ? "✓" : "✗"
+      const payload: { [key: string]: unknown } = {
+        phase,
+        method: log.method,
+        url: log.url,
+        status: log.status,
+        durationMs: log.durationMs,
+        correlationId: log.correlationId,
+        caller: log.caller,
+        transport: log.transport,
+      }
+      if (log.responseSize !== undefined)
+        payload.responseSize = log.responseSize
+      if (log.retryAttempt !== undefined) payload.retry = log.retryAttempt
+      if (log.isAbort) payload.aborted = true
+      if (bodyPreview) payload.body = bodyPreview
+      if (errorMessage) payload.error = errorMessage
+
+      console.log(`[FME][net] ${icon}`, payload)
+    } else if (config.logLevel === "warn") {
+      const summary = `[FME][net] ${phase} ${log.method} ${log.path} ${log.status || "?"} ${log.durationMs}ms`
+      console.log(summary, {
+        correlationId: log.correlationId,
+        ...(log.caller && { caller: log.caller }),
+      })
+    }
+
+    if (log.durationMs >= config.warnSlowMs) {
+      console.log("[FME][net] slow", {
+        method: log.method,
+        path: log.path,
+        durationMs: log.durationMs,
+        correlationId: log.correlationId,
+      })
+    }
+  } catch {
+    // Suppress logging errors
+  }
+}
+
+/* Hjälpfunktioner */
+
+// Utilities
+// Härleder ok-status från HTTP-statuskod
+function inferOk(status?: number): boolean | undefined {
+  if (typeof status !== "number") return undefined
+  return status >= 200 && status < 400
+}
+
+// Skapar abort-reason för AbortController
+const createAbortReason = (cause?: unknown): unknown => {
+  if (cause !== undefined) return cause
+  if (typeof DOMException === "function") {
+    return new DOMException("Aborted", "AbortError")
+  }
+  const error = new Error("Aborted")
+  error.name = "AbortError"
+  return error
+}
+
+const noop = () => undefined
+
+/* AbortController-hantering för centraliserad avbrytning */
+
+export class AbortControllerManager {
+  private readonly controllers = new Map<string, AbortController>()
+  private readonly listeners = new Map<string, Set<AbortListenerRecord>>()
+  private readonly pendingReasons = new Map<string, unknown>()
+
+  // Registrerar AbortController för specifik nyckel
+  register(key: string, controller: AbortController): void {
+    if (!key) return
+
+    this.controllers.set(key, controller)
+
+    // Applicerar pending abort om det fanns en i kö
+    const pendingReason = this.pendingReasons.get(key)
+    if (pendingReason !== undefined) {
+      try {
+        if (!controller.signal.aborted) {
+          controller.abort(pendingReason)
+        }
+      } catch {
+        try {
+          controller.abort()
+        } catch {}
+      } finally {
+        this.pendingReasons.delete(key)
+      }
+    }
+  }
+
+  // Frigör AbortController och rensar lyssnare
+  release(key: string, controller?: AbortController | null): void {
+    if (!key) return
+
+    const tracked = this.controllers.get(key)
+    // Kontrollerar att rätt controller frigörs
+    if (controller && tracked && tracked !== controller) {
+      return
+    }
+
+    this.controllers.delete(key)
+    this.pendingReasons.delete(key)
+
+    const records = this.listeners.get(key)
+    if (!records?.size) return
+
+    records.forEach((record) => {
+      try {
+        record.signal.removeEventListener("abort", record.handler)
+      } catch {}
+    })
+    this.listeners.delete(key)
+  }
+
+  // Avbryter controller för given nyckel
+  abort(key: string, reason?: unknown): void {
+    if (!key) return
+
+    const controller = this.controllers.get(key)
+    // Sparar reason om controller inte är registrerad ännu
+    if (!controller) {
+      this.pendingReasons.set(key, reason ?? createAbortReason())
+      return
+    }
+
+    const abortReason = reason ?? createAbortReason()
+
+    try {
+      if (!controller.signal.aborted) {
+        controller.abort(abortReason)
+      }
+    } catch {
+      try {
+        controller.abort()
+      } catch {}
+    } finally {
+      this.release(key, controller)
+    }
+  }
+
+  // Länkar extern AbortSignal till intern controller
+  linkExternal(key: string, signal?: AbortSignal | null): () => void {
+    if (!key || !signal) {
+      return noop
+    }
+
+    // Avbryter direkt om signal redan abortad
+    if (signal.aborted) {
+      this.abort(key, (signal as { reason?: unknown }).reason)
+      return noop
+    }
+
+    const record: AbortListenerRecord = {
+      signal,
+      handler: () => {
+        const reason = (signal as { reason?: unknown }).reason
+        this.abort(key, reason)
+      },
+    }
+
+    signal.addEventListener("abort", record.handler)
+
+    let records = this.listeners.get(key)
+    if (!records) {
+      records = new Set()
+      this.listeners.set(key, records)
+    }
+
+    records.add(record)
+
+    return () => {
+      try {
+        signal.removeEventListener("abort", record.handler)
+      } catch {}
+
+      const current = this.listeners.get(key)
+      if (!current) return
+      current.delete(record)
+      if (current.size === 0) {
+        this.listeners.delete(key)
+      }
+    }
+  }
+
+  // Avbryter alla registrerade controllers
+  abortAll(reason?: unknown): void {
+    const entries = Array.from(this.controllers.entries())
+    for (const [key, controller] of entries) {
+      this.abort(key, reason)
+      this.release(key, controller)
+    }
+  }
+}
+
+// Global singleton för abort-hantering
+export const abortManager = new AbortControllerManager()
+
+/* FME Flow API error-hantering */
+
+// Kontrollerar om HTTP-status är retry-bar
+const isStatusRetryable = (status?: number): boolean => {
+  if (!status || status < 100) return true
+  if (status >= 500) return true
+  return status === 408 || status === 429
+}
+
+// Skapar typat FME Flow API-fel med enhetlig struktur
+// Construct a typed FME Flow API error with identical message and code.
+const makeFlowError = (code: string, status?: number) =>
+  new FmeFlowApiError(code, code, status, isStatusRetryable(status))
+
+/* Response interpreters för esriRequest */
+
+// Response interpreters for esriRequest responses
+// Extraherar HTTP-status från esriRequest-svar
+const getEsriResponseStatus = (response: any): number | undefined => {
+  const httpStatus = response?.httpStatus
+  const status = response?.status
+  return typeof httpStatus === "number"
+    ? httpStatus
+    : typeof status === "number"
+      ? status
+      : undefined
+}
+
+// Härleder ok-status från esriRequest-svar
+const getEsriResponseOk = (response: any): boolean | undefined => {
+  const status = getEsriResponseStatus(response)
+  if (typeof status !== "number") return undefined
+  return status >= 200 && status < 400
+}
+
+// Beräknar storlek av esriRequest-svar (bytes)
+const getEsriResponseSize = (response: any): number | undefined => {
+  try {
+    const data = response?.data
+    if (!data) return undefined
+    if (typeof data === "string") return data.length
+    const serialized = JSON.stringify(data)
+    return serialized.length
+  } catch {
+    return undefined
+  }
+}
+
+// Packar upp modul-export (hanterar default-export)
 const unwrapModule = (module: unknown): any =>
   (module as any)?.default ?? module
 
-// ArcGIS module references
+/* ArcGIS-modulreferenser och cachning */
+// Globala referenser till laddade ArcGIS-moduler
 let _esriRequest: unknown
 let _esriConfig: unknown
 let _projection: unknown
 let _webMercatorUtils: unknown
 let _SpatialReference: unknown
 let _loadPromise: Promise<void> | null = null
-let _geometryEngine: unknown
-let _geometryEngineAsync: unknown
+// Cachelagrade FME-tokens per host för interceptor
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null)
 
-const ESRI_GLOBAL_MOCK_KEYS: readonly EsriMockKey[] = [
-  "esriRequest",
-  "esriConfig",
-  "projection",
-  "webMercatorUtils",
-  "SpatialReference",
-] as const
-
+// Fallback-mocks för ArcGIS-moduler i testmiljö
 const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
   esriRequest: () => Promise.resolve({ data: null }),
   esriConfig: {
@@ -74,9 +605,11 @@ const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
   },
 }
 
+// Hämtar fallback-mock för given nyckel
 const getEsriMockFallback = (key: EsriMockKey): unknown =>
   ESRI_MOCK_FALLBACKS[key]
 
+// Applicerar globala Esri-mocks från test-miljö
 const applyGlobalEsriMocks = (source: any): void => {
   const assignments: { [K in EsriMockKey]: (value: any) => void } = {
     esriRequest: (v) => (_esriRequest = v),
@@ -93,6 +626,7 @@ const applyGlobalEsriMocks = (source: any): void => {
 }
 
 /**
+ * Återställer cache för laddade ArcGIS-moduler (används i tester).
  * Reset loaded ArcGIS modules cache and computed limits (used in tests).
  */
 export function resetEsriCache(): void {
@@ -103,34 +637,9 @@ export function resetEsriCache(): void {
   _SpatialReference = undefined
   _loadPromise = null
   _cachedMaxUrlLength = null
-  _geometryEngine = undefined
-  _geometryEngineAsync = undefined
 }
 
-async function ensureGeometryEngines(): Promise<void> {
-  if (!_geometryEngine) {
-    try {
-      const [engineMod] = await loadArcgisModules([
-        "esri/geometry/geometryEngine",
-      ])
-      _geometryEngine = unwrapModule(engineMod)
-    } catch {
-      throw new Error("ARCGIS_MODULE_ERROR")
-    }
-  }
-
-  if (_geometryEngineAsync === undefined) {
-    try {
-      const [engineAsyncMod] = await loadArcgisModules([
-        "esri/geometry/geometryEngineAsync",
-      ])
-      _geometryEngineAsync = unwrapModule(engineAsyncMod)
-    } catch {
-      _geometryEngineAsync = null
-    }
-  }
-}
-
+// Kontrollerar om alla ArcGIS-moduler är laddade
 const areEsriModulesLoaded = (): boolean =>
   Boolean(
     _esriRequest &&
@@ -140,6 +649,7 @@ const areEsriModulesLoaded = (): boolean =>
       _SpatialReference
   )
 
+// Kontrollerar om globala Esri-mocks finns (testläge)
 const hasGlobalEsriMocks = (): boolean => {
   const globalAny =
     typeof globalThis !== "undefined" ? (globalThis as any) : undefined
@@ -148,6 +658,7 @@ const hasGlobalEsriMocks = (): boolean => {
   )
 }
 
+// Laddar ArcGIS-moduler via jimu-arcgis loader
 const loadEsriModules = async (): Promise<void> => {
   const [requestMod, configMod, projectionMod, webMercatorMod, spatialRefMod] =
     await loadArcgisModules([
@@ -164,6 +675,7 @@ const loadEsriModules = async (): Promise<void> => {
   _webMercatorUtils = unwrapModule(webMercatorMod)
   _SpatialReference = unwrapModule(spatialRefMod)
 
+  // Laddar projection-modul om nödvändigt
   const projection = asProjection(_projection)
   if (projection?.load) {
     await projection.load()
@@ -171,6 +683,7 @@ const loadEsriModules = async (): Promise<void> => {
 }
 
 /**
+ * Säkerställer att ArcGIS-moduler laddas en gång med cachning och testmocks.
  * Ensure ArcGIS modules are loaded once with caching and test-mode injection.
  */
 async function ensureEsri(): Promise<void> {
@@ -206,6 +719,7 @@ async function getEsriConfig(): Promise<EsriRequestConfig | null> {
   return asEsriConfig(_esriConfig)
 }
 
+// Tar bort matchande interceptors baserat på regex-pattern
 function removeMatchingInterceptors(
   interceptors: any[] | undefined,
   pattern: RegExp
@@ -228,14 +742,17 @@ function removeMatchingInterceptors(
   }
 }
 
+/* Type guards och helpers för Esri-objekt */
 const isObjectType = (v: unknown): v is object =>
   Boolean(v && typeof v === "object")
 
+// Type guard för esriRequest-funktion
 const asEsriRequest = (
   v: unknown
 ): ((url: string, options: any) => Promise<any>) | null =>
   typeof v === "function" ? (v as any) : null
 
+// Type guard för esriConfig-objekt
 const asEsriConfig = (
   v: unknown
 ): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
@@ -251,46 +768,44 @@ const asProjection = (
   isLoaded?: () => boolean
 } | null => (isObjectType(v) ? (v as any) : null)
 
-const asWebMercatorUtils = (
-  v: unknown
-): {
-  webMercatorToGeographic?: (geometry: any) => any
-  geographicToWebMercator?: (geometry: any) => any
-} | null => (isObjectType(v) ? (v as any) : null)
+/* Helper-funktioner för FME-token-interceptors */
 
-const asSpatialReference = (v: unknown): new (props: any) => any =>
-  typeof v === "function" ? (v as any) : ((() => ({})) as any)
+// Skapar typat fel med kod, status och orsak
+const makeError = (
+  code: WebhookErrorCode,
+  status?: number,
+  cause?: unknown
+): Error & { code: WebhookErrorCode; status?: number; cause?: unknown } => {
+  const error = new Error(code) as Error & {
+    code: WebhookErrorCode
+    status?: number
+    cause?: unknown
+  }
+  error.code = code
+  if (status != null) error.status = status
+  if (cause !== undefined) error.cause = cause
+  return error
+}
 
-const asGeometryEngine = (v: unknown): any =>
-  isObjectType(v) ? (v as any) : null
-
-const asGeometryEngineAsync = (v: unknown): any =>
-  isObjectType(v) ? (v as any) : null
-const API = {
-  BASE_PATH: "/fmerest/v3",
-  MAX_URL_LENGTH: 4000,
-  WEBHOOK_EXCLUDE_KEYS: [],
-  WEBHOOK_LOG_WHITELIST: [
-    "opt_responseformat",
-    "opt_showresult",
-    "opt_servicemode",
-  ],
-} as const
-
+// Kontrollerar om FME-token är cachelagrad för host
 const hasCachedToken = (hostKey: string): boolean =>
   Object.prototype.hasOwnProperty.call(_fmeTokensByHost, hostKey)
 
+// Tar bort cachelagrad FME-token för host
 const removeCachedToken = (hostKey: string): void => {
   delete _fmeTokensByHost[hostKey]
 }
 
+// Sparar FME-token i cache för host
 const setCachedToken = (hostKey: string, token: string): void => {
   _fmeTokensByHost[hostKey] = token
 }
 
+// Hämtar cachelagrad FME-token för host
 const getCachedToken = (hostKey: string): string | undefined =>
   _fmeTokensByHost[hostKey]
 
+// Tar bort token-interceptor från esriConfig
 const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
   let esriConfig: EsriRequestConfig | null
   try {
@@ -301,6 +816,7 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
   removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern)
 }
 
+// Skapar interceptor som injicerar FME-token i requests
 const createTokenInterceptor = (
   hostKey: string,
   pattern: RegExp
@@ -316,16 +832,21 @@ const createTokenInterceptor = (
     }
     const ro: any = params.requestOptions
     ro.headers = ro.headers || {}
+    ro.query = ro.query || {}
 
+    // Injicerar cachelagrad FME-token i query och headers
     const currentToken = getCachedToken(hostKey)
     if (currentToken) {
+      if (!ro.query.fmetoken) {
+        ro.query.fmetoken = currentToken
+      }
       ro.headers.Authorization = `fmetoken token=${currentToken}`
     }
   },
   _fmeInterceptor: true,
 })
 
-// Add interceptor to append fmetoken to requests to the specified server URL
+// Lägger till FME-token-interceptor för given server-URL
 async function addFmeInterceptor(
   serverUrl: string,
   token: string
@@ -338,6 +859,7 @@ async function addFmeInterceptor(
   const hostKey = host.toLowerCase()
   const pattern = createHostPattern(host)
 
+  // Om tom token: rensa cache och ta bort interceptor
   if (!token) {
     const hadToken = hasCachedToken(hostKey)
     removeCachedToken(hostKey)
@@ -356,169 +878,232 @@ async function addFmeInterceptor(
     throw error instanceof Error ? error : new Error(String(error))
   }
 
+  // Lägg till interceptor om den inte redan finns
   if (!esriConfig?.request?.interceptors) return
   if (interceptorExists(esriConfig.request.interceptors, pattern)) return
 
   esriConfig.request.interceptors.push(createTokenInterceptor(hostKey, pattern))
 }
 
-// Determine maximum URL length from Esri config or use default
+/* URL-längd-validering via Esri-konfiguration */
+
 let _cachedMaxUrlLength: number | null = null
+
+// Hämtar maximal URL-längd från Esri config eller default (1900)
 const getMaxUrlLength = (): number => {
+  // Försök hämta från window.esriConfig först
+  const windowLength = (() => {
+    if (typeof window === "undefined") return undefined
+    const raw = (window as any)?.esriConfig?.request?.maxUrlLength
+    const numeric = typeof raw === "number" ? raw : Number(raw)
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined
+  })()
+
+  if (windowLength !== undefined) return windowLength
+
+  // Använd cachelagrad längd om tillgänglig
   if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength
 
+  // Hämta från laddad Esri-modul och cachea
   const cfg = asEsriConfig(_esriConfig)
-  const n = cfg?.request?.maxUrlLength
-  _cachedMaxUrlLength = typeof n === "number" && n > 0 ? n : API.MAX_URL_LENGTH
+  const raw = cfg?.request?.maxUrlLength
+  const numeric = typeof raw === "number" ? raw : Number(raw)
+  _cachedMaxUrlLength = Number.isFinite(numeric) && numeric > 0 ? numeric : 1900
   return _cachedMaxUrlLength
 }
 
-// Check if a constructed webhook URL would exceed the maximum length
+// Kontrollerar om webhook-URL skulle överskrida maxlängd
 export function isWebhookUrlTooLong(
   serverUrl: string,
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  maxLen: number = API.MAX_URL_LENGTH,
+  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
   token?: string
 ): boolean {
-  const webhookUrl = buildUrl(
+  const { fullUrl } = createWebhookArtifacts(
     serverUrl,
-    "fmedatadownload",
     repository,
-    workspace
-  )
-  const params = buildParams(
+    workspace,
     parameters,
-    [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
-    true
+    token
   )
-  appendWebhookTmParams(params, parameters)
-  // Add tm_* values if present
-  if (token) {
-    params.set("token", token)
-  }
-  const fullUrl = `${webhookUrl}?${params.toString()}`
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
 
-// helper moved to utils.ts: resolveRequestUrl
+/* Esri-konfiguration för FME Flow API */
 
-// helper moved to utils.ts: buildParams
-
-const isWgs84SpatialRef = (
-  sr: (__esri.SpatialReference & { isWGS84?: boolean }) | undefined
-): boolean => Boolean(sr?.isWGS84 || sr?.wkid === 4326)
-
-const projectGeometryToWgs84 = (
-  geometry: __esri.Geometry,
-  projection: any,
-  SpatialReference: any
-): __esri.Geometry | null => {
-  if (!projection?.project || !SpatialReference) return null
-
-  const target =
-    SpatialReference?.WGS84 ||
-    (typeof SpatialReference === "function"
-      ? new SpatialReference({ wkid: 4326 })
-      : { wkid: 4326 })
-
-  const projected = projection.project(geometry, target)
-  if (!projected) return null
-
-  if (Array.isArray(projected) && projected[0]) {
-    return (projected[0] as __esri.Geometry) || null
-  }
-
-  return (projected as __esri.Geometry).type
-    ? (projected as __esri.Geometry)
-    : null
-}
-
-// Geometry processing: coordinate transformation
-const toWgs84 = async (geometry: __esri.Geometry): Promise<__esri.Geometry> => {
-  const spatialRef = geometry?.spatialReference as
-    | (__esri.SpatialReference & { isWGS84?: boolean })
-    | undefined
-
-  if (!spatialRef || isWgs84SpatialRef(spatialRef)) {
-    return geometry
-  }
-
-  try {
-    await ensureEsri()
-    const projection = asProjection(_projection)
-    const SpatialReference = asSpatialReference(_SpatialReference) as any
-
-    const projected = projectGeometryToWgs84(
-      geometry,
-      projection,
-      SpatialReference
-    )
-    if (projected) return projected
-
-    const webMercatorUtils = asWebMercatorUtils(_webMercatorUtils)
-    if (webMercatorUtils?.webMercatorToGeographic) {
-      return webMercatorUtils.webMercatorToGeographic(geometry) || geometry
-    }
-  } catch {}
-
-  return geometry
-}
-
-// helper moved to utils.ts: makeGeoJson
-
+// Säkerställer att Esri config har tillräcklig maxUrlLength
 async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   const esriConfig = await getEsriConfig()
   if (!esriConfig) return
 
-  // Preserve existing platform value; ensure it is at least our safe default.
-  // Do not reduce a higher platform-provided limit.
+  // Bevara befintligt värde, höj till säkert minimum om lägre
   esriConfig.request.maxUrlLength = Math.max(
     Number(esriConfig.request.maxUrlLength) || 0,
-    API.MAX_URL_LENGTH
+    FME_FLOW_API.MAX_URL_LENGTH
   )
 }
 
-// Request Processing Utilities
+/* Request processing utilities */
 
+// Konverterar till positivt heltal eller undefined
 const toPosInt = (v: unknown): number | undefined => {
   const n = typeof v === "string" ? Number(v) : (v as number)
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
 }
 
+// Trimmar sträng, returnerar tom sträng om inte sträng
+const toTrimmedString = (value: unknown): string =>
+  typeof value === "string" ? value.trim() : ""
+
+// Normaliserar och trunkerar text till maxlängd
 const normalizeText = (value: unknown, limit: number): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
+  const trimmed = toTrimmedString(value)
   return trimmed ? trimmed.slice(0, limit) : undefined
 }
 
+// Lägger till Transaction Manager (TM) numeriska parametrar
 const appendWebhookTmParams = (
   params: URLSearchParams,
   source: PrimitiveParams = {}
 ): void => {
-  const numericKeys: Array<"tm_ttc" | "tm_ttl"> = ["tm_ttc", "tm_ttl"]
-  for (const key of numericKeys) {
+  // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
+  for (const key of TM_NUMERIC_PARAM_KEYS) {
     const value = toPosInt((source as any)[key])
     if (value !== undefined) params.set(key, String(value))
   }
 
+  // Lägg till tm_tag om definierad
   const tag = normalizeText((source as any).tm_tag, 128)
   if (tag) params.set("tm_tag", tag)
 }
 
+// Skapar webhook-URL med query-parametrar för FME-jobb
+const createWebhookArtifacts = (
+  serverUrl: string,
+  repository: string,
+  workspace: string,
+  parameters: PrimitiveParams = {},
+  token?: string
+): WebhookArtifacts => {
+  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const baseUrlValidation = validateServerUrl(baseUrl, {
+    strict: true,
+    requireHttps: true,
+    disallowRestForWebhook: true,
+  })
+
+  if (!baseUrlValidation.ok) {
+    const reason = mapServerUrlReasonToKey(
+      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
+    )
+    throw makeError("WEBHOOK_AUTH_ERROR", 0, reason)
+  }
+
+  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
+  if (token) {
+    params.set("token", token)
+  }
+  appendWebhookTmParams(params, parameters)
+  return {
+    baseUrl,
+    params,
+    fullUrl: `${baseUrl}?${params.toString()}`,
+  }
+}
+
+/* TM/NM directives builders för FME-jobb */
+
+// Bygger Transaction Manager (TM) directives från parametrar
+const buildTMDirectives = (params: any): TMDirectives => {
+  const ttc = toPosInt(params?.tm_ttc)
+  const ttl = toPosInt(params?.tm_ttl)
+  const tag = toTrimmedString(params?.tm_tag)
+
+  const out: TMDirectives = {}
+  if (ttc !== undefined) out.ttc = ttc
+  if (ttl !== undefined) out.ttl = ttl
+  if (tag) out.tag = tag
+  return out
+}
+
+// Bygger Notification Manager (NM) schedule-directives
+const buildNMDirectives = (params: any): NMDirectives | null => {
+  const serviceMode = params?.opt_servicemode
+  if (serviceMode !== "schedule") return null
+
+  const start = toTrimmedString(params?.start)
+  const name = toTrimmedString(params?.name)
+  const category = toTrimmedString(params?.category)
+  const trigger = toTrimmedString(params?.trigger) || "runonce"
+  const description = toTrimmedString(params?.description)
+
+  // Kräver start, name och category för schemaläggning
+  if (!start || !name || !category) return null
+
+  const scheduleDirective: any = {
+    name: "schedule",
+    begin: start,
+    scheduleName: name,
+    scheduleCategory: category,
+    scheduleTrigger: trigger,
+  }
+
+  if (description) {
+    scheduleDirective.scheduleDescription = description
+  }
+
+  return {
+    directives: [scheduleDirective],
+  }
+}
+
+// Skapar request-body för FME-jobb-submit (TM/NM + parameters)
+const makeSubmitBody = (
+  publishedParameters: any,
+  params: any
+): {
+  publishedParameters: any
+  TMDirectives?: TMDirectives
+  NMDirectives?: NMDirectives
+} => {
+  const tmDirectives = buildTMDirectives(params)
+  const nmDirectives = buildNMDirectives(params)
+
+  const body: {
+    publishedParameters: any
+    TMDirectives?: TMDirectives
+    NMDirectives?: NMDirectives
+  } = { publishedParameters }
+
+  // Lägg till TM-directives om ej tomma
+  if (Object.keys(tmDirectives).length > 0) {
+    body.TMDirectives = tmDirectives
+  }
+
+  // Lägg till NM-directives om schemaläggning aktiv
+  if (nmDirectives) {
+    body.NMDirectives = nmDirectives
+  }
+
+  return body
+}
+
+/* Felhantering för aborterade requests */
+
+// Returnerar standardsvar för aborterad request
 const handleAbortError = <T>(): ApiResponse<T> => ({
   data: undefined as unknown as T,
   status: 0,
   statusText: "requestAborted",
 })
 
-// helper moved to utils.ts: safeLogParams
+/* FmeFlowApiClient – huvudklass för FME Flow API-anrop */
 
 export class FmeFlowApiClient {
-  private config: FmeFlowConfig
-  private readonly basePath = API.BASE_PATH
-  private abortController: AbortController | null = null
+  private readonly config: FmeFlowConfig
+  private readonly basePath = FME_FLOW_API.BASE_PATH
   private setupPromise: Promise<void>
   private disposed = false
 
@@ -528,6 +1113,7 @@ export class FmeFlowApiClient {
     this.queueSetup(config)
   }
 
+  // Köar async setup av Esri-inställningar och token-interceptor
   private queueSetup(config: FmeFlowConfig): void {
     this.setupPromise = (this.setupPromise || Promise.resolve())
       .catch(() => undefined)
@@ -540,6 +1126,7 @@ export class FmeFlowApiClient {
       })
   }
 
+  // Köar asynkron teardown (tar bort token-interceptor)
   private queueTeardown(serverUrl: string): void {
     this.setupPromise = (this.setupPromise || Promise.resolve())
       .catch(() => undefined)
@@ -547,105 +1134,102 @@ export class FmeFlowApiClient {
       .catch(() => undefined)
   }
 
-  private safeAbortController(): void {
-    if (this.abortController && !this.abortController.signal.aborted) {
-      try {
-        this.abortController.abort()
-      } catch {}
-    }
-    this.abortController = null
-  }
-
+  // Frigör klient-resurser och tar bort interceptor
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    this.safeAbortController()
     this.queueTeardown(this.config.serverUrl)
   }
 
-  private resolveUploadPath(
-    data: any,
-    fileName: string,
-    subfolder: string
-  ): string {
-    const directPath =
-      (typeof data.path === "string" && data.path) ||
-      (typeof data.fullpath === "string" && data.fullpath)
-
-    if (directPath) return directPath
-
-    if (Array.isArray(data.files) && data.files.length) {
-      const first = data.files[0]
-      const filePath =
-        (typeof first?.path === "string" && first.path) ||
-        (typeof first?.fullpath === "string" && first.fullpath)
-      if (filePath) return filePath
-    }
-
-    const joined =
-      (subfolder ? `${subfolder.replace(/\/+$/g, "")}/` : "") + fileName
-    return `$(FME_SHAREDRESOURCE_TEMP)/${joined}`
-  }
-
-  /** Upload a file/blob to FME temp shared resource. */
+  // Laddar upp fil/blob till FME temp shared resource
   async uploadToTemp(
     file: File | Blob,
-    options?: { subfolder?: string; signal?: AbortSignal }
+    options?: {
+      subfolder?: string
+      signal?: AbortSignal
+      repository?: string
+      workspace?: string
+    }
   ): Promise<ApiResponse<{ path: string }>> {
-    await ensureEsri()
-
-    const segments: string[] = [
-      this.basePath.slice(1),
-      "resources",
-      "connections",
-      "FME_SHAREDRESOURCE_TEMP",
-      "filesys",
-    ]
-
-    const sub = (options?.subfolder || "")
-      .replace(/[^A-Za-z0-9_\-/]/g, "")
-      .replace(/^\/+|\/+$/g, "")
-
-    if (sub) {
-      for (const s of sub.split("/")) if (s) segments.push(s)
+    const repository = this.resolveRepository(options?.repository)
+    const workspace = (options?.workspace || "").trim()
+    if (!workspace) {
+      throw makeFlowError("DATA_UPLOAD_ERROR")
     }
 
-    const endpoint = buildUrl(this.config.serverUrl, ...segments)
-    const fileName = (file as any)?.name
-      ? String((file as any).name)
-      : `upload_${Date.now()}`
+    const fileNameSource = (file as any)?.name
+    const rawName =
+      typeof fileNameSource === "string" && fileNameSource.trim()
+        ? fileNameSource.trim()
+        : `upload_${Date.now()}`
+    const safeName =
+      rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
+      `upload_${Date.now()}`
+
+    const rawNamespace = options?.subfolder ? options.subfolder.trim() : ""
+    const sanitizedNamespace = rawNamespace
+      .replace(/[^A-Za-z0-9_-]/g, "-")
+      .slice(0, 64)
+    const namespace = sanitizedNamespace || createCorrelationId("upload")
+
+    const endpoint = buildUrl(
+      this.config.serverUrl,
+      "fmedataupload",
+      repository,
+      workspace,
+      safeName
+    )
+
+    const query: PrimitiveParams = {
+      opt_fullpath: "true",
+      opt_responseformat: "json",
+      opt_namespace: namespace,
+    }
 
     const headers: { [key: string]: string } = {
       Accept: "application/json",
-      "Content-Type": "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
+      "Content-Type":
+        file instanceof File && file.type
+          ? file.type
+          : "application/octet-stream",
     }
 
-    const resp = await this.request<{
-      path?: string
-      fullpath?: string
-      files?: any[]
+    const response = await this.request<{
+      file?: { path?: string; name?: string; size?: number }
+      session?: string
     }>(endpoint, {
-      method: HttpMethod.POST,
+      method: HttpMethod.PUT,
       headers,
-      body: file as unknown as any,
-      query: { createDirectories: "true" },
+      body: file,
+      query,
       signal: options?.signal,
+      cacheHint: false,
+      repositoryContext: repository,
     })
 
-    const resolvedPath = this.resolveUploadPath(resp?.data || {}, fileName, sub)
+    const fileInfo = response.data?.file
+    const resolvedPath =
+      typeof fileInfo?.path === "string" && fileInfo.path.trim()
+        ? fileInfo.path
+        : null
+
+    if (!resolvedPath) {
+      throw makeFlowError("DATA_UPLOAD_ERROR", response.status)
+    }
 
     return {
       data: { path: resolvedPath },
-      status: resp.status,
-      statusText: resp.statusText,
+      status: response.status,
+      statusText: response.statusText,
     }
   }
 
+  // Hämtar repository från config eller parameter
   private resolveRepository(repository?: string): string {
     return repository || this.config.repository
   }
 
+  // Bygger service-URL från repository och workspace
   private buildServiceUrl(
     service: string,
     repository: string,
@@ -654,44 +1238,20 @@ export class FmeFlowApiClient {
     return buildUrl(this.config.serverUrl, service, repository, workspace)
   }
 
-  // addQuery helper removed (unused)
-
+  // Formaterar jobb-parametrar till FME publishedParameters-struktur
   private formatJobParams(parameters: PrimitiveParams = {}): any {
+    // Om redan i rätt format, returnera direkt
     if ((parameters as any).publishedParameters) return parameters
 
-    const params = parameters as any
-    const toPosInt = (v: unknown) => {
-      const n = typeof v === "string" ? Number(v) : (v as number)
-      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
-    }
-
+    // Filtrera bort exkluderade parametrar (opt_, tm_, etc.)
     const publishedParameters = Object.entries(parameters)
-      .filter(([name]) => !name.startsWith("tm_"))
+      .filter(([name]) => !PUBLISHED_PARAM_EXCLUDE_SET.has(name))
       .map(([name, value]) => ({ name, value }))
 
-    const tmDirectives: any = {}
-    const ttc = toPosInt(params.tm_ttc)
-    const ttl = toPosInt(params.tm_ttl)
-    const tag = typeof params.tm_tag === "string" ? params.tm_tag.trim() : ""
-    const description =
-      typeof params.tm_description === "string"
-        ? params.tm_description.trim().slice(0, 512)
-        : ""
-
-    if (ttc !== undefined) tmDirectives.ttc = ttc
-    if (ttl !== undefined) tmDirectives.ttl = ttl
-    if (tag) tmDirectives.tag = tag
-    if (description) tmDirectives.description = description
-
-    const job: any = { publishedParameters }
-    if (Object.keys(tmDirectives).length > 0) {
-      job.TMDirectives = tmDirectives
-    }
-
-    return job
+    return makeSubmitBody(publishedParameters, parameters)
   }
 
-  // Build repository endpoint
+  // Bygger repository-endpoint med basepath och segment
   private repoEndpoint(repository: string, ...segments: string[]): string {
     return buildUrl(
       this.config.serverUrl,
@@ -702,7 +1262,7 @@ export class FmeFlowApiClient {
     )
   }
 
-  // Build transformation endpoint
+  // Bygger transformation-endpoint (submit/run etc.)
   private transformEndpoint(
     action: string,
     repository: string,
@@ -727,13 +1287,9 @@ export class FmeFlowApiClient {
       return await operation()
     } catch (err) {
       const status = extractHttpStatus(err)
-      throw new FmeFlowApiError(errorMessage, errorCode, status || 0)
+      const retryable = isRetryableError(err)
+      throw new FmeFlowApiError(errorMessage, errorCode, status || 0, retryable)
     }
-  }
-
-  updateConfig(config: Partial<FmeFlowConfig>): void {
-    this.config = { ...this.config, ...config }
-    this.queueSetup(this.config)
   }
 
   /**
@@ -745,6 +1301,9 @@ export class FmeFlowApiClient {
     return this.request<{ build: string; version: string }>("/info", { signal })
   }
 
+  /* Publika API-metoder för FME Flow */
+
+  // Validerar att repository existerar
   async validateRepository(
     repository?: string,
     signal?: AbortSignal
@@ -754,12 +1313,12 @@ export class FmeFlowApiClient {
     return this.request<{ name: string }>(endpoint, { signal })
   }
 
+  // Hämtar lista med repositories från FME Flow
   async getRepositories(
     signal?: AbortSignal
   ): Promise<ApiResponse<Array<{ name: string }>>> {
     return this.withApiError(
       async () => {
-        // Use the collection endpoint without a trailing slash
         const listEndpoint = buildUrl(
           this.config.serverUrl,
           this.basePath.slice(1),
@@ -767,7 +1326,7 @@ export class FmeFlowApiClient {
         )
         const raw = await this.request<any>(listEndpoint, {
           signal,
-          cacheHint: false, // Avoid cross-token header-insensitive caches
+          cacheHint: false, // Undvik cache över tokens
           query: { limit: -1, offset: -1 },
         })
 
@@ -785,6 +1344,7 @@ export class FmeFlowApiClient {
     )
   }
 
+  // Hämtar enskild workspace-parameter från FME Flow
   async getWorkspaceParameter(
     workspace: string,
     parameter: string,
@@ -801,11 +1361,12 @@ export class FmeFlowApiClient {
     )
     return this.request<WorkspaceParameter>(endpoint, {
       signal,
-      cacheHint: false, // Disable header-insensitive caching
-      repositoryContext: repo, // Add repository context for proper cache scoping
+      cacheHint: false, // Avaktivera cache
+      repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
     })
   }
 
+  // Hämtar alla workspace-parametrar från FME Flow
   async getWorkspaceParameters(
     workspace: string,
     repository?: string,
@@ -817,15 +1378,17 @@ export class FmeFlowApiClient {
       () =>
         this.request<WorkspaceParameter[]>(endpoint, {
           signal,
-          cacheHint: false, // Disable header-insensitive caching
-          repositoryContext: repo, // Add repository context for proper cache scoping
+          cacheHint: false, // Avaktivera cache
+          repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
         }),
       "WORKSPACE_PARAMETERS_ERROR",
       "WORKSPACE_PARAMETERS_ERROR"
     )
   }
 
-  // Generic request method
+  /* Generisk request-metod för HTTP-anrop */
+
+  // Hämtar repository-items (workspaces) med optional filter/limit
   async getRepositoryItems(
     repository: string,
     type?: string,
@@ -850,8 +1413,8 @@ export class FmeFlowApiClient {
       () =>
         this.request(endpoint, {
           signal,
-          cacheHint: false, // Avoid cross-repo/token contamination
-          repositoryContext: repo, // Add repository context for proper cache scoping
+          cacheHint: false, // Undvik cross-repo/token-kontaminering
+          repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
           query,
         }),
       "REPOSITORY_ITEMS_ERROR",
@@ -859,6 +1422,7 @@ export class FmeFlowApiClient {
     )
   }
 
+  // Hämtar specifik workspace-item från repository
   async getWorkspaceItem(
     workspace: string,
     repository?: string,
@@ -870,14 +1434,15 @@ export class FmeFlowApiClient {
       () =>
         this.request<any>(endpoint, {
           signal,
-          cacheHint: false, // Avoid cross-repo/token contamination
-          repositoryContext: repo, // Add repository context for proper cache scoping
+          cacheHint: false, // Undvik cross-repo/token-kontaminering
+          repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
         }),
       "WORKSPACE_ITEM_ERROR",
       "WORKSPACE_ITEM_ERROR"
     )
   }
 
+  // Skickar asynkront FME-jobb (submit) med parametrar
   async submitJob(
     workspace: string,
     parameters: PrimitiveParams = {},
@@ -901,71 +1466,7 @@ export class FmeFlowApiClient {
     )
   }
 
-  async submitSyncJob(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const repo = this.resolveRepository(repository)
-    const endpoint = this.transformEndpoint("transact", repo, workspace)
-    const jobRequest = this.formatJobParams(parameters)
-    return this.request<JobResult>(endpoint, {
-      method: HttpMethod.POST,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(jobRequest),
-      signal,
-    })
-  }
-
-  async submitGeometryJob(
-    workspace: string,
-    geometry: __esri.Geometry,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const geometryParams = await this.toFmeParams(geometry)
-    return this.submitJob(
-      workspace,
-      { ...parameters, ...geometryParams },
-      repository,
-      signal
-    )
-  }
-
-  async getJobStatus(
-    jobId: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<JobResult>> {
-    const endpoint = buildUrl(
-      this.config.serverUrl,
-      this.basePath.slice(1),
-      "transformations",
-      "jobs",
-      jobId.toString()
-    )
-    return this.request<JobResult>(endpoint, { signal })
-  }
-
-  async cancelJob(
-    jobId: number,
-    signal?: AbortSignal
-  ): Promise<ApiResponse<{ success: boolean }>> {
-    const endpoint = buildUrl(
-      this.config.serverUrl,
-      this.basePath.slice(1),
-      "transformations",
-      "jobs",
-      jobId.toString(),
-      "cancel"
-    )
-    return this.request<{ success: boolean }>(endpoint, {
-      method: HttpMethod.POST,
-      signal,
-    })
-  }
-
+  // Kör workspace via data-download (stream) med webhook
   async runDataDownload(
     workspace: string,
     parameters: PrimitiveParams = {},
@@ -981,176 +1482,26 @@ export class FmeFlowApiClient {
     )
   }
 
-  async runDataStreaming(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<
-    ApiResponse<{
-      blob: Blob
-      fileName?: string
-      contentType?: string | null
-    }>
-  > {
-    const targetRepository = this.resolveRepository(repository)
-
-    // Build streaming service URL and POST body
-    const serviceUrl = this.buildServiceUrl(
-      "fmedatastreaming",
-      targetRepository,
-      workspace
-    )
-
-    return this.withApiError(
-      async () => {
-        // Prepare URLSearchParams body, excluding TM directives which are control-plane only
-        const params = buildParams(
-          parameters,
-          ["tm_ttc", "tm_ttl", "tm_tag"],
-          false
-        )
-        // Show result inline (lets FME stream the generated content)
-        params.set("opt_showresult", "true")
-        appendWebhookTmParams(params, parameters)
-
-        // Append token as query param (consistent with webhook auth model)
-        let url = serviceUrl
-        if (this.config.token) {
-          const u = new URL(url, globalThis.location?.origin || "http://d")
-          u.searchParams.set("token", this.config.token)
-          url = u.toString()
-        }
-
-        // Best-effort safe logging without sensitive params
-        safeLogParams(
-          "STREAMING_CALL",
-          url.split("?")[0],
-          params,
-          API.WEBHOOK_LOG_WHITELIST
-        )
-
-        await ensureEsri()
-        const esriRequestFn = asEsriRequest(_esriRequest)
-        if (!esriRequestFn) {
-          throw makeError("ARCGIS_MODULE_ERROR")
-        }
-
-        // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
-        const controller = new AbortController()
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        let didTimeout = false
-        const onAbort = () => {
-          controller.abort()
-        }
-        try {
-          if (signal) {
-            if (signal.aborted) controller.abort()
-            else signal.addEventListener("abort", onAbort)
-          }
-
-          const timeoutMs =
-            typeof this.config.timeout === "number" && this.config.timeout > 0
-              ? this.config.timeout
-              : undefined
-          if (timeoutMs) {
-            timeoutId = setTimeout(() => {
-              didTimeout = true
-              try {
-                controller.abort()
-              } catch {}
-            }, timeoutMs)
-          }
-
-          const response = await esriRequestFn(url, {
-            method: "post",
-            responseType: "blob",
-            headers: {
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: params.toString(),
-            signal: controller.signal,
-            timeout: timeoutMs,
-          })
-
-          const status =
-            typeof response?.httpStatus === "number"
-              ? response.httpStatus
-              : typeof response?.status === "number"
-                ? response.status
-                : 200
-          if (status < 200 || status >= 300) {
-            throw makeError("DATA_STREAMING_ERROR", status)
-          }
-
-          const blob = response?.data as Blob
-          const headers = response?.headers
-          const contentType =
-            typeof headers?.get === "function"
-              ? headers.get("content-type")
-              : null
-
-          // Attempt to extract filename from Content-Disposition header
-          const cd =
-            typeof headers?.get === "function"
-              ? headers.get("content-disposition") || ""
-              : ""
-          let fileName: string | undefined
-          const m = /filename\*=UTF-8''([^;]+)|filename="?([^;"]+)"?/i.exec(cd)
-          if (m) {
-            const raw = decodeURIComponent(m[1] || m[2] || "").trim()
-            fileName = raw || undefined
-          }
-
-          return {
-            data: { blob, fileName, contentType },
-            status,
-            statusText: response?.statusText,
-          }
-        } catch (e: any) {
-          if (isAbortError(e)) {
-            if (didTimeout) {
-              // Map timeout to HTTP 408 for user-friendly translation
-              throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
-            }
-          }
-          throw e instanceof Error ? e : new Error(String(e))
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId)
-          try {
-            if (signal) signal.removeEventListener("abort", onAbort)
-          } catch {}
-        }
-      },
-      "DATA_STREAMING_ERROR",
-      "DATA_STREAMING_ERROR"
-    )
-  }
-
+  // Kör workspace synkront med direktsvar
   async runWorkspace(
     workspace: string,
     parameters: PrimitiveParams = {},
     repository?: string,
-    service: "download" | "stream" = "download",
     signal?: AbortSignal
   ): Promise<ApiResponse> {
-    if (service === "stream") {
-      return await this.runDataStreaming(
-        workspace,
-        parameters,
-        repository,
-        signal
-      )
-    } else {
-      return await this.runDataDownload(
-        workspace,
-        parameters,
-        repository,
-        signal
-      )
+    // Detektera schedule-läge och route till REST API istället
+    const serviceMode = parameters?.opt_servicemode
+    const isScheduleMode = serviceMode === "schedule"
+
+    if (isScheduleMode) {
+      // Schema-jobb måste använda REST API submit, inte webhook
+      return await this.submitJob(workspace, parameters, repository, signal)
     }
+
+    return await this.runDataDownload(workspace, parameters, repository, signal)
   }
 
+  // Kör workspace via webhook för data-download/stream
   private async runDownloadWebhook(
     workspace: string,
     parameters: PrimitiveParams = {},
@@ -1158,58 +1509,44 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
-      const webhookUrl = buildUrl(
+      const {
+        baseUrl: webhookUrl,
+        params,
+        fullUrl,
+      } = createWebhookArtifacts(
         this.config.serverUrl,
-        "fmedatadownload",
         repository,
-        workspace
-      )
-      const params = buildParams(
+        workspace,
         parameters,
-        [...API.WEBHOOK_EXCLUDE_KEYS, "tm_ttc", "tm_ttl", "tm_tag"],
-        true
+        this.config.token
       )
 
-      // Append token if available
-      if (this.config.token) {
-        params.set("token", this.config.token)
+      // Kontrollera URL-längd mot maxlängd
+      const maxLen = getMaxUrlLength()
+      if (Number.isFinite(maxLen) && maxLen > 0 && fullUrl.length > maxLen) {
+        throw makeError("URL_TOO_LONG", 0)
       }
 
-      // Ensure tm_* values are present if provided
-      appendWebhookTmParams(params, parameters)
-
-      const q = params.toString()
-      const fullUrl = `${webhookUrl}?${q}`
-      try {
-        const maxLen = getMaxUrlLength()
-        if (
-          typeof maxLen === "number" &&
-          maxLen > 0 &&
-          fullUrl.length > maxLen
-        ) {
-          // Emit a dedicated error code for URL length issues
-          throw makeError("URL_TOO_LONG", 0)
-        }
-      } catch (lenErr) {
-        if (lenErr instanceof FmeFlowApiError) throw lenErr
-        // If any unexpected error occurs during length validation, proceed with webhook
-      }
-
-      // Best-effort safe logging without sensitive params
+      // Logga parametrar (whitelistad) för felsökning
       safeLogParams(
         "WEBHOOK_CALL",
         webhookUrl,
         params,
-        API.WEBHOOK_LOG_WHITELIST
+        FME_FLOW_API.WEBHOOK_LOG_WHITELIST
       )
 
       await ensureEsri()
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
-      // Honor client timeout by composing a timeout-aware AbortSignal for esriRequest
+      const requestHeaders = {
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+      }
+
+      // Komponera timeout-aware AbortSignal för esriRequest
       const controller = new AbortController()
       let timeoutId: ReturnType<typeof setTimeout> | null = null
       let didTimeout = false
@@ -1217,11 +1554,13 @@ export class FmeFlowApiClient {
         controller.abort()
       }
       try {
+        // Länka extern signal om tillgänglig
         if (signal) {
           if (signal.aborted) controller.abort()
           else signal.addEventListener("abort", onAbort)
         }
 
+        // Sätt timeout om konfigurerad
         const timeoutMs =
           typeof this.config.timeout === "number" && this.config.timeout > 0
             ? this.config.timeout
@@ -1235,27 +1574,35 @@ export class FmeFlowApiClient {
           }, timeoutMs)
         }
 
-        const response = await esriRequestFn(fullUrl, {
-          method: "get",
-          responseType: "json",
-          signal: controller.signal,
-          timeout: timeoutMs,
+        // Instrumenterad GET-request via webhook
+        const response = await instrumentedRequest({
+          method: "GET",
+          url: fullUrl,
+          transport: "fme-webhook",
+          query: params,
+          correlationId: createCorrelationId("webhook"),
+          responseInterpreter: {
+            status: getEsriResponseStatus,
+            ok: getEsriResponseOk,
+            size: getEsriResponseSize,
+          },
+          execute: () =>
+            esriRequestFn(fullUrl, {
+              method: "get",
+              responseType: "json",
+              headers: requestHeaders,
+              signal: controller.signal,
+              timeout: timeoutMs,
+            }),
         })
 
         return this.parseWebhookResponse(response)
       } catch (e: any) {
+        // Hantera abort-fel, särskilt timeout
         if (isAbortError(e)) {
           if (didTimeout) {
-            throw new FmeFlowApiError("timeout", "REQUEST_TIMEOUT", 408)
+            throw makeError("WEBHOOK_TIMEOUT", 408, e)
           }
-        }
-        if (
-          e &&
-          typeof e.message === "string" &&
-          /unexpected token|json/i.test(e.message)
-        ) {
-          const status = extractHttpStatus(e) || 0
-          throw makeError("WEBHOOK_AUTH_ERROR", status)
         }
         throw e instanceof Error ? e : new Error(String(e))
       } finally {
@@ -1266,48 +1613,15 @@ export class FmeFlowApiClient {
       }
     } catch (err) {
       if (err instanceof FmeFlowApiError) throw err
-      const status = extractHttpStatus(err)
-      // Surface a code-only message; services will localize
-      throw makeError("DATA_DOWNLOAD_ERROR", status || 0)
-    }
-  }
-
-  async customRequest<T>(
-    url: string,
-    method: HttpMethod = HttpMethod.GET,
-    parameters?: PrimitiveParams,
-    contentType?: string
-  ): Promise<ApiResponse<T>> {
-    const headers: { [key: string]: string } = {}
-    if (contentType) headers["Content-Type"] = contentType
-
-    let body: unknown
-    let query: PrimitiveParams | undefined
-
-    if (parameters) {
-      if (method.toUpperCase() === "GET") {
-        query = parameters
-      } else {
-        body =
-          contentType === "application/x-www-form-urlencoded"
-            ? buildParams(parameters).toString()
-            : JSON.stringify(parameters)
+      if ((err as { code?: string } | null)?.code) {
+        throw err instanceof Error ? err : new Error(String(err))
       }
+      const status = extractHttpStatus(err)
+      throw makeFlowError("DATA_DOWNLOAD_ERROR", status || 0)
     }
-
-    return this.request<T>(url, { method, query, headers, body })
   }
 
-  cancelAllRequests(): void {
-    this.safeAbortController()
-  }
-
-  createAbortController(): AbortController {
-    this.safeAbortController()
-    this.abortController = new AbortController()
-    return this.abortController
-  }
-
+  // Parsar webhook-respons och hanterar fel
   private async parseWebhookResponse(
     response:
       | Response
@@ -1319,202 +1633,142 @@ export class FmeFlowApiClient {
           httpStatus?: number
         }
   ): Promise<ApiResponse> {
-    const isFetchResponse =
-      typeof (response as any)?.json === "function" &&
+    // Extrahera HTTP-status från respons
+    const rawStatus =
+      typeof (response as any)?.status === "number"
+        ? (response as any).status
+        : typeof (response as any)?.httpStatus === "number"
+          ? (response as any).httpStatus
+          : undefined
+    const status = typeof rawStatus === "number" ? rawStatus : 0
+
+    // Autentiseringsfel
+    if (status === 401 || status === 403) {
+      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    }
+
+    const headers =
       typeof (response as any)?.headers?.get === "function"
+        ? ((response as any).headers as {
+            get: (name: string) => string | null
+          })
+        : undefined
+    const contentType = headers?.get("content-type") || undefined
 
-    if (isFetchResponse) {
-      const fetchResponse = response as Response
-      const contentType = fetchResponse.headers.get("content-type")
+    let data: any
 
-      if (!isJson(contentType)) {
-        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
-      }
-
+    // Försök parsa JSON från respons
+    if (typeof (response as any)?.json === "function") {
       try {
-        const responseData = await fetchResponse.json()
-        if (isAuthError(fetchResponse.status)) {
-          throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
-        }
-
-        return {
-          data: responseData,
-          status: fetchResponse.status,
-          statusText: fetchResponse.statusText,
-        }
+        data = await (response as any).json()
       } catch (error) {
-        if (error instanceof FmeFlowApiError) throw error
-        throw makeError("WEBHOOK_AUTH_ERROR", fetchResponse.status)
+        throw makeError("WEBHOOK_NON_JSON", status, error)
       }
-    }
-
-    const esriResponse = response as {
-      data?: any
-      headers?: { get: (name: string) => string | null }
-      status?: number
-      statusText?: string
-      httpStatus?: number
-    }
-
-    const status =
-      typeof esriResponse.httpStatus === "number"
-        ? esriResponse.httpStatus
-        : typeof esriResponse.status === "number"
-          ? esriResponse.status
-          : 200
-
-    const headers = esriResponse.headers
-    const contentType =
-      typeof headers?.get === "function" ? headers.get("content-type") : ""
-    if (headers && !isJson(contentType)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
-    }
-
-    if (esriResponse.data === undefined) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
-    }
-
-    let payload = esriResponse.data
-    if (typeof payload === "string") {
+    } else if ((response as any)?.data !== undefined) {
+      data = (response as any).data
+    } else if ((response as any)?.json !== undefined) {
+      data = (response as any).json
+    } else if (typeof (response as any)?.text === "string") {
       try {
-        payload = JSON.parse(payload)
+        data = JSON.parse((response as any).text)
       } catch (error) {
-        throw makeError("WEBHOOK_AUTH_ERROR", status)
+        throw makeError("WEBHOOK_NON_JSON", status, error)
       }
     }
 
-    if (isAuthError(status)) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status)
+    // Validera att data är objekt
+    if (!data || typeof data !== "object") {
+      throw makeError("WEBHOOK_NON_JSON", status, response)
+    }
+
+    // Kontrollera content-type är JSON
+    if (contentType && !isJson(contentType)) {
+      throw makeError("WEBHOOK_NON_JSON", status, { contentType })
     }
 
     return {
-      data: payload,
+      data,
       status,
-      statusText: esriResponse.statusText,
+      statusText: (response as any)?.statusText,
     }
   }
 
-  private async toFmeParams(
-    geometry: __esri.Geometry
-  ): Promise<PrimitiveParams> {
-    if (!geometry) {
-      throw new Error("GEOMETRY_MISSING")
-    }
-
-    if (geometry.type !== "polygon") {
-      throw new Error("GEOMETRY_TYPE_INVALID")
-    }
-
-    const polygon = geometry as __esri.Polygon
-    const extent = polygon.extent
-
-    if (!extent) {
-      throw new Error("GEOMETRY_MISSING")
-    }
-
-    // Reproject to WGS84
-    const projectedGeometry = (await toWgs84(geometry)) as __esri.Polygon
-
-    const geoJsonPolygon = makeGeoJson(projectedGeometry)
-
-    // Convert to Esri JSON for FME
-    const esriJson = projectedGeometry.toJSON()
-
-    let polygonArea = 0
-    try {
-      await ensureGeometryEngines()
-      const areaModules = {
-        geometryEngine: asGeometryEngine(_geometryEngine),
-        geometryEngineAsync: asGeometryEngineAsync(_geometryEngineAsync),
-      }
-      polygonArea = await calcArea(projectedGeometry, areaModules)
-    } catch {}
-
-    const fallbackArea = Math.abs(extent.width * extent.height)
-    const resolvedArea =
-      polygonArea && polygonArea > 0 ? polygonArea : fallbackArea
-
-    return {
-      MAXX: extent.xmax,
-      MAXY: extent.ymax,
-      MINX: extent.xmin,
-      MINY: extent.ymin,
-      AREA: resolvedArea,
-      AreaOfInterest: JSON.stringify(esriJson),
-      ExtentGeoJson: JSON.stringify(geoJsonPolygon),
-    }
-  }
-
+  // Generisk privat HTTP-request-metod för alla FME Flow API-anrop
   private async request<T>(
     endpoint: string,
     options: Partial<RequestConfig> = {}
   ): Promise<ApiResponse<T>> {
+    // Säkerställ att klienten inte är disposed
     if (this.disposed) {
-      throw makeError("CLIENT_DISPOSED")
+      throw makeFlowError("CLIENT_DISPOSED")
     }
 
+    // Vänta på setup (Esri-config och interceptor)
     try {
       await this.setupPromise
     } catch (error) {
+      // Retry setup om det fallerade första gången
       this.queueSetup(this.config)
       try {
         await this.setupPromise
       } catch {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
     }
     await ensureEsri()
+
     const url = resolveRequestUrl(
       endpoint,
       this.config.serverUrl,
       this.basePath
     )
+    const headers: { [key: string]: string } = {
+      ...(options.headers || {}),
+    }
+    const query: any = { ...(options.query || {}) }
+
+    // Lägg till stabilt scope-id för GET-request cache-variation
+    const isGet = !options.method || options.method === HttpMethod.GET
+    if (isGet) {
+      const scope = makeScopeId(
+        this.config.serverUrl,
+        this.config.token,
+        options.repositoryContext
+      )
+      if (query.__scope === undefined) query.__scope = scope
+    }
+
+    const requestOptions: any = {
+      method: (options.method?.toLowerCase() as any) || "get",
+      query,
+      responseType: "json",
+      headers,
+      signal: options.signal,
+    }
 
     try {
-      const headers: { [key: string]: string } = {
-        ...(options.headers || {}),
-      }
-      const query: any = { ...(options.query || {}) }
-      // Add a stable scope query param for GET requests to vary cache keys per token/server/repository
-      const isGet = !options.method || options.method === HttpMethod.GET
-      if (isGet) {
-        const scope = makeScopeId(
-          this.config.serverUrl,
-          this.config.token,
-          options.repositoryContext
-        )
-        if (query.__scope === undefined) query.__scope = scope
-      }
-
-      const requestOptions: any = {
-        method: (options.method?.toLowerCase() as any) || "get",
-        query,
-        responseType: "json",
-        headers,
-        signal: options.signal,
-      }
-
-      // BYPASS INTERCEPTOR - Add FME authentication directly
-      try {
-        const serverHostKey = extractHostFromUrl(
-          this.config.serverUrl
-        )?.toLowerCase()
-        const requestHostKey = new URL(
-          url,
-          globalThis.location?.origin || "http://d"
-        ).host.toLowerCase()
-        if (
-          serverHostKey &&
-          requestHostKey === serverHostKey &&
-          this.config.token
-        ) {
-          // Add Authorization header with correct FME Flow format
-          requestOptions.headers = requestOptions.headers || {}
-          requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+      // Injicera FME-autentisering direkt (bypass interceptor)
+      const serverHostKey = extractHostFromUrl(
+        this.config.serverUrl
+      )?.toLowerCase()
+      const requestHostKey = new URL(
+        url,
+        globalThis.location?.origin || "http://d"
+      ).host.toLowerCase()
+      if (
+        serverHostKey &&
+        requestHostKey === serverHostKey &&
+        this.config.token
+      ) {
+        if (!query.fmetoken) {
+          query.fmetoken = this.config.token
         }
-      } catch {}
+        // Lägg till Authorization-header med FME Flow-format
+        requestOptions.headers = requestOptions.headers || {}
+        requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`
+      }
 
-      // Prefer explicit timeout from options, else fall back to client config
+      // Använd explicit timeout eller fallback till config
       const timeoutMs =
         typeof options.timeout === "number"
           ? options.timeout
@@ -1527,12 +1781,31 @@ export class FmeFlowApiClient {
       if (options.cacheHint !== undefined)
         requestOptions.cacheHint = options.cacheHint
       if (options.body !== undefined) requestOptions.body = options.body
+
       const esriRequestFn = asEsriRequest(_esriRequest)
       if (!esriRequestFn) {
-        throw makeError("ARCGIS_MODULE_ERROR")
+        throw makeFlowError("ARCGIS_MODULE_ERROR")
       }
 
-      const response = await esriRequestFn(url, requestOptions)
+      // Instrumenterad request med logging och timing
+      const correlationId = createCorrelationId("fme")
+      const response = await instrumentedRequest({
+        method:
+          typeof requestOptions.method === "string"
+            ? requestOptions.method.toUpperCase()
+            : "GET",
+        url,
+        transport: "fme-flow-api",
+        body: requestOptions.body,
+        query,
+        correlationId,
+        responseInterpreter: {
+          status: getEsriResponseStatus,
+          ok: getEsriResponseOk,
+          size: getEsriResponseSize,
+        },
+        execute: () => esriRequestFn(url, requestOptions),
+      })
 
       return {
         data: response.data,
@@ -1540,34 +1813,43 @@ export class FmeFlowApiClient {
         statusText: response.statusText,
       }
     } catch (err) {
-      // Handle specific error cases
+      // Hantera abort-fel tyst (returnera tomt svar)
       if (
         (err as { name?: string } | null | undefined)?.name === "AbortError"
       ) {
         return handleAbortError<T>()
       }
-      // Preserve specific API errors thrown intentionally (e.g., ARCGIS_MODULE_ERROR)
+      // Bevara specifika API-fel som kastats avsiktligt
       if (err instanceof FmeFlowApiError) {
         throw err
       }
 
       const httpStatus = extractHttpStatus(err) || 0
+      const retryable = isRetryableError(err)
       const message = extractErrorMessage(err)
 
-      // Determine error code for programmatic identification (simpler logic)
+      // Bestäm error-kod för programmatisk identifiering
       let errorCode = "REQUEST_FAILED"
       if (message.includes("Unexpected token")) {
         errorCode = "INVALID_RESPONSE_FORMAT"
       }
 
-      // Get user-friendly translation key using centralized error mapping
+      // Hämta användarvänlig translations-nyckel via centraliserad mapping
       const translationKey = mapErrorToKey(err, httpStatus)
 
-      throw new FmeFlowApiError(translationKey, errorCode, httpStatus)
+      throw new FmeFlowApiError(
+        translationKey,
+        errorCode,
+        httpStatus,
+        retryable
+      )
     }
   }
 }
 
+/* Config-normalisering och client factory */
+
+// Normaliserar FmeExportConfig till intern FmeFlowConfig
 const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
   token:
@@ -1579,17 +1861,16 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
   timeout: config.requestTimeout,
 })
 
-/**
- * Factory to construct the API client with normalized config and validation.
- */
+// Factory-funktion för att skapa FME Flow API-klient
 export function createFmeFlowClient(config: FmeExportConfig): FmeFlowApiClient {
   const normalizedConfig = normalizeConfigParams(config)
   try {
     validateRequiredConfig(normalizedConfig)
   } catch {
-    throw makeError("INVALID_CONFIG")
+    throw makeFlowError("INVALID_CONFIG")
   }
 
+  // Returnerar klient med sanerad serverUrl (utan trailing slash)
   return new FmeFlowApiClient({
     ...normalizedConfig,
     serverUrl: normalizedConfig.serverUrl.replace(/\/$/, ""),

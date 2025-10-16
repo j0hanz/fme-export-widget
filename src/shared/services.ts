@@ -17,18 +17,59 @@ import type {
   ConnectionValidationResult,
   StartupValidationResult,
   StartupValidationOptions,
-  FmeFlowConfig,
   TextOrFileValue,
-} from "../config"
-import { ParameterType, FormFieldType, ErrorType } from "../config"
+  EsriModules,
+  RemoteDatasetOptions,
+  SubmissionPreparationOptions,
+  SubmissionPreparationResult,
+  DrawingSessionState,
+  MutableParams,
+  ApiResponse,
+  MutableNode,
+} from "../config/index"
+import {
+  ParameterType,
+  FormFieldType,
+  ErrorType,
+  LAYER_CONFIG,
+  DrawingTool,
+  ViewMode,
+  SKIPPED_PARAMETER_NAMES,
+  ALWAYS_SKIPPED_TYPES,
+  LIST_REQUIRED_TYPES,
+  MULTI_SELECT_TYPES,
+  PARAMETER_FIELD_TYPE_MAP,
+} from "../config/index"
+import type { JimuMapView } from "jimu-arcgis"
 import {
   isEmpty,
   extractErrorMessage,
   isAbortError,
-  extractRepositoryNames,
   isFileObject,
   toTrimmedString,
   extractTemporalParts,
+  shouldApplyRemoteDatasetUrl,
+  shouldUploadRemoteDataset,
+  removeAoiErrorMarker,
+  applyUploadedDatasetParam,
+  parseSubmissionFormData,
+  normalizeSketchCreateTool,
+  prepFmeParams,
+  applyDirectiveDefaults,
+  logIfNotAbort,
+  toArray,
+  isPlainObject,
+  pickString,
+  pickBoolean,
+  pickNumber,
+  mergeMetadata,
+  unwrapArray,
+  toMetadataRecord,
+  normalizeParameterValue,
+  buildChoiceSet,
+  createFmeClient,
+  sanitizeOptGetUrlParam,
+  resolveUploadTargetParam,
 } from "./utils"
 import {
   isInt,
@@ -39,220 +80,16 @@ import {
   createError,
   mapErrorToKey,
 } from "./validations"
-import FmeFlowApiClient from "./api"
+import { safeCancelSketch } from "./hooks"
+import { fmeActions } from "../extensions/store"
 
-// Shared constants to keep parameter handling consistent
-const DEFAULT_REPOSITORY = "_"
+/* Inflight Request Cache för request-deduplicering */
 
-const SKIPPED_PARAMETER_NAMES = new Set([
-  "MAXX",
-  "MINX",
-  "MAXY",
-  "MINY",
-  "AreaOfInterest",
-  "tm_ttc",
-  "tm_ttl",
-  "tm_tag",
-])
-
-const ALWAYS_SKIPPED_TYPES = new Set<ParameterType>([ParameterType.NOVALUE])
-
-const LIST_REQUIRED_TYPES = new Set<ParameterType>([
-  ParameterType.DB_CONNECTION,
-  ParameterType.WEB_CONNECTION,
-  ParameterType.ATTRIBUTE_NAME,
-  ParameterType.ATTRIBUTE_LIST,
-  ParameterType.COORDSYS,
-  ParameterType.REPROJECTION_FILE,
-])
-
-const MULTI_SELECT_TYPES = new Set<ParameterType>([
-  ParameterType.LISTBOX,
-  ParameterType.LOOKUP_LISTBOX,
-  ParameterType.ATTRIBUTE_LIST,
-])
-
-const PARAMETER_FIELD_TYPE_MAP: Readonly<{
-  [K in ParameterType]?: FormFieldType
-}> = Object.freeze({
-  [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
-  [ParameterType.INTEGER]: FormFieldType.NUMBER,
-  [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
-  [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
-  [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
-  [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
-  [ParameterType.CHOICE]: FormFieldType.RADIO,
-  [ParameterType.FILENAME]: FormFieldType.FILE,
-  [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
-  [ParameterType.DIRNAME]: FormFieldType.FILE,
-  [ParameterType.DIRNAME_MUSTEXIST]: FormFieldType.FILE,
-  [ParameterType.DIRNAME_SRC]: FormFieldType.FILE,
-  [ParameterType.DATE_TIME]: FormFieldType.DATE_TIME,
-  [ParameterType.DATETIME]: FormFieldType.DATE_TIME,
-  [ParameterType.URL]: FormFieldType.URL,
-  [ParameterType.LOOKUP_URL]: FormFieldType.URL,
-  [ParameterType.LOOKUP_FILE]: FormFieldType.FILE,
-  [ParameterType.DATE]: FormFieldType.DATE,
-  [ParameterType.TIME]: FormFieldType.TIME,
-  [ParameterType.MONTH]: FormFieldType.MONTH,
-  [ParameterType.WEEK]: FormFieldType.WEEK,
-  [ParameterType.COLOR]: FormFieldType.COLOR,
-  [ParameterType.COLOR_PICK]: FormFieldType.COLOR,
-  [ParameterType.RANGE_SLIDER]: FormFieldType.SLIDER,
-  [ParameterType.TEXT_OR_FILE]: FormFieldType.TEXT_OR_FILE,
-  [ParameterType.REPROJECTION_FILE]: FormFieldType.REPROJECTION_FILE,
-  [ParameterType.COORDSYS]: FormFieldType.COORDSYS,
-  [ParameterType.ATTRIBUTE_NAME]: FormFieldType.ATTRIBUTE_NAME,
-  [ParameterType.ATTRIBUTE_LIST]: FormFieldType.ATTRIBUTE_LIST,
-  [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
-  [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
-  [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
-  [ParameterType.GEOMETRY]: FormFieldType.GEOMETRY,
-  [ParameterType.MESSAGE]: FormFieldType.MESSAGE,
-})
-
-// Type guards and metadata helpers
-const isPlainObject = (
-  value: unknown
-): value is { readonly [key: string]: unknown } =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
-
-const mergeMetadataSources = (
-  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
-): { readonly [key: string]: unknown } => {
-  const merged: { [key: string]: unknown } = {}
-  for (const source of sources) {
-    if (!isPlainObject(source)) continue
-    for (const [key, value] of Object.entries(source)) {
-      if (value != null && !(key in merged)) {
-        merged[key] = value
-      }
-    }
-  }
-  return merged
-}
-
-// Unified metadata picker with type coercion
-const pickFromObject = <T>(
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[],
-  converter: (value: unknown) => T | undefined,
-  fallback?: T
-): T | undefined => {
-  for (const key of keys) {
-    const result = converter(data[key])
-    if (result !== undefined) return result
-  }
-  return fallback
-}
-
-const toStringValue = (value: unknown): string | undefined => {
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed || undefined
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value)
-  }
-  return undefined
-}
-
-const toBooleanValue = (value: unknown): boolean | undefined => {
-  if (typeof value === "boolean") return value
-  if (typeof value === "number") return value !== 0
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase()
-    if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
-    if (["false", "0", "no", "n", "off"].includes(normalized)) return false
-  }
-  return undefined
-}
-
-const toNumberValue = (value: unknown): number | undefined => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    if (trimmed) {
-      const parsed = Number(trimmed)
-      if (Number.isFinite(parsed)) return parsed
-    }
-  }
-  return undefined
-}
-
-const pickString = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[]
-): string | undefined => pickFromObject(data, keys, toStringValue)
-
-const pickBoolean = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[],
-  fallback = false
-): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
-
-const pickNumber = (
-  data: { readonly [key: string]: unknown },
-  keys: readonly string[]
-): number | undefined => pickFromObject(data, keys, toNumberValue)
-
-const unwrapOptionArray = (value: unknown): readonly unknown[] | undefined => {
-  if (Array.isArray(value)) return value
-  if (isPlainObject(value)) {
-    for (const key of ["data", "items", "options"]) {
-      const arr = (value as any)[key]
-      if (Array.isArray(arr)) return arr
-    }
-  }
-  return undefined
-}
-
-const toMetadataRecord = (
-  value: unknown
-): { readonly [key: string]: unknown } | undefined => {
-  if (!isPlainObject(value)) return undefined
-  const entries = Object.entries(value).filter(([, v]) => v !== undefined)
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-const normalizeParameterValue = (value: unknown): string | number => {
-  if (typeof value === "number" && Number.isFinite(value)) return value
-  if (typeof value === "string") return value
-  if (typeof value === "boolean") return value ? "true" : "false"
-  return JSON.stringify(value ?? null)
-}
-
-const buildChoiceSet = (
-  list: WorkspaceParameter["listOptions"]
-): Set<string | number> | null =>
-  list?.length
-    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
-    : null
-
-const createAbortError = (message = "Operation was aborted"): DOMException => {
-  const err = new DOMException(message, "AbortError")
-  ;(err as any).name = "AbortError"
-  return err
-}
-
-const createFmeClient = (
-  serverUrl: string,
-  token: string,
-  overrides: Partial<Pick<FmeFlowConfig, "repository" | "timeout">> = {}
-): FmeFlowApiClient => {
-  const config: FmeFlowConfig = {
-    serverUrl,
-    token,
-    repository: overrides.repository ?? DEFAULT_REPOSITORY,
-    ...(overrides.timeout !== undefined && { timeout: overrides.timeout }),
-  }
-  return new FmeFlowApiClient(config)
-}
-
-// Generic in-flight request cache with automatic cleanup
+// Generisk cache för inflight requests med automatisk cleanup
 class InflightCache<T> {
   private readonly cache = new Map<string, Promise<T>>()
 
+  // Kör factory om inget inflight request finns, annars returnera befintligt
   async execute(key: string, factory: () => Promise<T>): Promise<T> {
     const existing = this.cache.get(key)
     if (existing) return existing
@@ -260,13 +97,14 @@ class InflightCache<T> {
     const promise = factory()
     this.cache.set(key, promise)
 
+    // Rensa cache när request är klar
     return promise.finally(() => {
       this.cache.delete(key)
     })
   }
 }
 
-// In-flight request deduplication
+// Inflight request-cacher för vanliga operationer
 const inFlight = {
   healthCheck: new InflightCache<{
     reachable: boolean
@@ -276,20 +114,11 @@ const inFlight = {
     status?: number
   }>(),
   validateConnection: new InflightCache<ConnectionValidationResult>(),
-  testBasicConnection: new InflightCache<{
-    success: boolean
-    version?: string
-    error?: string
-    originalError?: unknown
-  }>(),
-  getRepositories: new InflightCache<{
-    success: boolean
-    repositories?: string[]
-    error?: string
-  }>(),
 }
 
-// Common network error indicators in messages
+/* Network Error Detection */
+
+// Indikatorer för nätverksfel i felmeddelanden
 const NETWORK_INDICATORS = Object.freeze([
   "Failed to fetch",
   "NetworkError",
@@ -305,12 +134,30 @@ const NETWORK_INDICATORS = Object.freeze([
   "proxy",
 ])
 
-// Proxy-related error hints
-const PROXY_HINTS = Object.freeze(["Unable to load", "/sharing/proxy", "proxy"])
+// Indikatorer för proxy-relaterade fel
+const PROXY_INDICATORS = Object.freeze([
+  "Unable to load",
+  "/sharing/proxy",
+  "proxy",
+])
 
-// Parameter service
+// Kontrollerar om felmeddelande indikerar nätverksfel
+const hasNetworkError = (message: string): boolean =>
+  NETWORK_INDICATORS.some((indicator) =>
+    message.toLowerCase().includes(indicator.toLowerCase())
+  )
+
+// Kontrollerar om felmeddelande indikerar proxy-fel
+const hasProxyError = (message: string): boolean =>
+  PROXY_INDICATORS.some((indicator) =>
+    message.toLowerCase().includes(indicator.toLowerCase())
+  )
+
+/* Parameter Service - Formulärgenerering och validering */
+
+// Service för att konvertera FME-parametrar till dynamiska formulärfält
 export class ParameterFormService {
-  // Determine if a parameter should be rendered as a form field
+  // Kontrollerar om parameter ska renderas som formulärfält
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
   ): p is WorkspaceParameter {
@@ -329,12 +176,14 @@ export class ParameterFormService {
     return true
   }
 
+  // Filtrerar och returnerar endast renderbara parametrar
   private getRenderableParameters(
     parameters: readonly WorkspaceParameter[]
   ): WorkspaceParameter[] {
     return parameters.filter((parameter) => this.isRenderableParam(parameter))
   }
 
+  // Mappar FME listOptions till OptionItem-format
   private mapListOptions(
     list: WorkspaceParameter["listOptions"]
   ): readonly OptionItem[] | undefined {
@@ -356,7 +205,7 @@ export class ParameterFormService {
     })
   }
 
-  /** Extract slider metadata from RANGE_SLIDER params. */
+  // Extraherar slider-metadata (min/max/step) från RANGE_SLIDER-parametrar
   private getSliderMeta(param: WorkspaceParameter): {
     min?: number
     max?: number
@@ -365,20 +214,25 @@ export class ParameterFormService {
     const isRange = param.type === ParameterType.RANGE_SLIDER
     if (!isRange) return {}
     const precision =
-      typeof param.decimalPrecision === "number" ? param.decimalPrecision : 0
+      typeof param.decimalPrecision === "number" &&
+      Number.isFinite(param.decimalPrecision) &&
+      param.decimalPrecision >= 0
+        ? Math.floor(param.decimalPrecision)
+        : 0
     const min = typeof param.minimum === "number" ? param.minimum : 0
     const max = typeof param.maximum === "number" ? param.maximum : 100
     const step = precision > 0 ? Number(`0.${"0".repeat(precision - 1)}1`) : 1
     return { min, max, step }
   }
 
+  // Samlar metadata från olika källor (metadata, attributes, definition etc.)
   private getParameterMetadata(param: WorkspaceParameter): {
     readonly [key: string]: unknown
   } {
     const defaultValueMeta = isPlainObject(param.defaultValue)
       ? (param.defaultValue as { readonly [key: string]: unknown })
       : undefined
-    return mergeMetadataSources([
+    return mergeMetadata([
       param.metadata,
       param.attributes,
       param.definition,
@@ -390,6 +244,7 @@ export class ParameterFormService {
     ])
   }
 
+  // Normaliserar enskilt option-item till enhetligt format
   private normalizeOptionItem(item: unknown, index: number): OptionItem | null {
     if (item == null) return null
 
@@ -419,7 +274,7 @@ export class ParameterFormService {
       index
     const normalizedValue = normalizeParameterValue(rawValue)
 
-    const childEntries = unwrapOptionArray(obj.children)
+    const childEntries = unwrapArray(obj.children)
     const children = childEntries
       ?.map((child, childIndex) => this.normalizeOptionItem(child, childIndex))
       .filter((child): child is OptionItem => child != null)
@@ -456,6 +311,7 @@ export class ParameterFormService {
     }
   }
 
+  // Söker efter options i metadata under vanliga nycklar
   private collectMetaOptions(meta: {
     readonly [key: string]: unknown
   }): readonly OptionItem[] | undefined {
@@ -473,7 +329,7 @@ export class ParameterFormService {
     ]
 
     for (const key of candidateKeys) {
-      const arr = unwrapOptionArray(meta[key])
+      const arr = unwrapArray(meta[key])
       if (!arr?.length) continue
       const normalized = arr
         .map((item, index) => this.normalizeOptionItem(item, index))
@@ -486,6 +342,7 @@ export class ParameterFormService {
     return undefined
   }
 
+  // Extraherar scriptade options från parameter-metadata
   private extractScriptedOptions(
     param: WorkspaceParameter,
     baseOptions?: readonly OptionItem[]
@@ -496,66 +353,71 @@ export class ParameterFormService {
     return baseOptions
   }
 
+  // Bygger hierarkisk nodstruktur från path-baserade options
   private buildScriptedNodes(
     options: readonly OptionItem[] | undefined,
     separator: string
   ): readonly ScriptedOptionNode[] | undefined {
     if (!options?.length) return undefined
 
-    const hasChildren = options.some(
+    const hasHierarchy = options.some(
       (opt) => opt.children && opt.children.length > 0
     )
 
-    if (hasChildren) {
-      const convert = (
-        option: OptionItem,
-        parentPath: readonly string[] | undefined
-      ): ScriptedOptionNode => {
-        const resolvedPath = option.path
-          ? option.path
-              .split(separator)
-              .map((segment) => segment.trim())
-              .filter(Boolean)
-          : parentPath
-            ? [...parentPath, option.label]
-            : [option.label]
+    return hasHierarchy
+      ? this.buildNodesFromHierarchy(options, separator)
+      : this.buildNodesFromPaths(options, separator)
+  }
 
-        const id =
-          (option.metadata &&
-            typeof option.metadata.id === "string" &&
-            option.metadata.id) ||
-          (option.value != null ? String(option.value) : resolvedPath.join("|"))
+  // Bygger noder från befintlig children-hierarki
+  private buildNodesFromHierarchy(
+    options: readonly OptionItem[],
+    separator: string
+  ): ScriptedOptionNode[] {
+    const convert = (
+      option: OptionItem,
+      parentPath: readonly string[] | undefined
+    ): ScriptedOptionNode => {
+      const resolvedPath = option.path
+        ? option.path
+            .split(separator)
+            .map((segment) => segment.trim())
+            .filter(Boolean)
+        : parentPath
+          ? [...parentPath, option.label]
+          : [option.label]
 
-        const childNodes = option.children?.length
-          ? option.children.map((child) => convert(child, resolvedPath))
-          : undefined
+      const id =
+        (option.metadata &&
+          typeof option.metadata.id === "string" &&
+          option.metadata.id) ||
+        (option.value != null ? String(option.value) : resolvedPath.join("|"))
 
-        return {
-          id,
-          label: option.label,
-          path: resolvedPath,
-          ...(option.value !== undefined ? { value: option.value } : {}),
-          ...(option.disabled ? { disabled: true } : {}),
-          ...(option.metadata ? { metadata: option.metadata } : {}),
-          ...(childNodes && childNodes.length
-            ? { children: childNodes }
-            : { isLeaf: true }),
-        }
+      const childNodes = option.children?.length
+        ? option.children.map((child) => convert(child, resolvedPath))
+        : undefined
+
+      return {
+        id,
+        label: option.label,
+        path: resolvedPath,
+        ...(option.value !== undefined ? { value: option.value } : {}),
+        ...(option.disabled ? { disabled: true } : {}),
+        ...(option.metadata ? { metadata: option.metadata } : {}),
+        ...(childNodes && childNodes.length
+          ? { children: childNodes }
+          : { isLeaf: true }),
       }
-
-      return options.map((option) => convert(option, undefined))
     }
 
-    interface MutableNode {
-      id: string
-      label: string
-      path: string[]
-      value?: string | number
-      disabled?: boolean
-      metadata?: { [key: string]: unknown }
-      children: MutableNode[]
-    }
+    return options.map((option) => convert(option, undefined))
+  }
 
+  // Bygger hierarkisk struktur från path-strängar
+  private buildNodesFromPaths(
+    options: readonly OptionItem[],
+    separator: string
+  ): ScriptedOptionNode[] {
     const separatorRegex = new RegExp(
       `[${separator.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&")}]`
     )
@@ -630,15 +492,16 @@ export class ParameterFormService {
     return roots.map((root) => finalize(root))
   }
 
+  // Extraherar och validerar tabell-konfiguration från metadata
   private deriveTableConfig(
     param: WorkspaceParameter
   ): TableFieldConfig | undefined {
     const meta = this.getParameterMetadata(param)
     const columnCandidates =
-      unwrapOptionArray(meta.columns) ??
-      unwrapOptionArray(meta.fields) ??
-      unwrapOptionArray(meta.tableColumns) ??
-      unwrapOptionArray(meta.schema)
+      unwrapArray(meta.columns) ??
+      unwrapArray(meta.fields) ??
+      unwrapArray(meta.tableColumns) ??
+      unwrapArray(meta.schema)
 
     if (!columnCandidates?.length) return undefined
 
@@ -685,6 +548,7 @@ export class ParameterFormService {
     }
   }
 
+  // Validerar tabell-kolumner och tar bort dubbletter
   private validateTableColumns(
     columns: readonly TableColumnConfig[]
   ): TableColumnConfig[] {
@@ -709,6 +573,7 @@ export class ParameterFormService {
     return valid
   }
 
+  // Normaliserar och säkerställer giltiga min/max-radgränser
   private normalizeRowBounds(
     minRows: number | undefined,
     maxRows: number | undefined
@@ -733,6 +598,7 @@ export class ParameterFormService {
     return { minRows: resolvedMin, maxRows: resolvedMax }
   }
 
+  // Normaliserar enskild tabell-kolumn från metadata
   private normalizeTableColumn(
     column: unknown,
     index: number
@@ -766,9 +632,9 @@ export class ParameterFormService {
     const type = typeRaw ? typeMap[typeRaw.toLowerCase()] : undefined
 
     const optionsRaw =
-      unwrapOptionArray(data.options) ??
-      unwrapOptionArray(data.choices) ??
-      unwrapOptionArray(data.values)
+      unwrapArray(data.options) ??
+      unwrapArray(data.choices) ??
+      unwrapArray(data.values)
     const options = optionsRaw
       ?.map((item, idx) => this.normalizeOptionItem(item, idx))
       .filter((item): item is OptionItem => item != null)
@@ -814,6 +680,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar scriptad fält-konfiguration med hierarkiska options
   private deriveScriptedConfig(
     param: WorkspaceParameter,
     baseOptions?: readonly OptionItem[]
@@ -886,6 +753,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar datum/tid-konfiguration från parameter
   private deriveDateTimeConfig(
     param: WorkspaceParameter
   ): DateTimeFieldConfig | undefined {
@@ -918,8 +786,7 @@ export class ParameterFormService {
       (temporalParts.fraction && temporalParts.fraction.length > 1)
 
     const timezoneOptionsRaw =
-      unwrapOptionArray(meta.timezones) ??
-      unwrapOptionArray(meta.timezoneOptions)
+      unwrapArray(meta.timezones) ?? unwrapArray(meta.timezoneOptions)
     const timezoneOptions = timezoneOptionsRaw
       ?.map((item, idx) => this.normalizeOptionItem(item, idx))
       .filter((item): item is OptionItem => item != null)
@@ -958,6 +825,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar select-fält-konfiguration med sökning och options
   private deriveSelectConfig(
     type: FormFieldType,
     param: WorkspaceParameter,
@@ -1020,6 +888,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar fil-fält-konfiguration med accept och size-begränsningar
   private deriveFileConfig(
     type: FormFieldType,
     param: WorkspaceParameter
@@ -1086,6 +955,7 @@ export class ParameterFormService {
     }
   }
 
+  // Extraherar färg-fält-konfiguration från parameter
   private deriveColorConfig(
     param: WorkspaceParameter
   ): ColorFieldConfig | undefined {
@@ -1143,7 +1013,7 @@ export class ParameterFormService {
     }
   }
 
-  /** Validate values object against parameter definitions (required/type/choices). */
+  // Validerar värden mot parameter-definitioner (required/type/choices)
   validateParameters(
     data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
@@ -1179,7 +1049,7 @@ export class ParameterFormService {
     return { isValid: errors.length === 0, errors }
   }
 
-  /** Validate primitive type constraints per parameter type. */
+  // Validerar primitiv typ-matchning för parameter-värde
   private validateParameterType(
     param: WorkspaceParameter,
     value: unknown
@@ -1194,7 +1064,7 @@ export class ParameterFormService {
     }
   }
 
-  /** Validate enum/choice membership for select and multi-select parameters. */
+  // Validerar att värde matchar tillåtna choices i parameter
   private validateParameterChoices(
     param: WorkspaceParameter,
     value: unknown
@@ -1214,6 +1084,7 @@ export class ParameterFormService {
     return null
   }
 
+  // Konverterar parametrar till dynamiska formulärfält
   convertParametersToFields(
     parameters: readonly WorkspaceParameter[]
   ): readonly DynamicFieldConfig[] {
@@ -1249,7 +1120,9 @@ export class ParameterFormService {
             ? ("" as FormPrimitive)
             : param.type === ParameterType.GEOMETRY
               ? ("" as FormPrimitive)
-              : (param.defaultValue as FormPrimitive),
+              : type === FormFieldType.MULTI_SELECT
+                ? (toArray(param.defaultValue) as FormPrimitive)
+                : (param.defaultValue as FormPrimitive),
         placeholder: param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
@@ -1270,7 +1143,7 @@ export class ParameterFormService {
     }) as readonly DynamicFieldConfig[]
   }
 
-  /** Map parameter type to a UI field type. */
+  // Mappar parameter-typ till UI-fälttyp
   private getFieldType(param: WorkspaceParameter): FormFieldType {
     const override = PARAMETER_FIELD_TYPE_MAP[param.type]
     if (override) return override
@@ -1285,6 +1158,7 @@ export class ParameterFormService {
     return FormFieldType.TEXT
   }
 
+  // Kontrollerar om fält ska vara read-only baserat på typ och config
   private isReadOnlyField(
     type: FormFieldType,
     scripted?: ScriptedFieldConfig
@@ -1302,6 +1176,7 @@ export class ParameterFormService {
     return false
   }
 
+  // Validerar formulärvärden mot fält-definitioner
   validateFormValues(
     values: { [key: string]: unknown },
     fields: readonly DynamicFieldConfig[]
@@ -1344,22 +1219,16 @@ export class ParameterFormService {
   }
 }
 
-/**
- * Parse repository names from API response
- */
-function parseRepositoryNames(data: unknown): string[] {
-  return extractRepositoryNames(data)
-}
+/* Utility Functions för FME Flow Integration */
 
-// Extract FME version from server response
-function deriveFmeVersionString(info: unknown): string {
+// Extraherar FME-version från server-respons
+function extractFmeVersion(info: unknown): string {
   if (!info) return ""
 
   const data = (info as any)?.data ?? info
-  const versionPattern = /(\b\d+\.\d+(?:\.\d+)?\b|\b20\d{2}(?:\.\d+)?\ b)/
+  const versionPattern = /\b(\d+\.\d+(?:\.\d+)?|20\d{2}(?:\.\d+)?)\b/
 
-  // Try direct version fields first
-  const versionFields = [
+  const directKeys = [
     "version",
     "fmeVersion",
     "fmeflowVersion",
@@ -1373,20 +1242,21 @@ function deriveFmeVersionString(info: unknown): string {
     "name",
   ]
 
-  for (const field of versionFields) {
-    const value = field.includes(".")
-      ? field.split(".").reduce((obj, key) => obj?.[key], data)
-      : data?.[field]
+  for (const key of directKeys) {
+    const value = key.includes(".")
+      ? key.split(".").reduce((obj, k) => obj?.[k], data)
+      : data?.[key]
 
     if (typeof value === "string") {
       const match = value.match(versionPattern)
       if (match) return match[1]
-    } else if (typeof value === "number" && Number.isFinite(value)) {
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
       return String(value)
     }
   }
 
-  // Fallback: search all object values
+  // Search all values as fallback
   try {
     const allValues = Object.values(data || {})
     for (const val of allValues) {
@@ -1396,12 +1266,13 @@ function deriveFmeVersionString(info: unknown): string {
       }
     }
   } catch {
-    // Ignore errors
+    // Ignore
   }
 
   return ""
 }
 
+// Kontrollerar FME Flow server-hälsa och version
 export async function healthCheck(
   serverUrl: string,
   token: string,
@@ -1429,24 +1300,24 @@ export async function healthCheck(
     try {
       const client = createFmeClient(serverUrl, token)
       const response = await client.testConnection(signal)
-      const responseTime = Date.now() - startTime
+      const elapsed = Date.now() - startTime
+      const responseTime =
+        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
 
       return {
         reachable: true,
-        version: deriveFmeVersionString(response),
+        version: extractFmeVersion(response),
         responseTime,
       }
     } catch (error) {
-      const responseTime = Date.now() - startTime
+      const elapsed = Date.now() - startTime
+      const responseTime =
+        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
       const status = extractHttpStatus(error)
       const errorMessage = extractErrorMessage(error)
 
       if (status === 401 || status === 403) {
-        if (
-          NETWORK_INDICATORS.some((indicator) =>
-            errorMessage.toLowerCase().includes(indicator.toLowerCase())
-          )
-        ) {
+        if (hasNetworkError(errorMessage)) {
           return {
             reachable: false,
             responseTime,
@@ -1477,6 +1348,7 @@ export async function healthCheck(
   })
 }
 
+// Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
@@ -1493,11 +1365,19 @@ export async function validateConnection(
     key,
     async (): Promise<ConnectionValidationResult> => {
       try {
-        const client = createFmeClient(
-          serverUrl,
-          token,
-          repository ? { repository } : {}
-        )
+        const client = createFmeClient(serverUrl, token, repository)
+
+        if (!client) {
+          return {
+            success: false,
+            steps,
+            error: {
+              message: "connectionFailedMessage",
+              type: "server",
+              status: 0,
+            },
+          }
+        }
 
         // Step 1: Test connection and get server info
         let serverInfo: any
@@ -1505,7 +1385,7 @@ export async function validateConnection(
           serverInfo = await client.testConnection(signal)
           steps.serverUrl = "ok"
           steps.token = "ok"
-          steps.version = deriveFmeVersionString(serverInfo)
+          steps.version = extractFmeVersion(serverInfo)
         } catch (error) {
           if (isAbortError(error)) {
             return {
@@ -1534,11 +1414,7 @@ export async function validateConnection(
             }
           } else if (status === 403) {
             const rawMessage = extractErrorMessage(error)
-            if (
-              PROXY_HINTS.some((h) =>
-                rawMessage.toLowerCase().includes(h.toLowerCase())
-              )
-            ) {
+            if (hasProxyError(rawMessage)) {
               steps.serverUrl = "fail"
               steps.token = "skip"
               return {
@@ -1551,7 +1427,6 @@ export async function validateConnection(
                 },
               }
             }
-
             try {
               const healthResult = await healthCheck(serverUrl, token, signal)
 
@@ -1608,13 +1483,7 @@ export async function validateConnection(
           }
         }
 
-        let repositories: string[] = []
-        try {
-          const reposResp = await client.getRepositories(signal)
-          repositories = parseRepositoryNames(reposResp?.data)
-        } catch (error) {
-          repositories = []
-        }
+        const warnings: string[] = []
 
         // Step 3: Validate specific repository if provided
         if (repository) {
@@ -1622,15 +1491,21 @@ export async function validateConnection(
             await client.validateRepository(repository, signal)
             steps.repository = "ok"
           } catch (error) {
-            steps.repository = "fail"
-            return {
-              success: false,
-              repositories,
-              steps,
-              error: {
-                message: "repositoryNotAccessible",
-                type: "repository",
-              },
+            const status = extractHttpStatus(error)
+            if (status === 401 || status === 403) {
+              steps.repository = "skip"
+              warnings.push("repositoryNotAccessible")
+            } else {
+              steps.repository = "fail"
+              return {
+                success: false,
+                steps,
+                error: {
+                  message: mapErrorToKey(error, status),
+                  type: "repository",
+                  status,
+                },
+              }
             }
           }
         }
@@ -1638,8 +1513,8 @@ export async function validateConnection(
         return {
           success: true,
           version: typeof steps.version === "string" ? steps.version : "",
-          repositories,
           steps,
+          warnings: warnings.length ? warnings : undefined,
         }
       } catch (error) {
         if (isAbortError(error)) {
@@ -1669,89 +1544,365 @@ export async function validateConnection(
   )
 }
 
-/** Basic connectivity check that returns version string when available. */
-export async function testBasicConnection(
-  serverUrl: string,
-  token: string,
-  signal?: AbortSignal
-): Promise<{
-  success: boolean
-  version?: string
-  error?: string
-  originalError?: unknown
-}> {
-  const key = `${serverUrl}|${token}`
-  return await inFlight.testBasicConnection.execute(key, async () => {
-    try {
-      const client = createFmeClient(serverUrl, token)
-      const info = await client.testConnection(signal)
-      return {
-        success: true,
-        version: deriveFmeVersionString(info),
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: mapErrorToKey(error, extractHttpStatus(error)),
-        originalError: error,
-      }
-    }
+// Löser remote dataset genom att ladda upp eller länka via opt_geturl
+export async function resolveRemoteDataset({
+  params,
+  remoteUrl,
+  uploadFile,
+  config,
+  workspaceParameters,
+  makeCancelable,
+  fmeClient,
+  signal,
+  subfolder,
+  workspaceName,
+}: RemoteDatasetOptions): Promise<void> {
+  sanitizeOptGetUrlParam(params, config)
+
+  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
+    params.opt_geturl = remoteUrl
+    return
+  }
+
+  if (!shouldUploadRemoteDataset(config, uploadFile)) {
+    return
+  }
+
+  const targetWorkspace = toTrimmedString(workspaceName)
+  if (!targetWorkspace) {
+    throw new Error("REMOTE_DATASET_WORKSPACE_REQUIRED")
+  }
+
+  if (typeof params.opt_geturl !== "undefined") {
+    delete params.opt_geturl
+  }
+
+  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
+    fmeClient.uploadToTemp(uploadFile, {
+      subfolder,
+      signal,
+      repository: config?.repository,
+      workspace: targetWorkspace,
+    })
+  )
+
+  const uploadedPath = uploadResponse.data?.path
+  applyUploadedDatasetParam({
+    finalParams: params,
+    uploadedPath,
+    parameters: workspaceParameters,
+    explicitTarget: resolveUploadTargetParam(config),
   })
 }
 
-/** Fetch repositories and normalize to a list of strings; dedupes concurrent calls per (serverUrl|token). */
-export async function getRepositories(
-  serverUrl: string,
-  token: string,
-  signal?: AbortSignal
-): Promise<{ success: boolean; repositories?: string[]; error?: string }> {
-  if (signal?.aborted) {
-    throw createAbortError()
-  }
+// Förbereder submission-parametrar med AOI och remote dataset-upplösning
+export async function prepareSubmissionParams({
+  rawFormData,
+  userEmail,
+  geometryJson,
+  geometry,
+  modules,
+  config,
+  workspaceParameters,
+  workspaceItem,
+  selectedWorkspaceName,
+  areaWarning,
+  drawnArea,
+  makeCancelable,
+  fmeClient,
+  signal,
+  remoteDatasetSubfolder,
+  onStatusChange,
+}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> {
+  onStatusChange?.("normalizing")
+  const { sanitizedFormData, uploadFile, remoteUrl } =
+    parseSubmissionFormData(rawFormData)
 
-  const execute = async () => {
-    try {
-      const client = createFmeClient(serverUrl, token)
-      const resp = await client.getRepositories(signal)
-
-      if (
-        (resp as any)?.status === 0 ||
-        (resp as any)?.statusText === "requestAborted"
-      ) {
-        throw createAbortError()
-      }
-
-      const repositories = parseRepositoryNames(resp?.data)
-      return {
-        success: true,
-        repositories,
-      }
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw createAbortError((error as Error).message || undefined)
-      }
-      return {
-        success: false,
-        error: mapErrorToKey(error, extractHttpStatus(error)),
-      }
+  const baseParams = prepFmeParams(
+    {
+      data: sanitizedFormData,
+    },
+    userEmail,
+    geometryJson,
+    geometry || undefined,
+    modules,
+    {
+      config,
+      workspaceParameters,
+      workspaceItem,
+      areaWarning,
+      drawnArea,
     }
+  )
+
+  const aoiError = (baseParams as MutableParams).__aoi_error__
+  if (aoiError) {
+    onStatusChange?.("complete")
+    return { params: null, aoiError }
   }
 
-  if (signal) {
-    return await execute()
+  const params: MutableParams = { ...baseParams }
+
+  const shouldResolveRemoteDataset = Boolean(
+    uploadFile || (typeof remoteUrl === "string" && remoteUrl.trim())
+  )
+
+  if (shouldResolveRemoteDataset) {
+    onStatusChange?.("resolvingDataset")
   }
 
-  const key = `${serverUrl}|${token}`
-  return await inFlight.getRepositories.execute(key, execute)
+  await resolveRemoteDataset({
+    params,
+    remoteUrl,
+    uploadFile,
+    config,
+    workspaceParameters,
+    makeCancelable,
+    fmeClient,
+    signal,
+    subfolder: remoteDatasetSubfolder,
+    workspaceName:
+      toTrimmedString(workspaceItem?.name) ||
+      toTrimmedString(selectedWorkspaceName) ||
+      null,
+  })
+
+  onStatusChange?.("applyingDefaults")
+  const paramsWithDefaults = applyDirectiveDefaults(params, config || undefined)
+  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
+
+  onStatusChange?.("complete")
+  return { params: paramsWithDefaults }
 }
 
-// Widget startup validation
-/**
- * End-to-end startup validation:
- * - Required config fields
- * - Connection & repository reachability
- * Returns a structured result for the UI to proceed or show guidance.
- */
+// Skapar GraphicsLayers för ritning och preview
+export function createLayers(
+  jmv: JimuMapView,
+  modules: EsriModules,
+  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
+): __esri.GraphicsLayer {
+  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
+  jmv.view.map.add(layer)
+  setGraphicsLayer(layer)
+
+  return layer
+}
+
+// Konfigurerar event-handlers för SketchViewModel (create/update/undo/redo)
+export function setupSketchEventHandlers({
+  sketchViewModel,
+  onDrawComplete,
+  dispatch,
+  widgetId,
+  onDrawingSessionChange,
+  onSketchToolStart,
+}: {
+  sketchViewModel: __esri.SketchViewModel
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
+  widgetId: string
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
+  onSketchToolStart: (tool: DrawingTool) => void
+}): () => void {
+  let clickCount = 0
+
+  const createHandle = sketchViewModel.on(
+    "create",
+    (evt: __esri.SketchCreateEvent) => {
+      switch (evt.state) {
+        case "start": {
+          clickCount = 0
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (!normalizedTool) {
+            safeCancelSketch(sketchViewModel)
+            onDrawingSessionChange({ isActive: false, clickCount: 0 })
+            return
+          }
+          onDrawingSessionChange({ isActive: true, clickCount: 0 })
+          onSketchToolStart(
+            normalizedTool === "rectangle"
+              ? DrawingTool.RECTANGLE
+              : DrawingTool.POLYGON
+          )
+          break
+        }
+
+        case "active": {
+          const normalizedTool = normalizeSketchCreateTool(evt.tool)
+          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
+            const geometry = evt.graphic.geometry as __esri.Polygon
+            const vertices = geometry.rings?.[0]
+            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
+            if (actualClicks > clickCount) {
+              clickCount = actualClicks
+              onDrawingSessionChange({
+                clickCount: actualClicks,
+                isActive: true,
+              })
+              if (actualClicks === 1) {
+                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+              }
+            }
+          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
+            clickCount = 1
+            onDrawingSessionChange({ clickCount: 1, isActive: true })
+          }
+          break
+        }
+
+        case "complete":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          try {
+            onDrawComplete(evt)
+          } catch (err: unknown) {
+            logIfNotAbort("onDrawComplete error", err)
+          }
+          break
+
+        case "cancel":
+          clickCount = 0
+          onDrawingSessionChange({ isActive: false, clickCount: 0 })
+          break
+      }
+    }
+  )
+
+  const updateHandle = sketchViewModel.on(
+    "update",
+    (evt: __esri.SketchUpdateEvent) => {
+      if (
+        evt.state === "complete" &&
+        Array.isArray(evt.graphics) &&
+        evt.graphics.length > 0 &&
+        (evt.graphics[0] as any)?.geometry
+      ) {
+        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
+        try {
+          onDrawComplete({
+            graphic: evt.graphics[0] as any,
+            state: "complete",
+            tool: normalizedTool ?? (evt as any).tool,
+          } as any)
+        } catch (err: unknown) {
+          logIfNotAbort("onDrawComplete update error", err)
+        }
+      }
+    }
+  )
+
+  return () => {
+    try {
+      createHandle?.remove()
+    } catch {}
+    try {
+      updateHandle?.remove()
+    } catch {}
+    try {
+      ;(sketchViewModel as any).__fmeCleanup__ = undefined
+    } catch {}
+  }
+}
+
+// Skapar SketchViewModel med event-handlers och cleanup-funktioner
+export function createSketchVM({
+  jmv,
+  modules,
+  layer,
+  onDrawComplete,
+  dispatch,
+  widgetId,
+  symbols,
+  onDrawingSessionChange,
+  onSketchToolStart,
+}: {
+  jmv: JimuMapView
+  modules: EsriModules
+  layer: __esri.GraphicsLayer
+  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
+  dispatch: (action: unknown) => void
+  widgetId: string
+  symbols: {
+    polygon: any
+    polyline: any
+    point: any
+  }
+  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
+  onSketchToolStart: (tool: DrawingTool) => void
+}): {
+  sketchViewModel: __esri.SketchViewModel
+  cleanup: () => void
+} {
+  const sketchViewModel = new modules.SketchViewModel({
+    view: jmv.view,
+    layer,
+    polygonSymbol: symbols.polygon,
+    polylineSymbol: symbols.polyline,
+    pointSymbol: symbols.point,
+    defaultCreateOptions: {
+      hasZ: false,
+      mode: "click",
+    },
+    defaultUpdateOptions: {
+      tool: "reshape",
+      toggleToolOnClick: false,
+      enableRotation: true,
+      enableScaling: true,
+      preserveAspectRatio: false,
+    },
+    snappingOptions: {
+      enabled: true,
+      selfEnabled: true,
+      featureEnabled: true,
+    },
+    tooltipOptions: {
+      enabled: true,
+      inputEnabled: true,
+      visibleElements: {
+        area: true,
+        totalLength: true,
+        distance: true,
+        coordinates: false,
+        elevation: false,
+        rotation: false,
+        scale: false,
+        size: false,
+        radius: true,
+        direction: true,
+        header: true,
+        helpMessage: true,
+      },
+    },
+    valueOptions: {
+      directionMode: "relative",
+      displayUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+      inputUnits: {
+        length: "meters",
+        verticalLength: "meters",
+        area: "square-meters",
+      },
+    },
+  })
+
+  const cleanup = setupSketchEventHandlers({
+    sketchViewModel,
+    onDrawComplete,
+    dispatch,
+    widgetId,
+    onDrawingSessionChange,
+    onSketchToolStart,
+  })
+  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
+  return { sketchViewModel, cleanup }
+}
+
+/* Widget Startup Validation */
+
+// Validerar widget-uppstart: config, required fields, FME-anslutning
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {

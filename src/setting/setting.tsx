@@ -1,17 +1,30 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx, css } from "jimu-core"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { fmeQueryClient } from "../shared/query-client"
 import {
   setError,
   clearErrors,
-  safeAbort,
   parseNonNegativeInt,
   isValidEmail,
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
+  isAbortError,
+  sanitizeParamKey,
 } from "../shared/utils"
-import { useTheme } from "jimu-theme"
+import {
+  useBuilderSelector,
+  useStringConfigValue,
+  useBooleanConfigValue,
+  useNumberConfigValue,
+  useUpdateConfig,
+  useLatestAbortController,
+  useDebounce,
+  useRepositories,
+  useValidateConnection,
+} from "../shared/hooks"
 import { useDispatch } from "react-redux"
 import type { AllWidgetSettingProps } from "jimu-for-builder"
 import {
@@ -25,7 +38,7 @@ import {
   Button,
   Icon,
   Input,
-  TextArea,
+  NumericInput,
   Select,
   Tooltip,
   config as uiConfig,
@@ -39,13 +52,10 @@ import {
   validateToken,
   extractHttpStatus,
   mapErrorToKey,
+  mapServerUrlReasonToKey,
   validateConnectionInputs,
 } from "../shared/validations"
-import {
-  validateConnection,
-  getRepositories as fetchRepositoriesService,
-} from "../shared/services"
-import { fmeActions } from "../extensions/store"
+import { fmeActions, createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
   IMWidgetConfig,
@@ -60,46 +70,35 @@ import type {
   ConnectionTestSectionProps,
   RepositorySelectorProps,
   JobDirectivesSectionProps,
-  TmTagPreset,
-} from "../config"
-import { DEFAULT_DRAWING_HEX } from "../config"
+  ValidationPhase,
+} from "../config/index"
+import {
+  DEFAULT_DRAWING_HEX,
+  SETTING_CONSTANTS,
+  useSettingStyles,
+} from "../config/index"
 import resetIcon from "../assets/icons/refresh.svg"
 
-const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160
+/* Hämtar settings-konstanter */
+const CONSTANTS = SETTING_CONSTANTS
 
-// Constants
-const CONSTANTS = {
-  VALIDATION: {
-    DEFAULT_TTL_VALUE: "",
-    DEFAULT_TTC_VALUE: "",
-  },
-  LIMITS: {
-    MAX_M2_CAP: 10_000_000_000,
-    MAX_REQUEST_TIMEOUT_MS: 600_000,
-  },
-  DIRECTIVES: {
-    DESCRIPTION_MAX: 512,
-    TAG_MAX: 128,
-  },
-  COLORS: {
-    BACKGROUND_DARK: "#181818",
-  },
-  TEXT: {
-    LARGE_AREA_MESSAGE_MAX: LARGE_AREA_MESSAGE_CHAR_LIMIT,
-  },
-} as const
+/* Returnerar initialt test-state för connection validation */
+const getInitialTestState = (): TestState => ({
+  status: "idle",
+  isTesting: false,
+  message: undefined,
+  type: "info",
+})
 
-const FAST_TM_TAG = "fast"
+/* Returnerar initiala check-steg för connection validation */
+const getInitialCheckSteps = (): CheckSteps => ({
+  serverUrl: "idle",
+  token: "idle",
+  repository: "idle",
+  version: "",
+})
 
-const normalizeLargeAreaMessageInput = (value: string): string =>
-  (value ?? "").replace(/\u00A0/g, " ").replace(/[\r\n\t]+/g, " ")
-
-const normalizeLargeAreaMessage = (value: string): string => {
-  const base = normalizeLargeAreaMessageInput(value).replace(/\s+/g, " ").trim()
-  if (!base) return ""
-  return base.slice(0, CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX)
-}
-
+/* UI-sektion för anslutningstest med steg-för-steg-status */
 const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   testState,
   checkSteps,
@@ -107,35 +106,38 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   onTestConnection,
   translate,
   styles,
+  validationPhase,
 }) => {
+  /* Type guard för att identifiera StepStatus-objekt */
   const isStepStatus = (v: unknown): v is StepStatus =>
     typeof v === "object" &&
     v !== null &&
     Object.prototype.hasOwnProperty.call(v, "completed")
-  // Hoisted helpers for readability and stability
+  /* Stabila hjälpfunktioner för färg och text baserat på status */
   const getStatusStyle = hooks.useEventCallback(
     (s: StepStatus | string): any => {
       switch (s) {
         case "ok":
-          return styles.STATUS.COLOR.OK
+          return styles.status.color.ok
         case "fail":
-          return styles.STATUS.COLOR.FAIL
+          return styles.status.color.fail
         case "skip":
-          return styles.STATUS.COLOR.SKIP
+          return styles.status.color.skip
         case "pending":
         case "idle":
-          return styles.STATUS.COLOR.PENDING
+          return styles.status.color.pending
         default:
           if (isStepStatus(s)) {
             return s.completed
-              ? styles.STATUS.COLOR.OK
-              : styles.STATUS.COLOR.FAIL
+              ? styles.status.color.ok
+              : styles.status.color.fail
           }
-          return styles.STATUS.COLOR.PENDING
+          return styles.status.color.pending
       }
     }
   )
 
+  /* Returnerar översatt statustext för varje validerings-steg */
   const getStatusText = hooks.useEventCallback(
     (status: StepStatus | string): string => {
       if (typeof status === "string") {
@@ -150,6 +152,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }
   )
 
+  /* Renderar anslutningsstatus med alla validerings-steg */
   const renderConnectionStatus = (): React.ReactNode => {
     const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
       { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
@@ -167,8 +170,8 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
     }) => {
       const color = getStatusStyle(status)
       return (
-        <div css={css(styles.STATUS.ROW)}>
-          <div css={css(styles.STATUS.LABEL_GROUP)}>
+        <div css={css(styles.status.row)}>
+          <div css={css(styles.status.labelGroup)}>
             <>
               {label}
               <span aria-hidden="true">{translate("colon")}</span>
@@ -178,33 +181,52 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         </div>
       )
     }
-    // Determine if version string is present on checkSteps
+    /* Extraherar versions-sträng om tillgänglig */
     const versionText =
       typeof checkSteps.version === "string" ? checkSteps.version : ""
     const hasVersion: boolean = versionText.length > 0
 
+    const phaseKey = (() => {
+      if (validationPhase === "checking") return "testingConnection"
+      if (validationPhase === "fetchingRepos") return "loadingRepositories"
+      return null
+    })()
+
     return (
       <div
-        css={css(styles.STATUS.CONTAINER)}
+        css={css(styles.status.container)}
         role="status"
         aria-live="polite"
         aria-atomic={true}
-        aria-busy={testState.isTesting ? true : undefined}
+        aria-busy={
+          testState.isTesting || validationPhase === "fetchingRepos"
+            ? true
+            : undefined
+        }
       >
-        {testState.isTesting && (
+        {(testState.isTesting || validationPhase === "fetchingRepos") && (
           <Loading
             type={LoadingType.Bar}
-            text={translate("testingConnection")}
+            text={translate(
+              validationPhase === "fetchingRepos"
+                ? "loadingRepositories"
+                : "testingConnection"
+            )}
           />
         )}
 
-        <div css={css(styles.STATUS.LIST)}>
+        <div css={css(styles.status.list)}>
+          {phaseKey && (
+            <div css={css(styles.status.row)}>
+              <div>{translate(phaseKey)}</div>
+            </div>
+          )}
           {rows.map((r) => (
             <StatusRow key={r.label} label={r.label} status={r.status} />
           ))}
           {hasVersion && (
-            <div css={css(styles.STATUS.ROW)}>
-              <div css={css(styles.STATUS.LABEL_GROUP)}>
+            <div css={css(styles.status.row)}>
+              <div css={css(styles.status.labelGroup)}>
                 {translate("fmeVersion")}
                 <span aria-hidden="true">{translate("colon")}</span>
               </div>
@@ -218,11 +240,12 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
 
   return (
     <>
-      {/* Test connection */}
+      {/* Anslutningstest-knapp */}
       <SettingRow flow="wrap" level={2}>
         <Button
           disabled={disabled}
           alignText="center"
+          type="primary"
           text={
             testState.isTesting
               ? translate("testing")
@@ -232,7 +255,7 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         />
       </SettingRow>
       {(testState.isTesting || testState.message) && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           {renderConnectionStatus()}
         </SettingRow>
       )}
@@ -240,11 +263,13 @@ const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   )
 }
 
+/* Repository-väljare med auto-refresh och fallback till manuell input */
 const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   localServerUrl,
   localToken,
   localRepository,
   availableRepos,
+  label,
   fieldErrors,
   validateServerUrl,
   validateToken,
@@ -254,14 +279,16 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   styles,
   ID,
   repoHint,
+  isBusy,
 }) => {
-  // Allow manual refresh whenever URL and token are present and pass basic validation
+  /* Validerar server och token för att avgöra om refresh är tillåten */
   const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
   const tokenCheck = validateToken(localToken)
   const hasValidServer = !!localServerUrl && serverCheck.ok
   const hasValidToken = tokenCheck.ok
-  const canRefresh = hasValidServer && hasValidToken
+  const canRefresh = hasValidServer && hasValidToken && !isBusy
 
+  /* Bygger options-lista från tillgängliga repos och lokalt val */
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
       if (!hasValidServer || !hasValidToken) return []
@@ -279,7 +306,8 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   )
 
   const isSelectDisabled =
-    !hasValidServer || !hasValidToken || availableRepos === null
+    !hasValidServer || !hasValidToken || availableRepos === null || isBusy
+  /* Bestämmer placeholder-text baserat på validerings-status */
   const repositoryPlaceholder = (() => {
     if (!hasValidServer || !hasValidToken) {
       return translate("testConnectionFirst")
@@ -300,23 +328,24 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
     <SettingRow
       flow="wrap"
       label={
-        <div css={styles.LABEL_WITH_BUTTON}>
-          {translate("availableRepositories")}
+        <div css={styles.labelWithButton}>
+          <span css={styles.labelText}>{label}</span>
           {canRefresh && (
             <Button
               size="sm"
               block={false}
               onClick={onRefreshRepositories}
-              variant="outlined"
+              type="tertiary"
               title={translate("refreshRepositories")}
               icon={<Icon src={resetIcon} size={14} />}
             />
           )}
         </div>
       }
-      level={1}
+      level={2}
       tag="label"
     >
+      {/* Om ingen repo hittades, tillåt manuell input */}
       {Array.isArray(availableRepos) && availableRepos.length === 0 ? (
         // No repositories found - show text input to allow manual entry
         <Input
@@ -351,11 +380,11 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         />
       )}
       {fieldErrors.repository && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           <Alert
             id={`${ID.repository}-error`}
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={fieldErrors.repository}
             type="error"
             closable={false}
@@ -363,10 +392,10 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         </SettingRow>
       )}
       {repoHint && (
-        <SettingRow flow="wrap" level={3}>
+        <SettingRow flow="wrap" level={2}>
           <Alert
             fullWidth
-            css={css(styles.ALERT_INLINE)}
+            css={css(styles.alertInline)}
             text={repoHint}
             type="warning"
             closable={false}
@@ -377,7 +406,7 @@ const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   )
 }
 
-// Reusable field row to ensure consistent markup and error rendering
+/* Återanvändbar fält-rad för konsekvent markup och felrendering */
 const FieldRow: React.FC<{
   id: string
   label: React.ReactNode
@@ -390,6 +419,7 @@ const FieldRow: React.FC<{
   errorText?: string
   maxLength?: number
   disabled?: boolean
+  isPending?: boolean
   styles: SettingStyles
 }> = ({
   id,
@@ -403,9 +433,10 @@ const FieldRow: React.FC<{
   errorText,
   maxLength,
   disabled,
+  isPending = false,
   styles,
 }) => (
-  <SettingRow flow="wrap" label={label} level={1} tag="label">
+  <SettingRow flow="wrap" label={label} level={2} tag="label">
     <Input
       id={id}
       type={type}
@@ -419,13 +450,33 @@ const FieldRow: React.FC<{
       disabled={disabled}
       aria-invalid={errorText ? true : undefined}
       aria-describedby={errorText ? `${id}-error` : undefined}
+      aria-busy={isPending ? true : undefined}
     />
+    {isPending && (
+      <SettingRow
+        flow="wrap"
+        level={2}
+        css={css(styles.row)}
+        role="status"
+        aria-live="polite"
+        aria-atomic={true}
+      >
+        <div css={css(styles.fieldStatus)}>
+          <Loading
+            type={LoadingType.Secondary}
+            width={16}
+            height={16}
+            aria-hidden={true}
+          />
+        </div>
+      </SettingRow>
+    )}
     {errorText && (
-      <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
+      <SettingRow flow="wrap" level={2} css={css(styles.row)}>
         <Alert
           id={`${id}-error`}
           fullWidth
-          css={css(styles.ALERT_INLINE)}
+          css={css(styles.alertInline)}
           text={errorText}
           type="error"
           closable={false}
@@ -435,207 +486,118 @@ const FieldRow: React.FC<{
   </SettingRow>
 )
 
-const TextAreaRow: React.FC<{
-  id: string
-  label: React.ReactNode
-  value: string
-  onChange: (val: string) => void
-  onBlur?: (val: string) => void
-  placeholder?: string
-  required?: boolean
-  errorText?: string
-  maxLength?: number
-  disabled?: boolean
-  rows?: number
-  styles: SettingStyles
-}> = ({
-  id,
-  label,
-  value,
-  onChange,
-  onBlur,
-  placeholder,
-  required = false,
-  errorText,
-  maxLength,
-  disabled,
-  rows = 3,
-  styles,
-}) => {
-  if (process.env.NODE_ENV === "test") {
-    console.log("TextAreaRow control type", typeof TextArea)
-  }
-
-  return (
-    <SettingRow flow="wrap" label={label} level={1} tag="label">
-      <TextArea
-        id={id}
-        required={required}
-        value={value}
-        onChange={onChange}
-        onBlur={onBlur}
-        placeholder={placeholder}
-        errorText={errorText}
-        maxLength={maxLength}
-        disabled={disabled}
-        rows={rows}
-      />
-      {errorText && (
-        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
-          <Alert
-            id={`${id}-error`}
-            fullWidth
-            css={css(styles.ALERT_INLINE)}
-            text={errorText}
-            type="error"
-            closable={false}
-          />
-        </SettingRow>
-      )}
-    </SettingRow>
-  )
+/* Konverterar sträng till numeriskt värde eller undefined */
+const toNumericValue = (value: string): number | undefined => {
+  const trimmed = (value ?? "").trim()
+  if (trimmed === "") return undefined
+  return parseNonNegativeInt(trimmed)
 }
 
+/* Sektion för FME job directives (tm_ttc, tm_ttl) */
 const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   localTmTtc,
   localTmTtl,
-  tmTagEnabled,
-  tmTagPreset,
-  localTmDescription,
   onTmTtcChange,
   onTmTtlChange,
-  onTmTagEnabledChange,
-  onTmTagPresetChange,
-  onTmDescriptionChange,
   onTmTtcBlur,
   onTmTtlBlur,
-  onTmDescriptionBlur,
   fieldErrors,
   translate,
   styles,
   ID,
 }) => {
-  const handleTagPresetChange = hooks.useEventCallback((value: unknown) => {
-    if (value === "fast") {
-      onTmTagPresetChange("fast")
-      return
-    }
-    onTmTagPresetChange("normal")
-  })
-
-  const tagOptions = [
-    { label: translate("tm_tagOptionNormal"), value: "normal" },
-    { label: translate("tm_tagOptionFast"), value: "fast" },
-  ]
-  const toggleId = `${ID.tm_tag}-toggle`
-
   return (
-    <SettingSection>
-      {/* Job directives (admin defaults) */}
-      <FieldRow
-        id={ID.tm_ttc}
-        label={
-          <Tooltip content={translate("tm_ttcHelper")} placement="top">
-            {translate("tm_ttcLabel")}
-          </Tooltip>
-        }
-        value={localTmTtc}
-        onChange={onTmTtcChange}
-        onBlur={onTmTtcBlur}
-        placeholder={translate("tm_ttcPlaceholder")}
-        errorText={fieldErrors.tm_ttc}
-        styles={styles}
-      />
-      <FieldRow
-        id={ID.tm_ttl}
-        label={
-          <Tooltip content={translate("tm_ttlHelper")} placement="top">
-            {translate("tm_ttlLabel")}
-          </Tooltip>
-        }
-        value={localTmTtl}
-        onChange={onTmTtlChange}
-        onBlur={onTmTtlBlur}
-        placeholder={translate("tm_ttlPlaceholder")}
-        errorText={fieldErrors.tm_ttl}
-        styles={styles}
-      />
-      <SettingRow
-        flow="no-wrap"
-        label={
-          <Tooltip content={translate("tm_tagHelper")} placement="top">
-            {translate("tm_tagLabel")}
-          </Tooltip>
-        }
-        level={1}
-      >
-        <Switch
-          id={toggleId}
-          checked={tmTagEnabled}
-          onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-            const checked = evt?.target?.checked ?? !tmTagEnabled
-            onTmTagEnabledChange(checked)
-          }}
-          aria-label={translate("tm_tagLabel")}
-        />
-      </SettingRow>
-      {tmTagEnabled && (
-        <SettingRow
-          flow="wrap"
-          label={
-            <Tooltip content={translate("tm_tagHelper")} placement="top">
-              {translate("tm_tagLabel")}
-            </Tooltip>
-          }
-          level={2}
-          tag="label"
-        >
-          <Select
-            value={tmTagPreset}
-            options={tagOptions}
-            onChange={handleTagPresetChange}
-            aria-label={translate("tm_tagLabel")}
-          />
-        </SettingRow>
-      )}
+    <>
+      {/* Job directives (admin-standardvärden) */}
       <SettingRow
         flow="wrap"
         label={
-          <Tooltip content={translate("tm_descriptionHelper")} placement="top">
-            {translate("tm_descriptionLabel")}
+          <Tooltip content={translate("tm_ttcHelper")} placement="top">
+            <span>{translate("tm_ttcLabel")}</span>
           </Tooltip>
         }
-        level={1}
+        level={2}
         tag="label"
       >
-        <TextArea
-          id={ID.tm_description}
-          value={localTmDescription}
-          rows={3}
-          onChange={onTmDescriptionChange}
-          onBlur={onTmDescriptionBlur}
-          placeholder={translate("tm_descriptionPlaceholder")}
-          errorText={fieldErrors.tm_description}
+        <NumericInput
+          id={ID.tm_ttc}
+          value={toNumericValue(localTmTtc)}
+          min={0}
+          step={1}
+          precision={0}
+          placeholder={translate("tm_ttcPlaceholder")}
+          aria-invalid={fieldErrors.tm_ttc ? true : undefined}
+          aria-describedby={
+            fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
+          }
+          onChange={(value) => {
+            onTmTtcChange(value === undefined ? "" : String(value))
+          }}
+          onBlur={(evt) => {
+            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
+            onTmTtcBlur(raw)
+          }}
         />
+        {fieldErrors.tm_ttc && (
+          <SettingRow flow="wrap" level={2} css={css(styles.row)}>
+            <Alert
+              id={`${ID.tm_ttc}-error`}
+              fullWidth
+              css={css(styles.alertInline)}
+              text={fieldErrors.tm_ttc}
+              type="error"
+              closable={false}
+            />
+          </SettingRow>
+        )}
       </SettingRow>
-      {fieldErrors.tm_description && (
-        <SettingRow flow="wrap" level={3} css={css(styles.ROW)}>
-          <Alert
-            id={`${ID.tm_description}-error`}
-            fullWidth
-            css={css(styles.ALERT_INLINE)}
-            text={fieldErrors.tm_description}
-            type="error"
-            closable={false}
-          />
-        </SettingRow>
-      )}
-      {/** Helper moved to label tooltips */}
-    </SettingSection>
+      <SettingRow
+        flow="wrap"
+        label={
+          <Tooltip content={translate("tm_ttlHelper")} placement="top">
+            <span>{translate("tm_ttlLabel")}</span>
+          </Tooltip>
+        }
+        level={2}
+        tag="label"
+      >
+        <NumericInput
+          id={ID.tm_ttl}
+          value={toNumericValue(localTmTtl)}
+          min={0}
+          step={1}
+          precision={0}
+          placeholder={translate("tm_ttlPlaceholder")}
+          aria-invalid={fieldErrors.tm_ttl ? true : undefined}
+          aria-describedby={
+            fieldErrors.tm_ttl ? `${ID.tm_ttl}-error` : undefined
+          }
+          onChange={(value) => {
+            onTmTtlChange(value === undefined ? "" : String(value))
+          }}
+          onBlur={(evt) => {
+            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
+            onTmTtlBlur(raw)
+          }}
+        />
+        {fieldErrors.tm_ttl && (
+          <SettingRow flow="wrap" level={2} css={css(styles.row)}>
+            <Alert
+              id={`${ID.tm_ttl}-error`}
+              fullWidth
+              css={css(styles.alertInline)}
+              text={fieldErrors.tm_ttl}
+              type="error"
+              closable={false}
+            />
+          </SettingRow>
+        )}
+      </SettingRow>
+    </>
   )
 }
 
-// Centralized handler for validation failure -> updates steps and field errors
+/* Centraliserad hanterare för valideringsfel - uppdaterar steg och fel */
 const handleValidationFailure = (
   errorType: "server" | "network" | "token" | "repository",
   opts: {
@@ -643,18 +605,9 @@ const handleValidationFailure = (
     setFieldErrors: React.Dispatch<React.SetStateAction<FieldErrors>>
     translate: TranslateFn
     version?: string
-    repositories?: string[] | null
-    setAvailableRepos: React.Dispatch<React.SetStateAction<string[] | null>>
   }
 ) => {
-  const {
-    setCheckSteps,
-    setFieldErrors,
-    translate,
-    version,
-    repositories,
-    setAvailableRepos,
-  } = opts
+  const { setCheckSteps, setFieldErrors, translate, version } = opts
   if (errorType === "server" || errorType === "network") {
     setCheckSteps((prev) => ({
       ...prev,
@@ -679,7 +632,7 @@ const handleValidationFailure = (
     clearErrors(setFieldErrors, ["serverUrl", "repository"])
     return
   }
-  // repository
+  /* Repository-fel */
   setCheckSteps((prev) => ({
     ...prev,
     serverUrl: "ok",
@@ -689,123 +642,43 @@ const handleValidationFailure = (
   }))
   setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
-  if (repositories) setAvailableRepos(repositories)
+  /* Repository-lista hanteras av useRepositories query hook */
 }
 
-// String-only config getter to avoid repetitive type assertions
-function useStringConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (prop: keyof FmeExportConfig, defaultValue = ""): string => {
-      const v = config?.[prop]
-      return typeof v === "string" ? v : defaultValue
-    }
-  )
-}
-
-// Boolean config getter
-function useBooleanConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (prop: keyof FmeExportConfig, defaultValue = false): boolean => {
-      const v = config?.[prop]
-      return typeof v === "boolean" ? v : defaultValue
-    }
-  )
-}
-
-// Number config getter
-function useNumberConfigValue(config: IMWidgetConfig) {
-  return hooks.useEventCallback(
-    (
-      prop: keyof FmeExportConfig,
-      defaultValue?: number
-    ): number | undefined => {
-      const v = config?.[prop]
-      if (typeof v === "number" && Number.isFinite(v)) return v
-      return defaultValue
-    }
-  )
-}
-
-// Create theme-aware styles for the setting UI
-const createSettingStyles = (theme: any) => {
-  return {
-    ROW: css({ width: "100%" }),
-    ALERT_INLINE: css({ opacity: 0.8 }),
-    LABEL_WITH_BUTTON: css({
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      width: "100%",
-      gap: theme?.sys?.spacing?.(1) || 8,
-    }),
-    STATUS: {
-      CONTAINER: css({
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }),
-      LIST: css({
-        display: "grid",
-        rowGap: 2,
-        opacity: 0.8,
-        backgroundColor: CONSTANTS.COLORS.BACKGROUND_DARK,
-        padding: 6,
-        borderRadius: theme?.sys?.shape?.shape1 || 2,
-      }),
-      ROW: css({
-        display: "flex",
-        justifyContent: "space-between",
-        lineHeight: 2,
-      }),
-      LABEL_GROUP: css({
-        display: "flex",
-        alignItems: "center",
-      }),
-      COLOR: {
-        OK: css({ color: theme?.sys?.color?.success?.main || "#2e7d32" }),
-        FAIL: css({ color: theme?.sys?.color?.error?.main || "#d32f2f" }),
-        SKIP: css({ color: theme?.sys?.color?.warning?.main || "#ed6c02" }),
-        PENDING: css({ color: theme?.sys?.color?.info?.main || "#0288d1" }),
-      },
-    },
-  } as const
-}
-
-// Small helper to centralize config updates
-function useUpdateConfig(
-  id: string,
-  config: IMWidgetConfig,
-  onSettingChange: AllWidgetSettingProps<IMWidgetConfig>["onSettingChange"]
-) {
-  return hooks.useEventCallback(
-    <K extends keyof FmeExportConfig>(key: K, value: FmeExportConfig[K]) => {
-      onSettingChange({
-        id,
-        // Update only the specific key in the config
-        config: config.set(key as string, value),
-      })
-    }
-  )
-}
-
-const useSettingStyles = () => {
-  const theme = useTheme()
-  return createSettingStyles(theme)
-}
-
-export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
+/*
+ * Inre komponenten som använder React Query hooks.
+ * Måste renderas inuti QueryClientProvider.
+ */
+function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
   const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
 
+  /* Builder-medvetna Redux-selektorer med caching per widget-ID */
+  const fmeSelectorsRef = React.useRef<{
+    widgetId: string
+    selectors: ReturnType<typeof createFmeSelectors>
+  } | null>(null)
+  if (
+    fmeSelectorsRef.current === null ||
+    fmeSelectorsRef.current.widgetId !== id
+  ) {
+    fmeSelectorsRef.current = {
+      widgetId: id,
+      selectors: createFmeSelectors(id),
+    }
+  }
+  const fmeSelectors = fmeSelectorsRef.current.selectors
+  const isBusy = useBuilderSelector(fmeSelectors.selectIsBusy)
+
   const getStringConfig = useStringConfigValue(config)
   const getBooleanConfig = useBooleanConfigValue(config)
   const getNumberConfig = useNumberConfigValue(config)
   const updateConfig = useUpdateConfig(id, config, onSettingChange)
 
-  // Stable ID references for form fields
+  /* Stabila ID-referenser för formulär-fält */
   const ID = {
     supportEmail: "setting-support-email",
     serverUrl: "setting-server-url",
@@ -813,49 +686,58 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     repository: "setting-repository",
     syncMode: "setting-sync-mode",
     maskEmailOnSuccess: "setting-mask-email-on-success",
+    showResult: "setting-show-result",
     requestTimeout: "setting-request-timeout",
     largeArea: "setting-large-area",
-    largeAreaMessage: "setting-large-area-message",
-    customInfoMessage: "setting-custom-info-message",
     maxArea: "setting-max-area",
     tm_ttc: "setting-tm-ttc",
     tm_ttl: "setting-tm-ttl",
-    tm_tag: "setting-tm-tag",
-    tm_description: "setting-tm-description",
     aoiParamName: "setting-aoi-param-name",
     uploadTargetParamName: "setting-upload-target-param-name",
+    requireHttps: "setting-require-https",
     allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
     autoCloseOtherWidgets: "setting-auto-close-other-widgets",
-    service: "setting-service",
-    aoiGeoJsonParamName: "setting-aoi-geojson-param-name",
-    aoiWktParamName: "setting-aoi-wkt-param-name",
     drawingColor: "setting-drawing-color",
   } as const
 
-  // Consolidated test state
-  const [testState, setTestState] = React.useState<TestState>({
-    status: "idle",
-    isTesting: false,
-    message: undefined,
-    type: "info",
-  })
-  // Fine-grained step status for the connection test UI
-  const [checkSteps, setCheckSteps] = React.useState<CheckSteps>({
-    serverUrl: "idle",
-    token: "idle",
-    repository: "idle",
-    version: "",
-  })
+  /* Konsoliderat test-state för connection validation */
+  const [testState, setTestState] = React.useState<TestState>(() =>
+    getInitialTestState()
+  )
+  /* Finmaskig steg-status för connection test-UI */
+  const [checkSteps, setCheckSteps] = React.useState<CheckSteps>(() =>
+    getInitialCheckSteps()
+  )
+  const [validationPhase, setValidationPhase] =
+    React.useState<ValidationPhase>("idle")
   const [fieldErrors, setFieldErrors] = React.useState<FieldErrors>({})
+  /* Lokala state-kopior för redigerbart fält-innehåll */
   const [localServerUrl, setLocalServerUrl] = React.useState<string>(
     () => getStringConfig("fmeServerUrl") || ""
   )
   const [localToken, setLocalToken] = React.useState<string>(
     () => getStringConfig("fmeServerToken") || ""
   )
+  const [localRequireHttps, setLocalRequireHttps] = React.useState<boolean>(
+    () => getBooleanConfig("requireHttps")
+  )
   const selectedRepository = getStringConfig("repository") || ""
+  const configServerUrl = getStringConfig("fmeServerUrl") || ""
+  const configToken = getStringConfig("fmeServerToken") || ""
+  const previousConfigServerUrl = hooks.usePrevious(configServerUrl)
+  const previousConfigToken = hooks.usePrevious(configToken)
+  const trimmedLocalServerUrl = toTrimmedString(localServerUrl)
+  const trimmedLocalToken = toTrimmedString(localToken)
+  const serverValidation = validateServerUrl(localServerUrl, {
+    requireHttps: localRequireHttps,
+  })
+  const tokenValidation = validateToken(localToken)
+  const normalizedLocalServerUrl =
+    serverValidation.ok && trimmedLocalServerUrl
+      ? normalizeBaseUrl(trimmedLocalServerUrl) || undefined
+      : undefined
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(() =>
     getStringConfig("supportEmail")
   )
@@ -864,40 +746,31 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localMaskEmailOnSuccess, setLocalMaskEmailOnSuccess] =
     React.useState<boolean>(() => getBooleanConfig("maskEmailOnSuccess"))
+  const [localShowResult, setLocalShowResult] = React.useState<boolean>(() =>
+    getBooleanConfig("showResult", true)
+  )
   const [localAutoCloseOtherWidgets, setLocalAutoCloseOtherWidgets] =
     React.useState<boolean>(() =>
       getBooleanConfig("autoCloseOtherWidgets", true)
     )
-  // Request timeout (ms)
+  /* Request timeout (ms) */
   const [localRequestTimeout, setLocalRequestTimeout] = React.useState<string>(
     () => {
       const v = getNumberConfig("requestTimeout")
       return v !== undefined ? String(v) : ""
     }
   )
-  // Max AOI area (m²) – stored and displayed in m²
+  /* Max AOI area (m²) – lagras och visas i m² */
   const [localMaxAreaM2, setLocalMaxAreaM2] = React.useState<string>(() => {
     const v = getNumberConfig("maxArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
-  // Large-area warning threshold (m²)
+  /* Large-area varningströskel (m²) */
   const [localLargeAreaM2, setLocalLargeAreaM2] = React.useState<string>(() => {
     const v = getNumberConfig("largeArea")
     return v !== undefined && v > 0 ? String(v) : ""
   })
-  const [localLargeAreaMessage, setLocalLargeAreaMessage] =
-    React.useState<string>(() => {
-      const raw = getStringConfig("largeAreaWarningMessage") || ""
-      if (!raw) return ""
-      return normalizeLargeAreaMessage(raw)
-    })
-  const [localCustomInfoMessage, setLocalCustomInfoMessage] =
-    React.useState<string>(() => {
-      const raw = getStringConfig("customInfoMessage") || ""
-      if (!raw) return ""
-      return normalizeLargeAreaMessage(raw)
-    })
-  // Admin job directives (defaults 0/empty)
+  /* Admin job directives (standardvärden 0/tom) */
   const [localTmTtc, setLocalTmTtc] = React.useState<string>(() => {
     const v = getNumberConfig("tm_ttc")
     return v !== undefined ? String(v) : CONSTANTS.VALIDATION.DEFAULT_TTC_VALUE
@@ -906,158 +779,77 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const v = getNumberConfig("tm_ttl")
     return v !== undefined ? String(v) : CONSTANTS.VALIDATION.DEFAULT_TTL_VALUE
   })
-  const initialTmTagRaw = toTrimmedString((config as any)?.tm_tag) || ""
-  const initialTmTag = initialTmTagRaw
-    ? initialTmTagRaw.slice(0, CONSTANTS.DIRECTIVES.TAG_MAX)
-    : ""
-  const hasFastTag = initialTmTag === FAST_TM_TAG
-  const initialTmTagPreset: TmTagPreset = hasFastTag ? "fast" : "normal"
-  const [localTmTagEnabled, setLocalTmTagEnabled] = React.useState<boolean>(
-    () => hasFastTag
-  )
-  const [localTmTagPreset, setLocalTmTagPreset] = React.useState<TmTagPreset>(
-    () => initialTmTagPreset
-  )
-  const [localTmDescription, setLocalTmDescription] = React.useState<string>(
-    () => getStringConfig("tm_description")
-  )
   const [localAoiParamName, setLocalAoiParamName] = React.useState<string>(
     () => getStringConfig("aoiParamName") || "AreaOfInterest"
   )
-  const [localAoiGeoJsonParamName, setLocalAoiGeoJsonParamName] =
-    React.useState<string>(() => getStringConfig("aoiGeoJsonParamName"))
-  const [localAoiWktParamName, setLocalAoiWktParamName] =
-    React.useState<string>(() => getStringConfig("aoiWktParamName"))
   const [localUploadTargetParamName, setLocalUploadTargetParamName] =
-    React.useState<string>(() => getStringConfig("uploadTargetParamName"))
+    React.useState<string>(() => getStringConfig("uploadTargetParamName") || "")
   const [localAllowScheduleMode, setLocalAllowScheduleMode] =
     React.useState<boolean>(() => getBooleanConfig("allowScheduleMode"))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteDataset"))
   const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
-  const [localService, setLocalService] = React.useState<string>(() => {
-    const v = getStringConfig("service")
-    return v === "stream" ? "stream" : "download"
-  })
-  const isStreamingService = localService === "stream"
-  const isDownloadService = !isStreamingService
-  const shouldShowMaskEmailSetting = isDownloadService && !localSyncMode
-  const shouldShowScheduleToggle = isDownloadService && !localSyncMode
-  const showUploadTargetField = isDownloadService && localAllowRemoteDataset
+  const shouldShowMaskEmailSetting = !localSyncMode
+  const shouldShowScheduleToggle = !localSyncMode
+  const hasMapSelection =
+    Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
+  const hasServerInputs = Boolean(trimmedLocalServerUrl && trimmedLocalToken)
+  const shouldShowRepositorySelector = hasMapSelection && hasServerInputs
+  const hasRepositorySelection = !!toTrimmedString(selectedRepository)
+  const shouldShowRemainingSettings =
+    hasMapSelection && hasServerInputs && hasRepositorySelection
+  const shouldShowRemoteDatasetSettings = localAllowRemoteDataset
 
-  const resolveAreaInput = (value: string): number | undefined => {
-    const trimmed = (value ?? "").trim()
-    const parsed = parseNonNegativeInt(trimmed)
-    if (parsed === undefined || parsed <= 0) {
-      return undefined
+  const handleLargeAreaChange = hooks.useEventCallback(
+    (val: number | undefined) => {
+      setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
+      if (val === undefined) {
+        setLocalLargeAreaM2("")
+        return
+      }
+      setLocalLargeAreaM2(String(val))
     }
-    return parsed
-  }
-
-  const currentLargeAreaValue = resolveAreaInput(localLargeAreaM2)
-  const currentMaxAreaValue = resolveAreaInput(localMaxAreaM2)
-  const persistedLargeAreaValue = getNumberConfig("largeArea")
-  const showLargeAreaInfo =
-    currentLargeAreaValue !== undefined &&
-    currentMaxAreaValue !== undefined &&
-    currentLargeAreaValue > currentMaxAreaValue
-  const isLargeAreaMessageEnabled =
-    typeof persistedLargeAreaValue === "number" && persistedLargeAreaValue > 0
-
-  const handleLargeAreaChange = hooks.useEventCallback((val: string) => {
-    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-    const digitsOnly = (val ?? "").replace(/\D+/g, "")
-    if (!digitsOnly) {
-      setLocalLargeAreaM2("")
-      return
-    }
-    const parsed = parseNonNegativeInt(digitsOnly)
-    if (parsed === undefined || parsed === 0) {
-      setLocalLargeAreaM2("")
-      return
-    }
-    const maxLimit = resolveAreaInput(localMaxAreaM2)
-    const bounded = maxLimit !== undefined ? Math.min(parsed, maxLimit) : parsed
-    setLocalLargeAreaM2(String(bounded))
-  })
+  )
 
   const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
-    const resolved = resolveAreaInput(val ?? "")
-    if (resolved === undefined) {
+    const trimmed = (val ?? "").trim()
+    const parsed = parseNonNegativeInt(trimmed)
+
+    if (parsed === undefined || parsed === 0) {
       updateConfig("largeArea", undefined as any)
       setLocalLargeAreaM2("")
       setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
       return
     }
-    const upperBound = Math.min(resolved, CONSTANTS.LIMITS.MAX_M2_CAP)
-    const maxLimit = resolveAreaInput(localMaxAreaM2)
-    const bounded =
-      maxLimit !== undefined ? Math.min(upperBound, maxLimit) : upperBound
-    updateConfig("largeArea", bounded as any)
-    setLocalLargeAreaM2(String(bounded))
+
+    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        largeArea: translate("errorMaxAreaTooLarge", {
+          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+        }),
+      }))
+      return
+    }
+
+    updateConfig("largeArea", parsed as any)
+    setLocalLargeAreaM2(String(parsed))
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }))
-  })
-
-  const handleLargeAreaMessageChange = hooks.useEventCallback((val: string) => {
-    const cleaned = normalizeLargeAreaMessageInput(val)
-    setLocalLargeAreaMessage(cleaned)
-    setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
-  })
-
-  const handleLargeAreaMessageBlur = hooks.useEventCallback((val: string) => {
-    const sanitized = normalizeLargeAreaMessage(val)
-    if (!sanitized) {
-      setLocalLargeAreaMessage("")
-      updateConfig("largeAreaWarningMessage", undefined as any)
-      setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
-      return
-    }
-
-    setLocalLargeAreaMessage(sanitized)
-    updateConfig("largeAreaWarningMessage", sanitized as any)
-    setFieldErrors((prev) => ({ ...prev, largeAreaMessage: undefined }))
-  })
-
-  const handleLargeAreaDetailsChange = hooks.useEventCallback((val: string) => {
-    const cleaned = normalizeLargeAreaMessageInput(val)
-    setLocalCustomInfoMessage(cleaned)
-    setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
-  })
-
-  const handleLargeAreaDetailsBlur = hooks.useEventCallback((val: string) => {
-    const sanitized = normalizeLargeAreaMessage(val)
-    if (!sanitized) {
-      setLocalCustomInfoMessage("")
-      updateConfig("customInfoMessage", undefined as any)
-      setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
-      return
-    }
-
-    setLocalCustomInfoMessage(sanitized)
-    updateConfig("customInfoMessage", sanitized as any)
-    setFieldErrors((prev) => ({ ...prev, customInfoMessage: undefined }))
   })
 
   const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
     const trimmed = (val ?? "").trim()
-    const previousMaxConfig = getNumberConfig("maxArea")
-    const coerced = parseNonNegativeInt(trimmed)
-    if (coerced === undefined || coerced === 0) {
-      if (previousMaxConfig !== undefined) {
-        updateConfig("largeArea", undefined as any)
-        setLocalLargeAreaM2("")
-      }
+    const parsed = parseNonNegativeInt(trimmed)
+
+    if (parsed === undefined || parsed === 0) {
       updateConfig("maxArea", undefined as any)
       setLocalMaxAreaM2("")
-      setFieldErrors((prev) => ({
-        ...prev,
-        maxArea: undefined,
-        largeArea: undefined,
-      }))
+      setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
       return
     }
-    if (coerced > CONSTANTS.LIMITS.MAX_M2_CAP) {
+
+    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
       setFieldErrors((prev) => ({
         ...prev,
         maxArea: translate("errorMaxAreaTooLarge", {
@@ -1066,175 +858,204 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }))
       return
     }
-    const m2 = coerced
-    const maxChanged = previousMaxConfig !== m2
-    updateConfig("maxArea", m2 as any)
-    setLocalMaxAreaM2(String(m2))
-    setFieldErrors((prev) => ({
-      ...prev,
-      maxArea: undefined,
-      largeArea: maxChanged ? undefined : prev.largeArea,
-    }))
-    if (maxChanged) {
-      updateConfig("largeArea", undefined as any)
-      setLocalLargeAreaM2("")
-    }
+
+    updateConfig("maxArea", parsed as any)
+    setLocalMaxAreaM2(String(parsed))
+    setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
   })
 
-  // Consolidated effect: manage service-type dependent state
+  /* Konsoliderad effekt: återställ beroende alternativ när dolda */
   hooks.useEffectWithPreviousValues(() => {
-    // Streaming service: disable incompatible features
-    if (isStreamingService) {
-      if (localAllowRemoteDataset) {
-        setLocalAllowRemoteDataset(false)
-        updateConfig("allowRemoteDataset", false as any)
-      }
-      if (localAllowRemoteUrlDataset) {
-        setLocalAllowRemoteUrlDataset(false)
-        updateConfig("allowRemoteUrlDataset", false as any)
-      }
-      if (localMaskEmailOnSuccess) {
-        setLocalMaskEmailOnSuccess(false)
-        updateConfig("maskEmailOnSuccess", false as any)
-      }
-    }
-
-    // Schedule mode: clear if no longer shown
+    /* Schedule mode: rensa om inte längre synlig */
     if (!shouldShowScheduleToggle && localAllowScheduleMode) {
       setLocalAllowScheduleMode(false)
       updateConfig("allowScheduleMode", false as any)
     }
 
-    // Mask email: clear if no longer shown
+    /* Mask email: rensa om inte längre synlig */
     if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false)
       updateConfig("maskEmailOnSuccess", false as any)
     }
 
-    // Upload target param: clear if no longer shown
-    if (!showUploadTargetField && localUploadTargetParamName) {
-      updateConfig("uploadTargetParamName", undefined as any)
-      setLocalUploadTargetParamName("")
+    /* Remote dataset: rensa beroende inställningar när avstängt */
+    if (!localAllowRemoteDataset) {
+      /* Stäng av URL-dataset om remote dataset är avstängt */
+      if (localAllowRemoteUrlDataset) {
+        setLocalAllowRemoteUrlDataset(false)
+        updateConfig("allowRemoteUrlDataset", false as any)
+      }
+      /* Rensa upload target-param när dataset-stöd är avstängt */
+      if (localUploadTargetParamName) {
+        setLocalUploadTargetParamName("")
+        updateConfig("uploadTargetParamName", undefined as any)
+        setFieldErrors((prev) => ({
+          ...prev,
+          uploadTargetParamName: undefined,
+        }))
+      }
     }
   }, [
-    isStreamingService,
     shouldShowScheduleToggle,
     shouldShowMaskEmailSetting,
-    showUploadTargetField,
-    localAllowRemoteDataset,
-    localAllowRemoteUrlDataset,
     localMaskEmailOnSuccess,
     localAllowScheduleMode,
+    localAllowRemoteDataset,
+    localAllowRemoteUrlDataset,
     localUploadTargetParamName,
     updateConfig,
   ])
 
-  // Drawing color (hex) with default ArcGIS brand blue
+  /* Drawing color (hex) med ArcGIS brand blue som standard */
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
     () => getStringConfig("drawingColor") || DEFAULT_DRAWING_HEX
   )
-  // Server-provided repository list (null = not loaded yet)
-  const [availableRepos, setAvailableRepos] = React.useState<string[] | null>(
-    null
+
+  /* Avgör om repositories ska hämtas */
+  const canFetchRepos = Boolean(normalizedLocalServerUrl && tokenValidation.ok)
+
+  /* Query hook för repositories (ersätter manuell loadRepositories) */
+  const repositoriesQuery = useRepositories(
+    normalizedLocalServerUrl,
+    trimmedLocalToken,
+    { enabled: canFetchRepos }
   )
-  // Non-blocking hint for repository list fetch issues
+
+  /* Mutation hook för connection validation (ersätter manuell validate) */
+  const validateConnectionMutation = useValidateConnection()
+
+  /* Icke-blockerande ledtråd för repository-listfetchfel */
   const [reposHint, setReposHint] = React.useState<string | null>(null)
-  // Track in-flight test for cancellation to avoid stale state updates
-  const abortRef = React.useRef<AbortController | null>(null)
-  // Track in-flight repository listing request for cancellation
-  const reposAbortRef = React.useRef<AbortController | null>(null)
-  // Auto-cancel promises on unmount and avoid setState-after-unmount
-  const makeCancelable = hooks.useCancelablePromiseMaker()
-  // Keep latest values handy for async readers
+
+  /* Spårar inflight cancellation scopes (endast testAbort behövs nu) */
+  const testAbort = useLatestAbortController()
+
+  /* Håller senaste värden för asynkrona läsare */
   const translateRef = hooks.useLatest(translate)
+  const [isServerValidationPending, setServerValidationPending] =
+    React.useState(false)
+  const [isTokenValidationPending, setTokenValidationPending] =
+    React.useState(false)
 
-  // Abort any in-flight repository request
-  const abortReposRequest = hooks.useEventCallback(() => {
-    if (reposAbortRef.current) {
-      safeAbort(reposAbortRef.current)
-      reposAbortRef.current = null
+  const runServerValidation = hooks.useEventCallback((value: string) => {
+    const trimmed = toTrimmedString(value)
+    if (!trimmed) {
+      setError(setFieldErrors, "serverUrl", undefined)
+      return
     }
+
+    const validation = validateServerUrl(trimmed, {
+      requireHttps: localRequireHttps,
+    })
+    let message: string | undefined
+    if (!validation.ok) {
+      let messageKey: string | undefined
+      if ("reason" in validation) {
+        messageKey = mapServerUrlReasonToKey(validation.reason)
+      } else if ("key" in validation && typeof validation.key === "string") {
+        messageKey = validation.key
+      }
+      message = messageKey ? translateRef.current(messageKey) : undefined
+    } else {
+      message = undefined
+    }
+    setError(setFieldErrors, "serverUrl", message)
   })
 
-  // Unified repository loader used by both auto-load and manual refresh
-  const loadRepositories = hooks.useEventCallback(
-    async (
-      serverUrl: string,
-      token: string,
-      { indicateLoading }: { indicateLoading: boolean }
-    ) => {
-      // Cancel previous
-      abortReposRequest()
-      const ctrl = new AbortController()
-      reposAbortRef.current = ctrl
-      const signal = ctrl.signal
-
-      if (indicateLoading) {
-        setAvailableRepos((prev) => (Array.isArray(prev) ? prev : null))
-        setReposHint(null)
-      }
-
-      try {
-        const result = await makeCancelable(
-          fetchRepositoriesService(serverUrl, token, signal)
-        )
-        if (signal.aborted) return
-        const next = result.repositories || []
-        setAvailableRepos(next)
-        clearErrors(setFieldErrors, ["repository"])
-        setReposHint(null)
-      } catch (err) {
-        if ((err as Error)?.name !== "AbortError") {
-          setAvailableRepos((prev) => (Array.isArray(prev) ? prev : []))
-          setReposHint(translateRef.current("errorRepositories"))
-        }
-      } finally {
-        if (reposAbortRef.current === ctrl) reposAbortRef.current = null
-      }
+  const runTokenValidation = hooks.useEventCallback((value: string) => {
+    const trimmed = toTrimmedString(value)
+    if (!trimmed) {
+      setError(setFieldErrors, "token", undefined)
+      return
     }
-  )
 
-  // Clear repository-related state when URL or token change
+    const validation = validateToken(trimmed)
+    const message =
+      !validation.ok && validation.key
+        ? translateRef.current(validation.key)
+        : undefined
+    setError(setFieldErrors, "token", message)
+  })
+
+  /* Debounced validering för att undvika validering vid varje tangenttryck */
+  const debouncedServerValidation = useDebounce(runServerValidation, 800, {
+    onPendingChange: (pending) => {
+      setServerValidationPending(pending)
+    },
+  })
+  const debouncedTokenValidation = useDebounce(runTokenValidation, 800, {
+    onPendingChange: (pending) => {
+      setTokenValidationPending(pending)
+    },
+  })
+
+  /* Extraherar repository-namn från query data */
+  const availableReposRef = React.useRef<string[] | null>(null)
+  const prevQueryData = hooks.usePrevious(repositoriesQuery.data)
+
+  if (repositoriesQuery.data !== prevQueryData) {
+    availableReposRef.current = repositoriesQuery.data
+      ? repositoriesQuery.data.map((repo) => repo.name)
+      : null
+  }
+
+  const availableRepos = availableReposRef.current
+
+  /* Hanterar repository query-fel */
+  hooks.useEffectWithPreviousValues(() => {
+    if (repositoriesQuery.isError && !isAbortError(repositoriesQuery.error)) {
+      setReposHint(translate("errorRepositories"))
+    } else if (repositoriesQuery.isSuccess) {
+      setReposHint(null)
+    }
+  }, [
+    repositoriesQuery.isError,
+    repositoriesQuery.isSuccess,
+    repositoriesQuery.error,
+    translate,
+  ])
+
+  /* Rensar repository-relaterad state när URL eller token ändras */
   const clearRepositoryEphemeralState = hooks.useEventCallback(() => {
-    setAvailableRepos(null)
+    /* Query hook hanterar abort automatiskt */
     setFieldErrors((prev) => ({ ...prev, repository: undefined }))
+    setValidationPhase("idle")
+    setReposHint(null)
   })
 
-  const handleTmTagPresetChange = hooks.useEventCallback(
-    (preset: TmTagPreset) => {
-      setLocalTmTagPreset(preset)
-      setFieldErrors((prev) => ({ ...prev, tm_tag: undefined }))
-      if (!localTmTagEnabled) {
-        return
+  const resetConnectionProgress = hooks.useEventCallback(() => {
+    testAbort.cancel()
+    setValidationPhase("idle")
+    setTestState((prev) => {
+      if (
+        prev.status === "idle" &&
+        !prev.isTesting &&
+        prev.message === undefined &&
+        prev.type === "info"
+      ) {
+        return prev
       }
-      if (preset === "fast") {
-        updateConfig("tm_tag", FAST_TM_TAG as any)
-        return
+      return getInitialTestState()
+    })
+    setCheckSteps((prev) => {
+      if (
+        prev.serverUrl === "idle" &&
+        prev.token === "idle" &&
+        prev.repository === "idle" &&
+        (prev.version || "") === ""
+      ) {
+        return prev
       }
-      updateConfig("tm_tag", undefined as any)
-    }
-  )
+      return getInitialCheckSteps()
+    })
+  })
 
-  const handleTmTagEnabledChange = hooks.useEventCallback(
-    (enabled: boolean) => {
-      setLocalTmTagEnabled(enabled)
-      setFieldErrors((prev) => ({ ...prev, tm_tag: undefined }))
-      if (!enabled) {
-        updateConfig("tm_tag", undefined as any)
-        return
-      }
-      if (localTmTagPreset === "fast") {
-        updateConfig("tm_tag", FAST_TM_TAG as any)
-        return
-      }
-      updateConfig("tm_tag", undefined as any)
-    }
-  )
-
-  // Cleanup on unmount
+  /* Städar upp vid unmount */
   hooks.useUnmount(() => {
-    safeAbort(abortRef.current)
-    abortReposRequest()
+    testAbort.cancel()
+    debouncedServerValidation.cancel()
+    debouncedTokenValidation.cancel()
+    /* Query hook hanterar cleanup automatiskt */
   })
 
   const onMapWidgetSelected = (useMapWidgetIds: string[]) => {
@@ -1244,13 +1065,13 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     })
   }
 
-  // Render required label with tooltip
+  /* Renderar obligatorisk etikett med tooltip */
   const RequiredLabel: React.FC<{ text: string }> = ({ text }) => (
     <>
       {text}
       <Tooltip content={translate("requiredField")} placement="top">
         <span
-          css={styles.typography.required}
+          css={styles.typo.required}
           aria-label={translate("ariaRequired")}
           role="img"
           aria-hidden={false}
@@ -1261,7 +1082,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     </>
   )
 
-  // Unified input validation
+  /* Unified input-validering */
   const validateAllInputs = hooks.useEventCallback(
     (skipRepoCheck = false): ValidationResult => {
       const composite = validateConnectionInputs({
@@ -1281,11 +1102,20 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.repository = translate(composite.errors.repository)
       }
 
-      // Support email is optional but must be valid if provided
+      /* Support-email är valfri men måste vara giltig om angiven */
       const trimmedEmail = (localSupportEmail ?? "").trim()
       if (trimmedEmail) {
         const emailValid = isValidEmail(trimmedEmail)
         if (!emailValid) messages.supportEmail = translate("invalidEmail")
+      }
+
+      if (localAllowRemoteDataset) {
+        const sanitizedTarget = sanitizeParamKey(localUploadTargetParamName, "")
+        if (!sanitizedTarget) {
+          messages.uploadTargetParamName = translate(
+            "uploadTargetParamNameRequired"
+          )
+        }
       }
 
       setFieldErrors((prev) => ({
@@ -1294,6 +1124,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         token: messages.token,
         repository: messages.repository,
         supportEmail: messages.supportEmail,
+        uploadTargetParamName: messages.uploadTargetParamName,
       }))
 
       return {
@@ -1302,13 +1133,14 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
           messages.serverUrl ||
           messages.token ||
           (!skipRepoCheck && messages.repository) ||
-          messages.supportEmail
+          (!skipRepoCheck && messages.supportEmail) ||
+          messages.uploadTargetParamName
         ),
       }
     }
   )
 
-  // Validate connection settings
+  /* Validerar connection settings */
   const validateConnectionSettings = hooks.useEventCallback(
     (): FmeFlowConfig | null => {
       const rawServerUrl = localServerUrl
@@ -1317,7 +1149,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       const cleaned = normalizeBaseUrl(rawServerUrl || "")
       const changed = cleaned !== rawServerUrl
-      // If sanitization changed, update config
+      /* Om sanering ändrade, uppdatera config */
       if (changed) {
         updateConfig("fmeServerUrl", cleaned)
       }
@@ -1327,19 +1159,16 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return serverUrl && token ? { serverUrl, token, repository } : null
     }
   )
-
-  const serverValidation = validateServerUrl(localServerUrl, {
-    requireHttps: true,
-  })
-  const tokenValidation = validateToken(localToken)
   const canRunConnectionTest = serverValidation.ok && tokenValidation.ok
 
-  // Handle "Test Connection" button click
-  const isTestDisabled = !!testState.isTesting || !canRunConnectionTest
+  /* Hanterar "Test Connection"-knapp - inaktiverad när widget är busy */
+  const isTestDisabled =
+    !!testState.isTesting || !canRunConnectionTest || isBusy
 
-  // Connection test sub-functions for better organization
+  /* Connection test-sub-funktioner för bättre organisation */
   const handleTestSuccess = hooks.useEventCallback(
     (validationResult: any, settings: FmeFlowConfig, silent: boolean) => {
+      setValidationPhase("complete")
       setCheckSteps({
         serverUrl: validationResult.steps.serverUrl,
         token: validationResult.steps.token,
@@ -1347,20 +1176,27 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         version: validationResult.version || "",
       })
 
-      if (Array.isArray(validationResult.repositories)) {
-        setAvailableRepos([...(validationResult.repositories || [])])
-      }
+      /* Obs: repositories hämtas nu av useRepositories query hook */
 
       updateConfig("fmeServerUrl", settings.serverUrl)
       updateConfig("fmeServerToken", settings.token)
       clearErrors(setFieldErrors, ["serverUrl", "token", "repository"])
 
+      const warnings: readonly string[] = Array.isArray(
+        validationResult.warnings
+      )
+        ? validationResult.warnings
+        : []
+      const hasRepositoryWarning = warnings.includes("repositoryNotAccessible")
+
       if (!silent) {
         setTestState({
           status: "success",
           isTesting: false,
-          message: translate("connectionOk"),
-          type: "success",
+          message: hasRepositoryWarning
+            ? translate("connectionOkRepositoryWarning")
+            : translate("connectionOk"),
+          type: hasRepositoryWarning ? "warning" : "success",
         })
       } else {
         setTestState((prev) => ({ ...prev, isTesting: false }))
@@ -1370,6 +1206,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const handleTestFailure = hooks.useEventCallback(
     (validationResult: any, silent: boolean) => {
+      setValidationPhase("complete")
       const error = validationResult.error
       const failureType = (error?.type || "server") as
         | "server"
@@ -1382,10 +1219,6 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setFieldErrors,
         translate,
         version: validationResult.version,
-        repositories: Array.isArray(validationResult.repositories)
-          ? [...validationResult.repositories]
-          : undefined,
-        setAvailableRepos,
       })
 
       if (!silent) {
@@ -1405,6 +1238,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     (err: unknown, silent: boolean) => {
       if ((err as Error)?.name === "AbortError") return
 
+      setValidationPhase("complete")
       const errorStatus = extractHttpStatus(err)
       const failureType =
         !errorStatus || errorStatus === 0 ? "network" : "server"
@@ -1412,9 +1246,7 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setCheckSteps,
         setFieldErrors,
         translate,
-        setAvailableRepos,
         version: "",
-        repositories: null,
       })
 
       if (!silent) {
@@ -1435,14 +1267,12 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   const testConnection = hooks.useEventCallback(async (silent = false) => {
     // Cancel any in-flight test first
-    if (abortRef.current) {
-      abortRef.current.abort()
-    }
+    testAbort.cancel()
 
     const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
     if (hasErrors || !settings) {
-      abortRef.current = null
+      setValidationPhase("idle")
       if (!silent) {
         setTestState({
           status: "error",
@@ -1454,9 +1284,8 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return
     }
 
-    const controller = new AbortController()
-    abortRef.current = controller
-    const signal = controller.signal
+    setValidationPhase("checking")
+    const controller = testAbort.abortAndCreate()
 
     // Reset state for new test
     setTestState({
@@ -1480,11 +1309,11 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
         }))
       }
 
-      const validationResult = await validateConnection({
+      // Use mutation hook for connection validation
+      const validationResult = await validateConnectionMutation.mutateAsync({
         serverUrl: settings.serverUrl,
         token: settings.token,
         repository: settings.repository,
-        signal,
       })
 
       if (validationResult.success) {
@@ -1494,125 +1323,124 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
     } catch (err) {
       handleTestError(err, silent)
+    } finally {
+      if (controller.signal.aborted) {
+        setValidationPhase("idle")
+      }
+      testAbort.finalize(controller)
     }
   })
 
-  // Enhanced repository refresh for better UX - uses client API directly
+  /* Förbättrad repository-refresh för bättre UX - använder query refetch */
   const refreshRepositories = hooks.useEventCallback(async () => {
-    const cfgServer = getStringConfig("fmeServerUrl") || ""
-    const cfgToken = getStringConfig("fmeServerToken") || ""
-    if (!cfgServer || !cfgToken) return
-    const cleaned = normalizeBaseUrl(cfgServer)
-    await loadRepositories(cleaned, cfgToken, { indicateLoading: true })
+    if (!canFetchRepos || !repositoriesQuery.refetch) {
+      return
+    }
+    try {
+      await repositoriesQuery.refetch()
+    } catch (err) {
+      /* React Query hanterar error state automatiskt */
+      if (!isAbortError(err)) {
+        console.warn("Repository refresh failed:", err)
+      }
+    }
   })
 
-  // Clear transient repo list when server URL or token in config changes
-  const prevConnRef = React.useRef({
-    server: getStringConfig("fmeServerUrl") || "",
-    token: getStringConfig("fmeServerToken") || "",
-  })
+  /* Rensar transient repo-lista när server URL eller token i config ändras */
   hooks.useUpdateEffect(() => {
-    const curr = {
-      server: getStringConfig("fmeServerUrl") || "",
-      token: getStringConfig("fmeServerToken") || "",
-    }
     if (
-      curr.server !== prevConnRef.current.server ||
-      curr.token !== prevConnRef.current.token
+      previousConfigServerUrl === undefined &&
+      previousConfigToken === undefined
+    ) {
+      return
+    }
+
+    if (
+      previousConfigServerUrl !== configServerUrl ||
+      previousConfigToken !== configToken
     ) {
       clearRepositoryEphemeralState()
-      prevConnRef.current = curr
     }
-  }, [config])
+  }, [
+    configServerUrl,
+    configToken,
+    previousConfigServerUrl,
+    previousConfigToken,
+    clearRepositoryEphemeralState,
+  ])
 
-  // Auto-load repositories when both server URL and token in config are valid
-  hooks.useUpdateEffect(() => {
-    const cfgServer = getStringConfig("fmeServerUrl") || ""
-    const cfgToken = getStringConfig("fmeServerToken") || ""
-    const hasValidServer =
-      !!cfgServer && validateServerUrl(cfgServer, { requireHttps: true }).ok
-    const hasValidToken = !!cfgToken && validateToken(cfgToken).ok
-    if (!hasValidServer || !hasValidToken) return
+  /* Obs: Auto-load repositories hanteras nu av useRepositories query hook */
 
-    const cleaned = normalizeBaseUrl(cfgServer)
-    loadRepositories(cleaned, cfgToken, { indicateLoading: true })
-    return () => abortReposRequest()
-  }, [config])
-
-  // Handle server URL changes with delayed validation
+  /* Hanterar server URL-ändringar med fördröjd validering */
   const handleServerUrlChange = hooks.useEventCallback((val: string) => {
     setLocalServerUrl(val)
+    resetConnectionProgress()
+    clearRepositoryEphemeralState()
 
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
+    /* Rensar tidigare fel omedelbart för bättre UX */
     clearErrors(setFieldErrors, ["serverUrl"])
+    const trimmed = toTrimmedString(val)
+    if (!trimmed) {
+      debouncedServerValidation.cancel()
+      return
+    }
+    debouncedServerValidation(val)
   })
 
-  // Handle token changes with delayed validation
+  /* Hanterar token-ändringar med fördröjd validering */
   const handleTokenChange = hooks.useEventCallback((val: string) => {
     setLocalToken(val)
+    resetConnectionProgress()
+    clearRepositoryEphemeralState()
 
-    // Clear previous error immediately for better UX, but don't validate on every keystroke
+    /* Rensar tidigare fel omedelbart för bättre UX */
     clearErrors(setFieldErrors, ["token"])
-  })
-
-  // Handle server URL blur - save to config and clear repository state
-  const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
-    // Validate on blur
-    const validation = validateServerUrl(url, { requireHttps: true })
-    setError(
-      setFieldErrors,
-      "serverUrl",
-      !validation.ok
-        ? translate(validation.key || "invalidServerUrl")
-        : undefined
-    )
-
-    // Sanitize and save to config
-    const cleaned = normalizeBaseUrl(url)
-    const changed = cleaned !== url
-    const finalUrl = changed ? cleaned : url
-    updateConfig("fmeServerUrl", finalUrl)
-
-    // Update local state if sanitized/blurred
-    if (changed) {
-      setLocalServerUrl(cleaned)
-      const cleanedValidation = validateServerUrl(cleaned, {
-        requireHttps: true,
-      })
-      setError(
-        setFieldErrors,
-        "serverUrl",
-        !cleanedValidation.ok
-          ? translate(cleanedValidation.key || "invalidServerUrl")
-          : undefined
-      )
+    const trimmed = toTrimmedString(val)
+    if (!trimmed) {
+      debouncedTokenValidation.cancel()
+      return
     }
-
-    // Clear repository data when server changes
-    clearRepositoryEphemeralState()
+    debouncedTokenValidation(val)
   })
 
-  // Handle token blur - save to config and clear repository state
+  /* Hanterar server URL blur - sparar till config och rensar repo-state */
+  const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
+    /* Validerar vid blur */
+    debouncedServerValidation.cancel()
+    const cleaned = normalizeBaseUrl(url)
+    const hasChanged = cleaned !== configServerUrl
+    if (cleaned !== localServerUrl) {
+      setLocalServerUrl(cleaned)
+    }
+    if (hasChanged) {
+      updateConfig("fmeServerUrl", cleaned)
+    }
+    runServerValidation(cleaned)
+
+    if (hasChanged) {
+      // Clear repository data when server changes
+      clearRepositoryEphemeralState()
+    }
+  })
+
+  /* Hanterar token blur - sparar till config och rensar repo-state */
   const handleTokenBlur = hooks.useEventCallback((token: string) => {
-    // Validate on blur
-    const validation = validateToken(token)
-    setError(
-      setFieldErrors,
-      "token",
-      !validation.ok ? translate(validation.key || "invalidToken") : undefined
-    )
+    /* Validerar vid blur */
+    debouncedTokenValidation.cancel()
+    runTokenValidation(token)
 
-    // Save to config
-    updateConfig("fmeServerToken", token)
-
-    // Clear repository data when token changes
-    clearRepositoryEphemeralState()
+    /* Sparar till config */
+    if (token !== configToken) {
+      updateConfig("fmeServerToken", token)
+      // Clear repository data when token changes
+      clearRepositoryEphemeralState()
+    }
   })
 
-  // Keep repository field error in sync when either the list or selection changes
+  /* Håller repository-felfältet synkat när lista eller val ändras */
   hooks.useUpdateEffect(() => {
     if (!selectedRepository) return
-    // Validate repository if we have an available list and a selection
+    /* Validerar repository om vi har tillgänglig lista och val */
     if (
       Array.isArray(availableRepos) &&
       availableRepos.length &&
@@ -1633,58 +1461,35 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   }, [availableRepos, selectedRepository, translate])
 
-  // Handle repository changes with workspace state clearing
+  /* Hanterar repository-ändringar med workspace state-rensning */
   const handleRepositoryChange = hooks.useEventCallback(
     (newRepository: string) => {
       const previousRepository = selectedRepository
       updateConfig("repository", newRepository)
 
-      // Clear workspace-related state when switching repositories for isolation
+      /* Rensar workspace-relaterad state vid repository-byte för isolering */
       if (previousRepository !== newRepository) {
         dispatch(fmeActions.clearWorkspaceState(id))
       }
 
-      // Clear repository field error but don't bump config revision for minor changes
+      /* Rensar repository-felfält */
       clearErrors(setFieldErrors, ["repository"])
     }
   )
 
-  // Helper for rendering input fields with error alerts
-  // Reuse FieldRow for consistent input rendering
-
-  // Reusable blur handler for optional string fields
-  const createStringBlurHandler = hooks.useEventCallback(
-    (
-      configKey: keyof FmeExportConfig,
-      setter: (val: string) => void,
-      defaultValue?: string
-    ) => {
-      return (val: string) => {
-        const trimmed = (val ?? "").trim()
-        if (!trimmed) {
-          updateConfig(
-            configKey,
-            defaultValue ? (defaultValue as any) : (undefined as any)
-          )
-          setter(defaultValue || "")
-        } else {
-          updateConfig(configKey, trimmed as any)
-          setter(trimmed)
-        }
-      }
-    }
-  )
-
-  // Reusable blur handler for optional numeric fields
+  /* Återanvändbar blur-hanterare för valfria numeriska fält */
   const createNumericBlurHandler = hooks.useEventCallback(
     (
       configKey: keyof FmeExportConfig,
       setter: (val: string) => void,
       maxValue?: number
     ) => {
-      return (val: string) => {
-        const trimmed = (val ?? "").trim()
+      return (val: string | number | undefined) => {
+        /* Normalisera till sträng för konsekvent hantering */
+        const stringVal = typeof val === "number" ? String(val) : (val ?? "")
+        const trimmed = stringVal.trim()
         const coerced = parseNonNegativeInt(trimmed)
+
         if (coerced === undefined || coerced === 0) {
           updateConfig(configKey, undefined as any)
           setter("")
@@ -1697,106 +1502,87 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   )
 
-  hooks.useUpdateEffect(() => {
-    const rawMessage = getStringConfig("largeAreaWarningMessage") || ""
-    const sanitized = rawMessage ? normalizeLargeAreaMessage(rawMessage) : ""
-    setLocalLargeAreaMessage(sanitized)
-
-    const rawDetails = getStringConfig("customInfoMessage") || ""
-    const sanitizedDetails = rawDetails
-      ? normalizeLargeAreaMessage(rawDetails)
-      : ""
-    setLocalCustomInfoMessage(sanitizedDetails)
-  }, [config])
+  const handleRequestTimeoutBlur = createNumericBlurHandler(
+    "requestTimeout",
+    setLocalRequestTimeout,
+    CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+  )
 
   return (
-    <>
-      <SettingSection>
-        <SettingRow flow="wrap" level={1} label={translate("mapConfiguration")}>
-          <MapWidgetSelector
-            useMapWidgetIds={useMapWidgetIds}
-            onSelect={onMapWidgetSelected}
+    <SettingSection>
+      {/* Kartval-sektion */}
+      <SettingRow
+        flow="wrap"
+        level={2}
+        label={<RequiredLabel text={translate("mapConfiguration")} />}
+      >
+        <MapWidgetSelector
+          useMapWidgetIds={useMapWidgetIds}
+          onSelect={onMapWidgetSelected}
+        />
+      </SettingRow>
+      {hasMapSelection && (
+        <>
+          {/* FME Server connection-fält */}
+          <FieldRow
+            id={ID.serverUrl}
+            label={<RequiredLabel text={translate("fmeServerUrl")} />}
+            value={localServerUrl}
+            onChange={handleServerUrlChange}
+            onBlur={handleServerUrlBlur}
+            placeholder={translate("serverUrlPlaceholder")}
+            required
+            errorText={fieldErrors.serverUrl}
+            isPending={isServerValidationPending}
+            styles={settingStyles}
           />
-        </SettingRow>
-        {/* FME Server URL */}
-        <FieldRow
-          id={ID.serverUrl}
-          label={<RequiredLabel text={translate("fmeServerUrl")} />}
-          value={localServerUrl}
-          onChange={handleServerUrlChange}
-          onBlur={handleServerUrlBlur}
-          placeholder={translate("serverUrlPlaceholder")}
-          required
-          errorText={fieldErrors.serverUrl}
-          styles={settingStyles}
-        />
-        {/* FME Server Token */}
-        <FieldRow
-          id={ID.token}
-          label={<RequiredLabel text={translate("fmeServerToken")} />}
-          value={localToken}
-          onChange={handleTokenChange}
-          onBlur={handleTokenBlur}
-          placeholder={translate("tokenPlaceholder")}
-          type="password"
-          required
-          errorText={fieldErrors.token}
-          styles={settingStyles}
-        />
-        {/* Test connection section */}
-        <ConnectionTestSection
-          testState={testState}
-          checkSteps={checkSteps}
-          disabled={isTestDisabled}
-          onTestConnection={() => testConnection(false)}
-          translate={translate}
-          styles={settingStyles}
-        />
-
-        {/* Repository selector */}
-        <RepositorySelector
-          localServerUrl={getStringConfig("fmeServerUrl")}
-          localToken={getStringConfig("fmeServerToken")}
-          localRepository={selectedRepository}
-          availableRepos={availableRepos}
-          fieldErrors={fieldErrors}
-          validateServerUrl={validateServerUrl}
-          validateToken={validateToken}
-          onRepositoryChange={handleRepositoryChange}
-          onRefreshRepositories={refreshRepositories}
-          translate={translate}
-          styles={settingStyles}
-          ID={ID}
-          repoHint={reposHint}
-        />
-      </SettingSection>
-      <SettingSection>
-        {/* Service Type */}
-        <SettingRow
-          flow="wrap"
-          label={
-            <Tooltip content={translate("serviceTypeHelper")} placement="top">
-              {translate("serviceTypeLabel")}
-            </Tooltip>
-          }
-          level={1}
-          tag="label"
-        >
-          <Select
-            options={[
-              { label: translate("serviceTypeDownload"), value: "download" },
-              { label: translate("serviceTypeStream"), value: "stream" },
-            ]}
-            value={localService}
-            onChange={(val) => {
-              const serviceType = val === "stream" ? "stream" : "download"
-              setLocalService(serviceType)
-              updateConfig("service", serviceType as any)
-            }}
+          <FieldRow
+            id={ID.token}
+            label={<RequiredLabel text={translate("fmeServerToken")} />}
+            value={localToken}
+            onChange={handleTokenChange}
+            onBlur={handleTokenBlur}
+            placeholder={translate("tokenPlaceholder")}
+            type="password"
+            required
+            errorText={fieldErrors.token}
+            isPending={isTokenValidationPending}
+            styles={settingStyles}
           />
-        </SettingRow>
-        {/* Service mode (sync) toggle */}
-        {localService === "download" && (
+          <ConnectionTestSection
+            testState={testState}
+            checkSteps={checkSteps}
+            disabled={isTestDisabled}
+            onTestConnection={() => testConnection(false)}
+            translate={translate}
+            styles={settingStyles}
+            validationPhase={validationPhase}
+          />
+          {shouldShowRepositorySelector && (
+            <RepositorySelector
+              localServerUrl={localServerUrl}
+              localToken={localToken}
+              localRepository={selectedRepository}
+              availableRepos={availableRepos}
+              label={
+                <RequiredLabel text={translate("availableRepositories")} />
+              }
+              fieldErrors={fieldErrors}
+              validateServerUrl={validateServerUrl}
+              validateToken={validateToken}
+              onRepositoryChange={handleRepositoryChange}
+              onRefreshRepositories={refreshRepositories}
+              translate={translate}
+              styles={settingStyles}
+              ID={ID}
+              repoHint={reposHint}
+              isBusy={isBusy}
+            />
+          )}
+        </>
+      )}
+      {shouldShowRemainingSettings && (
+        <>
           <SettingRow
             flow="no-wrap"
             label={
@@ -1804,10 +1590,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("serviceModeSyncHelper")}
                 placement="top"
               >
-                {translate("serviceModeSync")}
+                <span>{translate("serviceModeSync")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.syncMode}
@@ -1818,135 +1604,34 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 updateConfig("syncMode", checked)
               }}
               aria-label={translate("serviceModeSync")}
-              // helper via label tooltip
             />
           </SettingRow>
-        )}
-      </SettingSection>
-      <SettingSection>
-        {/* Support email (optional) */}
-        <FieldRow
-          id={ID.supportEmail}
-          label={
-            <Tooltip content={translate("supportEmailHelper")} placement="top">
-              {translate("supportEmail")}
-            </Tooltip>
-          }
-          type="email"
-          value={localSupportEmail}
-          onChange={(val: string) => {
-            setLocalSupportEmail(val)
-            // Clear previous error immediately, validate on blur
-            setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-          }}
-          onBlur={(val: string) => {
-            const trimmed = (val ?? "").trim()
-            // Empty: clear error and unset config
-            if (!trimmed) {
-              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
-              updateConfig("supportEmail", undefined as any)
-              setLocalSupportEmail("")
-              return
-            }
-
-            // Non-empty: validate format
-            const isValid = isValidEmail(trimmed)
-            const err = !isValid ? translate("invalidEmail") : undefined
-            setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-            if (!err) {
-              updateConfig("supportEmail", trimmed)
-              setLocalSupportEmail(trimmed)
-            }
-          }}
-          placeholder={translate("supportEmailPlaceholder")}
-          errorText={fieldErrors.supportEmail}
-          styles={settingStyles}
-        />
-
-        {/* Mask email on success toggle */}
-        {shouldShowMaskEmailSetting && (
-          <SettingRow
-            flow="no-wrap"
-            label={
-              <Tooltip
-                content={translate("maskEmailOnSuccessHelper")}
-                placement="top"
-              >
-                {translate("maskEmailOnSuccess")}
-              </Tooltip>
-            }
-            level={1}
-          >
-            <Switch
-              id={ID.maskEmailOnSuccess}
-              checked={localMaskEmailOnSuccess}
-              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                const checked = evt?.target?.checked ?? !localMaskEmailOnSuccess
-                setLocalMaskEmailOnSuccess(checked)
-                updateConfig("maskEmailOnSuccess", checked)
-              }}
-              aria-label={translate("maskEmailOnSuccess")}
-            />
-          </SettingRow>
-        )}
-
-        <SettingRow
-          flow="no-wrap"
-          label={
-            <Tooltip
-              content={translate("autoCloseOtherWidgetsHelper")}
-              placement="top"
+          {shouldShowScheduleToggle && (
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("allowScheduleModeHelper")}
+                  placement="top"
+                >
+                  <span>{translate("allowScheduleModeLabel")}</span>
+                </Tooltip>
+              }
+              level={2}
             >
-              {translate("autoCloseOtherWidgetsLabel")}
-            </Tooltip>
-          }
-          level={1}
-        >
-          <Switch
-            id={ID.autoCloseOtherWidgets}
-            checked={localAutoCloseOtherWidgets}
-            onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-              const checked =
-                evt?.target?.checked ?? !localAutoCloseOtherWidgets
-              setLocalAutoCloseOtherWidgets(checked)
-              updateConfig("autoCloseOtherWidgets", checked)
-            }}
-            aria-label={translate("autoCloseOtherWidgetsLabel")}
-          />
-        </SettingRow>
-      </SettingSection>
-
-      {/* === SCHEDULING & REMOTE DATA === */}
-      <SettingSection>
-        {/* Allow Schedule Mode */}
-        {shouldShowScheduleToggle && (
-          <SettingRow
-            flow="no-wrap"
-            label={
-              <Tooltip
-                content={translate("allowScheduleModeHelper")}
-                placement="top"
-              >
-                {translate("allowScheduleModeLabel")}
-              </Tooltip>
-            }
-            level={1}
-          >
-            <Switch
-              id={ID.allowScheduleMode}
-              checked={localAllowScheduleMode}
-              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                const checked = evt?.target?.checked ?? !localAllowScheduleMode
-                setLocalAllowScheduleMode(checked)
-                updateConfig("allowScheduleMode", checked)
-              }}
-              aria-label={translate("allowScheduleModeLabel")}
-            />
-          </SettingRow>
-        )}
-
-        {/* Allow Remote Dataset */}
-        {!isStreamingService && (
+              <Switch
+                id={ID.allowScheduleMode}
+                checked={localAllowScheduleMode}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localAllowScheduleMode
+                  setLocalAllowScheduleMode(checked)
+                  updateConfig("allowScheduleMode", checked)
+                }}
+                aria-label={translate("allowScheduleModeLabel")}
+              />
+            </SettingRow>
+          )}
           <SettingRow
             flow="no-wrap"
             label={
@@ -1954,10 +1639,10 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 content={translate("allowRemoteDatasetHelper")}
                 placement="top"
               >
-                {translate("allowRemoteDatasetLabel")}
+                <span>{translate("allowRemoteDatasetLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
               id={ID.allowRemoteDataset}
@@ -1970,352 +1655,426 @@ export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
               aria-label={translate("allowRemoteDatasetLabel")}
             />
           </SettingRow>
-        )}
-
-        {/* Allow Remote Dataset URL (opt_geturl) */}
-        {!isStreamingService && (
+          {shouldShowRemoteDatasetSettings && (
+            <FieldRow
+              id={ID.uploadTargetParamName}
+              label={
+                <Tooltip
+                  content={translate("uploadTargetParamNameHelper")}
+                  placement="top"
+                >
+                  <span>{translate("uploadTargetParamNameLabel")}</span>
+                </Tooltip>
+              }
+              value={localUploadTargetParamName}
+              onChange={(val: string) => {
+                setLocalUploadTargetParamName(val)
+              }}
+              onBlur={(val: string) => {
+                const sanitized = sanitizeParamKey(val, "")
+                setLocalUploadTargetParamName(sanitized)
+                updateConfig("uploadTargetParamName", sanitized)
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  uploadTargetParamName: undefined,
+                }))
+              }}
+              placeholder={translate("uploadTargetParamNamePlaceholder")}
+              errorText={fieldErrors.uploadTargetParamName}
+              styles={settingStyles}
+            />
+          )}
+          {shouldShowRemoteDatasetSettings && (
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("allowRemoteUrlDatasetHelper")}
+                  placement="top"
+                >
+                  <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+                </Tooltip>
+              }
+              level={2}
+            >
+              <Switch
+                id={ID.allowRemoteUrlDataset}
+                checked={localAllowRemoteUrlDataset}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localAllowRemoteUrlDataset
+                  setLocalAllowRemoteUrlDataset(checked)
+                  updateConfig("allowRemoteUrlDataset", checked)
+                }}
+                aria-label={translate("allowRemoteUrlDatasetLabel")}
+              />
+            </SettingRow>
+          )}
+          <SettingRow
+            flow="wrap"
+            label={
+              <Tooltip
+                content={translate("maxAreaHelper", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                })}
+                placement="top"
+              >
+                <span>{translate("maxAreaLabel")}</span>
+              </Tooltip>
+            }
+            level={2}
+            tag="label"
+          >
+            <NumericInput
+              id={ID.maxArea}
+              value={toNumericValue(localMaxAreaM2)}
+              min={0}
+              step={10000}
+              precision={0}
+              placeholder={translate("maxAreaPlaceholder")}
+              aria-invalid={fieldErrors.maxArea ? true : undefined}
+              aria-describedby={
+                fieldErrors.maxArea ? `${ID.maxArea}-error` : undefined
+              }
+              onChange={(value) => {
+                setLocalMaxAreaM2(value === undefined ? "" : String(value))
+                setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
+              }}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleMaxAreaBlur(raw)
+              }}
+            />
+            {fieldErrors.maxArea && (
+              <SettingRow flow="wrap" level={2} css={css(settingStyles.row)}>
+                <Alert
+                  id={`${ID.maxArea}-error`}
+                  fullWidth
+                  css={css(settingStyles.alertInline)}
+                  text={fieldErrors.maxArea}
+                  type="error"
+                  closable={false}
+                />
+              </SettingRow>
+            )}
+          </SettingRow>
+          <JobDirectivesSection
+            localTmTtc={localTmTtc}
+            localTmTtl={localTmTtl}
+            onTmTtcChange={(val: string) => {
+              setLocalTmTtc(val)
+            }}
+            onTmTtlChange={(val: string) => {
+              setLocalTmTtl(val)
+            }}
+            onTmTtcBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (trimmed === "") {
+                updateConfig("tm_ttc", undefined as any)
+                setLocalTmTtc("")
+                return
+              }
+              const coerced = parseNonNegativeInt(trimmed)
+              if (coerced === undefined) {
+                updateConfig("tm_ttc", undefined as any)
+                setLocalTmTtc("")
+                return
+              }
+              updateConfig("tm_ttc", coerced as any)
+              setLocalTmTtc(String(coerced))
+            }}
+            onTmTtlBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (trimmed === "") {
+                updateConfig("tm_ttl", undefined as any)
+                setLocalTmTtl("")
+                return
+              }
+              const coerced = parseNonNegativeInt(trimmed)
+              if (coerced === undefined) {
+                updateConfig("tm_ttl", undefined as any)
+                setLocalTmTtl("")
+                return
+              }
+              updateConfig("tm_ttl", coerced as any)
+              setLocalTmTtl(String(coerced))
+            }}
+            fieldErrors={fieldErrors}
+            translate={translate}
+            styles={settingStyles}
+            ID={ID}
+          />
+          <SettingRow
+            flow="wrap"
+            label={
+              <Tooltip
+                content={translate("requestTimeoutHelper")}
+                placement="top"
+              >
+                <span>{translate("requestTimeoutLabel")}</span>
+              </Tooltip>
+            }
+            level={2}
+            tag="label"
+          >
+            <NumericInput
+              id={ID.requestTimeout}
+              value={toNumericValue(localRequestTimeout)}
+              min={0}
+              step={10000}
+              precision={0}
+              placeholder={translate("requestTimeoutPlaceholder")}
+              aria-label={translate("requestTimeoutLabel")}
+              onChange={(value) => {
+                setLocalRequestTimeout(value === undefined ? "" : String(value))
+              }}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleRequestTimeoutBlur(raw)
+              }}
+            />
+          </SettingRow>
+          <FieldRow
+            id={ID.aoiParamName}
+            label={
+              <Tooltip
+                content={translate("aoiParamNameHelper")}
+                placement="top"
+              >
+                <span>{translate("aoiParamNameLabel")}</span>
+              </Tooltip>
+            }
+            value={localAoiParamName}
+            onChange={(val: string) => {
+              setLocalAoiParamName(val)
+            }}
+            onBlur={(val: string) => {
+              const trimmed = val.trim()
+              const finalValue = trimmed || "AreaOfInterest"
+              updateConfig("aoiParamName", finalValue)
+              setLocalAoiParamName(finalValue)
+            }}
+            placeholder={translate("aoiParamNamePlaceholder")}
+            styles={settingStyles}
+          />
           <SettingRow
             flow="no-wrap"
             label={
               <Tooltip
-                content={translate("allowRemoteUrlDatasetHelper")}
+                content={translate("requireHttpsHelper")}
                 placement="top"
               >
-                {translate("allowRemoteUrlDatasetLabel")}
+                <span>{translate("requireHttpsLabel")}</span>
               </Tooltip>
             }
-            level={1}
+            level={2}
           >
             <Switch
-              id={ID.allowRemoteUrlDataset}
-              checked={localAllowRemoteUrlDataset}
+              id={ID.requireHttps}
+              checked={localRequireHttps}
               onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                const checked =
-                  evt?.target?.checked ?? !localAllowRemoteUrlDataset
-                setLocalAllowRemoteUrlDataset(checked)
-                updateConfig("allowRemoteUrlDataset", checked)
+                const checked = evt?.target?.checked ?? !localRequireHttps
+                setLocalRequireHttps(checked)
+                updateConfig("requireHttps", checked)
               }}
-              aria-label={translate("allowRemoteUrlDatasetLabel")}
+              aria-label={translate("requireHttpsLabel")}
             />
           </SettingRow>
-        )}
-      </SettingSection>
-      <SettingSection>
-        {/* Max AOI area (m²) */}
-        <FieldRow
-          id={ID.maxArea}
-          label={
-            <Tooltip
-              content={translate("maxAreaHelper", {
-                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-              })}
-              placement="top"
+          {shouldShowMaskEmailSetting && (
+            <SettingRow
+              flow="no-wrap"
+              label={
+                <Tooltip
+                  content={translate("maskEmailOnSuccessHelper")}
+                  placement="top"
+                >
+                  <span>{translate("maskEmailOnSuccess")}</span>
+                </Tooltip>
+              }
+              level={2}
             >
-              {translate("maxAreaLabel")}
-            </Tooltip>
-          }
-          value={localMaxAreaM2}
-          onChange={(val: string) => {
-            setLocalMaxAreaM2(val)
-            setFieldErrors((prev) => ({ ...prev, maxArea: undefined }))
-          }}
-          onBlur={handleMaxAreaBlur}
-          placeholder={translate("maxAreaPlaceholder")}
-          errorText={fieldErrors.maxArea}
-          styles={settingStyles}
-        />
-        {/* Large-area warning threshold (m²) */}
-        <FieldRow
-          id={ID.largeArea}
-          label={
-            <Tooltip
-              content={translate("largeAreaHelper", {
-                maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-              })}
-              placement="top"
-            >
-              {translate("largeAreaLabel")}
-            </Tooltip>
-          }
-          value={localLargeAreaM2}
-          onChange={handleLargeAreaChange}
-          onBlur={handleLargeAreaBlur}
-          placeholder={translate("largeAreaPlaceholder")}
-          errorText={fieldErrors.largeArea}
-          styles={settingStyles}
-        />
-        <TextAreaRow
-          id={ID.largeAreaMessage}
-          label={
-            <Tooltip
-              content={translate("largeAreaMessageHelper", {
-                max: CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX,
-              })}
-              placement="top"
-            >
-              {translate("largeAreaMessageLabel")}
-            </Tooltip>
-          }
-          value={localLargeAreaMessage}
-          onChange={handleLargeAreaMessageChange}
-          onBlur={handleLargeAreaMessageBlur}
-          placeholder={translate("largeAreaMessagePlaceholder")}
-          maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
-          disabled={!isLargeAreaMessageEnabled}
-          errorText={fieldErrors.largeAreaMessage}
-          rows={3}
-          styles={settingStyles}
-        />
-        <TextAreaRow
-          id={ID.customInfoMessage}
-          label={
-            <Tooltip
-              content={translate("customInfoMessageHelper", {
-                max: CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX,
-              })}
-              placement="top"
-            >
-              {translate("customInfoMessageLabel")}
-            </Tooltip>
-          }
-          value={localCustomInfoMessage}
-          onChange={handleLargeAreaDetailsChange}
-          onBlur={handleLargeAreaDetailsBlur}
-          placeholder={translate("customInfoMessagePlaceholder")}
-          maxLength={CONSTANTS.TEXT.LARGE_AREA_MESSAGE_MAX}
-          errorText={fieldErrors.customInfoMessage}
-          rows={3}
-          styles={settingStyles}
-        />
-        {showLargeAreaInfo && (
-          <SettingRow flow="wrap" level={3}>
-            <Alert
-              fullWidth
-              css={css(settingStyles.ALERT_INLINE)}
-              text={translate("largeAreaExceedsMaxInfo", {
-                largeM2: currentLargeAreaValue ?? 0,
-                maxM2: currentMaxAreaValue ?? 0,
-              })}
-              type="info"
-              closable={false}
-            />
-          </SettingRow>
-        )}
-        {/* Drawing color */}
-        <SettingRow
-          flow="wrap"
-          label={translate("drawingColorLabel")}
-          level={1}
-          tag="label"
-        >
-          <ColorPickerWrapper
-            value={localDrawingColor}
-            onChange={(hex: string) => {
-              const val = (hex || "").trim()
-              const cleaned = /^#?[0-9a-f]{6}$/i.test(val)
-                ? val.startsWith("#")
-                  ? val
-                  : `#${val}`
-                : DEFAULT_DRAWING_HEX
-              setLocalDrawingColor(cleaned)
-              updateConfig("drawingColor", cleaned as any)
-            }}
-            aria-label={translate("drawingColorLabel")}
-          />
-        </SettingRow>
-        {/* AOI Parameter Name */}
-        <FieldRow
-          id={ID.aoiParamName}
-          label={
-            <Tooltip content={translate("aoiParamNameHelper")} placement="top">
-              {translate("aoiParamNameLabel")}
-            </Tooltip>
-          }
-          value={localAoiParamName}
-          onChange={(val: string) => {
-            setLocalAoiParamName(val)
-          }}
-          onBlur={(val: string) => {
-            const trimmed = val.trim()
-            const finalValue = trimmed || "AreaOfInterest"
-            updateConfig("aoiParamName", finalValue)
-            setLocalAoiParamName(finalValue)
-          }}
-          placeholder={translate("aoiParamNamePlaceholder")}
-          styles={settingStyles}
-        />
-
-        {/* AOI GeoJSON parameter name (optional) */}
-        <FieldRow
-          id={ID.aoiGeoJsonParamName}
-          label={
-            <Tooltip
-              content={translate("aoiGeoJsonParamNameHelper")}
-              placement="top"
-            >
-              {translate("aoiGeoJsonParamNameLabel")}
-            </Tooltip>
-          }
-          value={localAoiGeoJsonParamName}
-          onChange={setLocalAoiGeoJsonParamName}
-          onBlur={createStringBlurHandler(
-            "aoiGeoJsonParamName",
-            setLocalAoiGeoJsonParamName
+              <Switch
+                id={ID.maskEmailOnSuccess}
+                checked={localMaskEmailOnSuccess}
+                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                  const checked =
+                    evt?.target?.checked ?? !localMaskEmailOnSuccess
+                  setLocalMaskEmailOnSuccess(checked)
+                  updateConfig("maskEmailOnSuccess", checked)
+                }}
+                aria-label={translate("maskEmailOnSuccess")}
+              />
+            </SettingRow>
           )}
-          placeholder={translate("aoiGeoJsonParamNamePlaceholder")}
-          styles={settingStyles}
-        />
-
-        {/* AOI WKT parameter name (optional) */}
-        <FieldRow
-          id={ID.aoiWktParamName}
-          label={
-            <Tooltip
-              content={translate("aoiWktParamNameHelper")}
-              placement="top"
-            >
-              {translate("aoiWktParamNameLabel")}
-            </Tooltip>
-          }
-          value={localAoiWktParamName}
-          onChange={setLocalAoiWktParamName}
-          onBlur={createStringBlurHandler(
-            "aoiWktParamName",
-            setLocalAoiWktParamName
-          )}
-          placeholder={translate("aoiWktParamNamePlaceholder")}
-          styles={settingStyles}
-        />
-      </SettingSection>
-      <SettingSection>
-        {/* Request timeout (ms) */}
-        <SettingRow
-          flow="wrap"
-          label={
-            <Tooltip
-              content={translate("requestTimeoutHelper")}
-              placement="top"
-            >
-              {translate("requestTimeoutLabel")}
-            </Tooltip>
-          }
-          level={1}
-          tag="label"
-        >
-          <Input
-            id={ID.requestTimeout}
-            value={localRequestTimeout}
-            onChange={setLocalRequestTimeout}
-            onBlur={createNumericBlurHandler(
-              "requestTimeout",
-              setLocalRequestTimeout,
-              CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
-            )}
-            placeholder={translate("requestTimeoutPlaceholder")}
-          />
-        </SettingRow>
-
-        {/* Upload Target Parameter Name (optional) */}
-        {showUploadTargetField && (
-          <FieldRow
-            id={ID.uploadTargetParamName}
+          <SettingRow
+            flow="no-wrap"
             label={
-              <Tooltip
-                content={translate("uploadTargetParamNameHelper")}
-                placement="top"
-              >
-                {translate("uploadTargetParamNameLabel")}
+              <Tooltip content={translate("showResultHelper")} placement="top">
+                <span>{translate("showResultLabel")}</span>
               </Tooltip>
             }
-            value={localUploadTargetParamName}
-            onChange={setLocalUploadTargetParamName}
-            onBlur={createStringBlurHandler(
-              "uploadTargetParamName",
-              setLocalUploadTargetParamName
-            )}
-            placeholder={translate("uploadTargetParamNamePlaceholder")}
+            level={2}
+          >
+            <Switch
+              id={ID.showResult}
+              checked={localShowResult}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked = evt?.target?.checked ?? !localShowResult
+                setLocalShowResult(checked)
+                updateConfig("showResult", checked)
+              }}
+              aria-label={translate("showResultLabel")}
+            />
+          </SettingRow>
+          <SettingRow
+            flow="no-wrap"
+            label={
+              <Tooltip
+                content={translate("autoCloseOtherWidgetsHelper")}
+                placement="top"
+              >
+                <span>{translate("autoCloseOtherWidgetsLabel")}</span>
+              </Tooltip>
+            }
+            level={2}
+          >
+            <Switch
+              id={ID.autoCloseOtherWidgets}
+              checked={localAutoCloseOtherWidgets}
+              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                const checked =
+                  evt?.target?.checked ?? !localAutoCloseOtherWidgets
+                setLocalAutoCloseOtherWidgets(checked)
+                updateConfig("autoCloseOtherWidgets", checked)
+              }}
+              aria-label={translate("autoCloseOtherWidgetsLabel")}
+            />
+          </SettingRow>
+          <FieldRow
+            id={ID.supportEmail}
+            label={
+              <Tooltip
+                content={translate("supportEmailHelper")}
+                placement="top"
+              >
+                <span>{translate("supportEmail")}</span>
+              </Tooltip>
+            }
+            type="email"
+            value={localSupportEmail}
+            onChange={(val: string) => {
+              setLocalSupportEmail(val)
+              setFieldErrors((prev) => ({ ...prev, supportEmail: undefined }))
+            }}
+            onBlur={(val: string) => {
+              const trimmed = (val ?? "").trim()
+              if (!trimmed) {
+                setFieldErrors((prev) => ({
+                  ...prev,
+                  supportEmail: undefined,
+                }))
+                updateConfig("supportEmail", undefined as any)
+                setLocalSupportEmail("")
+                return
+              }
+              const isValid = isValidEmail(trimmed)
+              const err = !isValid ? translate("invalidEmail") : undefined
+              setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+              if (!err) {
+                updateConfig("supportEmail", trimmed)
+                setLocalSupportEmail(trimmed)
+              }
+            }}
+            placeholder={translate("supportEmailPlaceholder")}
+            errorText={fieldErrors.supportEmail}
             styles={settingStyles}
           />
-        )}
-      </SettingSection>
-      {/* Job directives section */}
-      <JobDirectivesSection
-        localTmTtc={localTmTtc}
-        localTmTtl={localTmTtl}
-        tmTagEnabled={localTmTagEnabled}
-        tmTagPreset={localTmTagPreset}
-        localTmDescription={localTmDescription}
-        onTmTtcChange={(val: string) => {
-          setLocalTmTtc(val)
-          // Don't update config on every keystroke
-        }}
-        onTmTtlChange={(val: string) => {
-          setLocalTmTtl(val)
-          // Don't update config on every keystroke
-        }}
-        onTmTagEnabledChange={handleTmTagEnabledChange}
-        onTmTagPresetChange={handleTmTagPresetChange}
-        onTmDescriptionChange={(val: string) => {
-          setLocalTmDescription(val)
-          setFieldErrors((prev) => ({ ...prev, tm_description: undefined }))
-        }}
-        onTmTtcBlur={(val: string) => {
-          const trimmed = (val ?? "").trim()
-          if (trimmed === "") {
-            // Blank -> unset to use default
-            updateConfig("tm_ttc", undefined as any)
-            setLocalTmTtc("")
-            return
-          }
-          const coerced = parseNonNegativeInt(trimmed)
-          if (coerced === undefined) {
-            updateConfig("tm_ttc", undefined as any)
-            setLocalTmTtc("")
-            return
-          }
-          updateConfig("tm_ttc", coerced as any)
-          setLocalTmTtc(String(coerced))
-        }}
-        onTmTtlBlur={(val: string) => {
-          const trimmed = (val ?? "").trim()
-          if (trimmed === "") {
-            updateConfig("tm_ttl", undefined as any)
-            setLocalTmTtl("")
-            return
-          }
-          const coerced = parseNonNegativeInt(trimmed)
-          if (coerced === undefined) {
-            updateConfig("tm_ttl", undefined as any)
-            setLocalTmTtl("")
-            return
-          }
-          updateConfig("tm_ttl", coerced as any)
-          setLocalTmTtl(String(coerced))
-        }}
-        onTmDescriptionBlur={(val: string) => {
-          const trimmed = (val ?? "").trim()
-          if (!trimmed) {
-            updateConfig("tm_description", undefined as any)
-            setLocalTmDescription("")
-            setFieldErrors((prev) => ({
-              ...prev,
-              tm_description: undefined,
-            }))
-            return
-          }
-          const limited = trimmed.slice(0, CONSTANTS.DIRECTIVES.DESCRIPTION_MAX)
-          updateConfig("tm_description", limited as any)
-          setLocalTmDescription(limited)
-          setFieldErrors((prev) => ({
-            ...prev,
-            tm_description: undefined,
-          }))
-        }}
-        fieldErrors={fieldErrors}
-        translate={translate}
-        styles={settingStyles}
-        ID={ID}
-      />
-    </>
+          <SettingRow
+            flow="wrap"
+            label={
+              <Tooltip
+                content={translate("largeAreaHelper", {
+                  maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
+                })}
+                placement="top"
+              >
+                <span>{translate("largeAreaLabel")}</span>
+              </Tooltip>
+            }
+            level={2}
+            tag="label"
+          >
+            <NumericInput
+              id={ID.largeArea}
+              value={toNumericValue(localLargeAreaM2)}
+              min={0}
+              step={10000}
+              precision={0}
+              placeholder={translate("largeAreaPlaceholder")}
+              aria-invalid={fieldErrors.largeArea ? true : undefined}
+              aria-describedby={
+                fieldErrors.largeArea ? `${ID.largeArea}-error` : undefined
+              }
+              onChange={handleLargeAreaChange}
+              onBlur={(evt) => {
+                const raw =
+                  (evt?.target as HTMLInputElement | null)?.value ?? ""
+                handleLargeAreaBlur(raw)
+              }}
+            />
+            {fieldErrors.largeArea && (
+              <SettingRow flow="wrap" level={2} css={css(settingStyles.row)}>
+                <Alert
+                  id={`${ID.largeArea}-error`}
+                  fullWidth
+                  css={css(settingStyles.alertInline)}
+                  text={fieldErrors.largeArea}
+                  type="error"
+                  closable={false}
+                />
+              </SettingRow>
+            )}
+          </SettingRow>
+          <SettingRow
+            flow="wrap"
+            label={translate("drawingColorLabel")}
+            level={2}
+            tag="label"
+          >
+            <ColorPickerWrapper
+              value={localDrawingColor}
+              onChange={(hex: string) => {
+                const val = (hex || "").trim()
+                const cleaned = /^#?[0-9a-f]{6}$/i.test(val)
+                  ? val.startsWith("#")
+                    ? val
+                    : `#${val}`
+                  : DEFAULT_DRAWING_HEX
+                setLocalDrawingColor(cleaned)
+                updateConfig("drawingColor", cleaned as any)
+              }}
+              aria-label={translate("drawingColorLabel")}
+            />
+          </SettingRow>
+        </>
+      )}
+    </SettingSection>
+  )
+}
+
+/*
+ * Wrapper-komponent som tillhandahåller QueryClient-kontext till SettingContent.
+ * Detta är nödvändigt eftersom React Query hooks (useRepositories,
+ * useValidateConnection) kräver QueryClientProvider i komponentträdet.
+ *
+ * Använder delad fmeQueryClient singleton för cache-delning med runtime.
+ */
+export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
+  return (
+    <QueryClientProvider client={fmeQueryClient}>
+      <SettingContent {...props} />
+    </QueryClientProvider>
   )
 }

@@ -1,197 +1,43 @@
-import type { IMState, ImmutableObject, SerializedStyles } from "jimu-core"
-import type FmeFlowApiClient from "./shared/api"
+import type { IMState, ImmutableObject } from "jimu-core"
+import type React from "react"
 
-export const enum ViewMode {
-  STARTUP_VALIDATION = "startup-validation",
-  INITIAL = "initial",
-  DRAWING = "drawing",
-  WORKSPACE_SELECTION = "workspace-selection",
-  EXPORT_FORM = "export-form",
-  EXPORT_OPTIONS = "export-options",
-  ORDER_RESULT = "order-result",
+import type FmeFlowApiClient from "../shared/api"
+import type { SettingStyles } from "./style"
+import type {
+  DrawingTool,
+  ErrorType,
+  FormFieldType,
+  HttpMethod,
+  JobStatus,
+  ParameterType,
+  ViewMode,
+} from "./enums"
+import { ErrorSeverity } from "./enums"
+
+export interface AreaDisplay {
+  readonly value: number
+  readonly label: string
+  readonly decimals: number
 }
 
-export const enum DrawingTool {
-  POLYGON = "polygon",
-  RECTANGLE = "rectangle",
+export interface UnitConversion {
+  readonly factor: number
+  readonly label: string
+  readonly keywords: readonly string[]
+  readonly largeUnit?: {
+    readonly threshold: number
+    readonly factor: number
+    readonly label: string
+  }
 }
 
-export const enum FormFieldType {
-  TEXT = "text",
-  NUMBER = "number",
-  TEXTAREA = "textarea",
-  SELECT = "select",
-  MULTI_SELECT = "multi-select",
-  CHECKBOX = "checkbox",
-  PASSWORD = "password",
-  FILE = "file",
-  DATE_TIME = "date-time",
-  URL = "url",
-  SWITCH = "switch",
-  RADIO = "radio",
-  SLIDER = "slider",
-  NUMERIC_INPUT = "numeric-input",
-  TAG_INPUT = "tag-input",
-  COLOR = "color",
-  DATE = "date",
-  TIME = "time",
-  EMAIL = "email",
-  PHONE = "phone",
-  SEARCH = "search",
-  MESSAGE = "message",
-  TABLE = "table",
-  MONTH = "month",
-  WEEK = "week",
-  COORDSYS = "coord-sys",
-  ATTRIBUTE_NAME = "attribute-name",
-  ATTRIBUTE_LIST = "attribute-list",
-  DB_CONNECTION = "db-connection",
-  WEB_CONNECTION = "web-connection",
-  TEXT_OR_FILE = "text-or-file",
-  REPROJECTION_FILE = "reprojection-file",
-  SCRIPTED = "scripted",
-  GEOMETRY = "geometry",
-  HIDDEN = "hidden",
+export interface PopupSuppressionRecord {
+  readonly popup: __esri.Popup
+  readonly view: __esri.MapView | __esri.SceneView | null
+  readonly handle: __esri.WatchHandle | null
+  readonly prevAutoOpen?: boolean
 }
 
-export const enum ErrorSeverity {
-  INFO = "info",
-  WARNING = "warning",
-  ERROR = "error",
-}
-
-export const enum ErrorType {
-  VALIDATION = "validation",
-  CONFIG = "config",
-  NETWORK = "network",
-  MODULE = "module",
-  GEOMETRY = "geometry",
-}
-
-export const enum HttpMethod {
-  GET = "GET",
-  POST = "POST",
-  PUT = "PUT",
-  DELETE = "DELETE",
-}
-
-export const enum ParameterType {
-  TEXT = "TEXT",
-  INTEGER = "INTEGER",
-  FLOAT = "FLOAT",
-  BOOLEAN = "BOOLEAN",
-  CHECKBOX = "CHECKBOX",
-  CHOICE = "CHOICE",
-  LISTBOX = "LISTBOX",
-  LOOKUP_LISTBOX = "LOOKUP_LISTBOX",
-  LOOKUP_CHOICE = "LOOKUP_CHOICE",
-  TEXT_OR_FILE = "TEXT_OR_FILE",
-  TEXT_EDIT = "TEXT_EDIT",
-  PASSWORD = "PASSWORD",
-  FILENAME = "FILENAME",
-  FILENAME_MUSTEXIST = "FILENAME_MUSTEXIST",
-  DIRNAME = "DIRNAME",
-  DIRNAME_MUSTEXIST = "DIRNAME_MUSTEXIST",
-  DIRNAME_SRC = "DIRNAME_SRC",
-  COORDSYS = "COORDSYS",
-  STRING = "STRING",
-  URL = "URL",
-  LOOKUP_URL = "LOOKUP_URL",
-  LOOKUP_FILE = "LOOKUP_FILE",
-  DATE_TIME = "DATE_TIME",
-  DATETIME = "DATETIME",
-  DATE = "DATE",
-  TIME = "TIME",
-  MONTH = "MONTH",
-  WEEK = "WEEK",
-  COLOR = "COLOR",
-  COLOR_PICK = "COLOR_PICK",
-  RANGE_SLIDER = "RANGE_SLIDER",
-  GEOMETRY = "GEOMETRY",
-  MESSAGE = "MESSAGE",
-  ATTRIBUTE_NAME = "ATTRIBUTE_NAME",
-  ATTRIBUTE_LIST = "ATTRIBUTE_LIST",
-  DB_CONNECTION = "DB_CONNECTION",
-  WEB_CONNECTION = "WEB_CONNECTION",
-  REPROJECTION_FILE = "REPROJECTION_FILE",
-  SCRIPTED = "SCRIPTED",
-  NOVALUE = "NOVALUE",
-}
-
-export const enum JobStatus {
-  QUEUED = "QUEUED",
-  PULLED = "PULLED",
-  RUNNING = "RUNNING",
-  SUCCESS = "SUCCESS",
-  FME_FAILURE = "FME_FAILURE",
-  JOB_FAILURE = "JOB_FAILURE",
-  ABORTED = "ABORTED",
-}
-
-export const enum FmeActionType {
-  SET_VIEW_MODE = "fme/SET_VIEW_MODE",
-  RESET_STATE = "fme/RESET_STATE",
-  SET_GEOMETRY = "fme/SET_GEOMETRY",
-  SET_DRAWING_TOOL = "fme/SET_DRAWING_TOOL",
-  COMPLETE_DRAWING = "fme/COMPLETE_DRAWING",
-  SET_ORDER_RESULT = "fme/SET_ORDER_RESULT",
-  SET_WORKSPACE_ITEMS = "fme/SET_WORKSPACE_ITEMS",
-  SET_WORKSPACE_PARAMETERS = "fme/SET_WORKSPACE_PARAMETERS",
-  SET_SELECTED_WORKSPACE = "fme/SET_SELECTED_WORKSPACE",
-  SET_WORKSPACE_ITEM = "fme/SET_WORKSPACE_ITEM",
-  SET_ERROR = "fme/SET_ERROR",
-  SET_ERRORS = "fme/SET_ERRORS",
-  CLEAR_WORKSPACE_STATE = "fme/CLEAR_WORKSPACE_STATE",
-  CLEAR_ERROR = "fme/CLEAR_ERROR",
-  RESET_TO_DRAWING = "fme/RESET_TO_DRAWING",
-  COMPLETE_STARTUP = "fme/COMPLETE_STARTUP",
-  REMOVE_WIDGET_STATE = "fme/REMOVE_WIDGET_STATE",
-  SET_LOADING_FLAG = "fme/SET_LOADING_FLAG",
-  APPLY_WORKSPACE_DATA = "fme/APPLY_WORKSPACE_DATA",
-}
-
-export const FME_ACTION_TYPES = [
-  FmeActionType.SET_VIEW_MODE,
-  FmeActionType.RESET_STATE,
-  FmeActionType.SET_GEOMETRY,
-  FmeActionType.SET_DRAWING_TOOL,
-  FmeActionType.COMPLETE_DRAWING,
-  FmeActionType.SET_ORDER_RESULT,
-  FmeActionType.SET_WORKSPACE_ITEMS,
-  FmeActionType.SET_WORKSPACE_PARAMETERS,
-  FmeActionType.SET_SELECTED_WORKSPACE,
-  FmeActionType.SET_WORKSPACE_ITEM,
-  FmeActionType.SET_ERROR,
-  FmeActionType.SET_ERRORS,
-  FmeActionType.CLEAR_WORKSPACE_STATE,
-  FmeActionType.CLEAR_ERROR,
-  FmeActionType.RESET_TO_DRAWING,
-  FmeActionType.COMPLETE_STARTUP,
-  FmeActionType.REMOVE_WIDGET_STATE,
-  FmeActionType.SET_LOADING_FLAG,
-  FmeActionType.APPLY_WORKSPACE_DATA,
-] as const
-
-export const LAYER_CONFIG = {
-  title: "",
-  listMode: "hide",
-  elevationInfo: { mode: "on-the-ground" },
-} as const
-
-// Default drawing color (ESRI brand blue) used when no user selection exists
-export const DEFAULT_DRAWING_HEX = "#0079C1"
-
-export const VIEW_ROUTES: { [key in ViewMode]: ViewMode } = {
-  [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
-  [ViewMode.EXPORT_FORM]: ViewMode.WORKSPACE_SELECTION,
-  [ViewMode.WORKSPACE_SELECTION]: ViewMode.INITIAL,
-  [ViewMode.EXPORT_OPTIONS]: ViewMode.INITIAL,
-  [ViewMode.ORDER_RESULT]: ViewMode.INITIAL,
-  [ViewMode.DRAWING]: ViewMode.INITIAL,
-  [ViewMode.INITIAL]: ViewMode.INITIAL,
-}
-
-// Base types and interfaces
 export interface TextOrFileValue {
   readonly mode: "text" | "file"
   readonly text?: string
@@ -212,18 +58,80 @@ export type FormValue =
   | Readonly<TextOrFileValue>
   | null
   | undefined
+
 export type FormPrimitive = Exclude<FormValue, undefined>
+
 export type SelectValue = string | number | ReadonlyArray<string | number>
+
+// SCHEDULE TYPES
+export interface ScheduleMetadata {
+  readonly start: string
+  readonly name: string
+  readonly category: string
+  readonly description?: string
+  readonly trigger?: string
+}
+
+export type ServiceMode = "sync" | "async" | "schedule"
+
+export interface ScheduleValidationResult {
+  readonly valid: boolean
+  readonly errors?: {
+    readonly start?: string
+    readonly name?: string
+    readonly category?: string
+  }
+  readonly warnings?: {
+    readonly pastTime?: boolean
+    readonly pastTimeMessage?: string
+  }
+}
 
 export interface FormValues {
   [key: string]: FormValue
+  start?: string
+  name?: string
+  category?: string
+  description?: string
+  trigger?: string
 }
 
 export interface PrimitiveParams {
   [key: string]: unknown
 }
 
+export type WebhookErrorCode =
+  | "URL_TOO_LONG"
+  | "WEBHOOK_AUTH_ERROR"
+  | "WEBHOOK_BAD_RESPONSE"
+  | "WEBHOOK_NON_JSON"
+  | "WEBHOOK_TIMEOUT"
+
+export type TmParamKey = "tm_ttc" | "tm_ttl" | "tm_tag"
+
+export type NumericTmKey = "tm_ttc" | "tm_ttl"
+
+export interface WebhookArtifacts {
+  readonly baseUrl: string
+  readonly params: URLSearchParams
+  readonly fullUrl: string
+}
+
+export type TMDirectives = Partial<{
+  ttc: number
+  ttl: number
+  tag: string
+}>
+
+export type NMDirectives = Partial<{
+  directives: Array<{
+    name: string
+    [key: string]: any
+  }>
+}>
+
 export type MakeCancelableFn = <T>(promise: Promise<T>) => Promise<T>
+
 export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
@@ -236,6 +144,7 @@ export type ViewState =
       readonly kind: "loading"
       readonly message?: string
       readonly detail?: string
+      readonly messages?: readonly React.ReactNode[]
     }
   | {
       readonly kind: "error"
@@ -243,6 +152,7 @@ export type ViewState =
       readonly code?: string
       readonly recoverable?: boolean
       readonly actions?: readonly ViewAction[]
+      readonly detail?: React.ReactNode
     }
   | {
       readonly kind: "empty"
@@ -259,8 +169,14 @@ export type ViewState =
 
 export const makeLoadingView = (
   message?: string,
-  detail?: string
-): ViewState => ({ kind: "loading", message, detail })
+  detail?: string,
+  messages?: readonly React.ReactNode[]
+): ViewState => ({
+  kind: "loading",
+  message,
+  detail,
+  messages,
+})
 
 export const makeEmptyView = (
   message: string,
@@ -270,9 +186,10 @@ export const makeEmptyView = (
 export const makeErrorView = (
   message: string,
   opts?: {
-    code?: string
-    actions?: readonly ViewAction[]
-    recoverable?: boolean
+    readonly code?: string
+    readonly actions?: readonly ViewAction[]
+    readonly recoverable?: boolean
+    readonly detail?: React.ReactNode
   }
 ): ViewState => ({
   kind: "error",
@@ -280,11 +197,13 @@ export const makeErrorView = (
   code: opts?.code,
   actions: opts?.actions,
   recoverable: opts?.recoverable,
+  detail: opts?.detail,
 })
 
 export type LoadingSnapshot = {
   readonly message?: React.ReactNode
   readonly detail?: React.ReactNode
+  readonly messages?: readonly React.ReactNode[]
 } | null
 
 export interface DrawingSessionState {
@@ -297,7 +216,6 @@ export interface MutableParams extends Record<string, unknown> {
   __aoi_error__?: ErrorState | null
 }
 
-// Error handling
 export interface ErrorState {
   readonly message: string
   readonly type: ErrorType
@@ -313,7 +231,6 @@ export interface ErrorState {
   readonly kind?: "runtime"
 }
 
-// Serializable error shape for Redux (with optional discriminant)
 export interface SerializableErrorState {
   readonly message: string
   readonly type: ErrorType
@@ -349,7 +266,6 @@ export interface LoadingState {
 
 export type LoadingFlagKey = keyof LoadingState
 
-// UI component interfaces
 export interface BaseProps {
   readonly className?: string
   readonly style?: React.CSSProperties
@@ -380,13 +296,13 @@ export interface InputProps extends BaseProps {
     | "search"
     | "tel"
   readonly maxLength?: number
-  readonly borderless?: boolean
+  readonly accept?: string
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
   readonly "aria-label"?: string
   readonly defaultValue?: FormPrimitive
   readonly errorText?: string
   readonly id?: string
-  readonly rows?: number // for textarea
+  readonly rows?: number
 }
 
 export interface ButtonProps extends BaseProps {
@@ -407,7 +323,7 @@ export interface ButtonProps extends BaseProps {
   readonly tabIndex?: number
   readonly active?: boolean
   readonly role?: string
-  readonly logging?: { enabled: boolean; prefix: string }
+  readonly logging?: { readonly enabled: boolean; readonly prefix: string }
 }
 
 export interface OptionItem {
@@ -550,25 +466,6 @@ export interface TooltipProps {
   readonly id?: string
 }
 
-export interface SettingStyles {
-  readonly ROW: SerializedStyles
-  readonly ALERT_INLINE: SerializedStyles
-  readonly LABEL_WITH_BUTTON: SerializedStyles
-  readonly STATUS: {
-    readonly CONTAINER: SerializedStyles
-    readonly LIST: SerializedStyles
-    readonly ROW: SerializedStyles
-    readonly LABEL_GROUP: SerializedStyles
-    readonly COLOR: {
-      readonly OK: SerializedStyles
-      readonly FAIL: SerializedStyles
-      readonly SKIP: SerializedStyles
-      readonly PENDING: SerializedStyles
-    }
-  }
-}
-
-// Additional UI component types needed by components
 export type GroupButtonConfig = Omit<ButtonProps, "block">
 
 export interface ButtonGroupProps extends BaseProps {
@@ -627,7 +524,6 @@ export interface SanitizationResult {
   readonly changed?: boolean
 }
 
-// Workflow component types
 export interface OrderResultProps {
   readonly onDownload?: () => void
   readonly onClose?: () => void
@@ -635,6 +531,7 @@ export interface OrderResultProps {
   readonly translate?: TranslateFn
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
+  readonly onReset?: () => void
   readonly config?: FmeExportConfig
 }
 
@@ -643,8 +540,8 @@ export interface ExportFormProps {
   readonly values?: FormValues
   readonly onChange?: (values: FormValues) => void
   readonly onSubmit?: (payload: {
-    type: string
-    data: { [key: string]: unknown }
+    readonly type: string
+    readonly data: { readonly [key: string]: unknown }
   }) => void
   readonly workspaceParameters?: readonly WorkspaceParameter[]
   readonly workspaceName?: string
@@ -696,7 +593,6 @@ export interface ColorFieldConfig {
   readonly alpha?: boolean
 }
 
-// Form and validation
 export interface DynamicFieldConfig {
   readonly name: string
   readonly label: string
@@ -724,17 +620,12 @@ export interface DynamicFieldConfig {
 export interface DynamicFieldProps {
   readonly field: DynamicFieldConfig
   readonly value?: FormPrimitive
-  // Accept transient File locally; never stored in Redux
   readonly onChange: (value: FormPrimitive | File | null) => void
   readonly translate: TranslateFn
 }
 
-// (duplicate definition removed above)
-// API and configuration
 export interface FmeFlowConfig {
-  /** Base URL for the FME Flow instance. Always sanitize builder input before storing. */
   readonly serverUrl: string
-  /** Sensitive authentication token. Never log or expose this value. */
   readonly token: string
   readonly repository: string
   readonly timeout?: number
@@ -745,42 +636,45 @@ export interface FmeExportConfig {
   readonly fmeServerToken: string
   readonly repository: string
   readonly largeArea?: number
-  readonly largeAreaWarningMessage?: string
-  readonly customInfoMessage?: string
   readonly maxArea?: number
   readonly requestTimeout?: number
   readonly syncMode?: boolean
   readonly maskEmailOnSuccess?: boolean
   readonly supportEmail?: string
+  readonly requireHttps?: boolean
+  readonly defaultRequesterEmail?: string
+  readonly disallowRestForWebhook?: boolean
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
-  readonly tm_tag?: string
-  readonly tm_description?: string
+  readonly showResult?: boolean
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
   readonly allowScheduleMode?: boolean
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
-  readonly service?: "download" | "stream"
-  readonly aoiGeoJsonParamName?: string
-  readonly aoiWktParamName?: string
   readonly drawingColor?: string
 }
 
 export interface RequestConfig {
   readonly method?: HttpMethod
-  readonly headers?: { [key: string]: string }
+  readonly headers?: { readonly [key: string]: string }
   readonly body?: unknown
   readonly query?: PrimitiveParams
   readonly signal?: AbortSignal
   readonly timeout?: number
   readonly cacheHint?: boolean
   readonly repositoryContext?: string
+  readonly caller?: string
+  readonly correlationId?: string
+  readonly dedupeKey?: string
+  readonly metadata?: { readonly [key: string]: unknown }
+  readonly retryAttempt?: number
+  readonly transportTag?: string
 }
 
 export interface EsriRequestConfig {
-  readonly request: {
+  request: {
     maxUrlLength: number
     interceptors: unknown[]
   }
@@ -799,18 +693,40 @@ export interface ApiResponse<T = unknown> {
   readonly statusText: string
 }
 
-export class FmeFlowApiError extends Error {
+export interface FmeError {
+  readonly message: string
+  readonly severity: ErrorSeverity
+  readonly httpStatus?: number
+  readonly code?: string
+  readonly retryable?: boolean
+}
+
+export class FmeFlowApiError extends Error implements FmeError {
+  public readonly code: string
+  public readonly httpStatus?: number
+  public readonly status?: number
+  public readonly severity: ErrorSeverity
+  public readonly retryable: boolean
+  public readonly isRetryable: boolean
+
   constructor(
     message: string,
-    public readonly code: string,
-    public readonly status?: number
+    code: string,
+    httpStatus?: number,
+    isRetryable?: boolean,
+    severity: ErrorSeverity = ErrorSeverity.ERROR
   ) {
     super(message)
     this.name = "FmeFlowApiError"
+    this.code = code
+    this.httpStatus = httpStatus
+    this.status = httpStatus
+    this.retryable = Boolean(isRetryable)
+    this.isRetryable = this.retryable
+    this.severity = severity
   }
 }
 
-// FME workspace and job management
 export interface FmeStatusInfo {
   readonly status: string
   readonly message?: string
@@ -826,10 +742,9 @@ export interface FmeServiceInfo {
 }
 
 export interface FmeResponse {
-  readonly data?: { serviceResponse?: FmeServiceInfo } | FmeServiceInfo
+  readonly data?: { readonly serviceResponse?: FmeServiceInfo } | FmeServiceInfo
 }
 
-// Normalized projection of FME service info regardless of response nesting
 export interface NormalizedServiceInfo {
   readonly status?: string
   readonly message?: string
@@ -866,6 +781,25 @@ export interface RepositoryItems {
   readonly offset?: number
 }
 
+/**
+ * Status of a workspace prefetch operation.
+ * - idle: Not started or cancelled
+ * - loading: Currently fetching workspace details
+ * - success: All workspaces successfully prefetched
+ * - error: One or more prefetch operations failed
+ */
+export type PrefetchStatus = "idle" | "loading" | "success" | "error"
+
+/**
+ * Progress information for an ongoing prefetch operation.
+ */
+export interface WorkspacePrefetchProgress {
+  /** Number of workspaces successfully loaded */
+  readonly loaded: number
+  /** Total number of workspaces to prefetch */
+  readonly total: number
+}
+
 export interface ParameterChoice {
   readonly caption?: string
   readonly value: unknown
@@ -882,7 +816,6 @@ export interface WorkspaceParameter {
   readonly defaultValue?: unknown
   readonly optional: boolean
   readonly listOptions?: readonly ParameterChoice[]
-  // Optional numeric constraints (present for RANGE_SLIDER and numeric params)
   readonly minimum?: number
   readonly maximum?: number
   readonly minimumExclusive?: boolean
@@ -938,65 +871,72 @@ export interface EsriGeometryOperators {
 }
 
 export interface EsriModules {
-  SketchViewModel: new (...a: readonly unknown[]) => __esri.SketchViewModel
-  GraphicsLayer: new (...a: readonly unknown[]) => __esri.GraphicsLayer
-  geometryEngine: {
-    isSimple?: (g: __esri.Geometry) => boolean
-    simplify?: (g: __esri.Geometry) => __esri.Geometry | null
-    planarArea?: (g: __esri.Geometry, unit: string) => number
-    geodesicArea?: (g: __esri.Geometry, unit: string) => number
-    geodesicDensify?: (
+  readonly SketchViewModel: new (
+    ...args: readonly unknown[]
+  ) => __esri.SketchViewModel
+  readonly GraphicsLayer: new (
+    ...args: readonly unknown[]
+  ) => __esri.GraphicsLayer
+  readonly geometryEngine: {
+    readonly isSimple?: (g: __esri.Geometry) => boolean
+    readonly simplify?: (g: __esri.Geometry) => __esri.Geometry | null
+    readonly planarArea?: (g: __esri.Geometry, unit: string) => number
+    readonly geodesicArea?: (g: __esri.Geometry, unit: string) => number
+    readonly geodesicDensify?: (
       geometry: __esri.Geometry,
       maxSegmentLength: number,
       unit?: string
     ) => __esri.Geometry | null
-    densify?: (
+    readonly densify?: (
       geometry: __esri.Geometry,
       maxSegmentLength: number
     ) => __esri.Geometry | null
   }
-  geometryEngineAsync: {
-    simplify?: (g: __esri.Geometry) => Promise<__esri.Geometry | null>
-    isSimple?: (g: __esri.Geometry) => Promise<boolean>
-    planarArea?: (g: __esri.Geometry, unit: string) => Promise<number>
-    geodesicArea?: (g: __esri.Geometry, unit: string) => Promise<number>
-    geodesicDensify?: (
+  readonly geometryEngineAsync: {
+    readonly simplify?: (g: __esri.Geometry) => Promise<__esri.Geometry | null>
+    readonly isSimple?: (g: __esri.Geometry) => Promise<boolean>
+    readonly planarArea?: (g: __esri.Geometry, unit: string) => Promise<number>
+    readonly geodesicArea?: (
+      g: __esri.Geometry,
+      unit: string
+    ) => Promise<number>
+    readonly geodesicDensify?: (
       geometry: __esri.Geometry,
       maxSegmentLength: number,
       unit?: string
     ) => Promise<__esri.Geometry | null>
-    densify?: (
+    readonly densify?: (
       geometry: __esri.Geometry,
       maxSegmentLength: number
     ) => Promise<__esri.Geometry | null>
   }
-  projection: {
-    project?: (
+  readonly projection: {
+    readonly project?: (
       geometry: __esri.Geometry | readonly __esri.Geometry[],
       spatialReference: __esri.SpatialReference
     ) => __esri.Geometry | readonly __esri.Geometry[] | null | undefined
-    load?: () => Promise<void>
-    isLoaded?: () => boolean
+    readonly load?: () => Promise<void>
+    readonly isLoaded?: () => boolean
   }
-  SpatialReference: {
-    WGS84?: __esri.SpatialReference
+  readonly SpatialReference: {
+    readonly WGS84?: __esri.SpatialReference
     new (...args: readonly unknown[]): __esri.SpatialReference
-    fromJSON?: (json: unknown) => __esri.SpatialReference
+    readonly fromJSON?: (json: unknown) => __esri.SpatialReference
   }
-  webMercatorUtils: {
-    webMercatorToGeographic: (g: __esri.Geometry) => __esri.Geometry
+  readonly webMercatorUtils: {
+    readonly webMercatorToGeographic: (g: __esri.Geometry) => __esri.Geometry
   }
-  Polyline: { fromJSON: (j: unknown) => __esri.Polyline }
-  Polygon: { fromJSON: (j: unknown) => __esri.Polygon }
-  Graphic: new (...a: readonly unknown[]) => __esri.Graphic
-  intl?: {
-    formatNumber?: (
+  readonly Polyline: { readonly fromJSON: (j: unknown) => __esri.Polyline }
+  readonly Polygon: { readonly fromJSON: (j: unknown) => __esri.Polygon }
+  readonly Graphic: new (...args: readonly unknown[]) => __esri.Graphic
+  readonly intl?: {
+    readonly formatNumber?: (
       value: number,
       options?: Intl.NumberFormatOptions
     ) => string | number
   }
-  normalizeUtils?: {
-    normalizeCentralMeridian?: (
+  readonly normalizeUtils?: {
+    readonly normalizeCentralMeridian?: (
       geometries: ReadonlyArray<__esri.Geometry | null | undefined>,
       url?: string | null,
       requestOptions?: unknown
@@ -1004,21 +944,14 @@ export interface EsriModules {
       ReadonlyArray<__esri.Geometry | __esri.Mesh | null | undefined>
     >
   }
-  geometryOperators?: EsriGeometryOperators | null
+  readonly geometryOperators?: EsriGeometryOperators | null
 }
-
-export interface DerivedParamNames {
-  readonly geoJsonName?: string
-  readonly wktName?: string
-}
-
-export type ServiceMode = "sync" | "async" | "schedule"
 
 export type CoordinateTuple = readonly number[]
 
 export interface ExportResult {
   readonly success: boolean
-  readonly message: string
+  readonly message?: string
   readonly code?: string
   readonly jobId?: number
   readonly workspaceName?: string
@@ -1026,68 +959,88 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
+  readonly scheduleMetadata?: {
+    readonly start?: string
+    readonly name?: string
+    readonly category?: string
+    readonly description?: string
+    readonly trigger?: string
+  }
+  readonly status?: string
+  readonly statusMessage?: string
+  readonly serviceMode?: ServiceMode
+  readonly blobMetadata?: {
+    readonly type?: string
+    readonly size?: number
+  }
 }
 
 export interface RemoteDatasetOptions {
-  params: MutableParams
-  remoteUrl: string
-  uploadFile: File | null
-  config: FmeExportConfig | null | undefined
-  workspaceParameters?: readonly WorkspaceParameter[] | null
-  makeCancelable: MakeCancelableFn
-  fmeClient: FmeFlowApiClient
-  signal: AbortSignal
-  subfolder: string
+  readonly params: MutableParams
+  readonly remoteUrl: string
+  readonly uploadFile: File | null
+  readonly config: FmeExportConfig | null | undefined
+  readonly workspaceParameters?: readonly WorkspaceParameter[] | null
+  readonly makeCancelable: MakeCancelableFn
+  readonly fmeClient: FmeFlowApiClient
+  readonly signal: AbortSignal
+  readonly subfolder: string
+  readonly workspaceName?: string | null
 }
 
 export interface SubmissionPreparationOptions {
-  rawFormData: { [key: string]: unknown }
-  userEmail: string
-  geometryJson: unknown
-  geometry: __esri.Geometry | null | undefined
-  modules: EsriModules | null
-  config: FmeExportConfig | null | undefined
-  workspaceParameters?: readonly WorkspaceParameter[] | null
-  makeCancelable: MakeCancelableFn
-  fmeClient: FmeFlowApiClient
-  signal: AbortSignal
-  remoteDatasetSubfolder: string
+  readonly rawFormData: { readonly [key: string]: unknown }
+  readonly userEmail: string
+  readonly geometryJson: unknown
+  readonly geometry: __esri.Geometry | null | undefined
+  readonly modules: EsriModules | null
+  readonly config: FmeExportConfig | null | undefined
+  readonly workspaceParameters?: readonly WorkspaceParameter[] | null
+  readonly workspaceItem?: WorkspaceItemDetail | null
+  readonly selectedWorkspaceName?: string | null
+  readonly areaWarning?: boolean
+  readonly drawnArea?: number
+  readonly makeCancelable: MakeCancelableFn
+  readonly fmeClient: FmeFlowApiClient
+  readonly signal: AbortSignal
+  readonly remoteDatasetSubfolder: string
+  readonly onStatusChange?: (status: SubmissionPreparationStatus) => void
 }
 
 export interface SubmissionPreparationResult {
-  params: { [key: string]: unknown } | null
-  aoiError?: ErrorState
+  readonly params: { readonly [key: string]: unknown } | null
+  readonly aoiError?: ErrorState
 }
 
-// Widget state
-export interface FmeWidgetState {
-  // View state
-  readonly viewMode: ViewMode
+export type SubmissionPreparationStatus =
+  | "normalizing"
+  | "resolvingDataset"
+  | "applyingDefaults"
+  | "complete"
 
-  // Drawing state
+export type SubmissionPhase =
+  | "idle"
+  | "preparing"
+  | "uploading"
+  | "finalizing"
+  | "submitting"
+
+export type ValidationPhase = "idle" | "checking" | "fetchingRepos" | "complete"
+
+export interface FmeWidgetState {
+  readonly viewMode: ViewMode
   readonly drawingTool: DrawingTool
   readonly geometryJson: unknown
   readonly drawnArea: number
-  readonly geometryRevision: number
-
-  // Export state
   readonly orderResult: ExportResult | null
-
-  // Workspace state
   readonly workspaceItems: readonly WorkspaceItem[]
   readonly selectedWorkspace: string | null
   readonly workspaceParameters: readonly WorkspaceParameter[]
   readonly workspaceItem: WorkspaceItemDetail | null
-
-  // Loading state
   readonly loading: LoadingState
-
-  // Error state
-  readonly error: ErrorWithScope | null
   readonly errors: ErrorMap
 }
 
-// Global state for multiple widget instances
 export interface FmeGlobalState {
   readonly byId: { readonly [widgetId: string]: FmeWidgetState }
 }
@@ -1098,6 +1051,81 @@ export interface IMStateWithFmeExport extends IMState {
   readonly "fme-state": IMFmeGlobalState
 }
 
+// Types
+type LogLevel = "silent" | "warn" | "debug"
+
+export interface NetworkConfig {
+  readonly enabled: boolean
+  readonly logLevel: LogLevel
+  readonly bodyPreviewLimit: number
+  readonly warnSlowMs: number
+}
+
+export interface InstrumentedRequestOptions<T> {
+  method: string
+  url: string
+  transport: string
+  execute: () => Promise<T>
+  body?: unknown
+  query?: PrimitiveParams | URLSearchParams | string | null
+  caller?: string
+  correlationId?: string
+  retryAttempt?: number
+  responseInterpreter?: {
+    status?: (response: T) => number | undefined
+    ok?: (response: T) => boolean | undefined
+    size?: (response: T) => number | undefined
+  }
+}
+
+export interface WorkspacePrefetchOptions {
+  readonly signal?: AbortSignal
+  readonly chunkSize?: number
+  readonly limit?: number
+  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
+}
+
+export type PrefetchableWorkspace = WorkspaceItem & {
+  readonly repository?: string
+}
+
+export interface RequestLog {
+  readonly timestamp: number
+  readonly method: string
+  readonly url: string
+  readonly path: string
+  readonly status?: number
+  readonly ok?: boolean
+  readonly durationMs: number
+  readonly correlationId: string
+  readonly caller?: string
+  readonly transport: string
+  readonly retryAttempt?: number
+  readonly responseSize?: number
+  readonly isAbort?: boolean
+}
+
+export interface ServiceModeOverrideInfo {
+  readonly forcedMode: ServiceMode
+  readonly previousMode: ServiceMode
+  readonly reason: "runtime" | "transformers" | "fileSize" | "area"
+  readonly value?: number
+  readonly threshold?: number
+}
+
+export interface DetermineServiceModeOptions {
+  readonly workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
+  readonly areaWarning?: boolean
+  readonly drawnArea?: number
+  readonly onModeOverride?: (info: ServiceModeOverrideInfo) => void
+}
+
+export interface ForceAsyncResult {
+  readonly reason: ServiceModeOverrideInfo["reason"]
+  readonly value?: number
+  readonly threshold?: number
+}
+
 export interface ConnectionTestSectionProps {
   readonly testState: TestState
   readonly checkSteps: CheckSteps
@@ -1105,13 +1133,48 @@ export interface ConnectionTestSectionProps {
   readonly onTestConnection: () => void
   readonly translate: TranslateFn
   readonly styles: SettingStyles
+  readonly validationPhase: ValidationPhase
+}
+
+export interface AbortListenerRecord {
+  readonly signal: AbortSignal
+  readonly handler: () => void
+}
+
+export interface WorkspacePrefetchState {
+  readonly status: PrefetchStatus
+  readonly progress: WorkspacePrefetchProgress | null
+}
+
+export interface PrefetchOptions {
+  readonly enabled?: boolean
+  readonly client?: FmeFlowApiClient | null
+  readonly onProgress?: (progress: WorkspacePrefetchProgress) => void
+}
+
+export interface ValidateConnectionVariables {
+  serverUrl: string
+  token: string
+  repository?: string
+}
+
+export interface UseDebounceOptions {
+  onPendingChange?: (pending: boolean) => void
+}
+
+export interface ScheduleFieldsProps {
+  readonly values: { [key: string]: unknown }
+  readonly onChange: (field: string, value: string) => void
+  readonly translate: (key: string, params?: any) => string
+  readonly disabled?: boolean
 }
 
 export interface RepositorySelectorProps {
   readonly localServerUrl: string
   readonly localToken: string
   readonly localRepository: string
-  readonly availableRepos: string[] | null
+  readonly availableRepos: readonly string[] | null
+  readonly label: React.ReactNode
   readonly fieldErrors: FieldErrors
   readonly validateServerUrl: (
     url: string,
@@ -1127,49 +1190,26 @@ export interface RepositorySelectorProps {
   readonly styles: SettingStyles
   readonly ID: { readonly repository: string }
   readonly repoHint?: string | null
+  readonly isBusy?: boolean
 }
 
 export interface JobDirectivesSectionProps {
   readonly localTmTtc: string
   readonly localTmTtl: string
-  readonly tmTagEnabled: boolean
-  readonly tmTagPreset: TmTagPreset
-  readonly localTmDescription: string
   readonly onTmTtcChange: (value: string) => void
   readonly onTmTtlChange: (value: string) => void
-  readonly onTmTagEnabledChange: (value: boolean) => void
-  readonly onTmTagPresetChange: (value: TmTagPreset) => void
-  readonly onTmDescriptionChange: (value: string) => void
   readonly onTmTtcBlur: (value: string) => void
   readonly onTmTtlBlur: (value: string) => void
-  readonly onTmDescriptionBlur: (value: string) => void
   readonly fieldErrors: FieldErrors
   readonly translate: TranslateFn
   readonly styles: SettingStyles
   readonly ID: {
     readonly tm_ttc: string
     readonly tm_ttl: string
-    readonly tm_tag: string
-    readonly tm_description: string
   }
 }
 
-export type TmTagPreset = "normal" | "fast"
-
-// Workflow props
-export interface WorkspaceLoaderOptions {
-  readonly config?: FmeExportConfig
-  readonly getFmeClient: () => FmeFlowApiClient | null
-  readonly translate: (key: string) => string
-  readonly makeCancelable: MakeCancelableFn
-  readonly widgetId: string
-  readonly onWorkspaceSelected?: (
-    workspaceName: string,
-    params: readonly WorkspaceParameter[],
-    item: WorkspaceItemDetail
-  ) => void
-  readonly dispatch: (action: unknown) => void
-}
+export type WorkspacePrefetchStatus = "idle" | "loading" | "success" | "error"
 
 export interface WorkflowProps extends BaseProps {
   readonly widgetId?: string
@@ -1180,11 +1220,15 @@ export interface WorkflowProps extends BaseProps {
   readonly error?: AnyErrorState | null
   readonly instructionText?: string
   readonly loadingState?: LoadingState
+  readonly isPrefetchingWorkspaces?: boolean
+  readonly workspacePrefetchProgress?: WorkspacePrefetchProgress | null
+  readonly workspacePrefetchStatus?: WorkspacePrefetchStatus
   readonly modules?: EsriModules | null
   readonly canStartDrawing?: boolean
+  readonly submissionPhase?: SubmissionPhase
+  readonly modeNotice?: ModeNotice | null
   readonly onFormBack?: () => void
   readonly onFormSubmit?: (formData: unknown) => void
-  readonly getFmeClient?: () => FmeFlowApiClient | null
   readonly orderResult?: ExportResult | null
   readonly onReuseGeography?: () => void
   readonly onBack?: () => void
@@ -1214,17 +1258,21 @@ export interface WorkflowProps extends BaseProps {
   readonly onRetryValidation?: () => void
 }
 
-// Widget configuration
+export interface ModeNotice {
+  readonly messageKey: string
+  readonly severity?: "info" | "warning"
+  readonly params?: { readonly [key: string]: unknown }
+}
+
 export type IMWidgetConfig = ImmutableObject<FmeExportConfig>
 
 export interface ValidationResult {
   readonly isValid?: boolean
-  readonly errors?: { [key: string]: string }
-  readonly messages?: { [key: string]: string }
+  readonly errors?: { readonly [key: string]: string }
+  readonly messages?: { readonly [key: string]: string }
   readonly hasErrors?: boolean
 }
 
-// Shared translation function type
 export type TranslateFn = (
   key: string,
   params?: { readonly [key: string]: unknown }
@@ -1247,6 +1295,7 @@ export interface ConnectionValidationResult {
     readonly status?: number
   }
   readonly steps: CheckSteps
+  readonly warnings?: readonly string[]
 }
 
 export interface StartupValidationResult {
@@ -1261,4 +1310,269 @@ export interface StartupValidationOptions {
   readonly translate: TranslateFn
   readonly signal?: AbortSignal
   readonly mapConfigured?: boolean
+}
+
+export type AreasAndLengthsParametersCtor = new (
+  options: __esri.AreasAndLengthsParametersProperties
+) => __esri.AreasAndLengthsParameters
+
+export type PolygonMaybe =
+  | __esri.Geometry
+  | null
+  | undefined
+  | PromiseLike<__esri.Geometry | null | undefined>
+
+export type AreaStrategy = () => Promise<number>
+
+export interface MutableNode {
+  id: string
+  label: string
+  path: string[]
+  value?: string | number
+  disabled?: boolean
+  metadata?: { [key: string]: unknown }
+  children: MutableNode[]
+}
+
+export interface FileValidationResult {
+  readonly valid: boolean
+  readonly error?: "fileTooLarge" | "fileTypeNotAllowed" | "fileInvalid"
+  readonly maxSizeMB?: number
+}
+
+export interface GeometryEngineLike {
+  readonly geodesicArea?: (
+    geometry: __esri.Geometry,
+    unit: string
+  ) => number | Promise<number>
+  readonly planarArea?: (
+    geometry: __esri.Geometry,
+    unit: string
+  ) => number | Promise<number>
+  readonly geodesicDensify?: (
+    geometry: __esri.Geometry,
+    maxSegmentLength: number,
+    unit?: string
+  ) => __esri.Geometry | Promise<__esri.Geometry>
+  readonly densify?: (
+    geometry: __esri.Geometry,
+    maxSegmentLength: number,
+    unit?: string
+  ) => __esri.Geometry | Promise<__esri.Geometry>
+  readonly simplify?: (
+    geometry: __esri.Geometry
+  ) => __esri.Geometry | Promise<__esri.Geometry>
+  readonly isSimple?: (geometry: __esri.Geometry) => boolean | Promise<boolean>
+  readonly contains?: (
+    outer: __esri.Geometry,
+    inner: __esri.Geometry
+  ) => boolean | Promise<boolean>
+}
+
+export interface NormalizeUtilsModule {
+  readonly normalizeCentralMeridian?: (
+    geometries: readonly __esri.Geometry[]
+  ) => PromiseLike<readonly __esri.Geometry[]> | readonly __esri.Geometry[]
+}
+
+export interface EsriConfigLike {
+  readonly geometryServiceUrl?: string
+  readonly request?: { readonly geometryServiceUrl?: string }
+  readonly portalSelf?: {
+    readonly helperServices?: { readonly geometry?: { readonly url?: string } }
+  }
+  readonly portalInfo?: {
+    readonly helperServices?: { readonly geometry?: { readonly url?: string } }
+  }
+  readonly helperServices?: { readonly geometry?: { readonly url?: string } }
+}
+
+export interface AreasAndLengthsResponse {
+  readonly areas?: readonly number[]
+}
+
+export interface GeometryServiceModule {
+  readonly areasAndLengths?: (
+    url: string,
+    params: __esri.AreasAndLengthsParameters
+  ) => PromiseLike<AreasAndLengthsResponse> | AreasAndLengthsResponse
+}
+
+export interface PolygonCtor {
+  readonly fromJSON?: (json: unknown) => __esri.Polygon
+}
+
+export interface ArcgisGeometryModules {
+  readonly geometryEngine?: GeometryEngineLike
+  readonly geometryEngineAsync?: GeometryEngineLike
+  readonly normalizeUtils?: NormalizeUtilsModule
+  readonly esriConfig?: EsriConfigLike
+  readonly Polygon?: PolygonCtor
+  readonly geometryOperators?: unknown
+}
+
+export type UrlValidation =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string }
+
+export interface AreaEvaluation {
+  readonly area: number
+  readonly warningThreshold?: number
+  readonly maxThreshold?: number
+  readonly exceedsMaximum: boolean
+  readonly shouldWarn: boolean
+}
+
+// ============================================
+// Query System Types (Added: Oct 9, 2025)
+// ============================================
+
+/**
+ * Query key for cache identification
+ * Must be JSON-serializable for stable cache keys
+ */
+export type QueryKey = ReadonlyArray<
+  string | number | boolean | null | { readonly [key: string]: any }
+>
+
+/**
+ * Query status lifecycle states
+ */
+export type QueryStatus = "idle" | "loading" | "success" | "error"
+
+/**
+ * Configuration options for useFmeQuery hook
+ */
+export interface QueryOptions<T> {
+  /** Unique identifier for this query (used for caching) */
+  queryKey: QueryKey
+
+  /** Function that performs the actual fetch */
+  queryFn: (signal: AbortSignal) => Promise<T>
+
+  /** Whether the query should execute automatically (default: true) */
+  enabled?: boolean
+
+  /** Time in ms before cached data is considered stale (default: 5min) */
+  staleTime?: number
+
+  /** Time in ms before unused cache entry is garbage collected (default: 10min) */
+  cacheTime?: number
+
+  /** Number of retry attempts or false to disable (default: 3) */
+  retry?: number | false
+
+  /** Delay between retries in ms, or function for exponential backoff */
+  retryDelay?: number | ((attempt: number) => number)
+
+  /** Callback invoked on successful fetch */
+  onSuccess?: (data: T) => void
+
+  /** Callback invoked on fetch error */
+  onError?: (error: unknown) => void
+
+  /** Whether to refetch when window regains focus (default: false) */
+  refetchOnWindowFocus?: boolean
+
+  /** Whether to refetch on network reconnect (default: false) */
+  refetchOnReconnect?: boolean
+}
+
+/**
+ * Return type of useFmeQuery hook
+ */
+export interface UseFmeQueryResult<T> {
+  /** The fetched data (undefined until first successful fetch) */
+  data: T | undefined
+
+  /** Error from the last failed fetch attempt */
+  error: unknown
+
+  /** True if query is loading for the first time (no cached data) */
+  isLoading: boolean
+
+  /** True if query completed successfully at least once */
+  isSuccess: boolean
+
+  /** True if query encountered an error */
+  isError: boolean
+
+  /** True if query is currently fetching (may have cached data) */
+  isFetching: boolean
+
+  /** Manually trigger a refetch */
+  refetch: () => Promise<void>
+
+  /** Status of the query */
+  status: QueryStatus
+}
+
+/**
+ * Configuration options for useFmeMutation hook
+ */
+export interface MutationOptions<TData, TVariables> {
+  /** Function that performs the mutation */
+  mutationFn: (variables: TVariables, signal: AbortSignal) => Promise<TData>
+
+  /** Callback invoked on successful mutation */
+  onSuccess?: (data: TData, variables: TVariables) => void
+
+  /** Callback invoked on mutation error */
+  onError?: (error: unknown, variables: TVariables) => void
+
+  /** Callback invoked after mutation completes (success or error) */
+  onSettled?: (
+    data: TData | undefined,
+    error: unknown,
+    variables: TVariables
+  ) => void
+}
+
+/**
+ * Return type of useFmeMutation hook
+ */
+export interface UseFmeMutationResult<TData, TVariables> {
+  /** Trigger the mutation (fire and forget) */
+  mutate: (variables: TVariables) => void
+
+  /** Trigger the mutation and return a promise */
+  mutateAsync: (variables: TVariables) => Promise<TData>
+
+  /** Data returned from the last successful mutation */
+  data: TData | undefined
+
+  /** Error from the last failed mutation */
+  error: unknown
+
+  /** True if mutation is currently executing */
+  isLoading: boolean
+
+  /** True if mutation completed successfully */
+  isSuccess: boolean
+
+  /** True if mutation encountered an error */
+  isError: boolean
+
+  /** True if mutation has never been called */
+  isIdle: boolean
+
+  /** Reset mutation state to idle */
+  reset: () => void
+
+  /** Status of the mutation */
+  status: QueryStatus
+}
+
+/**
+ * Internal cache entry structure
+ * @internal
+ */
+export interface CacheEntry<T> {
+  data: T | undefined
+  error: unknown
+  status: QueryStatus
+  timestamp: number
+  subscribers: Set<() => void>
+  retryCount: number
+  abortController: AbortController | null
 }

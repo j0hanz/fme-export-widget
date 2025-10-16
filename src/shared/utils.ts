@@ -6,16 +6,66 @@ import type {
   PrimitiveParams,
   TextOrFileValue,
   WorkspaceParameter,
-  DerivedParamNames,
+  WorkspaceItem,
+  WorkspaceItemDetail,
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
-} from "../config"
-import { ErrorType, ErrorSeverity, ParameterType } from "../config"
-import { SessionManager, css, hooks } from "jimu-core"
+  MutableParams,
+  PopupSuppressionRecord,
+  AreaDisplay,
+  UnitConversion,
+  DetermineServiceModeOptions,
+  ForceAsyncResult,
+} from "../config/index"
+import {
+  ErrorType,
+  ErrorSeverity,
+  ParameterType,
+  DEFAULT_DRAWING_HEX,
+  DEFAULT_REPOSITORY,
+  UPLOAD_PARAM_TYPES,
+  EMAIL_PLACEHOLDER,
+  EMAIL_REGEX,
+  NO_REPLY_REGEX,
+  FORBIDDEN_HOSTNAME_SUFFIXES,
+  PRIVATE_IPV4_RANGES,
+  ALLOWED_FILE_EXTENSIONS,
+  MAX_URL_LENGTH,
+} from "../config/index"
+import type FmeFlowApiClient from "./api"
+import { createFmeFlowClient } from "./api"
+import { SessionManager, css, WidgetState } from "jimu-core"
 import type { CSSProperties, Dispatch, SetStateAction } from "react"
+import { validateScheduleMetadata } from "./validations"
 
-// Type checking and validation utilities
+// Normaliserar sträng-värde med flexibla alternativ
+export const normalizeString = (
+  value: unknown,
+  options?: {
+    allowEmpty?: boolean
+    allowNumeric?: boolean
+    nullable?: boolean
+  }
+): string | null | undefined => {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed && !options?.allowEmpty) {
+      return options?.nullable ? null : undefined
+    }
+    return trimmed
+  }
+  if (
+    options?.allowNumeric &&
+    typeof value === "number" &&
+    Number.isFinite(value)
+  ) {
+    return String(value)
+  }
+  return options?.nullable ? null : undefined
+}
+
+// Kontrollerar om värde är tomt (null, undefined, "", [], trimmed "")
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -23,27 +73,246 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
-export const toTrimmedString = (value: unknown): string | undefined => {
-  if (typeof value !== "string") return undefined
-  const trimmed = value.trim()
-  return trimmed || undefined
+// Kontrollerar om värde är icke-tom sträng (type guard)
+export const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== ""
+
+// Konverterar värde till trimmad sträng eller undefined
+export const toTrimmedString = (value: unknown): string | undefined =>
+  normalizeString(value, { allowNumeric: false })
+
+// Konverterar värde till sträng eller undefined (trimmar whitespace, hanterar nummer)
+export const toStringValue = (value: unknown): string | undefined =>
+  normalizeString(value, { allowNumeric: true })
+
+// Normaliserar workspace-namn (trim och null-hantering)
+export const normalizeWorkspaceName = (
+  name: string | null | undefined
+): string | null => normalizeString(name, { nullable: true }) ?? null
+
+// Kontrollerar om värde är plain object (ej array eller null)
+export const isPlainObject = (
+  value: unknown
+): value is { readonly [key: string]: unknown } => {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value)
+
+// Kontrollerar om värde är File-objekt (finns ej i IE11)
+export const isFileObject = (value: unknown): value is File =>
+  typeof File !== "undefined" && value instanceof File
+
+// Konverterar värde till boolean eller undefined (hanterar string/number)
+export const toBooleanValue = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value !== 0
+  const str = normalizeString(value, { allowNumeric: false })
+  if (!str) return undefined
+  const normalized = str.toLowerCase()
+  if (["true", "1", "yes", "y", "on"].includes(normalized)) return true
+  if (["false", "0", "no", "n", "off"].includes(normalized)) return false
+  return undefined
+}
+
+// Konverterar värde till nummer eller undefined (parsar strings)
+export const toNumberValue = (value: unknown): number | undefined => {
+  if (isFiniteNumber(value)) return value
+  const str = normalizeString(value, { allowNumeric: false })
+  if (!str) return undefined
+  const numeric = Number(str)
+  return Number.isFinite(numeric) ? numeric : undefined
+}
+
+// Wraps värde i array om det inte redan är array
+export const toArray = (value: unknown): unknown[] =>
+  Array.isArray(value) ? value : value == null ? [] : [value]
+
+// Hämtar värde från object med default genom flera nyckel-alternativ
+export const pickFromObject = <T>(
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[],
+  converter: (value: unknown) => T | undefined,
+  fallback?: T
+): T | undefined => {
+  if (!data) return fallback
+  for (const key of keys) {
+    const result = converter(data[key])
+    if (result !== undefined) return result
+  }
+  return fallback
+}
+
+// Hämtar string från object med flera nyckel-alternativ
+export const pickString = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[]
+): string | undefined => pickFromObject(data, keys, toStringValue)
+
+// Hämtar boolean från object med flera nyckel-alternativ
+export const pickBoolean = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[],
+  fallback = false
+): boolean => pickFromObject(data, keys, toBooleanValue, fallback) ?? fallback
+
+// Hämtar nummer från object med flera nyckel-alternativ
+export const pickNumber = (
+  data: { readonly [key: string]: unknown } | null | undefined,
+  keys: readonly string[]
+): number | undefined => pickFromObject(data, keys, toNumberValue)
+
+// Mergar metadata från flera källor (tar första non-null värde per key)
+export const mergeMetadata = (
+  sources: ReadonlyArray<{ readonly [key: string]: unknown } | undefined>
+): { readonly [key: string]: unknown } => {
+  const merged: { [key: string]: unknown } = {}
+  for (const source of sources) {
+    if (!isPlainObject(source)) continue
+    for (const [key, value] of Object.entries(source)) {
+      if (value != null && !(key in merged)) {
+        merged[key] = value
+      }
+    }
+  }
+  return merged
+}
+
+// Unwraps array från diverse strukturer (direkt array eller nested)
+export const unwrapArray = (value: unknown): readonly unknown[] | undefined => {
+  if (Array.isArray(value)) return value
+  if (isPlainObject(value)) {
+    for (const key of ["data", "items", "options"]) {
+      const arr = (value as { readonly [key: string]: unknown })[key]
+      if (Array.isArray(arr)) return arr
+    }
+  }
+  return undefined
+}
+
+// Konverterar plain object till metadata-record (filtrerar undefined)
+export const toMetadataRecord = (
+  value: unknown
+): { readonly [key: string]: unknown } | undefined => {
+  if (!isPlainObject(value)) return undefined
+  const entries = Object.entries(value).filter(([, v]) => v !== undefined)
+  return entries.length ? Object.fromEntries(entries) : undefined
+}
+
+// Normaliserar parameter-värde till string eller nummer för FME Flow
+export const normalizeParameterValue = (value: unknown): string | number => {
+  if (isFiniteNumber(value)) return value
+  if (typeof value === "string") return value
+  if (typeof value === "boolean") return value ? "true" : "false"
+  return JSON.stringify(value ?? null)
+}
+
+// Bygger Set med normaliserade värden från parameter listOptions
+export const buildChoiceSet = (
+  list: WorkspaceParameter["listOptions"]
+): Set<string | number> | null =>
+  list?.length
+    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+    : null
+
+// Skapar cache-nyckel från token genom enkel hash-funktion
+export const buildTokenCacheKey = (token?: string): string => {
+  const trimmed = toTrimmedString(token)
+  if (!trimmed) return "token:none"
+
+  let hash = 0
+  for (let i = 0; i < trimmed.length; i += 1) {
+    hash = (hash * 31 + trimmed.charCodeAt(i)) >>> 0
+  }
+
+  return `token:${hash.toString(36)}`
+}
+
+// Skapar FmeFlowApiClient från config eller returnerar null vid fel
+export const createFmeClient = (
+  serverUrl?: string,
+  token?: string,
+  repository?: string,
+  timeout?: number
+): FmeFlowApiClient | null => {
+  const normalizedUrl = toTrimmedString(serverUrl)
+  const normalizedToken = toTrimmedString(token)
+  if (!normalizedUrl || !normalizedToken) {
+    return null
+  }
+
+  const config: FmeExportConfig = {
+    fmeServerUrl: normalizedUrl,
+    fmeServerToken: normalizedToken,
+    repository: toTrimmedString(repository) || DEFAULT_REPOSITORY,
+    ...(isFiniteNumber(timeout) ? { requestTimeout: timeout } : {}),
+  }
+
+  try {
+    return createFmeFlowClient(config)
+  } catch {
+    return null
+  }
+}
+
+// Extraherar anslutningsinfo från FmeFlowApiClient via reflection
+export const getClientConnectionInfo = (
+  client: FmeFlowApiClient | null | undefined
+): {
+  readonly serverUrl: string
+  readonly repository: string
+  readonly tokenHash: string
+} | null => {
+  if (!client) return null
+  const rawConfig = (Reflect.get(client as object, "config") ?? null) as {
+    serverUrl?: unknown
+    repository?: unknown
+    token?: unknown
+  } | null
+  if (!rawConfig) return null
+
+  const serverUrl = toTrimmedString(rawConfig.serverUrl)
+  if (!serverUrl) return null
+
+  const repository = toTrimmedString(rawConfig.repository) || DEFAULT_REPOSITORY
+  const tokenHash = buildTokenCacheKey(
+    typeof rawConfig.token === "string" ? rawConfig.token : undefined
+  )
+
+  return { serverUrl, repository, tokenHash }
+}
+
+// Konverterar okänd typ till string (används för display)
 export const asString = (v: unknown): string =>
-  typeof v === "string" ? v : typeof v === "number" ? String(v) : ""
+  normalizeString(v, { allowNumeric: true }) ?? ""
 
-const hasOwn = (target: { [key: string]: unknown }, key: string): boolean =>
-  Object.prototype.hasOwnProperty.call(target, key)
+// Konverterar värde till debug-sträng (hanterar objekt via JSON)
+export const toStr = (val: unknown): string => {
+  if (typeof val === "string") return val
+  if (typeof val === "number" || typeof val === "boolean") return String(val)
+  if (val === undefined) return "undefined"
+  if (val === null) return "null"
+  if (typeof val === "object") {
+    try {
+      return JSON.stringify(val)
+    } catch {
+      return Object.prototype.toString.call(val)
+    }
+  }
+  return Object.prototype.toString.call(val)
+}
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const NO_REPLY_REGEX = /no-?reply/i
+/* Email Validation & Support */
 
+// Validerar email-format (utesluter no-reply-adresser)
 export const isValidEmail = (email: unknown): boolean => {
   if (typeof email !== "string" || !email) return false
   if (NO_REPLY_REGEX.test(email)) return false
   return EMAIL_REGEX.test(email)
 }
 
+// Extraherar och validerar support-email från config
 export const getSupportEmail = (
   configuredEmailRaw: unknown
 ): string | undefined => {
@@ -51,7 +320,9 @@ export const getSupportEmail = (
   return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
-// Placeholder and translation helpers
+/* Placeholder & Form Helpers */
+
+// Skapar översatta placeholder-texter för formulärfält
 export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
@@ -60,6 +331,14 @@ export const makePlaceholders = (
   select: translate("placeholderSelect", { field: fieldLabel }),
 })
 
+// Mapping för specifika placeholder-typer
+const PLACEHOLDER_KIND_MAP = Object.freeze({
+  email: "placeholderEmail",
+  phone: "placeholderPhone",
+  search: "placeholderSearch",
+} as const)
+
+// Returnerar lämplig placeholder för text-fält baserat på typ
 export const getTextPlaceholder = (
   field: { placeholder?: string } | undefined,
   placeholders: { enter: string },
@@ -67,37 +346,36 @@ export const getTextPlaceholder = (
   kind?: "email" | "phone" | "search"
 ): string => {
   if (field?.placeholder) return field.placeholder
-
-  const kindMap = {
-    email: "placeholderEmail",
-    phone: "placeholderPhone",
-    search: "placeholderSearch",
-  }
-
-  return kind ? translate(kindMap[kind]) : placeholders.enter
+  if (kind) return translate(PLACEHOLDER_KIND_MAP[kind])
+  return placeholders.enter
 }
 
+// Kontrollerar om select-option-värde är numeriskt (för type coercion)
+const isNumericSelectOptionValue = (value: unknown): boolean => {
+  if (isFiniteNumber(value)) return true
+  if (typeof value !== "string") return false
+
+  const trimmed = value.trim()
+  if (!trimmed) return false
+
+  const numeric = Number(trimmed)
+  return Number.isFinite(numeric) && String(numeric) === trimmed
+}
+
+// Bestämmer om select-värden ska coerceas till nummer
 export const computeSelectCoerce = (
   isSelectType: boolean,
   selectOptions: ReadonlyArray<{ readonly value?: unknown }>
 ): "number" | undefined => {
   if (!isSelectType || !selectOptions?.length) return undefined
 
-  const isNumericValue = (v: unknown): boolean => {
-    if (typeof v === "number") return Number.isFinite(v)
-    if (typeof v === "string") {
-      const trimmed = v.trim()
-      if (!trimmed) return false
-      const n = Number(trimmed)
-      return Number.isFinite(n) && String(n) === trimmed
-    }
-    return false
-  }
-
-  const allNumeric = selectOptions.every((o) => isNumericValue(o.value))
+  const allNumeric = selectOptions.every((o) =>
+    isNumericSelectOptionValue(o.value)
+  )
   return allNumeric ? "number" : undefined
 }
 
+// Parsar tabell-rader från diverse format (array, JSON-string, primitiv)
 export const parseTableRows = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.map((x) => (typeof x === "string" ? x : String(x)))
@@ -115,23 +393,42 @@ export const parseTableRows = (value: unknown): string[] => {
   return []
 }
 
+// Formaterar byte-storlek till läsbar sträng (B, KB, MB, GB, TB)
+export const formatByteSize = (size: unknown): string | null => {
+  if (!isFiniteNumber(size) || size < 0) {
+    return null
+  }
+
+  const UNITS = ["B", "KB", "MB", "GB", "TB"] as const
+  let value = size
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < UNITS.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  const shouldUseSingleDecimal = unitIndex > 0 && value < 10
+  const formatted = shouldUseSingleDecimal
+    ? value.toFixed(1)
+    : Math.round(value).toString()
+
+  return `${formatted} ${UNITS[unitIndex]}`
+}
+
+/* Message & Display Utilities */
+
+// Översätter meddelande eller key (returnerar raw string om translation saknas)
 export function resolveMessageOrKey(
   raw: string,
   translate: TranslateFn
 ): string {
   if (!raw) return ""
 
-  const exact = translate(raw)
-  if (exact && exact !== raw) return exact
-
-  const camelKey = raw
-    .toLowerCase()
-    .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
-  const camel = translate(camelKey)
-
-  return camel && camel !== camelKey ? camel : raw
+  return translate(raw)
 }
 
+// Maskerar email för display (visar första 2 tecken + domain)
 export const maskEmailForDisplay = (email: unknown): string => {
   const trimmed = toTrimmedString(email)
   if (!trimmed || !isValidEmail(trimmed)) return trimmed || ""
@@ -146,22 +443,405 @@ export const maskEmailForDisplay = (email: unknown): string => {
   return `${visible}****${domain}`
 }
 
-export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
-
+// Bygger support-hint-text med email eller default-meddelande
 export const buildSupportHintText = (
   translate: TranslateFn,
   supportEmail?: string,
   userFriendly?: string
 ): string => {
-  const sanitizedEmail = toTrimmedString(supportEmail)
-  if (sanitizedEmail) {
-    const template = translate("contactSupportEmail")
-    return template.replace(EMAIL_PLACEHOLDER, sanitizedEmail)
-  }
+  const email = toTrimmedString(supportEmail)
+  if (!email) return toTrimmedString(userFriendly) || ""
 
-  return toTrimmedString(userFriendly) || ""
+  const template = translate("contactSupportEmail")
+  return template.replace(EMAIL_PLACEHOLDER, email)
 }
 
+/* URL & Network Validation */
+
+// Parsar IPv4-adress till oktettar eller null vid invalid format
+const parseIpv4 = (hostname: string): number[] | null => {
+  const parts = hostname.split(".")
+  if (parts.length !== 4) return null
+
+  const octets = parts.map((part) => {
+    if (!/^\d+$/.test(part)) return NaN
+    const value = Number(part)
+    return value >= 0 && value <= 255 ? value : NaN
+  })
+
+  return octets.every(Number.isInteger) ? octets : null
+}
+
+// Kontrollerar om IPv4-oktetter matchar privata nätverksranges
+const isPrivateIpv4 = (octets: number[]): boolean => {
+  return PRIVATE_IPV4_RANGES.some(({ start, end }) => {
+    for (let i = 0; i < 4; i++) {
+      if (octets[i] < start[i] || octets[i] > end[i]) return false
+    }
+    return true
+  })
+}
+
+// Kontrollerar om IPv6-adress är privat (loopback, local, ULA)
+const isPrivateIpv6 = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  return (
+    lower === "::1" ||
+    lower.startsWith("::1:") || // Abbreviated loopback variations
+    lower === "0:0:0:0:0:0:0:1" ||
+    lower.startsWith("fc") || // ULA fc00::/7
+    lower.startsWith("fd") || // ULA fd00::/8
+    /^fe[89ab][0-9a-f]/i.test(lower) // Link-local fe80::/10 + site-local fec0::/10
+  )
+}
+
+// Kontrollerar om hostname har förbjuden suffix (.local, .test etc.)
+const hasDisallowedSuffix = (hostname: string): boolean => {
+  const lower = hostname.toLowerCase()
+  return FORBIDDEN_HOSTNAME_SUFFIXES.some(
+    (suffix) => lower === suffix || lower.endsWith(suffix)
+  )
+}
+
+// Validerar extern URL för opt_geturl (blockerar privata/localhost)
+export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
+  const trimmed = (s || "").trim()
+  if (!trimmed || trimmed.length > MAX_URL_LENGTH) return false
+
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return false
+  }
+
+  if (url.username || url.password || url.protocol !== "https:") return false
+
+  const host = url.hostname.toLowerCase()
+  if (!host || hasDisallowedSuffix(host)) return false
+
+  const ipv4 = parseIpv4(host)
+  if (ipv4 && isPrivateIpv4(ipv4)) return false
+  if (host.includes(":") && isPrivateIpv6(host)) return false
+
+  const hasFileExtension = /\.[^/]+$/.test(url.pathname)
+  if (hasFileExtension) {
+    const pathWithQuery = `${url.pathname}${url.search}`
+    if (!ALLOWED_FILE_EXTENSIONS.test(pathWithQuery)) return false
+  }
+
+  return true
+}
+
+/* ArcGIS Drawing Symbols */
+
+// Bygger drawing-symboler (fill, line, point) från RGB-färg
+export const buildSymbols = (rgb: readonly [number, number, number]) => {
+  const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
+  const highlight = {
+    type: "simple-fill" as const,
+    color: [...base, 0.2] as [number, number, number, number],
+    outline: {
+      color: base,
+      width: 2,
+      style: "solid" as const,
+    },
+  }
+  const symbols = {
+    polygon: highlight,
+    polyline: {
+      type: "simple-line",
+      color: base,
+      width: 2,
+      style: "solid",
+    },
+    point: {
+      type: "simple-marker",
+      style: "circle",
+      size: 8,
+      color: base,
+      outline: {
+        color: [255, 255, 255],
+        width: 1,
+      },
+    },
+  } as const
+  return { HIGHLIGHT_SYMBOL: highlight, DRAWING_SYMBOLS: symbols }
+}
+
+// Normaliserar SketchViewModel tool-namn till enhetligt format
+export const normalizeSketchCreateTool = (
+  tool: string | null | undefined
+): "polygon" | "rectangle" | null => {
+  if (!tool) return null
+  const normalized = tool.toLowerCase()
+  if (normalized === "extent" || normalized === "rectangle") {
+    return "rectangle"
+  }
+  if (normalized === "polygon") {
+    return "polygon"
+  }
+  return null
+}
+
+/* Form Data Parsing & Submission */
+
+// Normaliserar form-entries genom coercion av värden
+const normalizeFormEntries = (
+  entries: Iterable<[string, unknown]>
+): { [key: string]: unknown } => {
+  const normalized: { [key: string]: unknown } = {}
+  for (const [key, value] of entries) {
+    normalized[key] = coerceFormValueForSubmission(value)
+  }
+  return normalized
+}
+
+// Parsar submission form-data och extraherar fil/URL separat
+export const parseSubmissionFormData = (rawData: {
+  [key: string]: unknown
+}): {
+  sanitizedFormData: { [key: string]: unknown }
+  uploadFile: File | null
+  remoteUrl: string
+} => {
+  const {
+    __upload_file__: uploadField,
+    __remote_dataset_url__: remoteDatasetField,
+    opt_geturl: optGetUrlField,
+    ...restFormData
+  } = rawData
+
+  const sanitizedOptGetUrl = toTrimmedString(optGetUrlField)
+  const sanitizedFormData: { [key: string]: unknown } = { ...restFormData }
+  if (sanitizedOptGetUrl) {
+    sanitizedFormData.opt_geturl = sanitizedOptGetUrl
+  }
+
+  const normalizedFormData = normalizeFormEntries(
+    Object.entries(sanitizedFormData)
+  )
+
+  const uploadFile = uploadField instanceof File ? uploadField : null
+  const remoteUrl = toTrimmedString(remoteDatasetField) ?? ""
+
+  return { sanitizedFormData: normalizedFormData, uploadFile, remoteUrl }
+}
+
+// Hittar första parameter som accepterar fil-uploads
+const findUploadParameterTarget = (
+  parameters?: readonly WorkspaceParameter[] | null
+): string | undefined => {
+  if (!parameters) return undefined
+
+  for (const parameter of parameters) {
+    if (!parameter) continue
+    const normalizedType = String(
+      parameter.type
+    ) as (typeof UPLOAD_PARAM_TYPES)[number]
+    if (UPLOAD_PARAM_TYPES.includes(normalizedType) && parameter.name) {
+      return parameter.name
+    }
+  }
+
+  return undefined
+}
+
+// Applicerar uppladdad fil-path till rätt parameter i FME request
+export const applyUploadedDatasetParam = ({
+  finalParams,
+  uploadedPath,
+  parameters,
+  explicitTarget,
+}: {
+  finalParams: { [key: string]: unknown }
+  uploadedPath?: string
+  parameters?: readonly WorkspaceParameter[] | null
+  explicitTarget: string | null
+}): void => {
+  if (!uploadedPath) return
+
+  if (explicitTarget) {
+    finalParams[explicitTarget] = uploadedPath
+    return
+  }
+
+  const inferredTarget = findUploadParameterTarget(parameters)
+  if (inferredTarget) {
+    finalParams[inferredTarget] = uploadedPath
+    return
+  }
+
+  if (
+    typeof (finalParams as { SourceDataset?: unknown }).SourceDataset ===
+    "undefined"
+  ) {
+    ;(finalParams as { SourceDataset?: unknown }).SourceDataset = uploadedPath
+  }
+}
+
+export const sanitizeOptGetUrlParam = (
+  params: MutableParams,
+  config: FmeExportConfig | null | undefined
+): void => {
+  if (!params) return
+
+  const featureEnabled = Boolean(
+    config?.allowRemoteDataset && config?.allowRemoteUrlDataset
+  )
+
+  if (!featureEnabled) {
+    if (typeof params.opt_geturl !== "undefined") delete params.opt_geturl
+    return
+  }
+
+  const trimmed = toTrimmedString(params.opt_geturl)
+  if (trimmed && isValidExternalUrlForOptGetUrl(trimmed)) {
+    params.opt_geturl = trimmed
+    return
+  }
+
+  if (typeof params.opt_geturl !== "undefined") delete params.opt_geturl
+}
+
+export const resolveUploadTargetParam = (
+  config: FmeExportConfig | null | undefined
+): string | null => {
+  if (!config?.uploadTargetParamName) return null
+
+  const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
+  return sanitized || null
+}
+
+// Kontrollerar om navigator är offline (används för UX-varningar)
+export const isNavigatorOffline = (): boolean => {
+  if (typeof navigator === "undefined") return false
+
+  try {
+    const nav = (globalThis as any)?.navigator
+    return Boolean(nav && nav.onLine === false)
+  } catch {
+    return false
+  }
+}
+
+// Coercear form-värde för submission (hanterar arrays, filer, blobs)
+const _isRemoteDatasetEnabled = (
+  config: FmeExportConfig | null | undefined
+): boolean => Boolean(config?.allowRemoteDataset)
+
+// Kontrollerar om remote URL ska appliceras (kräver config-tillåtelse)
+export const shouldApplyRemoteDatasetUrl = (
+  remoteUrl: unknown,
+  config: FmeExportConfig | null | undefined
+): boolean => {
+  if (!_isRemoteDatasetEnabled(config)) return false
+  if (!config?.allowRemoteUrlDataset) return false
+
+  const trimmed = toTrimmedString(remoteUrl)
+  if (!trimmed) return false
+
+  return isValidExternalUrlForOptGetUrl(trimmed)
+}
+
+// Kontrollerar om fil ska laddas upp (kräver config + valid File/Blob)
+export const shouldUploadRemoteDataset = (
+  config: FmeExportConfig | null | undefined,
+  uploadFile: File | Blob | null | undefined
+): boolean => {
+  if (!_isRemoteDatasetEnabled(config)) return false
+  if (!uploadFile) return false
+
+  if (typeof Blob !== "undefined" && uploadFile instanceof Blob) {
+    return true
+  }
+
+  return isFileObject(uploadFile)
+}
+
+// Tar bort AOI-felmarkör från params efter validering
+export const removeAoiErrorMarker = (params: MutableParams): void => {
+  if (typeof params.__aoi_error__ !== "undefined") {
+    delete params.__aoi_error__
+  }
+}
+
+/* Widget Management */
+
+// Beräknar vilka widgets som ska stängas (alla öppna utom aktuell)
+export const computeWidgetsToClose = (
+  runtimeInfo:
+    | { [id: string]: { state?: WidgetState | string } | undefined }
+    | null
+    | undefined,
+  widgetId: string
+): string[] => {
+  if (!runtimeInfo) return []
+
+  const ids: string[] = []
+
+  for (const [id, info] of Object.entries(runtimeInfo)) {
+    if (id === widgetId || !info) continue
+    const stateRaw = info.state
+    if (!stateRaw) continue
+    const normalized = String(stateRaw).toUpperCase()
+
+    if (
+      normalized === WidgetState.Closed ||
+      normalized === WidgetState.Hidden
+    ) {
+      continue
+    }
+
+    ids.push(id)
+  }
+
+  return ids
+}
+
+/* Popup Suppression Management */
+
+// Rensar popup-suppression genom att återställa original-tillstånd
+export const clearPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined
+): void => {
+  const record = ref?.current
+  if (!record) return
+  releasePopupSuppressionRecord(record)
+  ref.current = null
+}
+
+// Applicerar popup-suppression för att förhindra auto-open
+export const applyPopupSuppression = (
+  ref: { current: PopupSuppressionRecord | null } | null | undefined,
+  popup: __esri.Popup | null | undefined,
+  view: __esri.MapView | __esri.SceneView | null | undefined
+): void => {
+  if (!ref) return
+
+  if (!popup) {
+    clearPopupSuppression(ref)
+    return
+  }
+
+  if (ref.current?.popup === popup) {
+    try {
+      if (view && typeof (view as any).closePopup === "function") {
+        ;(view as any).closePopup()
+      } else if (typeof popup.close === "function") {
+        popup.close()
+      }
+    } catch {}
+    return
+  }
+
+  clearPopupSuppression(ref)
+
+  const record = createPopupSuppressionRecord(popup, view)
+  ref.current = record
+}
+
+// Formaterar fel för visning i UI med översättning och support-hint
 export function formatErrorForView(
   translate: TranslateFn,
   baseKeyOrMessage: string,
@@ -175,16 +855,66 @@ export function formatErrorForView(
   return { message, code, hint }
 }
 
-export const stripHtmlToText = (input?: string): string => {
-  if (!input) return ""
-  return input
-    .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-    .replace(/<[^>]*>/g, "")
+// Bygger ErrorState för UI från diverse fel-input
+const HTML_ENTITY_MAP = Object.freeze({
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+})
+
+// Regex för att hitta HTML-named entities
+const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g
+// Max giltig Unicode code point enligt HTML5-specifikationen
+const MAX_HTML_CODE_POINT = 0x10ffff
+
+// Regex för att hitta HTML-numeric entities (dec och hex)
+const decodeHtmlNumericEntity = (value: string, base: number): string => {
+  // Max 6 tecken för att undvika överflödiga stora tal (U+10FFFF = 6 hex digits)
+  if (value.length > 6) return ""
+  if (!/^[0-9a-f]+$/i.test(value)) return ""
+
+  const parsed = Number.parseInt(value, base)
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_HTML_CODE_POINT)
+    return ""
+  try {
+    return String.fromCodePoint(parsed)
+  } catch {
+    return ""
+  }
 }
 
+// Ersätter HTML-named entities med motsvarande tecken
+const replaceNamedEntities = (value: string): string =>
+  value.replace(HTML_ENTITY_REGEX, (match) => HTML_ENTITY_MAP[match] || match)
+
+// Tar bort HTML-taggar och ersätter entities för ren text
+export const stripHtmlToText = (input?: string): string => {
+  if (!input) return ""
+
+  const noTags = input
+    .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+    .replace(/<[^>]*>/g, "")
+
+  const decoded = replaceNamedEntities(
+    noTags
+      .replace(/&#(\d+);/g, (_match, value) =>
+        decodeHtmlNumericEntity(value, 10)
+      )
+      .replace(/&#x([\da-f]+);/gi, (_match, value) =>
+        decodeHtmlNumericEntity(value, 16)
+      )
+  )
+
+  return decoded.replace(/\s+/g, " ").trim()
+}
+
+// Bygger komplett ErrorState för UI från diverse fel-input
 export const styleCss = (style?: CSSProperties) =>
   style ? css(style as any) : undefined
 
+// Typvakt för File-objekt (finns ej i IE11)
 export const setError = <T extends { [k: string]: any }>(
   set: Dispatch<SetStateAction<T>>,
   key: keyof T,
@@ -193,6 +923,7 @@ export const setError = <T extends { [k: string]: any }>(
   set((prev) => ({ ...prev, [key]: value as any }))
 }
 
+// Rensar flera fel i state-objekt genom att sätta undefined
 export const clearErrors = <T extends { [k: string]: any }>(
   set: Dispatch<SetStateAction<T>>,
   keys: Array<keyof T>
@@ -204,59 +935,53 @@ export const clearErrors = <T extends { [k: string]: any }>(
   })
 }
 
+// Säkerställer att AbortController abort-funktion kallas utan fel
 export const safeAbort = (ctrl: AbortController | null) => {
   if (ctrl) {
     try {
       ctrl.abort()
     } catch {
-      // Ignore abort errors
+      // Ignorera fel vid abort
     }
   }
 }
 
-const ABORT_REGEX = /abort/i
+// Kontrollerar om fel är relaterat till abort (inkl. text-matchning)
 
-const toStringSafe = (v: unknown): string => {
-  if (v === null || v === undefined) return ""
-  if (
-    typeof v === "string" ||
-    typeof v === "number" ||
-    typeof v === "boolean"
-  ) {
-    return String(v)
-  }
-  return ""
-}
-
+// Regex för att identifiera no-reply email-adresser
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
 
-  if (typeof error === "string") return ABORT_REGEX.test(error)
-  if (typeof error !== "object") return false
-
-  const candidate = error as {
-    name?: unknown
-    code?: unknown
-    message?: unknown
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      name?: unknown
+      code?: unknown
+      message?: unknown
+    }
+    const name = toStr(candidate.name ?? candidate.code)
+    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
+      return true
+    if (!name || name === "Error") {
+      const message = toStr(candidate.message)
+      return (
+        /\baborted?\b/i.test(message) || message.includes("signal is aborted")
+      )
+    }
+    return false
   }
-  const name = toStringSafe(candidate.name ?? candidate.code)
-  const message = toStringSafe(candidate.message)
-
-  return ABORT_REGEX.test(name) || ABORT_REGEX.test(message)
+  if (typeof error === "string") {
+    return /\baborted?\b/i.test(error)
+  }
+  return false
 }
 
+// Loggar fel om de inte är relaterade till abort
 export const logIfNotAbort = (_context: string, error: unknown): void => {
-  // Intentionally no-op to prevent logging sensitive data
+  // Ignorera abort-fel
   void (_context, error)
 }
 
-export interface PopupSuppressionRecord {
-  popup: __esri.Popup
-  view: __esri.MapView | __esri.SceneView | null
-  handle: __esri.WatchHandle | null
-  prevAutoOpen?: boolean
-}
-
+// Typ för popup-suppression record
 const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
   const popupAny = record.popup as unknown as { autoOpenEnabled?: boolean }
   try {
@@ -266,6 +991,7 @@ const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
   } catch {}
 }
 
+// Säkerställer att popup stängs utan fel
 const closePopupSafely = (
   view: __esri.MapView | __esri.SceneView | null | undefined,
   popup: __esri.Popup | null | undefined
@@ -279,6 +1005,7 @@ const closePopupSafely = (
   } catch {}
 }
 
+// Skapar popup-suppression record och applicerar suppression
 export const createPopupSuppressionRecord = (
   popup: __esri.Popup | null | undefined,
   view: __esri.MapView | __esri.SceneView | null | undefined
@@ -316,6 +1043,7 @@ export const createPopupSuppressionRecord = (
   }
 }
 
+// Rensar och återställer popup-suppression från record
 export const releasePopupSuppressionRecord = (
   record: PopupSuppressionRecord | null | undefined
 ): void => {
@@ -328,6 +1056,7 @@ export const releasePopupSuppressionRecord = (
   restorePopupAutoOpen(record)
 }
 
+// Manager för popup-suppression med referensräkning
 class PopupSuppressionManager {
   private record: PopupSuppressionRecord | null = null
 
@@ -375,9 +1104,10 @@ class PopupSuppressionManager {
   }
 }
 
+// Global singleton för popup-suppression management
 export const popupSuppressionManager = new PopupSuppressionManager()
 
-// Collection utilities
+// Kontrollerar om värde är iterable (utesluter strängar)
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   typeof value !== "string" &&
   typeof (value as any)?.[Symbol.iterator] === "function"
@@ -399,24 +1129,22 @@ const mapDefined = <T, R>(
   return result
 }
 
+// Konverterar värde till trimmad sträng eller undefined
 export const collectTrimmedStrings = (
   values: Iterable<unknown> | null | undefined
 ): string[] => mapDefined(values, toTrimmedString)
 
-const toRecord = (value: unknown): { [key: string]: unknown } | null =>
-  value && typeof value === "object"
-    ? (value as { [key: string]: unknown })
-    : null
-
+// Extraherar trimmade strängar från property i objekt-array
 const collectStringsFromProp = (
   values: Iterable<unknown> | null | undefined,
   prop: string
 ): string[] =>
   mapDefined(values, (value) => {
-    const record = toRecord(value)
+    const record = isPlainObject(value) ? value : null
     return record ? toTrimmedString(record[prop]) : undefined
   })
 
+// Tar bort dubbletter från sträng-array och behåller ordning
 export const uniqueStrings = (values: Iterable<string>): string[] => {
   if (!values || !isIterable(values)) return []
 
@@ -433,12 +1161,13 @@ export const uniqueStrings = (values: Iterable<string>): string[] => {
   return result
 }
 
+// Extraherar unika repository-namn från diverse API-svar
 export const extractRepositoryNames = (source: unknown): string[] => {
   if (Array.isArray(source)) {
     return uniqueStrings(collectStringsFromProp(source, "name"))
   }
 
-  const record = toRecord(source)
+  const record = isPlainObject(source) ? source : null
   const items = record?.items
 
   if (Array.isArray(items)) {
@@ -448,47 +1177,24 @@ export const extractRepositoryNames = (source: unknown): string[] => {
   return []
 }
 
-export const useLatestAbortController = () => {
-  const controllerRef = hooks.useLatest<AbortController | null>(null)
+// Hook för att hantera senaste AbortController i async-effekter
+export { useLatestAbortController } from "./hooks"
 
-  const cancel = hooks.useEventCallback(() => {
-    const controller = controllerRef.current
-    if (controller) {
-      safeAbort(controller)
-    }
-    controllerRef.current = null
-  })
-
-  const abortAndCreate = hooks.useEventCallback(() => {
-    cancel()
-    const controller = new AbortController()
-    controllerRef.current = controller
-    return controller
-  })
-
-  const finalize = hooks.useEventCallback(
-    (controller?: AbortController | null) => {
-      if (!controller) return
-      if (controllerRef.current === controller) {
-        controllerRef.current = null
-      }
-    }
-  )
-
-  return {
-    controllerRef,
-    abortAndCreate,
-    cancel,
-    finalize,
-  }
+// Maskerar token för display (första 4 och sista 4 tecken syns)
+export const maskToken = (token: string): string => {
+  if (!token) return ""
+  if (token.length <= 4) return "*".repeat(token.length)
+  if (token.length <= 8)
+    return `${token.slice(0, 2)}${"*".repeat(token.length - 4)}${token.slice(-2)}`
+  // Visa första 4 och sista 4 tecken, maskera resten
+  return `${token.slice(0, 4)}${"*".repeat(Math.max(4, token.length - 8))}${token.slice(-4)}`
 }
 
-export const maskToken = (token: string): string =>
-  token ? `****${token.slice(-4)}` : ""
-
+// Bygger token cache key (hash av token eller "no-token")
 export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
   id ? `${id}-${suffix}` : undefined
 
+// Bygger lämplig aria-label för knapp baserat på innehåll
 export const getBtnAria = (
   text?: any,
   icon?: string | boolean,
@@ -502,14 +1208,17 @@ export const getBtnAria = (
   return (typeof tooltip === "string" && tooltip) || fallbackLabel
 }
 
+// ERROR ICONS
 const DEFAULT_ERROR_ICON = "error"
 
+// Ikoner för exakta felkoder (prioriteras högst)
 const ICON_BY_EXACT_CODE = Object.freeze<{ [code: string]: string }>({
   GEOMETRY_SERIALIZATION_FAILED: "polygon",
   MAP_MODULES_LOAD_FAILED: "map",
   FORM_INVALID: "warning",
 })
 
+// Prioriterad lista av token och motsvarande ikoner för delmatchning
 const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
   Object.freeze([
     { token: "GEOMETRY", icon: "polygon" },
@@ -534,9 +1243,11 @@ const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
     { token: "EMAIL", icon: "email" },
   ])
 
+// Normaliserar felkod för jämförelse (camelCase -> SNAKE_CASE)
 const normalizeCodeForMatching = (raw: string): string =>
   raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
 
+// Returnerar lämplig ikon-src för given felkod (exakt eller delmatchning)
 export const getErrorIconSrc = (code?: string): string => {
   if (typeof code !== "string") return DEFAULT_ERROR_ICON
 
@@ -560,38 +1271,60 @@ export const getErrorIconSrc = (code?: string): string => {
   return DEFAULT_ERROR_ICON
 }
 
-export const MS_LOADING = 500
-
-export const WORKSPACE_ITEM_TYPE = "WORKSPACE"
-
-export const ERROR_NAMES = {
-  CANCELLED_PROMISE: "CancelledPromiseError",
-  ABORT: "AbortError",
-} as const
-
+// AREA & UNIT CONVERSION
 const GEOMETRY_CONSTS = {
   M2_PER_KM2: 1_000_000,
   AREA_DECIMALS: 2,
+  METERS_PER_KILOMETER: 1_000,
+  SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
 } as const
 
-const METERS_PER_KILOMETER = 1_000
-const SQUARE_FEET_PER_SQUARE_MILE = 27_878_400
+// Typ för area-display (värde, enhet, decimaler)
+const UNIT_CONVERSIONS: readonly UnitConversion[] = [
+  {
+    factor: 0.3048,
+    label: "ft²",
+    keywords: ["foot", "feet"],
+    largeUnit: {
+      threshold: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      factor: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      label: "mi²",
+    },
+  },
+  { factor: 0.3048006096, label: "ft²", keywords: [] },
+  { factor: 1609.344, label: "mi²", keywords: ["mile"] },
+  {
+    factor: GEOMETRY_CONSTS.METERS_PER_KILOMETER,
+    label: "km²",
+    keywords: ["kilometer"],
+  },
+  { factor: 0.9144, label: "yd²", keywords: ["yard"] },
+  { factor: 0.0254, label: "in²", keywords: ["inch"] },
+  { factor: 0.01, label: "cm²", keywords: ["centimeter"] },
+  { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
+  { factor: 1852, label: "nm²", keywords: ["nautical"] },
+  { factor: 1, label: "m²", keywords: ["meter"] },
+] as const
 
-interface AreaDisplay {
-  value: number
-  label: string
-  decimals: number
-}
-
+// Kontrollerar om två längdenheter är ungefär lika (med tolerans)
 const approxLengthUnit = (
   value: number | undefined,
   target: number
 ): boolean => {
-  if (typeof value !== "number" || !Number.isFinite(value)) return false
+  if (!isFiniteNumber(value)) return false
   const tolerance = Math.max(1e-9, Math.abs(target) * 1e-6)
   return Math.abs(value - target) <= tolerance
 }
 
+// Bestämmer antal decimaler baserat på värde och om det är stor enhet
+const getDecimalPlaces = (value: number, isLargeUnit = false): number => {
+  if (isLargeUnit) return 2
+  if (value >= 100) return 0
+  if (value >= 10) return 1
+  return 2
+}
+
+// Normaliserar enhetsetikett (från spatialReference.unit) till lämplig text
 const normalizeUnitLabel = (unit?: string): string => {
   if (!unit) return "units²"
 
@@ -626,32 +1359,20 @@ const normalizeUnitLabel = (unit?: string): string => {
   }
 }
 
+// Formaterar area-värde med lämplig enhet baserat på spatialReference
 export const buildLargeAreaWarningMessage = ({
   currentAreaText,
   thresholdAreaText,
-  template,
   translate,
 }: {
   currentAreaText?: string | null
   thresholdAreaText?: string | null
-  template?: string | null
   translate: TranslateFn
 }): string | null => {
   const current = toTrimmedString(currentAreaText)
   if (!current) return null
 
   const threshold = toTrimmedString(thresholdAreaText)
-  const sanitizedTemplate = toTrimmedString(template)
-
-  if (sanitizedTemplate) {
-    const normalized = sanitizedTemplate.replace(/\s+/g, " ").trim()
-    const withCurrent = normalized.replace(/\{current\}/gi, current)
-    const withThreshold = threshold
-      ? withCurrent.replace(/\{threshold\}/gi, threshold)
-      : withCurrent.replace(/\{threshold\}/gi, "")
-    const cleaned = withThreshold.replace(/\s+/g, " ").trim()
-    return cleaned || null
-  }
 
   if (threshold) {
     return translate("largeAreaWarningWithThreshold", {
@@ -663,6 +1384,7 @@ export const buildLargeAreaWarningMessage = ({
   return translate("largeAreaWarning", { current })
 }
 
+// Resolverar area för display i lämplig enhet (metric om okänt spatialReference)
 const resolveMetricDisplay = (area: number): AreaDisplay => {
   if (area >= GEOMETRY_CONSTS.M2_PER_KM2) {
     return {
@@ -687,6 +1409,41 @@ const resolveMetricDisplay = (area: number): AreaDisplay => {
   }
 }
 
+// Kontrollerar om unitId innehåller någon av keywords (case-insensitive)
+const matchesUnitKeywords = (
+  unitId: string,
+  keywords: readonly string[]
+): boolean => {
+  return keywords.some((keyword) => unitId.includes(keyword))
+}
+
+// Konverterar area till lämplig enhet baserat på faktor och conversion
+const convertAreaByUnit = (
+  area: number,
+  factor: number,
+  conversion: UnitConversion
+): AreaDisplay => {
+  const convertedValue = area / (factor * factor)
+
+  if (
+    conversion.largeUnit &&
+    convertedValue >= conversion.largeUnit.threshold
+  ) {
+    return {
+      value: convertedValue / conversion.largeUnit.factor,
+      label: conversion.largeUnit.label,
+      decimals: 2,
+    }
+  }
+
+  const decimals = getDecimalPlaces(
+    convertedValue,
+    conversion.label.includes("km²") || conversion.label.includes("mi²")
+  )
+  return { value: convertedValue, label: conversion.label, decimals }
+}
+
+// Resolverar area för display baserat på spatialReference (om given)
 const resolveAreaForSpatialReference = (
   area: number,
   spatialReference?: __esri.SpatialReference | null
@@ -696,97 +1453,97 @@ const resolveAreaForSpatialReference = (
   }
 
   const metersPerUnit = spatialReference.metersPerUnit
-  const hasValidFactor =
-    typeof metersPerUnit === "number" && Number.isFinite(metersPerUnit)
+  const hasValidFactor = isFiniteNumber(metersPerUnit)
+
+  if (!hasValidFactor) {
+    return resolveMetricDisplay(area)
+  }
 
   const unitId =
     typeof spatialReference.unit === "string"
       ? spatialReference.unit.toLowerCase()
       : ""
 
-  if (!hasValidFactor) {
-    return resolveMetricDisplay(area)
-  }
-
   const factor = metersPerUnit
 
-  if (
-    approxLengthUnit(factor, 0.3048) ||
-    approxLengthUnit(factor, 0.3048006096) ||
-    unitId.includes("foot") ||
-    unitId.includes("feet")
-  ) {
-    const squareFeet = area / (factor * factor)
-    if (squareFeet >= SQUARE_FEET_PER_SQUARE_MILE) {
-      return {
-        value: squareFeet / SQUARE_FEET_PER_SQUARE_MILE,
-        label: "mi²",
-        decimals: 2,
-      }
+  for (const conversion of UNIT_CONVERSIONS) {
+    if (
+      approxLengthUnit(factor, conversion.factor) ||
+      matchesUnitKeywords(unitId, conversion.keywords)
+    ) {
+      return convertAreaByUnit(area, factor, conversion)
     }
-
-    const decimals = squareFeet >= 100 ? 0 : squareFeet >= 10 ? 1 : 2
-    return { value: squareFeet, label: "ft²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 1609.344) || unitId.includes("mile")) {
-    return {
-      value: area / (1609.344 * 1609.344),
-      label: "mi²",
-      decimals: 2,
-    }
-  }
-
-  if (
-    approxLengthUnit(factor, METERS_PER_KILOMETER) ||
-    unitId.includes("kilometer")
-  ) {
-    const value = area / (METERS_PER_KILOMETER * METERS_PER_KILOMETER)
-    const decimals = value >= 10 ? 1 : 3
-    return { value, label: "km²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.9144) || unitId.includes("yard")) {
-    const value = area / (0.9144 * 0.9144)
-    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
-    return { value, label: "yd²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.0254) || unitId.includes("inch")) {
-    const value = area / (0.0254 * 0.0254)
-    const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
-    return { value, label: "in²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.01) || unitId.includes("centimeter")) {
-    const value = area / (0.01 * 0.01)
-    const decimals = value >= 100 ? 0 : 2
-    return { value, label: "cm²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 0.001) || unitId.includes("millimeter")) {
-    const value = area / (0.001 * 0.001)
-    const decimals = value >= 100 ? 0 : 2
-    return { value, label: "mm²", decimals }
-  }
-
-  if (approxLengthUnit(factor, 1852) || unitId.includes("nautical")) {
-    return {
-      value: area / (1852 * 1852),
-      label: "nm²",
-      decimals: 2,
-    }
-  }
-
-  if (approxLengthUnit(factor, 1) || unitId.includes("meter")) {
-    return resolveMetricDisplay(area)
   }
 
   const value = area / (factor * factor)
-  const decimals = value >= 100 ? 0 : value >= 10 ? 1 : 2
+  const decimals = getDecimalPlaces(value)
   return { value, label: normalizeUnitLabel(spatialReference.unit), decimals }
 }
 
+/* Geometry Validation & Conversion */
+
+// Kontrollerar om koordinat-tupel är valid ([x, y] eller [x, y, z, m])
+const isValidCoordinateTuple = (pt: unknown): boolean =>
+  Array.isArray(pt) &&
+  pt.length >= 2 &&
+  pt.length <= 4 &&
+  pt.every(isFiniteNumber)
+
+// Jämför två koordinater för equality (med epsilon-tolerans)
+const checkCoordinatesEqual = (a: unknown, b: unknown): boolean => {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false
+  const len = Math.min(a.length, b.length, 2)
+  for (let i = 0; i < len; i++) {
+    const av = a[i]
+    const bv = b[i]
+    if (typeof av !== "number" || typeof bv !== "number") return false
+    if (!Number.isFinite(av) || !Number.isFinite(bv)) return false
+    if (Math.abs(av - bv) > 1e-9) return false
+  }
+  return true
+}
+
+// Validerar ring (minst 4 punkter, closed, valid coordinates)
+const isValidRing = (ring: unknown): boolean => {
+  if (!Array.isArray(ring) || ring.length < 4) return false
+  if (!ring.every(isValidCoordinateTuple)) return false
+
+  // Kontrollerar att första och sista punkt är identiska (closed ring)
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  return checkCoordinatesEqual(first, last)
+}
+
+// Helper: checks if value is a plain object
+const isObjectType = (value: unknown): value is object =>
+  typeof value === "object" && value !== null
+
+// Kontrollerar om värde är polygon-geometri med valid rings
+export const isPolygonGeometry = (
+  value: unknown
+): value is { rings: unknown } | { geometry: { rings: unknown } } => {
+  if (!isObjectType(value)) return false
+
+  const geom =
+    "geometry" in value ? (value as { geometry: unknown }).geometry : value
+
+  if (!isObjectType(geom)) return false
+
+  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
+
+  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
+}
+
+// Saniterar parameter-nyckel genom att ta bort ogiltiga tecken
+export const sanitizeParamKey = (name: unknown, fallback: string): string => {
+  const raw = normalizeString(name, { allowNumeric: true }) ?? ""
+  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
+  return safe || fallback
+}
+
+/* FME Parameter Building & Service Mode */
+
+// Tillåtna service modes för FME Flow submissions
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
   "sync",
   "async",
@@ -802,36 +1559,66 @@ const SCHEDULE_METADATA_FIELDS = [
 ] as const
 const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
 
+// Kontrollerar om data innehåller valid schedule-metadata
+const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
+  const startVal = toTrimmedString(data.start)
+  const category = toTrimmedString(data.category)
+  const name = toTrimmedString(data.name)
+
+  if (!startVal || !category || !name) return false
+
+  const validation = validateScheduleMetadata({
+    start: startVal,
+    name,
+    category,
+    description: toTrimmedString(data.description),
+  })
+
+  if (validation.warnings?.pastTime) {
+    logIfNotAbort(
+      "Schedule start time is in the past - job may execute immediately or fail",
+      { startTime: startVal, warnings: validation.warnings }
+    )
+  }
+
+  if (!validation.valid && validation.errors) {
+    logIfNotAbort("Schedule metadata validation failed", {
+      errors: validation.errors,
+    })
+  }
+
+  return validation.valid
+}
+
+// Validerar och normaliserar service mode (sync, async, schedule)
+const _filterScheduleFields = (data: {
+  [key: string]: unknown
+}): { [key: string]: unknown } => {
+  const filtered: { [key: string]: unknown } = {}
+  for (const [key, value] of Object.entries(data)) {
+    if (!SCHEDULE_METADATA_KEYS.has(key)) filtered[key] = value
+  }
+  return filtered
+}
+
+// Saniterar schedule-metadata (tar bort eller behåller beroende på mode)
 const sanitizeScheduleMetadata = (
   data: { [key: string]: unknown },
   mode: ServiceMode
 ): { [key: string]: unknown } => {
   if (mode !== "schedule") {
-    const pruned: { [key: string]: unknown } = {}
-    for (const [key, value] of Object.entries(data)) {
-      if (!SCHEDULE_METADATA_KEYS.has(key)) {
-        pruned[key] = value
-      }
-    }
-    return pruned
+    return _filterScheduleFields(data)
   }
 
   const sanitized: { [key: string]: unknown } = {}
   for (const [key, value] of Object.entries(data)) {
     if (!SCHEDULE_METADATA_KEYS.has(key)) {
       sanitized[key] = value
-      continue
-    }
-
-    if (key === "trigger") {
-      const trimmedTrigger = toTrimmedString(value)
-      sanitized.trigger = trimmedTrigger ?? SCHEDULE_TRIGGER_DEFAULT
-      continue
-    }
-
-    const trimmedValue = toTrimmedString(value)
-    if (trimmedValue) {
-      sanitized[key] = trimmedValue
+    } else if (key === "trigger") {
+      sanitized.trigger = toTrimmedString(value) ?? SCHEDULE_TRIGGER_DEFAULT
+    } else {
+      const trimmedValue = toTrimmedString(value)
+      if (trimmedValue) sanitized[key] = trimmedValue
     }
   }
 
@@ -842,85 +1629,387 @@ const sanitizeScheduleMetadata = (
   return sanitized
 }
 
-export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  const raw =
-    typeof name === "string"
-      ? name
-      : typeof name === "number" && Number.isFinite(name)
-        ? String(name)
-        : ""
+const RUNTIME_ASYNC_THRESHOLD_SECONDS = 5
+const TRANSFORMER_ASYNC_THRESHOLD = 120
+const FILE_SIZE_ASYNC_THRESHOLD_BYTES = 25 * 1024 * 1024
 
-  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
-  return safe || fallback
+const RUNTIME_PROPERTY_KEYS = Object.freeze([
+  "estimatedRuntimeSeconds",
+  "estimatedRunSeconds",
+  "estimatedDurationSeconds",
+  "avgRuntimeSeconds",
+  "averageRuntimeSeconds",
+  "expectedRuntimeSeconds",
+  "expectedRunTimeSeconds",
+  "estimated_runtime_seconds",
+  "estimated_run_seconds",
+  "estimated_duration_seconds",
+])
+
+const TRANSFORMER_PROPERTY_KEYS = Object.freeze([
+  "transformerCount",
+  "transformer_count",
+  "estimatedTransformerCount",
+])
+
+const FILE_SIZE_PROPERTY_KEYS = Object.freeze([
+  "fileSizeBytes",
+  "fileSize",
+  "estimatedDataSizeBytes",
+  "estimatedDataSize",
+  "estimatedFileSize",
+])
+
+const parseRuntimeSeconds = (value: unknown): number | null => {
+  if (isFiniteNumber(value) && value >= 0) {
+    return value
+  }
+
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const lower = trimmed.toLowerCase()
+
+  const isoMatch = lower.match(/^pt(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/)
+  if (isoMatch) {
+    const hours = Number(isoMatch[1] || 0)
+    const minutes = Number(isoMatch[2] || 0)
+    const seconds = Number(isoMatch[3] || 0)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  const hmsMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (hmsMatch) {
+    const hours = Number(hmsMatch[1] || 0)
+    const minutes = Number(hmsMatch[2] || 0)
+    const seconds = Number(hmsMatch[3] || 0)
+    return hours * 3600 + minutes * 60 + seconds
+  }
+
+  const numericMatch = trimmed.match(/(-?\d+(?:\.\d+)?)/)
+  if (!numericMatch) return null
+
+  const numeric = Number(numericMatch[1])
+  if (!Number.isFinite(numeric) || numeric < 0) return null
+
+  if (lower.includes("hour")) return numeric * 3600
+  if (lower.includes("min")) return numeric * 60
+  if (lower.includes("ms")) return numeric / 1000
+  if (lower.includes("sec") || lower.endsWith("s")) return numeric
+
+  return numeric
 }
 
-// Geometry validation
-const isValidCoordinateTuple = (pt: unknown): boolean =>
-  Array.isArray(pt) &&
-  pt.length >= 2 &&
-  pt.length <= 4 &&
-  pt.every((n) => Number.isFinite(n))
+const getFirstNumericProperty = (
+  source: { readonly [key: string]: unknown } | undefined,
+  keys: readonly string[],
+  parser: (value: unknown) => number | null
+): number | null => {
+  if (!isPlainObject(source)) return null
+  for (const key of keys) {
+    if (!(key in source)) continue
+    const parsed = parser(source[key])
+    if (parsed !== null && parsed !== undefined) {
+      return parsed
+    }
+  }
+  return null
+}
 
-const isValidRing = (ring: unknown): boolean =>
-  Array.isArray(ring) && ring.length >= 3 && ring.every(isValidCoordinateTuple)
+const extractRuntimeSeconds = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
 
-export const isPolygonGeometry = (
-  value: unknown
-): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!value || typeof value !== "object") return false
+  const direct = parseRuntimeSeconds(
+    (workspace as { estimatedRuntimeSeconds?: unknown }).estimatedRuntimeSeconds
+  )
+  if (direct != null) return direct
 
-  const geom =
-    "geometry" in (value as any)
-      ? (value as { geometry: unknown }).geometry
-      : value
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
 
-  if (!geom || typeof geom !== "object") return false
+  const fromProps = getFirstNumericProperty(
+    props,
+    RUNTIME_PROPERTY_KEYS,
+    parseRuntimeSeconds
+  )
+  if (fromProps != null) return fromProps
 
-  const rings =
-    "rings" in (geom as any) ? (geom as { rings: unknown }).rings : undefined
+  const nestedPerformance = isPlainObject((props as any)?.performance)
+    ? ((props as any).performance as { readonly [key: string]: unknown })
+    : undefined
+  const fromPerformance = getFirstNumericProperty(
+    nestedPerformance,
+    RUNTIME_PROPERTY_KEYS,
+    parseRuntimeSeconds
+  )
+  if (fromPerformance != null) return fromPerformance
 
-  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
+  const fallbackKeys = [
+    "estimatedRuntime",
+    "estimatedRuntimeSec",
+    "expectedRuntime",
+  ]
+  for (const key of fallbackKeys) {
+    const value = parseRuntimeSeconds((workspace as any)[key])
+    if (value != null) return value
+  }
+
+  return null
+}
+
+const toPositiveInteger = (value: unknown): number | null => {
+  if (isFiniteNumber(value) && value >= 0) return Math.round(value)
+  if (typeof value === "string") {
+    const match = value.match(/(\d+)/)
+    if (match) {
+      const parsed = Number(match[1])
+      if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed)
+    }
+  }
+  return null
+}
+
+export const parseNonNegativeInt = (val: string): number | undefined => {
+  const trimmed = typeof val === "string" ? val.trim() : String(val)
+  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined
+  const n = Number(trimmed)
+  if (!Number.isFinite(n) || n < 0) return undefined
+  return Math.floor(n)
+}
+
+const extractTransformerCount = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
+  const direct = toPositiveInteger((workspace as any).transformerCount)
+  if (direct != null) return direct
+
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
+
+  const fromProps = getFirstNumericProperty(
+    props,
+    TRANSFORMER_PROPERTY_KEYS,
+    toPositiveInteger
+  )
+  if (fromProps != null) return fromProps
+
+  return null
+}
+
+const parseFileSizeBytes = (value: unknown): number | null => {
+  if (isFiniteNumber(value) && value > 0) {
+    if (value > 4096) {
+      return value
+    }
+    return value * 1024 * 1024
+  }
+
+  if (typeof value !== "string") return null
+
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed) return null
+
+  const match = trimmed.match(/(\d+(?:\.\d+)?)/)
+  if (!match) return null
+
+  const numeric = Number(match[1])
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+
+  if (trimmed.includes("gb")) return numeric * 1024 * 1024 * 1024
+  if (trimmed.includes("mb")) return numeric * 1024 * 1024
+  if (trimmed.includes("kb")) return numeric * 1024
+  if (trimmed.includes("byte")) return numeric
+
+  if (numeric > 4096) return numeric
+  if (numeric > 1024) return numeric
+
+  return numeric * 1024 * 1024
+}
+
+const extractFileSizeBytes = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): number | null => {
+  if (!workspace) return null
+  const direct = parseFileSizeBytes((workspace as any).fileSize)
+  if (direct != null) return direct
+
+  const props = isPlainObject(workspace.properties)
+    ? (workspace.properties as { readonly [key: string]: unknown })
+    : undefined
+
+  const fromProps = getFirstNumericProperty(
+    props,
+    FILE_SIZE_PROPERTY_KEYS,
+    parseFileSizeBytes
+  )
+  if (fromProps != null) return fromProps
+
+  return null
+}
+
+const shouldForceAsyncMode = (
+  config: FmeExportConfig | undefined,
+  options?: {
+    workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
+    areaWarning?: boolean
+    drawnArea?: number
+  }
+): ForceAsyncResult | null => {
+  if (!options) return null
+
+  if (options.areaWarning) {
+    return {
+      reason: "area",
+      value: options.drawnArea,
+      threshold: config?.largeArea,
+    }
+  }
+
+  if (typeof config?.largeArea === "number" && options.drawnArea != null) {
+    if (options.drawnArea > config.largeArea) {
+      return {
+        reason: "area",
+        value: options.drawnArea,
+        threshold: config.largeArea,
+      }
+    }
+  }
+
+  const runtimeSeconds = extractRuntimeSeconds(options.workspaceItem)
+  if (
+    runtimeSeconds != null &&
+    runtimeSeconds >= RUNTIME_ASYNC_THRESHOLD_SECONDS
+  ) {
+    return {
+      reason: "runtime",
+      value: runtimeSeconds,
+      threshold: RUNTIME_ASYNC_THRESHOLD_SECONDS,
+    }
+  }
+
+  const transformerCount = extractTransformerCount(options.workspaceItem)
+  if (
+    transformerCount != null &&
+    transformerCount >= TRANSFORMER_ASYNC_THRESHOLD
+  ) {
+    return {
+      reason: "transformers",
+      value: transformerCount,
+      threshold: TRANSFORMER_ASYNC_THRESHOLD,
+    }
+  }
+
+  const fileSizeBytes = extractFileSizeBytes(options.workspaceItem)
+  if (
+    fileSizeBytes != null &&
+    fileSizeBytes >= FILE_SIZE_ASYNC_THRESHOLD_BYTES
+  ) {
+    return {
+      reason: "fileSize",
+      value: fileSizeBytes,
+      threshold: FILE_SIZE_ASYNC_THRESHOLD_BYTES,
+    }
+  }
+
+  return null
 }
 
 export const determineServiceMode = (
   formData: unknown,
-  config?: FmeExportConfig
+  config?: FmeExportConfig,
+  options?: DetermineServiceModeOptions
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
 
-  const startValRaw = data.start as unknown
-  const hasStart =
-    typeof startValRaw === "string" && startValRaw.trim().length > 0
-
-  if (config?.allowScheduleMode && hasStart) return "schedule"
+  if (config?.allowScheduleMode && hasScheduleData(data)) {
+    return "schedule"
+  }
 
   const override =
     typeof data._serviceMode === "string"
       ? data._serviceMode.trim().toLowerCase()
       : ""
 
-  if (override === "sync" || override === "async")
-    return override as ServiceMode
-  if (override === "schedule" && config?.allowScheduleMode) return "schedule"
+  if (override === "schedule" && config?.allowScheduleMode) {
+    return "schedule"
+  }
 
-  return config?.syncMode ? "sync" : "async"
+  let resolved: ServiceMode
+  if (override === "sync" || override === "async") {
+    resolved = override as ServiceMode
+  } else {
+    resolved = config?.syncMode ? "sync" : "async"
+  }
+
+  const forceInfo = shouldForceAsyncMode(config, {
+    workspaceItem: options?.workspaceItem,
+    areaWarning: options?.areaWarning,
+    drawnArea: options?.drawnArea,
+  })
+
+  if (forceInfo && resolved === "sync") {
+    options?.onModeOverride?.({
+      forcedMode: "async",
+      previousMode: "sync",
+      reason: forceInfo.reason,
+      value: forceInfo.value,
+      threshold: forceInfo.threshold,
+    })
+    return "async"
+  }
+
+  return resolved
+}
+
+export const buildScheduleSummary = (data: {
+  [key: string]: unknown
+}): string | null => {
+  const startVal = toTrimmedString(data.start)
+  const name = toTrimmedString(data.name)
+  const category = toTrimmedString(data.category)
+  const description = toTrimmedString(data.description)
+
+  if (!startVal || !name || !category) {
+    return null
+  }
+
+  const parts = [
+    `Job Name: ${name}`,
+    `Category: ${category}`,
+    `Start Time: ${startVal} (FME Server time)`,
+  ]
+
+  if (description) {
+    parts.push(`Description: ${description}`)
+  }
+
+  return parts.join("\n")
 }
 
 export const buildFmeParams = (
   formData: unknown,
   userEmail: string,
-  serviceMode: ServiceMode = "async"
+  serviceMode: ServiceMode = "async",
+  config?: FmeExportConfig | null
 ): { [key: string]: unknown } => {
   const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
   const mode = ALLOWED_SERVICE_MODES.includes(serviceMode)
     ? serviceMode
     : "async"
+  const includeResult = config?.showResult ?? true
 
   const base: { [key: string]: unknown } = {
     ...data,
     opt_servicemode: mode,
     opt_responseformat: "json",
-    opt_showresult: "true",
+    opt_showresult: includeResult ? "true" : "false",
   }
 
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
@@ -933,16 +2022,12 @@ export const buildFmeParams = (
 
 const normalizeCoordinate = (vertex: unknown): number[] | null => {
   if (!Array.isArray(vertex) || vertex.length < 2) return null
-  const values = vertex.map((part) =>
+  const [x, y, z, m] = vertex.map((part) =>
     typeof part === "string" ? Number(part) : (part as number)
   )
-  const x = values[0]
-  const y = values[1]
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null
 
   const result: number[] = [x, y]
-  const z = values[2]
-  const m = values[3]
   if (Number.isFinite(z)) result.push(z)
   if (Number.isFinite(m)) result.push(m)
   return result
@@ -995,62 +2080,64 @@ const extractRings = (poly: any): any[] => {
 
 const formatNumberForWkt = (value: number): string => {
   if (!Number.isFinite(value)) return "0"
-
   const str = value.toString()
   const hasScientific = /[eE]/.test(str)
   const raw = hasScientific ? value.toFixed(12) : str
   const trimmed = raw.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
-
   return trimmed || "0"
 }
 
 export const polygonJsonToGeoJson = (poly: any): any => {
   if (!poly) return null
-
   try {
     const rings = extractRings(poly)
-    if (!rings.length) return null
-
+    if (!rings.length) {
+      console.log("polygonJsonToGeoJson: No rings found in polygon", poly)
+      return null
+    }
     const normalized = rings
       .map(normalizeRing)
       .filter((ring) => ring.length >= 4)
-
-    if (!normalized.length) return null
-
+    if (!normalized.length) {
+      console.log(
+        "polygonJsonToGeoJson: No valid rings after normalization",
+        poly
+      )
+      return null
+    }
     return {
       type: "Polygon",
       coordinates: normalized,
     }
-  } catch {
+  } catch (err) {
+    console.log("polygonJsonToGeoJson: Serialization failed", err, poly)
     return null
   }
 }
 
 const serializeCoordinate = (coords: unknown): string | null => {
   if (!Array.isArray(coords) || coords.length < 2) return null
-
   const values: string[] = []
   for (const raw of coords) {
     const num = typeof raw === "number" ? raw : Number(raw)
     if (!Number.isFinite(num)) return null
     values.push(formatNumberForWkt(num))
   }
-
   return values.length >= 2 ? values.join(" ") : null
 }
 
+// Serialiserar ring till WKT-format (array av koordinat-strängar)
 const serializeRing = (ring: unknown): string[] => {
   if (!Array.isArray(ring)) return []
-
   const parts: string[] = []
   for (const vertex of ring) {
     const serialized = serializeCoordinate(vertex)
     if (serialized) parts.push(serialized)
   }
-
   return parts
 }
 
+// Konverterar polygon JSON till WKT-format (Well-Known Text)
 export const polygonJsonToWkt = (poly: any): string => {
   const geojson = polygonJsonToGeoJson(poly)
   if (!geojson) return "POLYGON EMPTY"
@@ -1072,9 +2159,11 @@ export const polygonJsonToWkt = (poly: any): string => {
   return `POLYGON(${serialized.join(", ")})`
 }
 
+// Kontrollerar om spatial reference är WGS84 (WKID 4326)
 const isWgs84Spatial = (sr: any): boolean =>
   sr?.isWGS84 === true || sr?.wkid === 4326
 
+// Projicerar polygon till WGS84 via ArcGIS projection engine
 const projectToWgs84 = (
   poly: __esri.Polygon,
   modules: EsriModules
@@ -1096,6 +2185,7 @@ const projectToWgs84 = (
   return (projected as __esri.Polygon) || null
 }
 
+// Konverterar polygon JSON till WGS84 (projicerar vid behov)
 export const toWgs84PolygonJson = (
   polyJson: any,
   modules: EsriModules | null | undefined
@@ -1104,7 +2194,10 @@ export const toWgs84PolygonJson = (
 
   try {
     const poly = modules.Polygon.fromJSON(polyJson)
-    if (!poly) return polyJson
+    if (!poly) {
+      console.log("toWgs84PolygonJson: Failed to create Polygon from JSON")
+      return polyJson
+    }
 
     const sr = (poly as any).spatialReference
     if (isWgs84Spatial(sr)) {
@@ -1113,7 +2206,14 @@ export const toWgs84PolygonJson = (
 
     const projected = projectToWgs84(poly, modules)
     if (projected?.toJSON) {
-      return projected.toJSON()
+      const result = projected.toJSON()
+      const resultSr = result?.spatialReference
+      if (isWgs84Spatial(resultSr)) {
+        return result
+      }
+      console.log(
+        "toWgs84PolygonJson: Projection did not produce WGS84 geometry"
+      )
     }
 
     const { webMercatorUtils } = modules
@@ -1126,12 +2226,17 @@ export const toWgs84PolygonJson = (
       }
     }
 
+    console.log(
+      "toWgs84PolygonJson: Returning original polygon (projection failed)"
+    )
     return poly.toJSON()
-  } catch {
+  } catch (err) {
+    console.log("toWgs84PolygonJson: Error during projection", err)
     return polyJson
   }
 }
 
+// Skapar error state för AOI-serialiseringsfel
 const createAoiSerializationError = (): ErrorState => ({
   message: "GEOMETRY_SERIALIZATION_FAILED",
   type: ErrorType.GEOMETRY,
@@ -1142,11 +2247,7 @@ const createAoiSerializationError = (): ErrorState => ({
   timestampMs: Date.now(),
 })
 
-const sanitizeOptionalParamName = (name: unknown): string | undefined => {
-  const sanitized = sanitizeParamKey(name, "")
-  return sanitized || undefined
-}
-
+// Samlar alla GEOMETRY-parameter-namn från workspace-parametrar
 const collectGeometryParamNames = (
   params?: readonly WorkspaceParameter[] | null
 ): readonly string[] => {
@@ -1163,13 +2264,7 @@ const collectGeometryParamNames = (
   return names
 }
 
-const resolveDerivedParamNames = (
-  config?: FmeExportConfig
-): DerivedParamNames => ({
-  geoJsonName: sanitizeOptionalParamName(config?.aoiGeoJsonParamName),
-  wktName: sanitizeOptionalParamName(config?.aoiWktParamName),
-})
-
+// Extraherar polygon JSON från geometryJson eller currentGeometry fallback
 const extractPolygonJson = (
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined
@@ -1183,6 +2278,7 @@ const extractPolygonJson = (
   return isPolygonGeometry(fallback) ? fallback : null
 }
 
+// Safe JSON stringify med error-hantering
 const safeStringify = (value: unknown): string | null => {
   try {
     return JSON.stringify(value)
@@ -1191,42 +2287,12 @@ const safeStringify = (value: unknown): string | null => {
   }
 }
 
-const projectToWgs84Safe = (
-  aoiJson: unknown,
-  modules: EsriModules | null | undefined
-): any => {
-  try {
-    return toWgs84PolygonJson(aoiJson, modules)
-  } catch {
-    return null
-  }
-}
-
-const appendDerivedAoiFormats = (
-  target: { [key: string]: unknown },
-  wgs84Polygon: any,
-  names: DerivedParamNames
-) => {
-  if (!wgs84Polygon) return
-  const { geoJsonName, wktName } = names
-
-  if (geoJsonName) {
-    const geojson = polygonJsonToGeoJson(wgs84Polygon)
-    const serialized = geojson ? safeStringify(geojson) : null
-    if (serialized) target[geoJsonName] = serialized
-  }
-
-  if (wktName) {
-    const wkt = polygonJsonToWkt(wgs84Polygon)
-    if (wkt) target[wktName] = wkt
-  }
-}
-
+// Attachar AOI (polygon) till FME parameters med serialisering
 export const attachAoi = (
   base: { [key: string]: unknown },
   geometryJson: unknown,
   currentGeometry: __esri.Geometry | undefined,
-  modules: EsriModules | null | undefined,
+  _modules: EsriModules | null | undefined,
   config?: FmeExportConfig,
   geometryParamNames?: readonly string[]
 ): { [key: string]: unknown } => {
@@ -1255,12 +2321,6 @@ export const attachAoi = (
     }
   }
 
-  const derivedNames = resolveDerivedParamNames(config)
-  if (derivedNames.geoJsonName || derivedNames.wktName) {
-    const wgs84Polygon = projectToWgs84Safe(aoiJson, modules)
-    appendDerivedAoiFormats(result, wgs84Polygon, derivedNames)
-  }
-
   return result
 }
 
@@ -1276,21 +2336,13 @@ export const applyDirectiveDefaults = (
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
   }
 
-  if (!hasOwn(out, "tm_ttc")) {
+  if (!("tm_ttc" in out)) {
     const v = toPosInt(config.tm_ttc)
     if (v !== undefined) out.tm_ttc = v
   }
-  if (!hasOwn(out, "tm_ttl")) {
+  if (!("tm_ttl" in out)) {
     const v = toPosInt(config.tm_ttl)
     if (v !== undefined) out.tm_ttl = v
-  }
-  if (!hasOwn(out, "tm_tag")) {
-    const tag = toTrimmedString(config.tm_tag)
-    if (tag) out.tm_tag = tag.substring(0, 128)
-  }
-  if (!hasOwn(out, "tm_description")) {
-    const description = toTrimmedString(config.tm_description)
-    if (description) out.tm_description = description.substring(0, 512)
   }
 
   return out
@@ -1305,13 +2357,21 @@ export const prepFmeParams = (
   options?: {
     config?: FmeExportConfig
     workspaceParameters?: readonly WorkspaceParameter[] | null
+    workspaceItem?: WorkspaceItemDetail | null
+    areaWarning?: boolean
+    drawnArea?: number
   }
 ): { [key: string]: unknown } => {
-  const { config, workspaceParameters } = options || {}
+  const { config, workspaceParameters, workspaceItem, areaWarning, drawnArea } =
+    options || {}
   const original = ((formData as any)?.data || {}) as {
     [key: string]: unknown
   }
-  const chosen = determineServiceMode({ data: original }, config)
+  const chosen = determineServiceMode({ data: original }, config, {
+    workspaceItem,
+    areaWarning,
+    drawnArea,
+  })
   const {
     _serviceMode: _ignoredServiceMode,
     __upload_file__: _ignoredUpload,
@@ -1321,7 +2381,7 @@ export const prepFmeParams = (
 
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 
-  const base = buildFmeParams({ data: sanitized }, userEmail, chosen)
+  const base = buildFmeParams({ data: sanitized }, userEmail, chosen, config)
   const geometryParamNames = collectGeometryParamNames(workspaceParameters)
   const withAoi = attachAoi(
     base,
@@ -1369,39 +2429,22 @@ export function formatArea(
 
 export const getEmail = async (_config?: FmeExportConfig): Promise<string> => {
   const user = await SessionManager.getInstance().getUserInfo()
-  const email = user?.email
-  if (!email) {
+  const email = (user?.email || _config?.defaultRequesterEmail || "")
+    .trim()
+    .toLowerCase()
+
+  const isEmail = EMAIL_REGEX.test(email)
+  if (!isEmail) {
     const err = new Error("MISSING_REQUESTER_EMAIL")
     err.name = "MISSING_REQUESTER_EMAIL"
-    throw err
-  }
-  if (!isValidEmail(email)) {
-    const err = new Error("INVALID_EMAIL")
-    err.name = "INVALID_EMAIL"
     throw err
   }
   return email
 }
 
-export const toStr = (val: unknown): string => {
-  if (typeof val === "string") return val
-  if (typeof val === "number" || typeof val === "boolean") return String(val)
-  if (val && typeof val === "object") {
-    try {
-      return JSON.stringify(val)
-    } catch {
-      return Object.prototype.toString.call(val)
-    }
-  }
-  return val === undefined
-    ? "undefined"
-    : val === null
-      ? "null"
-      : Object.prototype.toString.call(val)
-}
-
-export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
-  const base = serverUrl
+// Bygger URL från bas och segment, tar bort ev. fmeserver/fmerest i slutet
+const _composeUrl = (base: string, segments: string[]): string => {
+  const normalizedBase = base
     .replace(/\/(?:fmeserver|fmerest)$/i, "")
     .replace(/\/$/, "")
 
@@ -1417,8 +2460,11 @@ export const buildUrl = (serverUrl: string, ...segments: string[]): string => {
     .map((seg) => encodePath(seg))
     .join("/")
 
-  return path ? `${base}/${path}` : base
+  return path ? `${normalizedBase}/${path}` : normalizedBase
 }
+
+export const buildUrl = (serverUrl: string, ...segments: string[]): string =>
+  _composeUrl(serverUrl, segments)
 
 export const resolveRequestUrl = (
   endpoint: string,
@@ -1448,7 +2494,7 @@ export const buildParams = (
   webhookDefaults = false
 ): URLSearchParams => {
   const urlParams = new URLSearchParams()
-  if (!params || typeof params !== "object") return urlParams
+  if (typeof params !== "object" || params === null) return urlParams
 
   const excludeSet = new Set(excludeKeys)
   for (const [key, value] of Object.entries(params)) {
@@ -1502,7 +2548,7 @@ export const safeLogParams = (
   _params: URLSearchParams,
   _whitelist: readonly string[]
 ): void => {
-  // Intentionally a no-op to avoid logging sensitive data; reference params to prevent unused-var lint errors
+  // Temporär no-op för att undvika loggning av känsliga data
   void (_label, _url, _params, _whitelist)
 }
 
@@ -1581,8 +2627,11 @@ export const isJson = (contentType: string | null): boolean =>
   (contentType ?? "").toLowerCase().includes("application/json")
 
 export const safeParseUrl = (raw: string): URL | null => {
+  const trimmed = (raw || "").trim()
+  if (!trimmed) return null
+
   try {
-    return new URL((raw || "").trim())
+    return new URL(trimmed)
   } catch {
     return null
   }
@@ -1610,24 +2659,18 @@ export const extractErrorMessage = (error: unknown): string => {
   return "Unknown error occurred"
 }
 
-export const parseNonNegativeInt = (val: string): number | undefined => {
-  const n = Number(val)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.floor(n)
-}
-
+// TEMPORAL UTILITIES (DATE/TIME PARSING & FORMATTING)
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
 const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i
 const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/
 
-export const extractTemporalParts = (
-  raw: string
+const parseTemporalComponents = (
+  input: string
 ): { base: string; fraction: string; offset: string } => {
-  const trimmed = (raw || "").trim()
-  if (!trimmed) return { base: "", fraction: "", offset: "" }
+  if (!input) return { base: "", fraction: "", offset: "" }
 
-  let base = trimmed
+  let base = input
   let offset = ""
   const offsetMatch = OFFSET_SUFFIX_RE.exec(base)
   if (offsetMatch?.[1]) {
@@ -1645,29 +2688,11 @@ export const extractTemporalParts = (
   return { base, fraction, offset }
 }
 
-const normalizeIsoTimeParts = (
-  time: string
-): {
-  time: string
-  fraction: string
-  offset: string
-} => {
-  let working = time
-  let offset = ""
-  const offsetMatch = OFFSET_SUFFIX_RE.exec(working)
-  if (offsetMatch?.[1]) {
-    offset = offsetMatch[1]
-    working = working.slice(0, -offset.length)
-  }
-
-  let fraction = ""
-  const fractionMatch = FRACTION_SUFFIX_RE.exec(working)
-  if (fractionMatch?.[0]) {
-    fraction = fractionMatch[0]
-    working = working.slice(0, -fraction.length)
-  }
-
-  return { time: working, fraction, offset }
+export const extractTemporalParts = (
+  raw: string
+): { base: string; fraction: string; offset: string } => {
+  const trimmed = (raw || "").trim()
+  return parseTemporalComponents(trimmed)
 }
 
 const safePad2 = (part?: string): string | null => {
@@ -1676,10 +2701,21 @@ const safePad2 = (part?: string): string | null => {
   return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null
 }
 
+// Datumkonvertering mellan FME-format (YYYYMMDD) och HTML5 input (YYYY-MM-DD)
 export const fmeDateToInput = (v: string): string => {
   const s = (v || "").replace(/\D/g, "")
   if (s.length !== 8) return ""
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
+  const year = s.slice(0, 4)
+  const month = s.slice(4, 6)
+  const day = s.slice(6, 8)
+  const y = Number(year)
+  const m = Number(month)
+  const d = Number(day)
+  if (y < 1000 || y > 9999) return ""
+  if (m < 1 || m > 12) return ""
+  if (d < 1 || d > 31) return ""
+
+  return `${year}-${month}-${day}`
 }
 
 export const inputToFmeDate = (v: string): string =>
@@ -1702,26 +2738,43 @@ export const inputToFmeDateTime = (v: string, original?: string): string => {
   if (!v) return ""
   const s = v.trim()
   const [date, time] = s.split("T")
-  if (!date || !time) return ""
+  if (!date || !time) {
+    console.log("inputToFmeDateTime: Invalid ISO format", v)
+    return ""
+  }
 
   const [y, m, d] = date.split("-")
   const {
-    time: timePart,
+    base: timePart,
     fraction: isoFraction,
     offset: isoOffset,
-  } = normalizeIsoTimeParts(time)
+  } = parseTemporalComponents(time)
   const [hh, mi, ssRaw] = timePart.split(":")
 
-  if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) return ""
+  if (!y || y.length !== 4 || !/^\d{4}$/.test(y)) {
+    console.log("inputToFmeDateTime: Invalid year", y)
+    return ""
+  }
 
   const m2 = safePad2(m)
   const d2 = safePad2(d)
   const hh2 = safePad2(hh)
   const mi2 = safePad2(mi)
-  if (!m2 || !d2 || !hh2 || !mi2) return ""
+  if (!m2 || !d2 || !hh2 || !mi2) {
+    console.log("inputToFmeDateTime: Invalid date/time components", {
+      m,
+      d,
+      hh,
+      mi,
+    })
+    return ""
+  }
 
   const ss2 = ssRaw ? safePad2(ssRaw) : "00"
-  if (ss2 === null) return ""
+  if (ss2 === null) {
+    console.log("inputToFmeDateTime: Invalid seconds", ssRaw)
+    return ""
+  }
 
   const base = `${y}${m2}${d2}${hh2}${mi2}${ss2}`
   const originalExtras = original ? extractTemporalParts(original) : null
@@ -1742,10 +2795,10 @@ export const fmeTimeToInput = (v: string): string => {
 export const inputToFmeTime = (v: string, original?: string): string => {
   if (!v) return ""
   const {
-    time: timePart,
+    base: timePart,
     fraction: isoFraction,
     offset: isoOffset,
-  } = normalizeIsoTimeParts(v)
+  } = parseTemporalComponents(v)
   const parts = timePart.split(":").map((x) => x || "")
   const hh = parts[0] || ""
   const mm = parts[1] || ""
@@ -1766,28 +2819,25 @@ export const inputToFmeTime = (v: string, original?: string): string => {
   return `${base}${fraction}${offset}`
 }
 
-const clamp01 = (value: number): number => {
-  if (!Number.isFinite(value)) return 0
-  if (value <= 0) return 0
-  if (value >= 1) return 1
-  return value
+// COLOR CONVERSION UTILITIES
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, value))
 }
 
-const clamp255 = (value: number): number => {
-  if (!Number.isFinite(value)) return 0
-  if (value <= 0) return 0
-  if (value >= 255) return 255
-  return value
-}
-
+const clamp01 = (value: number): number => clamp(value, 0, 1)
+const clamp255 = (value: number): number => clamp(value, 0, 255)
 const toHexComponent = (value: number): string =>
   Math.round(clamp255(value)).toString(16).padStart(2, "0")
 
-const rgbToHexString = (r: number, g: number, b: number): string =>
-  `#${toHexComponent(r)}${toHexComponent(g)}${toHexComponent(b)}`
-
 const formatUnitFraction = (value: number): string =>
   Number(clamp01(value).toFixed(6)).toString()
+
+const formatRgbFraction = (value: number): string =>
+  formatUnitFraction(value / 255)
+
+const rgbToHexString = (r: number, g: number, b: number): string =>
+  `#${toHexComponent(r)}${toHexComponent(g)}${toHexComponent(b)}`
 
 const cmykToRgb = (
   c: number,
@@ -1799,13 +2849,10 @@ const cmykToRgb = (
   const mm = clamp01(m)
   const yy = clamp01(y)
   const kk = clamp01(k)
-  const r = 255 * (1 - cc) * (1 - kk)
-  const g = 255 * (1 - mm) * (1 - kk)
-  const b = 255 * (1 - yy) * (1 - kk)
   return {
-    r: clamp255(r),
-    g: clamp255(g),
-    b: clamp255(b),
+    r: clamp255(255 * (1 - cc) * (1 - kk)),
+    g: clamp255(255 * (1 - mm) * (1 - kk)),
+    b: clamp255(255 * (1 - yy) * (1 - kk)),
   }
 }
 
@@ -1818,17 +2865,14 @@ const rgbToCmyk = (
   const gn = clamp01(g / 255)
   const bn = clamp01(b / 255)
   const k = 1 - Math.max(rn, gn, bn)
-  if (k >= 0.999999) {
-    return { c: 0, m: 0, y: 0, k: 1 }
-  }
+
+  if (k >= 0.999999) return { c: 0, m: 0, y: 0, k: 1 }
+
   const denom = 1 - k
-  const c = (1 - rn - k) / denom
-  const m = (1 - gn - k) / denom
-  const y = (1 - bn - k) / denom
   return {
-    c: clamp01(c),
-    m: clamp01(m),
-    y: clamp01(y),
+    c: clamp01((1 - rn - k) / denom),
+    m: clamp01((1 - gn - k) / denom),
+    y: clamp01((1 - bn - k) / denom),
     k: clamp01(k),
   }
 }
@@ -1837,11 +2881,14 @@ const parseNormalizedParts = (value: string): number[] =>
   (value || "")
     .split(",")
     .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-    .map((segment) => Number(segment))
+    .filter(Boolean)
+    .map(Number)
 
-const formatRgbFraction = (value: number): string =>
-  formatUnitFraction(value / 255)
+export const hexToRgbArray = (hex: string): [number, number, number] => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "")
+  const n = m ? parseInt(m[1], 16) : parseInt(DEFAULT_DRAWING_HEX.slice(1), 16)
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]
+}
 
 export const normalizedRgbToHex = (
   v: string,
@@ -1855,17 +2902,15 @@ export const normalizedRgbToHex = (
     (!config?.space && !config?.alpha && parts.length === 4)
 
   if (treatAsCmyk) {
-    if (parts.length < 4) return null
+    if (parts.length < 4 || !parts.slice(0, 4).every(Number.isFinite))
+      return null
     const [c, m, y, k] = parts
-    if ([c, m, y, k].some((value) => !Number.isFinite(value))) return null
     const rgb = cmykToRgb(c, m, y, k)
     return rgbToHexString(rgb.r, rgb.g, rgb.b)
   }
 
-  if (parts.length < 3) return null
+  if (parts.length < 3 || !parts.slice(0, 3).every(Number.isFinite)) return null
   const [rPart, gPart, bPart] = parts
-  if ([rPart, gPart, bPart].some((value) => !Number.isFinite(value)))
-    return null
   const r = clamp255(Math.round(clamp01(rPart) * 255))
   const g = clamp255(Math.round(clamp01(gPart) * 255))
   const b = clamp255(Math.round(clamp01(bPart) * 255))
@@ -1878,6 +2923,7 @@ export const hexToNormalizedRgb = (
 ): string | null => {
   const match = /^#?([0-9a-f]{6})$/i.exec(hex || "")
   if (!match) return null
+
   const numeric = parseInt(match[1], 16)
   const r = (numeric >> 16) & 0xff
   const g = (numeric >> 8) & 0xff
@@ -1941,52 +2987,59 @@ export const toSerializable = (error: any): any => {
   return { ...rest, timestampMs: ts, kind: "serializable" as const }
 }
 
-export const isFileObject = (value: unknown): value is File => {
-  try {
-    return (
-      value instanceof File ||
-      (typeof value === "object" &&
-        value !== null &&
-        "name" in (value as any) &&
-        "size" in (value as any) &&
-        "type" in (value as any))
-    )
-  } catch {
-    return false
-  }
-}
+/* Form Value Handling & File Utilities */
 
+// Duplicate definition removed - using earlier export
+
+// Hämtar display-namn från File-object med fallback
 export const getFileDisplayName = (file: File): string => {
   const name = toTrimmedString((file as any)?.name)
   return name || "unnamed-file"
 }
 
+// Kontrollerar om värde är composite (text-or-file structure)
+const isCompositeValue = (
+  value: unknown
+): value is { mode: string; [key: string]: unknown } => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "mode" in value
+  )
+}
+
+// Extraherar fil-värde från composite text-or-file structure
+const extractFileValue = (composite: TextOrFileValue): unknown => {
+  if (isFileObject(composite.file)) {
+    return composite.file
+  }
+  return toTrimmedString(composite.fileName) ?? asString(composite.fileName)
+}
+
+// Coercear form-värde för submission (hanterar composite structures)
 export const coerceFormValueForSubmission = (value: unknown): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return value
   }
 
-  if ("mode" in (value as { [key: string]: unknown })) {
-    const composite = value as TextOrFileValue
-    const mode = composite?.mode
+  if (!isCompositeValue(value)) {
+    return value
+  }
 
-    if (mode === "file") {
-      if (isFileObject(composite.file)) {
-        return composite.file
-      }
-      const fallback =
-        toTrimmedString(composite.fileName) ?? asString(composite.fileName)
-      return fallback
-    }
+  const composite = value as TextOrFileValue
+  if (composite.mode === "file") {
+    return extractFileValue(composite)
+  }
 
-    if (mode === "text") {
-      return asString(composite.text)
-    }
+  if (composite.mode === "text") {
+    return asString(composite.text)
   }
 
   return value
 }
 
+// Strippar error-label (tar bort HTML och prefix före kolon)
 export const stripErrorLabel = (errorText?: string): string | undefined => {
   const text = (errorText ?? "").replace(/<[^>]*>/g, "").trim()
   if (!text) return undefined
@@ -1997,6 +3050,7 @@ export const stripErrorLabel = (errorText?: string): string | undefined => {
   return text
 }
 
+// Initierar form-värden från config med defaultValues
 export const initFormValues = (
   formConfig: readonly any[]
 ): { [key: string]: any } => {
@@ -2023,21 +3077,32 @@ export const canResetButton = (
   return drawnArea > 0 && state !== "initial"
 }
 
+/* UI State Helpers */
+
+// Bestämmer om workspace loading-spinner ska visas
 export const shouldShowWorkspaceLoading = (
   isLoading: boolean,
-  workspaces: readonly any[],
+  _workspaces: readonly any[],
   state: string,
   hasError?: boolean
 ): boolean => {
-  if (hasError) return false
+  if (hasError) {
+    return false
+  }
+
   const needsLoading =
     state === "workspace-selection" || state === "export-options"
-  return isLoading || (!workspaces.length && needsLoading)
+
+  return needsLoading && isLoading
 }
 
+/* ArcGIS Module Loading */
+
+// Unwraps dynamic module (hanterar default exports)
 const unwrapDynamicModule = (module: unknown) =>
   (module as any)?.default ?? module
 
+// Laddar ArcGIS JS API modules via jimu-arcgis (med test stub support)
 export async function loadArcgisModules(
   modules: readonly string[]
 ): Promise<unknown[]> {

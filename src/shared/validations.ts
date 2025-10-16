@@ -2,19 +2,49 @@ import {
   ErrorSeverity,
   ErrorType,
   type ErrorState,
+  type ExportResult,
   type FmeExportConfig,
   type StartupValidationResult,
   type TranslateFn,
   type FmeResponse,
   type NormalizedServiceInfo,
-} from "../config"
+  type UrlValidation,
+  type AreaEvaluation,
+  type GeometryEngineLike,
+  type NormalizeUtilsModule,
+  type EsriConfigLike,
+  type GeometryServiceModule,
+  type ArcgisGeometryModules,
+  type AreasAndLengthsParametersCtor,
+  type PolygonMaybe,
+  type AreaStrategy,
+  type ScheduleValidationResult,
+  type FormValues,
+  type WorkspaceParameter,
+  ParameterType,
+  MIN_TOKEN_LENGTH,
+  FME_REST_PATH,
+  WKID,
+  GEODESIC_SEGMENT_LENGTH_METERS,
+  MIN_PLANAR_SEGMENT_DEGREES,
+  DEGREES_PER_METER,
+  HTTP_STATUS_CODES,
+  ERROR_CODE_TO_KEY,
+  STATUS_TO_KEY_MAP,
+  MESSAGE_PATTERNS,
+  SERVER_URL_REASON_TO_KEY,
+  REQUIRED_CONFIG_FIELDS,
+  STATUS_PROPERTIES,
+} from "../config/index"
 import {
   extractErrorMessage,
   maskToken,
   safeParseUrl,
   loadArcgisModules,
+  toTrimmedString,
 } from "./utils"
 
+// Parsar värde till nummer eller null vid invalid input
 const parseAsNumber = (value: unknown): number | null => {
   if (typeof value === "number") return value
   if (typeof value === "string") {
@@ -24,27 +54,40 @@ const parseAsNumber = (value: unknown): number | null => {
   return null
 }
 
+// Kontrollerar om värde är heltal
 export const isInt = (value: unknown): boolean => {
   const num = parseAsNumber(value)
   return num !== null && Number.isInteger(num)
 }
 
+// Kontrollerar om värde är finit nummer
 export const isNum = (value: unknown): boolean => {
   const num = parseAsNumber(value)
   return num !== null
 }
 
-const MIN_TOKEN_LENGTH = 10
-const FME_REST_PATH = "/fmerest"
-
+// Kontrollerar om nummer är valid HTTP status code (100-599)
 const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" && n >= 100 && n <= 599
 
-const hasForbiddenPaths = (pathname: string): boolean => {
-  const lowerPath = pathname.toLowerCase()
-  return lowerPath.includes(FME_REST_PATH)
-}
+// Kontrollerar om värde är Promise-like (har then-metod)
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  "then" in value &&
+  typeof (value as { then?: unknown }).then === "function"
 
+// Kontrollerar om värde är polygon-geometri via type property
+const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "polygon"
+
+// Kontrollerar om pathname innehåller förbjuden FME REST path
+const hasForbiddenPath = (pathname: string): boolean =>
+  pathname.toLowerCase().includes(FME_REST_PATH)
+
+// Normaliserar bas-URL genom att ta bort fmerest och credentials
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
@@ -63,43 +106,72 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   return `${u.origin}${cleanPath}`
 }
 
-export const validateServerUrl = (
+// Validerar server-URL med olika strictness-nivåer och options
+export function validateServerUrl(
   url: string,
-  opts?: { strict?: boolean; requireHttps?: boolean }
-): { ok: boolean; key?: string } => {
-  const trimmedUrl = url?.trim()
-  const invalid = (key: string) => ({ ok: false as const, key })
-  const invalidBaseUrl = () => invalid("urlInvalid")
-
-  if (!trimmedUrl) return invalid("missingServerUrl")
-
-  const parsedUrl = safeParseUrl(trimmedUrl)
-  if (!parsedUrl) return invalidBaseUrl()
-
-  if (!/^https?:$/i.test(parsedUrl.protocol)) return invalidBaseUrl()
-
-  if (opts?.requireHttps && !/^https:$/i.test(parsedUrl.protocol)) {
-    return invalidBaseUrl()
+  opts?: {
+    strict?: boolean
+    requireHttps?: boolean
+    disallowRestForWebhook?: boolean
   }
+): UrlValidation {
+  const trimmed = (url || "").trim()
+  if (!trimmed) return { ok: false, reason: "invalid_url" }
 
-  if (parsedUrl.username || parsedUrl.password) return invalidBaseUrl()
+  try {
+    const parsed = new URL(trimmed)
+    const protocol = parsed.protocol.toLowerCase()
+    if (protocol !== "http:" && protocol !== "https:") {
+      return { ok: false, reason: "invalid_url" }
+    }
 
-  if (parsedUrl.search || parsedUrl.hash) return invalidBaseUrl()
+    if (opts?.requireHttps && protocol !== "https:") {
+      return { ok: false, reason: "require_https" }
+    }
 
-  if (hasForbiddenPaths(parsedUrl.pathname)) {
-    return { ok: false, key: "urlInvalid" }
+    if (parsed.username || parsed.password) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (parsed.search || parsed.hash) {
+      return { ok: false, reason: "no_query_or_hash" }
+    }
+
+    if (
+      opts?.disallowRestForWebhook &&
+      /\/fmerest(?:\/|$)/i.test(parsed.pathname)
+    ) {
+      return { ok: false, reason: "disallow_fmerest_for_webhook" }
+    }
+
+    if (hasForbiddenPath(parsed.pathname)) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (parsed.hostname.endsWith(".")) {
+      return { ok: false, reason: "invalid_url" }
+    }
+
+    if (opts?.strict) {
+      const hostname = parsed.hostname || ""
+      if (!hostname.includes(".") || hostname.length < 4) {
+        return { ok: false, reason: "invalid_url" }
+      }
+    }
+
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: "invalid_url" }
   }
-
-  if (parsedUrl.hostname.endsWith(".")) return invalidBaseUrl()
-
-  if (opts?.strict) {
-    const hostname = parsedUrl.hostname || ""
-    if (!hostname.includes(".") || hostname.length < 4) return invalidBaseUrl()
-  }
-
-  return { ok: true }
 }
 
+// Mappar URL validation reason till översättningsnyckel
+export const mapServerUrlReasonToKey = (reason?: string): string => {
+  if (!reason) return "invalid_url"
+  return SERVER_URL_REASON_TO_KEY[reason] || "invalid_url"
+}
+
+// Kontrollerar om token innehåller control characters
 const hasControlCharacters = (token: string): boolean => {
   for (let i = 0; i < token.length; i++) {
     const code = token.charCodeAt(i)
@@ -108,57 +180,11 @@ const hasControlCharacters = (token: string): boolean => {
   return false
 }
 
+// Kontrollerar om token har farliga tecken (whitespace, XSS, control)
 const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token)
 
-const isIpv4Host = (hostname: string): number[] | null => {
-  const parts = hostname.split(".")
-  if (parts.length !== 4) return null
-  const octets = parts.map((part) => {
-    if (!/^\d+$/.test(part)) return NaN
-    const value = Number(part)
-    return value >= 0 && value <= 255 ? value : NaN
-  })
-  return octets.every((value) => Number.isInteger(value)) ? octets : null
-}
-
-const isPrivateIpv4 = (octets: number[]): boolean => {
-  if (octets[0] === 10) return true
-  if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return true
-  if (octets[0] === 127) return true
-  if (octets[0] === 169 && octets[1] === 254) return true
-  if (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) return true
-  if (octets[0] === 192 && octets[1] === 168) return true
-  if (octets[0] === 0) return true
-  return false
-}
-
-const hasDisallowedHostnameSuffix = (hostname: string): boolean => {
-  const lower = hostname.toLowerCase()
-  const forbidden = [
-    "localhost",
-    ".localhost",
-    ".local",
-    ".internal",
-    ".intranet",
-    ".home",
-    ".lan",
-    ".localdomain",
-  ]
-  if (forbidden.some((suffix) => lower === suffix || lower.endsWith(suffix))) {
-    return true
-  }
-  return false
-}
-
-const isPrivateIpv6Host = (hostname: string): boolean => {
-  const lower = hostname.toLowerCase()
-  if (lower === "::1" || lower === "0:0:0:0:0:0:0:1") return true
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true
-  if (lower.startsWith("fe80")) return true
-  return false
-}
-
+// Validerar FME token (längd och tecken-säkerhet)
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "missingToken" }
 
@@ -174,6 +200,7 @@ export const validateToken = (token: string): { ok: boolean; key?: string } => {
   return { ok: true }
 }
 
+// Validerar repository-namn mot lista av tillgängliga repositories
 export const validateRepository = (
   repository: string,
   available: string[] | null
@@ -187,8 +214,7 @@ export const validateRepository = (
   return { ok: true }
 }
 
-const STATUS_PROPERTIES = ["status", "statusCode", "httpStatus"] as const
-
+// Extraherar HTTP status code från error object (flera källor)
 export const extractHttpStatus = (error: unknown): number | undefined => {
   if (!error || typeof error !== "object") return undefined
 
@@ -217,35 +243,23 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
   return undefined
 }
 
-const ERROR_CODE_TO_KEY: { [code: string]: string } = {
-  ARCGIS_MODULE_ERROR: "errorNetworkIssue",
-  NETWORK_ERROR: "errorNetworkIssue",
-  INVALID_RESPONSE_FORMAT: "errorTokenIssue",
-  WEBHOOK_AUTH_ERROR: "errorTokenIssue",
-  SERVER_URL_ERROR: "connectionFailedMessage",
-  REPOSITORIES_ERROR: "errorServerIssue",
-  REPOSITORY_ITEMS_ERROR: "errorServerIssue",
-  WORKSPACE_ITEM_ERROR: "errorServerIssue",
-  JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  DATA_STREAMING_ERROR: "errorServerIssue",
-  DATA_DOWNLOAD_ERROR: "errorServerIssue",
-  INVALID_CONFIG: "errorSetupRequired",
-  GEOMETRY_MISSING: "geometryMissingCode",
-  GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
-  GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
-  URL_TOO_LONG: "urlTooLongMessage",
+// Bestämmer om fel är retryable baserat på status code
+export const isRetryableError = (error: unknown): boolean => {
+  if (error && typeof error === "object") {
+    const candidate = error as { isRetryable?: unknown }
+    if (typeof candidate.isRetryable === "boolean") {
+      return candidate.isRetryable
+    }
+  }
+
+  const status = extractHttpStatus(error)
+
+  if (!status || status < 100) return true
+  if (status >= 500) return true
+  return status === 408 || status === 429
 }
 
-const STATUS_TO_KEY_MAP: { [status: number]: string } = {
-  0: "errorNetworkIssue",
-  401: "errorTokenIssue",
-  403: "errorTokenIssue",
-  404: "connectionFailedMessage",
-  408: "requestTimedOut",
-  429: "rateLimitExceeded",
-  431: "headersTooLargeMessage",
-}
-
+// Mappar HTTP status code till översättningsnyckel
 const statusToKey = (s?: number): string | undefined => {
   if (typeof s !== "number") return undefined
   if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
@@ -253,13 +267,7 @@ const statusToKey = (s?: number): string | undefined => {
   return undefined
 }
 
-const MESSAGE_PATTERNS: Array<{ pattern: RegExp; key: string }> = [
-  { pattern: /failed to fetch/i, key: "errorNetworkIssue" },
-  { pattern: /timeout/i, key: "requestTimedOut" },
-  { pattern: /cors/i, key: "corsBlocked" },
-  { pattern: /url.*too/i, key: "urlTooLongMessage" },
-]
-
+// Matchar felmeddelande mot pattern-lista och returnerar key
 const matchMessagePattern = (message: string): string | undefined => {
   const lowerMessage = message.toLowerCase()
   for (const { pattern, key } of MESSAGE_PATTERNS) {
@@ -268,6 +276,7 @@ const matchMessagePattern = (message: string): string | undefined => {
   return undefined
 }
 
+// Mappar error till översättningsnyckel via status/code/message
 export const mapErrorToKey = (err: unknown, status?: number): string => {
   if (status == null) {
     status = extractHttpStatus(err)
@@ -296,27 +305,7 @@ export const mapErrorToKey = (err: unknown, status?: number): string => {
   return "errorUnknown"
 }
 
-export const isValidExternalUrlForOptGetUrl = (url: unknown): boolean => {
-  if (typeof url !== "string") return false
-  const trimmed = url.trim()
-  if (!trimmed || trimmed.length > 10000) return false
-  const u = safeParseUrl(trimmed)
-  if (!u) return false
-  if (!/^https:$/i.test(u.protocol)) return false
-  if (u.username || u.password) return false
-  const hostname = u.hostname || ""
-  if (!hostname) return false
-  if (hasDisallowedHostnameSuffix(hostname)) return false
-
-  const ipv4 = isIpv4Host(hostname)
-  if (ipv4 && isPrivateIpv4(ipv4)) return false
-
-  if (hostname.includes(":")) {
-    if (isPrivateIpv6Host(hostname)) return false
-  }
-  return true
-}
-
+// Validerar att obligatoriska config-fält är satta
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
   readonly token?: string
@@ -327,12 +316,7 @@ export const validateRequiredConfig = (config: {
   }
 }
 
-const REQUIRED_CONFIG_FIELDS = [
-  "fmeServerUrl",
-  "fmeServerToken",
-  "repository",
-] as const
-
+// Returnerar lista med obligatoriska fält som saknas i config
 const getMissingConfigFields = (
   config: FmeExportConfig | undefined
 ): string[] => {
@@ -341,6 +325,7 @@ const getMissingConfigFields = (
   return REQUIRED_CONFIG_FIELDS.filter((field) => !config[field]?.trim())
 }
 
+// Returnerar isValid flag och lista med saknade config-fält
 export const validateConfigFields = (
   config: FmeExportConfig | undefined
 ): {
@@ -354,21 +339,7 @@ export const validateConfigFields = (
   }
 }
 
-export const HTTP_STATUS_CODES = {
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  BAD_REQUEST: 400,
-  TIMEOUT: 408,
-  GATEWAY_TIMEOUT: 504,
-  TOO_MANY_REQUESTS: 429,
-  BAD_GATEWAY: 502,
-  SERVICE_UNAVAILABLE: 503,
-  NETWORK_ERROR: 0,
-  SERVER_ERROR_MIN: 500,
-  SERVER_ERROR_MAX: 599,
-} as const
-
+// Kontrollerar om status code indikerar autentiseringsfel
 export const isAuthError = (status: number): boolean => {
   return (
     status === HTTP_STATUS_CODES.UNAUTHORIZED ||
@@ -376,6 +347,7 @@ export const isAuthError = (status: number): boolean => {
   )
 }
 
+// Validerar url, token, repository och returnerar errors per fält
 export function validateConnectionInputs(args: {
   url: string
   token: string
@@ -389,8 +361,11 @@ export function validateConnectionInputs(args: {
 
   const errors: { serverUrl?: string; token?: string; repository?: string } = {}
 
-  const u = validateServerUrl(url)
-  if (!u.ok) errors.serverUrl = u.key || "urlInvalid"
+  const serverValidation = validateServerUrl(url)
+  if (!serverValidation.ok) {
+    const reason = (serverValidation as { reason?: string }).reason
+    errors.serverUrl = mapServerUrlReasonToKey(reason)
+  }
 
   const t = validateToken(token)
   if (!t.ok) errors.token = t.key || "errorTokenIssue"
@@ -404,6 +379,7 @@ export function validateConnectionInputs(args: {
   return { ok: Object.keys(errors).length === 0, errors }
 }
 
+// Validerar att alla obligatoriska fält är satta i config
 export const validateRequiredFields = (
   config: FmeExportConfig,
   _translate: TranslateFn,
@@ -427,6 +403,58 @@ export const validateRequiredFields = (
   }
 }
 
+// Validerar schedule-fält: trigger, category, name, start, notTooFarPast
+export function validateScheduleFields(data: FormValues | null | undefined) {
+  if (!data || data.opt_servicemode !== "schedule") return { ok: true as const }
+
+  const isRunOnce = data.trigger === "runonce"
+  const hasCat = typeof data.category === "string" && !!data.category.trim()
+  const hasName = typeof data.name === "string" && !!data.name.trim()
+  const startStr = String(data.start || "")
+  const fmtOk = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)
+
+  let notTooPast = false
+  if (fmtOk) {
+    const [datePart, timePart] = startStr.split(" ")
+    const [Y, M, D] = datePart.split("-").map(Number)
+    const [h, m, s] = timePart.split(":").map(Number)
+    const start = new Date(Y, (M || 1) - 1, D || 1, h || 0, m || 0, s || 0)
+    notTooPast = start.getTime() >= Date.now() - 60_000
+  }
+
+  const ok = isRunOnce && hasCat && hasName && fmtOk && notTooPast
+  return ok
+    ? { ok: true as const }
+    : { ok: false as const, key: "scheduleInvalid" }
+}
+
+// Validerar resultat från schemaläggnings-API
+export const createRuntimeError = (
+  message: string,
+  options: {
+    type?: ErrorType
+    code?: string
+    severity?: ErrorSeverity
+    recoverable?: boolean
+    userFriendlyMessage?: string
+    suggestion?: string
+    retry?: () => void
+  } = {}
+): ErrorState => ({
+  message,
+  type: options.type ?? ErrorType.NETWORK,
+  code: options.code ?? "UNKNOWN",
+  severity: options.severity ?? ErrorSeverity.ERROR,
+  recoverable: options.recoverable ?? true,
+  timestamp: new Date(),
+  timestampMs: Date.now(),
+  userFriendlyMessage: options.userFriendlyMessage ?? "",
+  suggestion: options.suggestion ?? "",
+  retry: options.retry,
+  kind: "runtime",
+})
+
+// Översätter messageKey via translate-funktionen och skapar ErrorState
 export const createError = (
   messageKey: string,
   type: ErrorType,
@@ -437,141 +465,76 @@ export const createError = (
     userFriendlyMessage?: string
     retry?: () => void
   }
-): ErrorState => {
-  return {
-    message: translate(messageKey) || messageKey,
+): ErrorState =>
+  createRuntimeError(translate(messageKey) || messageKey, {
     type,
     code,
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: options?.userFriendlyMessage || "",
+    ...options,
     suggestion:
       options?.suggestion || translate("connectionSettingsHint") || "",
-    retry: options?.retry,
-    kind: "runtime",
-  }
-}
+  })
 
+// Skapar geometry error med valid=false och ErrorState objekt
+const makeGeometryError = (
+  messageKey: string,
+  code: string
+): { valid: false; error: ErrorState } => ({
+  valid: false,
+  error: createRuntimeError(messageKey, {
+    type: ErrorType.GEOMETRY,
+    code,
+  }),
+})
+
+// Validerar datetime-sträng: YYYY-MM-DD HH:MM:SS format
 export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   const trimmed = dateTimeString.trim()
   const dateTimeRegex = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
   return dateTimeRegex.test(trimmed)
 }
 
+// Maskerar PASSWORD-fält i form values för loggning
 export const sanitizeFormValues = (
-  formValues: any,
-  parameters: readonly any[]
-): any => {
+  formValues: FormValues | null | undefined,
+  parameters: readonly WorkspaceParameter[] | null | undefined
+): FormValues | null | undefined => {
   if (!formValues) return formValues
+
   const secretNames = new Set(
-    (parameters || [])
-      .filter((p) => p && p.type === "PASSWORD")
-      .map((p) => p.name)
+    (parameters ?? [])
+      .filter((param) => param?.type === ParameterType.PASSWORD)
+      .map((param) => param.name)
   )
-  if (secretNames.size === 0) return formValues
-  const masked: any = {}
-  for (const k of Object.keys(formValues || {})) {
-    masked[k] = secretNames.has(k)
-      ? maskToken(formValues[k] || "")
-      : formValues[k]
+
+  if (secretNames.size === 0) {
+    return formValues
   }
+
+  const masked: FormValues = { ...formValues }
+
+  for (const key of Object.keys(formValues)) {
+    if (!secretNames.has(key)) {
+      continue
+    }
+
+    const value = formValues[key]
+    const safeValue =
+      typeof value === "string"
+        ? value
+        : typeof value === "number" || typeof value === "bigint"
+          ? value.toString()
+          : typeof value === "boolean"
+            ? value
+              ? "true"
+              : "false"
+            : ""
+    masked[key] = maskToken(safeValue)
+  }
+
   return masked
 }
 
-type GeometryAreaFn = (
-  geometry: __esri.Geometry,
-  unit: string
-) => number | PromiseLike<number>
-
-type GeometryDensifyFn = (
-  geometry: __esri.Geometry,
-  ...args: readonly unknown[]
-) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
-
-type GeometrySimplifyFn = (
-  polygon: __esri.Polygon
-) => __esri.Geometry | null | PromiseLike<__esri.Geometry | null>
-
-type GeometryIsSimpleFn = (
-  polygon: __esri.Polygon
-) => boolean | PromiseLike<boolean>
-
-type GeometryContainsFn = (
-  outer: __esri.Geometry,
-  inner: __esri.Geometry
-) => boolean
-
-interface GeometryEngineLike {
-  geodesicArea?: GeometryAreaFn
-  planarArea?: GeometryAreaFn
-  geodesicDensify?: GeometryDensifyFn
-  densify?: GeometryDensifyFn
-  simplify?: GeometrySimplifyFn
-  isSimple?: GeometryIsSimpleFn
-  contains?: GeometryContainsFn
-}
-
-interface NormalizeUtilsModule {
-  normalizeCentralMeridian?: (
-    geometries: readonly __esri.Geometry[]
-  ) => PromiseLike<readonly __esri.Geometry[]> | readonly __esri.Geometry[]
-}
-
-interface EsriConfigLike {
-  geometryServiceUrl?: string
-  request?: { geometryServiceUrl?: string }
-  portalSelf?: { helperServices?: { geometry?: { url?: string } } }
-  portalInfo?: { helperServices?: { geometry?: { url?: string } } }
-  helperServices?: { geometry?: { url?: string } }
-}
-
-type AreasAndLengthsParametersCtor = new (
-  options: __esri.AreasAndLengthsParametersProperties
-) => __esri.AreasAndLengthsParameters
-
-interface AreasAndLengthsResponse {
-  areas?: number[]
-}
-
-interface GeometryServiceModule {
-  areasAndLengths?: (
-    url: string,
-    params: __esri.AreasAndLengthsParameters
-  ) => PromiseLike<AreasAndLengthsResponse> | AreasAndLengthsResponse
-}
-
-interface PolygonCtor {
-  fromJSON?: (json: unknown) => __esri.Polygon
-}
-
-interface ArcgisGeometryModules {
-  geometryEngine?: GeometryEngineLike
-  geometryEngineAsync?: GeometryEngineLike
-  normalizeUtils?: NormalizeUtilsModule
-  esriConfig?: EsriConfigLike
-  Polygon?: PolygonCtor
-  geometryOperators?: unknown
-}
-
-type PolygonMaybe =
-  | __esri.Geometry
-  | null
-  | undefined
-  | PromiseLike<__esri.Geometry | null | undefined>
-
-const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
-  typeof value === "object" &&
-  value !== null &&
-  "then" in value &&
-  typeof (value as { then?: unknown }).then === "function"
-
-const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { type?: unknown }).type === "polygon"
-
+// Läser wkid & latestWkid från spatial reference object
 const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
   if (typeof sr !== "object" || sr === null) {
     return {}
@@ -585,20 +548,23 @@ const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
   return { wkid, latestWkid }
 }
 
+// Kollar om SR är Web Mercator (3857)
 const isWebMercatorSr = (sr: unknown): boolean => {
   const ref = sr as { isWebMercator?: boolean } | undefined
   if (ref?.isWebMercator) return true
   const { wkid, latestWkid } = readWkids(sr)
-  return wkid === 3857 || latestWkid === 3857
+  return wkid === WKID.WEB_MERCATOR || latestWkid === WKID.WEB_MERCATOR
 }
 
+// Kollar om SR är WGS84 (4326)
 const isWgs84Sr = (sr: unknown): boolean => {
   const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
   if (ref?.isGeographic || ref?.isWGS84) return true
   const { wkid, latestWkid } = readWkids(sr)
-  return wkid === 4326 || latestWkid === 4326
+  return wkid === WKID.WGS84 || latestWkid === WKID.WGS84
 }
 
+// Avgör om polygon har geographic SR (WGS84/Web Mercator)
 const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   try {
     if (
@@ -619,6 +585,7 @@ const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   return false
 }
 
+// Beräknar area med geodesic/planar via GeometryEngine
 const tryCalcArea = async (
   engine: GeometryEngineLike | undefined,
   polygon: __esri.Polygon,
@@ -641,18 +608,16 @@ const tryCalcArea = async (
   return 0
 }
 
+// Packar upp module-objekt till .default eller själva modulen
 const unwrapModule = (module: unknown): unknown =>
   (module as { default?: unknown }).default ?? module
-
-const GEODESIC_SEGMENT_LENGTH_METERS = 50
-const MIN_PLANAR_SEGMENT_DEGREES = 1e-6
-const DEGREES_PER_METER = 1 / 111319.49079327358
 
 let normalizeUtilsCache: NormalizeUtilsModule | null | undefined
 let geometryServiceCache: GeometryServiceModule | null | undefined
 let areasAndLengthsParamsCache: AreasAndLengthsParametersCtor | null | undefined
 let esriConfigCache: EsriConfigLike | null | undefined
 
+// Laddar & cachar normalizeUtils modul om ej tillgänglig i modules
 const ensureNormalizeUtils = async (
   modules: ArcgisGeometryModules
 ): Promise<NormalizeUtilsModule | null> => {
@@ -676,6 +641,7 @@ const ensureNormalizeUtils = async (
   return normalizeUtilsCache
 }
 
+// Laddar & cachar esriConfig modul om ej tillgänglig i modules
 const ensureEsriConfig = async (
   modules: ArcgisGeometryModules
 ): Promise<EsriConfigLike | null> => {
@@ -692,6 +658,7 @@ const ensureEsriConfig = async (
   return esriConfigCache
 }
 
+// Laddar geometryService & AreasAndLengthsParameters moduler
 const ensureGeometryServiceModules = async (): Promise<{
   geometryService: GeometryServiceModule | null
   AreasAndLengthsParameters: AreasAndLengthsParametersCtor | null
@@ -728,6 +695,7 @@ const ensureGeometryServiceModules = async (): Promise<{
   }
 }
 
+// Hämtar geometryServiceUrl från esriConfig eller portalSelf
 const resolveGeometryServiceUrl = async (
   modules: ArcgisGeometryModules
 ): Promise<string | null> => {
@@ -757,6 +725,7 @@ const resolveGeometryServiceUrl = async (
   return null
 }
 
+// Wrapprar polygon-värden (kan vara Promise eller synkront)
 const maybeResolvePolygon = async (
   value: PolygonMaybe
 ): Promise<__esri.Polygon | null> => {
@@ -770,6 +739,7 @@ const maybeResolvePolygon = async (
   return null
 }
 
+// Försöker densify med geodesicDensify eller planar densify
 const attemptDensify = async (
   engine: GeometryEngineLike | undefined,
   method: "geodesicDensify" | "densify",
@@ -779,13 +749,14 @@ const attemptDensify = async (
   const densify = engine?.[method]
   if (typeof densify !== "function") return null
   try {
-    const result = densify(geometry, ...args)
+    const result = densify(geometry, ...(args as [number, string?]))
     return await maybeResolvePolygon(result)
   } catch {
     return null
   }
 }
 
+// Normaliserar polygon över central meridian (WGS84/Web Mercator)
 const normalizePolygon = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -808,6 +779,7 @@ const normalizePolygon = async (
   return polygon
 }
 
+// Applicerar geodesic eller planar densify beroende på SR
 const applyDensify = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -871,6 +843,7 @@ const applyDensify = async (
   return working
 }
 
+// Förbereder polygon: normalisering + densify för area-beräkning
 const preparePolygonForArea = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -881,6 +854,7 @@ const preparePolygonForArea = async (
   return working
 }
 
+// Beräknar area via remote geometry service (error recovery strategy)
 const calcAreaViaGeometryService = async (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules
@@ -921,8 +895,7 @@ const calcAreaViaGeometryService = async (
   return 0
 }
 
-type AreaStrategy = () => Promise<number>
-
+// Tvingar area operator till function eller null
 const coerceAreaOperator = (
   candidate: unknown
 ):
@@ -931,6 +904,7 @@ const coerceAreaOperator = (
   return typeof candidate === "function" ? (candidate as any) : null
 }
 
+// Väljer geodesic/planar operator från operators record
 const pickGeometryOperator = (
   operators: unknown,
   geographic: boolean
@@ -963,6 +937,7 @@ const pickGeometryOperator = (
   return null
 }
 
+// Skapar lista med area-strategier för resilient beräkning
 const createAreaStrategies = (
   polygon: __esri.Polygon,
   modules: ArcgisGeometryModules,
@@ -1005,6 +980,7 @@ const createAreaStrategies = (
   return strategies
 }
 
+// Beräknar area via strategy chain: operators → engine → service
 export const calcArea = async (
   geometry: __esri.Geometry | undefined,
   modules: ArcgisGeometryModules
@@ -1039,25 +1015,7 @@ export const calcArea = async (
   return 0
 }
 
-const makeGeometryError = (
-  messageKey: string,
-  code: string
-): { valid: false; error: ErrorState } => ({
-  valid: false,
-  error: {
-    message: messageKey,
-    type: ErrorType.GEOMETRY,
-    code,
-    severity: ErrorSeverity.ERROR,
-    recoverable: true,
-    timestamp: new Date(),
-    timestampMs: Date.now(),
-    userFriendlyMessage: "",
-    suggestion: "",
-    kind: "runtime",
-  },
-})
-
+// Simplifierar polygon och validerar att den är simple
 const simplifyPolygon = async (
   poly: __esri.Polygon,
   engine: GeometryEngineLike | undefined,
@@ -1108,6 +1066,7 @@ const simplifyPolygon = async (
   return poly
 }
 
+// Kontrollerar att ring är stängd (första=sista punkt)
 const isRingClosed = (ring: unknown[]): boolean => {
   if (!Array.isArray(ring) || ring.length === 0) return false
   const first = ring[0] as number[] | undefined
@@ -1122,6 +1081,7 @@ const isRingClosed = (ring: unknown[]): boolean => {
   )
 }
 
+// Validerar att alla rings har >=4 punkter och är stängda
 const validateRingStructure = (rings: unknown[]): boolean => {
   if (!Array.isArray(rings) || rings.length === 0) return false
 
@@ -1133,6 +1093,7 @@ const validateRingStructure = (rings: unknown[]): boolean => {
   return true
 }
 
+// Validerar att alla holes är innanför första ringen (outer)
 const validateHolesWithinOuter = (
   rings: unknown[],
   poly: __esri.Polygon,
@@ -1166,6 +1127,7 @@ const validateHolesWithinOuter = (
   return true
 }
 
+// Validerar polygon: simplify, ring structure, area, holes
 export const validatePolygon = async (
   geometry: __esri.Geometry | undefined,
   modules: ArcgisGeometryModules
@@ -1221,20 +1183,14 @@ export const validatePolygon = async (
   }
 }
 
+// Konverterar area limit till number eller undefined
 const resolveAreaLimit = (limit?: number): number | undefined => {
   if (typeof limit !== "number" || !Number.isFinite(limit)) return undefined
   if (limit <= 0) return undefined
   return limit
 }
 
-export interface AreaEvaluation {
-  readonly area: number
-  readonly warningThreshold?: number
-  readonly maxThreshold?: number
-  readonly exceedsMaximum: boolean
-  readonly shouldWarn: boolean
-}
-
+// Utvärderar area mot max/warning thresholds
 export const evaluateArea = (
   area: number,
   limits?: { maxArea?: number; largeArea?: number }
@@ -1258,6 +1214,7 @@ export const evaluateArea = (
   }
 }
 
+// Validerar om area överskrider max area
 export const checkMaxArea = (
   area: number,
   maxArea?: number
@@ -1274,9 +1231,11 @@ export const checkMaxArea = (
   }
 }
 
+// Kontrollerar om area ska trigga warning (large area)
 export const checkLargeArea = (area: number, largeArea?: number): boolean =>
   evaluateArea(area, { largeArea }).shouldWarn
 
+// Återställer validation-cachar för test-syfte
 export const resetValidationCachesForTest = () => {
   normalizeUtilsCache = undefined
   geometryServiceCache = undefined
@@ -1284,47 +1243,197 @@ export const resetValidationCachesForTest = () => {
   esriConfigCache = undefined
 }
 
-const createBlobResponse = (
-  blob: Blob,
-  workspace: string,
-  userEmail: string
-) => ({
-  success: true,
-  blob,
-  email: userEmail,
-  workspaceName: workspace,
-  downloadFilename: `${workspace}_export.zip`,
-})
+/* Schedule Validation (Detailed) */
+const SCHEDULE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
-const createSuccessResponse = (
-  serviceInfo: NormalizedServiceInfo,
-  workspace: string,
-  userEmail: string
-) => ({
-  success: true,
-  jobId: typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
-  email: userEmail,
-  workspaceName: workspace,
-  downloadUrl: serviceInfo.url,
-  downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
-})
+// Validerar schedule datetime: format, parsing, past check
+export const validateScheduleDateTime = (
+  dateTimeStr: string
+): { valid: boolean; error?: string; isPast?: boolean } => {
+  if (!dateTimeStr || typeof dateTimeStr !== "string") {
+    return { valid: false, error: "SCHEDULE_START_REQUIRED" }
+  }
 
-const createFailureResponse = (message: string) => ({
-  success: false,
-  message,
-  code: "FME_JOB_FAILURE",
-})
+  const trimmed = dateTimeStr.trim()
 
+  // Validate format: yyyy-MM-dd HH:mm:ss
+  if (!SCHEDULE_DATE_PATTERN.test(trimmed)) {
+    return {
+      valid: false,
+      error: "SCHEDULE_START_INVALID_FORMAT",
+    }
+  }
+
+  // Parse and validate date
+  try {
+    const normalized = trimmed.replace(" ", "T")
+    const parsedDate = new Date(normalized)
+
+    // Check if date is valid
+    if (isNaN(parsedDate.getTime())) {
+      return { valid: false, error: "SCHEDULE_START_INVALID_DATE" }
+    }
+
+    // Check if in the past (with 1-minute tolerance for clock skew)
+    const now = new Date()
+    const oneMinuteAgo = new Date(now.getTime() - 60000)
+    const isPast = parsedDate < oneMinuteAgo
+
+    return { valid: true, isPast }
+  } catch {
+    return { valid: false, error: "SCHEDULE_START_PARSE_ERROR" }
+  }
+}
+
+// Validerar schedule name: required, length <=128, no invalid chars
+export const validateScheduleName = (
+  name: string
+): { valid: boolean; error?: string } => {
+  if (!name || typeof name !== "string") {
+    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
+  }
+
+  const trimmed = name.trim()
+
+  if (trimmed.length === 0) {
+    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
+  }
+
+  if (trimmed.length > 128) {
+    return { valid: false, error: "SCHEDULE_NAME_TOO_LONG" }
+  }
+
+  // Kontrollerar ogiltiga tecken: <>:"|?* och kontrolltecken
+  const hasInvalidChars =
+    /[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)
+  if (hasInvalidChars) {
+    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
+  }
+
+  return { valid: true }
+}
+
+// Validerar schedule category: required, length <=128
+export const validateScheduleCategory = (
+  category: string
+): { valid: boolean; error?: string } => {
+  if (!category || typeof category !== "string") {
+    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
+  }
+
+  const trimmed = category.trim()
+
+  if (trimmed.length === 0) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
+  }
+
+  if (trimmed.length > 128) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_TOO_LONG" }
+  }
+
+  return { valid: true }
+}
+
+// Validerar alla schedule metadata: datetime, name, category
+export const validateScheduleMetadata = (data: {
+  start?: string
+  name?: string
+  category?: string
+  description?: string
+}): ScheduleValidationResult => {
+  const errors: {
+    start?: string
+    name?: string
+    category?: string
+  } = {}
+
+  const warnings: {
+    pastTime?: boolean
+    pastTimeMessage?: string
+  } = {}
+
+  // Validate start time
+  const startValidation = validateScheduleDateTime(data.start || "")
+  if (!startValidation.valid) {
+    errors.start = startValidation.error
+  } else if (startValidation.isPast) {
+    warnings.pastTime = true
+    warnings.pastTimeMessage = "SCHEDULE_START_IN_PAST"
+  }
+
+  // Validate name
+  const nameValidation = validateScheduleName(data.name || "")
+  if (!nameValidation.valid) {
+    errors.name = nameValidation.error
+  }
+
+  // Validate category
+  const categoryValidation = validateScheduleCategory(data.category || "")
+  if (!categoryValidation.valid) {
+    errors.category = categoryValidation.error
+  }
+
+  const hasErrors = Object.keys(errors).length > 0
+  const hasWarnings = Object.keys(warnings).length > 0
+
+  return {
+    valid: !hasErrors,
+    ...(hasErrors && { errors }),
+    ...(hasWarnings && { warnings }),
+  }
+}
+
+// Factory för att skapa FME response objekt
+const createFmeResponse = {
+  blob: (blob: Blob, workspace: string, userEmail: string) => ({
+    success: true,
+    blob,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadFilename: `${workspace}_export.zip`,
+    blobMetadata: {
+      type: toTrimmedString(blob.type),
+      size:
+        typeof blob.size === "number" && Number.isFinite(blob.size)
+          ? blob.size
+          : undefined,
+    },
+  }),
+
+  success: (
+    serviceInfo: NormalizedServiceInfo,
+    workspace: string,
+    userEmail: string
+  ) => ({
+    success: true,
+    jobId:
+      typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadUrl: serviceInfo.url,
+    downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
+    status: serviceInfo.status,
+    statusMessage: serviceInfo.message,
+  }),
+
+  failure: (message: string) => ({
+    success: false,
+    message,
+    code: "FME_JOB_FAILURE",
+  }),
+}
+
+// Validerar att url är en giltig http/https URL
 const isValidDownloadUrl = (url: unknown): boolean =>
   typeof url === "string" && /^https?:\/\//.test(url)
 
-// FME response processing
+// Processerar FME response och returnerar ExportResult
 export const processFmeResponse = (
   fmeResponse: unknown,
   workspace: string,
   userEmail: string,
   translateFn: TranslateFn
-): any => {
+): ExportResult => {
   const response = fmeResponse as any
   const data = response?.data
 
@@ -1337,20 +1446,27 @@ export const processFmeResponse = (
   }
 
   if (data.blob instanceof Blob) {
-    return createBlobResponse(data.blob, workspace, userEmail)
+    return createFmeResponse.blob(data.blob, workspace, userEmail)
   }
 
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
 
-  if (serviceInfo.status === "success" || isValidDownloadUrl(serviceInfo.url)) {
-    return createSuccessResponse(serviceInfo, workspace, userEmail)
+  // Scheduled jobs return a jobId but no download URL (job runs later)
+  const hasValidResult =
+    serviceInfo.status === "success" ||
+    isValidDownloadUrl(serviceInfo.url) ||
+    (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0)
+
+  if (hasValidResult) {
+    return createFmeResponse.success(serviceInfo, workspace, userEmail)
   }
 
-  return createFailureResponse(
+  return createFmeResponse.failure(
     serviceInfo.message || translateFn("errorJobSubmission")
   )
 }
 
+// Normaliserar FME service response till NormalizedServiceInfo
 export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
   const r: any = resp || {}
   const raw = r?.data?.serviceResponse || r?.data || r
@@ -1361,6 +1477,7 @@ export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
   return { status, message, jobId, url }
 }
 
+/* Re-exports från utils */
 export {
   // general utils
   isValidEmail,
