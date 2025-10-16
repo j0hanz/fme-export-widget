@@ -9,6 +9,9 @@ import type {
   SelectFieldConfig,
   FileFieldConfig,
   ColorFieldConfig,
+  VisibilityExpression,
+  VisibilityState,
+  DynamicPropertyClause,
   ScriptedOptionNode,
   OptionItem,
   FormPrimitive,
@@ -1190,6 +1193,97 @@ export class ParameterFormService {
     return null
   }
 
+  // Extraherar synlighets-konfiguration från parameter-metadata
+  private deriveVisibilityConfig(
+    param: WorkspaceParameter
+  ): VisibilityExpression | undefined {
+    const meta = this.getParameterMetadata(param)
+    const visibilityRaw = meta.visibility
+    if (!isPlainObject(visibilityRaw)) return undefined
+
+    const visibilityObj = visibilityRaw as { readonly [key: string]: unknown }
+    const ifArray = unwrapArray(visibilityObj.if)
+    if (!ifArray?.length) return undefined
+
+    const clauses: Array<DynamicPropertyClause<VisibilityState>> = []
+
+    for (const clause of ifArray) {
+      if (!isPlainObject(clause)) continue
+
+      const clauseObj = clause as { readonly [key: string]: unknown }
+      const thenValue = this.parseVisibilityState(clauseObj.then)
+      if (!thenValue) continue
+
+      const conditionKeys = Object.keys(clauseObj).filter((key) =>
+        key.startsWith("$")
+      )
+
+      if (conditionKeys.length === 0) {
+        clauses.push({ then: thenValue })
+        continue
+      }
+
+      const clauseWithCondition: { [key: string]: unknown } = {
+        then: thenValue,
+      }
+      for (const key of conditionKeys) {
+        clauseWithCondition[key] = clauseObj[key]
+      }
+
+      clauses.push(
+        clauseWithCondition as DynamicPropertyClause<VisibilityState>
+      )
+    }
+
+    if (!clauses.length) return undefined
+
+    const defaultObj = visibilityObj.default
+    const defaultValue = isPlainObject(defaultObj)
+      ? this.parseVisibilityState(
+          (defaultObj as { readonly [key: string]: unknown }).value
+        )
+      : undefined
+
+    const result: VisibilityExpression = {
+      if: clauses,
+      ...(defaultValue && {
+        default: {
+          value: defaultValue,
+          override: pickBoolean(
+            defaultObj as { readonly [key: string]: unknown },
+            ["override"],
+            false
+          ),
+        },
+      }),
+    }
+
+    return result
+  }
+
+  // Parser för enskild visibility state från sträng
+  private parseVisibilityState(value: unknown): VisibilityState | undefined {
+    if (typeof value !== "string") return undefined
+
+    const normalized = value.trim().toLowerCase()
+    switch (normalized) {
+      case "visibleenabled":
+      case "visible_enabled":
+        return "visibleEnabled"
+      case "visibledisabled":
+      case "visible_disabled":
+        return "visibleDisabled"
+      case "hiddenenabled":
+      case "hidden_enabled":
+        return "hiddenEnabled"
+      case "hiddendisabled":
+      case "hidden_disabled":
+        return "hiddenDisabled"
+      default:
+        return undefined
+    }
+  }
+
   // Konverterar parametrar till dynamiska formulärfält
   convertParametersToFields(
     parameters: readonly WorkspaceParameter[]
@@ -1214,6 +1308,7 @@ export class ParameterFormService {
       const selectConfig = this.deriveSelectConfig(type, param, options)
       const fileConfig = this.deriveFileConfig(type, param)
       const colorConfig = this.deriveColorConfig(param)
+      const visibility = this.deriveVisibilityConfig(param)
       const readOnly = this.isReadOnlyField(type, scripted)
       const helper =
         scripted?.instructions ??
@@ -1272,6 +1367,7 @@ export class ParameterFormService {
         ...(selectConfig && { selectConfig }),
         ...(fileConfig && { fileConfig }),
         ...(colorConfig && { colorConfig }),
+        ...(visibility && { visibility }),
       }
       return field
     }) as readonly DynamicFieldConfig[]
@@ -1320,6 +1416,10 @@ export class ParameterFormService {
     const errors: { [key: string]: string } = {}
 
     for (const field of fields) {
+      const visibilityState = field.visibilityState
+      if (visibilityState && visibilityState !== "visibleEnabled") {
+        continue
+      }
       const value = values[field.name]
       const hasValue = !isEmpty(value)
 

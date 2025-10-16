@@ -16,8 +16,12 @@ import {
   ErrorType,
   FormFieldType,
   ParameterType,
+  type DynamicFieldConfig,
+  type VisibilityExpression,
+  type VisibilityState,
   type WorkspaceParameter,
 } from "../config/index"
+import { VisibilityEvaluator } from "../shared/visibility"
 import { processFmeResponse } from "../shared/validations"
 
 initGlobal()
@@ -32,6 +36,20 @@ globalAny.webMercatorUtils = {}
 globalAny.SpatialReference = function SpatialReference(props: any) {
   return props
 }
+
+const makeBaseField = (
+  name: string,
+  visibility?: VisibilityExpression,
+  visibilityState?: VisibilityState
+): DynamicFieldConfig => ({
+  name,
+  label: name,
+  type: FormFieldType.TEXT,
+  required: false,
+  readOnly: false,
+  ...(visibility && { visibility }),
+  ...(visibilityState && { visibilityState }),
+})
 
 describe("FME shared logic", () => {
   beforeEach(() => {
@@ -520,6 +538,220 @@ describe("FME shared logic", () => {
         field,
       ])
       expect(validation3.isValid).toBe(false)
+    })
+  })
+
+  describe("ParameterFormService - dynamic visibility", () => {
+    const service = new ParameterFormService()
+
+    it("extracts visibility expressions from parameter metadata", () => {
+      const params: WorkspaceParameter[] = [
+        {
+          name: "MODE",
+          type: ParameterType.CHOICE,
+          optional: false,
+          description: "Mode selector",
+          listOptions: [
+            { caption: "Advanced", value: "advanced" },
+            { caption: "Basic", value: "basic" },
+          ],
+        },
+        {
+          name: "OUTPUT_PATH",
+          type: ParameterType.TEXT,
+          optional: false,
+          description: "Output path",
+          metadata: {
+            visibility: {
+              if: [
+                {
+                  then: "visible_enabled",
+                  $equals: { parameter: "MODE", value: "advanced" },
+                },
+                {
+                  then: "visible_disabled",
+                  $equals: { parameter: "MODE", value: "basic" },
+                },
+              ],
+              default: { value: "hidden_disabled" },
+            },
+          },
+        },
+      ]
+
+      const fields = service.convertParametersToFields(params)
+      const outputField = fields.find((field) => field.name === "OUTPUT_PATH")
+
+      expect(outputField?.visibility).toEqual({
+        if: [
+          {
+            then: "visibleEnabled",
+            $equals: { parameter: "MODE", value: "advanced" },
+          },
+          {
+            then: "visibleDisabled",
+            $equals: { parameter: "MODE", value: "basic" },
+          },
+        ],
+        default: { value: "hiddenDisabled", override: false },
+      })
+    })
+
+    it("skips validation for required fields that are not visibleEnabled", () => {
+      const fields: DynamicFieldConfig[] = [
+        {
+          name: "VISIBLE",
+          label: "Visible",
+          type: FormFieldType.TEXT,
+          required: true,
+          readOnly: false,
+          visibilityState: "visibleEnabled",
+        },
+        {
+          name: "HIDDEN",
+          label: "Hidden",
+          type: FormFieldType.TEXT,
+          required: true,
+          readOnly: false,
+          visibilityState: "hiddenDisabled",
+        },
+        {
+          name: "DISABLED",
+          label: "Disabled",
+          type: FormFieldType.TEXT,
+          required: true,
+          readOnly: false,
+          visibilityState: "visibleDisabled",
+        },
+        {
+          name: "HIDDEN_ENABLED",
+          label: "Hidden enabled",
+          type: FormFieldType.TEXT,
+          required: true,
+          readOnly: false,
+          visibilityState: "hiddenEnabled",
+        },
+      ]
+
+      const result = service.validateFormValues({ VISIBLE: "ok" }, fields)
+
+      expect(result.isValid).toBe(true)
+      expect(result.errors.VISIBLE).toBeUndefined()
+      expect(result.errors.HIDDEN).toBeUndefined()
+      expect(result.errors.DISABLED).toBeUndefined()
+      expect(result.errors.HIDDEN_ENABLED).toBeUndefined()
+    })
+
+    it("enforces validation when field remains visibleEnabled", () => {
+      const fields: DynamicFieldConfig[] = [
+        {
+          name: "VISIBLE",
+          label: "Visible",
+          type: FormFieldType.TEXT,
+          required: true,
+          readOnly: false,
+          visibilityState: "visibleEnabled",
+        },
+      ]
+
+      const result = service.validateFormValues({}, fields)
+
+      expect(result.isValid).toBe(false)
+      expect(result.errors.VISIBLE).toBeDefined()
+    })
+  })
+
+  describe("VisibilityEvaluator", () => {
+    const makeVisibilityExpression = (
+      condition: VisibilityExpression["if"][number],
+      defaultState: VisibilityState = "hiddenDisabled"
+    ): VisibilityExpression => ({
+      if: [condition],
+      default: { value: defaultState, override: false },
+    })
+
+    it("evaluates chained visibility and updates dependent states", () => {
+      const fields: DynamicFieldConfig[] = [
+        {
+          name: "MODE",
+          label: "Mode",
+          type: FormFieldType.TEXT,
+          required: false,
+          readOnly: false,
+        },
+        {
+          name: "DEPENDENT",
+          label: "Dependent",
+          type: FormFieldType.TEXT,
+          required: false,
+          readOnly: false,
+          visibility: makeVisibilityExpression({
+            then: "visibleEnabled",
+            $equals: { parameter: "MODE", value: "advanced" },
+          }),
+        },
+        {
+          name: "CHILD",
+          label: "Child",
+          type: FormFieldType.TEXT,
+          required: false,
+          readOnly: false,
+          visibility: makeVisibilityExpression({
+            then: "visibleEnabled",
+            $isEnabled: { parameter: "DEPENDENT" },
+          }),
+        },
+      ]
+
+      const evaluator = new VisibilityEvaluator({ MODE: "advanced" }, fields)
+
+      const dependentState = evaluator.evaluate(
+        fields[1].visibility,
+        fields[1].name
+      )
+      const childState = evaluator.evaluate(
+        fields[2].visibility,
+        fields[2].name
+      )
+
+      expect(dependentState).toBe("visibleEnabled")
+      expect(childState).toBe("visibleEnabled")
+    })
+
+    it("honours prior visibility states for $isEnabled comparisons", () => {
+      const dependentVisibility = makeVisibilityExpression({
+        then: "visibleEnabled",
+        $isEnabled: { parameter: "TRIGGER" },
+      })
+
+      const enabledTrigger = makeBaseField(
+        "TRIGGER",
+        undefined,
+        "visibleEnabled"
+      )
+      const disabledTrigger = makeBaseField(
+        "TRIGGER",
+        undefined,
+        "hiddenDisabled"
+      )
+
+      const dependentField = makeBaseField("DEPENDENT", dependentVisibility)
+
+      const enabledEvaluator = new VisibilityEvaluator({}, [
+        enabledTrigger,
+        dependentField,
+      ])
+      const disabledEvaluator = new VisibilityEvaluator({}, [
+        disabledTrigger,
+        dependentField,
+      ])
+
+      expect(enabledEvaluator.evaluate(dependentVisibility, "DEPENDENT")).toBe(
+        "visibleEnabled"
+      )
+      expect(disabledEvaluator.evaluate(dependentVisibility, "DEPENDENT")).toBe(
+        "hiddenDisabled"
+      )
     })
   })
 

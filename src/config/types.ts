@@ -593,6 +593,85 @@ export interface ColorFieldConfig {
   readonly alpha?: boolean
 }
 
+export type VisibilityState =
+  | "visibleEnabled"
+  | "visibleDisabled"
+  | "hiddenEnabled"
+  | "hiddenDisabled"
+
+export type ConditionOperator =
+  | "$equals"
+  | "$lessThan"
+  | "$greaterThan"
+  | "$matchesRegex"
+  | "$isEnabled"
+  | "$isRuntimeValue"
+  | "$allOf"
+  | "$anyOf"
+  | "$not"
+
+export interface ConditionExpression {
+  readonly [operator: string]: unknown
+}
+
+export interface EqualsCondition {
+  readonly $equals: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+}
+
+export interface ComparisonCondition {
+  readonly $lessThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $greaterThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+}
+
+export interface RegexCondition {
+  readonly $matchesRegex: {
+    readonly parameter: string
+    readonly regex: string
+  }
+}
+
+export interface EnabledCondition {
+  readonly $isEnabled: {
+    readonly parameter: string
+  }
+}
+
+export interface RuntimeCondition {
+  readonly $isRuntimeValue: {
+    readonly parameter: string
+  }
+}
+
+export interface LogicalCondition {
+  readonly $allOf?: readonly ConditionExpression[]
+  readonly $anyOf?: readonly ConditionExpression[]
+  readonly $not?: ConditionExpression
+}
+
+export interface DynamicPropertyClause<T> {
+  readonly then: T
+  readonly [operator: string]: unknown
+}
+
+export interface DynamicPropertyExpression<T> {
+  readonly if: ReadonlyArray<DynamicPropertyClause<T>>
+  readonly default?: {
+    readonly value: T
+    readonly override?: boolean
+  }
+}
+
+export type VisibilityExpression = DynamicPropertyExpression<VisibilityState>
+
 export interface DynamicFieldConfig {
   readonly name: string
   readonly label: string
@@ -618,6 +697,8 @@ export interface DynamicFieldConfig {
   readonly selectConfig?: SelectFieldConfig
   readonly fileConfig?: FileFieldConfig
   readonly colorConfig?: ColorFieldConfig
+  readonly visibility?: VisibilityExpression
+  readonly visibilityState?: VisibilityState
 }
 
 export interface DynamicFieldProps {
@@ -625,6 +706,7 @@ export interface DynamicFieldProps {
   readonly value?: FormPrimitive
   readonly onChange: (value: FormPrimitive | File | null) => void
   readonly translate: TranslateFn
+  readonly disabled?: boolean
 }
 
 export interface FmeFlowConfig {
