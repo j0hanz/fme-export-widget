@@ -505,52 +505,55 @@ const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
   translate,
   styles,
   ID,
+  showTmTtc = true,
 }) => {
   return (
     <>
       {/* Job directives (admin-standardvärden) */}
-      <SettingRow
-        flow="wrap"
-        label={
-          <Tooltip content={translate("tm_ttcHelper")} placement="top">
-            <span>{translate("tm_ttcLabel")}</span>
-          </Tooltip>
-        }
-        level={2}
-        tag="label"
-      >
-        <NumericInput
-          id={ID.tm_ttc}
-          value={toNumericValue(localTmTtc)}
-          min={0}
-          step={1}
-          precision={0}
-          placeholder={translate("tm_ttcPlaceholder")}
-          aria-invalid={fieldErrors.tm_ttc ? true : undefined}
-          aria-describedby={
-            fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
+      {showTmTtc && (
+        <SettingRow
+          flow="wrap"
+          label={
+            <Tooltip content={translate("tm_ttcHelper")} placement="top">
+              <span>{translate("tm_ttcLabel")}</span>
+            </Tooltip>
           }
-          onChange={(value) => {
-            onTmTtcChange(value === undefined ? "" : String(value))
-          }}
-          onBlur={(evt) => {
-            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
-            onTmTtcBlur(raw)
-          }}
-        />
-        {fieldErrors.tm_ttc && (
-          <SettingRow flow="wrap" level={2} css={css(styles.row)}>
-            <Alert
-              id={`${ID.tm_ttc}-error`}
-              fullWidth
-              css={css(styles.alertInline)}
-              text={fieldErrors.tm_ttc}
-              type="error"
-              closable={false}
-            />
-          </SettingRow>
-        )}
-      </SettingRow>
+          level={2}
+          tag="label"
+        >
+          <NumericInput
+            id={ID.tm_ttc}
+            value={toNumericValue(localTmTtc)}
+            min={0}
+            step={1}
+            precision={0}
+            placeholder={translate("tm_ttcPlaceholder")}
+            aria-invalid={fieldErrors.tm_ttc ? true : undefined}
+            aria-describedby={
+              fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
+            }
+            onChange={(value) => {
+              onTmTtcChange(value === undefined ? "" : String(value))
+            }}
+            onBlur={(evt) => {
+              const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
+              onTmTtcBlur(raw)
+            }}
+          />
+          {fieldErrors.tm_ttc && (
+            <SettingRow flow="wrap" level={2} css={css(styles.row)}>
+              <Alert
+                id={`${ID.tm_ttc}-error`}
+                fullWidth
+                css={css(styles.alertInline)}
+                text={fieldErrors.tm_ttc}
+                type="error"
+                closable={false}
+              />
+            </SettingRow>
+          )}
+        </SettingRow>
+      )}
       <SettingRow
         flow="wrap"
         label={
@@ -792,6 +795,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
   const shouldShowMaskEmailSetting = !localSyncMode
   const shouldShowScheduleToggle = !localSyncMode
+  const shouldShowTmTtc = localSyncMode
   const hasMapSelection =
     Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
   const hasServerInputs = Boolean(trimmedLocalServerUrl && trimmedLocalToken)
@@ -905,6 +909,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     localUploadTargetParamName,
     updateConfig,
   ])
+
+  hooks.useEffectWithPreviousValues(() => {
+    if (!shouldShowTmTtc && toTrimmedString(localTmTtc)) {
+      setLocalTmTtc("")
+      updateConfig("tm_ttc", undefined as any)
+      setFieldErrors((prev) => ({ ...prev, tm_ttc: undefined }))
+    }
+  }, [shouldShowTmTtc, localTmTtc, updateConfig, setFieldErrors])
 
   /* Drawing color (hex) med ArcGIS brand blue som standard */
   const [localDrawingColor, setLocalDrawingColor] = React.useState<string>(
@@ -1584,26 +1596,26 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       {shouldShowRemainingSettings && (
         <>
           <SettingRow
-            flow="no-wrap"
+            flow="wrap"
             label={
-              <Tooltip
-                content={translate("serviceModeSyncHelper")}
-                placement="top"
-              >
-                <span>{translate("serviceModeSync")}</span>
+              <Tooltip content={translate("serviceModeHelper")} placement="top">
+                <span>{translate("serviceModeLabel")}</span>
               </Tooltip>
             }
             level={2}
           >
-            <Switch
-              id={ID.syncMode}
-              checked={localSyncMode}
-              onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                const checked = evt?.target?.checked ?? !localSyncMode
-                setLocalSyncMode(checked)
-                updateConfig("syncMode", checked)
+            <Select
+              value={localSyncMode ? "sync" : "async"}
+              onChange={(value) => {
+                const nextMode = value === "sync"
+                setLocalSyncMode(nextMode)
+                updateConfig("syncMode", nextMode)
               }}
-              aria-label={translate("serviceModeSync")}
+              options={[
+                { label: translate("serviceModeAsync"), value: "async" },
+                { label: translate("serviceModeSync"), value: "sync" },
+              ]}
+              aria-label={translate("serviceModeLabel")}
             />
           </SettingRow>
           {shouldShowScheduleToggle && (
@@ -1804,6 +1816,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             translate={translate}
             styles={settingStyles}
             ID={ID}
+            showTmTtc={shouldShowTmTtc}
           />
           <SettingRow
             flow="wrap"

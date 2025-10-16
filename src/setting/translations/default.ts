@@ -48,9 +48,11 @@ export default {
   tm_ttlLabel: "Max kötid (s)",
   tm_ttcPlaceholder: "Lämna tomt (standard)",
   tm_ttlPlaceholder: "Lämna tomt (standard)",
-  serviceModeSync: "Direktnedladdning (synkront)",
-  serviceModeSyncHelper:
-    "På: direktnedladdning i webbläsaren. Av: länk skickas via e‑post.",
+  serviceModeLabel: "Leveransläge",
+  serviceModeAsync: "E-postmeddelande (async)",
+  serviceModeSync: "Direkt nerladdning (sync)",
+  serviceModeHelper:
+    "Välj hur resultatet ska levereras: via e-post eller direkt i webbläsaren.",
   maskEmailOnSuccess: "Maskera e‑postadress",
   maskEmailOnSuccessHelper:
     "Döljer större delen av e‑postadressen i lyckade svar.",
@@ -97,7 +99,7 @@ export default {
     "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
   drawingColorLabel: "Ritningsfärg",
   tm_ttcHelper:
-    "Maximal körtid innan jobbet avbryts. Lämna tomt för serverns standard.",
+    "Maximal körtid innan jobbet avbryts. Gäller endast i synkront läge. Lämna tomt för serverns standard.",
   tm_ttlHelper:
     "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för serverns standard.",
   uploadTargetParamNameLabel: "Upload‑målparameter",

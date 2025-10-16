@@ -9,6 +9,8 @@ import {
 import {
   applyUploadedDatasetParam,
   sanitizeOptGetUrlParam,
+  applyDirectiveDefaults,
+  normalizeServiceModeConfig,
 } from "../shared/utils"
 import {
   ErrorType,
@@ -145,6 +147,75 @@ describe("FME shared logic", () => {
     })
   })
 
+  describe("normalizeServiceModeConfig", () => {
+    it("coerces syncMode values to booleans", () => {
+      const config = {
+        fmeServerUrl: "https://flow.example.com",
+        fmeServerToken: "token",
+        repository: "Repo",
+        syncMode: "1",
+        tm_ttc: 30,
+      } as any
+
+      const normalized = normalizeServiceModeConfig(config)
+
+      expect(normalized?.syncMode).toBe(true)
+      expect(normalized?.tm_ttc).toBe(30)
+    })
+
+    it("returns original reference when no changes are needed", () => {
+      const config = {
+        fmeServerUrl: "https://flow.example.com",
+        fmeServerToken: "token",
+        repository: "Repo",
+        syncMode: false,
+      } as any
+
+      const normalized = normalizeServiceModeConfig(config)
+
+      expect(normalized).toBe(config)
+    })
+  })
+
+  describe("applyDirectiveDefaults", () => {
+    const baseConfig = {
+      fmeServerUrl: "https://flow.example.com",
+      fmeServerToken: "token",
+      repository: "Repo",
+      tm_ttc: 90,
+      tm_ttl: 120,
+    } as any
+
+    it("excludes tm_ttc defaults when mode is async", () => {
+      const params = applyDirectiveDefaults(
+        { opt_servicemode: "async" },
+        baseConfig
+      )
+
+      expect(params.tm_ttc).toBeUndefined()
+      expect(params.tm_ttl).toBe(120)
+    })
+
+    it("applies tm_ttc defaults when mode is sync", () => {
+      const params = applyDirectiveDefaults(
+        { opt_servicemode: "sync" },
+        baseConfig
+      )
+
+      expect(params.tm_ttc).toBe(90)
+      expect(params.tm_ttl).toBe(120)
+    })
+
+    it("removes existing tm_ttc values for async mode", () => {
+      const params = applyDirectiveDefaults(
+        { opt_servicemode: "async", tm_ttc: 45 },
+        baseConfig
+      )
+
+      expect(params.tm_ttc).toBeUndefined()
+    })
+  })
+
   describe("processFmeResponse", () => {
     const translate = (key: string): string => {
       const map: { [key: string]: string } = {
@@ -176,6 +247,7 @@ describe("FME shared logic", () => {
       )
 
       expect(result.success).toBe(false)
+      expect(result.cancelled).toBe(true)
       expect(result.code).toBe("FME_JOB_CANCELLED_TIMEOUT")
       expect(result.message).toBe("Jobbet avbröts på grund av tidsgräns")
       expect(result.jobId).toBe(501)
@@ -202,6 +274,7 @@ describe("FME shared logic", () => {
 
       expect(result.code).toBe("FME_JOB_CANCELLED")
       expect(result.message).toBe("Jobbet avbröts")
+      expect(result.cancelled).toBe(true)
       expect(result.jobId).toBe(777)
     })
 
@@ -341,10 +414,7 @@ describe("FME shared logic", () => {
       expect(field.decimalPrecision).toBe(0)
 
       // Validate that decimal values are rejected
-      const validation = service.validateFormValues(
-        { INT_PARAM: 7.5 },
-        [field]
-      )
+      const validation = service.validateFormValues({ INT_PARAM: 7.5 }, [field])
       expect(validation.isValid).toBe(false)
       expect(validation.errors.INT_PARAM).toBeDefined()
     })
@@ -366,17 +436,15 @@ describe("FME shared logic", () => {
       expect(field.decimalPrecision).toBe(2)
 
       // Validate that decimal values are accepted
-      const validation1 = service.validateFormValues(
-        { FLOAT_PARAM: 75.25 },
-        [field]
-      )
+      const validation1 = service.validateFormValues({ FLOAT_PARAM: 75.25 }, [
+        field,
+      ])
       expect(validation1.isValid).toBe(true)
 
       // Validate that integer values are also accepted
-      const validation2 = service.validateFormValues(
-        { FLOAT_PARAM: 75 },
-        [field]
-      )
+      const validation2 = service.validateFormValues({ FLOAT_PARAM: 75 }, [
+        field,
+      ])
       expect(validation2.isValid).toBe(true)
     })
 
@@ -399,24 +467,21 @@ describe("FME shared logic", () => {
       expect(field.maxExclusive).toBe(true)
 
       // Value equal to min should fail (exclusive)
-      const validation1 = service.validateFormValues(
-        { EXCLUSIVE_PARAM: 5 },
-        [field]
-      )
+      const validation1 = service.validateFormValues({ EXCLUSIVE_PARAM: 5 }, [
+        field,
+      ])
       expect(validation1.isValid).toBe(false)
 
       // Value equal to max should fail (exclusive)
-      const validation2 = service.validateFormValues(
-        { EXCLUSIVE_PARAM: 10 },
-        [field]
-      )
+      const validation2 = service.validateFormValues({ EXCLUSIVE_PARAM: 10 }, [
+        field,
+      ])
       expect(validation2.isValid).toBe(false)
 
       // Value within exclusive range should pass
-      const validation3 = service.validateFormValues(
-        { EXCLUSIVE_PARAM: 7 },
-        [field]
-      )
+      const validation3 = service.validateFormValues({ EXCLUSIVE_PARAM: 7 }, [
+        field,
+      ])
       expect(validation3.isValid).toBe(true)
     })
 
@@ -439,24 +504,21 @@ describe("FME shared logic", () => {
       expect(field.maxExclusive).toBe(false)
 
       // Value equal to min should pass (inclusive)
-      const validation1 = service.validateFormValues(
-        { INCLUSIVE_PARAM: 5 },
-        [field]
-      )
+      const validation1 = service.validateFormValues({ INCLUSIVE_PARAM: 5 }, [
+        field,
+      ])
       expect(validation1.isValid).toBe(true)
 
       // Value equal to max should pass (inclusive)
-      const validation2 = service.validateFormValues(
-        { INCLUSIVE_PARAM: 10 },
-        [field]
-      )
+      const validation2 = service.validateFormValues({ INCLUSIVE_PARAM: 10 }, [
+        field,
+      ])
       expect(validation2.isValid).toBe(true)
 
       // Value outside range should fail
-      const validation3 = service.validateFormValues(
-        { INCLUSIVE_PARAM: 11 },
-        [field]
-      )
+      const validation3 = service.validateFormValues({ INCLUSIVE_PARAM: 11 }, [
+        field,
+      ])
       expect(validation3.isValid).toBe(false)
     })
   })

@@ -1483,6 +1483,7 @@ export const processFmeResponse = (
     const translationKey = isTimeout ? "jobCancelledTimeout" : "jobCancelled"
     return {
       success: false,
+      cancelled: true,
       message: translateFn(translationKey),
       code: isTimeout ? "FME_JOB_CANCELLED_TIMEOUT" : "FME_JOB_CANCELLED",
       status: serviceInfo.status,

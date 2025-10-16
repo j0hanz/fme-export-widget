@@ -416,6 +416,18 @@ export const formatByteSize = (size: unknown): string | null => {
   return `${formatted} ${UNITS[unitIndex]}`
 }
 
+// Formaterar numeriska värden baserat på valfri decimalprecision
+export const formatNumericDisplay = (
+  value: number,
+  precision?: number
+): string => {
+  if (!Number.isFinite(value)) return ""
+  if (typeof precision === "number" && precision >= 0) {
+    return value.toFixed(precision)
+  }
+  return value.toString()
+}
+
 /* Message & Display Utilities */
 
 // Översätter meddelande eller key (returnerar raw string om translation saknas)
@@ -711,6 +723,31 @@ export const resolveUploadTargetParam = (
 
   const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
   return sanitized || null
+}
+
+export const normalizeServiceModeConfig = (
+  config: FmeExportConfig | null | undefined
+): FmeExportConfig | undefined => {
+  if (!config) return config ?? undefined
+
+  const coercedSyncMode =
+    typeof config.syncMode === "boolean"
+      ? config.syncMode
+      : Boolean(config.syncMode)
+
+  if (config.syncMode === coercedSyncMode) {
+    return config
+  }
+
+  const cloned = { ...config, syncMode: coercedSyncMode }
+  if (typeof (config as any).set === "function") {
+    Object.defineProperty(cloned, "set", {
+      value: (config as any).set,
+      writable: true,
+      configurable: true,
+    })
+  }
+  return cloned
 }
 
 // Kontrollerar om navigator är offline (används för UX-varningar)
@@ -2336,12 +2373,27 @@ export const applyDirectiveDefaults = (
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
   }
 
-  if (!("tm_ttc" in out)) {
-    const v = toPosInt(config.tm_ttc)
+  const rawMode = (() => {
+    const candidate = (params as { opt_servicemode?: unknown }).opt_servicemode
+    if (typeof candidate === "string") return candidate
+    const cloned = out.opt_servicemode
+    return typeof cloned === "string" ? cloned : ""
+  })()
+
+  const normalizedMode =
+    typeof rawMode === "string" ? rawMode.trim().toLowerCase() : ""
+
+  const allowTmTtc =
+    normalizedMode === "sync" || (!normalizedMode && Boolean(config?.syncMode))
+
+  if (!allowTmTtc && typeof out.tm_ttc !== "undefined") {
+    delete out.tm_ttc
+  } else if (allowTmTtc && !("tm_ttc" in out)) {
+    const v = toPosInt(config?.tm_ttc)
     if (v !== undefined) out.tm_ttc = v
   }
   if (!("tm_ttl" in out)) {
-    const v = toPosInt(config.tm_ttl)
+    const v = toPosInt(config?.tm_ttl)
     if (v !== undefined) out.tm_ttl = v
   }
 
@@ -2362,12 +2414,18 @@ export const prepFmeParams = (
     drawnArea?: number
   }
 ): { [key: string]: unknown } => {
-  const { config, workspaceParameters, workspaceItem, areaWarning, drawnArea } =
-    options || {}
+  const {
+    config: rawConfig,
+    workspaceParameters,
+    workspaceItem,
+    areaWarning,
+    drawnArea,
+  } = options || {}
+  const normalizedConfig = normalizeServiceModeConfig(rawConfig)
   const original = ((formData as any)?.data || {}) as {
     [key: string]: unknown
   }
-  const chosen = determineServiceMode({ data: original }, config, {
+  const chosen = determineServiceMode({ data: original }, normalizedConfig, {
     workspaceItem,
     areaWarning,
     drawnArea,
@@ -2381,17 +2439,22 @@ export const prepFmeParams = (
 
   const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
 
-  const base = buildFmeParams({ data: sanitized }, userEmail, chosen, config)
+  const base = buildFmeParams(
+    { data: sanitized },
+    userEmail,
+    chosen,
+    normalizedConfig
+  )
   const geometryParamNames = collectGeometryParamNames(workspaceParameters)
   const withAoi = attachAoi(
     base,
     geometryJson,
     currentGeometry,
     modules,
-    config,
+    normalizedConfig,
     geometryParamNames
   )
-  const withDirectives = applyDirectiveDefaults(withAoi, config)
+  const withDirectives = applyDirectiveDefaults(withAoi, normalizedConfig)
   return withDirectives
 }
 

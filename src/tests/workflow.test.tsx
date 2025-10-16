@@ -2,6 +2,8 @@ import "@testing-library/jest-dom"
 import { screen } from "@testing-library/react"
 import { React } from "jimu-core"
 import { initGlobal, mockTheme, widgetRender } from "jimu-for-test"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { fmeQueryClient } from "../shared/query-client"
 import { ViewMode } from "../config"
 import type { WorkspaceItem } from "../config"
 import { Workflow } from "../runtime/components/workflow"
@@ -9,7 +11,13 @@ import * as sharedHooks from "../shared/hooks"
 
 initGlobal()
 
-const renderWithStoreThemeIntl = widgetRender(true, mockTheme as any)
+const baseRender = widgetRender(true, mockTheme as any)
+
+// Wrapper that includes QueryClientProvider for React Query hooks
+const renderWithStoreThemeIntl = (ui: React.ReactElement) =>
+  baseRender(
+    <QueryClientProvider client={fmeQueryClient}>{ui}</QueryClientProvider>
+  )
 
 const baseLoadingState = Object.freeze({
   modules: false,
@@ -126,5 +134,102 @@ describe("Workflow workspace view", () => {
     )
 
     expect(screen.getByRole("button", { name: "Demo Arbetsyta" })).toBeVisible()
+  })
+})
+
+describe("Workflow order result view", () => {
+  const baseConfig = {
+    fmeServerUrl: "https://example.com",
+    fmeServerToken: "token",
+    repository: "Repo",
+  } as const
+
+  const renderOrderResult = (orderResult: any) =>
+    renderWithStoreThemeIntl(
+      <Workflow
+        widgetId="w-order"
+        state={ViewMode.ORDER_RESULT}
+        orderResult={orderResult}
+        loadingState={baseLoadingState}
+        isPrefetchingWorkspaces={false}
+        workspacePrefetchStatus="idle"
+        workspacePrefetchProgress={null}
+        onBack={jest.fn()}
+        onReset={jest.fn()}
+        onReuseGeography={jest.fn()}
+        config={baseConfig as any}
+      />
+    )
+
+  it("renders success state with download link", () => {
+    renderOrderResult({
+      success: true,
+      cancelled: false,
+      workspaceName: "TestWorkspace",
+      jobId: 123,
+      downloadUrl: "https://example.com/file.zip",
+      downloadFilename: "file.zip",
+      serviceMode: "sync",
+    })
+
+    expect(screen.getByText("Exporten är klar")).toBeVisible()
+    expect(screen.getByRole("link", { name: "Ladda ner" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Ny beställning" })).toBeVisible()
+  })
+
+  it("renders failure state with retry action", () => {
+    renderOrderResult({
+      success: false,
+      cancelled: false,
+      workspaceName: "TestWorkspace",
+      jobId: 200,
+      code: "FME_JOB_FAILURE",
+      status: "FAILURE",
+      message: "Job failed",
+    })
+
+    expect(screen.getByText("Beställningen misslyckades")).toBeVisible()
+    expect(
+      screen.getByText(
+        "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer."
+      )
+    ).toBeVisible()
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeVisible()
+    expect(screen.getByText(/Felkod: FME_JOB_FAILURE/)).toBeVisible()
+  })
+
+  it("renders cancelled state with new order action", () => {
+    renderOrderResult({
+      success: false,
+      cancelled: true,
+      workspaceName: "TestWorkspace",
+      jobId: 300,
+      code: "FME_JOB_CANCELLED",
+    })
+
+    expect(screen.getByText("Beställning avbruten")).toBeVisible()
+    expect(
+      screen.getByText("Beställningen avbröts innan den slutfördes.")
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Skapa ny beställning" })
+    ).toBeVisible()
+    expect(screen.queryByText(/Felkod:/)).toBeNull()
+  })
+
+  it("shows timeout specific messaging for cancelled jobs", () => {
+    renderOrderResult({
+      success: false,
+      cancelled: true,
+      workspaceName: "TestWorkspace",
+      jobId: 301,
+      code: "FME_JOB_CANCELLED_TIMEOUT",
+    })
+
+    expect(
+      screen.getByText(
+        "Beställningen avbröts på grund av tidsgräns. Arbetsytan tog för lång tid att köra."
+      )
+    ).toBeVisible()
   })
 })
