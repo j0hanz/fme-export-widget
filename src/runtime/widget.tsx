@@ -1595,6 +1595,10 @@ function WidgetContent(
     /* Avbryter pågående submission */
     submissionAbort.cancel()
 
+    /* Rensar varningar och lokalt rittillstånd */
+    updateAreaWarning(false)
+    updateDrawingSession({ isActive: false, clickCount: 0 })
+
     /* Avbryter pågående ritning */
     if (sketchViewModel) {
       safeCancelSketch(sketchViewModel)
@@ -1605,11 +1609,13 @@ function WidgetContent(
         Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0,
     }).isValid
 
+    const currentViewMode = viewModeRef.current ?? viewMode
+    const preserveStartupValidation =
+      currentViewMode === ViewMode.STARTUP_VALIDATION && hasCriticalGeneralError
+
     if (!configValid) {
       dispatch(fmeActions.resetState(widgetId))
-      updateAreaWarning(false)
-      updateDrawingSession({ isActive: false, clickCount: 0 })
-    } else {
+    } else if (!preserveStartupValidation) {
       resetReduxToInitialDrawing()
     }
 
