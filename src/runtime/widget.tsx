@@ -1606,9 +1606,8 @@ function WidgetContent(
         resetReduxToInitialDrawing()
       }
 
-      if (viewModeRef.current === ViewMode.STARTUP_VALIDATION) {
-        runStartupValidation()
-      }
+      /* Kör alltid validering när widget öppnas igen */
+      runStartupValidation()
     }
   }, [
     runtimeState,
