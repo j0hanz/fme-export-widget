@@ -1741,11 +1741,13 @@ const StateView: React.FC<StateViewProps> = ({
       aria-atomic={true}
     >
       {showLoading && (
-        <Loading
-          type={LoadingType.Donut}
-          width={config.loading.width}
-          height={config.loading.height}
-        />
+        <div css={styles.loadingSpinner}>
+          <Loading
+            type={LoadingType.Donut}
+            width={config.loading.width}
+            height={config.loading.height}
+          />
+        </div>
       )}
       {activeLoadingMessage ? (
         <div css={[styles.typo.loadingMessage, styles.loadingText]}>

@@ -23,8 +23,8 @@ export const config = {
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
   loading: {
-    width: 215,
-    height: 215,
+    width: 32,
+    height: 32,
     delay: 1000,
     detailDelay: 1600,
     cycleInterval: 5200,
@@ -107,10 +107,15 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       gap,
     }),
     loadingText: css({
-      position: "absolute",
+      /* position: "absolute",
       inset: "50% auto auto 50%",
       transform: "translate(-50%, -50%)",
-      textAlign: "center",
+      textAlign: "center", */
+    }),
+    loadingSpinner: css({
+      "& .donut-loading": {
+        top: "60% !important",
+      },
     }),
     overlay: css({
       position: "absolute",
@@ -165,11 +170,11 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         },
       }),
       loadingMessage: css({
-        ...typo(typography?.body2),
+        ...typo(typography?.label2),
       }),
       required: css({ marginInlineStart: spacing?.(1) }),
       hint: css({
-        ...typo(typography?.label2),
+        ...typo(typography?.label3),
         marginBlockStart: spacing?.(1),
       }),
     },

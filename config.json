@@ -2,7 +2,6 @@
   "fmeServerUrl": "",
   "fmeServerToken": "",
   "repository": "",
-  "syncMode": false,
   "allowScheduleMode": false,
   "allowRemoteDataset": false,
   "uploadTargetParamName": "",
