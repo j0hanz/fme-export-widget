@@ -358,7 +358,6 @@ export class ParameterFormService {
       }
     }
     const description = (param.description || "").toLowerCase()
-    const name = (param.name || "").toLowerCase()
     if (
       description.includes("no slider") ||
       description.includes("noslider") ||
@@ -367,11 +366,8 @@ export class ParameterFormService {
       return false
     }
 
-    // Om beskrivningen innehåller "slider", använd slider-UI
-    if (description.includes("slider") || name.includes("slider")) {
-      return true
-    }
-    return false
+    // Default för RANGE_SLIDER är att visa slider-UI
+    return true
   }
 
   // Samlar metadata från olika källor (metadata, attributes, definition etc.)
