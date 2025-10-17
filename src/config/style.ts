@@ -177,6 +177,11 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         ...typo(typography?.label3),
         marginBlockStart: spacing?.(1),
       }),
+      errorMessage: css({
+        ...typo(typography?.label3),
+        color: colors?.error?.main,
+        marginBlockStart: spacing?.(1),
+      }),
     },
 
     // Buttons
@@ -202,7 +207,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     form: {
       layout: flex("column", { flex: auto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),
-      sliderField: flex("row", { gap: spacing?.(1) }),
+      sliderField: flex("row", { alignItems: "center", gap }),
       sliderValue: css({
         ...typo(typography?.label2),
         textAlign: "center",

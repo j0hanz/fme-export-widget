@@ -1194,7 +1194,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               aria-label={field.label}
             />
             {fileError ? (
-              <div data-testid="file-field-error" role="alert">
+              <div
+                css={styles.typo.errorMessage}
+                data-testid="file-field-error"
+                role="alert"
+              >
                 {fileError}
               </div>
             ) : null}
@@ -1326,7 +1330,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   aria-label={field.label}
                 />
                 {fileError ? (
-                  <div data-testid="text-or-file-error" role="alert">
+                  <div
+                    css={styles.typo.errorMessage}
+                    data-testid="text-or-file-error"
+                    role="alert"
+                  >
                     {fileError}
                   </div>
                 ) : null}
@@ -1561,7 +1569,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             {validationError && (
               <div
                 id={`${field.name}-error`}
-                css={styles.typo.hint}
+                css={styles.typo.errorMessage}
                 role="alert"
                 data-testid="numeric-input-error"
               >

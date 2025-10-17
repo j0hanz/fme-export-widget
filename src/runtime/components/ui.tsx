@@ -2039,7 +2039,7 @@ export const Field: React.FC<FieldProps> = ({
       {error && (
         <div
           id={fieldId ? `${fieldId}-error` : undefined}
-          className="d-block"
+          css={styles.typo.errorMessage}
           role="alert"
         >
           {error}
