@@ -9,6 +9,7 @@ import type {
   SelectFieldConfig,
   FileFieldConfig,
   ColorFieldConfig,
+  ToggleFieldConfig,
   VisibilityExpression,
   VisibilityState,
   DynamicPropertyClause,
@@ -50,6 +51,7 @@ import {
   isAbortError,
   isFileObject,
   toTrimmedString,
+  toBooleanValue,
   extractTemporalParts,
   shouldApplyRemoteDatasetUrl,
   shouldUploadRemoteDataset,
@@ -207,6 +209,44 @@ export class ParameterFormService {
         ...(o.metadata && { metadata: o.metadata }),
       }
     })
+  }
+
+  private normalizeToggleValue(value: unknown): string | number | undefined {
+    if (value === undefined || value === null) return undefined
+    if (typeof value === "string") {
+      const trimmed = value.trim()
+      if (!trimmed) return undefined
+      return normalizeParameterValue(trimmed)
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+      return normalizeParameterValue(value)
+    }
+    return undefined
+  }
+
+  private areToggleValuesEqual(a: unknown, b: unknown): boolean {
+    const normalizedA = this.normalizeToggleValue(a)
+    if (normalizedA === undefined) return false
+    const normalizedB = this.normalizeToggleValue(b)
+    if (normalizedB === undefined) return false
+    return normalizedA === normalizedB
+  }
+
+  private extractToggleMetaValue(
+    meta: { readonly [key: string]: unknown } | undefined,
+    keys: readonly string[]
+  ): string | number | undefined {
+    if (!meta) return undefined
+    for (const key of keys) {
+      if (!(key in meta)) continue
+      const candidate = this.normalizeToggleValue(
+        (meta as { readonly [key: string]: unknown })[key]
+      )
+      if (candidate !== undefined) {
+        return candidate
+      }
+    }
+    return undefined
   }
 
   // Normaliserar decimalprecision till heltal >= 0 (max 6 för att undvika flyttalsfel)
@@ -1064,6 +1104,163 @@ export class ParameterFormService {
     }
   }
 
+  private deriveToggleConfig(
+    type: FormFieldType,
+    param: WorkspaceParameter,
+    options?: readonly OptionItem[]
+  ): ToggleFieldConfig | undefined {
+    if (type !== FormFieldType.SWITCH && type !== FormFieldType.CHECKBOX) {
+      return undefined
+    }
+
+    const meta = this.getParameterMetadata(param)
+    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
+    const defaultBoolean = toBooleanValue(param.defaultValue)
+
+    const optionEntries = Array.isArray(options)
+      ? options
+          .map((opt) => ({
+            value: this.normalizeToggleValue(opt?.value),
+            label:
+              typeof opt?.label === "string" && opt.label.trim()
+                ? opt.label.trim()
+                : undefined,
+          }))
+          .filter((entry) => entry.value !== undefined || entry.label)
+      : []
+
+    let checkedValue = this.extractToggleMetaValue(meta, [
+      "checkedValue",
+      "checked_value",
+      "trueValue",
+      "true_value",
+      "onValue",
+      "on_value",
+      "yesValue",
+      "yes_value",
+    ])
+    let uncheckedValue = this.extractToggleMetaValue(meta, [
+      "uncheckedValue",
+      "unchecked_value",
+      "falseValue",
+      "false_value",
+      "offValue",
+      "off_value",
+      "noValue",
+      "no_value",
+    ])
+
+    if (optionEntries.length === 2) {
+      const [first, second] = optionEntries
+
+      if (normalizedDefault !== undefined && uncheckedValue === undefined) {
+        if (
+          first.value !== undefined &&
+          this.areToggleValuesEqual(first.value, normalizedDefault)
+        ) {
+          uncheckedValue = first.value
+          if (checkedValue === undefined) {
+            checkedValue = second.value
+          }
+        } else if (
+          second.value !== undefined &&
+          this.areToggleValuesEqual(second.value, normalizedDefault)
+        ) {
+          uncheckedValue = second.value
+          if (checkedValue === undefined) {
+            checkedValue = first.value
+          }
+        }
+      }
+
+      if (checkedValue === undefined) {
+        checkedValue = first.value ?? second.value
+      }
+
+      if (uncheckedValue === undefined) {
+        const fallback = second.value ?? first.value
+        if (
+          fallback !== undefined &&
+          checkedValue !== undefined &&
+          this.areToggleValuesEqual(fallback, checkedValue) &&
+          first.value !== undefined &&
+          !this.areToggleValuesEqual(first.value, checkedValue)
+        ) {
+          uncheckedValue = first.value
+        } else {
+          uncheckedValue = fallback
+        }
+      }
+    } else if (optionEntries.length === 1) {
+      if (checkedValue === undefined) {
+        checkedValue = optionEntries[0].value
+      }
+    }
+
+    if (defaultBoolean !== undefined) {
+      if (checkedValue === undefined && defaultBoolean) {
+        checkedValue = this.normalizeToggleValue(true)
+      }
+
+      if (uncheckedValue === undefined && !defaultBoolean) {
+        uncheckedValue = this.normalizeToggleValue(false)
+      }
+    }
+
+    if (uncheckedValue === undefined && normalizedDefault !== undefined) {
+      uncheckedValue = normalizedDefault
+    }
+
+    if (
+      checkedValue !== undefined &&
+      uncheckedValue !== undefined &&
+      this.areToggleValuesEqual(checkedValue, uncheckedValue)
+    ) {
+      uncheckedValue = undefined
+    }
+
+    const checkedLabel =
+      pickString(meta, [
+        "checkedLabel",
+        "checked_caption",
+        "checkedText",
+        "checked_label",
+        "trueLabel",
+      ]) ||
+      optionEntries.find(
+        (entry) =>
+          entry.label &&
+          checkedValue !== undefined &&
+          entry.value !== undefined &&
+          this.areToggleValuesEqual(entry.value, checkedValue)
+      )?.label
+
+    const uncheckedLabel =
+      pickString(meta, [
+        "uncheckedLabel",
+        "unchecked_caption",
+        "uncheckedText",
+        "unchecked_label",
+        "falseLabel",
+      ]) ||
+      optionEntries.find(
+        (entry) =>
+          entry.label &&
+          uncheckedValue !== undefined &&
+          entry.value !== undefined &&
+          this.areToggleValuesEqual(entry.value, uncheckedValue)
+      )?.label
+
+    const result: ToggleFieldConfig = {
+      ...(checkedValue !== undefined && { checkedValue }),
+      ...(uncheckedValue !== undefined && { uncheckedValue }),
+      ...(checkedLabel && { checkedLabel }),
+      ...(uncheckedLabel && { uncheckedLabel }),
+    }
+
+    return Object.keys(result).length ? result : undefined
+  }
+
   // Extraherar färg-fält-konfiguration från parameter
   private deriveColorConfig(
     param: WorkspaceParameter
@@ -1308,6 +1505,7 @@ export class ParameterFormService {
       const selectConfig = this.deriveSelectConfig(type, param, options)
       const fileConfig = this.deriveFileConfig(type, param)
       const colorConfig = this.deriveColorConfig(param)
+      const toggleConfig = this.deriveToggleConfig(type, param, options)
       const visibility = this.deriveVisibilityConfig(param)
       const readOnly = this.isReadOnlyField(type, scripted)
       const helper =
@@ -1321,6 +1519,64 @@ export class ParameterFormService {
         decimalPrecision,
         sliderUiPreferred
       )
+      const defaultValue = (() => {
+        if (type === FormFieldType.PASSWORD) {
+          return "" as FormPrimitive
+        }
+        if (param.type === ParameterType.GEOMETRY) {
+          return "" as FormPrimitive
+        }
+        if (type === FormFieldType.MULTI_SELECT) {
+          return toArray(param.defaultValue) as FormPrimitive
+        }
+        if (
+          (type === FormFieldType.SWITCH || type === FormFieldType.CHECKBOX) &&
+          toggleConfig
+        ) {
+          const normalizedDefault = this.normalizeToggleValue(
+            param.defaultValue
+          )
+          if (
+            normalizedDefault !== undefined &&
+            toggleConfig.checkedValue !== undefined &&
+            this.areToggleValuesEqual(
+              normalizedDefault,
+              toggleConfig.checkedValue
+            )
+          ) {
+            return toggleConfig.checkedValue as FormPrimitive
+          }
+          if (
+            normalizedDefault !== undefined &&
+            toggleConfig.uncheckedValue !== undefined &&
+            this.areToggleValuesEqual(
+              normalizedDefault,
+              toggleConfig.uncheckedValue
+            )
+          ) {
+            return toggleConfig.uncheckedValue as FormPrimitive
+          }
+          const booleanDefault = toBooleanValue(param.defaultValue)
+          if (booleanDefault !== undefined) {
+            if (booleanDefault && toggleConfig.checkedValue !== undefined) {
+              return toggleConfig.checkedValue as FormPrimitive
+            }
+            if (!booleanDefault && toggleConfig.uncheckedValue !== undefined) {
+              return toggleConfig.uncheckedValue as FormPrimitive
+            }
+          }
+          if (normalizedDefault !== undefined) {
+            return normalizedDefault as FormPrimitive
+          }
+          if (toggleConfig.uncheckedValue !== undefined) {
+            return toggleConfig.uncheckedValue as FormPrimitive
+          }
+          if (toggleConfig.checkedValue !== undefined) {
+            return toggleConfig.checkedValue as FormPrimitive
+          }
+        }
+        return param.defaultValue as FormPrimitive
+      })()
 
       const field: DynamicFieldConfig = {
         name: param.name,
@@ -1329,14 +1585,7 @@ export class ParameterFormService {
         required: !param.optional,
         readOnly,
         description: param.description,
-        defaultValue:
-          type === FormFieldType.PASSWORD
-            ? ("" as FormPrimitive)
-            : param.type === ParameterType.GEOMETRY
-              ? ("" as FormPrimitive)
-              : type === FormFieldType.MULTI_SELECT
-                ? (toArray(param.defaultValue) as FormPrimitive)
-                : (param.defaultValue as FormPrimitive),
+        defaultValue,
         placeholder: param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
@@ -1367,6 +1616,7 @@ export class ParameterFormService {
         ...(selectConfig && { selectConfig }),
         ...(fileConfig && { fileConfig }),
         ...(colorConfig && { colorConfig }),
+        ...(toggleConfig && { toggleConfig }),
         ...(visibility && { visibility }),
       }
       return field

@@ -937,6 +937,7 @@ const ExportForm: React.FC<
               label={field.label}
               required={field.required}
               error={resolveError(formState.errors[field.name])}
+              helper={field.helper}
               check={isInlineField}
             >
               <DynamicField

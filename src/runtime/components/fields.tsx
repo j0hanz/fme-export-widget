@@ -30,6 +30,7 @@ import {
   type TableColumnConfig,
   type FileFieldConfig,
   type FileValidationResult,
+  type ToggleFieldConfig,
 } from "../../config/index"
 import { useUiStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
@@ -52,6 +53,8 @@ import {
   getFileDisplayName,
   toTrimmedString,
   resolveMessageOrKey,
+  toBooleanValue,
+  normalizeParameterValue,
 } from "../../shared/utils"
 
 // Fälttyper som använder select/dropdown-komponenter
@@ -74,6 +77,73 @@ const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
 const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
+}
+
+const compareToggleValues = (a: unknown, b: unknown): boolean => {
+  if (a === undefined || a === null || b === undefined || b === null) {
+    return false
+  }
+
+  try {
+    const normalizedA = normalizeParameterValue(a)
+    const normalizedB = normalizeParameterValue(b)
+    return normalizedA === normalizedB
+  } catch {
+    return false
+  }
+}
+
+const resolveToggleChecked = (
+  current: unknown,
+  config?: ToggleFieldConfig
+): boolean => {
+  if (config) {
+    if (
+      config.checkedValue !== undefined &&
+      compareToggleValues(current, config.checkedValue)
+    ) {
+      return true
+    }
+    if (
+      config.uncheckedValue !== undefined &&
+      compareToggleValues(current, config.uncheckedValue)
+    ) {
+      return false
+    }
+  }
+
+  const booleanCandidate = toBooleanValue(current)
+  if (booleanCandidate !== undefined) {
+    return booleanCandidate
+  }
+
+  if (typeof current === "number") {
+    return current !== 0
+  }
+
+  if (typeof current === "string") {
+    const trimmed = current.trim()
+    if (!trimmed) return false
+    if (trimmed === "0") return false
+  }
+
+  return Boolean(current)
+}
+
+const resolveToggleOutputValue = (
+  checked: boolean,
+  config?: ToggleFieldConfig
+): FormPrimitive => {
+  if (checked) {
+    if (config?.checkedValue !== undefined) {
+      return config.checkedValue as FormPrimitive
+    }
+    return true as FormPrimitive
+  }
+  if (config?.uncheckedValue !== undefined) {
+    return config.uncheckedValue as FormPrimitive
+  }
+  return false as FormPrimitive
 }
 
 /* Hjälpfunktioner för rendering */
@@ -843,6 +913,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.SELECT: {
         // Hanterar select-fält med dynamiska alternativ
         const options = field.options || []
+        const selectConfig = field.selectConfig
 
         // Fallback till textinput om inga alternativ finns
         if (options.length === 0) {
@@ -895,6 +966,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             aria-label={field.label}
             disabled={isDisabled}
             coerce={selectCoerce}
+            allowSearch={selectConfig?.allowSearch}
+            allowCustomValues={selectConfig?.allowCustomValues}
+            hierarchical={selectConfig?.hierarchical}
           />
         )
       }
@@ -935,6 +1009,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const values = Array.isArray(fieldValue)
           ? (fieldValue as ReadonlyArray<string | number>)
           : []
+        const selectConfig = field.selectConfig
         return (
           <MultiSelectControl
             options={options}
@@ -944,6 +1019,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             onChange={(vals) => {
               onChange(vals as unknown as FormPrimitive)
             }}
+            allowSearch={selectConfig?.allowSearch}
+            hierarchical={selectConfig?.hierarchical}
           />
         )
       }
@@ -972,17 +1049,44 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           }
         )
       case FormFieldType.CHECKBOX:
-        // Renderar checkbox för boolean-värde
+      case FormFieldType.SWITCH: {
+        const toggleConfig = field.toggleConfig
+        const rawValue =
+          value !== undefined && value !== null && value !== ""
+            ? value
+            : field.defaultValue
+        const isChecked = resolveToggleChecked(rawValue, toggleConfig)
+
+        const handleToggleChange = (checked: boolean) => {
+          if (isDisabled) return
+          const nextValue = resolveToggleOutputValue(checked, toggleConfig)
+          onChange(nextValue)
+        }
+
+        if (field.type === FormFieldType.CHECKBOX) {
+          return (
+            <Checkbox
+              checked={isChecked}
+              onChange={(evt) => {
+                handleToggleChange(evt.target.checked)
+              }}
+              disabled={isDisabled}
+              aria-label={field.label}
+            />
+          )
+        }
+
         return (
-          <Checkbox
-            checked={Boolean(fieldValue)}
-            onChange={(evt) => {
-              onChange(evt.target.checked)
+          <Switch
+            checked={isChecked}
+            onChange={(_evt, checked) => {
+              handleToggleChange(checked)
             }}
             disabled={isDisabled}
             aria-label={field.label}
           />
         )
+      }
       case FormFieldType.PASSWORD:
       case FormFieldType.EMAIL:
       case FormFieldType.PHONE:
@@ -1245,18 +1349,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             : asString(field.defaultValue) || field.description || field.label
         return <RichText html={content || ""} />
       }
-      case FormFieldType.SWITCH:
-        // Renderar switch-kontroll för boolean-värde
-        return (
-          <Switch
-            checked={Boolean(fieldValue)}
-            onChange={(_evt, checked) => {
-              onChange(checked)
-            }}
-            disabled={isDisabled}
-            aria-label={field.label}
-          />
-        )
       case FormFieldType.RADIO: {
         // Renderar radioknappsgrupp med coerce-stöd
         const options = field.options || []

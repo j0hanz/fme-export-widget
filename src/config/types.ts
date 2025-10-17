@@ -298,6 +298,7 @@ export interface InputProps extends BaseProps {
   readonly maxLength?: number
   readonly accept?: string
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void
+  readonly onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
   readonly "aria-label"?: string
   readonly defaultValue?: FormPrimitive
   readonly errorText?: string
@@ -437,6 +438,9 @@ export interface SelectProps extends BaseProps {
   readonly coerce?: "number" | "string"
   readonly "aria-label"?: string
   readonly defaultValue?: SelectValue
+  readonly allowSearch?: boolean
+  readonly allowCustomValues?: boolean
+  readonly hierarchical?: boolean
 }
 
 export interface TabItem {
@@ -593,6 +597,13 @@ export interface ColorFieldConfig {
   readonly alpha?: boolean
 }
 
+export interface ToggleFieldConfig {
+  readonly checkedValue?: string | number | boolean
+  readonly uncheckedValue?: string | number | boolean
+  readonly checkedLabel?: string
+  readonly uncheckedLabel?: string
+}
+
 export type VisibilityState =
   | "visibleEnabled"
   | "visibleDisabled"
@@ -697,6 +708,7 @@ export interface DynamicFieldConfig {
   readonly selectConfig?: SelectFieldConfig
   readonly fileConfig?: FileFieldConfig
   readonly colorConfig?: ColorFieldConfig
+  readonly toggleConfig?: ToggleFieldConfig
   readonly visibility?: VisibilityExpression
   readonly visibilityState?: VisibilityState
 }
@@ -704,7 +716,9 @@ export interface DynamicFieldConfig {
 export interface DynamicFieldProps {
   readonly field: DynamicFieldConfig
   readonly value?: FormPrimitive
-  readonly onChange: (value: FormPrimitive | File | null) => void
+  readonly onChange: (
+    value: FormPrimitive | File | readonly File[] | null
+  ) => void
   readonly translate: TranslateFn
   readonly disabled?: boolean
 }
@@ -837,6 +851,56 @@ export interface NormalizedServiceInfo {
   readonly url?: string
 }
 
+export interface WorkspaceDatasetProperty {
+  readonly name?: string
+  readonly value?: unknown
+  readonly category?: string
+  readonly attributes?: { readonly [key: string]: unknown }
+  readonly [key: string]: unknown
+}
+
+export interface WorkspaceDataset {
+  readonly name: string
+  readonly format?: string
+  readonly location?: string
+  readonly source?: boolean
+  readonly featuretypes?: readonly string[]
+  readonly properties?: readonly WorkspaceDatasetProperty[]
+  readonly [key: string]: unknown
+}
+
+export type WorkspaceDatasets = Readonly<{
+  readonly source?: readonly WorkspaceDataset[]
+  readonly destination?: readonly WorkspaceDataset[]
+}>
+
+export interface WorkspaceService {
+  readonly name: string
+  readonly displayName?: string
+  readonly description?: string
+  readonly [key: string]: unknown
+}
+
+export interface WorkspaceResource {
+  readonly name?: string
+  readonly path?: string
+  readonly type?: string
+  readonly size?: number
+  readonly [key: string]: unknown
+}
+
+export interface WorkspaceProperty {
+  readonly name?: string
+  readonly value?: unknown
+  readonly category?: string
+  readonly attributes?: { readonly [key: string]: unknown }
+  readonly [key: string]: unknown
+}
+
+export type WorkspacePropertyCollection =
+  | readonly WorkspaceProperty[]
+  | { readonly [key: string]: unknown }
+
 export interface WorkspaceItem {
   readonly name: string
   readonly title?: string
@@ -846,10 +910,10 @@ export interface WorkspaceItem {
   readonly lastSaveBuild?: string
   readonly category?: string
   readonly requirements?: readonly string[]
-  readonly services?: readonly string[]
-  readonly datasets?: readonly string[]
-  readonly resources?: readonly string[]
-  readonly properties?: { readonly [key: string]: unknown }
+  readonly services?: ReadonlyArray<string | WorkspaceService>
+  readonly datasets?: WorkspaceDatasets | readonly string[]
+  readonly resources?: ReadonlyArray<string | WorkspaceResource>
+  readonly properties?: WorkspacePropertyCollection
   readonly fileSize?: number
   readonly buildNum?: number
   readonly transformerCount?: number

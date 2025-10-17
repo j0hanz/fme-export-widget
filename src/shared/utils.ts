@@ -8,6 +8,7 @@ import type {
   WorkspaceParameter,
   WorkspaceItem,
   WorkspaceItemDetail,
+  WorkspaceProperty,
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
@@ -1697,6 +1698,44 @@ const FILE_SIZE_PROPERTY_KEYS = Object.freeze([
   "estimatedFileSize",
 ])
 
+const normalizeWorkspaceProperties = (
+  properties: WorkspaceItem["properties"]
+): { readonly [key: string]: unknown } | undefined => {
+  if (!properties) return undefined
+
+  if (Array.isArray(properties)) {
+    const record: { [key: string]: unknown } = {}
+
+    for (const entry of properties) {
+      if (!isPlainObject(entry)) continue
+      const prop = entry as WorkspaceProperty
+      const key = toTrimmedString(prop.name)
+      if (!key) continue
+
+      if (prop.value !== undefined) {
+        record[key] = prop.value
+      } else if (!(key in record)) {
+        record[key] = prop
+      }
+    }
+
+    return Object.keys(record).length ? record : undefined
+  }
+
+  if (isPlainObject(properties)) {
+    return properties as { readonly [key: string]: unknown }
+  }
+
+  return undefined
+}
+
+const extractWorkspacePropertyRecord = (
+  workspace?: WorkspaceItem | WorkspaceItemDetail | null
+): { readonly [key: string]: unknown } | undefined => {
+  if (!workspace) return undefined
+  return normalizeWorkspaceProperties(workspace.properties)
+}
+
 const parseRuntimeSeconds = (value: unknown): number | null => {
   if (isFiniteNumber(value) && value >= 0) {
     return value
@@ -1765,9 +1804,7 @@ const extractRuntimeSeconds = (
   )
   if (direct != null) return direct
 
-  const props = isPlainObject(workspace.properties)
-    ? (workspace.properties as { readonly [key: string]: unknown })
-    : undefined
+  const props = extractWorkspacePropertyRecord(workspace)
 
   const fromProps = getFirstNumericProperty(
     props,
@@ -1826,9 +1863,7 @@ const extractTransformerCount = (
   const direct = toPositiveInteger((workspace as any).transformerCount)
   if (direct != null) return direct
 
-  const props = isPlainObject(workspace.properties)
-    ? (workspace.properties as { readonly [key: string]: unknown })
-    : undefined
+  const props = extractWorkspacePropertyRecord(workspace)
 
   const fromProps = getFirstNumericProperty(
     props,
@@ -1877,9 +1912,7 @@ const extractFileSizeBytes = (
   const direct = parseFileSizeBytes((workspace as any).fileSize)
   if (direct != null) return direct
 
-  const props = isPlainObject(workspace.properties)
-    ? (workspace.properties as { readonly [key: string]: unknown })
-    : undefined
+  const props = extractWorkspacePropertyRecord(workspace)
 
   const fromProps = getFirstNumericProperty(
     props,
