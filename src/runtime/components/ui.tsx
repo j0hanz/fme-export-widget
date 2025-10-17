@@ -39,6 +39,26 @@ import {
   config as styleConfig,
   useUiStyles,
 } from "../../config/index"
+import type {
+  ViewAction,
+  ButtonProps,
+  GroupButtonConfig,
+  ButtonGroupProps,
+  OptionItem,
+  SelectProps,
+  TabItem,
+  ButtonTabsProps,
+  InputProps,
+  TextAreaProps,
+  TooltipProps,
+  FormProps,
+  FieldProps,
+  BtnContentProps,
+  StateViewProps,
+  TranslateFn,
+  UiStyles,
+  ScheduleFieldsProps,
+} from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
   styleCss,
@@ -47,6 +67,7 @@ import {
   ariaDesc,
   pad2,
   formatNumericDisplay,
+  resolveMessageOrKey,
 } from "../../shared/utils"
 import {
   validateScheduleDateTime,
@@ -68,27 +89,6 @@ import sharedNoIcon from "../../assets/icons/shared-no.svg"
 import successIcon from "../../assets/icons/success.svg"
 import timeIcon from "../../assets/icons/time.svg"
 import warningIcon from "../../assets/icons/warning.svg"
-import type {
-  ViewAction,
-  ButtonProps,
-  GroupButtonConfig,
-  ButtonGroupProps,
-  OptionItem,
-  SelectProps,
-  TabItem,
-  ButtonTabsProps,
-  InputProps,
-  TextAreaProps,
-  TooltipProps,
-  FormProps,
-  FieldProps,
-  BtnContentProps,
-  StateViewProps,
-  TranslateFn,
-  UiStyles,
-  ScheduleFieldsProps,
-} from "../../config/index"
-
 // Konfiguration och konstanter
 export const config = styleConfig
 
@@ -945,14 +945,17 @@ export const Select: React.FC<SelectProps> = ({
   disabled = false,
   style,
   coerce,
+  allowSearch = false,
+  allowCustomValues = false,
+  hierarchical = false,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
+  const [searchTerm, setSearchTerm] = React.useState("")
   const resolvedPlaceholder =
     placeholder || translate("placeholderSelectGeneric")
 
-  // Tvingar värde till specificerad typ (t.ex. nummer)
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
     if (coerce === "number" && typeof val === "string") {
       const n = Number(val)
@@ -973,45 +976,178 @@ export const Select: React.FC<SelectProps> = ({
     }
   )
 
-  // Normaliserar internt värde till sträng för jämförelse
+  const commitCustomValue = hooks.useEventCallback((raw: string) => {
+    if (!allowCustomValues) return
+    const trimmed = raw.trim()
+    if (!trimmed) return
+    const newValue = coerceValue(trimmed)
+    if (Object.is(newValue, internalValue)) {
+      return
+    }
+    setInternalValue(newValue)
+    onChange?.(newValue)
+  })
+
+  const showFilter = allowSearch || allowCustomValues
+
+  const flattenOptions = (
+    list: readonly OptionItem[] | undefined,
+    depth = 0,
+    acc: Array<{ option: OptionItem; depth: number }> = []
+  ): Array<{ option: OptionItem; depth: number }> => {
+    if (!list) return acc
+    for (const opt of list) {
+      if (!opt || opt.value == null) continue
+      acc.push({ option: opt, depth })
+      if (hierarchical && opt.children?.length) {
+        flattenOptions(opt.children, depth + 1, acc)
+      }
+    }
+    return acc
+  }
+
+  const flattenedEntries = flattenOptions(options, 0, [])
+  const trimmedSearch = showFilter ? searchTerm.trim() : ""
+  const normalizedSearch = trimmedSearch.toLowerCase()
+  const filteredEntries = normalizedSearch
+    ? flattenedEntries.filter(({ option }) => {
+        const baseLabel =
+          option.label && option.label.trim()
+            ? option.label.trim()
+            : String(option.value)
+        return baseLabel.toLowerCase().includes(normalizedSearch)
+      })
+    : flattenedEntries
+
+  let displayEntries = filteredEntries
+
+  if (allowCustomValues) {
+    const ensureEntryForValue = (candidate: unknown) => {
+      if (
+        candidate === undefined ||
+        candidate === null ||
+        (typeof candidate !== "string" && typeof candidate !== "number")
+      ) {
+        return
+      }
+      const candidateKey = String(candidate)
+      const exists = displayEntries.some(
+        ({ option }) => String(option.value) === candidateKey
+      )
+      if (!exists) {
+        displayEntries = [
+          ...displayEntries,
+          {
+            option: {
+              value: candidate,
+              label: candidateKey,
+            } as OptionItem,
+            depth: 0,
+          },
+        ]
+      }
+    }
+
+    ensureEntryForValue(internalValue)
+
+    if (trimmedSearch) {
+      const rawCustomValue = coerceValue(trimmedSearch)
+      const customValue =
+        typeof rawCustomValue === "number" || typeof rawCustomValue === "string"
+          ? rawCustomValue
+          : trimmedSearch
+      const customKey = String(customValue)
+      const exists = displayEntries.some(
+        ({ option }) => String(option.value) === customKey
+      )
+      if (!exists) {
+        displayEntries = [
+          {
+            option: {
+              value: customValue,
+              label: trimmedSearch,
+            } as OptionItem,
+            depth: 0,
+          },
+          ...displayEntries,
+        ]
+      }
+    }
+  }
+
   const stringValue =
     internalValue != null &&
     (typeof internalValue === "string" || typeof internalValue === "number")
       ? String(internalValue)
       : undefined
 
+  const containerStyles = applyComponentStyles([styles.fullWidth], style)
+
   return (
-    <JimuSelect
-      value={stringValue}
-      onChange={handleSingleSelectChange}
-      disabled={disabled}
-      placeholder={resolvedPlaceholder}
-      zIndex={config.zIndex.selectMenu}
-      css={applyFullWidthStyles(styles, style)}
-    >
-      {(options || [])
-        .map((option) => {
-          if (!option || option.value == null) {
-            return null
-          }
-          return (
-            <JimuOption
-              key={String(option.value)}
-              value={option.value}
-              active={String(option.value) === stringValue}
-              disabled={Boolean(option.disabled)}
-              onClick={() => {
-                if (!option.disabled && String(option.value) !== stringValue) {
-                  handleSingleSelectChange(undefined, option.value)
-                }
-              }}
-            >
-              {!option.hideLabel && (option.label || String(option.value))}
-            </JimuOption>
-          )
-        })
-        .filter(Boolean)}
-    </JimuSelect>
+    <div css={containerStyles}>
+      {showFilter ? (
+        <Input
+          type="search"
+          value={searchTerm}
+          placeholder={translate("placeholderSearch")}
+          onChange={(val) => {
+            setSearchTerm(typeof val === "string" ? val : "")
+          }}
+          onKeyDown={(evt: React.KeyboardEvent<HTMLInputElement>) => {
+            if (evt.key === "Enter" && allowCustomValues) {
+              evt.preventDefault()
+              commitCustomValue(evt.currentTarget.value)
+              setSearchTerm("")
+            }
+          }}
+          disabled={disabled}
+        />
+      ) : null}
+      <JimuSelect
+        value={stringValue}
+        onChange={handleSingleSelectChange}
+        disabled={disabled}
+        placeholder={resolvedPlaceholder}
+        zIndex={config.zIndex.selectMenu}
+        css={styles.fullWidth}
+      >
+        {displayEntries
+          .map(({ option, depth }, idx) => {
+            if (!option || option.value == null) {
+              return null
+            }
+            const optionKey = String(option.value)
+            const isActive = optionKey === stringValue
+            const baseLabel =
+              option.label && option.label.trim()
+                ? option.label.trim()
+                : optionKey
+            const resolvedLabel = resolveMessageOrKey(baseLabel, translate)
+            const renderedLabel = option.hideLabel
+              ? ""
+              : hierarchical && depth > 0
+                ? `${"- ".repeat(depth)}${resolvedLabel}`
+                : resolvedLabel
+
+            return (
+              <JimuOption
+                key={`${optionKey}-${depth}-${idx}`}
+                value={option.value}
+                active={isActive}
+                disabled={Boolean(option.disabled)}
+                onClick={() => {
+                  if (!option.disabled && optionKey !== stringValue) {
+                    handleSingleSelectChange(undefined, option.value)
+                  }
+                }}
+              >
+                {option.hideLabel ? null : renderedLabel}
+              </JimuOption>
+            )
+          })
+          .filter(Boolean)}
+      </JimuSelect>
+    </div>
   )
 }
 
@@ -1024,6 +1160,8 @@ export const MultiSelectControl: React.FC<{
   placeholder?: string
   disabled?: boolean
   style?: React.CSSProperties
+  allowSearch?: boolean
+  hierarchical?: boolean
 }> = ({
   options = [],
   values,
@@ -1032,6 +1170,8 @@ export const MultiSelectControl: React.FC<{
   placeholder,
   disabled = false,
   style,
+  allowSearch = false,
+  hierarchical = false,
 }) => {
   const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
@@ -1040,28 +1180,91 @@ export const MultiSelectControl: React.FC<{
     values,
     defaultValues
   )
+  const [searchTerm, setSearchTerm] = React.useState("")
 
-  // Standard platshållare om ingen anges
   const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
+  const trimmedSearch = allowSearch ? searchTerm.trim() : ""
+  const normalizedSearch = trimmedSearch.toLowerCase()
+
+  const flattenOptions = (
+    list: readonly OptionItem[] | undefined,
+    depth = 0,
+    acc: Array<{ option: OptionItem; depth: number }> = []
+  ): Array<{ option: OptionItem; depth: number }> => {
+    if (!list) return acc
+    for (const option of list) {
+      if (!option || option.value == null) continue
+      acc.push({ option, depth })
+      if (hierarchical && option.children?.length) {
+        flattenOptions(option.children, depth + 1, acc)
+      }
+    }
+    return acc
+  }
+
+  const flattenedEntries = flattenOptions(options, 0, [])
+  const filteredEntries = normalizedSearch
+    ? flattenedEntries.filter(({ option }) => {
+        const baseLabel =
+          option.label && option.label.trim()
+            ? option.label.trim()
+            : String(option.value)
+        return baseLabel.toLowerCase().includes(normalizedSearch)
+      })
+    : flattenedEntries
+
+  const entriesToDisplay = filteredEntries
+
+  const items = entriesToDisplay
+    .map(({ option, depth }) => {
+      if (!option || option.value == null) {
+        return null
+      }
+      const baseLabel =
+        option.label && option.label.trim()
+          ? option.label.trim()
+          : String(option.value)
+      const label =
+        hierarchical && depth > 0
+          ? `${"- ".repeat(depth)}${baseLabel}`
+          : baseLabel
+      return {
+        value: option.value,
+        label,
+        disabled: Boolean(option.disabled),
+      }
+    })
+    .filter(Boolean) as Array<{
+    value: string | number
+    label: string
+    disabled: boolean
+  }>
 
   const handleChange = hooks.useEventCallback(
     (_value: string | number, newValues: Array<string | number>) => {
-      setCurrent(newValues || [])
-      onChange?.(newValues || [])
+      const normalized = Array.isArray(newValues)
+        ? newValues.filter(
+            (nextValue): nextValue is string | number => nextValue != null
+          )
+        : []
+      setCurrent(normalized)
+      onChange?.(normalized)
     }
   )
 
-  // Filtrerar bort ogiltiga alternativ och mappar till förväntat format
-  const items = options
-    .filter((opt) => opt && opt.value != null && opt.label != null)
-    .map((opt) => ({
-      value: opt.value,
-      label: String(opt.label),
-      disabled: Boolean(opt.disabled),
-    }))
-
   return (
-    <div css={applyComponentStyles([], style)}>
+    <div css={applyComponentStyles([styles.fullWidth], style)}>
+      {allowSearch ? (
+        <Input
+          type="search"
+          value={searchTerm}
+          placeholder={translate("placeholderSearch")}
+          onChange={(val) => {
+            setSearchTerm(typeof val === "string" ? val : "")
+          }}
+          disabled={disabled}
+        />
+      ) : null}
       <MultiSelect
         values={current || []}
         defaultValues={defaultValues}
@@ -1538,11 +1741,13 @@ const StateView: React.FC<StateViewProps> = ({
       aria-atomic={true}
     >
       {showLoading && (
-        <Loading
-          type={LoadingType.Donut}
-          width={config.loading.width}
-          height={config.loading.height}
-        />
+        <div css={styles.loadingSpinner}>
+          <Loading
+            type={LoadingType.Donut}
+            width={config.loading.width}
+            height={config.loading.height}
+          />
+        </div>
       )}
       {activeLoadingMessage ? (
         <div css={[styles.typo.loadingMessage, styles.loadingText]}>
@@ -1834,7 +2039,7 @@ export const Field: React.FC<FieldProps> = ({
       {error && (
         <div
           id={fieldId ? `${fieldId}-error` : undefined}
-          className="d-block"
+          css={styles.typo.errorMessage}
           role="alert"
         >
           {error}

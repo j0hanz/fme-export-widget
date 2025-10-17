@@ -30,6 +30,7 @@ import {
   type TableColumnConfig,
   type FileFieldConfig,
   type FileValidationResult,
+  type ToggleFieldConfig,
 } from "../../config/index"
 import { useUiStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
@@ -52,6 +53,8 @@ import {
   getFileDisplayName,
   toTrimmedString,
   resolveMessageOrKey,
+  toBooleanValue,
+  normalizeParameterValue,
 } from "../../shared/utils"
 
 // Fälttyper som använder select/dropdown-komponenter
@@ -74,6 +77,73 @@ const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
 const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
+}
+
+const compareToggleValues = (a: unknown, b: unknown): boolean => {
+  if (a === undefined || a === null || b === undefined || b === null) {
+    return false
+  }
+
+  try {
+    const normalizedA = normalizeParameterValue(a)
+    const normalizedB = normalizeParameterValue(b)
+    return normalizedA === normalizedB
+  } catch {
+    return false
+  }
+}
+
+const resolveToggleChecked = (
+  current: unknown,
+  config?: ToggleFieldConfig
+): boolean => {
+  if (config) {
+    if (
+      config.checkedValue !== undefined &&
+      compareToggleValues(current, config.checkedValue)
+    ) {
+      return true
+    }
+    if (
+      config.uncheckedValue !== undefined &&
+      compareToggleValues(current, config.uncheckedValue)
+    ) {
+      return false
+    }
+  }
+
+  const booleanCandidate = toBooleanValue(current)
+  if (booleanCandidate !== undefined) {
+    return booleanCandidate
+  }
+
+  if (typeof current === "number") {
+    return current !== 0
+  }
+
+  if (typeof current === "string") {
+    const trimmed = current.trim()
+    if (!trimmed) return false
+    if (trimmed === "0") return false
+  }
+
+  return Boolean(current)
+}
+
+const resolveToggleOutputValue = (
+  checked: boolean,
+  config?: ToggleFieldConfig
+): FormPrimitive => {
+  if (checked) {
+    if (config?.checkedValue !== undefined) {
+      return config.checkedValue as FormPrimitive
+    }
+    return true as FormPrimitive
+  }
+  if (config?.uncheckedValue !== undefined) {
+    return config.uncheckedValue as FormPrimitive
+  }
+  return false as FormPrimitive
 }
 
 /* Hjälpfunktioner för rendering */
@@ -134,7 +204,7 @@ const renderDateTimeInput = (
   value: FormPrimitive,
   placeholder: string,
   onChange: (value: FormPrimitive) => void,
-  readOnly?: boolean
+  disabled?: boolean
 ): JSX.Element => (
   <Input
     type={inputType}
@@ -143,7 +213,7 @@ const renderDateTimeInput = (
     onChange={(val) => {
       onChange(val as FormPrimitive)
     }}
-    disabled={readOnly}
+    disabled={disabled}
   />
 )
 
@@ -417,6 +487,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   value,
   onChange,
   translate: translateProp,
+  disabled: disabledProp,
 }) => {
   const fallbackTranslate = hooks.useTranslation(defaultMessages)
   const translate = translateProp ?? fallbackTranslate
@@ -429,6 +500,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     ? value
     : normalizeFormValue(value, isMulti)
   const placeholders = makePlaceholders(translate, field.label)
+
+  const isDisabled = Boolean(disabledProp || field.readOnly)
 
   // Felmeddelande för filvalidering
   const [fileError, setFileError] = React.useState<string | null>(null)
@@ -488,16 +561,19 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           const rows = parseTableRows(value)
 
           const updateRow = (idx: number, val: string) => {
+            if (isDisabled) return
             const next = [...rows]
             next[idx] = val
             onChange(next as unknown as FormPrimitive)
           }
 
           const addRow = () => {
+            if (isDisabled) return
             onChange([...(rows || []), ""] as unknown as FormPrimitive)
           }
 
           const removeRow = (idx: number) => {
+            if (isDisabled) return
             const next = rows.filter((_, i) => i !== idx)
             onChange(next as unknown as FormPrimitive)
           }
@@ -522,7 +598,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               const s = typeof val === "string" ? val : ""
                               updateRow(i, s)
                             }}
-                            disabled={field.readOnly}
+                            disabled={isDisabled}
                           />
                         </td>
                         <td>
@@ -534,7 +610,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               removeRow(i)
                             }}
                             aria-label={translate("deleteRow")}
-                            disabled={field.readOnly}
+                            disabled={isDisabled}
                           />
                         </td>
                       </tr>
@@ -547,7 +623,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 variant="outlined"
                 onClick={addRow}
                 aria-label={translate("addRow")}
-                disabled={field.readOnly}
+                disabled={isDisabled}
               />
             </div>
           )
@@ -579,9 +655,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           tableConfig?.removeRowLabel || translate("deleteRow")
 
         // Bestämmer om användaren kan lägga till/ta bort rader
-        const canRemove = !field.readOnly && rows.length > minRows
+        const canRemove = !isDisabled && rows.length > minRows
         const canAddRow =
-          !field.readOnly && (maxRows === undefined || rows.length < maxRows)
+          !isDisabled && (maxRows === undefined || rows.length < maxRows)
 
         // Uppdaterar en cells värde i en specifik rad
         const handleCellChange = (
@@ -589,6 +665,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           columnKey: string,
           newValue: unknown
         ) => {
+          if (isDisabled) return
           const next = rows.map((row, idx) =>
             idx === rowIndex ? { ...row, [columnKey]: newValue } : row
           )
@@ -604,13 +681,14 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Tar bort rad från tabell
         const handleRemoveRow = (rowIndex: number) => {
-          if (!canRemove) return
+          if (isDisabled || !canRemove) return
           const next = rows.filter((_, idx) => idx !== rowIndex)
           onChange(next as unknown as FormPrimitive)
         }
 
         // Flyttar rad uppåt eller nedåt i tabell
         const handleMoveRow = (rowIndex: number, direction: -1 | 1) => {
+          if (isDisabled) return
           const target = rowIndex + direction
           if (target < 0 || target >= rows.length) return
           const next = [...rows]
@@ -626,7 +704,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           rowValue: { [key: string]: unknown }
         ) => {
           const cellValue = rowValue[column.key]
-          const disabled = field.readOnly || column.readOnly
+          const disabled = isDisabled || column.readOnly
           const placeholder =
             column.placeholder || field.placeholder || placeholders.enter
 
@@ -780,7 +858,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               }}
                               aria-label={translate("tableMoveUp")}
                               disabled={
-                                field.readOnly ||
+                                isDisabled ||
                                 rows.findIndex(
                                   (r) => r.__rowId === row.__rowId
                                 ) === 0
@@ -800,7 +878,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               }}
                               aria-label={translate("tableMoveDown")}
                               disabled={
-                                field.readOnly ||
+                                isDisabled ||
                                 rows.findIndex(
                                   (r) => r.__rowId === row.__rowId
                                 ) ===
@@ -835,6 +913,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.SELECT: {
         // Hanterar select-fält med dynamiska alternativ
         const options = field.options || []
+        const selectConfig = field.selectConfig
 
         // Fallback till textinput om inga alternativ finns
         if (options.length === 0) {
@@ -844,7 +923,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             placeholders.enter,
             onChange,
             {
-              readOnly: field.readOnly,
+              readOnly: isDisabled,
             }
           )
         }
@@ -885,8 +964,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(val as FormPrimitive)
             }}
             aria-label={field.label}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             coerce={selectCoerce}
+            allowSearch={selectConfig?.allowSearch}
+            allowCustomValues={selectConfig?.allowCustomValues}
+            hierarchical={selectConfig?.hierarchical}
           />
         )
       }
@@ -903,7 +985,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               const out = inputToFmeDateTime(v, original)
               onChange(out as FormPrimitive)
             }}
-            disabled={field.readOnly}
+            disabled={isDisabled}
           />
         )
       }
@@ -914,6 +996,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             value={val}
             placeholder={field.placeholder || placeholders.enter}
             onChange={(v) => {
+              if (isDisabled) return
               onChange(v)
             }}
           />
@@ -926,15 +1009,18 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const values = Array.isArray(fieldValue)
           ? (fieldValue as ReadonlyArray<string | number>)
           : []
+        const selectConfig = field.selectConfig
         return (
           <MultiSelectControl
             options={options}
             values={[...values] as Array<string | number>}
             placeholder={placeholders.select}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             onChange={(vals) => {
               onChange(vals as unknown as FormPrimitive)
             }}
+            allowSearch={selectConfig?.allowSearch}
+            hierarchical={selectConfig?.hierarchical}
           />
         )
       }
@@ -947,7 +1033,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             onChange={(val) => {
               onChange(val as FormPrimitive)
             }}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             rows={field.rows}
           />
         )
@@ -959,21 +1045,48 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           placeholders.enter,
           onChange,
           {
-            readOnly: field.readOnly,
+            readOnly: isDisabled,
           }
         )
       case FormFieldType.CHECKBOX:
-        // Renderar checkbox för boolean-värde
+      case FormFieldType.SWITCH: {
+        const toggleConfig = field.toggleConfig
+        const rawValue =
+          value !== undefined && value !== null && value !== ""
+            ? value
+            : field.defaultValue
+        const isChecked = resolveToggleChecked(rawValue, toggleConfig)
+
+        const handleToggleChange = (checked: boolean) => {
+          if (isDisabled) return
+          const nextValue = resolveToggleOutputValue(checked, toggleConfig)
+          onChange(nextValue)
+        }
+
+        if (field.type === FormFieldType.CHECKBOX) {
+          return (
+            <Checkbox
+              checked={isChecked}
+              onChange={(evt) => {
+                handleToggleChange(evt.target.checked)
+              }}
+              disabled={isDisabled}
+              aria-label={field.label}
+            />
+          )
+        }
+
         return (
-          <Checkbox
-            checked={Boolean(fieldValue)}
-            onChange={(evt) => {
-              onChange(evt.target.checked)
+          <Switch
+            checked={isChecked}
+            onChange={(_evt, checked) => {
+              handleToggleChange(checked)
             }}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             aria-label={field.label}
           />
         )
+      }
       case FormFieldType.PASSWORD:
       case FormFieldType.EMAIL:
       case FormFieldType.PHONE:
@@ -1015,7 +1128,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           placeholder,
           onChange,
           {
-            readOnly: field.readOnly,
+            readOnly: isDisabled,
             maxLength: field.maxLength,
           }
         )
@@ -1041,6 +1154,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Hanterar filändring och validerar fil
         const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+          if (isDisabled) {
+            evt.target.value = ""
+            return
+          }
           const files = evt.target.files
           const file = files && files.length > 0 ? files[0] : null
 
@@ -1073,11 +1190,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               type="file"
               accept={acceptAttr}
               onFileChange={handleFileChange}
-              disabled={field.readOnly}
+              disabled={isDisabled}
               aria-label={field.label}
             />
             {fileError ? (
-              <div data-testid="file-field-error" role="alert">
+              <div
+                css={styles.typo.errorMessage}
+                data-testid="file-field-error"
+                role="alert"
+              >
                 {fileError}
               </div>
             ) : null}
@@ -1108,6 +1229,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Växlar mellan text- och filläge
         const handleModeChange = (nextMode: TextOrFileMode) => {
+          if (isDisabled) return
           if (nextMode === TEXT_OR_FILE_MODES.FILE) {
             onChange({
               mode: TEXT_OR_FILE_MODES.FILE,
@@ -1124,6 +1246,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Uppdaterar textlägets värde
         const handleTextChange = (val: string) => {
+          if (isDisabled) return
           onChange({
             mode: TEXT_OR_FILE_MODES.TEXT,
             text: val,
@@ -1132,6 +1255,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Hanterar filuppladdning i TEXT_OR_FILE-läge
         const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+          if (isDisabled) {
+            evt.target.value = ""
+            return
+          }
           const files = evt.target.files
           const file = files && files.length > 0 ? files[0] : null
 
@@ -1190,7 +1317,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 value={asString(currentValue.text)}
                 placeholder={field.placeholder || placeholders.enter}
                 onChange={handleTextChange}
-                disabled={field.readOnly}
+                disabled={isDisabled}
                 rows={field.rows}
               />
             ) : (
@@ -1199,11 +1326,15 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   type="file"
                   accept={acceptAttr}
                   onFileChange={handleFileChange}
-                  disabled={field.readOnly}
+                  disabled={isDisabled}
                   aria-label={field.label}
                 />
                 {fileError ? (
-                  <div data-testid="text-or-file-error" role="alert">
+                  <div
+                    css={styles.typo.errorMessage}
+                    data-testid="text-or-file-error"
+                    role="alert"
+                  >
                     {fileError}
                   </div>
                 ) : null}
@@ -1226,18 +1357,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             : asString(field.defaultValue) || field.description || field.label
         return <RichText html={content || ""} />
       }
-      case FormFieldType.SWITCH:
-        // Renderar switch-kontroll för boolean-värde
-        return (
-          <Switch
-            checked={Boolean(fieldValue)}
-            onChange={(_evt, checked) => {
-              onChange(checked)
-            }}
-            disabled={field.readOnly}
-            aria-label={field.label}
-          />
-        )
       case FormFieldType.RADIO: {
         // Renderar radioknappsgrupp med coerce-stöd
         const options = field.options || []
@@ -1271,7 +1390,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             }))}
             value={stringValue}
             onChange={handleChange}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             aria-label={field.label}
           />
         )
@@ -1360,7 +1479,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             onChange={(value) => {
               onChange(value)
             }}
-            disabled={field.readOnly}
+            disabled={isDisabled}
             aria-label={field.label}
           />
         )
@@ -1433,7 +1552,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               max={field.max}
               step={field.step}
               precision={precision}
-              disabled={field.readOnly}
+              disabled={isDisabled}
               aria-label={field.label}
               aria-invalid={!!validationError}
               aria-describedby={
@@ -1450,7 +1569,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             {validationError && (
               <div
                 id={`${field.name}-error`}
-                css={styles.typo.hint}
+                css={styles.typo.errorMessage}
                 role="alert"
                 data-testid="numeric-input-error"
               >
@@ -1468,6 +1587,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             value={values}
             placeholder={field.placeholder || translate("placeholderTags")}
             onChange={(values) => {
+              if (isDisabled) return
               onChange(values as FormPrimitive)
             }}
           />
@@ -1489,6 +1609,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <ColorPickerWrapper
             value={val}
             onChange={(color) => {
+              if (isDisabled) return
               const normalized = hexToNormalizedRgb(color, colorConfig) || color
               onChange(normalized as FormPrimitive)
             }}
@@ -1511,7 +1632,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               onChange(out as FormPrimitive)
             }}
             aria-label={field.label}
-            disabled={field.readOnly}
+            disabled={isDisabled}
           />
         )
       }
@@ -1524,7 +1645,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           fieldValue as FormPrimitive,
           getTextPlaceholder(field, placeholders, translate),
           onChange,
-          field.readOnly
+          isDisabled
         )
       }
       case FormFieldType.TIME: {
@@ -1541,7 +1662,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               const out = inputToFmeTime(value as string, original)
               onChange(out as FormPrimitive)
             }}
-            disabled={field.readOnly}
+            disabled={isDisabled}
           />
         )
       }

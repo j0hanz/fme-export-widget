@@ -23,8 +23,8 @@ export const config = {
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
   loading: {
-    width: 215,
-    height: 215,
+    width: 32,
+    height: 32,
     delay: 1000,
     detailDelay: 1600,
     cycleInterval: 5200,
@@ -107,10 +107,15 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       gap,
     }),
     loadingText: css({
-      position: "absolute",
+      /* position: "absolute",
       inset: "50% auto auto 50%",
       transform: "translate(-50%, -50%)",
-      textAlign: "center",
+      textAlign: "center", */
+    }),
+    loadingSpinner: css({
+      "& .donut-loading": {
+        top: "60% !important",
+      },
     }),
     overlay: css({
       position: "absolute",
@@ -123,8 +128,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     // Alerts
     alert: css({
       width: "100% !important",
-      backgroundColor: "transparent !important",
-      border: "none !important",
     }),
     alertInline: css({ opacity: 0.8 }),
     alertContent: flex("row", { alignItems: "flex-start", gap }),
@@ -167,11 +170,16 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         },
       }),
       loadingMessage: css({
-        ...typo(typography?.body2),
+        ...typo(typography?.label2),
       }),
       required: css({ marginInlineStart: spacing?.(1) }),
       hint: css({
-        ...typo(typography?.label2),
+        ...typo(typography?.label3),
+        marginBlockStart: spacing?.(1),
+      }),
+      errorMessage: css({
+        ...typo(typography?.label3),
+        color: colors?.error?.main,
         marginBlockStart: spacing?.(1),
       }),
     },
@@ -199,7 +207,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     form: {
       layout: flex("column", { flex: auto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),
-      sliderField: flex("row", { gap: spacing?.(1) }),
+      sliderField: flex("row", { alignItems: "center", gap }),
       sliderValue: css({
         ...typo(typography?.label2),
         textAlign: "center",

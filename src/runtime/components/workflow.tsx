@@ -60,7 +60,6 @@ import {
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
-  buildLargeAreaWarningMessage,
   formatByteSize,
   isAbortError,
   isNonEmptyString,
@@ -71,6 +70,7 @@ import {
   useWorkspaces,
   useWorkspaceItem,
 } from "../../shared/hooks"
+import { VisibilityEvaluator } from "../../shared/visibility"
 
 // Tillgängliga ritverktyg för AOI-ritning (polygon och rektangel)
 const DRAWING_MODE_TABS = [
@@ -241,15 +241,24 @@ const extractGeometryFieldNames = (
  */
 const createFormValidator = (
   parameterService: ParameterFormService,
-  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceParameters: readonly WorkspaceParameter[],
+  getEvaluatedFields?: () => readonly DynamicFieldConfig[] | undefined
 ) => {
   const getFormConfig = () =>
     parameterService.convertParametersToFields(workspaceParameters)
 
+  const getFieldsForValidation = () => {
+    const evaluated = getEvaluatedFields?.()
+    if (evaluated && evaluated.length > 0) {
+      return evaluated
+    }
+    return getFormConfig()
+  }
+
   const validateValues = (values: FormValues) => {
     const baseValidation = parameterService.validateFormValues(
       values,
-      getFormConfig()
+      getFieldsForValidation()
     )
     const errors = { ...baseValidation.errors }
 
@@ -563,6 +572,10 @@ const ExportForm: React.FC<
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
   const [parameterService] = React.useState(() => new ParameterFormService())
+  const [evaluatedFields, setEvaluatedFields] = React.useState<
+    readonly DynamicFieldConfig[]
+  >([])
+  const evaluatedFieldsRef = React.useRef<readonly DynamicFieldConfig[]>([])
   const [fileMap, setFileMap] = React.useState<{
     [key: string]: File | null
   }>({})
@@ -616,7 +629,8 @@ const ExportForm: React.FC<
   ) {
     validatorRef.current = createFormValidator(
       parameterService,
-      workspaceParameters
+      workspaceParameters,
+      () => evaluatedFieldsRef.current
     )
     prevParamsSignatureRef.current = paramsSignature
   }
@@ -640,6 +654,8 @@ const ExportForm: React.FC<
   hooks.useUpdateEffect(() => {
     formState.resetForm()
     setFileMap({})
+    evaluatedFieldsRef.current = []
+    setEvaluatedFields([])
   }, [workspaceName, workspaceParameters, formState.resetForm])
 
   // Hanterar uppdatering av fält (inklusive filinmatning)
@@ -665,6 +681,118 @@ const ExportForm: React.FC<
   const formValues = formState.values
   const setFormValues = formState.setValues
   const formValuesRef = hooks.useLatest(formValues)
+  const recomputeVisibility = hooks.useEventCallback(() => {
+    if (!validator) return
+
+    const baseFields = validator.getFormConfig()
+    const previousStates = new Map(
+      evaluatedFieldsRef.current.map((field) => [
+        field.name,
+        field.visibilityState,
+      ])
+    )
+
+    const evaluator = new VisibilityEvaluator(
+      formValuesRef.current || {},
+      baseFields,
+      previousStates
+    )
+
+    const nextFields = baseFields.map((field) => {
+      const nextState = evaluator.evaluate(field.visibility, field.name)
+      return {
+        ...field,
+        visibilityState: nextState,
+      }
+    })
+
+    evaluatedFieldsRef.current = nextFields
+    setEvaluatedFields(nextFields)
+
+    const hiddenDisabledNames = nextFields
+      .filter((field) => field.visibilityState === "hiddenDisabled")
+      .map((field) => field.name)
+
+    const nonVisibleNames = nextFields
+      .filter(
+        (field) =>
+          field.visibilityState !== undefined &&
+          field.visibilityState !== "visibleEnabled"
+      )
+      .map((field) => field.name)
+
+    let valuesCleared = false
+
+    if (hiddenDisabledNames.length) {
+      const currentValues = formValuesRef.current || {}
+      let nextValues: FormValues | undefined
+
+      hiddenDisabledNames.forEach((name) => {
+        if (Object.prototype.hasOwnProperty.call(currentValues, name)) {
+          if (!nextValues) {
+            nextValues = { ...currentValues }
+          }
+          delete (nextValues as { [key: string]: unknown })[name]
+        }
+      })
+
+      if (nextValues) {
+        valuesCleared = true
+        setFormValues(nextValues)
+      }
+
+      setFileMap((prev) => {
+        let next: typeof prev | null = null
+        hiddenDisabledNames.forEach((name) => {
+          if (
+            Object.prototype.hasOwnProperty.call(prev, name) &&
+            prev[name] !== null
+          ) {
+            if (!next) {
+              next = { ...prev }
+            }
+            next[name] = null
+          }
+        })
+        return next ?? prev
+      })
+    }
+
+    if (nonVisibleNames.length) {
+      const currentErrors = formState.errors
+      let nextErrors: { [key: string]: string } | null = null
+
+      nonVisibleNames.forEach((name) => {
+        if (Object.prototype.hasOwnProperty.call(currentErrors, name)) {
+          if (!nextErrors) {
+            nextErrors = { ...currentErrors }
+          }
+          delete nextErrors[name]
+        }
+      })
+
+      if (nextErrors) {
+        formState.setErrors(nextErrors)
+        formState.setIsValid(Object.keys(nextErrors).length === 0)
+      }
+    }
+
+    if (!valuesCleared) {
+      formState.validateForm()
+    }
+  })
+
+  hooks.useEffectOnce(() => {
+    recomputeVisibility()
+  })
+
+  hooks.useUpdateEffect(() => {
+    recomputeVisibility()
+  }, [formValues, recomputeVisibility])
+
+  hooks.useUpdateEffect(() => {
+    recomputeVisibility()
+  }, [validator, recomputeVisibility])
 
   // Synkroniserar geometrivärden med geometrifält i formuläret
   hooks.useEffectWithPreviousValues(() => {
@@ -787,22 +915,28 @@ const ExportForm: React.FC<
       )}
 
       {/* Workspace parameters */}
-      {validator
-        .getFormConfig()
-        .map((field: DynamicFieldConfig) => {
-          // Defensiv kontroll för att säkerställa giltigt fält
+      {evaluatedFields
+        .filter((field) => {
+          const state = field.visibilityState ?? "visibleEnabled"
+          return state === "visibleEnabled" || state === "visibleDisabled"
+        })
+        .map((field) => {
           if (!field || !field.name || !field.type) {
             return null
           }
+
           const isInlineField =
             field.type === FormFieldType.SWITCH ||
             field.type === FormFieldType.CHECKBOX
+          const disabled = field.visibilityState === "visibleDisabled"
+
           return (
             <Field
               key={field.name}
               label={field.label}
               required={field.required}
               error={resolveError(formState.errors[field.name])}
+              helper={field.helper}
               check={isInlineField}
             >
               <DynamicField
@@ -810,6 +944,7 @@ const ExportForm: React.FC<
                 value={formState.values[field.name]}
                 onChange={(val) => setField(field.name, val)}
                 translate={translate}
+                disabled={disabled}
               />
             </Field>
           )
@@ -1006,59 +1141,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
         text={message}
         variant="default"
         withIcon={true}
-        style={{ marginBlockEnd: 12 }}
       />
     )
-  }
-
-  // Formaterar areavärde för visning med enhet
-  const formatAreaValue = (value?: number): string | undefined => {
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-      return undefined
-    }
-    const target = Math.abs(value)
-    if (typeof formatArea === "function") {
-      try {
-        return formatArea(target)
-      } catch {
-        /* ignore formatting errors and fall back to default */
-      }
-    }
-    // Kontrollera om värdet är inom säkert intervall för Math.round
-    if (target > Number.MAX_SAFE_INTEGER) {
-      try {
-        return `${target.toExponential(2)} m²`
-      } catch {
-        return `${target} m²`
-      }
-    }
-    try {
-      return `${Math.round(target).toLocaleString()} m²`
-    } catch {
-      return `${Math.round(target)} m²`
-    }
-  }
-
-  // Bygger varningsmeddelande för stora områden
-  const areaWarningActive =
-    Boolean(areaWarning) &&
-    (state === ViewMode.WORKSPACE_SELECTION ||
-      state === ViewMode.EXPORT_OPTIONS ||
-      state === ViewMode.EXPORT_FORM)
-
-  let areaWarningMessage: string | null = null
-  if (areaWarningActive) {
-    const currentAreaText = formatAreaValue(drawnArea)
-    const thresholdAreaText =
-      typeof config?.largeArea === "number" && config.largeArea > 0
-        ? formatAreaValue(config.largeArea)
-        : undefined
-
-    areaWarningMessage = buildLargeAreaWarningMessage({
-      currentAreaText,
-      thresholdAreaText,
-      translate,
-    })
   }
 
   // Renderar StateView-komponenter konsekvent
@@ -1514,10 +1598,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     })
   )
 
-  // Renderar huvud med varningsikoner och återställningsknapp
+  // Renderar huvud med återställningsknapp
   const renderHeader = () => {
-    const showAlertIcon = Boolean(areaWarningActive && areaWarningMessage)
-
     let resetButton: React.ReactNode = null
     const canShowReset =
       state !== ViewMode.INITIAL &&
@@ -1552,24 +1634,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
       }
     }
 
-    if (!showAlertIcon && !resetButton) return null
+    if (!resetButton) return null
 
-    return (
-      <>
-        {showAlertIcon ? (
-          <div css={styles.headerAlert}>
-            <Alert
-              variant="icon"
-              type="warning"
-              text={areaWarningMessage ?? undefined}
-              role="alert"
-              tooltipPlacement="bottom"
-            />
-          </div>
-        ) : null}
-        {resetButton}
-      </>
-    )
+    return resetButton
   }
 
   // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)
