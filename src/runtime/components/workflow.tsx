@@ -60,7 +60,6 @@ import {
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
-  buildLargeAreaWarningMessage,
   formatByteSize,
   isAbortError,
   isNonEmptyString,
@@ -1142,59 +1141,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
         text={message}
         variant="default"
         withIcon={true}
-        style={{ marginBlockEnd: 12 }}
       />
     )
-  }
-
-  // Formaterar areavärde för visning med enhet
-  const formatAreaValue = (value?: number): string | undefined => {
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-      return undefined
-    }
-    const target = Math.abs(value)
-    if (typeof formatArea === "function") {
-      try {
-        return formatArea(target)
-      } catch {
-        /* ignore formatting errors and fall back to default */
-      }
-    }
-    // Kontrollera om värdet är inom säkert intervall för Math.round
-    if (target > Number.MAX_SAFE_INTEGER) {
-      try {
-        return `${target.toExponential(2)} m²`
-      } catch {
-        return `${target} m²`
-      }
-    }
-    try {
-      return `${Math.round(target).toLocaleString()} m²`
-    } catch {
-      return `${Math.round(target)} m²`
-    }
-  }
-
-  // Bygger varningsmeddelande för stora områden
-  const areaWarningActive =
-    Boolean(areaWarning) &&
-    (state === ViewMode.WORKSPACE_SELECTION ||
-      state === ViewMode.EXPORT_OPTIONS ||
-      state === ViewMode.EXPORT_FORM)
-
-  let areaWarningMessage: string | null = null
-  if (areaWarningActive) {
-    const currentAreaText = formatAreaValue(drawnArea)
-    const thresholdAreaText =
-      typeof config?.largeArea === "number" && config.largeArea > 0
-        ? formatAreaValue(config.largeArea)
-        : undefined
-
-    areaWarningMessage = buildLargeAreaWarningMessage({
-      currentAreaText,
-      thresholdAreaText,
-      translate,
-    })
   }
 
   // Renderar StateView-komponenter konsekvent
@@ -1650,10 +1598,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     })
   )
 
-  // Renderar huvud med varningsikoner och återställningsknapp
+  // Renderar huvud med återställningsknapp
   const renderHeader = () => {
-    const showAlertIcon = Boolean(areaWarningActive && areaWarningMessage)
-
     let resetButton: React.ReactNode = null
     const canShowReset =
       state !== ViewMode.INITIAL &&
@@ -1688,24 +1634,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
       }
     }
 
-    if (!showAlertIcon && !resetButton) return null
+    if (!resetButton) return null
 
-    return (
-      <>
-        {showAlertIcon ? (
-          <div css={styles.headerAlert}>
-            <Alert
-              variant="icon"
-              type="warning"
-              text={areaWarningMessage ?? undefined}
-              role="alert"
-              tooltipPlacement="bottom"
-            />
-          </div>
-        ) : null}
-        {resetButton}
-      </>
-    )
+    return resetButton
   }
 
   // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)

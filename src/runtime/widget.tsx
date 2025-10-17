@@ -97,9 +97,6 @@ import {
   usePrefetchWorkspaces,
 } from "../shared/hooks"
 
-/* Konverteringsfaktor för filstorlekar */
-const BYTES_PER_MEGABYTE = 1024 * 1024
-
 /* Huvudkomponent för FME Export widget runtime */
 function WidgetContent(
   props: AllWidgetProps<FmeExportConfig>
@@ -301,74 +298,29 @@ function WidgetContent(
       }
 
       const params: { [key: string]: unknown } = {}
-      let messageKey = "forcedAsyncDefault"
-
-      /* Bygger meddelandeparametrar beroende på tvångsskäl */
-      switch (info.reason) {
-        case "runtime": {
-          if (typeof info.value === "number") {
-            params.seconds = Math.max(0, Math.round(info.value))
-          }
-          if (typeof info.threshold === "number") {
-            params.threshold = Math.max(0, Math.round(info.threshold))
-          }
-          messageKey = "forcedAsyncRuntime"
-          break
-        }
-        case "transformers": {
-          if (typeof info.value === "number") {
-            params.count = Math.max(0, Math.round(info.value))
-          }
-          if (typeof info.threshold === "number") {
-            params.threshold = Math.max(0, Math.round(info.threshold))
-          }
-          messageKey = "forcedAsyncTransformers"
-          break
-        }
-        case "fileSize": {
-          if (typeof info.value === "number") {
-            const sizeMb = info.value / BYTES_PER_MEGABYTE
-            params.sizeMb =
-              sizeMb >= 10 ? Math.round(sizeMb) : sizeMb.toFixed(1)
-          }
-          if (typeof info.threshold === "number") {
-            const thresholdMb = info.threshold / BYTES_PER_MEGABYTE
-            params.thresholdMb =
-              thresholdMb >= 10
-                ? Math.round(thresholdMb)
-                : thresholdMb.toFixed(1)
-          }
-          messageKey = "forcedAsyncFileSize"
-          break
-        }
-        case "area": {
-          if (typeof info.value === "number") {
-            params.area =
-              currentModules && currentView?.view?.spatialReference
-                ? formatArea(
-                    info.value,
-                    currentModules,
-                    currentView.view.spatialReference
-                  )
-                : Math.max(0, Math.round(info.value)).toLocaleString()
-          }
-          if (typeof info.threshold === "number") {
-            params.threshold =
-              currentModules && currentView?.view?.spatialReference
-                ? formatArea(
-                    info.threshold,
-                    currentModules,
-                    currentView.view.spatialReference
-                  )
-                : Math.max(0, Math.round(info.threshold)).toLocaleString()
-          }
-          messageKey = "forcedAsyncArea"
-          break
-        }
+      if (typeof info.value === "number") {
+        params.area =
+          currentModules && currentView?.view?.spatialReference
+            ? formatArea(
+                info.value,
+                currentModules,
+                currentView.view.spatialReference
+              )
+            : Math.max(0, Math.round(info.value)).toLocaleString()
+      }
+      if (typeof info.threshold === "number") {
+        params.threshold =
+          currentModules && currentView?.view?.spatialReference
+            ? formatArea(
+                info.threshold,
+                currentModules,
+                currentView.view.spatialReference
+              )
+            : Math.max(0, Math.round(info.threshold)).toLocaleString()
       }
 
       setModeNotice({
-        messageKey,
+        messageKey: "forcedAsyncArea",
         severity: "warning",
         params,
       })

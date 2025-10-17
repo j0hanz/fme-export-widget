@@ -731,14 +731,10 @@ export const normalizeServiceModeConfig = (
 ): FmeExportConfig | undefined => {
   if (!config) return config ?? undefined
 
-  const coercedSyncMode =
-    typeof config.syncMode === "boolean"
-      ? config.syncMode
-      : Boolean(config.syncMode)
+  const rawValue = config.syncMode
+  const coercedSyncMode = rawValue === "true" || rawValue === true
 
-  if (config.syncMode === coercedSyncMode) {
-    return config
-  }
+  if (rawValue === coercedSyncMode) return config
 
   const cloned = { ...config, syncMode: coercedSyncMode }
   if (typeof (config as any).set === "function") {
@@ -1667,186 +1663,7 @@ const sanitizeScheduleMetadata = (
   return sanitized
 }
 
-const RUNTIME_ASYNC_THRESHOLD_SECONDS = 5
-const TRANSFORMER_ASYNC_THRESHOLD = 120
-const FILE_SIZE_ASYNC_THRESHOLD_BYTES = 25 * 1024 * 1024
-
-const RUNTIME_PROPERTY_KEYS = Object.freeze([
-  "estimatedRuntimeSeconds",
-  "estimatedRunSeconds",
-  "estimatedDurationSeconds",
-  "avgRuntimeSeconds",
-  "averageRuntimeSeconds",
-  "expectedRuntimeSeconds",
-  "expectedRunTimeSeconds",
-  "estimated_runtime_seconds",
-  "estimated_run_seconds",
-  "estimated_duration_seconds",
-])
-
-const TRANSFORMER_PROPERTY_KEYS = Object.freeze([
-  "transformerCount",
-  "transformer_count",
-  "estimatedTransformerCount",
-])
-
-const FILE_SIZE_PROPERTY_KEYS = Object.freeze([
-  "fileSizeBytes",
-  "fileSize",
-  "estimatedDataSizeBytes",
-  "estimatedDataSize",
-  "estimatedFileSize",
-])
-
-const normalizeWorkspaceProperties = (
-  properties: WorkspaceItem["properties"]
-): { readonly [key: string]: unknown } | undefined => {
-  if (!properties) return undefined
-
-  if (Array.isArray(properties)) {
-    const record: { [key: string]: unknown } = {}
-
-    for (const entry of properties) {
-      if (!isPlainObject(entry)) continue
-      const prop = entry as WorkspaceProperty
-      const key = toTrimmedString(prop.name)
-      if (!key) continue
-
-      if (prop.value !== undefined) {
-        record[key] = prop.value
-      } else if (!(key in record)) {
-        record[key] = prop
-      }
-    }
-
-    return Object.keys(record).length ? record : undefined
-  }
-
-  if (isPlainObject(properties)) {
-    return properties as { readonly [key: string]: unknown }
-  }
-
-  return undefined
-}
-
-const extractWorkspacePropertyRecord = (
-  workspace?: WorkspaceItem | WorkspaceItemDetail | null
-): { readonly [key: string]: unknown } | undefined => {
-  if (!workspace) return undefined
-  return normalizeWorkspaceProperties(workspace.properties)
-}
-
-const parseRuntimeSeconds = (value: unknown): number | null => {
-  if (isFiniteNumber(value) && value >= 0) {
-    return value
-  }
-
-  if (typeof value !== "string") return null
-
-  const trimmed = value.trim()
-  if (!trimmed) return null
-
-  const lower = trimmed.toLowerCase()
-
-  const isoMatch = lower.match(/^pt(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/)
-  if (isoMatch) {
-    const hours = Number(isoMatch[1] || 0)
-    const minutes = Number(isoMatch[2] || 0)
-    const seconds = Number(isoMatch[3] || 0)
-    return hours * 3600 + minutes * 60 + seconds
-  }
-
-  const hmsMatch = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
-  if (hmsMatch) {
-    const hours = Number(hmsMatch[1] || 0)
-    const minutes = Number(hmsMatch[2] || 0)
-    const seconds = Number(hmsMatch[3] || 0)
-    return hours * 3600 + minutes * 60 + seconds
-  }
-
-  const numericMatch = trimmed.match(/(-?\d+(?:\.\d+)?)/)
-  if (!numericMatch) return null
-
-  const numeric = Number(numericMatch[1])
-  if (!Number.isFinite(numeric) || numeric < 0) return null
-
-  if (lower.includes("hour")) return numeric * 3600
-  if (lower.includes("min")) return numeric * 60
-  if (lower.includes("ms")) return numeric / 1000
-  if (lower.includes("sec") || lower.endsWith("s")) return numeric
-
-  return numeric
-}
-
-const getFirstNumericProperty = (
-  source: { readonly [key: string]: unknown } | undefined,
-  keys: readonly string[],
-  parser: (value: unknown) => number | null
-): number | null => {
-  if (!isPlainObject(source)) return null
-  for (const key of keys) {
-    if (!(key in source)) continue
-    const parsed = parser(source[key])
-    if (parsed !== null && parsed !== undefined) {
-      return parsed
-    }
-  }
-  return null
-}
-
-const extractRuntimeSeconds = (
-  workspace?: WorkspaceItem | WorkspaceItemDetail | null
-): number | null => {
-  if (!workspace) return null
-
-  const direct = parseRuntimeSeconds(
-    (workspace as { estimatedRuntimeSeconds?: unknown }).estimatedRuntimeSeconds
-  )
-  if (direct != null) return direct
-
-  const props = extractWorkspacePropertyRecord(workspace)
-
-  const fromProps = getFirstNumericProperty(
-    props,
-    RUNTIME_PROPERTY_KEYS,
-    parseRuntimeSeconds
-  )
-  if (fromProps != null) return fromProps
-
-  const nestedPerformance = isPlainObject((props as any)?.performance)
-    ? ((props as any).performance as { readonly [key: string]: unknown })
-    : undefined
-  const fromPerformance = getFirstNumericProperty(
-    nestedPerformance,
-    RUNTIME_PROPERTY_KEYS,
-    parseRuntimeSeconds
-  )
-  if (fromPerformance != null) return fromPerformance
-
-  const fallbackKeys = [
-    "estimatedRuntime",
-    "estimatedRuntimeSec",
-    "expectedRuntime",
-  ]
-  for (const key of fallbackKeys) {
-    const value = parseRuntimeSeconds((workspace as any)[key])
-    if (value != null) return value
-  }
-
-  return null
-}
-
-const toPositiveInteger = (value: unknown): number | null => {
-  if (isFiniteNumber(value) && value >= 0) return Math.round(value)
-  if (typeof value === "string") {
-    const match = value.match(/(\d+)/)
-    if (match) {
-      const parsed = Number(match[1])
-      if (Number.isFinite(parsed) && parsed >= 0) return Math.round(parsed)
-    }
-  }
-  return null
-}
+/* Removed unused async threshold constants, property keys, and workspace property extraction functions - no longer needed */
 
 export const parseNonNegativeInt = (val: string): number | undefined => {
   const trimmed = typeof val === "string" ? val.trim() : String(val)
@@ -1856,73 +1673,9 @@ export const parseNonNegativeInt = (val: string): number | undefined => {
   return Math.floor(n)
 }
 
-const extractTransformerCount = (
-  workspace?: WorkspaceItem | WorkspaceItemDetail | null
-): number | null => {
-  if (!workspace) return null
-  const direct = toPositiveInteger((workspace as any).transformerCount)
-  if (direct != null) return direct
+/* Removed toPositiveInteger and extractTransformerCount - no longer needed */
 
-  const props = extractWorkspacePropertyRecord(workspace)
-
-  const fromProps = getFirstNumericProperty(
-    props,
-    TRANSFORMER_PROPERTY_KEYS,
-    toPositiveInteger
-  )
-  if (fromProps != null) return fromProps
-
-  return null
-}
-
-const parseFileSizeBytes = (value: unknown): number | null => {
-  if (isFiniteNumber(value) && value > 0) {
-    if (value > 4096) {
-      return value
-    }
-    return value * 1024 * 1024
-  }
-
-  if (typeof value !== "string") return null
-
-  const trimmed = value.trim().toLowerCase()
-  if (!trimmed) return null
-
-  const match = trimmed.match(/(\d+(?:\.\d+)?)/)
-  if (!match) return null
-
-  const numeric = Number(match[1])
-  if (!Number.isFinite(numeric) || numeric <= 0) return null
-
-  if (trimmed.includes("gb")) return numeric * 1024 * 1024 * 1024
-  if (trimmed.includes("mb")) return numeric * 1024 * 1024
-  if (trimmed.includes("kb")) return numeric * 1024
-  if (trimmed.includes("byte")) return numeric
-
-  if (numeric > 4096) return numeric
-  if (numeric > 1024) return numeric
-
-  return numeric * 1024 * 1024
-}
-
-const extractFileSizeBytes = (
-  workspace?: WorkspaceItem | WorkspaceItemDetail | null
-): number | null => {
-  if (!workspace) return null
-  const direct = parseFileSizeBytes((workspace as any).fileSize)
-  if (direct != null) return direct
-
-  const props = extractWorkspacePropertyRecord(workspace)
-
-  const fromProps = getFirstNumericProperty(
-    props,
-    FILE_SIZE_PROPERTY_KEYS,
-    parseFileSizeBytes
-  )
-  if (fromProps != null) return fromProps
-
-  return null
-}
+/* Removed parseFileSizeBytes and extractFileSizeBytes - no longer needed */
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,
@@ -1949,42 +1702,6 @@ const shouldForceAsyncMode = (
         value: options.drawnArea,
         threshold: config.largeArea,
       }
-    }
-  }
-
-  const runtimeSeconds = extractRuntimeSeconds(options.workspaceItem)
-  if (
-    runtimeSeconds != null &&
-    runtimeSeconds >= RUNTIME_ASYNC_THRESHOLD_SECONDS
-  ) {
-    return {
-      reason: "runtime",
-      value: runtimeSeconds,
-      threshold: RUNTIME_ASYNC_THRESHOLD_SECONDS,
-    }
-  }
-
-  const transformerCount = extractTransformerCount(options.workspaceItem)
-  if (
-    transformerCount != null &&
-    transformerCount >= TRANSFORMER_ASYNC_THRESHOLD
-  ) {
-    return {
-      reason: "transformers",
-      value: transformerCount,
-      threshold: TRANSFORMER_ASYNC_THRESHOLD,
-    }
-  }
-
-  const fileSizeBytes = extractFileSizeBytes(options.workspaceItem)
-  if (
-    fileSizeBytes != null &&
-    fileSizeBytes >= FILE_SIZE_ASYNC_THRESHOLD_BYTES
-  ) {
-    return {
-      reason: "fileSize",
-      value: fileSizeBytes,
-      threshold: FILE_SIZE_ASYNC_THRESHOLD_BYTES,
     }
   }
 

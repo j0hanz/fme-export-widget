@@ -123,8 +123,6 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     // Alerts
     alert: css({
       width: "100% !important",
-      backgroundColor: "transparent !important",
-      border: "none !important",
     }),
     alertInline: css({ opacity: 0.8 }),
     alertContent: flex("row", { alignItems: "flex-start", gap }),

@@ -1258,7 +1258,7 @@ export interface RequestLog {
 export interface ServiceModeOverrideInfo {
   readonly forcedMode: ServiceMode
   readonly previousMode: ServiceMode
-  readonly reason: "runtime" | "transformers" | "fileSize" | "area"
+  readonly reason: "area"
   readonly value?: number
   readonly threshold?: number
 }
