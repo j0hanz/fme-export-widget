@@ -1009,7 +1009,7 @@ const createWebhookArtifacts = (
   return {
     baseUrl,
     params,
-    fullUrl: `${baseUrl}?${params.toString()}`,
+    fullUrl: `${baseUrl}?${serializeParams(params)}`,
   }
 }
 
