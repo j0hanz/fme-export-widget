@@ -4,7 +4,7 @@ Exportera ett *Area of Interest* (AOI) från en karta i ArcGIS Experience Builde
 
 > 📝 **Dokumentation**: Publiceras vid lansering.
 
-## Presentation (PDF)
+## Presentation
 
-* 📄 **FME Användarträff 2025 – Presentation**
+* 📄 **FME Användarträff 2025**
   [Öppna PDF](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
