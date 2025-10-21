@@ -1,5 +1,10 @@
-# FME Export widget
+# FME Export-widget
 
-Exportera ett *Area of Interest* (AOI) från en karta i ArcGIS Experience Builder till FME Flow (Server). Widgeten hjälper användaren att rita en polygon eller rektangel, välja ett FME-arbetsflöde, fylla i parametrar och skicka in ett exportjobb.
+Exportera ett *Area of Interest* (AOI) från en karta i ArcGIS Experience Builder till FME Flow (Server). Användaren gör en utbredning genom att rita en polygon eller rektangel på specifik yta, väljer FME-arbetsflöde, fyller i parametrar och skickar ett exportjobb.
 
-📝 *Dokumentation och användarguide publiceras vid lansering.*
+> 📝 **Dokumentation**: Publiceras vid lansering.
+
+## Presentation (PDF)
+
+* 📄 **FME Användarträff 2025 – Presentation**
+  [Öppna PDF](https://github.com/user-attachments/files/23019353/FMEAnvandartraff2025.pdf)
