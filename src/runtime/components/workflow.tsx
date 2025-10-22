@@ -25,6 +25,7 @@ import {
   type DynamicFieldConfig,
   type LoadingState,
   type ServiceMode,
+  type VisibilityState,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -631,12 +632,10 @@ const ExportForm: React.FC<
     if (!validator) return
 
     const baseFields = validator.getFormConfig()
-    const previousStates = new Map(
-      evaluatedFieldsRef.current.map((field) => [
-        field.name,
-        field.visibilityState,
-      ])
-    )
+    const previousStates = new Map<string, VisibilityState | undefined>()
+    for (const field of evaluatedFieldsRef.current) {
+      previousStates.set(field.name, field.visibilityState)
+    }
 
     const evaluator = new VisibilityEvaluator(
       formValuesRef.current || {},
@@ -655,17 +654,20 @@ const ExportForm: React.FC<
     evaluatedFieldsRef.current = nextFields
     setEvaluatedFields(nextFields)
 
-    const hiddenDisabledNames = nextFields
-      .filter((field) => field.visibilityState === "hiddenDisabled")
-      .map((field) => field.name)
+    const hiddenDisabledNames: string[] = []
+    const nonVisibleNames: string[] = []
 
-    const nonVisibleNames = nextFields
-      .filter(
-        (field) =>
-          field.visibilityState !== undefined &&
-          field.visibilityState !== "visibleEnabled"
-      )
-      .map((field) => field.name)
+    for (const field of nextFields) {
+      if (field.visibilityState === "hiddenDisabled") {
+        hiddenDisabledNames.push(field.name)
+      }
+      if (
+        field.visibilityState !== undefined &&
+        field.visibilityState !== "visibleEnabled"
+      ) {
+        nonVisibleNames.push(field.name)
+      }
+    }
 
     let valuesCleared = false
 

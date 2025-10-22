@@ -229,20 +229,22 @@ function buildSearchParams(
 // Sanerar URLSearchParams, maskerar känsliga nycklar (token, auth, etc.)
 function sanitizeParams(params: URLSearchParams): URLSearchParams {
   const sanitized = new URLSearchParams()
-  params.forEach((value, key) => {
+  for (const [key, value] of params.entries()) {
     if (isSensitiveKey(key.toLowerCase())) {
       sanitized.set(key, "[TOKEN]")
     } else {
       sanitized.set(key, redactSensitiveText(value))
     }
-  })
+  }
   return sanitized
 }
 
 // Serialiserar URLSearchParams till query-sträng, sorterad alfabetiskt
 function serializeParams(params: URLSearchParams): string {
   const entries: Array<[string, string]> = []
-  params.forEach((value, key) => entries.push([key, value]))
+  for (const [key, value] of params.entries()) {
+    entries.push([key, value])
+  }
   entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))
   return entries
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
