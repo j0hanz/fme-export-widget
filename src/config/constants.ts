@@ -288,20 +288,20 @@ export const HTTP_STATUS_RANGES = Object.freeze({
 
 // HTTP Status Classification Helpers
 export const isSuccessStatus = (status?: number): boolean =>
-  typeof status === 'number' &&
+  typeof status === "number" &&
   status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
   status <= HTTP_STATUS_RANGES.SUCCESS_MAX
 
 export const isServerError = (status?: number): boolean =>
-  typeof status === 'number' && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN
+  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN
 
 export const isClientError = (status?: number): boolean =>
-  typeof status === 'number' &&
+  typeof status === "number" &&
   status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
   status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX
 
 export const isHttpStatus = (n: unknown): n is number =>
-  typeof n === 'number' &&
+  typeof n === "number" &&
   n >= HTTP_STATUS_RANGES.MIN_VALID &&
   n <= HTTP_STATUS_RANGES.MAX_VALID
 

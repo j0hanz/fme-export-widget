@@ -23,7 +23,7 @@ import {
   buildSupportHintText,
   getEmail,
   isAbortError,
-  mapErrorToKey,
+  mapErrorFromNetwork,
 } from "../utils"
 import { getSupportEmail } from "../validations"
 import { processFmeResponse } from "../utils/fme"
@@ -173,7 +173,7 @@ export function buildSubmissionErrorResult(
     return null
   }
 
-  const rawKey = mapErrorToKey(error) || "errorUnknown"
+  const rawKey = mapErrorFromNetwork(error) || "errorUnknown"
   let localizedErr = ""
   try {
     localizedErr = resolveMessageOrKey(rawKey, translate)

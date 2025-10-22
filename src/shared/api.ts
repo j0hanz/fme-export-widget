@@ -28,11 +28,8 @@ import {
   isRetryableError,
   validateRequiredConfig,
 } from "./validations"
-import {
-  isSuccessStatus,
-  isRetryableStatus,
-} from "../config/constants"
-import { mapErrorToKey } from "./utils/error"
+import { isSuccessStatus, isRetryableStatus } from "../config/constants"
+import { mapErrorFromNetwork } from "./utils/error"
 import {
   buildUrl,
   createHostPattern,
@@ -652,8 +649,7 @@ const areEsriModulesLoaded = (): boolean =>
 
 // Kontrollerar om globala Esri-mocks finns (testläge)
 const hasGlobalEsriMocks = (): boolean => {
-  const globalAny =
-    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+  const globalAny = globalThis as any
   return Boolean(
     globalAny && ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
   )
@@ -1749,7 +1745,7 @@ export class FmeFlowApiClient {
       }
 
       // Hämta användarvänlig translations-nyckel via centraliserad mapping
-      const translationKey = mapErrorToKey(err, httpStatus)
+      const translationKey = mapErrorFromNetwork(err, httpStatus)
 
       throw new FmeFlowApiError(
         translationKey,

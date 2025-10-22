@@ -23,8 +23,7 @@ import {
   MIN_PLANAR_SEGMENT_DEGREES,
   DEGREES_PER_METER,
 } from "../../config/index"
-import { toTrimmedString } from "./conversion"
-import { sanitizeParamKey } from "./form"
+import { toTrimmedString, sanitizeParamKey } from "./conversion"
 import { loadArcgisModules } from "./index"
 import { createGeometryError } from "./error"
 
@@ -38,6 +37,7 @@ const createAoiSerializationError = (): ErrorState => ({
   timestampMs: Date.now(),
 })
 
+// Jämför två koordinater med numerisk tolerans
 export const coordinatesEqual = (a: unknown, b: unknown): boolean => {
   if (!Array.isArray(a) || !Array.isArray(b)) return false
   const len = Math.min(a.length, b.length, 2)
@@ -64,6 +64,7 @@ const normalizeCoordinate = (vertex: unknown): number[] | null => {
   return result
 }
 
+// Normaliserar en polygon-ring och säkerställer att den är stängd
 export const normalizeRing = (ring: unknown): number[][] => {
   if (!Array.isArray(ring)) return []
   const coords: number[][] = []
@@ -102,6 +103,7 @@ const isValidRing = (ring: unknown): boolean => {
   return coordinatesEqual(first, last)
 }
 
+// Kontrollerar om värde är ett giltigt polygon-objekt
 export const isPolygonGeometry = (
   value: unknown
 ): value is { rings: unknown } | { geometry: { rings: unknown } } => {
@@ -117,6 +119,7 @@ export const isPolygonGeometry = (
   return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
 }
 
+// Extraherar rings från polygon-objekt (hanterar olika format)
 const extractRings = (poly: any): any[] => {
   if (!poly || typeof poly !== "object") return []
 
@@ -138,6 +141,7 @@ const extractRings = (poly: any): any[] => {
   return []
 }
 
+// Konverterar Esri polygon JSON till GeoJSON-format
 export const polygonJsonToGeoJson = (poly: any): any => {
   if (!poly) return null
   try {
@@ -279,9 +283,6 @@ export const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
   return false
 }
 
-// Legacy helper for backward compatibility
-const isWgs84Spatial = (sr: any): boolean => isWgs84Sr(sr)
-
 const projectToWgs84 = (
   poly: __esri.Polygon,
   modules: EsriModules
@@ -317,7 +318,7 @@ export const toWgs84PolygonJson = (
     }
 
     const sr = (poly as any).spatialReference
-    if (isWgs84Spatial(sr)) {
+    if (isWgs84Sr(sr)) {
       return poly.toJSON()
     }
 
@@ -325,7 +326,7 @@ export const toWgs84PolygonJson = (
     if (projected?.toJSON) {
       const result = projected.toJSON()
       const resultSr = result?.spatialReference
-      if (isWgs84Spatial(resultSr)) {
+      if (isWgs84Sr(resultSr)) {
         if (!resultSr?.wkid) {
           result.spatialReference = { wkid: 4326 }
         }

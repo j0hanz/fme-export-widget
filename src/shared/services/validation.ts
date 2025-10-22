@@ -8,7 +8,7 @@ import type {
 import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
 import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
 import { extractHttpStatus, validateRequiredFields } from "../validations"
-import { createError, mapErrorToKey } from "../utils/error"
+import { createError, mapErrorFromNetwork } from "../utils/error"
 import { inFlight } from "./inflight"
 import { healthCheck, extractFmeVersion, hasProxyError } from "./network"
 
@@ -71,7 +71,7 @@ export async function validateConnection(
               success: false,
               steps,
               error: {
-                message: mapErrorToKey(error, status),
+                message: mapErrorFromNetwork(error, status),
                 type: "token",
                 status,
               },
@@ -85,7 +85,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: mapErrorToKey(error, status),
+                  message: mapErrorFromNetwork(error, status),
                   type: "server",
                   status,
                 },
@@ -113,7 +113,7 @@ export async function validateConnection(
                   success: false,
                   steps,
                   error: {
-                    message: mapErrorToKey(error, status),
+                    message: mapErrorFromNetwork(error, status),
                     type: "token",
                     status,
                   },
@@ -125,7 +125,7 @@ export async function validateConnection(
                   success: false,
                   steps,
                   error: {
-                    message: mapErrorToKey(error, status),
+                    message: mapErrorFromNetwork(error, status),
                     type: "server",
                     status,
                   },
@@ -138,7 +138,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: mapErrorToKey(error, status),
+                  message: mapErrorFromNetwork(error, status),
                   type: "server",
                   status,
                 },
@@ -151,7 +151,7 @@ export async function validateConnection(
               success: false,
               steps,
               error: {
-                message: mapErrorToKey(error, status),
+                message: mapErrorFromNetwork(error, status),
                 type: status === 0 ? "network" : "server",
                 status,
               },
@@ -180,7 +180,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: mapErrorToKey(error, status),
+                  message: mapErrorFromNetwork(error, status),
                   type: "repository",
                   status,
                 },
@@ -213,7 +213,7 @@ export async function validateConnection(
           success: false,
           steps,
           error: {
-            message: mapErrorToKey(error, status),
+            message: mapErrorFromNetwork(error, status),
             type: "generic",
             status,
           },

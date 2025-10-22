@@ -53,7 +53,7 @@ import {
   executeJobSubmission,
 } from "../shared/services"
 import { getSupportEmail } from "../shared/validations"
-import { mapErrorToKey } from "../shared/utils/error"
+import { mapErrorFromNetwork } from "../shared/utils/error"
 import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
@@ -781,7 +781,7 @@ function WidgetContent(
       } catch {}
 
       const errorToUse = parsedError || err
-      const errorKey = mapErrorToKey(errorToUse) || "errorUnknown"
+      const errorKey = mapErrorFromNetwork(errorToUse) || "errorUnknown"
       const errorCode =
         typeof errorToUse === "object" &&
         errorToUse !== null &&

@@ -24,7 +24,7 @@ const normalizeString = (
   return options?.nullable ? null : undefined
 }
 
-// Returnerar true om värdet saknas eller är tomt (0 och false anses ha värde)
+// Kontrollerar om värdet är "tomt"
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -32,15 +32,17 @@ export const isEmpty = (v: unknown): boolean => {
   return false
 }
 
-/** Type guard ensuring the value is a non-empty string. */
+// Type guard för non-empty trimmed string
 export const isNonEmptyTrimmedString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0
 
-export const isNonEmptyString = isNonEmptyTrimmedString
+// Returnerar trimmed string eller tom sträng
+export const toTrimmedStringOrEmpty = (value: unknown): string => {
+  const trimmed = toTrimmedString(value)
+  return trimmed ?? ""
+}
 
-export const toTrimmedStringOrEmpty = (value: unknown): string =>
-  toTrimmedString(value) ?? ""
-
+// Returnerar non-empty trimmed string eller fallback
 export const toNonEmptyTrimmedString = (
   value: unknown,
   fallback = ""
@@ -89,9 +91,9 @@ export const isValidNumber = (
   return true
 }
 
-/** Type guard for File objects (guarded for older browsers). */
+/** Type guard for File objects. */
 export const isFileObject = (value: unknown): value is File =>
-  typeof File !== "undefined" && value instanceof File
+  value instanceof File
 
 /** Coerces unknown values into booleans when the intent is clear. */
 export const toBooleanValue = (value: unknown): boolean | undefined => {
@@ -233,9 +235,27 @@ export const toStr = (val: unknown): string => {
   return Object.prototype.toString.call(val)
 }
 
-/**
- * Serializes error-like records for Redux compatibility by flattening dates.
- */
+// Saniterar parameter-nyckel genom att ta bort ogiltiga tecken
+export const sanitizeParamKey = (name: unknown, fallback: string): string => {
+  const raw = toTrimmedString(name) ?? ""
+  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
+  return safe || fallback
+}
+
+// Normaliserar formulärvärde baserat på om det är multiselect
+export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
+  if (value === undefined || value === null) {
+    return isMultiSelect ? [] : ""
+  }
+  if (isMultiSelect) {
+    return Array.isArray(value) ? value : [value]
+  }
+  if (typeof value === "string" || typeof value === "number") return value
+  if (typeof value === "boolean") return value
+  return ""
+}
+
+// Konverterar felobjekt till serialiserbart format för Redux
 export const toSerializable = (error: any): any => {
   if (!error) return null
   const ts =

@@ -11,7 +11,7 @@ import {
   toNonEmptyTrimmedString,
 } from "./conversion"
 
-// Network and environment utilities
+// Kontrollerar om användaren är offline (navigator.onLine === false)
 export const isNavigatorOffline = (): boolean => {
   if (typeof navigator === "undefined") return false
 
@@ -25,6 +25,7 @@ export const isNavigatorOffline = (): boolean => {
 
 const ABORT_REGEX = /\baborted?\b/i
 
+// Kontrollerar om ett fel är ett abort/cancel-fel
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false
 
@@ -49,6 +50,7 @@ export const isAbortError = (error: unknown): boolean => {
   return false
 }
 
+// Maskerar token för säker loggning (visar bara första/sista tecken)
 export const maskToken = (token: string): string => {
   if (!token) return ""
   if (token.length <= 4) return "*".repeat(token.length)
@@ -57,6 +59,7 @@ export const maskToken = (token: string): string => {
   return `${token.slice(0, 4)}${"*".repeat(Math.max(4, token.length - 8))}${token.slice(-4)}`
 }
 
+// Skapar en hashad cache-nyckel från token (för säker identifiering)
 export const buildTokenCacheKey = (token?: string): string => {
   const trimmed = toTrimmedString(token)
   if (!trimmed) return "token:none"
@@ -69,6 +72,7 @@ export const buildTokenCacheKey = (token?: string): string => {
   return `token:${hash.toString(36)}`
 }
 
+// Skapar en FME Flow API-klient med given config
 export const createFmeClient = (
   serverUrl?: string,
   token?: string,

@@ -51,7 +51,7 @@ import {
   isValidEmail,
   validateEmailField,
 } from "../shared/validations"
-import { mapErrorToKey } from "../shared/utils/error"
+import { mapErrorFromNetwork } from "../shared/utils/error"
 import { createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
@@ -750,7 +750,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       if (!silent) {
         const status = err instanceof Error ? 0 : extractHttpStatus(err)
-        const errorKey = mapErrorToKey(err, status)
+        const errorKey = mapErrorFromNetwork(err, status)
         setTestState({
           status: "error",
           isTesting: false,

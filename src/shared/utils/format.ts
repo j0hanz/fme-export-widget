@@ -124,13 +124,11 @@ export const stripHtmlToText = (input?: string): string => {
         return doc?.body?.textContent || ""
       }
       // Fallback till att skapa ett element
-      if (typeof document !== "undefined" && document?.createElement) {
-        const container = document.createElement("div")
-        container.innerHTML = value
-        const text = container.textContent || container.innerText || ""
-        container.textContent = ""
-        return text
-      }
+      const container = document.createElement("div")
+      container.innerHTML = value
+      const text = container.textContent || container.innerText || ""
+      container.textContent = ""
+      return text
     } catch {
       /* Ignorerar DOM-parsningsfel */
     }

@@ -13,10 +13,11 @@ import {
   toStringValue,
   toTrimmedString,
   normalizeParameterValue,
+  sanitizeParamKey,
 } from "./conversion"
 import { isValidExternalUrlForOptGetUrl } from "../validations"
 
-// Build choice set for parameter validation (moved from validations.ts)
+// Bygger ett Set av normaliserade choice-värden för parameter-validering
 export const buildChoiceSet = (
   list: WorkspaceParameter["listOptions"]
 ): Set<string | number> | null =>
@@ -24,6 +25,7 @@ export const buildChoiceSet = (
     ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
     : null
 
+// Skapar placeholder-texter för formulär-fält
 export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
@@ -59,6 +61,7 @@ const normalizeFormEntries = (
   return normalized
 }
 
+// Parsar formulär-data och extraherar filer, URLs och saniterade värden
 export const parseSubmissionFormData = (rawData: {
   [key: string]: unknown
 }): {
@@ -107,6 +110,7 @@ const findUploadParameterTarget = (
   return undefined
 }
 
+// Applicerar uploaded dataset path till FME-parametrar
 export const applyUploadedDatasetParam = ({
   finalParams,
   uploadedPath,
@@ -170,24 +174,6 @@ export const resolveUploadTargetParam = (
 
   const sanitized = sanitizeParamKey(config.uploadTargetParamName, "")
   return sanitized || null
-}
-
-export const sanitizeParamKey = (name: unknown, fallback: string): string => {
-  const raw = toTrimmedString(name) ?? ""
-  const safe = raw.replace(/[^A-Za-z0-9_\-]/g, "").trim()
-  return safe || fallback
-}
-
-export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
-  if (value === undefined || value === null) {
-    return isMultiSelect ? [] : ""
-  }
-  if (isMultiSelect) {
-    return Array.isArray(value) ? value : [value]
-  }
-  if (typeof value === "string" || typeof value === "number") return value
-  if (typeof value === "boolean") return value
-  return ""
 }
 
 export const getFileDisplayName = (file: File): string => {

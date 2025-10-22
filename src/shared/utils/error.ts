@@ -204,10 +204,6 @@ const matchMessagePatternInternal = (message: string): string | undefined => {
   return undefined
 }
 
-export const mapErrorFromFmeApi = (err: unknown, status?: number): string => {
-  return mapErrorFromNetwork(err, status)
-}
-
 export const mapErrorFromNetwork = (err: unknown, status?: number): string => {
   const classification = classifyError(err, status)
 
@@ -262,11 +258,6 @@ export const mapErrorFromGeometry = (err: unknown): string => {
   }
 
   return "geometrySerializationFailedCode"
-}
-
-// Legacy mapErrorToKey - delegates to mapErrorFromNetwork for backward compatibility
-export const mapErrorToKey = (err: unknown, status?: number): string => {
-  return mapErrorFromNetwork(err, status)
 }
 
 /* createError - Helper for creating ErrorState (runtime errors for validation) */

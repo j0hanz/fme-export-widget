@@ -58,9 +58,7 @@ export async function loadArcgisModules(
     return []
   }
 
-  const globalScope =
-    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
-  const stub = globalScope?.__ESRI_TEST_STUB__
+  const stub = (globalThis as any)?.__ESRI_TEST_STUB__
   if (typeof stub === "function") {
     return stub(modules)
   }

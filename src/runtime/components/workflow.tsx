@@ -61,7 +61,7 @@ import {
   toTrimmedStringOrEmpty,
   formatByteSize,
   isAbortError,
-  isNonEmptyString,
+  isNonEmptyTrimmedString,
   createFmeDispatcher,
 } from "../../shared/utils"
 import {
@@ -264,7 +264,7 @@ const createFormValidator = (
 
     // Validerar schema-startfältets format när det anges
     const startRaw = values.start
-    if (isNonEmptyString(startRaw)) {
+    if (isNonEmptyTrimmedString(startRaw)) {
       try {
         if (!validateDateTimeFormat(startRaw.trim())) {
           errors.start = "invalidDateTimeFormat"
@@ -1038,7 +1038,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar ritverktygsläges-flikar
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
-    const helperText = isNonEmptyString(instructionText)
+    const helperText = isNonEmptyTrimmedString(instructionText)
       ? instructionText
       : translate("drawingModeTooltip")
 
