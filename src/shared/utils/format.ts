@@ -84,19 +84,6 @@ export const buildSupportHintText = (
   return template.replace(EMAIL_PLACEHOLDER, email)
 }
 
-export function formatErrorForView(
-  translate: TranslateFn,
-  baseKeyOrMessage: string,
-  code?: string,
-  supportEmail?: string,
-  userFriendly?: string
-): { message: string; code?: string; hint?: string } {
-  const message =
-    resolveMessageOrKey(baseKeyOrMessage, translate) || baseKeyOrMessage
-  const hint = buildSupportHintText(translate, supportEmail, userFriendly)
-  return { message, code, hint }
-}
-
 const HTML_ENTITY_MAP = Object.freeze({
   "&amp;": "&",
   "&lt;": "<",

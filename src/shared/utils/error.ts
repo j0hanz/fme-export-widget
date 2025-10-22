@@ -1,3 +1,21 @@
+import type {
+  ErrorState,
+  ErrorType,
+  ErrorSeverity,
+  TranslateFn,
+} from "../../config/index"
+import {
+  HTTP_STATUS_CODES,
+  ERROR_CODE_TO_KEY,
+  STATUS_TO_KEY_MAP,
+  MESSAGE_PATTERNS,
+  STATUS_PROPERTIES,
+  ErrorType as ErrorTypeEnum,
+  ErrorSeverity as ErrorSeverityEnum,
+} from "../../config/index"
+import { extractHttpStatus } from "../validations"
+import { resolveMessageOrKey, buildSupportHintText } from "./format"
+
 const DEFAULT_ERROR_ICON = "error"
 
 const ICON_BY_EXACT_CODE = Object.freeze<{ [code: string]: string }>({
@@ -184,4 +202,118 @@ export const buildValidationErrors = <T extends { [key: string]: any }>(
   }
 
   return { ok: Object.keys(errors).length === 0, errors }
+}
+
+// Error mapping and creation functions (consolidated from validations.ts)
+const statusToKey = (s?: number): string | undefined => {
+  if (typeof s !== "number") return undefined
+  if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
+  if (s >= 500) return "errorServerIssue"
+  return undefined
+}
+
+const matchMessagePattern = (message: string): string | undefined => {
+  const lowerMessage = message.toLowerCase()
+  for (const { pattern, key } of MESSAGE_PATTERNS) {
+    if (pattern.test(lowerMessage)) return key
+  }
+  return undefined
+}
+
+const classifyError = (err: unknown, status?: number) => {
+  const resolvedStatus = status ?? extractHttpStatus(err)
+
+  let errorCode: string | undefined
+  let message: string | undefined
+
+  if (err && typeof err === "object") {
+    errorCode = (err as any).code
+    message = (err as Error)?.message
+  }
+
+  return {
+    status: resolvedStatus,
+    code: typeof errorCode === "string" ? errorCode : undefined,
+    message: typeof message === "string" ? message : undefined,
+    isRequestFailed: errorCode === "REQUEST_FAILED",
+  }
+}
+
+export const mapErrorToKey = (err: unknown, status?: number): string => {
+  const classification = classifyError(err, status)
+
+  if (classification.isRequestFailed) {
+    return statusToKey(classification.status) || "errorServerIssue"
+  }
+
+  if (classification.code && ERROR_CODE_TO_KEY[classification.code]) {
+    return ERROR_CODE_TO_KEY[classification.code]
+  }
+
+  const statusKey = statusToKey(classification.status)
+  if (statusKey) return statusKey
+
+  if (classification.message) {
+    const messageKey = matchMessagePattern(classification.message)
+    if (messageKey) return messageKey
+  }
+
+  return "errorUnknown"
+}
+
+export const createRuntimeError = (
+  message: string,
+  options: {
+    type?: ErrorType
+    code?: string
+    severity?: ErrorSeverity
+    recoverable?: boolean
+    userFriendlyMessage?: string
+    suggestion?: string
+    retry?: () => void
+  } = {}
+): ErrorState => ({
+  message,
+  type: options.type ?? ErrorTypeEnum.NETWORK,
+  code: options.code ?? "UNKNOWN",
+  severity: options.severity ?? ErrorSeverityEnum.ERROR,
+  recoverable: options.recoverable ?? true,
+  timestamp: new Date(),
+  timestampMs: Date.now(),
+  userFriendlyMessage: options.userFriendlyMessage ?? "",
+  suggestion: options.suggestion ?? "",
+  retry: options.retry,
+  kind: "runtime",
+})
+
+export const createError = (
+  messageKey: string,
+  type: ErrorType,
+  code: string,
+  translate: TranslateFn,
+  options?: {
+    suggestion?: string
+    userFriendlyMessage?: string
+    retry?: () => void
+  }
+): ErrorState =>
+  createRuntimeError(translate(messageKey) || messageKey, {
+    type,
+    code,
+    ...options,
+    suggestion:
+      options?.suggestion || translate("connectionSettingsHint") || "",
+  })
+
+export function formatErrorForView(
+  translate: TranslateFn,
+  baseKeyOrMessage: string,
+  code?: string,
+  supportEmail?: string,
+  userFriendly?: string
+): { message: string; code?: string; hint?: string } {
+  const message =
+    resolveMessageOrKey(baseKeyOrMessage, translate) || baseKeyOrMessage
+  const hint = buildSupportHintText(translate, supportEmail, userFriendly)
+  return { message, code, hint }
 }

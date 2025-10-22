@@ -50,6 +50,7 @@ import {
   isWgs84Sr,
   isWebMercatorSr,
   isGeographicSpatialRef,
+  createRuntimeError,
 } from "./utils"
 
 // URL validation helpers
@@ -445,70 +446,6 @@ export const isRetryableError = (error: unknown): boolean => {
   return status === 408 || status === 429
 }
 
-// Mappar HTTP status code till översättningsnyckel
-const statusToKey = (s?: number): string | undefined => {
-  if (typeof s !== "number") return undefined
-  if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
-  if (s >= 500) return "errorServerIssue"
-  return undefined
-}
-
-// Matchar felmeddelande mot pattern-lista och returnerar key
-const matchMessagePattern = (message: string): string | undefined => {
-  const lowerMessage = message.toLowerCase()
-  for (const { pattern, key } of MESSAGE_PATTERNS) {
-    if (pattern.test(lowerMessage)) return key
-  }
-  return undefined
-}
-
-// Helper to extract and classify error information
-const classifyError = (err: unknown, status?: number) => {
-  const resolvedStatus = status ?? extractHttpStatus(err)
-
-  let errorCode: string | undefined
-  let message: string | undefined
-
-  if (err && typeof err === "object") {
-    errorCode = (err as any).code
-    message = (err as Error)?.message
-  }
-
-  return {
-    status: resolvedStatus,
-    code: typeof errorCode === "string" ? errorCode : undefined,
-    message: typeof message === "string" ? message : undefined,
-    isRequestFailed: errorCode === "REQUEST_FAILED",
-  }
-}
-
-// Mappar error till översättningsnyckel via status/code/message
-export const mapErrorToKey = (err: unknown, status?: number): string => {
-  const classification = classifyError(err, status)
-
-  // Priority 1: Request-failed should use status
-  if (classification.isRequestFailed) {
-    return statusToKey(classification.status) || "errorServerIssue"
-  }
-
-  // Priority 2: Known error codes
-  if (classification.code && ERROR_CODE_TO_KEY[classification.code]) {
-    return ERROR_CODE_TO_KEY[classification.code]
-  }
-
-  // Priority 3: HTTP status codes
-  const statusKey = statusToKey(classification.status)
-  if (statusKey) return statusKey
-
-  // Priority 4: Message pattern matching
-  if (classification.message) {
-    const messageKey = matchMessagePattern(classification.message)
-    if (messageKey) return messageKey
-  }
-
-  return "errorUnknown"
-}
-
 // Validerar att obligatoriska config-fält är satta
 export const validateRequiredConfig = (config: {
   readonly serverUrl?: string
@@ -623,52 +560,6 @@ export const validateRequiredFields = (
     requiresSettings: false,
   }
 }
-
-// Validerar resultat från schemaläggnings-API
-export const createRuntimeError = (
-  message: string,
-  options: {
-    type?: ErrorType
-    code?: string
-    severity?: ErrorSeverity
-    recoverable?: boolean
-    userFriendlyMessage?: string
-    suggestion?: string
-    retry?: () => void
-  } = {}
-): ErrorState => ({
-  message,
-  type: options.type ?? ErrorType.NETWORK,
-  code: options.code ?? "UNKNOWN",
-  severity: options.severity ?? ErrorSeverity.ERROR,
-  recoverable: options.recoverable ?? true,
-  timestamp: new Date(),
-  timestampMs: Date.now(),
-  userFriendlyMessage: options.userFriendlyMessage ?? "",
-  suggestion: options.suggestion ?? "",
-  retry: options.retry,
-  kind: "runtime",
-})
-
-// Översätter messageKey via translate-funktionen och skapar ErrorState
-export const createError = (
-  messageKey: string,
-  type: ErrorType,
-  code: string,
-  translate: TranslateFn,
-  options?: {
-    suggestion?: string
-    userFriendlyMessage?: string
-    retry?: () => void
-  }
-): ErrorState =>
-  createRuntimeError(translate(messageKey) || messageKey, {
-    type,
-    code,
-    ...options,
-    suggestion:
-      options?.suggestion || translate("connectionSettingsHint") || "",
-  })
 
 // Skapar geometry error med valid=false och ErrorState objekt
 const makeGeometryError = (
@@ -1590,4 +1481,9 @@ export {
   canResetButton,
   shouldShowWorkspaceLoading,
   maskToken,
+  // error handling (consolidated from this file to error.ts)
+  mapErrorToKey,
+  createError,
+  createRuntimeError,
+  formatErrorForView,
 } from "./utils"
