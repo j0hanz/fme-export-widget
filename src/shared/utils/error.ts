@@ -5,11 +5,9 @@ import type {
   TranslateFn,
 } from "../../config/index"
 import {
-  HTTP_STATUS_CODES,
   ERROR_CODE_TO_KEY,
   STATUS_TO_KEY_MAP,
   MESSAGE_PATTERNS,
-  STATUS_PROPERTIES,
   ErrorType as ErrorTypeEnum,
   ErrorSeverity as ErrorSeverityEnum,
 } from "../../config/index"

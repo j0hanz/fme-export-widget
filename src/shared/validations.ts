@@ -1,5 +1,4 @@
 import {
-  ErrorSeverity,
   ErrorType,
   type ErrorState,
   type ExportResult,
@@ -28,9 +27,6 @@ import {
   MIN_PLANAR_SEGMENT_DEGREES,
   DEGREES_PER_METER,
   HTTP_STATUS_CODES,
-  ERROR_CODE_TO_KEY,
-  STATUS_TO_KEY_MAP,
-  MESSAGE_PATTERNS,
   SERVER_URL_REASON_TO_KEY,
   REQUIRED_CONFIG_FIELDS,
   STATUS_PROPERTIES,
