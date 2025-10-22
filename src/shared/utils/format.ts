@@ -123,6 +123,34 @@ const replaceNamedEntities = (value: string): string =>
 export const stripHtmlToText = (input?: string): string => {
   if (!input) return ""
 
+  const attemptDomExtraction = (value: string): string | null => {
+    const parserAvailable =
+      typeof DOMParser !== "undefined" && typeof DOMParser === "function"
+
+    try {
+      if (typeof document !== "undefined" && document?.createElement) {
+        const container = document.createElement("div")
+        container.innerHTML = value
+        const text = container.textContent || container.innerText || ""
+        container.textContent = ""
+        return text
+      }
+      if (parserAvailable) {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(value, "text/html")
+        return doc?.body?.textContent || ""
+      }
+    } catch {
+      /* Ignorerar DOM-parsningsfel */
+    }
+    return null
+  }
+
+  const domText = attemptDomExtraction(input)
+  if (domText !== null) {
+    return domText.replace(/\s+/g, " ").trim()
+  }
+
   const noTags = input
     .replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
     .replace(/<[^>]*>/g, "")

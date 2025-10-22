@@ -493,7 +493,22 @@ export const validateDateTimeFormat = (dateTimeString: string): boolean => {
   return dateTimeRegex.test(trimmed)
 }
 
-// Maskerar PASSWORD-fält i form values för loggning
+// Sanitizerar textvärde genom att klippa och ersätta XSS-tecken
+const sanitizeTextValue = (value: unknown, maxLength = 10000): unknown => {
+  if (typeof value !== "string") {
+    return value
+  }
+
+  const clipped = value.length > maxLength ? value.slice(0, maxLength) : value
+
+  return clipped
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;")
+}
+
 export const sanitizeFormValues = (
   formValues: FormValues | null | undefined,
   parameters: readonly WorkspaceParameter[] | null | undefined
@@ -506,32 +521,29 @@ export const sanitizeFormValues = (
       .map((param) => param.name)
   )
 
-  if (secretNames.size === 0) {
-    return formValues
-  }
+  const sanitized: FormValues = {}
 
-  const masked: FormValues = { ...formValues }
-
-  for (const key of Object.keys(formValues)) {
-    if (!secretNames.has(key)) {
+  for (const [key, value] of Object.entries(formValues)) {
+    if (secretNames.has(key)) {
+      const safeValue =
+        typeof value === "string"
+          ? value
+          : typeof value === "number" || typeof value === "bigint"
+            ? value.toString()
+            : typeof value === "boolean"
+              ? value
+                ? "true"
+                : "false"
+              : ""
+      sanitized[key] = maskToken(safeValue)
       continue
     }
 
-    const value = formValues[key]
-    const safeValue =
-      typeof value === "string"
-        ? value
-        : typeof value === "number" || typeof value === "bigint"
-          ? value.toString()
-          : typeof value === "boolean"
-            ? value
-              ? "true"
-              : "false"
-            : ""
-    masked[key] = maskToken(safeValue)
+    const sanitizedResult = sanitizeTextValue(value)
+    sanitized[key] = sanitizedResult as FormValues[string]
   }
 
-  return masked
+  return sanitized
 }
 
 // Läser wkid & latestWkid från spatial reference object
@@ -1303,6 +1315,14 @@ export const validateScheduleName = (
     return { valid: false, error: "SCHEDULE_NAME_TOO_LONG" }
   }
 
+  if (/\.\.(?:[\\/]|$)/.test(trimmed)) {
+    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
+  }
+
+  if (/--|;|\b(?:xp_|sp_|exec)\b/i.test(trimmed)) {
+    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
+  }
+
   // Kontrollerar ogiltiga tecken: <>:"|?* och kontrolltecken
   const hasInvalidChars =
     /[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)
@@ -1329,6 +1349,18 @@ export const validateScheduleCategory = (
 
   if (trimmed.length > 128) {
     return { valid: false, error: "SCHEDULE_CATEGORY_TOO_LONG" }
+  }
+
+  if (/\.\.(?:[\\/]|$)/.test(trimmed)) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
+  }
+
+  if (/--|;|\b(?:xp_|sp_|exec)\b/i.test(trimmed)) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
+  }
+
+  if (/[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)) {
+    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
   }
 
   return { valid: true }

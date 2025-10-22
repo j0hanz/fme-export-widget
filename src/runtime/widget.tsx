@@ -80,6 +80,7 @@ import {
   useLatestAbortController,
   toTrimmedString,
   logIfNotAbort,
+  safeAbort,
   popupSuppressionManager,
   hexToRgbArray,
   buildSymbols,
@@ -212,6 +213,7 @@ function WidgetContent(
   const fmeClientKeyRef = React.useRef<string | null>(null)
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
+  const completionControllerRef = React.useRef<AbortController | null>(null)
   /* Unik identifierare för popup-suppression i denna widget-instans */
   const popupClientIdRef = React.useRef<symbol>(
     Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
@@ -229,6 +231,7 @@ function WidgetContent(
   /* Spårar submission-fas för feedback under export */
   const [submissionPhase, setSubmissionPhase] =
     React.useState<SubmissionPhase>("idle")
+  const [announcement, setAnnouncement] = React.useState("")
 
   const updateDrawingSession = hooks.useEventCallback(
     (updates: Partial<DrawingSessionState>) => {
@@ -540,6 +543,8 @@ function WidgetContent(
     disposeFmeClient()
     disablePopupGuard()
     clearWarmupTimer()
+    safeAbort(completionControllerRef.current)
+    completionControllerRef.current = null
   })
 
   /* Centraliserade Redux-återställnings-hjälpfunktioner */
@@ -714,6 +719,27 @@ function WidgetContent(
       dispatch(fmeActions.clearError("general", widgetId))
     }
   }, [modulesLoading, modules, generalError?.code, dispatch, widgetId])
+
+  /* Annonserar viktiga vyändringar för skärmläsare */
+  hooks.useUpdateEffect(() => {
+    if (viewMode === ViewMode.WORKSPACE_SELECTION) {
+      setAnnouncement(translate("workspaceSelectionReady"))
+      return
+    }
+
+    if (viewMode === ViewMode.EXPORT_FORM) {
+      setAnnouncement(translate("formReady"))
+      return
+    }
+
+    if (viewMode === ViewMode.ORDER_RESULT) {
+      const key = orderResult?.success ? "orderSuccess" : "orderFailed"
+      setAnnouncement(translate(key))
+      return
+    }
+
+    setAnnouncement("")
+  }, [viewMode, orderResult?.success, translate])
 
   const getActiveGeometry = hooks.useEventCallback(() => {
     if (!geometryJson || !modules?.Polygon) {
@@ -1013,36 +1039,60 @@ function WidgetContent(
       if (!geometry) {
         return
       }
-      if (isCompletingRef.current) {
-        return
+
+      const previousController = completionControllerRef.current
+      if (previousController && !previousController.signal.aborted) {
+        safeAbort(previousController)
       }
 
+      const controller = new AbortController()
+      completionControllerRef.current = controller
       isCompletingRef.current = true
+
       try {
         endSketchSession()
         updateAreaWarning(false)
 
-        /* Validerar geometri och förenklar om nödvändigt */
+        if (controller.signal.aborted) {
+          return
+        }
 
         const validation = await validatePolygon(geometry, modules)
 
+        if (controller.signal.aborted) {
+          return
+        }
+
         if (!validation.valid) {
+          if (controller.signal.aborted) {
+            return
+          }
+
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
-          teardownDrawingResources()
-          dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          updateAreaWarning(false)
-          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
-          if (validation.error) {
+
+          if (!controller.signal.aborted) {
+            teardownDrawingResources()
+            dispatch(fmeActions.setGeometry(null, 0, widgetId))
+            updateAreaWarning(false)
+            exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
+          }
+
+          if (!controller.signal.aborted && validation.error) {
             dispatch(fmeActions.setError("general", validation.error, widgetId))
           }
 
           return
         }
+
         const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
 
         const calculatedArea = await calcArea(geomForUse, modules)
+
+        if (controller.signal.aborted) {
+          return
+        }
 
         if (!calculatedArea || calculatedArea <= 0) {
           updateAreaWarning(false)
@@ -1062,16 +1112,24 @@ function WidgetContent(
           largeArea: config?.largeArea,
         })
 
+        if (controller.signal.aborted) {
+          return
+        }
+
         if (areaEvaluation.exceedsMaximum) {
           const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
-          teardownDrawingResources()
-          dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          updateAreaWarning(false)
-          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
-          if (maxCheck.message) {
+
+          if (!controller.signal.aborted) {
+            teardownDrawingResources()
+            dispatch(fmeActions.setGeometry(null, 0, widgetId))
+            updateAreaWarning(false)
+            exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
+          }
+
+          if (!controller.signal.aborted && maxCheck.message) {
             const messageKey = maxCheck.message || "geometryAreaTooLargeCode"
 
             dispatchError(messageKey, ErrorType.VALIDATION, maxCheck.code)
@@ -1081,6 +1139,10 @@ function WidgetContent(
         }
 
         updateAreaWarning(areaEvaluation.shouldWarn)
+
+        if (controller.signal.aborted) {
+          return
+        }
 
         if (evt.graphic) {
           evt.graphic.geometry = geomForUse
@@ -1098,15 +1160,19 @@ function WidgetContent(
             widgetId
           )
         )
-        // Göm ritverktygen tills vidare
       } catch (error) {
-        updateAreaWarning(false)
-        dispatchError(
-          translate("errorDrawingComplete"),
-          ErrorType.VALIDATION,
-          "DRAWING_COMPLETE_ERROR"
-        )
+        if (!controller.signal.aborted) {
+          updateAreaWarning(false)
+          dispatchError(
+            translate("errorDrawingComplete"),
+            ErrorType.VALIDATION,
+            "DRAWING_COMPLETE_ERROR"
+          )
+        }
       } finally {
+        if (completionControllerRef.current === controller) {
+          completionControllerRef.current = null
+        }
         isCompletingRef.current = false
       }
     }
@@ -1785,6 +1851,20 @@ function WidgetContent(
           onActiveViewChange={handleMapViewReady}
         />
       )}
+
+      <div
+        aria-live="assertive"
+        aria-atomic="true"
+        style={{
+          position: "absolute",
+          left: "-10000px",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+      >
+        {announcement}
+      </div>
 
       <Workflow
         widgetId={widgetId}

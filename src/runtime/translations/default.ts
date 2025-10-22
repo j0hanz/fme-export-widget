@@ -106,4 +106,9 @@ export default {
   SCHEDULE_NAME_INVALID_CHARS: "Jobbnamnet innehåller ogiltiga tecken",
   SCHEDULE_CATEGORY_REQUIRED: "Kategori krävs",
   SCHEDULE_CATEGORY_TOO_LONG: "Kategorin är för lång (max 128 tecken)",
+  SCHEDULE_CATEGORY_INVALID_CHARS: "Kategorin innehåller ogiltiga tecken",
+  workspaceSelectionReady: "Val av arbetsflöde tillgängligt",
+  formReady: "Formulär redo för ifyllning",
+  orderSuccess: "Beställningen skickad",
+  orderFailed: "Beställningen misslyckades",
 }

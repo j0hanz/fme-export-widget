@@ -816,6 +816,31 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
 }
 
 // Skapar interceptor som injicerar FME-token i requests
+const FME_ENDPOINT_PATTERN =
+  /\/(?:fmerest|fmedatadownload|fmedataupload|fmejobsubmitter)\b/i
+
+const isAllowedFmePath = (rawUrl: unknown): boolean => {
+  if (typeof rawUrl === "string") {
+    return FME_ENDPOINT_PATTERN.test(rawUrl)
+  }
+
+  if (rawUrl instanceof URL) {
+    return FME_ENDPOINT_PATTERN.test(rawUrl.pathname)
+  }
+
+  if (rawUrl && typeof rawUrl === "object") {
+    const candidate =
+      typeof (rawUrl as { href?: unknown }).href === "string"
+        ? (rawUrl as { href?: string }).href
+        : typeof (rawUrl as { url?: unknown }).url === "string"
+          ? (rawUrl as { url?: string }).url
+          : null
+    return candidate ? FME_ENDPOINT_PATTERN.test(candidate) : false
+  }
+
+  return false
+}
+
 const createTokenInterceptor = (
   hostKey: string,
   pattern: RegExp
@@ -826,6 +851,10 @@ const createTokenInterceptor = (
 } => ({
   urls: pattern,
   before(params: any) {
+    if (!isAllowedFmePath(params?.url)) {
+      return
+    }
+
     if (!params?.requestOptions) {
       params.requestOptions = {}
     }
@@ -1150,6 +1179,10 @@ export class FmeFlowApiClient {
       workspace?: string
     }
   ): Promise<ApiResponse<{ path: string }>> {
+    if (options?.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError")
+    }
+
     const repository = this.resolveRepository(options?.repository)
     const workspace = (options?.workspace || "").trim()
     if (!workspace) {
