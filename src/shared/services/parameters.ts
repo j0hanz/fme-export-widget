@@ -1311,51 +1311,38 @@ export class ParameterFormService {
     return null
   }
 
-  // Extraherar synlighets-konfiguration från parameter-metadata
-  private deriveVisibilityConfig(
-    param: WorkspaceParameter
-  ): VisibilityExpression | undefined {
-    const meta = this.getParameterMetadata(param)
-    const visibilityRaw = meta.visibility
-    if (!isPlainObject(visibilityRaw)) return undefined
+  // Parser för condition clause från raw object
+  private parseConditionClause(
+    clauseObj: { readonly [key: string]: unknown }
+  ): DynamicPropertyClause<VisibilityState> | null {
+    const thenValue = this.parseVisibilityState(clauseObj.then)
+    if (!thenValue) return null
 
-    const visibilityObj = visibilityRaw as { readonly [key: string]: unknown }
-    const ifArray = unwrapArray(visibilityObj.if)
-    if (!ifArray?.length) return undefined
+    const conditionKeys = Object.keys(clauseObj).filter((key) =>
+      key.startsWith("$")
+    )
 
-    const clauses: Array<DynamicPropertyClause<VisibilityState>> = []
-
-    for (const clause of ifArray) {
-      if (!isPlainObject(clause)) continue
-
-      const clauseObj = clause as { readonly [key: string]: unknown }
-      const thenValue = this.parseVisibilityState(clauseObj.then)
-      if (!thenValue) continue
-
-      const conditionKeys = Object.keys(clauseObj).filter((key) =>
-        key.startsWith("$")
-      )
-
-      if (conditionKeys.length === 0) {
-        clauses.push({ then: thenValue })
-        continue
-      }
-
-      const clauseWithCondition: { [key: string]: unknown } = {
-        then: thenValue,
-      }
-      for (const key of conditionKeys) {
-        clauseWithCondition[key] = clauseObj[key]
-      }
-
-      clauses.push(
-        clauseWithCondition as DynamicPropertyClause<VisibilityState>
-      )
+    // Enkel clause utan villkor (bara then)
+    if (conditionKeys.length === 0) {
+      return { then: thenValue }
     }
 
-    if (!clauses.length) return undefined
+    // Clause med villkor ($ keys)
+    const clauseWithCondition: { [key: string]: unknown } = {
+      then: thenValue,
+    }
+    for (const key of conditionKeys) {
+      clauseWithCondition[key] = clauseObj[key]
+    }
 
-    const defaultObj = visibilityObj.default
+    return clauseWithCondition as DynamicPropertyClause<VisibilityState>
+  }
+
+  // Bygger visibility expression från clauses och default state
+  private buildVisibilityExpression(
+    clauses: Array<DynamicPropertyClause<VisibilityState>>,
+    defaultObj?: unknown
+  ): VisibilityExpression {
     const defaultValue = isPlainObject(defaultObj)
       ? this.parseVisibilityState(
           (defaultObj as { readonly [key: string]: unknown }).value
@@ -1377,6 +1364,35 @@ export class ParameterFormService {
     }
 
     return result
+  }
+
+  // Extraherar synlighets-konfiguration från parameter-metadata (förenklad)
+  private deriveVisibilityConfig(
+    param: WorkspaceParameter
+  ): VisibilityExpression | undefined {
+    const meta = this.getParameterMetadata(param)
+    const visibilityRaw = meta.visibility
+    if (!isPlainObject(visibilityRaw)) return undefined
+
+    const visibilityObj = visibilityRaw as { readonly [key: string]: unknown }
+    const ifArray = unwrapArray(visibilityObj.if)
+    if (!ifArray?.length) return undefined
+
+    const clauses: Array<DynamicPropertyClause<VisibilityState>> = []
+
+    for (const clause of ifArray) {
+      if (!isPlainObject(clause)) continue
+
+      const clauseObj = clause as { readonly [key: string]: unknown }
+      const parsedClause = this.parseConditionClause(clauseObj)
+      if (parsedClause) {
+        clauses.push(parsedClause)
+      }
+    }
+
+    if (!clauses.length) return undefined
+
+    return this.buildVisibilityExpression(clauses, visibilityObj.default)
   }
 
   // Parser för enskild visibility state från sträng
