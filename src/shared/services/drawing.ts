@@ -1,5 +1,9 @@
 import type { JimuMapView } from "jimu-arcgis"
-import type { EsriModules, DrawingSessionState } from "../../config/index"
+import type {
+  EsriModules,
+  DrawingSessionState,
+  DrawingCompletionResult,
+} from "../../config/index"
 import { LAYER_CONFIG, DrawingTool, ViewMode } from "../../config/index"
 import { logIfNotAbort, normalizeSketchCreateTool } from "../utils"
 import { safeCancelSketch } from "../hooks"
@@ -135,13 +139,6 @@ export function setupSketchEventHandlers({
 }
 
 // Processes drawing completion with validation and area calculation
-export interface DrawingCompletionResult {
-  success: boolean
-  geometry?: __esri.Polygon
-  area?: number
-  error?: any
-  shouldWarn?: boolean
-}
 
 export async function processDrawingCompletion(params: {
   geometry: __esri.Geometry | undefined

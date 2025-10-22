@@ -1,6 +1,8 @@
 import type {
   SubmissionPreparationOptions,
   SubmissionPreparationResult,
+  SubmissionOrchestrationOptions,
+  SubmissionOrchestrationResult,
   MutableParams,
   ExportResult,
   ServiceMode,
@@ -108,37 +110,6 @@ export async function prepareSubmissionParams({
 
   onStatusChange?.("complete")
   return { params: paramsWithDefaults }
-}
-
-// Typer för submission orchestration
-export interface SubmissionOrchestrationOptions {
-  formData: unknown
-  config: FmeExportConfig
-  geometryJson: unknown
-  geometry: __esri.Geometry | null | undefined
-  modules: EsriModules
-  workspaceParameters: readonly WorkspaceParameter[]
-  workspaceItem: WorkspaceItemDetail | null
-  selectedWorkspace: string | null
-  areaWarning: boolean
-  drawnArea: number
-  fmeClient: FmeFlowApiClient
-  submissionAbort: {
-    abortAndCreate: () => AbortController
-    finalize: (controller: AbortController | null) => void
-  }
-  widgetId: string
-  translate: (id: string, data?: any) => string
-  makeCancelable: <T>(promise: Promise<T>) => Promise<T>
-  onStatusChange?: (phase: string) => void
-  getActiveGeometry: () => __esri.Geometry | null
-}
-
-export interface SubmissionOrchestrationResult {
-  success: boolean
-  result?: ExportResult
-  error?: unknown
-  serviceMode?: ServiceMode | null
 }
 
 // Bygger ExportResult från lyckad FME-submission

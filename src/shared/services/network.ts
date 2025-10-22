@@ -1,32 +1,14 @@
 import { createFmeClient, extractErrorMessage } from "../utils"
 import { extractHttpStatus, validateServerUrl } from "../validations"
 import { inFlight } from "./inflight"
-import { HTTP_STATUS_CODES, TIME_CONSTANTS } from "../../config/constants"
+import {
+  HTTP_STATUS_CODES,
+  TIME_CONSTANTS,
+  NETWORK_INDICATORS,
+  PROXY_INDICATORS,
+} from "../../config/constants"
 
 /* Network Error Detection */
-
-// Indikatorer för nätverksfel i felmeddelanden
-const NETWORK_INDICATORS = Object.freeze([
-  "failed to fetch",
-  "networkerror",
-  "net::",
-  "dns",
-  "enotfound",
-  "econnrefused",
-  "timeout",
-  "name or service not known",
-  "err_name_not_resolved",
-  "unable to load",
-  "/sharing/proxy",
-  "proxy",
-])
-
-// Indikatorer för proxy-relaterade fel
-const PROXY_INDICATORS = Object.freeze([
-  "unable to load",
-  "/sharing/proxy",
-  "proxy",
-])
 
 // Kontrollerar om felmeddelande indikerar nätverksfel
 export const hasNetworkError = (message: string): boolean =>

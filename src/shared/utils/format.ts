@@ -125,10 +125,8 @@ export const stripHtmlToText = (input?: string): string => {
       }
       // Fallback till att skapa ett element
       const container = document.createElement("div")
-      container.innerHTML = value
-      const text = container.textContent || container.innerText || ""
-      container.textContent = ""
-      return text
+      container.textContent = value
+      return container.textContent || ""
     } catch {
       /* Ignorerar DOM-parsningsfel */
     }

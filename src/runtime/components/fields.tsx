@@ -21,6 +21,7 @@ import {
 } from "./ui"
 import {
   FormFieldType,
+  FILE_UPLOAD,
   type DynamicFieldProps,
   type FormPrimitive,
   type SelectValue,
@@ -320,50 +321,7 @@ const prepareNewTableRow = (
   return row
 }
 
-// Nycklar som används för att extrahera filnamn från dataset-metadata
-const FILE_DISPLAY_KEYS = [
-  "text",
-  "path",
-  "location",
-  "value",
-  "dataset",
-  "defaultValue",
-  "fileName",
-  "filename",
-  "file_path",
-  "file",
-  "uri",
-  "url",
-  "name",
-] as const
-
 /* Filvalidering */
-
-// Standardgränser för filuppladdning
-const DEFAULT_MAX_FILE_SIZE_MB = 150
-const ONE_MB_IN_BYTES = 1024 * 1024
-const GEOMETRY_PREVIEW_MAX_LENGTH = 1500
-// Tillåtna filtyper om inget annat specificeras
-const DEFAULT_ALLOWED_FILE_EXTENSIONS: readonly string[] = [
-  ".zip",
-  ".kmz",
-  ".json",
-  ".geojson",
-  ".gml",
-]
-// Tillåtna MIME-typer för standardvalidering
-const DEFAULT_ALLOWED_MIME_TYPES = new Set(
-  [
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/vnd.google-earth.kmz",
-    "application/json",
-    "application/geo+json",
-    "application/gml+xml",
-    "text/plain",
-    "",
-  ].map((type) => type.toLowerCase())
-)
 
 // Normaliserar accept-token (filtyp/MIME) till enhetligt format
 const normalizeAcceptToken = (token: string): string | null => {
@@ -406,7 +364,7 @@ const validateFile = (
       : undefined
   const effectiveMaxMb =
     configuredMaxMb === undefined
-      ? DEFAULT_MAX_FILE_SIZE_MB
+      ? FILE_UPLOAD.DEFAULT_MAX_SIZE_MB
       : configuredMaxMb > 0
         ? configuredMaxMb
         : undefined
@@ -414,7 +372,7 @@ const validateFile = (
   // Kontrollerar om filen överskrider storleksgränsen
   if (
     effectiveMaxMb !== undefined &&
-    file.size > effectiveMaxMb * ONE_MB_IN_BYTES
+    file.size > effectiveMaxMb * FILE_UPLOAD.ONE_MB_IN_BYTES
   ) {
     return {
       valid: false,
@@ -446,14 +404,14 @@ const validateFile = (
     }
   } else {
     // Använder standardvalidering om ingen accept-lista angavs
-    const matchesDefaultExtension = DEFAULT_ALLOWED_FILE_EXTENSIONS.some(
+    const matchesDefaultExtension = FILE_UPLOAD.DEFAULT_ALLOWED_EXTENSIONS.some(
       (ext) => fileNameLower.endsWith(ext)
     )
     if (!matchesDefaultExtension) {
       return { valid: false, error: "fileTypeNotAllowed" }
     }
 
-    if (!DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
+    if (!FILE_UPLOAD.DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
       return { valid: false, error: "fileTypeNotAllowed" }
     }
   }
@@ -480,7 +438,7 @@ const resolveFileDisplayValue = (raw: unknown): string | undefined => {
   }
   if (isPlainObject(raw)) {
     const obj = raw as { [key: string]: unknown }
-    for (const key of FILE_DISPLAY_KEYS) {
+    for (const key of FILE_UPLOAD.FILE_DISPLAY_KEYS) {
       if (key in obj) {
         const resolved = resolveFileDisplayValue(obj[key])
         if (resolved) return resolved
@@ -1440,8 +1398,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Trunkerar för lång geometri-JSON
         const truncated =
-          preview.length > GEOMETRY_PREVIEW_MAX_LENGTH
-            ? `${preview.slice(0, GEOMETRY_PREVIEW_MAX_LENGTH)}…`
+          preview.length > FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH
+            ? `${preview.slice(0, FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH)}…`
             : preview
 
         return (

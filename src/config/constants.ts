@@ -472,3 +472,66 @@ export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
   "webMercatorUtils",
   "SpatialReference",
 ] as const)
+
+export const FILE_UPLOAD = Object.freeze({
+  DEFAULT_MAX_SIZE_MB: 150,
+  ONE_MB_IN_BYTES: 1024 * 1024,
+  GEOMETRY_PREVIEW_MAX_LENGTH: 1500,
+  DEFAULT_ALLOWED_EXTENSIONS: Object.freeze([
+    ".zip",
+    ".kmz",
+    ".json",
+    ".geojson",
+    ".gml",
+  ] as const),
+  DEFAULT_ALLOWED_MIME_TYPES: Object.freeze(
+    new Set(
+      [
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/vnd.google-earth.kmz",
+        "application/json",
+        "application/geo+json",
+        "application/gml+xml",
+        "text/plain",
+        "",
+      ].map((type) => type.toLowerCase())
+    )
+  ),
+  FILE_DISPLAY_KEYS: Object.freeze([
+    "text",
+    "path",
+    "location",
+    "value",
+    "dataset",
+    "defaultValue",
+    "fileName",
+    "filename",
+    "file_path",
+    "file",
+    "uri",
+    "url",
+    "name",
+  ] as const),
+})
+
+export const NETWORK_INDICATORS = Object.freeze([
+  "failed to fetch",
+  "networkerror",
+  "net::",
+  "dns",
+  "enotfound",
+  "econnrefused",
+  "timeout",
+  "name or service not known",
+  "err_name_not_resolved",
+  "unable to load",
+  "/sharing/proxy",
+  "proxy",
+] as const)
+
+export const PROXY_INDICATORS = Object.freeze([
+  "unable to load",
+  "/sharing/proxy",
+  "proxy",
+] as const)

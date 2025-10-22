@@ -4,6 +4,8 @@ import type {
   CheckSteps,
   StartupValidationOptions,
   StartupValidationResult,
+  StartupValidationFlowOptions,
+  StartupValidationFlowResult,
 } from "../../config/index"
 import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
 import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
@@ -320,19 +322,6 @@ export async function validateWidgetStartup(
       }),
     }
   }
-}
-
-export interface StartupValidationFlowOptions {
-  config: any
-  useMapWidgetIds: string[]
-  translate: (key: string) => string
-  signal: AbortSignal
-  onProgress: (step: string) => void
-}
-
-export interface StartupValidationFlowResult {
-  success: boolean
-  error?: any
 }
 
 export async function runStartupValidationFlow(

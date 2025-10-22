@@ -3,6 +3,9 @@ import type {
   SerializableErrorState,
   ErrorSeverity,
   TranslateFn,
+  ErrorFactoryOptions,
+  ErrorMappingRules,
+  ClassifiedError,
 } from "../../config/index"
 import {
   ERROR_CODE_TO_KEY,
@@ -149,23 +152,10 @@ export const buildValidationErrors = <T extends { [key: string]: any }>(
 
 /* ErrorMapper - Centralized error mapping to translation keys */
 
-interface ErrorMappingRules {
-  readonly codeToKey: { readonly [code: string]: string }
-  readonly statusToKey: { readonly [status: number]: string }
-  readonly messagePatterns: ReadonlyArray<{ pattern: RegExp; key: string }>
-}
-
 const ERROR_MAPPING_RULES: ErrorMappingRules = {
   codeToKey: ERROR_CODE_TO_KEY,
   statusToKey: STATUS_TO_KEY_MAP,
   messagePatterns: MESSAGE_PATTERNS,
-}
-
-interface ClassifiedError {
-  readonly status?: number
-  readonly code?: string
-  readonly message?: string
-  readonly isRequestFailed: boolean
 }
 
 const classifyError = (err: unknown, status?: number): ClassifiedError => {
@@ -291,16 +281,6 @@ export const createError = (
 }
 
 /* ErrorFactory - Centralized error creation producing SerializableErrorState */
-
-export interface ErrorFactoryOptions {
-  readonly code?: string
-  readonly severity?: ErrorSeverity
-  readonly recoverable?: boolean
-  readonly userFriendlyMessage?: string
-  readonly suggestion?: string
-  readonly details?: { [key: string]: unknown }
-  readonly scope?: string
-}
 
 export const createNetworkError = (
   messageKey: string,

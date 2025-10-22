@@ -1679,10 +1679,6 @@ export interface UseFmeMutationResult<TData, TVariables> {
   status: QueryStatus
 }
 
-/**
- * Internal cache entry structure
- * @internal
- */
 export interface CacheEntry<T> {
   data: T | undefined
   error: unknown
@@ -1691,4 +1687,78 @@ export interface CacheEntry<T> {
   subscribers: Set<() => void>
   retryCount: number
   abortController: AbortController | null
+}
+
+export interface SubmissionOrchestrationOptions {
+  formData: unknown
+  config: FmeExportConfig
+  geometryJson: unknown
+  geometry: __esri.Geometry | null | undefined
+  modules: EsriModules
+  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceItem: WorkspaceItemDetail | null
+  selectedWorkspace: string | null
+  areaWarning: boolean
+  drawnArea: number
+  fmeClient: FmeFlowApiClient
+  submissionAbort: {
+    abortAndCreate: () => AbortController
+    finalize: (controller: AbortController | null) => void
+  }
+  widgetId: string
+  translate: (id: string, data?: any) => string
+  makeCancelable: <T>(promise: Promise<T>) => Promise<T>
+  onStatusChange?: (phase: string) => void
+  getActiveGeometry: () => __esri.Geometry | null
+}
+
+export interface SubmissionOrchestrationResult {
+  success: boolean
+  result?: ExportResult
+  error?: unknown
+  serviceMode?: ServiceMode | null
+}
+
+export interface StartupValidationFlowOptions {
+  config: any
+  useMapWidgetIds: string[]
+  translate: (key: string) => string
+  signal: AbortSignal
+  onProgress: (step: string) => void
+}
+
+export interface StartupValidationFlowResult {
+  success: boolean
+  error?: any
+}
+
+export interface DrawingCompletionResult {
+  success: boolean
+  geometry?: __esri.Polygon
+  area?: number
+  error?: any
+  shouldWarn?: boolean
+}
+
+export interface ErrorMappingRules {
+  readonly codeToKey: { readonly [code: string]: string }
+  readonly statusToKey: { readonly [status: number]: string }
+  readonly messagePatterns: ReadonlyArray<{ pattern: RegExp; key: string }>
+}
+
+export interface ClassifiedError {
+  readonly status?: number
+  readonly code?: string
+  readonly message?: string
+  readonly isRequestFailed: boolean
+}
+
+export interface ErrorFactoryOptions {
+  readonly code?: string
+  readonly severity?: ErrorSeverity
+  readonly recoverable?: boolean
+  readonly userFriendlyMessage?: string
+  readonly suggestion?: string
+  readonly details?: { [key: string]: unknown }
+  readonly scope?: ErrorScope
 }
