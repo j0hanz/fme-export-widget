@@ -75,7 +75,7 @@ import {
   FieldRow,
   JobDirectivesSection,
   toNumericValue,
-} from "./components"
+} from "./components/controls"
 
 /* Hämtar settings-konstanter */
 const CONSTANTS = SETTING_CONSTANTS
