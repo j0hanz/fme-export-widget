@@ -8,11 +8,13 @@ import {
   clearErrors,
   parseNonNegativeInt,
   isValidEmail,
+  validateEmailField,
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
   isAbortError,
   sanitizeParamKey,
+  createFmeDispatcher,
 } from "../shared/utils"
 import {
   useBuilderSelector,
@@ -55,7 +57,7 @@ import {
   mapServerUrlReasonToKey,
   validateConnectionInputs,
 } from "../shared/validations"
-import { fmeActions, createFmeSelectors } from "../extensions/store"
+import { createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
   IMWidgetConfig,
@@ -658,6 +660,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
+  const fmeDispatchRef = React.useRef(createFmeDispatcher(dispatch, id))
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(dispatch, id)
+  }, [dispatch, id])
 
   /* Builder-medvetna Redux-selektorer med caching per widget-ID */
   const fmeSelectorsRef = React.useRef<{
@@ -698,7 +704,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     aoiParamName: "setting-aoi-param-name",
     uploadTargetParamName: "setting-upload-target-param-name",
     requireHttps: "setting-require-https",
-    allowScheduleMode: "setting-allow-schedule-mode",
     allowRemoteDataset: "setting-allow-remote-dataset",
     allowRemoteUrlDataset: "setting-allow-remote-url-dataset",
     autoCloseOtherWidgets: "setting-auto-close-other-widgets",
@@ -787,14 +792,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localUploadTargetParamName, setLocalUploadTargetParamName] =
     React.useState<string>(() => getStringConfig("uploadTargetParamName") || "")
-  const [localAllowScheduleMode, setLocalAllowScheduleMode] =
-    React.useState<boolean>(() => getBooleanConfig("allowScheduleMode"))
   const [localAllowRemoteDataset, setLocalAllowRemoteDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteDataset"))
   const [localAllowRemoteUrlDataset, setLocalAllowRemoteUrlDataset] =
     React.useState<boolean>(() => getBooleanConfig("allowRemoteUrlDataset"))
   const shouldShowMaskEmailSetting = !localSyncMode
-  const shouldShowScheduleToggle = !localSyncMode
   const shouldShowTmTtc = localSyncMode
   const hasMapSelection =
     Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
@@ -870,12 +872,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   /* Konsoliderad effekt: återställ beroende alternativ när dolda */
   hooks.useEffectWithPreviousValues(() => {
-    /* Schedule mode: rensa om inte längre synlig */
-    if (!shouldShowScheduleToggle && localAllowScheduleMode) {
-      setLocalAllowScheduleMode(false)
-      updateConfig("allowScheduleMode", false as any)
-    }
-
     /* Mask email: rensa om inte längre synlig */
     if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false)
@@ -900,10 +896,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
     }
   }, [
-    shouldShowScheduleToggle,
     shouldShowMaskEmailSetting,
     localMaskEmailOnSuccess,
-    localAllowScheduleMode,
     localAllowRemoteDataset,
     localAllowRemoteUrlDataset,
     localUploadTargetParamName,
@@ -1115,10 +1109,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       }
 
       /* Support-email är valfri men måste vara giltig om angiven */
-      const trimmedEmail = (localSupportEmail ?? "").trim()
-      if (trimmedEmail) {
-        const emailValid = isValidEmail(trimmedEmail)
-        if (!emailValid) messages.supportEmail = translate("invalidEmail")
+      const emailValidation = validateEmailField(localSupportEmail)
+      if (!emailValidation.ok && emailValidation.errorKey) {
+        messages.supportEmail = translate(emailValidation.errorKey)
       }
 
       if (localAllowRemoteDataset) {
@@ -1468,7 +1461,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       availableRepos.length === 0 &&
       selectedRepository
     ) {
-      // Allow manual entry when list is empty
+      // Tillåter manuell inmatning när listan är tom
       clearErrors(setFieldErrors, ["repository"])
     }
   }, [availableRepos, selectedRepository, translate])
@@ -1481,7 +1474,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       /* Rensar workspace-relaterad state vid repository-byte för isolering */
       if (previousRepository !== newRepository) {
-        dispatch(fmeActions.clearWorkspaceState(id))
+        fmeDispatchRef.current.clearWorkspaceState()
       }
 
       /* Rensar repository-felfält */
@@ -1618,32 +1611,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               aria-label={translate("serviceModeLabel")}
             />
           </SettingRow>
-          {shouldShowScheduleToggle && (
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("allowScheduleModeHelper")}
-                  placement="top"
-                >
-                  <span>{translate("allowScheduleModeLabel")}</span>
-                </Tooltip>
-              }
-              level={2}
-            >
-              <Switch
-                id={ID.allowScheduleMode}
-                checked={localAllowScheduleMode}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localAllowScheduleMode
-                  setLocalAllowScheduleMode(checked)
-                  updateConfig("allowScheduleMode", checked)
-                }}
-                aria-label={translate("allowScheduleModeLabel")}
-              />
-            </SettingRow>
-          )}
           <SettingRow
             flow="no-wrap"
             label={

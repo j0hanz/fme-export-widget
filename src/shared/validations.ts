@@ -18,7 +18,6 @@ import {
   type AreasAndLengthsParametersCtor,
   type PolygonMaybe,
   type AreaStrategy,
-  type ScheduleValidationResult,
   type FormValues,
   type WorkspaceParameter,
   ParameterType,
@@ -401,31 +400,6 @@ export const validateRequiredFields = (
     canProceed: true,
     requiresSettings: false,
   }
-}
-
-// Validerar schedule-fält: trigger, category, name, start, notTooFarPast
-export function validateScheduleFields(data: FormValues | null | undefined) {
-  if (!data || data.opt_servicemode !== "schedule") return { ok: true as const }
-
-  const isRunOnce = data.trigger === "runonce"
-  const hasCat = typeof data.category === "string" && !!data.category.trim()
-  const hasName = typeof data.name === "string" && !!data.name.trim()
-  const startStr = String(data.start || "")
-  const fmtOk = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(startStr)
-
-  let notTooPast = false
-  if (fmtOk) {
-    const [datePart, timePart] = startStr.split(" ")
-    const [Y, M, D] = datePart.split("-").map(Number)
-    const [h, m, s] = timePart.split(":").map(Number)
-    const start = new Date(Y, (M || 1) - 1, D || 1, h || 0, m || 0, s || 0)
-    notTooPast = start.getTime() >= Date.now() - 60_000
-  }
-
-  const ok = isRunOnce && hasCat && hasName && fmtOk && notTooPast
-  return ok
-    ? { ok: true as const }
-    : { ok: false as const, key: "scheduleInvalid" }
 }
 
 // Validerar resultat från schemaläggnings-API
@@ -1255,166 +1229,6 @@ export const resetValidationCachesForTest = () => {
   esriConfigCache = undefined
 }
 
-/* Schedule Validation (Detailed) */
-const SCHEDULE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
-
-// Validerar schedule datetime: format, parsing, past check
-export const validateScheduleDateTime = (
-  dateTimeStr: string
-): { valid: boolean; error?: string; isPast?: boolean } => {
-  if (!dateTimeStr || typeof dateTimeStr !== "string") {
-    return { valid: false, error: "SCHEDULE_START_REQUIRED" }
-  }
-
-  const trimmed = dateTimeStr.trim()
-
-  // Validate format: yyyy-MM-dd HH:mm:ss
-  if (!SCHEDULE_DATE_PATTERN.test(trimmed)) {
-    return {
-      valid: false,
-      error: "SCHEDULE_START_INVALID_FORMAT",
-    }
-  }
-
-  // Parse and validate date
-  try {
-    const normalized = trimmed.replace(" ", "T")
-    const parsedDate = new Date(normalized)
-
-    // Check if date is valid
-    if (isNaN(parsedDate.getTime())) {
-      return { valid: false, error: "SCHEDULE_START_INVALID_DATE" }
-    }
-
-    // Check if in the past (with 1-minute tolerance for clock skew)
-    const now = new Date()
-    const oneMinuteAgo = new Date(now.getTime() - 60000)
-    const isPast = parsedDate < oneMinuteAgo
-
-    return { valid: true, isPast }
-  } catch {
-    return { valid: false, error: "SCHEDULE_START_PARSE_ERROR" }
-  }
-}
-
-// Validerar schedule name: required, length <=128, no invalid chars
-export const validateScheduleName = (
-  name: string
-): { valid: boolean; error?: string } => {
-  if (!name || typeof name !== "string") {
-    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
-  }
-
-  const trimmed = name.trim()
-
-  if (trimmed.length === 0) {
-    return { valid: false, error: "SCHEDULE_NAME_REQUIRED" }
-  }
-
-  if (trimmed.length > 128) {
-    return { valid: false, error: "SCHEDULE_NAME_TOO_LONG" }
-  }
-
-  if (/\.\.(?:[\\/]|$)/.test(trimmed)) {
-    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
-  }
-
-  if (/--|;|\b(?:xp_|sp_|exec)\b/i.test(trimmed)) {
-    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
-  }
-
-  // Kontrollerar ogiltiga tecken: <>:"|?* och kontrolltecken
-  const hasInvalidChars =
-    /[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)
-  if (hasInvalidChars) {
-    return { valid: false, error: "SCHEDULE_NAME_INVALID_CHARS" }
-  }
-
-  return { valid: true }
-}
-
-// Validerar schedule category: required, length <=128
-export const validateScheduleCategory = (
-  category: string
-): { valid: boolean; error?: string } => {
-  if (!category || typeof category !== "string") {
-    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
-  }
-
-  const trimmed = category.trim()
-
-  if (trimmed.length === 0) {
-    return { valid: false, error: "SCHEDULE_CATEGORY_REQUIRED" }
-  }
-
-  if (trimmed.length > 128) {
-    return { valid: false, error: "SCHEDULE_CATEGORY_TOO_LONG" }
-  }
-
-  if (/\.\.(?:[\\/]|$)/.test(trimmed)) {
-    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
-  }
-
-  if (/--|;|\b(?:xp_|sp_|exec)\b/i.test(trimmed)) {
-    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
-  }
-
-  if (/[<>:"|?*]/.test(trimmed) || hasControlCharacters(trimmed)) {
-    return { valid: false, error: "SCHEDULE_CATEGORY_INVALID_CHARS" }
-  }
-
-  return { valid: true }
-}
-
-// Validerar alla schedule metadata: datetime, name, category
-export const validateScheduleMetadata = (data: {
-  start?: string
-  name?: string
-  category?: string
-  description?: string
-}): ScheduleValidationResult => {
-  const errors: {
-    start?: string
-    name?: string
-    category?: string
-  } = {}
-
-  const warnings: {
-    pastTime?: boolean
-    pastTimeMessage?: string
-  } = {}
-
-  // Validate start time
-  const startValidation = validateScheduleDateTime(data.start || "")
-  if (!startValidation.valid) {
-    errors.start = startValidation.error
-  } else if (startValidation.isPast) {
-    warnings.pastTime = true
-    warnings.pastTimeMessage = "SCHEDULE_START_IN_PAST"
-  }
-
-  // Validate name
-  const nameValidation = validateScheduleName(data.name || "")
-  if (!nameValidation.valid) {
-    errors.name = nameValidation.error
-  }
-
-  // Validate category
-  const categoryValidation = validateScheduleCategory(data.category || "")
-  if (!categoryValidation.valid) {
-    errors.category = categoryValidation.error
-  }
-
-  const hasErrors = Object.keys(errors).length > 0
-  const hasWarnings = Object.keys(warnings).length > 0
-
-  return {
-    valid: !hasErrors,
-    ...(hasErrors && { errors }),
-    ...(hasWarnings && { warnings }),
-  }
-}
-
 // Factory för att skapa FME response objekt
 const createFmeResponse = {
   blob: (blob: Blob, workspace: string, userEmail: string) => ({
@@ -1570,20 +1384,20 @@ export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
 
 /* Re-exports från utils */
 export {
-  // general utils
+  // allmänna utils
   isValidEmail,
   getSupportEmail,
   isJson,
   safeParseUrl,
   extractErrorMessage,
   extractHostFromUrl,
-  // file utils
+  // fil-utils
   isFileObject,
   getFileDisplayName,
-  // numbers/strings
+  // nummer/strängar
   parseNonNegativeInt,
   pad2,
-  // datetime and color conversions
+  // datum-tid och färgkonverteringar
   fmeDateTimeToInput,
   inputToFmeDateTime,
   fmeDateToInput,

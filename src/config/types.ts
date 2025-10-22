@@ -63,29 +63,7 @@ export type FormPrimitive = Exclude<FormValue, undefined>
 
 export type SelectValue = string | number | ReadonlyArray<string | number>
 
-// SCHEDULE TYPES
-export interface ScheduleMetadata {
-  readonly start: string
-  readonly name: string
-  readonly category: string
-  readonly description?: string
-  readonly trigger?: string
-}
-
-export type ServiceMode = "sync" | "async" | "schedule"
-
-export interface ScheduleValidationResult {
-  readonly valid: boolean
-  readonly errors?: {
-    readonly start?: string
-    readonly name?: string
-    readonly category?: string
-  }
-  readonly warnings?: {
-    readonly pastTime?: boolean
-    readonly pastTimeMessage?: string
-  }
-}
+export type ServiceMode = "sync" | "async"
 
 export interface FormValues {
   [key: string]: FormValue
@@ -748,7 +726,7 @@ export interface FmeExportConfig {
   readonly showResult?: boolean
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
-  readonly allowScheduleMode?: boolean
+
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
@@ -1109,13 +1087,6 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
-  readonly scheduleMetadata?: {
-    readonly start?: string
-    readonly name?: string
-    readonly category?: string
-    readonly description?: string
-    readonly trigger?: string
-  }
   readonly status?: string
   readonly statusMessage?: string
   readonly serviceMode?: ServiceMode
@@ -1310,13 +1281,6 @@ export interface ValidateConnectionVariables {
 
 export interface UseDebounceOptions {
   onPendingChange?: (pending: boolean) => void
-}
-
-export interface ScheduleFieldsProps {
-  readonly values: { [key: string]: unknown }
-  readonly onChange: (field: string, value: string) => void
-  readonly translate: (key: string, params?: any) => string
-  readonly disabled?: boolean
 }
 
 export interface RepositorySelectorProps {

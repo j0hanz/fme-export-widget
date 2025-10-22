@@ -143,12 +143,7 @@ export const buildParams = (
     urlParams.set("opt_showresult", normalizedShow)
 
     const modeRaw = getRaw("opt_servicemode").trim().toLowerCase()
-    const normalizedMode =
-      modeRaw === "sync"
-        ? "sync"
-        : modeRaw === "schedule"
-          ? "schedule"
-          : "async"
+    const normalizedMode = modeRaw === "sync" ? "sync" : "async"
     urlParams.set("opt_servicemode", normalizedMode)
   }
 

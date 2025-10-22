@@ -8,99 +8,15 @@ import type {
   WorkspaceParameter,
   EsriModules,
 } from "../../config/index"
-import { SCHEDULE_TRIGGER_DEFAULT } from "../../config/index"
-import { validateScheduleMetadata } from "../validations"
 import { collectGeometryParamNames, attachAoi } from "./geometry"
 import {
   collectStringsFromProp,
   uniqueStrings,
   sanitizeOptGetUrlParam,
 } from "./form"
-import { toBooleanValue, toTrimmedString } from "./conversion"
+import { toBooleanValue } from "./conversion"
 
-const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
-  "sync",
-  "async",
-  "schedule",
-] as const
-
-const SCHEDULE_METADATA_FIELDS = [
-  "start",
-  "name",
-  "category",
-  "description",
-  "trigger",
-] as const
-
-const SCHEDULE_METADATA_KEYS = new Set<string>(SCHEDULE_METADATA_FIELDS)
-
-const hasScheduleData = (data: { [key: string]: unknown }): boolean => {
-  const startVal = toTrimmedString(data.start)
-  const category = toTrimmedString(data.category)
-  const name = toTrimmedString(data.name)
-
-  if (!startVal || !category || !name) return false
-
-  const validation = validateScheduleMetadata({
-    start: startVal,
-    name,
-    category,
-    description: toTrimmedString(data.description),
-  })
-
-  if (validation.warnings?.pastTime) {
-    console.log(
-      "Schedule start time is in the past - job may execute immediately or fail",
-      { startTime: startVal, warnings: validation.warnings }
-    )
-  }
-
-  if (!validation.valid && validation.errors) {
-    console.log("Schedule metadata validation failed", {
-      errors: validation.errors,
-    })
-  }
-
-  return validation.valid
-}
-
-const filterScheduleFields = (data: {
-  [key: string]: unknown
-}): { [key: string]: unknown } => {
-  const filtered: { [key: string]: unknown } = {}
-  for (const [key, value] of Object.entries(data)) {
-    if (!SCHEDULE_METADATA_KEYS.has(key)) filtered[key] = value
-  }
-  return filtered
-}
-
-// Normaliserar schemaläggningsmetadata beroende på körläge
-const normalizeScheduleMetadata = (
-  data: { [key: string]: unknown },
-  mode: ServiceMode
-): { [key: string]: unknown } => {
-  if (mode !== "schedule") {
-    return filterScheduleFields(data)
-  }
-
-  const sanitized: { [key: string]: unknown } = {}
-  for (const [key, value] of Object.entries(data)) {
-    if (!SCHEDULE_METADATA_KEYS.has(key)) {
-      sanitized[key] = value
-    } else if (key === "trigger") {
-      sanitized.trigger = toTrimmedString(value) ?? SCHEDULE_TRIGGER_DEFAULT
-    } else {
-      const trimmedValue = toTrimmedString(value)
-      if (trimmedValue) sanitized[key] = trimmedValue
-    }
-  }
-
-  if (sanitized.trigger === undefined) {
-    sanitized.trigger = SCHEDULE_TRIGGER_DEFAULT
-  }
-
-  return sanitized
-}
+const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,
@@ -168,18 +84,10 @@ export const determineServiceMode = (
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
 
-  if (config?.allowScheduleMode && hasScheduleData(data)) {
-    return "schedule"
-  }
-
   const override =
     typeof data._serviceMode === "string"
       ? data._serviceMode.trim().toLowerCase()
       : ""
-
-  if (override === "schedule" && config?.allowScheduleMode) {
-    return "schedule"
-  }
 
   let resolved: ServiceMode
   if (override === "sync" || override === "async") {
@@ -228,7 +136,7 @@ export const buildFmeParams = (
   }
 
   const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
-  if ((mode === "async" || mode === "schedule") && trimmedEmail) {
+  if (mode === "async" && trimmedEmail) {
     base.opt_requesteremail = trimmedEmail
   }
 
@@ -319,10 +227,8 @@ export const prepFmeParams = (
     ...publicFields
   } = original
 
-  const sanitized = normalizeScheduleMetadata(publicFields, chosen)
-
   const base = buildFmeParams(
-    { data: sanitized },
+    { data: publicFields },
     userEmail,
     chosen,
     normalizedConfig

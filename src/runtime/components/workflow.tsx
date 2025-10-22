@@ -10,7 +10,6 @@ import {
   ButtonTabs,
   Alert,
   renderSupportHint,
-  ScheduleFields,
   UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
@@ -43,12 +42,8 @@ import {
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import itemIcon from "../../assets/icons/item.svg"
-import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
-import {
-  validateDateTimeFormat,
-  validateScheduleDateTime,
-} from "../../shared/validations"
+import { validateDateTimeFormat } from "../../shared/validations"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
@@ -63,6 +58,7 @@ import {
   formatByteSize,
   isAbortError,
   isNonEmptyString,
+  createFmeDispatcher,
 } from "../../shared/utils"
 import {
   useFormStateManager,
@@ -302,9 +298,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const isFailure = !isCancelled && !isSuccess
   const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
   const serviceMode: ServiceMode =
-    orderResult.serviceMode === "sync" ||
-    orderResult.serviceMode === "async" ||
-    orderResult.serviceMode === "schedule"
+    orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
       ? orderResult.serviceMode
       : fallbackMode
   const downloadUrl = useDownloadResource(
@@ -334,11 +328,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   addInfoRow(translate("workspace"), orderResult.workspaceName)
 
   const deliveryModeKey =
-    serviceMode === "schedule"
-      ? "deliveryModeSchedule"
-      : serviceMode === "async"
-        ? "deliveryModeAsync"
-        : "deliveryModeSync"
+    serviceMode === "async" ? "deliveryModeAsync" : "deliveryModeSync"
   addInfoRow(translate("deliveryMode"), translate(deliveryModeKey))
 
   if (orderResult.downloadFilename) {
@@ -378,17 +368,6 @@ const OrderResult: React.FC<OrderResultProps> = ({
   if (orderResult.code && isFailure) {
     addInfoRow(translate("errorCode"), orderResult.code)
   }
-
-  // Visar schema-metadata om tillgänglig
-  const scheduleMetadata = orderResult.scheduleMetadata
-  const hasScheduleInfo =
-    scheduleMetadata &&
-    typeof scheduleMetadata.start === "string" &&
-    scheduleMetadata.start.trim() !== "" &&
-    typeof scheduleMetadata.name === "string" &&
-    scheduleMetadata.name.trim() !== "" &&
-    typeof scheduleMetadata.category === "string" &&
-    scheduleMetadata.category.trim() !== ""
 
   const titleText = isCancelled
     ? translate("orderCancelledTitle")
@@ -463,53 +442,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
     }
   }
 
-  // Bygger schemasektionen med varningar för tidigare tidpunkter
-  let scheduleSection: React.ReactNode = null
-  if (hasScheduleInfo && isSuccess && scheduleMetadata) {
-    const validation = validateScheduleDateTime(scheduleMetadata.start || "")
-    const scheduleWarning = validation.isPast ? (
-      <Alert
-        type="warning"
-        text={translate("schedulePastTimeWarning")}
-        variant="default"
-        withIcon={true}
-      />
-    ) : null
-
-    scheduleSection = (
-      <>
-        <div css={styles.typo.caption}>
-          {translate("scheduleJobName")}: {scheduleMetadata.name}
-        </div>
-        <div css={styles.typo.caption}>
-          {translate("scheduleJobCategory")}: {scheduleMetadata.category}
-        </div>
-        <div css={styles.typo.caption}>
-          {translate("scheduleStartTime")}: {scheduleMetadata.start}
-        </div>
-        {scheduleMetadata.trigger ? (
-          <div css={styles.typo.caption}>
-            {translate("scheduleTrigger")}: {scheduleMetadata.trigger}
-          </div>
-        ) : null}
-        {scheduleMetadata.description ? (
-          <div css={styles.typo.caption}>
-            {translate("scheduleJobDescription")}:{" "}
-            {scheduleMetadata.description}
-          </div>
-        ) : null}
-        {scheduleWarning}
-      </>
-    )
-  }
-
   return (
     <div css={styles.form.layout}>
       <div css={styles.form.content}>
         <div css={styles.form.body}>
           <div css={styles.typo.title}>{titleText}</div>
           {infoRows}
-          {scheduleSection}
 
           {showDownloadLink && (
             <div css={styles.typo.caption}>
@@ -571,6 +509,13 @@ const ExportForm: React.FC<
   geometryJson,
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
+  const fmeDispatchRef = React.useRef(
+    createFmeDispatcher(reduxDispatch, widgetId)
+  )
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(reduxDispatch, widgetId)
+  }, [reduxDispatch, widgetId])
+  const fmeDispatch = fmeDispatchRef.current
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [evaluatedFields, setEvaluatedFields] = React.useState<
     readonly DynamicFieldConfig[]
@@ -833,7 +778,7 @@ const ExportForm: React.FC<
         kind: "runtime",
       }
       // Dispatch error to the store
-      reduxDispatch(fmeActions.setError("general", error, widgetId))
+      fmeDispatch.setError("general", error)
       return
     }
     // Merge file inputs with other values
@@ -870,15 +815,7 @@ const ExportForm: React.FC<
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {/* Schedule fields component */}
-      {config?.allowScheduleMode && (
-        <ScheduleFields
-          values={formState.values}
-          onChange={setField}
-          translate={translate}
-          disabled={isSubmitting}
-        />
-      )}
+      {/* Removed Schedule fields component */}
 
       {/* Direct upload field - replaces remote dataset URL */}
       {config?.allowRemoteDataset && (
@@ -1017,6 +954,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
         : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
   }
   const effectiveWidgetId = effectiveWidgetIdRef.current
+  const fmeDispatchRef = React.useRef(
+    createFmeDispatcher(reduxDispatch, effectiveWidgetId)
+  )
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(
+      reduxDispatch,
+      effectiveWidgetId
+    )
+  }, [reduxDispatch, effectiveWidgetId])
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
   // Latchar laddningsstatus med fördröjning för smidigare UI
@@ -1359,14 +1305,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return
     }
 
-    reduxDispatch(fmeActions.setWorkspaceItems(nextItems, effectiveWidgetId))
-  }, [
-    sanitizedWorkspaces,
-    workspaceItems,
-    canFetchWorkspaces,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setWorkspaceItems(nextItems)
+  }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces])
 
   // Rensar workspace-state när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
@@ -1376,13 +1316,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (!workspaceItems.length) {
       return
     }
-    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
-  }, [
-    canFetchWorkspaces,
-    workspaceItems.length,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.clearWorkspaceState()
+  }, [canFetchWorkspaces, workspaceItems.length])
 
   // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
@@ -1391,7 +1326,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     setPendingWorkspace(null)
-    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+    fmeDispatchRef.current.clearWorkspaceState()
 
     if (!configuredRepository || !canFetchWorkspaces) {
       return
@@ -1401,13 +1336,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (typeof refetch === "function") {
       void refetch()
     }
-  }, [
-    configuredRepository,
-    previousConfiguredRepository,
-    canFetchWorkspaces,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+  }, [configuredRepository, previousConfiguredRepository, canFetchWorkspaces])
 
   // Rensar pending workspace om hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
@@ -1439,26 +1368,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (onWorkspaceSelected) {
       onWorkspaceSelected(workspaceName, payload.parameters, payload.item)
     } else {
-      reduxDispatch(
-        fmeActions.applyWorkspaceData(
-          {
-            workspaceName,
-            parameters: payload.parameters,
-            item: payload.item,
-          },
-          effectiveWidgetId
-        )
-      )
+      fmeDispatchRef.current.applyWorkspaceData({
+        workspaceName,
+        parameters: payload.parameters,
+        item: payload.item,
+      })
     }
 
     setPendingWorkspace(null)
-  }, [
-    pendingWorkspace,
-    workspaceItemQuery.data,
-    onWorkspaceSelected,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+  }, [pendingWorkspace, workspaceItemQuery.data, onWorkspaceSelected])
 
   // Synkroniserar workspace-hämtningsstatus till Redux
   const hasWorkspaceItems = workspaceItems.length > 0
@@ -1479,19 +1397,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (previousWorkspaceLoadingActive === workspaceLoadingActive) {
       return
     }
-    reduxDispatch(
-      fmeActions.setLoadingFlag(
-        "workspaces",
-        workspaceLoadingActive,
-        effectiveWidgetId
-      )
-    )
-  }, [
-    workspaceLoadingActive,
-    previousWorkspaceLoadingActive,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setLoadingFlag("workspaces", workspaceLoadingActive)
+  }, [workspaceLoadingActive, previousWorkspaceLoadingActive])
 
   // Synkroniserar parameterhämtningsstatus till Redux
   const parametersFetching = Boolean(workspaceItemQuery.isFetching)
@@ -1500,19 +1407,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (previousParametersFetching === parametersFetching) {
       return
     }
-    reduxDispatch(
-      fmeActions.setLoadingFlag(
-        "parameters",
-        parametersFetching,
-        effectiveWidgetId
-      )
-    )
-  }, [
-    parametersFetching,
-    previousParametersFetching,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setLoadingFlag("parameters", parametersFetching)
+  }, [parametersFetching, previousParametersFetching])
 
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
@@ -1550,7 +1446,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     setPendingWorkspace(null)
 
     if (!canFetchWorkspaces) {
-      reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+      fmeDispatchRef.current.clearWorkspaceState()
       return
     }
 

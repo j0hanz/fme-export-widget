@@ -1056,35 +1056,9 @@ const buildTMDirectives = (params: any): TMDirectives => {
   return out
 }
 
-// Bygger Notification Manager (NM) schedule-directives
-const buildNMDirectives = (params: any): NMDirectives | null => {
-  const serviceMode = params?.opt_servicemode
-  if (serviceMode !== "schedule") return null
-
-  const start = toTrimmedString(params?.start)
-  const name = toTrimmedString(params?.name)
-  const category = toTrimmedString(params?.category)
-  const trigger = toTrimmedString(params?.trigger) || "runonce"
-  const description = toTrimmedString(params?.description)
-
-  // Kräver start, name och category för schemaläggning
-  if (!start || !name || !category) return null
-
-  const scheduleDirective: any = {
-    name: "schedule",
-    begin: start,
-    scheduleName: name,
-    scheduleCategory: category,
-    scheduleTrigger: trigger,
-  }
-
-  if (description) {
-    scheduleDirective.scheduleDescription = description
-  }
-
-  return {
-    directives: [scheduleDirective],
-  }
+// Bygger Notification Manager (NM) directives - removed schedule support
+const buildNMDirectives = (params: any): null => {
+  return null
 }
 
 // Skapar request-body för FME-jobb-submit (TM/NM + parameters)
@@ -1521,15 +1495,6 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse> {
-    // Detektera schedule-läge och route till REST API istället
-    const serviceMode = parameters?.opt_servicemode
-    const isScheduleMode = serviceMode === "schedule"
-
-    if (isScheduleMode) {
-      // Schema-jobb måste använda REST API submit, inte webhook
-      return await this.submitJob(workspace, parameters, repository, signal)
-    }
-
     return await this.runDataDownload(workspace, parameters, repository, signal)
   }
 

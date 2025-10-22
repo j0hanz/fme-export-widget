@@ -57,7 +57,6 @@ import type {
   StateViewProps,
   TranslateFn,
   UiStyles,
-  ScheduleFieldsProps,
 } from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
@@ -69,11 +68,8 @@ import {
   formatNumericDisplay,
   resolveMessageOrKey,
 } from "../../shared/utils"
-import {
-  validateScheduleDateTime,
-  validateScheduleName,
-  validateScheduleCategory,
-} from "../../shared/validations"
+
+// Removed schedule validation imports from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg"
 import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
@@ -2068,116 +2064,7 @@ export type {
   TabItem,
 }
 
-// ScheduleFields-komponent för schemainställningar
-export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
-  values,
-  onChange,
-  translate,
-  disabled = false,
-}) => {
-  // Utför valideringar
-  const startValidation = (() => {
-    const start = typeof values.start === "string" ? values.start.trim() : ""
-    if (!start) return null
-    return validateScheduleDateTime(start)
-  })()
-
-  const nameValidation = (() => {
-    const name = typeof values.name === "string" ? values.name.trim() : ""
-    if (!name) return null
-    return validateScheduleName(name)
-  })()
-
-  const categoryValidation = (() => {
-    const category =
-      typeof values.category === "string" ? values.category.trim() : ""
-    if (!category) return null
-    return validateScheduleCategory(category)
-  })()
-
-  // Hjälpfunktion för att hämta felmeddelande
-  const getErrorMessage = (
-    validation: { valid: boolean; error?: string } | null
-  ): string | undefined => {
-    if (!validation || validation.valid) return undefined
-    return validation.error ? translate(validation.error) : undefined
-  }
-
-  return (
-    <>
-      <Field
-        label={translate("scheduleStartLabel")}
-        required={true}
-        helper={translate("scheduleTimezoneHelper")}
-        error={getErrorMessage(startValidation)}
-      >
-        <DateTimePickerWrapper
-          value={typeof values.start === "string" ? values.start : ""}
-          onChange={(dateTime: string) => {
-            onChange("start", dateTime)
-          }}
-          mode="date-time"
-          format="fme"
-          disabled={disabled}
-          aria-label={translate("scheduleStartLabel")}
-        />
-      </Field>
-      <Field
-        label={translate("scheduleNameLabel")}
-        required={true}
-        helper={translate("scheduleNameHelper")}
-        error={getErrorMessage(nameValidation)}
-      >
-        <Input
-          type="text"
-          value={typeof values.name === "string" ? values.name : ""}
-          placeholder={translate("scheduleNamePlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("name", newValue)
-          }}
-          disabled={disabled}
-          aria-required="true"
-          aria-invalid={
-            nameValidation && !nameValidation.valid ? "true" : "false"
-          }
-        />
-      </Field>
-      <Field
-        label={translate("scheduleCategoryLabel")}
-        required={true}
-        helper={translate("scheduleCategoryHelper")}
-        error={getErrorMessage(categoryValidation)}
-      >
-        <Input
-          type="text"
-          value={typeof values.category === "string" ? values.category : ""}
-          placeholder={translate("scheduleCategoryPlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("category", newValue)
-          }}
-          disabled={disabled}
-          aria-required="true"
-          aria-invalid={
-            categoryValidation && !categoryValidation.valid ? "true" : "false"
-          }
-        />
-      </Field>
-      <Field label={translate("scheduleDescriptionLabel")} required={false}>
-        <TextArea
-          value={
-            typeof values.description === "string" ? values.description : ""
-          }
-          placeholder={translate("scheduleDescriptionPlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("description", newValue)
-          }}
-          disabled={disabled}
-          rows={2}
-        />
-      </Field>
-    </>
-  )
-}
+// Removed ScheduleFields component
 
 // Renderar supporthjälp med valfri e-postlänk
 export const renderSupportHint = (

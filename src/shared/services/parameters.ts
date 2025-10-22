@@ -227,7 +227,7 @@ export class ParameterFormService {
       return false
     }
 
-    // Default för RANGE_SLIDER är att visa slider-UI
+    // Standard för RANGE_SLIDER är att visa slider-UI
     return true
   }
 

@@ -431,7 +431,7 @@ describe("FME shared logic", () => {
       expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
       expect(field.decimalPrecision).toBe(0)
 
-      // Validate that decimal values are rejected
+      // Validerar att decimalvärden avvisas
       const validation = service.validateFormValues({ INT_PARAM: 7.5 }, [field])
       expect(validation.isValid).toBe(false)
       expect(validation.errors.INT_PARAM).toBeDefined()
@@ -453,13 +453,13 @@ describe("FME shared logic", () => {
       expect(field.type).toBe(FormFieldType.NUMERIC_INPUT)
       expect(field.decimalPrecision).toBe(2)
 
-      // Validate that decimal values are accepted
+      // Validerar att decimalvärden accepteras
       const validation1 = service.validateFormValues({ FLOAT_PARAM: 75.25 }, [
         field,
       ])
       expect(validation1.isValid).toBe(true)
 
-      // Validate that integer values are also accepted
+      // Validerar att heltalsvärden också accepteras
       const validation2 = service.validateFormValues({ FLOAT_PARAM: 75 }, [
         field,
       ])

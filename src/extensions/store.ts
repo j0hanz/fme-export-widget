@@ -905,7 +905,6 @@ export default class FmeReduxStoreExtension
 
   // Returnerar alla action-typer som string-array
   getActions(): string[] {
-    // Return all action types as string array
     return [...FME_ACTION_TYPES]
   }
 

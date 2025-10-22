@@ -148,15 +148,6 @@ export const MAX_URL_LENGTH = 4000
 
 export const ABORT_REGEX = /abort/i
 
-export const SCHEDULE_TRIGGER_DEFAULT = "runonce"
-export const SCHEDULE_METADATA_FIELDS = Object.freeze([
-  "start",
-  "name",
-  "category",
-  "description",
-  "trigger",
-] as const)
-
 export const TM_PARAM_KEYS = Object.freeze([
   "tm_ttc",
   "tm_ttl",
@@ -182,14 +173,12 @@ export const WEBHOOK_EXCLUDE_PARAMS = Object.freeze([
 
 export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([
   ...TM_PARAM_KEYS,
-  ...SCHEDULE_METADATA_FIELDS,
   ...OPTIONAL_OPT_KEYS,
 ])
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",
   "async",
-  "schedule",
 ] as const)
 
 export const GEOMETRY_CONSTS = Object.freeze({

@@ -28,7 +28,6 @@ import type {
   FmeWidgetState,
   WorkspaceParameter,
   WorkspaceItemDetail,
-  WorkspaceItem,
   ErrorState,
   SerializableErrorState,
   DrawingSessionState,
@@ -46,8 +45,6 @@ import {
   ErrorSeverity,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
-  DEFAULT_REPOSITORY,
-  WORKSPACE_ITEM_TYPE,
 } from "../config/index"
 import {
   validateWidgetStartup,
@@ -63,11 +60,7 @@ import {
   evaluateArea,
   processFmeResponse,
 } from "../shared/validations"
-import {
-  fmeActions,
-  initialFmeState,
-  createFmeSelectors,
-} from "../extensions/store"
+import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
@@ -86,8 +79,8 @@ import {
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
-  buildTokenCacheKey,
   isAbortError,
+  createFmeDispatcher,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -221,6 +214,13 @@ function WidgetContent(
   /* Timer för fördröjd repository cache warmup */
   const warmupTimerRef = React.useRef<number | null>(null)
 
+  /* Ger enkel åtkomst till Redux-dispatch med widgetId */
+  const fmeDispatchRef = React.useRef(createFmeDispatcher(dispatch, widgetId))
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(dispatch, widgetId)
+  }, [dispatch, widgetId])
+  const fmeDispatch = fmeDispatchRef.current
+
   /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
     React.useState<DrawingSessionState>({
@@ -264,7 +264,7 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setDrawingTool(tool, widgetId))
+    fmeDispatch.setDrawingTool(tool)
   })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
@@ -288,7 +288,7 @@ function WidgetContent(
     setModeNotice(null)
   })
 
-  /* Sätter modenotis baserat på tvingad servicemode (async/schedule) */
+  /* Hanterar övergång vid tvingad async-läge */
   const setForcedModeNotice = hooks.useEventCallback(
     (
       info: ServiceModeOverrideInfo | null,
@@ -339,64 +339,7 @@ function WidgetContent(
     }
   })
 
-  /* Förladdar workspace-listan från FME Flow för snabbare användarval */
-  const warmRepositoryCache = hooks.useEventCallback(() => {
-    const latestConfig = configRef.current
-    if (!latestConfig?.fmeServerUrl || !latestConfig?.fmeServerToken) {
-      return
-    }
-
-    const repository = latestConfig.repository || DEFAULT_REPOSITORY
-    const tokenKey = buildTokenCacheKey(latestConfig.fmeServerToken)
-    const queryKey = [
-      "fme",
-      "workspaces",
-      repository,
-      latestConfig.fmeServerUrl,
-      tokenKey,
-    ] as const
-
-    void fmeQueryClient
-      .fetchQuery<WorkspaceItem[]>({
-        queryKey,
-        staleTime: 5 * 60 * 1000,
-        retry: 1,
-        queryFn: async ({ signal }) => {
-          const client = getOrCreateFmeClient()
-          const response = await client.getRepositoryItems(
-            repository,
-            WORKSPACE_ITEM_TYPE,
-            undefined,
-            undefined,
-            signal
-          )
-          const items = Array.isArray(response?.data?.items)
-            ? (response.data.items as WorkspaceItem[])
-            : []
-          return items
-        },
-      })
-      .then((items) => {
-        if (Array.isArray(items) && items.length) {
-          dispatch(fmeActions.setWorkspaceItems(items, widgetId))
-        }
-      })
-      .catch((error) => {
-        logIfNotAbort("Repository warmup error", error)
-      })
-  })
-
-  const scheduleRepositoryWarmup = hooks.useEventCallback(() => {
-    clearWarmupTimer()
-    if (typeof window === "undefined") {
-      warmRepositoryCache()
-      return
-    }
-    warmupTimerRef.current = window.setTimeout(() => {
-      warmupTimerRef.current = null
-      warmRepositoryCache()
-    }, 300)
-  })
+  /* Removed scheduleRepositoryWarmup function */
 
   hooks.useUpdateEffect(() => {
     if (!isStartupPhase) {
@@ -459,9 +402,9 @@ function WidgetContent(
   const submissionAbort = useLatestAbortController()
 
   const navigateTo = hooks.useEventCallback((nextView: ViewMode) => {
-    dispatch(fmeActions.clearError("export", widgetId))
-    dispatch(fmeActions.clearError("import", widgetId))
-    dispatch(fmeActions.setViewMode(nextView, widgetId))
+    fmeDispatch.clearError("export")
+    fmeDispatch.clearError("import")
+    fmeDispatch.setViewMode(nextView)
   })
 
   /* Bygger symboler från konfigurerad drawingColor (config är källa) */
@@ -525,15 +468,11 @@ function WidgetContent(
   hooks.useUpdateEffect(() => {
     if (!config?.fmeServerUrl || !config?.fmeServerToken) {
       clearWarmupTimer()
-      return
     }
-
-    scheduleRepositoryWarmup()
   }, [
     config?.fmeServerUrl,
     config?.fmeServerToken,
     config?.repository,
-    scheduleRepositoryWarmup,
     clearWarmupTimer,
   ])
 
@@ -551,18 +490,18 @@ function WidgetContent(
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
     const activeTool = drawingToolRef.current
 
-    dispatch(fmeActions.resetState(widgetId))
+    fmeDispatch.resetState()
     updateAreaWarning(false)
 
-    dispatch(fmeActions.clearWorkspaceState(widgetId))
+    fmeDispatch.clearWorkspaceState()
 
     if (activeTool) {
-      dispatch(fmeActions.setDrawingTool(activeTool, widgetId))
+      fmeDispatch.setDrawingTool(activeTool)
     }
   })
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
-    dispatch(fmeActions.resetToDrawing(widgetId))
+    fmeDispatch.resetToDrawing()
     updateAreaWarning(false)
     updateDrawingSession({ isActive: false, clickCount: 0 })
   })
@@ -626,11 +565,11 @@ function WidgetContent(
         onRetry ??
         (() => {
           /* Rensar fel och återgår till ritläge vid geometry-fel */
-          dispatch(fmeActions.clearError("general", widgetId))
+          fmeDispatch.clearError("general")
           if (isAoiRetryableError) {
             /* Markerar att ritning ska auto-starta när verktyg återinits */
             setShouldAutoStart(true)
-            dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+            fmeDispatch.setViewMode(ViewMode.DRAWING)
             /* Om ritresurser rensades, återinitierar dem nu */
             try {
               const currentSketchVM = sketchViewModel
@@ -698,10 +637,8 @@ function WidgetContent(
 
   /* Synkar modulers laddningsstatus med Redux */
   hooks.useEffectWithPreviousValues(() => {
-    dispatch(
-      fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
-    )
-  }, [modulesLoading, dispatch, widgetId])
+    fmeDispatchRef.current.setLoadingFlag("modules", Boolean(modulesLoading))
+  }, [modulesLoading])
 
   hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {
@@ -716,9 +653,9 @@ function WidgetContent(
       modules &&
       generalError?.code === "MAP_MODULES_LOAD_FAILED"
     ) {
-      dispatch(fmeActions.clearError("general", widgetId))
+      fmeDispatchRef.current.clearError("general")
     }
-  }, [modulesLoading, modules, generalError?.code, dispatch, widgetId])
+  }, [modulesLoading, modules, generalError?.code])
 
   /* Annonserar viktiga vyändringar för skärmläsare */
   hooks.useUpdateEffect(() => {
@@ -792,7 +729,6 @@ function WidgetContent(
     modules,
     jimuMapView,
     config?.syncMode,
-    config?.allowScheduleMode,
     config?.largeArea,
     clearModeNotice,
     setForcedModeNotice,
@@ -817,20 +753,20 @@ function WidgetContent(
   const exitDrawingMode = hooks.useEventCallback(
     (nextViewMode: ViewMode, options?: { clearLocalGeometry?: boolean }) => {
       endSketchSession(options)
-      dispatch(fmeActions.setViewMode(nextViewMode, widgetId))
+      fmeDispatch.setViewMode(nextViewMode)
     }
   )
 
-  // Startup validation step updater
+  // Uppdaterar uppstarts-valideringssteg
   const setValidationStep = hooks.useEventCallback((step: string) => {
     setStartupStep(step)
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
     setStartupStep(undefined)
-    dispatch(fmeActions.clearError("general", widgetId))
-    dispatch(fmeActions.completeStartup(widgetId))
-    scheduleRepositoryWarmup()
+    fmeDispatch.clearError("general")
+    fmeDispatch.completeStartup()
+    /* Removed scheduleRepositoryWarmup call */
     const currentViewMode = viewModeRef.current
     const isUnset =
       currentViewMode === null || typeof currentViewMode === "undefined"
@@ -844,7 +780,7 @@ function WidgetContent(
 
   const setValidationError = hooks.useEventCallback((error: ErrorState) => {
     setStartupStep(undefined)
-    dispatch(fmeActions.setError("general", error, widgetId))
+    fmeDispatch.setError("general", error)
   })
 
   /* Skapar konsekvent startup-valideringsfel med retry-callback */
@@ -872,7 +808,7 @@ function WidgetContent(
   /* Kör startup-validering: karta, config, FME-anslutning, e-post */
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
-    dispatch(fmeActions.clearError("general", widgetId))
+    fmeDispatch.clearError("general")
     setValidationStep(translate("validatingStartup"))
 
     try {
@@ -1074,13 +1010,13 @@ function WidgetContent(
 
           if (!controller.signal.aborted) {
             teardownDrawingResources()
-            dispatch(fmeActions.setGeometry(null, 0, widgetId))
+            fmeDispatch.setGeometry(null, 0)
             updateAreaWarning(false)
             exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           }
 
           if (!controller.signal.aborted && validation.error) {
-            dispatch(fmeActions.setError("general", validation.error, widgetId))
+            fmeDispatch.setError("general", validation.error)
           }
 
           return
@@ -1124,7 +1060,7 @@ function WidgetContent(
 
           if (!controller.signal.aborted) {
             teardownDrawingResources()
-            dispatch(fmeActions.setGeometry(null, 0, widgetId))
+            fmeDispatch.setGeometry(null, 0)
             updateAreaWarning(false)
             exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
           }
@@ -1152,13 +1088,10 @@ function WidgetContent(
           }
         }
 
-        dispatch(
-          fmeActions.completeDrawing(
-            geomForUse,
-            normalizedArea,
-            ViewMode.WORKSPACE_SELECTION,
-            widgetId
-          )
+        fmeDispatch.completeDrawing(
+          geomForUse,
+          normalizedArea,
+          ViewMode.WORKSPACE_SELECTION
         )
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -1185,9 +1118,11 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setOrderResult(result, widgetId))
+    fmeDispatch.setOrderResult(result)
     navigateTo(ViewMode.ORDER_RESULT)
   })
+
+  /* Removed extractScheduleMetadata function */
 
   /* Hanterar lyckad submission och bygger resultat-objekt */
   const handleSubmissionSuccess = (
@@ -1204,29 +1139,9 @@ function WidgetContent(
       translate
     )
 
-    let nextResult: ExportResult = {
+    const nextResult: ExportResult = {
       ...baseResult,
       ...(serviceMode ? { serviceMode } : {}),
-    }
-
-    if (formData && config?.allowScheduleMode) {
-      const startVal = toTrimmedString(formData.start)
-      const name = toTrimmedString(formData.name)
-      const category = toTrimmedString(formData.category)
-      const description = toTrimmedString(formData.description)
-      const trigger = toTrimmedString(formData.trigger)
-
-      if (startVal && name && category) {
-        const scheduleMetadata = {
-          ...(nextResult.scheduleMetadata ?? {}),
-          start: startVal,
-          name,
-          category,
-          ...(description ? { description } : {}),
-          ...(trigger ? { trigger } : {}),
-        }
-        nextResult = { ...nextResult, scheduleMetadata }
-      }
     }
 
     finalizeOrder(nextResult)
@@ -1277,7 +1192,7 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setLoadingFlag("submission", true, widgetId))
+    fmeDispatch.setLoadingFlag("submission", true)
     setSubmissionPhase("preparing")
 
     let controller: AbortController | null = null
@@ -1301,14 +1216,11 @@ function WidgetContent(
         }
       )
       serviceMode =
-        determinedMode === "sync" ||
-        determinedMode === "async" ||
-        determinedMode === "schedule"
+        determinedMode === "sync" || determinedMode === "async"
           ? determinedMode
           : null
       const fmeClient = getOrCreateFmeClient()
-      const requiresEmail =
-        serviceMode === "async" || serviceMode === "schedule"
+      const requiresEmail = serviceMode === "async"
       const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
       const workspace = selectedWorkspace
@@ -1343,7 +1255,7 @@ function WidgetContent(
 
       if (preparation.aoiError) {
         setSubmissionPhase("idle")
-        dispatch(fmeActions.setError("general", preparation.aoiError, widgetId))
+        fmeDispatch.setError("general", preparation.aoiError)
         return
       }
 
@@ -1376,7 +1288,7 @@ function WidgetContent(
       handleSubmissionError(error, serviceMode)
     } finally {
       setSubmissionPhase("idle")
-      dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))
+      fmeDispatch.setLoadingFlag("submission", false)
       submissionAbort.finalize(controller)
     }
   })
@@ -1500,7 +1412,7 @@ function WidgetContent(
       /* Rensar kart-/ritresurser */
       cleanupResources()
       /* Tar bort widget-state från Redux */
-      dispatch(fmeActions.removeWidgetState(widgetId))
+      fmeDispatch.removeWidgetState()
     }
   })
 
@@ -1538,9 +1450,9 @@ function WidgetContent(
       /* Sätter verktyg och uppdaterar session-state */
       updateDrawingSession({ isActive: true, clickCount: 0 })
 
-      dispatch(fmeActions.setDrawingTool(tool, widgetId))
+      fmeDispatch.setDrawingTool(tool)
 
-      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+      fmeDispatch.setViewMode(ViewMode.DRAWING)
 
       updateAreaWarning(false)
     })
@@ -1558,11 +1470,9 @@ function WidgetContent(
         safeCancelSketch(sketchViewModel)
       }
     } catch {
-      // fallback best-effort cancel
+      // fallback för avbrytning om allt annat misslyckas
       safeCancelSketch(sketchViewModel)
-    }
-
-    /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
+    } /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
 
@@ -1749,12 +1659,11 @@ function WidgetContent(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      dispatch(
-        fmeActions.applyWorkspaceData(
-          { workspaceName, parameters, item: workspaceItem },
-          widgetId
-        )
-      )
+      fmeDispatchRef.current.applyWorkspaceData({
+        workspaceName,
+        parameters,
+        item: workspaceItem,
+      })
       navigateTo(ViewMode.EXPORT_FORM)
     }
   )
@@ -1902,17 +1811,17 @@ function WidgetContent(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
-          dispatch(fmeActions.setDrawingTool(tool, widgetId))
+          fmeDispatchRef.current.setDrawingTool(tool)
           if (sketchViewModel) {
             safeCancelSketch(sketchViewModel)
             updateDrawingSession({ isActive: false, clickCount: 0 })
           }
         }}
-        // Drawing props
+        // Ritnings-props
         isDrawing={drawingSession.isActive}
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
-        // Header props
+        // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
         }
@@ -1923,7 +1832,7 @@ function WidgetContent(
         selectedWorkspace={selectedWorkspace}
         workspaceParameters={workspaceParameters}
         workspaceItem={workspaceItem}
-        // Startup validation props
+        // Uppstarts-valideringsProps
         isStartupValidating={isStartupValidating}
         startupValidationStep={startupValidationStep}
         startupValidationError={startupValidationErrorDetails}

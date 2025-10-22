@@ -203,7 +203,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       }),
     },
 
-    // Forms
+    // Formulär
     form: {
       layout: flex("column", { flex: auto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),

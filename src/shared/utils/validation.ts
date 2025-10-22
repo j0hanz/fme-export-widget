@@ -22,6 +22,30 @@ export const isValidEmail = (email: unknown): boolean => {
   return EMAIL_REGEX.test(email)
 }
 
+/**
+ * Validates email field with consistent error handling
+ * Returns validation result with optional error key for translation
+ */
+export const validateEmailField = (
+  email: string | undefined,
+  options: { required?: boolean } = {}
+): { ok: boolean; errorKey?: string } => {
+  const trimmed = (email ?? "").trim()
+
+  // Empty is valid if not required
+  if (!trimmed) {
+    return options.required
+      ? { ok: false, errorKey: "emailRequired" }
+      : { ok: true }
+  }
+
+  if (!isValidEmail(trimmed)) {
+    return { ok: false, errorKey: "invalidEmail" }
+  }
+
+  return { ok: true }
+}
+
 /** Extracts a valid support email or returns undefined. */
 export const getSupportEmail = (
   configuredEmailRaw: unknown

@@ -11,7 +11,6 @@ export default {
   require_https: "Endast HTTPS‑adresser stöds.",
   disallow_fmerest_for_webhook:
     "Ange bas‑URL utan /fmerest när du konfigurerar webhooks.",
-  scheduleInvalid: "Kontrollera schemaläggningens starttid, namn och kategori.",
   errorTokenIssue: "API‑nyckeln saknas eller är ogiltig.",
   testConnection: "Kör anslutningstest",
   testing: "Testar anslutning…",
@@ -86,8 +85,6 @@ export default {
   aoiParamNamePlaceholder: "AreaOfInterest",
   aoiParamNameHelper:
     "Publicerat parameternamn för området. Standard: AreaOfInterest.",
-  allowScheduleModeLabel: "Tillåt schemaläggning",
-  allowScheduleModeHelper: "Tillåt schemalagd engångskörning.",
   allowRemoteDatasetLabel: "Tillåt filuppladdning (TEMP)",
   allowRemoteDatasetHelper:
     "Tillåt användaren att ladda upp fil direkt till FME Flows TEMP‑resurs.",

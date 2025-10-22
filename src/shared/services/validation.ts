@@ -47,7 +47,7 @@ export async function validateConnection(
           }
         }
 
-        // Step 1: Test connection and get server info
+        // Steg 1: Testar anslutning och hämtar serverinfo
         let serverInfo: any
         try {
           serverInfo = await client.testConnection(signal)
@@ -153,7 +153,7 @@ export async function validateConnection(
 
         const warnings: string[] = []
 
-        // Step 3: Validate specific repository if provided
+        // Steg 3: Validerar specifik repository om angiven
         if (repository) {
           try {
             await client.validateRepository(repository, signal)
@@ -218,7 +218,7 @@ export async function validateWidgetStartup(
 ): Promise<StartupValidationResult> {
   const { config, translate, signal, mapConfigured } = options
 
-  // Step 1: Check if config exists
+  // Steg 1: Kontrollerar om config finns
   if (!config) {
     return {
       isValid: false,
@@ -237,7 +237,7 @@ export async function validateWidgetStartup(
     }
   }
 
-  // Step 2: Validate required config fields
+  // Steg 2: Validerar obligatoriska config-fält
   const requiredFieldsResult = validateRequiredFields(config, translate, {
     mapConfigured: mapConfigured ?? true,
   })
@@ -255,7 +255,7 @@ export async function validateWidgetStartup(
     }
   }
 
-  // Step 3: Test FME Flow connection
+  // Steg 3: Testar FME Flow-anslutning
   try {
     const connectionResult = await validateConnection({
       serverUrl: config.fmeServerUrl,
@@ -288,7 +288,7 @@ export async function validateWidgetStartup(
       }
     }
 
-    // All validation passed
+    // All validering lyckades
     return {
       isValid: true,
       canProceed: true,
@@ -296,7 +296,7 @@ export async function validateWidgetStartup(
     }
   } catch (error) {
     if (isAbortError(error)) {
-      // Don't treat abort as an error - just return neutral state
+      // Behandla inte abort som ett fel - returnera neutralt tillstånd
       return {
         isValid: false,
         canProceed: false,

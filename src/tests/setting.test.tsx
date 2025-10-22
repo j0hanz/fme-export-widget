@@ -112,7 +112,7 @@ initGlobal()
 
 const baseRender = widgetSettingRender(true, mockTheme as any)
 
-// Wrapper that includes QueryClientProvider for React Query hooks and Redux Provider
+// Wrapper som inkluderar QueryClientProvider för React Query hooks och Redux Provider
 const renderWithTheme = (ui: React.ReactElement) =>
   baseRender(
     <QueryClientProvider client={fmeQueryClient}>{ui}</QueryClientProvider>
