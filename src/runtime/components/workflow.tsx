@@ -1572,7 +1572,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Route guard: Kontrollera om startup-validering ska visas
-  const shouldShowStartupValidation = () => state === ViewMode.STARTUP_VALIDATION
+  const shouldShowStartupValidation = () =>
+    state === ViewMode.STARTUP_VALIDATION
 
   // Route guard: Kontrollera om orderresultat ska visas
   const shouldShowOrderResult = () =>

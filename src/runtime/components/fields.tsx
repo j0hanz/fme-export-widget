@@ -1,11 +1,7 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx } from "jimu-core"
-import {
-  TagInput as JimuTagInput,
-  MultiSelect,
-  RichDisplayer,
-} from "jimu-ui"
+import { TagInput as JimuTagInput, MultiSelect, RichDisplayer } from "jimu-ui"
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import {
   Select,
@@ -1695,10 +1691,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 const useStyles = (): UiStyles => useConfigStyles()
 const useValue = useControlledValue
 
-const applyComponentStyles = (
-  base: any[],
-  customStyle?: React.CSSProperties
-) => [...base, styleCss(customStyle)].filter(Boolean)
+const applyComponentStyles = (base: any[], customStyle?: React.CSSProperties) =>
+  [...base, styleCss(customStyle)].filter(Boolean)
 
 const applyFullWidthStyles = (
   styles: UiStyles,

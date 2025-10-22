@@ -7,10 +7,7 @@ import type {
 } from "../../config/index"
 import { ErrorType } from "../../config/index"
 import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
-import {
-  extractHttpStatus,
-  validateRequiredFields,
-} from "../validations"
+import { extractHttpStatus, validateRequiredFields } from "../validations"
 import { createError, mapErrorToKey } from "../utils/error"
 import { inFlight } from "./inflight"
 import { healthCheck, extractFmeVersion, hasProxyError } from "./network"

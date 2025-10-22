@@ -1312,9 +1312,9 @@ export class ParameterFormService {
   }
 
   // Parser för condition clause från raw object
-  private parseConditionClause(
-    clauseObj: { readonly [key: string]: unknown }
-  ): DynamicPropertyClause<VisibilityState> | null {
+  private parseConditionClause(clauseObj: {
+    readonly [key: string]: unknown
+  }): DynamicPropertyClause<VisibilityState> | null {
     const thenValue = this.parseVisibilityState(clauseObj.then)
     if (!thenValue) return null
 

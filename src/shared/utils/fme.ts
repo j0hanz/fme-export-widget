@@ -476,7 +476,9 @@ const normalizeText = (value: unknown, limit: number): string | undefined => {
 // Serialiserar URL search parameters
 const serializeParams = (params: URLSearchParams): string => {
   const entries = Array.from(params.entries())
-  return entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&")
+  return entries
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join("&")
 }
 
 // Lägger till Transaction Manager (TM) numeriska parametrar

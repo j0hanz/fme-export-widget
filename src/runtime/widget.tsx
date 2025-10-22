@@ -1013,16 +1013,12 @@ function WidgetContent(
       }
 
       /* Bestämmer och sätter service mode notice */
-      determineServiceMode(
-        { data: rawDataEarly },
-        configRef.current,
-        {
-          workspaceItem,
-          areaWarning,
-          drawnArea,
-          onModeOverride: setForcedModeNotice,
-        }
-      )
+      determineServiceMode({ data: rawDataEarly }, configRef.current, {
+        workspaceItem,
+        areaWarning,
+        drawnArea,
+        onModeOverride: setForcedModeNotice,
+      })
 
       const submissionResult = await executeJobSubmission({
         formData,

@@ -242,8 +242,7 @@ export async function executeJobSubmission(
         ? determinedMode
         : null
 
-    const userEmail =
-      serviceMode === "async" ? await getEmail(config) : ""
+    const userEmail = serviceMode === "async" ? await getEmail(config) : ""
     const workspace = selectedWorkspace
 
     if (!workspace) {
