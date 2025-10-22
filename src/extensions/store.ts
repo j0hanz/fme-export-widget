@@ -186,15 +186,12 @@ export const fmeActions = {
     workspaceItem: payload.item,
     widgetId,
   }),
-  // Intern action för att ta bort widget-state vid unmount
-  // Internal action to remove entire widget state (e.g. on unmount)
+  // Intern action för att ta bort widget-state från global store
   removeWidgetState: (widgetId: string) => ({
     type: FmeActionType.REMOVE_WIDGET_STATE,
     widgetId,
   }),
 }
-
-/* Type helpers och initial state */
 
 export type FmeAction = ReturnType<(typeof fmeActions)[keyof typeof fmeActions]>
 
@@ -228,13 +225,10 @@ export const initialFmeState: FmeWidgetState = {
   errors: createInitialErrorMap(),
 }
 
-// Seamless-immutable typing är trasig, tvingar typning här
-// Seamless-immutable typing is broken, so we need to force it here
+// Immutable wrapper
 const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
-
-/* Hjälpfunktioner för state-hantering */
 
 const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
   Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
@@ -282,8 +276,6 @@ function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
     a.submission === b.submission
   )
 }
-
-/* Error-hantering och prioritering */
 
 // Prioritetsrangordning för felallvarlighet (högre = allvarligare)
 const ERROR_SEVERITY_RANK: {
@@ -373,8 +365,6 @@ function applyErrorPatch(
   const readonlyMap = nextMap as ErrorMap
   return state.set("errors", readonlyMap)
 }
-
-/* Reducer för enskild widget-instans */
 
 // Reducer for a single widget instance
 const reduceOne = (
@@ -713,8 +703,6 @@ const reduceOne = (
   return nextState
 }
 
-/* State-access och hydration helpers */
-
 // Säkerställer att sub-state finns och är korrekt hydrerad
 const ensureSubState = (
   global: IMFmeGlobalState,
@@ -748,8 +736,6 @@ const setSubState = (
   byId[widgetId] = next
   return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
-
-/* Selectors för att hämta state från Redux store */
 
 // Hämtar FME-slice för specifik widget från global state
 export const selectFmeSlice = (
@@ -843,8 +829,6 @@ export const createFmeSelectors = (widgetId: string) => {
   }
 }
 
-/* Root reducer och action guards */
-
 // Root reducer that delegates to per-widget reducer
 const initialGlobalState = Immutable({
   byId: {},
@@ -867,8 +851,7 @@ const fmeReducer = (
   if (!isFmeAction(action)) {
     return state
   }
-  // Specialfall: ta bort hela widget-state vid unmount
-  // Special: remove entire widget state
+  // Hanterar intern action för att ta bort widget-state
   if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
     if (!(action.widgetId in byId)) {
@@ -880,8 +863,7 @@ const fmeReducer = (
 
   const widgetId: string | undefined = action?.widgetId
   if (!widgetId) {
-    // Inget widgetId: returnera oförändrad state för säkerhet
-    // No widgetId provided — return state unchanged for safety
+    // Ingen widgetId specificerad i action, returnerar oförändrat state
     return state
   }
 
@@ -890,8 +872,6 @@ const fmeReducer = (
   if (nextSub === prevSub) return state
   return setSubState(state, widgetId, nextSub)
 }
-
-/* Redux store extension för jimu-core */
 
 // Store extension
 export default class FmeReduxStoreExtension
