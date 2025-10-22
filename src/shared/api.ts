@@ -15,28 +15,22 @@ import type {
   WebhookErrorCode,
   TMDirectives,
   NMDirectives,
-  WebhookArtifacts,
 } from "../config/index"
 import {
   FmeFlowApiError,
   HttpMethod,
   ESRI_GLOBAL_MOCK_KEYS,
   FME_FLOW_API,
-  TM_NUMERIC_PARAM_KEYS,
   PUBLISHED_PARAM_EXCLUDE_SET,
-  WEBHOOK_EXCLUDE_PARAMS,
 } from "../config/index"
 import {
   extractHttpStatus,
   isRetryableError,
   validateRequiredConfig,
-  validateServerUrl,
-  mapServerUrlReasonToKey,
 } from "./validations"
 import { mapErrorToKey } from "./utils/error"
 import {
   buildUrl,
-  buildParams,
   createHostPattern,
   interceptorExists,
   safeParseUrl,
@@ -52,6 +46,7 @@ import {
   toTrimmedString,
   toNonEmptyTrimmedString,
 } from "./utils"
+import { createWebhookArtifacts } from "./utils/fme"
 
 // Configuration
 /* Standardkonfiguration för nätverksinstrumentering */
@@ -945,25 +940,6 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// Kontrollerar om webhook-URL skulle överskrida maxlängd
-export function isWebhookUrlTooLong(
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
-  token?: string
-): boolean {
-  const { fullUrl } = createWebhookArtifacts(
-    serverUrl,
-    repository,
-    workspace,
-    parameters,
-    token
-  )
-  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
-}
-
 /* Esri-konfiguration för FME Flow API */
 
 // Säkerställer att Esri config har tillräcklig maxUrlLength
@@ -976,64 +952,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
     Number(esriConfig.request.maxUrlLength) || 0,
     FME_FLOW_API.MAX_URL_LENGTH
   )
-}
-
-/* Request processing utilities */
-
-// Normaliserar och trunkerar text till maxlängd
-const normalizeText = (value: unknown, limit: number): string | undefined => {
-  const trimmed = toTrimmedString(value)
-  return trimmed ? trimmed.slice(0, limit) : undefined
-}
-
-// Lägger till Transaction Manager (TM) numeriska parametrar
-const appendWebhookTmParams = (
-  params: URLSearchParams,
-  source: PrimitiveParams = {}
-): void => {
-  // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
-  for (const key of TM_NUMERIC_PARAM_KEYS) {
-    const value = parseNonNegativeInt((source as any)[key])
-    if (value !== undefined) params.set(key, String(value))
-  }
-
-  // Lägg till tm_tag om definierad
-  const tag = normalizeText((source as any).tm_tag, 128)
-  if (tag) params.set("tm_tag", tag)
-}
-
-// Skapar webhook-URL med query-parametrar för FME-jobb
-const createWebhookArtifacts = (
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  token?: string
-): WebhookArtifacts => {
-  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
-  const baseUrlValidation = validateServerUrl(baseUrl, {
-    strict: true,
-    requireHttps: true,
-    disallowRestForWebhook: true,
-  })
-
-  if (!baseUrlValidation.ok) {
-    const reason = mapServerUrlReasonToKey(
-      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
-    )
-    throw makeError("WEBHOOK_AUTH_ERROR", 0, reason)
-  }
-
-  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
-  if (token) {
-    params.set("token", token)
-  }
-  appendWebhookTmParams(params, parameters)
-  return {
-    baseUrl,
-    params,
-    fullUrl: `${baseUrl}?${serializeParams(params)}`,
-  }
 }
 
 /* TM/NM directives builders för FME-jobb */

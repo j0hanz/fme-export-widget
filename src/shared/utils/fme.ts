@@ -11,6 +11,14 @@ import type {
   TranslateFn,
   FmeResponse,
   NormalizedServiceInfo,
+  PrimitiveParams,
+  WebhookArtifacts,
+  WebhookErrorCode,
+} from "../../config/index"
+import {
+  FME_FLOW_API,
+  TM_NUMERIC_PARAM_KEYS,
+  WEBHOOK_EXCLUDE_PARAMS,
 } from "../../config/index"
 import { collectGeometryParamNames, attachAoi } from "./geometry"
 import {
@@ -24,6 +32,8 @@ import {
   toTrimmedString,
   toTrimmedStringOrEmpty,
 } from "./conversion"
+import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
+import { buildUrl, buildParams } from "./network"
 
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
 
@@ -438,4 +448,102 @@ export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
   const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id
   const url = raw?.url
   return { status, message, jobId, url }
+}
+
+// Skapar typat fel med kod, status och orsak
+const makeWebhookError = (
+  code: WebhookErrorCode,
+  status?: number,
+  cause?: unknown
+): Error & { code: WebhookErrorCode; status?: number; cause?: unknown } => {
+  const error = new Error(code) as Error & {
+    code: WebhookErrorCode
+    status?: number
+    cause?: unknown
+  }
+  error.code = code
+  if (status != null) error.status = status
+  if (cause !== undefined) error.cause = cause
+  return error
+}
+
+// Normaliserar och trunkerar text till maxlängd
+const normalizeText = (value: unknown, limit: number): string | undefined => {
+  const trimmed = toTrimmedString(value)
+  return trimmed ? trimmed.slice(0, limit) : undefined
+}
+
+// Serialiserar URL search parameters
+const serializeParams = (params: URLSearchParams): string => {
+  const entries = Array.from(params.entries())
+  return entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&")
+}
+
+// Lägger till Transaction Manager (TM) numeriska parametrar
+const appendWebhookTmParams = (
+  params: URLSearchParams,
+  source: PrimitiveParams = {}
+): void => {
+  // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
+  for (const key of TM_NUMERIC_PARAM_KEYS) {
+    const value = parseNonNegativeInt((source as any)[key])
+    if (value !== undefined) params.set(key, String(value))
+  }
+
+  // Lägg till tm_tag om definierad
+  const tag = normalizeText((source as any).tm_tag, 128)
+  if (tag) params.set("tm_tag", tag)
+}
+
+// Skapar webhook-URL med query-parametrar för FME-jobb
+export const createWebhookArtifacts = (
+  serverUrl: string,
+  repository: string,
+  workspace: string,
+  parameters: PrimitiveParams = {},
+  token?: string
+): WebhookArtifacts => {
+  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const baseUrlValidation = validateServerUrl(baseUrl, {
+    strict: true,
+    requireHttps: true,
+    disallowRestForWebhook: true,
+  })
+
+  if (!baseUrlValidation.ok) {
+    const reason = mapServerUrlReasonToKey(
+      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
+    )
+    throw makeWebhookError("WEBHOOK_AUTH_ERROR", 0, reason)
+  }
+
+  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
+  if (token) {
+    params.set("token", token)
+  }
+  appendWebhookTmParams(params, parameters)
+  return {
+    baseUrl,
+    params,
+    fullUrl: `${baseUrl}?${serializeParams(params)}`,
+  }
+}
+
+// Kontrollerar om webhook-URL skulle överskrida maxlängd
+export const isWebhookUrlTooLong = (
+  serverUrl: string,
+  repository: string,
+  workspace: string,
+  parameters: PrimitiveParams = {},
+  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
+  token?: string
+): boolean => {
+  const { fullUrl } = createWebhookArtifacts(
+    serverUrl,
+    repository,
+    workspace,
+    parameters,
+    token
+  )
+  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }
