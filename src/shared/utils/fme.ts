@@ -74,7 +74,8 @@ const filterScheduleFields = (data: {
   return filtered
 }
 
-const sanitizeScheduleMetadata = (
+// Normaliserar schemaläggningsmetadata beroende på körläge
+const normalizeScheduleMetadata = (
   data: { [key: string]: unknown },
   mode: ServiceMode
 ): { [key: string]: unknown } => {
@@ -273,31 +274,6 @@ export const applyDirectiveDefaults = (
   return out
 }
 
-export const buildScheduleSummary = (data: {
-  [key: string]: unknown
-}): string | null => {
-  const startVal = toTrimmedString(data.start)
-  const name = toTrimmedString(data.name)
-  const category = toTrimmedString(data.category)
-  const description = toTrimmedString(data.description)
-
-  if (!startVal || !name || !category) {
-    return null
-  }
-
-  const parts = [
-    `Job Name: ${name}`,
-    `Category: ${category}`,
-    `Start Time: ${startVal} (FME Server time)`,
-  ]
-
-  if (description) {
-    parts.push(`Description: ${description}`)
-  }
-
-  return parts.join("\n")
-}
-
 export const parseNonNegativeInt = (val: string): number | undefined => {
   const trimmed = typeof val === "string" ? val.trim() : String(val)
   if (!trimmed || !/^\d+$/.test(trimmed)) return undefined
@@ -343,7 +319,7 @@ export const prepFmeParams = (
     ...publicFields
   } = original
 
-  const sanitized = sanitizeScheduleMetadata(publicFields, chosen)
+  const sanitized = normalizeScheduleMetadata(publicFields, chosen)
 
   const base = buildFmeParams(
     { data: sanitized },

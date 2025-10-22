@@ -8,9 +8,9 @@ import type {
 import { UPLOAD_PARAM_TYPES } from "../../config/index"
 import type { Dispatch, SetStateAction } from "react"
 import {
-  asString,
   isFileObject,
   mapDefined,
+  toStringValue,
   toTrimmedString,
 } from "./conversion"
 import { isValidExternalUrlForOptGetUrl } from "./validation"
@@ -203,7 +203,8 @@ const extractFileValue = (composite: TextOrFileValue): unknown => {
   }
   return (
     toTrimmedString(composite.fileName) ??
-    asString(composite.fileName ?? composite.file)
+    toStringValue(composite.fileName ?? composite.file) ??
+    ""
   )
 }
 
@@ -222,7 +223,7 @@ export const coerceFormValueForSubmission = (value: unknown): unknown => {
   }
 
   if (composite.mode === "text") {
-    const normalized = asString(composite.text)
+    const normalized = toStringValue(composite.text) ?? ""
     return normalized
   }
 

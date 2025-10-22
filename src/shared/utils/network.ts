@@ -79,9 +79,9 @@ export const getClientConnectionInfo = (
 }
 
 export const buildUrl = (serverUrl: string, ...segments: string[]): string =>
-  composeUrl(serverUrl, segments)
+  _composeUrl(serverUrl, segments)
 
-const composeUrl = (base: string, segments: string[]): string => {
+const _composeUrl = (base: string, segments: string[]): string => {
   const normalizedBase = base
     .replace(/\/(?:fmeserver|fmerest)$/i, "")
     .replace(/\/$/, "")
@@ -99,28 +99,6 @@ const composeUrl = (base: string, segments: string[]): string => {
     .join("/")
 
   return path ? `${normalizedBase}/${path}` : normalizedBase
-}
-
-export const resolveRequestUrl = (
-  endpoint: string,
-  serverUrl: string,
-  basePath: string
-): string => {
-  if (endpoint.startsWith("http")) return endpoint
-
-  const stripLeadingSlash = (value: string): string =>
-    value.startsWith("/") ? value.slice(1) : value
-
-  if (endpoint.startsWith("/fme")) {
-    return buildUrl(serverUrl, stripLeadingSlash(endpoint))
-  }
-
-  const normalizedBase = stripLeadingSlash(basePath || "")
-  const normalizedEndpoint = stripLeadingSlash(endpoint)
-
-  return normalizedEndpoint
-    ? buildUrl(serverUrl, normalizedBase, normalizedEndpoint)
-    : buildUrl(serverUrl, normalizedBase)
 }
 
 export const buildParams = (

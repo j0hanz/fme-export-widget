@@ -1,5 +1,5 @@
 /** Normalizes unknown input into a trimmed string. */
-export const normalizeString = (
+const normalizeString = (
   value: unknown,
   options?: {
     allowEmpty?: boolean
@@ -24,7 +24,7 @@ export const normalizeString = (
   return options?.nullable ? null : undefined
 }
 
-/** Returns true if the provided value should be treated as empty. */
+// Returnerar true om värdet saknas eller är tomt (0 och false anses ha värde)
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
@@ -43,11 +43,6 @@ export const toTrimmedString = (value: unknown): string | undefined =>
 /** Returns a string (allowing numeric coercion) when possible. */
 export const toStringValue = (value: unknown): string | undefined =>
   normalizeString(value, { allowNumeric: true })
-
-/** Normalizes workspace names into nullable trimmed strings. */
-export const normalizeWorkspaceName = (
-  name: string | null | undefined
-): string | null => normalizeString(name, { nullable: true }) ?? null
 
 /** Type guard for plain objects (excluding arrays). */
 export const isPlainObject = (
@@ -183,10 +178,6 @@ export const toStr = (val: unknown): string => {
   }
   return Object.prototype.toString.call(val)
 }
-
-/** Converts unknown values into trimmed display strings. */
-export const asString = (v: unknown): string =>
-  normalizeString(v, { allowNumeric: true }) ?? ""
 
 /**
  * Serializes error-like records for Redux compatibility by flattening dates.

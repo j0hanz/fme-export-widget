@@ -109,53 +109,6 @@ export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
   return true
 }
 
-const isValidCoordinateTuple = (pt: unknown): boolean =>
-  Array.isArray(pt) &&
-  pt.length >= 2 &&
-  pt.length <= 4 &&
-  pt.every(isFiniteNumber)
-
-const checkCoordinatesEqual = (a: unknown, b: unknown): boolean => {
-  if (!Array.isArray(a) || !Array.isArray(b)) return false
-  const len = Math.min(a.length, b.length, 2)
-  for (let i = 0; i < len; i++) {
-    const av = a[i]
-    const bv = b[i]
-    if (typeof av !== "number" || typeof bv !== "number") return false
-    if (!Number.isFinite(av) || !Number.isFinite(bv)) return false
-    if (Math.abs(av - bv) > 1e-9) return false
-  }
-  return true
-}
-
-const isValidRing = (ring: unknown): boolean => {
-  if (!Array.isArray(ring) || ring.length < 4) return false
-  if (!ring.every(isValidCoordinateTuple)) return false
-
-  const first = ring[0]
-  const last = ring[ring.length - 1]
-  return checkCoordinatesEqual(first, last)
-}
-
-const isObjectType = (value: unknown): value is object =>
-  typeof value === "object" && value !== null
-
-/** Type guard ensuring the supplied geometry contains valid polygon rings. */
-export const isPolygonGeometry = (
-  value: unknown
-): value is { rings: unknown } | { geometry: { rings: unknown } } => {
-  if (!isObjectType(value)) return false
-
-  const geom =
-    "geometry" in value ? (value as { geometry: unknown }).geometry : value
-
-  if (!isObjectType(geom)) return false
-
-  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
-
-  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
-}
-
 /** Detects offline state in a defensive manner. */
 export const isNavigatorOffline = (): boolean => {
   if (typeof navigator === "undefined") return false

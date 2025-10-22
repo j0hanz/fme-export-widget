@@ -206,33 +206,6 @@ export class ParameterFormService {
     }
   }
 
-  // Tolkar booleanliknande värden från metadata
-  private resolveBooleanFlag(
-    source: { readonly [key: string]: unknown } | null | undefined,
-    keys: readonly string[]
-  ): boolean | undefined {
-    if (!isPlainObject(source)) return undefined
-    for (const key of keys) {
-      if (!(key in source)) continue
-      const raw = (source as { readonly [key: string]: unknown })[key]
-      if (typeof raw === "boolean") return raw
-      if (typeof raw === "number") {
-        if (raw === 1) return true
-        if (raw === 0) return false
-      }
-      if (typeof raw === "string") {
-        const normalized = raw.trim().toLowerCase()
-        if (["true", "1", "yes", "y", "on"].includes(normalized)) {
-          return true
-        }
-        if (["false", "0", "no", "n", "off"].includes(normalized)) {
-          return false
-        }
-      }
-    }
-    return undefined
-  }
-
   // Avgör om RANGE_SLIDER ska använda slider-UI eller numeriskt fält
   private shouldUseRangeSliderUi(param: WorkspaceParameter): boolean {
     if (param.type !== ParameterType.RANGE_SLIDER) return false

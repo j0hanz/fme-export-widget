@@ -21,7 +21,7 @@ import {
   type LoadingFlagKey,
   type ErrorMap,
 } from "../config/index"
-import { toSerializable } from "../shared/utils"
+import { toSerializable, toTrimmedString } from "../shared/utils"
 
 /* Action creators för FME-widget state management */
 export const fmeActions = {
@@ -246,11 +246,7 @@ const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
 // Normaliserar workspace-namn (trim och null-hantering)
 const normalizeWorkspaceName = (
   name: string | null | undefined
-): string | null => {
-  if (typeof name !== "string") return null
-  const trimmed = name.trim()
-  return trimmed || null
-}
+): string | null => toTrimmedString(name) ?? null
 
 // Serialiserar ArcGIS-geometri till JSON för Redux-lagring
 const serializeGeometry = (

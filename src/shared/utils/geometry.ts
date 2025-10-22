@@ -7,7 +7,6 @@ import type {
 } from "../../config/index"
 import { ErrorSeverity, ErrorType, ParameterType } from "../../config/index"
 import { toTrimmedString } from "./conversion"
-import { isPolygonGeometry } from "./validation"
 import { sanitizeParamKey } from "./form"
 
 const createAoiSerializationError = (): ErrorState => ({
@@ -20,7 +19,7 @@ const createAoiSerializationError = (): ErrorState => ({
   timestampMs: Date.now(),
 })
 
-const coordinatesEqual = (a: unknown, b: unknown): boolean => {
+export const coordinatesEqual = (a: unknown, b: unknown): boolean => {
   if (!Array.isArray(a) || !Array.isArray(b)) return false
   const len = Math.min(a.length, b.length, 2)
   for (let i = 0; i < len; i++) {
@@ -61,6 +60,42 @@ export const normalizeRing = (ring: unknown): number[][] => {
     coords.push([...first])
   }
   return coords
+}
+
+const isFiniteCoordinate = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value)
+
+const isValidCoordinateTuple = (pt: unknown): pt is number[] =>
+  Array.isArray(pt) &&
+  pt.length >= 2 &&
+  pt.length <= 4 &&
+  pt.every(isFiniteCoordinate)
+
+const isObjectLike = (value: unknown): value is object =>
+  typeof value === "object" && value !== null
+
+const isValidRing = (ring: unknown): boolean => {
+  if (!Array.isArray(ring) || ring.length < 4) return false
+  if (!ring.every(isValidCoordinateTuple)) return false
+
+  const first = ring[0]
+  const last = ring[ring.length - 1]
+  return coordinatesEqual(first, last)
+}
+
+export const isPolygonGeometry = (
+  value: unknown
+): value is { rings: unknown } | { geometry: { rings: unknown } } => {
+  if (!isObjectLike(value)) return false
+
+  const geom =
+    "geometry" in value ? (value as { geometry: unknown }).geometry : value
+
+  if (!isObjectLike(geom)) return false
+
+  const rings = "rings" in geom ? (geom as { rings: unknown }).rings : undefined
+
+  return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing)
 }
 
 const extractRings = (poly: any): any[] => {

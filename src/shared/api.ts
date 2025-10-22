@@ -36,7 +36,6 @@ import {
 } from "./validations"
 import {
   buildUrl,
-  resolveRequestUrl,
   buildParams,
   createHostPattern,
   interceptorExists,
@@ -1717,11 +1716,19 @@ export class FmeFlowApiClient {
     }
     await ensureEsri()
 
-    const url = resolveRequestUrl(
-      endpoint,
-      this.config.serverUrl,
-      this.basePath
-    )
+    const stripLeadingSlash = (value: string): string =>
+      value.startsWith("/") ? value.slice(1) : value
+
+    const normalizedBase = stripLeadingSlash(this.basePath || "")
+    const baseSegments = normalizedBase ? [normalizedBase] : []
+    const normalizedEndpoint = stripLeadingSlash(endpoint)
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : endpoint.startsWith("/fme")
+        ? buildUrl(this.config.serverUrl, normalizedEndpoint)
+        : normalizedEndpoint
+          ? buildUrl(this.config.serverUrl, ...baseSegments, normalizedEndpoint)
+          : buildUrl(this.config.serverUrl, ...baseSegments)
     const headers: { [key: string]: string } = {
       ...(options.headers || {}),
     }

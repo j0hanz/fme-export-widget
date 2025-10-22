@@ -35,7 +35,6 @@ import {
 import { useUiStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
 import {
-  asString,
   makePlaceholders,
   getTextPlaceholder,
   computeSelectCoerce,
@@ -52,6 +51,7 @@ import {
   isFileObject,
   getFileDisplayName,
   toTrimmedString,
+  toStringValue,
   resolveMessageOrKey,
   toBooleanValue,
   normalizeParameterValue,
@@ -78,6 +78,8 @@ const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
 }
+
+const toDisplayString = (value: unknown): string => toStringValue(value) ?? ""
 
 const compareToggleValues = (a: unknown, b: unknown): boolean => {
   if (a === undefined || a === null || b === undefined || b === null) {
@@ -208,7 +210,7 @@ const renderDateTimeInput = (
 ): JSX.Element => (
   <Input
     type={inputType}
-    value={asString(value)}
+    value={toDisplayString(value)}
     placeholder={placeholder}
     onChange={(val) => {
       onChange(val as FormPrimitive)
@@ -239,7 +241,7 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
     if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
       return {
         mode: TEXT_OR_FILE_MODES.TEXT,
-        text: asString(obj.text),
+        text: toDisplayString(obj.text),
       }
     }
   }
@@ -252,7 +254,7 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
   }
   return {
     mode: TEXT_OR_FILE_MODES.TEXT,
-    text: asString(rawValue),
+    text: toDisplayString(rawValue),
   }
 }
 
@@ -713,7 +715,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="number"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     const numVal =
                       val === ""
@@ -756,7 +758,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="date"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -768,7 +770,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="time"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -778,7 +780,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             case "datetime":
               return (
                 <DateTimePickerWrapper
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -790,7 +792,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="text"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -990,7 +992,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.URL: {
-        const val = asString(fieldValue)
+        const val = toDisplayString(fieldValue)
         return (
           <UrlInput
             value={val}
@@ -1028,7 +1030,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         // Renderar flerradigt textfält
         return (
           <TextArea
-            value={asString(fieldValue)}
+            value={toDisplayString(fieldValue)}
             placeholder={placeholders.enter}
             onChange={(val) => {
               onChange(val as FormPrimitive)
@@ -1239,7 +1241,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           } else {
             onChange({
               mode: TEXT_OR_FILE_MODES.TEXT,
-              text: asString(currentValue.text),
+              text: toDisplayString(currentValue.text),
             } as unknown as FormPrimitive)
           }
         }
@@ -1314,7 +1316,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             />
             {resolvedMode === TEXT_OR_FILE_MODES.TEXT ? (
               <TextArea
-                value={asString(currentValue.text)}
+                value={toDisplayString(currentValue.text)}
                 placeholder={field.placeholder || placeholders.enter}
                 onChange={handleTextChange}
                 disabled={isDisabled}
@@ -1354,7 +1356,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const content =
           typeof fieldValue === "string" && fieldValue.trim().length > 0
             ? fieldValue
-            : asString(field.defaultValue) || field.description || field.label
+            : toDisplayString(field.defaultValue) ||
+              field.description ||
+              field.label
         return <RichText html={content || ""} />
       }
       case FormFieldType.RADIO: {
@@ -1397,7 +1401,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.GEOMETRY: {
         // Renderar geometri (AOI polygon) med statistik
-        const trimmed = asString(fieldValue).trim()
+        const trimmed = toDisplayString(fieldValue).trim()
         if (!trimmed) {
           return (
             <div css={styles.typo.hint} data-testid="geometry-field">

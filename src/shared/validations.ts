@@ -1560,8 +1560,6 @@ export {
   inputToFmeTime,
   normalizedRgbToHex,
   hexToNormalizedRgb,
-  toIsoLocal,
-  fromIsoLocal,
   // forms
   normalizeFormValue,
   toSerializable,

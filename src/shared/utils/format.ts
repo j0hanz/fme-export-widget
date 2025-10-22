@@ -15,7 +15,8 @@ export const formatByteSize = (size: unknown): string | null => {
     return null
   }
 
-  const UNITS = ["B", "KB", "MB", "GB", "TB"] as const
+  // Binära enheter (1024-bas)
+  const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const
   let value = size
   let unitIndex = 0
 
@@ -425,32 +426,6 @@ export const hexToNormalizedRgb = (
   }
 
   return [r, g, b].map(formatRgbFraction).join(",")
-}
-
-export const toIsoLocal = (spaceDateTime: string | undefined): string => {
-  const s = (spaceDateTime || "").trim()
-  if (!s) return ""
-  const parts = s.split(" ")
-  if (parts.length !== 2) return ""
-  const [d, t] = parts
-  const tParts = t.split(":")
-  const hh = tParts[0] || "00"
-  const mm = tParts[1] || "00"
-  const ss = tParts[2] || "00"
-  return `${d}T${hh}:${mm}:${ss}`
-}
-
-export const fromIsoLocal = (isoLocal: string | undefined): string => {
-  const s = (isoLocal || "").trim()
-  if (!s) return ""
-  const parts = s.split("T")
-  if (parts.length !== 2) return ""
-  const [d, t] = parts
-  const tParts = t.split(":")
-  const hh = tParts[0] || "00"
-  const mm = tParts[1] || "00"
-  const ss = tParts[2] || "00"
-  return `${d} ${hh}:${mm}:${ss}`
 }
 
 const GEOMETRY_CONSTS = {

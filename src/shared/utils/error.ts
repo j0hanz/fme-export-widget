@@ -60,8 +60,10 @@ export const safeAbort = (ctrl: AbortController | null) => {
   if (ctrl) {
     try {
       ctrl.abort()
-    } catch {
-      // noop
+    } catch (err) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("safeAbort: Unexpected error during abort", err)
+      }
     }
   }
 }
