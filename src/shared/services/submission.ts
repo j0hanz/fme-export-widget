@@ -2,7 +2,14 @@ import type {
   SubmissionPreparationOptions,
   SubmissionPreparationResult,
   MutableParams,
+  ExportResult,
+  ServiceMode,
+  FmeExportConfig,
+  WorkspaceParameter,
+  WorkspaceItemDetail,
+  EsriModules,
 } from "../../config/index"
+import type { FmeFlowApiClient } from "../api"
 import {
   parseSubmissionFormData,
   prepFmeParams,
@@ -11,7 +18,15 @@ import {
   toTrimmedString,
   normalizeServiceModeConfig,
   isNonEmptyTrimmedString,
+  determineServiceMode,
+  resolveMessageOrKey,
+  buildSupportHintText,
+  getEmail,
+  isAbortError,
+  mapErrorToKey,
 } from "../utils"
+import { getSupportEmail } from "../validations"
+import { processFmeResponse } from "../utils/fme"
 import { resolveRemoteDataset } from "./dataset"
 
 // Förbereder submission-parametrar med AOI och remote dataset-upplösning
@@ -93,4 +108,226 @@ export async function prepareSubmissionParams({
 
   onStatusChange?.("complete")
   return { params: paramsWithDefaults }
+}
+
+// Typer för submission orchestration
+export interface SubmissionOrchestrationOptions {
+  formData: unknown
+  config: FmeExportConfig
+  geometryJson: unknown
+  geometry: __esri.Geometry | null | undefined
+  modules: EsriModules
+  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceItem: WorkspaceItemDetail | null
+  selectedWorkspace: string | null
+  areaWarning: boolean
+  drawnArea: number
+  fmeClient: FmeFlowApiClient
+  submissionAbort: {
+    abortAndCreate: () => AbortController
+    finalize: (controller: AbortController | null) => void
+  }
+  widgetId: string
+  translate: (id: string, data?: any) => string
+  makeCancelable: <T>(promise: Promise<T>) => Promise<T>
+  onStatusChange?: (phase: string) => void
+  getActiveGeometry: () => __esri.Geometry | null
+}
+
+export interface SubmissionOrchestrationResult {
+  success: boolean
+  result?: ExportResult
+  error?: unknown
+  serviceMode?: ServiceMode | null
+}
+
+// Bygger ExportResult från lyckad FME-submission
+export function buildSubmissionSuccessResult(
+  fmeResponse: unknown,
+  workspace: string,
+  userEmail: string,
+  translate: (id: string, data?: any) => string,
+  serviceMode?: ServiceMode | null
+): ExportResult {
+  const baseResult = processFmeResponse(
+    fmeResponse,
+    workspace,
+    userEmail,
+    translate
+  )
+
+  return {
+    ...baseResult,
+    ...(serviceMode ? { serviceMode } : {}),
+  }
+}
+
+// Bygger ExportResult från submission-fel
+export function buildSubmissionErrorResult(
+  error: unknown,
+  translate: (id: string, data?: any) => string,
+  supportEmail: string | null | undefined,
+  serviceMode?: ServiceMode | null
+): ExportResult | null {
+  if (isAbortError(error)) {
+    return null
+  }
+
+  const rawKey = mapErrorToKey(error) || "errorUnknown"
+  let localizedErr = ""
+  try {
+    localizedErr = resolveMessageOrKey(rawKey, translate)
+  } catch {
+    localizedErr = translate("errorUnknown")
+  }
+
+  const contactHint = buildSupportHintText(translate, supportEmail)
+  const baseFailMessage = translate("errorOrderFailed")
+  const resultMessage =
+    `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
+
+  return {
+    success: false,
+    message: resultMessage,
+    code: (error as { code?: string }).code || "SUBMISSION_ERROR",
+    ...(serviceMode ? { serviceMode } : {}),
+  }
+}
+
+// Orchestrerar hela submission-flödet: validering, förberedelse, körning
+export async function executeJobSubmission(
+  options: SubmissionOrchestrationOptions
+): Promise<SubmissionOrchestrationResult> {
+  const {
+    formData,
+    config,
+    geometryJson,
+    modules,
+    workspaceParameters,
+    workspaceItem,
+    selectedWorkspace,
+    areaWarning,
+    drawnArea,
+    fmeClient,
+    submissionAbort,
+    widgetId,
+    translate,
+    makeCancelable,
+    onStatusChange,
+    getActiveGeometry,
+  } = options
+
+  let controller: AbortController | null = null
+  let serviceMode: ServiceMode | null = null
+
+  try {
+    const rawDataEarly = ((formData as any)?.data || {}) as {
+      [key: string]: unknown
+    }
+
+    const determinedMode = determineServiceMode(
+      { data: rawDataEarly },
+      config,
+      {
+        workspaceItem,
+        areaWarning,
+        drawnArea,
+        onModeOverride: () => {
+          // Mode override handled by caller's side-effect
+        },
+      }
+    )
+    serviceMode =
+      determinedMode === "sync" || determinedMode === "async"
+        ? determinedMode
+        : null
+
+    const userEmail =
+      serviceMode === "async" ? await getEmail(config) : ""
+    const workspace = selectedWorkspace
+
+    if (!workspace) {
+      return {
+        success: false,
+        error: new Error("No workspace selected"),
+        serviceMode,
+      }
+    }
+
+    controller = submissionAbort.abortAndCreate()
+    const subfolder = `widget_${widgetId || "fme"}`
+
+    const preparation = await prepareSubmissionParams({
+      rawFormData: rawDataEarly,
+      userEmail,
+      geometryJson,
+      geometry: getActiveGeometry() || undefined,
+      modules,
+      config,
+      workspaceParameters,
+      workspaceItem,
+      selectedWorkspaceName: workspace,
+      areaWarning,
+      drawnArea,
+      makeCancelable,
+      fmeClient,
+      signal: controller.signal,
+      remoteDatasetSubfolder: subfolder,
+      onStatusChange,
+    })
+
+    if (preparation.aoiError) {
+      return {
+        success: false,
+        error: preparation.aoiError,
+        serviceMode,
+      }
+    }
+
+    const finalParams = preparation.params
+    if (!finalParams) {
+      throw new Error("Submission parameter preparation failed")
+    }
+
+    onStatusChange?.("submitting")
+    const fmeResponse = await makeCancelable(
+      fmeClient.runWorkspace(
+        workspace,
+        finalParams,
+        undefined,
+        controller.signal
+      )
+    )
+
+    if (controller.signal.aborted) {
+      return { success: false, serviceMode }
+    }
+
+    const result = buildSubmissionSuccessResult(
+      fmeResponse,
+      workspace,
+      userEmail,
+      translate,
+      serviceMode
+    )
+
+    return { success: true, result, serviceMode }
+  } catch (error) {
+    const supportEmail = getSupportEmail(config?.supportEmail)
+    const errorResult = buildSubmissionErrorResult(
+      error,
+      translate,
+      supportEmail,
+      serviceMode
+    )
+
+    if (!errorResult) {
+      // Abort error, return unsuccessful but no error result
+      return { success: false, serviceMode }
+    }
+
+    return { success: false, result: errorResult, error, serviceMode }
+  } finally {
+    submissionAbort.finalize(controller)
+  }
 }

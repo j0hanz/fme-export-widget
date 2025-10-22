@@ -23,7 +23,6 @@ import defaultMessages from "./translations/default"
 import type {
   FmeExportConfig,
   ExportResult,
-  ServiceMode,
   IMStateWithFmeExport,
   FmeWidgetState,
   WorkspaceParameter,
@@ -47,21 +46,18 @@ import {
   DEFAULT_DRAWING_HEX,
 } from "../config/index"
 import {
-  prepareSubmissionParams,
   createLayers,
   createSketchVM,
   runStartupValidationFlow,
   processDrawingCompletion,
+  executeJobSubmission,
 } from "../shared/services"
 import { getSupportEmail } from "../shared/validations"
-import { processFmeResponse } from "../shared/utils/fme"
 import { mapErrorToKey } from "../shared/utils/error"
 import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
   resolveMessageOrKey,
-  buildSupportHintText,
-  getEmail,
   determineServiceMode,
   formatArea,
   formatErrorForView,
@@ -995,63 +991,6 @@ function WidgetContent(
     navigateTo(ViewMode.ORDER_RESULT)
   })
 
-  /* Removed extractScheduleMetadata function */
-
-  /* Hanterar lyckad submission och bygger resultat-objekt */
-  const handleSubmissionSuccess = (
-    fmeResponse: unknown,
-    workspace: string,
-    userEmail: string,
-    formData: { [key: string]: unknown } | undefined,
-    serviceMode?: ServiceMode | null
-  ) => {
-    const baseResult = processFmeResponse(
-      fmeResponse,
-      workspace,
-      userEmail,
-      translate
-    )
-
-    const nextResult: ExportResult = {
-      ...baseResult,
-      ...(serviceMode ? { serviceMode } : {}),
-    }
-
-    finalizeOrder(nextResult)
-  }
-
-  /* Hanterar submission-fel och bygger användarmeddelande */
-  const handleSubmissionError = (
-    error: unknown,
-    serviceMode?: ServiceMode | null
-  ) => {
-    if (isAbortError(error)) {
-      return
-    }
-
-    /* Översätter fel till lokaliserad nyckel */
-    const rawKey = mapErrorToKey(error) || "errorUnknown"
-    let localizedErr = ""
-    try {
-      localizedErr = resolveMessageOrKey(rawKey, translate)
-    } catch {
-      localizedErr = translate("errorUnknown")
-    }
-    /* Bygger felmeddelande med support-ledtråd */
-    const configured = getSupportEmail(configRef.current?.supportEmail)
-    const contactHint = buildSupportHintText(translate, configured)
-    const baseFailMessage = translate("errorOrderFailed")
-    const resultMessage =
-      `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
-    const result: ExportResult = {
-      success: false,
-      message: resultMessage,
-      code: (error as { code?: string }).code || "SUBMISSION_ERROR",
-      ...(serviceMode ? { serviceMode } : {}),
-    }
-    finalizeOrder(result)
-  }
-
   /* Hanterar formulär-submission: validerar, förbereder, kör workspace */
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
     if (isSubmitting || !canExport) return
@@ -1065,20 +1004,18 @@ function WidgetContent(
 
     fmeDispatch.setLoadingFlag("submission", true)
     setSubmissionPhase("preparing")
-
-    let controller: AbortController | null = null
-    let serviceMode: ServiceMode | null = null
+    clearModeNotice()
 
     try {
-      const latestConfig = configRef.current
+      const fmeClient = getOrCreateFmeClient()
       const rawDataEarly = ((formData as any)?.data || {}) as {
         [key: string]: unknown
       }
-      clearModeNotice()
 
-      const determinedMode = determineServiceMode(
+      /* Bestämmer och sätter service mode notice */
+      determineServiceMode(
         { data: rawDataEarly },
-        latestConfig,
+        configRef.current,
         {
           workspaceItem,
           areaWarning,
@@ -1086,78 +1023,52 @@ function WidgetContent(
           onModeOverride: setForcedModeNotice,
         }
       )
-      serviceMode =
-        determinedMode === "sync" || determinedMode === "async"
-          ? determinedMode
-          : null
 
-      const fmeClient = getOrCreateFmeClient()
-      const userEmail =
-        serviceMode === "async" ? await getEmail(latestConfig) : ""
-      const workspace = selectedWorkspace
-
-      if (!workspace) {
-        setSubmissionPhase("idle")
-        return
-      }
-
-      controller = submissionAbort.abortAndCreate()
-      const subfolder = `widget_${(props as any)?.id || "fme"}`
-
-      const preparation = await prepareSubmissionParams({
-        rawFormData: rawDataEarly,
-        userEmail,
+      const submissionResult = await executeJobSubmission({
+        formData,
+        config: configRef.current,
         geometryJson,
         geometry: getActiveGeometry() || undefined,
         modules,
-        config: latestConfig,
         workspaceParameters,
         workspaceItem,
-        selectedWorkspaceName: workspace,
+        selectedWorkspace,
         areaWarning,
         drawnArea,
-        makeCancelable,
         fmeClient,
-        signal: controller.signal,
-        remoteDatasetSubfolder: subfolder,
+        submissionAbort,
+        widgetId,
+        translate,
+        makeCancelable,
         onStatusChange: handlePreparationStatus,
+        getActiveGeometry,
       })
 
-      if (preparation.aoiError) {
-        setSubmissionPhase("idle")
-        fmeDispatch.setError("general", preparation.aoiError)
-        return
+      if (!submissionResult.success && submissionResult.error) {
+        /* Kolla om det är ett AOI-fel från prepareSubmissionParams */
+        const errorObj = submissionResult.error as any
+        if (errorObj && typeof errorObj === "object" && "kind" in errorObj) {
+          setSubmissionPhase("idle")
+          fmeDispatch.setError("general", errorObj)
+          return
+        }
       }
 
-      const finalParams = preparation.params
-      if (!finalParams)
-        throw new Error("Submission parameter preparation failed")
-
-      setSubmissionPhase("submitting")
-      const fmeResponse = await makeCancelable(
-        fmeClient.runWorkspace(
-          workspace,
-          finalParams,
-          undefined,
-          controller.signal
-        )
-      )
-
-      if (!controller.signal.aborted) {
-        handleSubmissionSuccess(
-          fmeResponse,
-          workspace,
-          userEmail,
-          rawDataEarly,
-          serviceMode
-        )
+      if (submissionResult.result) {
+        finalizeOrder(submissionResult.result)
       }
     } catch (error) {
-      handleSubmissionError(error, serviceMode)
+      /* Oväntade fel som inte fångades av executeJobSubmission */
+      if (!isAbortError(error)) {
+        dispatchError(
+          translate("errorUnknown"),
+          ErrorType.MODULE,
+          "SUBMISSION_UNEXPECTED_ERROR"
+        )
+      }
     } finally {
       setSubmissionPhase("idle")
       fmeDispatch.setLoadingFlag("submission", false)
-      submissionAbort.finalize(controller)
     }
   })
 
