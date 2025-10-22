@@ -6,23 +6,23 @@ import { inFlight } from "./inflight"
 
 // Indikatorer för nätverksfel i felmeddelanden
 const NETWORK_INDICATORS = Object.freeze([
-  "Failed to fetch",
-  "NetworkError",
+  "failed to fetch",
+  "networkerror",
   "net::",
-  "DNS",
-  "ENOTFOUND",
-  "ECONNREFUSED",
+  "dns",
+  "enotfound",
+  "econnrefused",
   "timeout",
-  "Name or service not known",
-  "ERR_NAME_NOT_RESOLVED",
-  "Unable to load",
+  "name or service not known",
+  "err_name_not_resolved",
+  "unable to load",
   "/sharing/proxy",
   "proxy",
 ])
 
 // Indikatorer för proxy-relaterade fel
 const PROXY_INDICATORS = Object.freeze([
-  "Unable to load",
+  "unable to load",
   "/sharing/proxy",
   "proxy",
 ])
@@ -44,6 +44,7 @@ export function extractFmeVersion(info: unknown): string {
   if (!info) return ""
 
   const data = (info as any)?.data ?? info
+  const fmePattern = /\bFME\s+(?:Flow|Server)\s+(\d{4}(?:\.\d+)?)\b/i
   const versionPattern = /\b(\d+\.\d+(?:\.\d+)?|20\d{2}(?:\.\d+)?)\b/
 
   const directKeys = [
@@ -66,19 +67,26 @@ export function extractFmeVersion(info: unknown): string {
       : data?.[key]
 
     if (typeof value === "string") {
+      const fmeMatch = value.match(fmePattern)
+      if (fmeMatch) return fmeMatch[1]
+
       const match = value.match(versionPattern)
       if (match) return match[1]
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value)
+      if (value >= 2020 && value < 2100) return String(value)
+      if (value > 0 && value < 100) return String(value)
     }
   }
 
-  // Search all values as fallback
+  // Fallback: sök alla värden
   try {
     const allValues = Object.values(data || {})
     for (const val of allValues) {
       if (typeof val === "string") {
+        const fmeMatch = val.match(fmePattern)
+        if (fmeMatch) return fmeMatch[1]
+
         const match = val.match(versionPattern)
         if (match) return match[1]
       }
@@ -119,8 +127,13 @@ export async function healthCheck(
       const client = createFmeClient(serverUrl, token)
       const response = await client.testConnection(signal)
       const elapsed = Date.now() - startTime
+      const MAX_TIME = 300000
       const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
+        Number.isFinite(elapsed) && elapsed >= 0 && elapsed < MAX_TIME
+          ? elapsed
+          : elapsed < 0
+            ? 0
+            : MAX_TIME
 
       return {
         reachable: true,
@@ -129,31 +142,32 @@ export async function healthCheck(
       }
     } catch (error) {
       const elapsed = Date.now() - startTime
+      const MAX_TIME = 300000
       const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
+        Number.isFinite(elapsed) && elapsed >= 0 && elapsed < MAX_TIME
+          ? elapsed
+          : elapsed < 0
+            ? 0
+            : MAX_TIME
       const status = extractHttpStatus(error)
       const errorMessage = extractErrorMessage(error)
 
       if (status === 401 || status === 403) {
+        // 401/403 betyder att servern SVARADE = reachable
         if (hasNetworkError(errorMessage)) {
-          return {
-            reachable: false,
-            responseTime,
-            error: errorMessage,
-            status,
+          const strictValidation = validateServerUrl(serverUrl, {
+            strict: true,
+          })
+          if (!strictValidation.ok) {
+            return {
+              reachable: false,
+              responseTime,
+              error: "invalidUrl",
+              status,
+            }
           }
         }
-
-        const strictValidation = validateServerUrl(serverUrl, { strict: true })
-        if (!strictValidation.ok) {
-          return {
-            reachable: false,
-            responseTime,
-            error: "invalidUrl",
-            status,
-          }
-        }
-        return { reachable: true, responseTime, status }
+        return { reachable: true, responseTime, error: errorMessage, status }
       }
 
       return {
