@@ -58,6 +58,7 @@ import {
   checkMaxArea,
   evaluateArea,
   processFmeResponse,
+  getSupportEmail,
 } from "../shared/validations"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
@@ -66,7 +67,6 @@ import {
   getEmail,
   determineServiceMode,
   formatArea,
-  getSupportEmail,
   formatErrorForView,
   useLatestAbortController,
   toTrimmedString,

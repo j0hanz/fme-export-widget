@@ -12,8 +12,8 @@ import {
   toTrimmedString,
   isNonEmptyTrimmedString,
   toNonEmptyTrimmedString,
-  isValidEmail,
 } from "./conversion"
+import { isValidEmail } from "../validations"
 
 export const formatByteSize = (size: unknown): string | null => {
   if (!isFiniteNumber(size) || size < 0) {

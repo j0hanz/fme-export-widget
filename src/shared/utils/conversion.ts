@@ -209,42 +209,6 @@ export const toMetadataRecord = (
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
-// Email validation utilities (moved from validations.ts)
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const NO_REPLY_REGEX = /^no[-_]?reply@/i
-
-export const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (NO_REPLY_REGEX.test(email)) return false
-  return EMAIL_REGEX.test(email)
-}
-
-export const validateEmailField = (
-  email: string | undefined,
-  options: { required?: boolean } = {}
-): { ok: boolean; errorKey?: string } => {
-  const trimmed = (email ?? "").trim()
-
-  if (!trimmed) {
-    return options.required
-      ? { ok: false, errorKey: "emailRequired" }
-      : { ok: true }
-  }
-
-  if (!isValidEmail(trimmed)) {
-    return { ok: false, errorKey: "invalidEmail" }
-  }
-
-  return { ok: true }
-}
-
-export const getSupportEmail = (
-  configuredEmailRaw: unknown
-): string | undefined => {
-  const cfg = toTrimmedString(configuredEmailRaw)
-  return cfg && isValidEmail(cfg) ? cfg : undefined
-}
-
 /** Normalizes parameter values for safe FME submission. */
 export const normalizeParameterValue = (value: unknown): string | number => {
   if (isFiniteNumber(value)) return value

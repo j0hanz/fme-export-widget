@@ -23,6 +23,7 @@ import {
   ParameterType,
   MIN_TOKEN_LENGTH,
   FME_REST_PATH,
+  EMAIL_REGEX,
   GEODESIC_SEGMENT_LENGTH_METERS,
   MIN_PLANAR_SEGMENT_DEGREES,
   DEGREES_PER_METER,
@@ -319,6 +320,41 @@ export function validateServerUrl(
 export const mapServerUrlReasonToKey = (reason?: string): string => {
   if (!reason) return "invalid_url"
   return SERVER_URL_REASON_TO_KEY[reason] || "invalid_url"
+}
+
+// Email validation utilities (consolidated from conversion.ts)
+const NO_REPLY_REGEX = /^no[-_]?reply@/i
+
+export const isValidEmail = (email: unknown): boolean => {
+  if (typeof email !== "string" || !email) return false
+  if (NO_REPLY_REGEX.test(email)) return false
+  return EMAIL_REGEX.test(email)
+}
+
+export const validateEmailField = (
+  email: string | undefined,
+  options: { required?: boolean } = {}
+): { ok: boolean; errorKey?: string } => {
+  const trimmed = (email ?? "").trim()
+
+  if (!trimmed) {
+    return options.required
+      ? { ok: false, errorKey: "emailRequired" }
+      : { ok: true }
+  }
+
+  if (!isValidEmail(trimmed)) {
+    return { ok: false, errorKey: "invalidEmail" }
+  }
+
+  return { ok: true }
+}
+
+export const getSupportEmail = (
+  configuredEmailRaw: unknown
+): string | undefined => {
+  const cfg = toTrimmedString(configuredEmailRaw)
+  return cfg && isValidEmail(cfg) ? cfg : undefined
 }
 
 // Kontrollerar om token innehåller control characters
@@ -1520,8 +1556,6 @@ export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
 /* Re-exports från utils */
 export {
   // allmänna utils
-  // isValidEmail - defined in this file (consolidated from utils/validation.ts)
-  // getSupportEmail - defined in this file (consolidated from utils/validation.ts)
   isJson,
   safeParseUrl,
   extractErrorMessage,

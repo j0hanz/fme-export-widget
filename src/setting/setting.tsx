@@ -7,8 +7,6 @@ import {
   setError,
   clearErrors,
   parseNonNegativeInt,
-  isValidEmail,
-  validateEmailField,
   toTrimmedString,
   collectTrimmedStrings,
   uniqueStrings,
@@ -56,6 +54,8 @@ import {
   mapErrorToKey,
   mapServerUrlReasonToKey,
   validateConnectionInputs,
+  isValidEmail,
+  validateEmailField,
 } from "../shared/validations"
 import { createFmeSelectors } from "../extensions/store"
 import type {

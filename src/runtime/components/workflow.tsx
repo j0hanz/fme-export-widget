@@ -44,13 +44,15 @@ import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import itemIcon from "../../assets/icons/item.svg"
 import { ParameterFormService } from "../../shared/services"
-import { validateDateTimeFormat } from "../../shared/validations"
+import {
+  validateDateTimeFormat,
+  getSupportEmail,
+} from "../../shared/validations"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
   maskEmailForDisplay,
   stripHtmlToText,
-  getSupportEmail,
   stripErrorLabel,
   initFormValues,
   canResetButton,
