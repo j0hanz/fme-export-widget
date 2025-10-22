@@ -71,3 +71,95 @@ export const safeAbort = (ctrl: AbortController | null) => {
 export const logIfNotAbort = (_context: string, _error: unknown): void => {
   void (_context, _error)
 }
+
+export const shouldSuppressError = (
+  error: { code?: string; message?: string } | null
+): boolean => {
+  if (!error) return true
+  const code = error.code || ""
+  const message = error.message || ""
+  return code === "CANCELLED" || code === "ABORT" || /cancel/i.test(message)
+}
+
+export interface ErrorContext {
+  message: string
+  code?: string
+  hint?: string
+  suppressSupport: boolean
+}
+
+export const buildErrorContext = (
+  error: { code?: string; message?: string; userFriendlyMessage?: string },
+  supportEmail: string | undefined,
+  translate: (key: string) => string,
+  formatErrorForView: (
+    translate: any,
+    msgKey: string,
+    code: any,
+    supportEmail: any,
+    ufm?: string
+  ) => { hint?: string; message: string }
+): ErrorContext => {
+  const codeUpper = (error.code || "").toUpperCase()
+  const isGeometryInvalid =
+    codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
+  const isAreaTooLarge = codeUpper === "AREA_TOO_LARGE"
+  const isAoiRetryableError = isGeometryInvalid || isAreaTooLarge
+  const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
+  const suppressSupport = isAoiRetryableError || isConfigIncomplete
+
+  const baseMsgKey = error.message || "errorUnknown"
+  const ufm = error.userFriendlyMessage
+
+  let hint: string
+  if (isGeometryInvalid) {
+    hint = translate("hintGeometryInvalid")
+  } else if (isAreaTooLarge) {
+    hint = translate("hintAreaTooLarge")
+  } else if (isConfigIncomplete) {
+    hint = translate("hintSetupWidget")
+  } else {
+    const result = formatErrorForView(
+      translate,
+      baseMsgKey,
+      error.code,
+      supportEmail,
+      typeof ufm === "string" ? ufm : undefined
+    )
+    hint = result.hint || ""
+  }
+
+  return {
+    message: baseMsgKey,
+    code: suppressSupport ? undefined : error.code,
+    hint,
+    suppressSupport,
+  }
+}
+
+export const createErrorActions = (
+  error: { code?: string },
+  handlers: {
+    onRetry?: () => void
+    onReload?: () => void
+  },
+  translate: (key: string) => string
+): Array<{ label: string; onClick: () => void }> => {
+  const actions: Array<{ label: string; onClick: () => void }> = []
+
+  if (handlers.onRetry) {
+    actions.push({
+      label: translate("actionRetry"),
+      onClick: handlers.onRetry,
+    })
+  }
+
+  if (handlers.onReload) {
+    actions.push({
+      label: translate("actionReload"),
+      onClick: handlers.onReload,
+    })
+  }
+
+  return actions
+}

@@ -320,3 +320,84 @@ export async function validateWidgetStartup(
     }
   }
 }
+
+export interface StartupValidationFlowOptions {
+  config: any
+  useMapWidgetIds: string[]
+  translate: (key: string) => string
+  signal: AbortSignal
+  onProgress: (step: string) => void
+}
+
+export interface StartupValidationFlowResult {
+  success: boolean
+  error?: any
+}
+
+export async function runStartupValidationFlow(
+  options: StartupValidationFlowOptions
+): Promise<StartupValidationFlowResult> {
+  const { config, useMapWidgetIds, translate, signal, onProgress } = options
+
+  onProgress(translate("validatingStartup"))
+
+  // Step 1: validate map configuration
+  onProgress(translate("statusValidatingMap"))
+  const hasMapConfigured =
+    Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
+
+  // Step 2: validate widget config and FME connection
+  onProgress(translate("statusValidatingConnection"))
+  const validationResult = await validateWidgetStartup({
+    config,
+    translate,
+    signal,
+    mapConfigured: hasMapConfigured,
+  })
+
+  if (!validationResult.isValid) {
+    if (validationResult.error) {
+      throw new Error(JSON.stringify(validationResult.error))
+    } else if (validationResult.requiresSettings) {
+      const err = createError(
+        "configurationInvalid",
+        ErrorType.CONFIG,
+        "VALIDATION_FAILED",
+        translate
+      )
+      throw new Error(JSON.stringify(err))
+    }
+    return { success: false }
+  }
+
+  // Step 3: validate user email for async mode
+  if (!config?.syncMode) {
+    onProgress(translate("statusValidatingEmail"))
+    try {
+      const { getEmail, isValidEmail } = await import("../utils")
+      const email = await getEmail(config)
+      if (!isValidEmail(email)) {
+        const err = createError(
+          "userEmailMissingError",
+          ErrorType.CONFIG,
+          "UserEmailMissing",
+          translate
+        )
+        throw new Error(JSON.stringify(err))
+      }
+    } catch (emailErr) {
+      if (isAbortError(emailErr)) {
+        return { success: false }
+      }
+      const err = createError(
+        "userEmailMissingError",
+        ErrorType.CONFIG,
+        "UserEmailMissing",
+        translate
+      )
+      throw new Error(JSON.stringify(err))
+    }
+  }
+
+  return { success: true }
+}

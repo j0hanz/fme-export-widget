@@ -134,6 +134,88 @@ export function setupSketchEventHandlers({
   }
 }
 
+// Processes drawing completion with validation and area calculation
+export interface DrawingCompletionResult {
+  success: boolean
+  geometry?: __esri.Polygon
+  area?: number
+  error?: any
+  shouldWarn?: boolean
+}
+
+export async function processDrawingCompletion(params: {
+  geometry: __esri.Geometry | undefined
+  modules: any
+  graphicsLayer: __esri.GraphicsLayer | undefined
+  config: any
+  signal: AbortSignal
+}): Promise<DrawingCompletionResult> {
+  const { geometry, modules, config, signal } = params
+
+  if (!geometry) {
+    return { success: false, error: { code: "NO_GEOMETRY" } }
+  }
+
+  const { validatePolygon, calcArea, evaluateArea, checkMaxArea } =
+    await import("../validations")
+
+  if (signal.aborted) {
+    return { success: false, error: { code: "ABORTED" } }
+  }
+
+  const validation = await validatePolygon(geometry, modules)
+
+  if (signal.aborted) {
+    return { success: false, error: { code: "ABORTED" } }
+  }
+
+  if (!validation.valid) {
+    return { success: false, error: validation.error }
+  }
+
+  const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
+  const calculatedArea = await calcArea(geomForUse, modules)
+
+  if (signal.aborted) {
+    return { success: false, error: { code: "ABORTED" } }
+  }
+
+  if (!calculatedArea || calculatedArea <= 0) {
+    return {
+      success: false,
+      error: { code: "ZERO_AREA", message: "geometryInvalidCode" },
+    }
+  }
+
+  const normalizedArea = Math.abs(calculatedArea)
+  const areaEvaluation = evaluateArea(normalizedArea, {
+    maxArea: config?.maxArea,
+    largeArea: config?.largeArea,
+  })
+
+  if (signal.aborted) {
+    return { success: false, error: { code: "ABORTED" } }
+  }
+
+  if (areaEvaluation.exceedsMaximum) {
+    const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
+    return {
+      success: false,
+      error: {
+        code: maxCheck.code,
+        message: maxCheck.message || "geometryAreaTooLargeCode",
+      },
+    }
+  }
+
+  return {
+    success: true,
+    geometry: geomForUse,
+    area: normalizedArea,
+    shouldWarn: areaEvaluation.shouldWarn,
+  }
+}
+
 // Skapar SketchViewModel med event-handlers och cleanup-funktioner
 export function createSketchVM({
   jmv,
