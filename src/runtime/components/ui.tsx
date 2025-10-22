@@ -19,16 +19,12 @@ import {
   Radio as JimuRadio,
   Slider as JimuSlider,
   NumericInput as JimuNumericInput,
-  TagInput as JimuTagInput,
-  MultiSelect,
   SVG,
   Table as JimuTable,
-  RichDisplayer,
   Alert as JimuAlert,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
-import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import {
   useUniqueId,
   useControlledValue,
@@ -66,8 +62,6 @@ import {
   ariaDesc,
   formatNumericDisplay,
   resolveMessageOrKey,
-  parseIsoLocalDateTime,
-  formatIsoLocalDateTime,
   flattenHierarchicalOptions,
 } from "../../shared/utils"
 
@@ -682,28 +676,6 @@ export const NumericInput: React.FC<NumericInputProps> = ({
   )
 }
 
-// TagInput-komponent
-export const TagInput: React.FC<{
-  value?: string[]
-  suggestions?: string[]
-  placeholder?: string
-  onChange?: (values: string[]) => void
-  style?: React.CSSProperties
-}> = ({ value, suggestions, placeholder, onChange, style }) => {
-  const styles = useStyles()
-  return (
-    <JimuTagInput
-      values={value}
-      suggestions={suggestions}
-      placeholder={placeholder}
-      onChange={(vals) => {
-        onChange?.(vals)
-      }}
-      css={applyFullWidthStyles(styles, style)}
-    />
-  )
-}
-
 // Table-komponent
 export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
   props
@@ -728,125 +700,6 @@ export const ColorPickerWrapper: React.FC<{
       css={applyFullWidthStyles(styles, style)}
       showArrow
     />
-  )
-}
-
-// DateTimePicker-komponent
-export const DateTimePickerWrapper: React.FC<{
-  value?: string // ISO lokal: YYYY-MM-DDTHH:mm:ss eller FME: YYYY-MM-DD HH:mm:ss
-  defaultValue?: string
-  onChange?: (dateTime: string) => void
-  style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-  mode?: "date-time" | "date"
-  format?: "iso" | "fme" // Utdataformat: iso (standard) eller fme (mellanslag)
-}> = ({
-  value,
-  defaultValue,
-  onChange,
-  style,
-  disabled,
-  "aria-label": ariaLabel,
-  mode = "date-time",
-  format = "iso",
-}) => {
-  const styles = useStyles()
-  const [currentValue, setCurrentValue] = useValue(
-    value,
-    defaultValue,
-    onChange
-  )
-
-  // Bygger fallback-datum beroende på läge
-  const buildFallbackDate = () => {
-    const base = new Date()
-    if (mode === "date") base.setHours(0, 0, 0, 0)
-    return base
-  }
-  const fallbackDateRef = React.useRef<Date>(buildFallbackDate())
-
-  hooks.useUpdateEffect(() => {
-    fallbackDateRef.current = buildFallbackDate()
-  }, [mode])
-
-  const fallbackDate = fallbackDateRef.current
-
-  const selectedDate =
-    parseIsoLocalDateTime(currentValue) ||
-    parseIsoLocalDateTime(defaultValue) ||
-    fallbackDate
-
-  const handleChange = hooks.useEventCallback(
-    (rawValue: any, _label: string) => {
-      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-        const next = new Date(rawValue)
-        if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next, format))
-        return
-      }
-
-      if (rawValue instanceof Date) {
-        const next = new Date(rawValue.getTime())
-        if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next, format))
-        return
-      }
-
-      if (rawValue == null) {
-        setCurrentValue("")
-      }
-    }
-  )
-
-  const containerStyles = applyComponentStyles(
-    [styles.fullWidth, styles.relative],
-    style
-  )
-
-  const picker = (
-    <div css={containerStyles}>
-      <JimuDatePicker
-        selectedDate={selectedDate}
-        runtime={false}
-        showTimeInput={mode === "date-time"}
-        isLongTime={mode === "date-time"}
-        supportVirtualDateList={false}
-        disablePortal
-        onChange={handleChange}
-        aria-label={ariaLabel}
-      />
-    </div>
-  )
-
-  if (disabled) {
-    return (
-      <span aria-disabled="true" css={styles.disabledPicker}>
-        {picker}
-      </span>
-    )
-  }
-
-  return picker
-}
-
-// RichText-komponent
-export const RichText: React.FC<{
-  html?: string
-  placeholder?: string
-  className?: string
-  style?: React.CSSProperties
-}> = ({ html, placeholder, className, style }) => {
-  if (!html || html.trim().length === 0) {
-    return (
-      <div className={className} css={styleCss(style)}>
-        {placeholder || ""}
-      </div>
-    )
-  }
-
-  return (
-    <RichDisplayer className={className} css={styleCss(style)} value={html} />
   )
 }
 
@@ -1046,117 +899,6 @@ export const Select: React.FC<SelectProps> = ({
           })
           .filter(Boolean)}
       </JimuSelect>
-    </div>
-  )
-}
-
-// MultiSelectControl-komponent
-export const MultiSelectControl: React.FC<{
-  options?: readonly OptionItem[]
-  values?: Array<string | number>
-  defaultValues?: Array<string | number>
-  onChange?: (values: Array<string | number>) => void
-  placeholder?: string
-  disabled?: boolean
-  style?: React.CSSProperties
-  allowSearch?: boolean
-  hierarchical?: boolean
-}> = ({
-  options = [],
-  values,
-  defaultValues = [],
-  onChange,
-  placeholder,
-  disabled = false,
-  style,
-  allowSearch = false,
-  hierarchical = false,
-}) => {
-  const translate = hooks.useTranslation(defaultMessages)
-  const styles = useStyles()
-
-  const [current, setCurrent] = useValue<Array<string | number>>(
-    values,
-    defaultValues
-  )
-  const [searchTerm, setSearchTerm] = React.useState("")
-
-  const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
-  const trimmedSearch = allowSearch ? searchTerm.trim() : ""
-  const normalizedSearch = trimmedSearch.toLowerCase()
-
-  const flattenedEntries = flattenHierarchicalOptions(options, hierarchical)
-  const filteredEntries = normalizedSearch
-    ? flattenedEntries.filter(({ option }) => {
-        const baseLabel =
-          option.label && option.label.trim()
-            ? option.label.trim()
-            : String(option.value)
-        return baseLabel.toLowerCase().includes(normalizedSearch)
-      })
-    : flattenedEntries
-
-  const entriesToDisplay = filteredEntries
-
-  const items = entriesToDisplay
-    .map(({ option, depth }) => {
-      if (!option || option.value == null) {
-        return null
-      }
-      const baseLabel =
-        option.label && option.label.trim()
-          ? option.label.trim()
-          : String(option.value)
-      const label =
-        hierarchical && depth > 0
-          ? `${"- ".repeat(depth)}${baseLabel}`
-          : baseLabel
-      return {
-        value: option.value,
-        label,
-        disabled: Boolean(option.disabled),
-      }
-    })
-    .filter(Boolean) as Array<{
-    value: string | number
-    label: string
-    disabled: boolean
-  }>
-
-  const handleChange = hooks.useEventCallback(
-    (_value: string | number, newValues: Array<string | number>) => {
-      const normalized = Array.isArray(newValues)
-        ? newValues.filter(
-            (nextValue): nextValue is string | number => nextValue != null
-          )
-        : []
-      setCurrent(normalized)
-      onChange?.(normalized)
-    }
-  )
-
-  return (
-    <div css={applyComponentStyles([styles.fullWidth], style)}>
-      {allowSearch ? (
-        <Input
-          type="search"
-          value={searchTerm}
-          placeholder={translate("placeholderSearch")}
-          onChange={(val) => {
-            setSearchTerm(typeof val === "string" ? val : "")
-          }}
-          disabled={disabled}
-        />
-      ) : null}
-      <MultiSelect
-        values={current || []}
-        defaultValues={defaultValues}
-        onChange={handleChange}
-        placeholder={finalPlaceholder}
-        disabled={disabled}
-        items={items}
-        css={styles.fullWidth}
-      />
     </div>
   )
 }
