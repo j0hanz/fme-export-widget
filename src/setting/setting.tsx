@@ -1538,13 +1538,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 }
 
-/*
- * Wrapper-komponent som tillhandahåller QueryClient-kontext till SettingContent.
- * Detta är nödvändigt eftersom React Query hooks (useRepositories,
- * useValidateConnection) kräver QueryClientProvider i komponentträdet.
- *
- * Använder delad fmeQueryClient singleton för cache-delning med runtime.
- */
+// Query Client Provider wrapper för setting-komponenten
 export default function Setting(props: AllWidgetSettingProps<IMWidgetConfig>) {
   return (
     <QueryClientProvider client={fmeQueryClient}>
