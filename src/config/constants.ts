@@ -274,6 +274,56 @@ export const HTTP_STATUS_CODES = Object.freeze({
   SERVER_ERROR_MAX: 599,
 })
 
+// HTTP Status Ranges
+export const HTTP_STATUS_RANGES = Object.freeze({
+  SUCCESS_MIN: 200,
+  SUCCESS_MAX: 399,
+  CLIENT_ERROR_MIN: 400,
+  CLIENT_ERROR_MAX: 499,
+  SERVER_ERROR_MIN: 500,
+  SERVER_ERROR_MAX: 599,
+  MIN_VALID: 100,
+  MAX_VALID: 599,
+})
+
+// HTTP Status Classification Helpers
+export const isSuccessStatus = (status?: number): boolean =>
+  typeof status === 'number' &&
+  status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
+  status <= HTTP_STATUS_RANGES.SUCCESS_MAX
+
+export const isServerError = (status?: number): boolean =>
+  typeof status === 'number' && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN
+
+export const isClientError = (status?: number): boolean =>
+  typeof status === 'number' &&
+  status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
+  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX
+
+export const isHttpStatus = (n: unknown): n is number =>
+  typeof n === 'number' &&
+  n >= HTTP_STATUS_RANGES.MIN_VALID &&
+  n <= HTTP_STATUS_RANGES.MAX_VALID
+
+export const isRetryableStatus = (status?: number): boolean => {
+  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true
+  if (isServerError(status)) return true
+  return (
+    status === HTTP_STATUS_CODES.TIMEOUT ||
+    status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS
+  )
+}
+
+// Time Constants (milliseconds)
+export const TIME_CONSTANTS = Object.freeze({
+  SECOND: 1000,
+  MINUTE: 60 * 1000,
+  FIVE_MINUTES: 5 * 60 * 1000,
+  TEN_MINUTES: 10 * 60 * 1000,
+  MAX_RESPONSE_TIME: 300000, // 5 minutes
+  SLOW_REQUEST_THRESHOLD: 1000, // 1 second
+})
+
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   ARCGIS_MODULE_ERROR: "errorNetworkIssue",
   NETWORK_ERROR: "errorNetworkIssue",

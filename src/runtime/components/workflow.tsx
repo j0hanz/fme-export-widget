@@ -33,7 +33,7 @@ import {
   makeLoadingView,
   makeEmptyView,
   ErrorType,
-  type ErrorState,
+  type SerializableErrorState,
   ErrorSeverity,
   makeErrorView,
   MS_LOADING,
@@ -772,15 +772,16 @@ const ExportForm: React.FC<
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = errorMsg(count)
-      const error: ErrorState = {
+      const error: SerializableErrorState = {
         message: errorMessage,
         type: ErrorType.VALIDATION,
         code: "FORM_INVALID",
         severity: ErrorSeverity.ERROR,
         recoverable: true,
-        timestamp: new Date(),
         timestampMs: Date.now(),
-        kind: "runtime",
+        kind: "serializable",
+        userFriendlyMessage: "",
+        suggestion: "",
       }
       // Dispatch error to the store
       fmeDispatch.setError("general", error)

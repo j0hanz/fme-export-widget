@@ -1,6 +1,6 @@
 import type {
   ErrorState,
-  ErrorType,
+  SerializableErrorState,
   ErrorSeverity,
   TranslateFn,
 } from "../../config/index"
@@ -8,6 +8,7 @@ import {
   ERROR_CODE_TO_KEY,
   STATUS_TO_KEY_MAP,
   MESSAGE_PATTERNS,
+  isServerError,
   ErrorType as ErrorTypeEnum,
   ErrorSeverity as ErrorSeverityEnum,
 } from "../../config/index"
@@ -97,62 +98,6 @@ export const shouldSuppressError = (
   return code === "CANCELLED" || code === "ABORT" || /cancel/i.test(message)
 }
 
-export interface ErrorContext {
-  message: string
-  code?: string
-  hint?: string
-  suppressSupport: boolean
-}
-
-export const buildErrorContext = (
-  error: { code?: string; message?: string; userFriendlyMessage?: string },
-  supportEmail: string | undefined,
-  translate: (key: string) => string,
-  formatErrorForView: (
-    translate: any,
-    msgKey: string,
-    code: any,
-    supportEmail: any,
-    ufm?: string
-  ) => { hint?: string; message: string }
-): ErrorContext => {
-  const codeUpper = (error.code || "").toUpperCase()
-  const isGeometryInvalid =
-    codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
-  const isAreaTooLarge = codeUpper === "AREA_TOO_LARGE"
-  const isAoiRetryableError = isGeometryInvalid || isAreaTooLarge
-  const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
-  const suppressSupport = isAoiRetryableError || isConfigIncomplete
-
-  const baseMsgKey = error.message || "errorUnknown"
-  const ufm = error.userFriendlyMessage
-
-  let hint: string
-  if (isGeometryInvalid) {
-    hint = translate("hintGeometryInvalid")
-  } else if (isAreaTooLarge) {
-    hint = translate("hintAreaTooLarge")
-  } else if (isConfigIncomplete) {
-    hint = translate("hintSetupWidget")
-  } else {
-    const result = formatErrorForView(
-      translate,
-      baseMsgKey,
-      error.code,
-      supportEmail,
-      typeof ufm === "string" ? ufm : undefined
-    )
-    hint = result.hint || ""
-  }
-
-  return {
-    message: baseMsgKey,
-    code: suppressSupport ? undefined : error.code,
-    hint,
-    suppressSupport,
-  }
-}
-
 export const createErrorActions = (
   error: { code?: string },
   handlers: {
@@ -202,23 +147,28 @@ export const buildValidationErrors = <T extends { [key: string]: any }>(
   return { ok: Object.keys(errors).length === 0, errors }
 }
 
-// Error mapping and creation functions (consolidated from validations.ts)
-const statusToKey = (s?: number): string | undefined => {
-  if (typeof s !== "number") return undefined
-  if (STATUS_TO_KEY_MAP[s]) return STATUS_TO_KEY_MAP[s]
-  if (s >= 500) return "errorServerIssue"
-  return undefined
+/* ErrorMapper - Centralized error mapping to translation keys */
+
+interface ErrorMappingRules {
+  readonly codeToKey: { readonly [code: string]: string }
+  readonly statusToKey: { readonly [status: number]: string }
+  readonly messagePatterns: ReadonlyArray<{ pattern: RegExp; key: string }>
 }
 
-const matchMessagePattern = (message: string): string | undefined => {
-  const lowerMessage = message.toLowerCase()
-  for (const { pattern, key } of MESSAGE_PATTERNS) {
-    if (pattern.test(lowerMessage)) return key
-  }
-  return undefined
+const ERROR_MAPPING_RULES: ErrorMappingRules = {
+  codeToKey: ERROR_CODE_TO_KEY,
+  statusToKey: STATUS_TO_KEY_MAP,
+  messagePatterns: MESSAGE_PATTERNS,
 }
 
-const classifyError = (err: unknown, status?: number) => {
+interface ClassifiedError {
+  readonly status?: number
+  readonly code?: string
+  readonly message?: string
+  readonly isRequestFailed: boolean
+}
+
+const classifyError = (err: unknown, status?: number): ClassifiedError => {
   const resolvedStatus = status ?? extractHttpStatus(err)
 
   let errorCode: string | undefined
@@ -237,32 +187,94 @@ const classifyError = (err: unknown, status?: number) => {
   }
 }
 
-export const mapErrorToKey = (err: unknown, status?: number): string => {
+const statusToKeyInternal = (status?: number): string | undefined => {
+  if (typeof status !== "number") return undefined
+  if (ERROR_MAPPING_RULES.statusToKey[status]) {
+    return ERROR_MAPPING_RULES.statusToKey[status]
+  }
+  if (isServerError(status)) return "errorServerIssue"
+  return undefined
+}
+
+const matchMessagePatternInternal = (message: string): string | undefined => {
+  const lowerMessage = message.toLowerCase()
+  for (const { pattern, key } of ERROR_MAPPING_RULES.messagePatterns) {
+    if (pattern.test(lowerMessage)) return key
+  }
+  return undefined
+}
+
+export const mapErrorFromFmeApi = (err: unknown, status?: number): string => {
+  return mapErrorFromNetwork(err, status)
+}
+
+export const mapErrorFromNetwork = (err: unknown, status?: number): string => {
   const classification = classifyError(err, status)
 
   if (classification.isRequestFailed) {
-    return statusToKey(classification.status) || "errorServerIssue"
+    return statusToKeyInternal(classification.status) || "errorServerIssue"
   }
 
-  if (classification.code && ERROR_CODE_TO_KEY[classification.code]) {
-    return ERROR_CODE_TO_KEY[classification.code]
+  if (
+    classification.code &&
+    ERROR_MAPPING_RULES.codeToKey[classification.code]
+  ) {
+    return ERROR_MAPPING_RULES.codeToKey[classification.code]
   }
 
-  const statusKey = statusToKey(classification.status)
+  const statusKey = statusToKeyInternal(classification.status)
   if (statusKey) return statusKey
 
   if (classification.message) {
-    const messageKey = matchMessagePattern(classification.message)
+    const messageKey = matchMessagePatternInternal(classification.message)
     if (messageKey) return messageKey
   }
 
   return "errorUnknown"
 }
 
-export const createRuntimeError = (
+export const mapErrorFromValidation = (err: unknown): string => {
+  const classification = classifyError(err)
+
+  if (
+    classification.code &&
+    ERROR_MAPPING_RULES.codeToKey[classification.code]
+  ) {
+    return ERROR_MAPPING_RULES.codeToKey[classification.code]
+  }
+
+  if (classification.message) {
+    const messageKey = matchMessagePatternInternal(classification.message)
+    if (messageKey) return messageKey
+  }
+
+  return "errorUnknown"
+}
+
+export const mapErrorFromGeometry = (err: unknown): string => {
+  const classification = classifyError(err)
+
+  if (
+    classification.code &&
+    ERROR_MAPPING_RULES.codeToKey[classification.code]
+  ) {
+    return ERROR_MAPPING_RULES.codeToKey[classification.code]
+  }
+
+  return "geometrySerializationFailedCode"
+}
+
+// Legacy mapErrorToKey - delegates to mapErrorFromNetwork for backward compatibility
+export const mapErrorToKey = (err: unknown, status?: number): string => {
+  return mapErrorFromNetwork(err, status)
+}
+
+/* createError - Helper for creating ErrorState (runtime errors for validation) */
+
+export const createError = (
   message: string,
   options: {
-    type?: ErrorType
+    type?: ErrorTypeEnum
     code?: string
     severity?: ErrorSeverity
     recoverable?: boolean
@@ -270,48 +282,180 @@ export const createRuntimeError = (
     suggestion?: string
     retry?: () => void
   } = {}
-): ErrorState => ({
-  message,
-  type: options.type ?? ErrorTypeEnum.NETWORK,
-  code: options.code ?? "UNKNOWN",
-  severity: options.severity ?? ErrorSeverityEnum.ERROR,
-  recoverable: options.recoverable ?? true,
-  timestamp: new Date(),
-  timestampMs: Date.now(),
-  userFriendlyMessage: options.userFriendlyMessage ?? "",
-  suggestion: options.suggestion ?? "",
-  retry: options.retry,
-  kind: "runtime",
-})
-
-export const createError = (
-  messageKey: string,
-  type: ErrorType,
-  code: string,
-  translate: TranslateFn,
-  options?: {
-    suggestion?: string
-    userFriendlyMessage?: string
-    retry?: () => void
+): ErrorState => {
+  const timestampMs = Date.now()
+  return {
+    message,
+    type: options.type ?? ErrorTypeEnum.NETWORK,
+    code: options.code ?? "UNKNOWN",
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? true,
+    timestamp: new Date(),
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    retry: options.retry,
+    kind: "runtime",
   }
-): ErrorState =>
-  createRuntimeError(translate(messageKey) || messageKey, {
-    type,
-    code,
-    ...options,
-    suggestion:
-      options?.suggestion || translate("connectionSettingsHint") || "",
-  })
+}
 
-export function formatErrorForView(
+/* ErrorFactory - Centralized error creation producing SerializableErrorState */
+
+export interface ErrorFactoryOptions {
+  readonly code?: string
+  readonly severity?: ErrorSeverity
+  readonly recoverable?: boolean
+  readonly userFriendlyMessage?: string
+  readonly suggestion?: string
+  readonly details?: { [key: string]: unknown }
+  readonly scope?: string
+}
+
+export const createNetworkError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState => {
+  const timestampMs = Date.now()
+  const code = options.code ?? "NETWORK_ERROR"
+  const scope = options.scope ?? "general"
+
+  return {
+    message: messageKey,
+    type: ErrorTypeEnum.NETWORK,
+    code,
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? true,
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    details: options.details,
+    kind: "serializable",
+    errorId: `${scope}_${code}`,
+  }
+}
+
+export const createValidationError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState => {
+  const timestampMs = Date.now()
+  const code = options.code ?? "VALIDATION_ERROR"
+  const scope = options.scope ?? "general"
+
+  return {
+    message: messageKey,
+    type: ErrorTypeEnum.VALIDATION,
+    code,
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? true,
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    details: options.details,
+    kind: "serializable",
+    errorId: `${scope}_${code}`,
+  }
+}
+
+export const createConfigError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState => {
+  const timestampMs = Date.now()
+  const code = options.code ?? "CONFIG_ERROR"
+  const scope = options.scope ?? "general"
+
+  return {
+    message: messageKey,
+    type: ErrorTypeEnum.CONFIG,
+    code,
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? true,
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    details: options.details,
+    kind: "serializable",
+    errorId: `${scope}_${code}`,
+  }
+}
+
+export const createGeometryError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState => {
+  const timestampMs = Date.now()
+  const code = options.code ?? "GEOMETRY_ERROR"
+  const scope = options.scope ?? "general"
+
+  return {
+    message: messageKey,
+    type: ErrorTypeEnum.GEOMETRY,
+    code,
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? true,
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    details: options.details,
+    kind: "serializable",
+    errorId: `${scope}_${code}`,
+  }
+}
+
+export const createModuleError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState => {
+  const timestampMs = Date.now()
+  const code = options.code ?? "MODULE_ERROR"
+  const scope = options.scope ?? "general"
+
+  return {
+    message: messageKey,
+    type: ErrorTypeEnum.MODULE,
+    code,
+    severity: options.severity ?? ErrorSeverityEnum.ERROR,
+    recoverable: options.recoverable ?? false,
+    timestampMs,
+    userFriendlyMessage: options.userFriendlyMessage ?? "",
+    suggestion: options.suggestion ?? "",
+    details: options.details,
+    kind: "serializable",
+    errorId: `${scope}_${code}`,
+  }
+}
+
+export const formatErrorPresentation = (
+  error: SerializableErrorState | ErrorState,
   translate: TranslateFn,
-  baseKeyOrMessage: string,
-  code?: string,
-  supportEmail?: string,
-  userFriendly?: string
-): { message: string; code?: string; hint?: string } {
-  const message =
-    resolveMessageOrKey(baseKeyOrMessage, translate) || baseKeyOrMessage
-  const hint = buildSupportHintText(translate, supportEmail, userFriendly)
-  return { message, code, hint }
+  supportEmail?: string
+): { message: string; code?: string; hint?: string } => {
+  const codeUpper = error.code.toUpperCase()
+  const isGeometryInvalid =
+    codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
+  const isAreaTooLarge = codeUpper === "AREA_TOO_LARGE"
+  const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
+  const suppressSupport =
+    isGeometryInvalid || isAreaTooLarge || isConfigIncomplete
+
+  const message = resolveMessageOrKey(error.message, translate) || error.message
+  const userFriendly = error.userFriendlyMessage || undefined
+
+  let hint: string
+  if (isGeometryInvalid) {
+    hint = translate("hintGeometryInvalid")
+  } else if (isAreaTooLarge) {
+    hint = translate("hintAreaTooLarge")
+  } else if (isConfigIncomplete) {
+    hint = translate("hintSetupWidget")
+  } else {
+    hint = buildSupportHintText(translate, supportEmail, userFriendly)
+  }
+
+  return {
+    message,
+    code: suppressSupport ? undefined : error.code,
+    hint,
+  }
 }

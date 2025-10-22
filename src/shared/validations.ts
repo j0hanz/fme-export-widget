@@ -10,6 +10,8 @@ import {
   FME_REST_PATH,
   EMAIL_REGEX,
   HTTP_STATUS_CODES,
+  isHttpStatus,
+  isRetryableStatus,
   SERVER_URL_REASON_TO_KEY,
   REQUIRED_CONFIG_FIELDS,
   STATUS_PROPERTIES,
@@ -191,10 +193,6 @@ export const isNum = (value: unknown): boolean => {
   const num = parseAsNumber(value)
   return num !== null
 }
-
-// Kontrollerar om nummer är valid HTTP status code (100-599)
-const isHttpStatus = (n: unknown): n is number =>
-  typeof n === "number" && n >= 100 && n <= 599
 
 // URL validation helpers
 
@@ -403,10 +401,7 @@ export const isRetryableError = (error: unknown): boolean => {
   }
 
   const status = extractHttpStatus(error)
-
-  if (!status || status < 100) return true
-  if (status >= 500) return true
-  return status === 408 || status === 429
+  return isRetryableStatus(status)
 }
 
 // Validerar att obligatoriska config-fält är satta

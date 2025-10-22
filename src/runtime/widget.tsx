@@ -57,10 +57,9 @@ import { mapErrorToKey } from "../shared/utils/error"
 import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
-  resolveMessageOrKey,
   determineServiceMode,
   formatArea,
-  formatErrorForView,
+  formatErrorPresentation,
   useLatestAbortController,
   toTrimmedString,
   logIfNotAbort,
@@ -73,7 +72,6 @@ import {
   isAbortError,
   createFmeDispatcher,
   shouldSuppressError,
-  buildErrorContext,
   createErrorActions,
 } from "../shared/utils"
 import {
@@ -515,13 +513,8 @@ function WidgetContent(
       if (shouldSuppressError(error)) return null
 
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
-      const context = buildErrorContext(
-        error,
-        supportEmail,
-        translate,
-        formatErrorForView
-      )
-      const resolvedMessage = resolveMessageOrKey(context.message, translate)
+      const context = formatErrorPresentation(error, translate, supportEmail)
+      const resolvedMessage = context.message
 
       /* Bygger retry-action som rensar fel och återgår till ritläge */
       const defaultRetryHandler = () => {
@@ -561,7 +554,7 @@ function WidgetContent(
       const hintText = toTrimmedString(context.hint)
       const supportDetail = !hintText
         ? undefined
-        : context.suppressSupport
+        : !context.code
           ? hintText
           : renderSupportHint(supportEmail, translate, styles, hintText)
 
@@ -732,27 +725,27 @@ function WidgetContent(
     }
   })
 
-  const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    setStartupStep(undefined)
-    fmeDispatch.setError("general", error)
-  })
+  const setValidationError = hooks.useEventCallback(
+    (error: SerializableErrorState) => {
+      setStartupStep(undefined)
+      fmeDispatch.setError("general", error)
+    }
+  )
 
-  /* Skapar konsekvent startup-valideringsfel med retry-callback */
+  /* Skapar konsekvent startup-valideringsfel utan retry-callback (Redux-kompatibelt) */
   const createStartupError = hooks.useEventCallback(
-    (messageKey: string, code: string, retry?: () => void): ErrorState => ({
+    (messageKey: string, code: string): SerializableErrorState => ({
       message: translate(messageKey),
       type: ErrorType.CONFIG,
       code,
       severity: ErrorSeverity.ERROR,
       recoverable: true,
-      timestamp: new Date(),
       timestampMs: Date.now(),
       userFriendlyMessage: config?.supportEmail
         ? String(config.supportEmail)
         : "",
       suggestion: translate("actionRetryValidation"),
-      retry,
-      kind: "runtime",
+      kind: "serializable",
     })
   )
 

@@ -1,6 +1,7 @@
 import { createFmeClient, extractErrorMessage } from "../utils"
 import { extractHttpStatus, validateServerUrl } from "../validations"
 import { inFlight } from "./inflight"
+import { HTTP_STATUS_CODES, TIME_CONSTANTS } from "../../config/constants"
 
 /* Network Error Detection */
 
@@ -127,13 +128,14 @@ export async function healthCheck(
       const client = createFmeClient(serverUrl, token)
       const response = await client.testConnection(signal)
       const elapsed = Date.now() - startTime
-      const MAX_TIME = 300000
       const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 && elapsed < MAX_TIME
+        Number.isFinite(elapsed) &&
+        elapsed >= 0 &&
+        elapsed < TIME_CONSTANTS.MAX_RESPONSE_TIME
           ? elapsed
           : elapsed < 0
             ? 0
-            : MAX_TIME
+            : TIME_CONSTANTS.MAX_RESPONSE_TIME
 
       return {
         reachable: true,
@@ -142,17 +144,21 @@ export async function healthCheck(
       }
     } catch (error) {
       const elapsed = Date.now() - startTime
-      const MAX_TIME = 300000
       const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 && elapsed < MAX_TIME
+        Number.isFinite(elapsed) &&
+        elapsed >= 0 &&
+        elapsed < TIME_CONSTANTS.MAX_RESPONSE_TIME
           ? elapsed
           : elapsed < 0
             ? 0
-            : MAX_TIME
+            : TIME_CONSTANTS.MAX_RESPONSE_TIME
       const status = extractHttpStatus(error)
       const errorMessage = extractErrorMessage(error)
 
-      if (status === 401 || status === 403) {
+      if (
+        status === HTTP_STATUS_CODES.UNAUTHORIZED ||
+        status === HTTP_STATUS_CODES.FORBIDDEN
+      ) {
         // 401/403 betyder att servern SVARADE = reachable
         if (hasNetworkError(errorMessage)) {
           const strictValidation = validateServerUrl(serverUrl, {

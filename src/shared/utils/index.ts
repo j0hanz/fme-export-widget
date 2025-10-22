@@ -2,7 +2,6 @@ import type { Dispatch } from "react"
 import type {
   DrawingTool,
   ViewMode,
-  ErrorState,
   ExportResult,
   WorkspaceItem,
   WorkspaceItemDetail,
@@ -28,7 +27,6 @@ export * from "./format"
 export * from "./geometry"
 export * from "./form"
 export * from "./error"
-export type { ErrorContext } from "./error"
 export * from "./fme"
 export * from "./arcgis"
 export * from "./network"
@@ -45,10 +43,7 @@ export const createFmeDispatcher = (
   setViewMode: (mode: ViewMode) => {
     dispatch(fmeActions.setViewMode(mode, widgetId))
   },
-  setError: (
-    scope: ErrorScope,
-    error: ErrorState | SerializableErrorState | null
-  ) => {
+  setError: (scope: ErrorScope, error: SerializableErrorState | null) => {
     dispatch(fmeActions.setError(scope, error, widgetId))
   },
   clearError: (scope: ErrorScope | "all") => {

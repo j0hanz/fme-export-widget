@@ -6,7 +6,6 @@ import {
   FmeActionType,
   FME_ACTION_TYPES,
   type FmeWidgetState,
-  type ErrorState,
   type SerializableErrorState,
   type WorkspaceItem,
   type WorkspaceItemDetail,
@@ -21,7 +20,7 @@ import {
   type LoadingFlagKey,
   type ErrorMap,
 } from "../config/index"
-import { toSerializable, toTrimmedString } from "../shared/utils"
+import { toTrimmedString } from "../shared/utils"
 
 /* Action creators för FME-widget state management */
 export const fmeActions = {
@@ -110,40 +109,37 @@ export const fmeActions = {
   // Sätter enskilt fel för specifik scope (general/import/export)
   setError: (
     scope: ErrorScope,
-    error: ErrorState | SerializableErrorState | null,
+    error: SerializableErrorState | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_ERROR,
     scope,
-    error: error ? toSerializable(error) : null,
+    error,
     widgetId,
   }),
   // Sätter flera fel samtidigt (batch-uppdatering)
   setErrors: (
     errors: Partial<{
-      [scope in ErrorScope]?:
-        | ErrorState
-        | SerializableErrorState
-        | null
-        | undefined
+      [scope in ErrorScope]?: SerializableErrorState | null | undefined
     }>,
     widgetId: string
   ) => {
-    // Serialiserar alla fel till Redux-kompatibelt format
-    const serialized: Partial<{
+    // Filtrerar bort undefined-värden
+    const filtered: Partial<{
       [scope in ErrorScope]?: SerializableErrorState | null
     }> = {}
 
     for (const [scopeKey, maybeError] of Object.entries(errors) as Array<
-      [ErrorScope, ErrorState | SerializableErrorState | null | undefined]
+      [ErrorScope, SerializableErrorState | null | undefined]
     >) {
-      if (typeof maybeError === "undefined") continue
-      serialized[scopeKey] = maybeError ? toSerializable(maybeError) : null
+      if (typeof maybeError !== "undefined") {
+        filtered[scopeKey] = maybeError
+      }
     }
 
     return {
       type: FmeActionType.SET_ERRORS,
-      errors: serialized,
+      errors: filtered,
       widgetId,
     }
   },

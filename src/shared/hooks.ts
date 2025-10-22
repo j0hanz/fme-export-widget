@@ -4,7 +4,7 @@ import { useSelector } from "react-redux"
 import type { JimuMapView } from "jimu-arcgis"
 import type {
   EsriModules,
-  ErrorState,
+  SerializableErrorState,
   ErrorType,
   WorkspaceParameter,
   WorkspaceItemDetail,
@@ -21,6 +21,7 @@ import {
   ESRI_MODULES_TO_LOAD,
   WORKSPACE_ITEM_TYPE,
   DEFAULT_REPOSITORY,
+  TIME_CONSTANTS,
 } from "../config/index"
 import { fmeActions } from "../extensions/store"
 import {
@@ -399,20 +400,19 @@ export const useErrorDispatcher = (
   widgetId: string
 ) =>
   hooks.useEventCallback((message: string, type: ErrorType, code?: string) => {
-    const error: ErrorState = {
+    const error: SerializableErrorState = {
       message,
       type,
       code: code || "UNKNOWN",
       severity: ErrorSeverity.ERROR,
       recoverable: true,
-      timestamp: new Date(),
       timestampMs: Date.now(),
-      kind: "runtime",
+      kind: "serializable",
+      userFriendlyMessage: "",
+      suggestion: "",
     }
     dispatch(fmeActions.setError("general", error, widgetId))
   })
-
-/* Form State Management Hook */
 
 // Hook för formulärhantering med validering och onChange-notifiering
 export const useFormStateManager = (
@@ -814,7 +814,7 @@ export function useWorkspaceItem(
     enabled:
       (options?.enabled ?? true) &&
       Boolean(workspace && config.fmeServerUrl && config.fmeServerToken),
-    staleTime: 10 * 60 * 1000,
+    staleTime: TIME_CONSTANTS.TEN_MINUTES,
     refetchOnMount: false,
   })
 }
@@ -985,7 +985,7 @@ export function usePrefetchWorkspaces(
                     unregister()
                   }
                 },
-                staleTime: 10 * 60 * 1000,
+                staleTime: TIME_CONSTANTS.TEN_MINUTES,
               })
             )
           )

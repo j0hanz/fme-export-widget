@@ -1,5 +1,6 @@
 import type {
   ErrorState,
+  SerializableErrorState,
   EsriModules,
   FmeExportConfig,
   MutableParams,
@@ -25,7 +26,7 @@ import {
 import { toTrimmedString } from "./conversion"
 import { sanitizeParamKey } from "./form"
 import { loadArcgisModules } from "./index"
-import { createRuntimeError } from "./error"
+import { createGeometryError } from "./error"
 
 const createAoiSerializationError = (): ErrorState => ({
   message: "GEOMETRY_SERIALIZATION_FAILED",
@@ -1059,11 +1060,11 @@ const validateHolesWithinOuter = (
 const makeGeometryError = (
   messageKey: string,
   code: string
-): { valid: false; error: ErrorState } => ({
+): { valid: false; error: SerializableErrorState } => ({
   valid: false,
-  error: createRuntimeError(messageKey, {
-    type: ErrorType.GEOMETRY,
+  error: createGeometryError(messageKey, {
     code,
+    scope: "general",
   }),
 })
 
@@ -1073,7 +1074,7 @@ export const validatePolygon = async (
   modules: ArcgisGeometryModules
 ): Promise<{
   valid: boolean
-  error?: ErrorState
+  error?: SerializableErrorState
   simplified?: __esri.Polygon
 }> => {
   if (!geometry) {

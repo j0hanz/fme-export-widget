@@ -28,6 +28,10 @@ import {
   isRetryableError,
   validateRequiredConfig,
 } from "./validations"
+import {
+  isSuccessStatus,
+  isRetryableStatus,
+} from "../config/constants"
 import { mapErrorToKey } from "./utils/error"
 import {
   buildUrl,
@@ -374,7 +378,7 @@ function logRequest(
 // Härleder ok-status från HTTP-statuskod
 function inferOk(status?: number): boolean | undefined {
   if (typeof status !== "number") return undefined
-  return status >= 200 && status < 400
+  return isSuccessStatus(status)
 }
 
 // Skapar abort-reason för AbortController
@@ -531,9 +535,7 @@ export const abortManager = new AbortControllerManager()
 
 // Kontrollerar om HTTP-status är retry-bar
 const isStatusRetryable = (status?: number): boolean => {
-  if (!status || status < 100) return true
-  if (status >= 500) return true
-  return status === 408 || status === 429
+  return isRetryableStatus(status)
 }
 
 // Skapar typat FME Flow API-fel med enhetlig struktur
@@ -559,7 +561,7 @@ const getEsriResponseStatus = (response: any): number | undefined => {
 const getEsriResponseOk = (response: any): boolean | undefined => {
   const status = getEsriResponseStatus(response)
   if (typeof status !== "number") return undefined
-  return status >= 200 && status < 400
+  return isSuccessStatus(status)
 }
 
 // Beräknar storlek av esriRequest-svar (bytes)

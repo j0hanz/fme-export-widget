@@ -220,6 +220,7 @@ export interface SerializableErrorState {
   readonly userFriendlyMessage?: string
   readonly suggestion?: string
   readonly kind?: "serializable"
+  readonly errorId?: string
 }
 
 export type AnyErrorState = ErrorState | SerializableErrorState

@@ -5,7 +5,7 @@ import type {
   StartupValidationOptions,
   StartupValidationResult,
 } from "../../config/index"
-import { ErrorType } from "../../config/index"
+import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
 import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
 import { extractHttpStatus, validateRequiredFields } from "../validations"
 import { createError, mapErrorToKey } from "../utils/error"
@@ -64,7 +64,7 @@ export async function validateConnection(
           }
           const status = extractHttpStatus(error)
 
-          if (status === 401) {
+          if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
             steps.serverUrl = "ok"
             steps.token = "fail"
             return {
@@ -76,7 +76,7 @@ export async function validateConnection(
                 status,
               },
             }
-          } else if (status === 403) {
+          } else if (status === HTTP_STATUS_CODES.FORBIDDEN) {
             const rawMessage = extractErrorMessage(error)
             if (hasProxyError(rawMessage)) {
               steps.serverUrl = "fail"
@@ -168,7 +168,10 @@ export async function validateConnection(
             steps.repository = "ok"
           } catch (error) {
             const status = extractHttpStatus(error)
-            if (status === 401 || status === 403) {
+            if (
+              status === HTTP_STATUS_CODES.UNAUTHORIZED ||
+              status === HTTP_STATUS_CODES.FORBIDDEN
+            ) {
               steps.repository = "skip"
               warnings.push("repositoryNotAccessible")
             } else {
@@ -232,16 +235,12 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createError(
-        "errorSetupRequired",
-        ErrorType.CONFIG,
-        "configMissing",
-        translate,
-        {
-          suggestion: translate("actionOpenSettings"),
-          userFriendlyMessage: translate("hintSetupWidget"),
-        }
-      ),
+      error: createError("errorSetupRequired", {
+        type: ErrorType.CONFIG,
+        code: "configMissing",
+        suggestion: translate("actionOpenSettings"),
+        userFriendlyMessage: translate("hintSetupWidget"),
+      }),
     }
   }
 
@@ -254,12 +253,10 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createError(
-        "errorSetupRequired",
-        ErrorType.CONFIG,
-        "CONFIG_INCOMPLETE",
-        translate
-      ),
+      error: createError("errorSetupRequired", {
+        type: ErrorType.CONFIG,
+        code: "CONFIG_INCOMPLETE",
+      }),
     }
   }
 
@@ -279,10 +276,10 @@ export async function validateWidgetStartup(
         requiresSettings: true,
         error: createError(
           connectionResult.error?.message || "errorConnectionIssue",
-          ErrorType.NETWORK,
-          connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
-          translate,
           {
+            type: ErrorType.NETWORK,
+            code:
+              connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
             suggestion:
               connectionResult.error?.type === "token"
                 ? translate("tokenSettingsHint")
@@ -316,15 +313,11 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createError(
-        "errorNetworkIssue",
-        ErrorType.NETWORK,
-        "STARTUP_NETWORK_ERROR",
-        translate,
-        {
-          suggestion: translate("networkConnectionHint"),
-        }
-      ),
+      error: createError("errorNetworkIssue", {
+        type: ErrorType.NETWORK,
+        code: "STARTUP_NETWORK_ERROR",
+        suggestion: translate("networkConnectionHint"),
+      }),
     }
   }
 }
@@ -367,12 +360,10 @@ export async function runStartupValidationFlow(
     if (validationResult.error) {
       throw new Error(JSON.stringify(validationResult.error))
     } else if (validationResult.requiresSettings) {
-      const err = createError(
-        "configurationInvalid",
-        ErrorType.CONFIG,
-        "VALIDATION_FAILED",
-        translate
-      )
+      const err = createError("configurationInvalid", {
+        type: ErrorType.CONFIG,
+        code: "VALIDATION_FAILED",
+      })
       throw new Error(JSON.stringify(err))
     }
     return { success: false }
@@ -385,24 +376,20 @@ export async function runStartupValidationFlow(
       const { getEmail, isValidEmail } = await import("../utils")
       const email = await getEmail(config)
       if (!isValidEmail(email)) {
-        const err = createError(
-          "userEmailMissingError",
-          ErrorType.CONFIG,
-          "UserEmailMissing",
-          translate
-        )
+        const err = createError("userEmailMissingError", {
+          type: ErrorType.CONFIG,
+          code: "UserEmailMissing",
+        })
         throw new Error(JSON.stringify(err))
       }
     } catch (emailErr) {
       if (isAbortError(emailErr)) {
         return { success: false }
       }
-      const err = createError(
-        "userEmailMissingError",
-        ErrorType.CONFIG,
-        "UserEmailMissing",
-        translate
-      )
+      const err = createError("userEmailMissingError", {
+        type: ErrorType.CONFIG,
+        code: "UserEmailMissing",
+      })
       throw new Error(JSON.stringify(err))
     }
   }
