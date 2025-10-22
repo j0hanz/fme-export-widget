@@ -351,10 +351,7 @@ function applyErrorPatch(
   }
 
   const currentMap = (state.errors as ErrorMap) ?? createInitialErrorMap()
-  let changed = false
-  const nextMap: Partial<{ [scope in ErrorScope]: SerializableErrorState }> = {
-    ...currentMap,
-  }
+  const changes: Partial<{ [scope in ErrorScope]: SerializableErrorState | null }> = {}
 
   for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
     [ErrorScope, SerializableErrorState | null]
@@ -362,24 +359,22 @@ function applyErrorPatch(
     // Validerar att scope är giltig enum-medlem
     if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
 
-    if (!maybeError) {
-      if (scopeKey in nextMap) {
-        delete nextMap[scopeKey]
-        changed = true
-      }
-      continue
-    }
-
-    const current = nextMap[scopeKey]
+    const current = currentMap[scopeKey]
     if (current !== maybeError) {
-      nextMap[scopeKey] = maybeError
-      changed = true
+      changes[scopeKey] = maybeError
     }
   }
 
-  if (!changed) {
+  if (Object.keys(changes).length === 0) {
     return state
   }
+
+  const nextMap = Object.entries({ ...currentMap, ...changes }).reduce<
+    Partial<{ [scope in ErrorScope]: SerializableErrorState }>
+  >((acc, [key, val]) => {
+    if (val !== null) acc[key as ErrorScope] = val
+    return acc
+  }, {})
 
   const readonlyMap = nextMap as ErrorMap
   return state.set("errors", readonlyMap)

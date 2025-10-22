@@ -8,7 +8,6 @@ import type {
   WorkspaceParameter,
   WorkspaceItem,
   WorkspaceItemDetail,
-  WorkspaceProperty,
   ServiceMode,
   CoordinateTuple,
   ColorFieldConfig,
@@ -732,9 +731,12 @@ export const normalizeServiceModeConfig = (
   if (!config) return config ?? undefined
 
   const rawValue = config.syncMode
-  const coercedSyncMode = rawValue === "true" || rawValue === true
+  const coercedSyncMode = (typeof rawValue === "string" ? rawValue === "true" : Boolean(rawValue))
 
-  if (rawValue === coercedSyncMode) return config
+  // Skip cloning if syncMode is already a boolean with the correct value
+  if (typeof rawValue === "boolean" && rawValue === coercedSyncMode) {
+    return config
+  }
 
   const cloned = { ...config, syncMode: coercedSyncMode }
   if (typeof (config as any).set === "function") {
