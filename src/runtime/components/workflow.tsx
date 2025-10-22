@@ -1571,6 +1571,143 @@ export const Workflow: React.FC<WorkflowProps> = ({
     </div>
   )
 
+  // Route guard: Kontrollera om startup-validering ska visas
+  const shouldShowStartupValidation = () => state === ViewMode.STARTUP_VALIDATION
+
+  // Route guard: Kontrollera om orderresultat ska visas
+  const shouldShowOrderResult = () =>
+    state === ViewMode.ORDER_RESULT && orderResult
+
+  // Route guard: Kontrollera om submission progress ska visas
+  const shouldShowSubmissionProgress = () => isSubmittingOrder
+
+  // Route guard: Kontrollera om fel ska visas
+  const shouldShowError = () => Boolean(error)
+
+  // Route guard: Kontrollera om geometry-validering pågår
+  const shouldShowGeometryValidation = () =>
+    isCompleting &&
+    (state === ViewMode.DRAWING ||
+      state === ViewMode.EXPORT_OPTIONS ||
+      state === ViewMode.WORKSPACE_SELECTION)
+
+  // Renderar startup-validering (fel eller laddning)
+  const renderStartupValidation = () => {
+    if (startupValidationError) {
+      const supportHint = config?.supportEmail || ""
+      return renderError(
+        startupValidationError.message,
+        undefined,
+        onRetryValidation ||
+          (() => {
+            window.location.reload()
+          }),
+        startupValidationError.code,
+        startupValidationError.userFriendlyMessage || supportHint
+      )
+    }
+
+    const loadingMessage =
+      startupValidationStep || translate("validatingStartup")
+    return renderLoading(loadingMessage)
+  }
+
+  // Renderar orderresultat
+  const renderOrderResult = () => (
+    <OrderResult
+      orderResult={orderResult}
+      translate={translate}
+      onReuseGeography={onReuseGeography}
+      onBack={onBack}
+      onReset={onReset}
+      config={config}
+    />
+  )
+
+  // Renderar submission progress med fasmeddelanden
+  const renderSubmissionProgress = () => {
+    const isSyncMode = Boolean(config?.syncMode)
+    const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
+    const baseMessage = translate(baseKey)
+
+    let phaseKey: string | null = null
+    let detailKey: string | null = null
+
+    switch (submissionPhase) {
+      case "preparing":
+        phaseKey = "submissionPhasePreparing"
+        detailKey = "submissionPhasePreparingDetail"
+        break
+      case "uploading":
+        phaseKey = "submissionPhaseUploading"
+        detailKey = "submissionPhaseUploadingDetail"
+        break
+      case "finalizing":
+        phaseKey = "submissionPhaseFinalizing"
+        detailKey = "submissionPhaseFinalizingDetail"
+        break
+      case "submitting":
+        phaseKey = "submissionPhaseSubmitting"
+        detailKey = "submissionPhaseSubmittingDetail"
+        break
+      default:
+        phaseKey = null
+        detailKey = null
+    }
+
+    if (phaseKey && detailKey) {
+      return renderLoading(translate(phaseKey), translate(detailKey))
+    }
+
+    if (isSyncMode) {
+      return renderLoading(baseMessage, translate("submittingOrderSyncDetail"))
+    }
+
+    return renderLoading(baseMessage, translate("pleaseWait"))
+  }
+
+  // Renderar fel med användarmeddelande
+  const renderErrorView = () =>
+    renderError(
+      error.message,
+      undefined,
+      error.severity !== "info" ? onBack : undefined,
+      error.code,
+      error.userFriendlyMessage
+    )
+
+  // Renderar geometry-validering laddning
+  const renderGeometryValidation = () => (
+    <StateView
+      state={makeLoadingView(
+        translate("loadingGeometryValidation"),
+        translate("loadingGeometryValidationDetail")
+      )}
+    />
+  )
+
+  // Renderar vy baserat på state (för normala vyer)
+  const renderViewByState = () => {
+    switch (state) {
+      case ViewMode.INITIAL:
+        return renderInitial()
+      case ViewMode.DRAWING:
+        if ((clickCount || 0) === 0) {
+          return renderDrawingModeTabs()
+        }
+        return renderDrawing()
+      case ViewMode.EXPORT_OPTIONS:
+      case ViewMode.WORKSPACE_SELECTION:
+        return renderSelection()
+      case ViewMode.EXPORT_FORM:
+        return renderForm()
+      case ViewMode.ORDER_RESULT:
+        return renderError(translate("orderResultMissing"), onBack)
+      default:
+        return renderInitial()
+    }
+  }
+
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
@@ -1659,140 +1796,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
-  // Renderar aktuell vy baserat på state
+  // Renderar aktuell vy baserat på state (förenklad med route guards)
   const renderCurrent = () => {
-    // Uppstartsvalidering
-    if (state === ViewMode.STARTUP_VALIDATION) {
-      if (startupValidationError) {
-        const supportHint = config?.supportEmail || ""
-        return renderError(
-          startupValidationError.message,
-          undefined,
-          onRetryValidation ||
-            (() => {
-              window.location.reload()
-            }),
-          startupValidationError.code,
-          startupValidationError.userFriendlyMessage || supportHint
-        )
-      }
-
-      const loadingMessage =
-        startupValidationStep || translate("validatingStartup")
-      return renderLoading(loadingMessage)
-    }
-
-    // Orderresultat
-    if (state === ViewMode.ORDER_RESULT && orderResult) {
-      return (
-        <OrderResult
-          orderResult={orderResult}
-          translate={translate}
-          onReuseGeography={onReuseGeography}
-          onBack={onBack}
-          onReset={onReset}
-          config={config}
-        />
-      )
-    }
-
-    // Inlämningsprocessen
-    if (isSubmittingOrder) {
-      const isSyncMode = Boolean(config?.syncMode)
-      const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
-      const baseMessage = translate(baseKey)
-
-      let phaseKey: string | null = null
-      let detailKey: string | null = null
-
-      // Väljer meddelanden baserat på inlämningsfas
-      switch (submissionPhase) {
-        case "preparing":
-          phaseKey = "submissionPhasePreparing"
-          detailKey = "submissionPhasePreparingDetail"
-          break
-        case "uploading":
-          phaseKey = "submissionPhaseUploading"
-          detailKey = "submissionPhaseUploadingDetail"
-          break
-        case "finalizing":
-          phaseKey = "submissionPhaseFinalizing"
-          detailKey = "submissionPhaseFinalizingDetail"
-          break
-        case "submitting":
-          phaseKey = "submissionPhaseSubmitting"
-          detailKey = "submissionPhaseSubmittingDetail"
-          break
-        default:
-          phaseKey = null
-          detailKey = null
-      }
-
-      if (phaseKey && detailKey) {
-        return renderLoading(translate(phaseKey), translate(detailKey))
-      }
-
-      // Fallback för sync-läge med förbättrad detalj
-      if (isSyncMode) {
-        return renderLoading(
-          baseMessage,
-          translate("submittingOrderSyncDetail")
-        )
-      }
-
-      return renderLoading(baseMessage, translate("pleaseWait"))
-    }
-
-    // Felhantering
-    if (error) {
-      return renderError(
-        error.message,
-        undefined,
-        error.severity !== "info" ? onBack : undefined,
-        error.code,
-        error.userFriendlyMessage
-      )
-    }
-
-    // Väljer vy baserat på state
-    switch (state) {
-      case ViewMode.INITIAL:
-        return renderInitial()
-      case ViewMode.DRAWING:
-        // Vid slutförande av ritning, visa laddning för att undvika flimmer
-        if (isCompleting) {
-          return (
-            <StateView
-              state={makeLoadingView(
-                translate("loadingGeometryValidation"),
-                translate("loadingGeometryValidationDetail")
-              )}
-            />
-          )
-        }
-        if ((clickCount || 0) === 0) {
-          return renderDrawingModeTabs()
-        }
-        return renderDrawing()
-      case ViewMode.EXPORT_OPTIONS:
-      case ViewMode.WORKSPACE_SELECTION:
-        // Vid slutförande av ritning, visa laddning för att undvika flimmer
-        if (isCompleting) {
-          return (
-            <StateView
-              state={makeLoadingView(
-                translate("loadingGeometryValidation"),
-                translate("loadingGeometryValidationDetail")
-              )}
-            />
-          )
-        }
-        return renderSelection()
-      case ViewMode.EXPORT_FORM:
-        return renderForm()
-      case ViewMode.ORDER_RESULT:
-        return renderError(translate("orderResultMissing"), onBack)
-    }
+    if (shouldShowStartupValidation()) return renderStartupValidation()
+    if (shouldShowOrderResult()) return renderOrderResult()
+    if (shouldShowSubmissionProgress()) return renderSubmissionProgress()
+    if (shouldShowError()) return renderErrorView()
+    if (shouldShowGeometryValidation()) return renderGeometryValidation()
+    return renderViewByState()
   }
 
   return (
