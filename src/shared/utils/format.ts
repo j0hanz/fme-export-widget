@@ -8,7 +8,7 @@ import type {
 } from "../../config/index"
 import { EMAIL_PLACEHOLDER, DEFAULT_DRAWING_HEX } from "../../config/index"
 import { isFiniteNumber, toTrimmedString } from "./conversion"
-import { isValidEmail } from "./validation"
+import { isValidEmail } from "../validations"
 
 export const formatByteSize = (size: unknown): string | null => {
   if (!isFiniteNumber(size) || size < 0) {

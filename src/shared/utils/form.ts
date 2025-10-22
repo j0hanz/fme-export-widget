@@ -13,7 +13,7 @@ import {
   toStringValue,
   toTrimmedString,
 } from "./conversion"
-import { isValidExternalUrlForOptGetUrl } from "./validation"
+import { isValidExternalUrlForOptGetUrl } from "../validations"
 
 export const makePlaceholders = (
   translate: TranslateFn,
