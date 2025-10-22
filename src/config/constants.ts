@@ -289,6 +289,8 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   JOB_SUBMISSION_ERROR: "errorJobSubmission",
   DATA_DOWNLOAD_ERROR: "errorServerIssue",
   INVALID_CONFIG: "errorSetupRequired",
+  CONFIG_INCOMPLETE: "errorSetupRequired",
+  configMissing: "errorSetupRequired",
   GEOMETRY_MISSING: "geometryMissingCode",
   GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
   GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
