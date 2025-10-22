@@ -12,7 +12,7 @@ import {
   Select,
   Tooltip,
 } from "../../runtime/components/ui"
-import resetIcon from "../assets/icons/refresh.svg"
+import resetIcon from "../../assets/icons/refresh.svg"
 import {
   parseNonNegativeInt,
   toTrimmedString,
