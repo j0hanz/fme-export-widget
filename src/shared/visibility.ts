@@ -310,10 +310,16 @@ export class VisibilityEvaluator {
     let hasUnknown = false
 
     for (const condition of operand) {
-      if (!isPlainObject(condition)) continue
+      if (!isPlainObject(condition)) {
+        console.log("Invalid condition in $anyOf (expected object)", condition)
+        continue
+      }
 
       const keys = Object.keys(condition).filter((key) => key.startsWith("$"))
-      if (!keys.length) continue
+      if (!keys.length) {
+        console.log("Invalid condition in $anyOf (no operators)", condition)
+        continue
+      }
 
       for (const key of keys) {
         const result = this.evaluateCondition(key, (condition as any)[key])

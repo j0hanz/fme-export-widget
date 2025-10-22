@@ -94,7 +94,19 @@ export async function validateConnection(
             try {
               const healthResult = await healthCheck(serverUrl, token, signal)
 
-              if (healthResult.reachable) {
+              if (signal?.aborted) {
+                return {
+                  success: false,
+                  steps,
+                  error: {
+                    message: "aborted",
+                    type: "generic",
+                    status: 0,
+                  },
+                }
+              }
+
+              if (healthResult && healthResult && healthResult.reachable) {
                 steps.serverUrl = "ok"
                 steps.token = "fail"
                 return {

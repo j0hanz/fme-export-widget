@@ -890,6 +890,11 @@ function WidgetContent(
     async (evt: __esri.SketchCreateEvent) => {
       if (!evt.graphic?.geometry) return
 
+      if (isCompletingRef.current) {
+        console.log("Drawing completion already in progress, ignoring")
+        return
+      }
+
       const previousController = completionControllerRef.current
       if (previousController && !previousController.signal.aborted) {
         safeAbort(previousController)

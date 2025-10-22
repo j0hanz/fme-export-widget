@@ -840,7 +840,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     } catch (err) {
       /* React Query hanterar error state automatiskt */
       if (!isAbortError(err)) {
-        console.warn("Repository refresh failed:", err)
+        console.log("Repository refresh failed:", err)
       }
     }
   })

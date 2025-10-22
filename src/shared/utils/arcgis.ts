@@ -73,7 +73,8 @@ export async function loadArcgisModules(
     }
     const loaded = await loader(modules as string[])
     return (loaded || []).map(unwrapDynamicModule)
-  } catch {
+  } catch (error) {
+    console.log("Critical: Failed to load jimu-arcgis module", error)
     throw new Error("ARCGIS_MODULE_ERROR")
   }
 }

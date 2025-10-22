@@ -126,7 +126,12 @@ const extractRings = (poly: any): any[] => {
     try {
       const json = poly.toJSON()
       if (json && Array.isArray(json.rings)) return json.rings
-    } catch {}
+    } catch (error) {
+      console.log(
+        "Polygon toJSON serialization failed (fallback to direct access)",
+        error
+      )
+    }
   }
 
   return []
@@ -155,7 +160,17 @@ export const polygonJsonToGeoJson = (poly: any): any => {
       coordinates: normalized,
     }
   } catch (err) {
-    console.log("polygonJsonToGeoJson: Serialization failed", err, poly)
+    const isEmptyInput =
+      !poly || (typeof poly === "object" && !poly.rings && !poly.geometry)
+    if (isEmptyInput) {
+      console.log("polygonJsonToGeoJson: Empty/invalid input", poly)
+      return null
+    }
+    console.log(
+      "polygonJsonToGeoJson: Unexpected serialization exception",
+      err,
+      poly
+    )
     return null
   }
 }
@@ -402,6 +417,7 @@ export const attachAoi = (
   if (geometryParamNames?.length) {
     const extras = new Set<string>()
     for (const name of geometryParamNames) {
+      if (typeof name !== "string") continue
       const sanitized = sanitizeParamKey(name, "")
       if (sanitized && sanitized !== paramName) extras.add(sanitized)
     }
@@ -486,14 +502,25 @@ const tryCalcArea = async (
 
   const geodesicAreaFn = engine.geodesicArea
   if (isGeographic && typeof geodesicAreaFn === "function") {
-    const area = await geodesicAreaFn(polygon, "square-meters")
-    if (Number.isFinite(area) && area > 0) return area
+    try {
+      const area = await geodesicAreaFn(polygon, "square-meters")
+      if (Number.isFinite(area) && area > 0) return area
+    } catch (error) {
+      console.log(
+        "geodesicArea calculation failed, trying planar fallback",
+        error
+      )
+    }
   }
 
   const planarAreaFn = engine.planarArea
   if (typeof planarAreaFn === "function") {
-    const area = await planarAreaFn(polygon, "square-meters")
-    if (Number.isFinite(area) && area > 0) return area
+    try {
+      const area = await planarAreaFn(polygon, "square-meters")
+      if (Number.isFinite(area) && area > 0) return area
+    } catch (error) {
+      console.log("planarArea calculation failed", error)
+    }
   }
 
   return 0
@@ -560,13 +587,25 @@ const ensureGeometryServiceModules = async (): Promise<{
       "esri/rest/geometryService",
       "esri/rest/support/AreasAndLengthsParameters",
     ])
-    geometryServiceCache = unwrapModule(
+    const geomService = unwrapModule(
       geometryServiceMod
     ) as GeometryServiceModule
-    areasAndLengthsParamsCache = unwrapModule(
-      paramsMod
-    ) as AreasAndLengthsParametersCtor
-  } catch {
+    const params = unwrapModule(paramsMod) as AreasAndLengthsParametersCtor
+
+    if (!geomService || !params) {
+      console.log("Geometry service modules returned null after unwrap")
+      geometryServiceCache = null
+      areasAndLengthsParamsCache = null
+      return {
+        geometryService: null,
+        AreasAndLengthsParameters: null,
+      }
+    }
+
+    geometryServiceCache = geomService
+    areasAndLengthsParamsCache = params
+  } catch (error) {
+    console.log("Failed to load geometry service modules", error)
     geometryServiceCache = null
     areasAndLengthsParamsCache = null
   }
@@ -617,7 +656,9 @@ const maybeResolvePolygon = async (
     if (isPolygonGeometryLike(resolved)) {
       return resolved
     }
-  } catch {}
+  } catch (error) {
+    console.log("Polygon promise resolution failed", error)
+  }
   return null
 }
 
@@ -772,7 +813,12 @@ const calcAreaViaGeometryService = async (
     if (Number.isFinite(area) && Math.abs(area) > 0) {
       return Math.abs(area)
     }
-  } catch {}
+  } catch (error) {
+    console.log(
+      "Geometry service area calculation failed, using fallback",
+      error
+    )
+  }
 
   return 0
 }

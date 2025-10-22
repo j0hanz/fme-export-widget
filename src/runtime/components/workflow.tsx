@@ -1182,8 +1182,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Hämtar konfigurerade servervärden
-  const configuredRepository = toTrimmedString(config?.repository)
-  const previousConfiguredRepository = hooks.usePrevious(configuredRepository)
+  const configuredRepository = toTrimmedString(config?.repository) ?? ""
+  const previousConfiguredRepository =
+    hooks.usePrevious(configuredRepository) ?? ""
   const serverUrl = toTrimmedString(
     (config as { fmeServerUrl?: string })?.fmeServerUrl
   )
