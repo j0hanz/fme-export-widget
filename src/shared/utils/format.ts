@@ -7,7 +7,12 @@ import type {
   UnitConversion,
 } from "../../config/index"
 import { EMAIL_PLACEHOLDER, DEFAULT_DRAWING_HEX } from "../../config/index"
-import { isFiniteNumber, toTrimmedString } from "./conversion"
+import {
+  isFiniteNumber,
+  toTrimmedString,
+  isNonEmptyTrimmedString,
+  toNonEmptyTrimmedString,
+} from "./conversion"
 import { isValidEmail } from "../validations"
 
 export const formatByteSize = (size: unknown): string | null => {
@@ -697,7 +702,7 @@ export const extractErrorMessage = (error: unknown): string => {
     const obj = error as { [key: string]: unknown }
     for (const prop of ["message", "error", "details", "description"]) {
       const v = obj[prop]
-      if (typeof v === "string" && v.trim()) return v.trim()
+      if (isNonEmptyTrimmedString(v)) return v.trim()
     }
   }
 
@@ -715,7 +720,9 @@ export const getBtnAria = (
   fallbackLabel?: string
 ): string | undefined => {
   if (jimuAriaLabel) return jimuAriaLabel
-  if (typeof text === "string" && text.length > 0) return text
+  const textLabel = toNonEmptyTrimmedString(text)
+  if (textLabel) return textLabel
   if (!icon) return undefined
-  return (typeof tooltip === "string" && tooltip) || fallbackLabel
+  const tooltipLabel = toNonEmptyTrimmedString(tooltip)
+  return tooltipLabel || fallbackLabel
 }

@@ -44,6 +44,8 @@ import {
   toMetadataRecord,
   normalizeParameterValue,
   buildChoiceSet,
+  toNonEmptyTrimmedString,
+  isNonEmptyTrimmedString,
 } from "../utils"
 import { isInt, isNum } from "../validations"
 
@@ -84,9 +86,7 @@ export class ParameterFormService {
     if (!list?.length) return undefined
     return list.map((o) => {
       const normalizedValue = normalizeParameterValue(o.value)
-      const label =
-        (typeof o.caption === "string" && o.caption.trim()) ||
-        String(normalizedValue)
+      const label = toNonEmptyTrimmedString(o.caption, String(normalizedValue))
 
       return {
         label,
@@ -978,10 +978,7 @@ export class ParameterFormService {
       ? options
           .map((opt) => ({
             value: this.normalizeToggleValue(opt?.value),
-            label:
-              typeof opt?.label === "string" && opt.label.trim()
-                ? opt.label.trim()
-                : undefined,
+            label: toTrimmedString(opt?.label) ?? undefined,
           }))
           .filter((entry) => entry.value !== undefined || entry.label)
       : []
@@ -1536,8 +1533,7 @@ export class ParameterFormService {
 
       if (field.type === FormFieldType.TEXT_OR_FILE) {
         const tf = value as TextOrFileValue | undefined
-        const hasText =
-          typeof tf?.text === "string" && tf.text.trim().length > 0
+        const hasText = isNonEmptyTrimmedString(tf?.text)
         const hasFile = isFileObject(tf?.file)
         if (field.required && !hasText && !hasFile) {
           errors[field.name] = ""

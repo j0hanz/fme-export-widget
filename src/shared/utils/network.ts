@@ -4,7 +4,12 @@ import { DEFAULT_REPOSITORY, EMAIL_REGEX } from "../../config/index"
 import type FmeFlowApiClient from "../api"
 import { createFmeFlowClient } from "../api"
 import { coerceFormValueForSubmission, getFileDisplayName } from "./form"
-import { isFileObject, toStr, toTrimmedString } from "./conversion"
+import {
+  isFileObject,
+  toStr,
+  toTrimmedString,
+  toNonEmptyTrimmedString,
+} from "./conversion"
 
 export const maskToken = (token: string): string => {
   if (!token) return ""
@@ -121,7 +126,12 @@ export const buildParams = (
       continue
     }
 
-    urlParams.append(key, toStr(normalized))
+    const normalizedText = toNonEmptyTrimmedString(normalized)
+    if (normalizedText) {
+      urlParams.append(key, normalizedText)
+    } else {
+      urlParams.append(key, toStr(normalized))
+    }
   }
 
   if (webhookDefaults) {
@@ -199,7 +209,7 @@ export const isJson = (contentType: string | null): boolean =>
   (contentType ?? "").toLowerCase().includes("application/json")
 
 export const safeParseUrl = (raw: string): URL | null => {
-  const trimmed = (raw || "").trim()
+  const trimmed = toNonEmptyTrimmedString(raw)
   if (!trimmed) return null
 
   try {

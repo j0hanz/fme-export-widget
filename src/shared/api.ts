@@ -48,6 +48,9 @@ import {
   isAbortError,
   extractRepositoryNames,
   loadArcgisModules,
+  parseNonNegativeInt,
+  toTrimmedString,
+  toNonEmptyTrimmedString,
 } from "./utils"
 
 // Configuration
@@ -975,16 +978,6 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
 
 /* Request processing utilities */
 
-// Konverterar till positivt heltal eller undefined
-const toPosInt = (v: unknown): number | undefined => {
-  const n = typeof v === "string" ? Number(v) : (v as number)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
-}
-
-// Trimmar sträng, returnerar tom sträng om inte sträng
-const toTrimmedString = (value: unknown): string =>
-  typeof value === "string" ? value.trim() : ""
-
 // Normaliserar och trunkerar text till maxlängd
 const normalizeText = (value: unknown, limit: number): string | undefined => {
   const trimmed = toTrimmedString(value)
@@ -998,7 +991,7 @@ const appendWebhookTmParams = (
 ): void => {
   // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
   for (const key of TM_NUMERIC_PARAM_KEYS) {
-    const value = toPosInt((source as any)[key])
+    const value = parseNonNegativeInt((source as any)[key])
     if (value !== undefined) params.set(key, String(value))
   }
 
@@ -1045,8 +1038,8 @@ const createWebhookArtifacts = (
 
 // Bygger Transaction Manager (TM) directives från parametrar
 const buildTMDirectives = (params: any): TMDirectives => {
-  const ttc = toPosInt(params?.tm_ttc)
-  const ttl = toPosInt(params?.tm_ttl)
+  const ttc = parseNonNegativeInt(params?.tm_ttc)
+  const ttl = parseNonNegativeInt(params?.tm_ttl)
   const tag = toTrimmedString(params?.tm_tag)
 
   const out: TMDirectives = {}
@@ -1158,21 +1151,18 @@ export class FmeFlowApiClient {
     }
 
     const repository = this.resolveRepository(options?.repository)
-    const workspace = (options?.workspace || "").trim()
+    const workspace = toNonEmptyTrimmedString(options?.workspace)
     if (!workspace) {
       throw makeFlowError("DATA_UPLOAD_ERROR")
     }
 
-    const fileNameSource = (file as any)?.name
     const rawName =
-      typeof fileNameSource === "string" && fileNameSource.trim()
-        ? fileNameSource.trim()
-        : `upload_${Date.now()}`
+      toNonEmptyTrimmedString((file as any)?.name) || `upload_${Date.now()}`
     const safeName =
       rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
       `upload_${Date.now()}`
 
-    const rawNamespace = options?.subfolder ? options.subfolder.trim() : ""
+    const rawNamespace = toNonEmptyTrimmedString(options?.subfolder)
     const sanitizedNamespace = rawNamespace
       .replace(/[^A-Za-z0-9_-]/g, "-")
       .slice(0, 64)
@@ -1214,10 +1204,7 @@ export class FmeFlowApiClient {
     })
 
     const fileInfo = response.data?.file
-    const resolvedPath =
-      typeof fileInfo?.path === "string" && fileInfo.path.trim()
-        ? fileInfo.path
-        : null
+    const resolvedPath = toTrimmedString(fileInfo?.path) ?? null
 
     if (!resolvedPath) {
       throw makeFlowError("DATA_UPLOAD_ERROR", response.status)

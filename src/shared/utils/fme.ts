@@ -14,7 +14,12 @@ import {
   uniqueStrings,
   sanitizeOptGetUrlParam,
 } from "./form"
-import { toBooleanValue } from "./conversion"
+import {
+  toBooleanValue,
+  toNonEmptyTrimmedString,
+  toTrimmedString,
+  toTrimmedStringOrEmpty,
+} from "./conversion"
 
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
 
@@ -84,10 +89,7 @@ export const determineServiceMode = (
 ): ServiceMode => {
   const data = (formData as any)?.data || {}
 
-  const override =
-    typeof data._serviceMode === "string"
-      ? data._serviceMode.trim().toLowerCase()
-      : ""
+  const override = toNonEmptyTrimmedString(data._serviceMode).toLowerCase()
 
   let resolved: ServiceMode
   if (override === "sync" || override === "async") {
@@ -135,7 +137,7 @@ export const buildFmeParams = (
     opt_showresult: includeResult ? "true" : "false",
   }
 
-  const trimmedEmail = typeof userEmail === "string" ? userEmail.trim() : ""
+  const trimmedEmail = toNonEmptyTrimmedString(userEmail)
   if (mode === "async" && trimmedEmail) {
     base.opt_requesteremail = trimmedEmail
   }
@@ -151,8 +153,9 @@ export const applyDirectiveDefaults = (
 
   const out: { [key: string]: unknown } = { ...params }
   const toPosInt = (v: unknown): number | undefined => {
-    const n = typeof v === "string" ? Number(v) : (v as number)
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined
+    const parsed = parseNonNegativeInt(v)
+    if (parsed === undefined || parsed <= 0) return undefined
+    return parsed
   }
 
   const rawMode = (() => {
@@ -162,8 +165,7 @@ export const applyDirectiveDefaults = (
     return typeof cloned === "string" ? cloned : ""
   })()
 
-  const normalizedMode =
-    typeof rawMode === "string" ? rawMode.trim().toLowerCase() : ""
+  const normalizedMode = toNonEmptyTrimmedString(rawMode).toLowerCase()
 
   const allowTmTtc =
     normalizedMode === "sync" || (!normalizedMode && Boolean(config?.syncMode))
@@ -182,12 +184,31 @@ export const applyDirectiveDefaults = (
   return out
 }
 
-export const parseNonNegativeInt = (val: string): number | undefined => {
-  const trimmed = typeof val === "string" ? val.trim() : String(val)
+export const parseNonNegativeInt = (val: unknown): number | undefined => {
+  if (typeof val === "number" && Number.isFinite(val)) {
+    if (val < 0) return undefined
+    return Math.floor(val)
+  }
+
+  const trimmed = toTrimmedString(val)
   if (!trimmed || !/^\d+$/.test(trimmed)) return undefined
+
   const n = Number(trimmed)
   if (!Number.isFinite(n) || n < 0) return undefined
   return Math.floor(n)
+}
+
+export const parseIntSafe = (val: unknown, radix = 10): number | undefined => {
+  if (typeof val === "number" && Number.isFinite(val)) {
+    const truncated = Math.trunc(val)
+    return Number.isFinite(truncated) ? truncated : undefined
+  }
+
+  const str = toTrimmedStringOrEmpty(val)
+  if (!str || !/^[+-]?\d+$/.test(str)) return undefined
+
+  const parsed = parseInt(str, radix)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 export const prepFmeParams = (

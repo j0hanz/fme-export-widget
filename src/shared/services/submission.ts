@@ -10,6 +10,7 @@ import {
   removeAoiErrorMarker,
   toTrimmedString,
   normalizeServiceModeConfig,
+  isNonEmptyTrimmedString,
 } from "../utils"
 import { resolveRemoteDataset } from "./dataset"
 
@@ -63,7 +64,7 @@ export async function prepareSubmissionParams({
   const params: MutableParams = { ...baseParams }
 
   const shouldResolveRemoteDataset = Boolean(
-    uploadFile || (typeof remoteUrl === "string" && remoteUrl.trim())
+    uploadFile || isNonEmptyTrimmedString(remoteUrl)
   )
 
   if (shouldResolveRemoteDataset) {

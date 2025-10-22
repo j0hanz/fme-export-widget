@@ -55,6 +55,7 @@ import {
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
   formatByteSize,
   isAbortError,
   isNonEmptyString,
@@ -163,7 +164,7 @@ const useDownloadResource = (
       objectUrlRef.current = null
     }
 
-    const trimmedUrl = typeof remoteUrl === "string" ? remoteUrl.trim() : ""
+    const trimmedUrl = toTrimmedStringOrEmpty(remoteUrl)
     if (trimmedUrl) {
       setResourceUrl(trimmedUrl)
       return

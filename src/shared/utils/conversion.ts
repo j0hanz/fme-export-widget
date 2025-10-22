@@ -28,13 +28,26 @@ const normalizeString = (
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true
   if (Array.isArray(v)) return v.length === 0
-  if (typeof v === "string") return v.trim().length === 0
+  if (typeof v === "string") return !isNonEmptyTrimmedString(v)
   return false
 }
 
 /** Type guard ensuring the value is a non-empty string. */
-export const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.trim() !== ""
+export const isNonEmptyTrimmedString = (value: unknown): value is string =>
+  typeof value === "string" && value.trim().length > 0
+
+export const isNonEmptyString = isNonEmptyTrimmedString
+
+export const toTrimmedStringOrEmpty = (value: unknown): string =>
+  toTrimmedString(value) ?? ""
+
+export const toNonEmptyTrimmedString = (
+  value: unknown,
+  fallback = ""
+): string => {
+  const trimmed = toTrimmedString(value)
+  return trimmed && trimmed.length > 0 ? trimmed : fallback
+}
 
 /** Returns a trimmed string when possible; otherwise undefined. */
 export const toTrimmedString = (value: unknown): string | undefined =>
@@ -55,6 +68,27 @@ export const isPlainObject = (
 export const isFiniteNumber = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value)
 
+export const isValidNumber = (
+  value: unknown,
+  options?: {
+    min?: number
+    max?: number
+    allowZero?: boolean
+    allowNegative?: boolean
+  }
+): value is number => {
+  if (!isFiniteNumber(value)) return false
+
+  const { min, max, allowZero = true, allowNegative = true } = options ?? {}
+
+  if (!allowZero && value === 0) return false
+  if (!allowNegative && value < 0) return false
+  if (min !== undefined && value < min) return false
+  if (max !== undefined && value > max) return false
+
+  return true
+}
+
 /** Type guard for File objects (guarded for older browsers). */
 export const isFileObject = (value: unknown): value is File =>
   typeof File !== "undefined" && value instanceof File
@@ -62,7 +96,10 @@ export const isFileObject = (value: unknown): value is File =>
 /** Coerces unknown values into booleans when the intent is clear. */
 export const toBooleanValue = (value: unknown): boolean | undefined => {
   if (typeof value === "boolean") return value
-  if (typeof value === "number") return value !== 0
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return undefined
+    return value !== 0
+  }
   const str = normalizeString(value, { allowNumeric: false })
   if (!str) return undefined
   const normalized = str.toLowerCase()
@@ -78,6 +115,23 @@ export const toNumberValue = (value: unknown): number | undefined => {
   if (!str) return undefined
   const numeric = Number(str)
   return Number.isFinite(numeric) ? numeric : undefined
+}
+
+export const toValidNumber = (
+  value: unknown,
+  fallback: number,
+  options?: Parameters<typeof isValidNumber>[1]
+): number => (isValidNumber(value, options) ? value : fallback)
+
+export const clampNumber = (
+  value: number,
+  min: number,
+  max: number
+): number => {
+  if (!Number.isFinite(value)) return min
+  if (value < min) return min
+  if (value > max) return max
+  return value
 }
 
 /** Wraps non-array values into an array, filtering nullish values. */

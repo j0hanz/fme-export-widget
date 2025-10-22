@@ -55,6 +55,7 @@ import {
   resolveMessageOrKey,
   toBooleanValue,
   normalizeParameterValue,
+  isNonEmptyTrimmedString,
 } from "../../shared/utils"
 
 // Fälttyper som använder select/dropdown-komponenter
@@ -281,15 +282,16 @@ const normalizeTableRows = (
     })
   }
 
-  if (typeof raw === "string" && raw.trim()) {
+  if (isNonEmptyTrimmedString(raw)) {
+    const trimmed = raw.trim()
     try {
-      const parsed = JSON.parse(raw)
+      const parsed = JSON.parse(trimmed)
       if (Array.isArray(parsed)) {
         return normalizeTableRows(parsed, columns)
       }
       return []
     } catch {
-      return raw
+      return trimmed
         .split(/\r?\n/)
         .map((entry) => entry.trim())
         .filter(Boolean)
@@ -538,7 +540,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     const isUnset =
       current === undefined ||
       current === null ||
-      (typeof current === "string" && current.trim() === "")
+      (typeof current === "string" && !isNonEmptyTrimmedString(current))
     if (isUnset || !Object.is(current, onlyVal)) {
       onChange(onlyVal as FormPrimitive)
     }
@@ -1353,12 +1355,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.SCRIPTED: {
         // Renderar skriptgenererat innehåll som rich text
-        const content =
-          typeof fieldValue === "string" && fieldValue.trim().length > 0
-            ? fieldValue
-            : toDisplayString(field.defaultValue) ||
-              field.description ||
-              field.label
+        const content = isNonEmptyTrimmedString(fieldValue)
+          ? fieldValue
+          : toDisplayString(field.defaultValue) ||
+            field.description ||
+            field.label
         return <RichText html={content || ""} />
       }
       case FormFieldType.RADIO: {
@@ -1460,8 +1461,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const numericValue =
           typeof fieldValue === "number"
             ? fieldValue
-            : typeof fieldValue === "string" && fieldValue.trim() !== ""
-              ? Number(fieldValue)
+            : isNonEmptyTrimmedString(fieldValue)
+              ? Number(fieldValue.trim())
               : typeof field.defaultValue === "number"
                 ? field.defaultValue
                 : (field.min ?? 0)
@@ -1493,8 +1494,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const numericValue =
           typeof fieldValue === "number"
             ? fieldValue
-            : typeof fieldValue === "string" && fieldValue.trim() !== ""
-              ? Number(fieldValue)
+            : isNonEmptyTrimmedString(fieldValue)
+              ? Number(fieldValue.trim())
               : undefined
         const defaultNumeric =
           numericValue === undefined && typeof field.defaultValue === "number"
