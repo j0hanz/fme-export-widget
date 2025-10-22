@@ -351,7 +351,9 @@ function applyErrorPatch(
   }
 
   const currentMap = (state.errors as ErrorMap) ?? createInitialErrorMap()
-  const changes: Partial<{ [scope in ErrorScope]: SerializableErrorState | null }> = {}
+  const changes: Partial<{
+    [scope in ErrorScope]: SerializableErrorState | null
+  }> = {}
 
   for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
     [ErrorScope, SerializableErrorState | null]
