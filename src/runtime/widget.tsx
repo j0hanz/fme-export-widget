@@ -52,7 +52,7 @@ import {
   processDrawingCompletion,
   executeJobSubmission,
 } from "../shared/services"
-import { getSupportEmail } from "../shared/validations"
+import { getSupportEmail, extractHttpStatus } from "../shared/validations"
 import { mapErrorFromNetwork } from "../shared/utils/error"
 import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
@@ -734,19 +734,23 @@ function WidgetContent(
 
   /* Skapar konsekvent startup-valideringsfel utan retry-callback (Redux-kompatibelt) */
   const createStartupError = hooks.useEventCallback(
-    (messageKey: string, code: string): SerializableErrorState => ({
-      message: translate(messageKey),
-      type: ErrorType.CONFIG,
-      code,
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      timestampMs: Date.now(),
-      userFriendlyMessage: config?.supportEmail
-        ? String(config.supportEmail)
-        : "",
-      suggestion: translate("actionRetryValidation"),
-      kind: "serializable",
-    })
+    (messageKey: string | undefined, code: string): SerializableErrorState => {
+      const finalKey = messageKey || "errorStartupFailed"
+
+      return {
+        message: translate(finalKey),
+        type: ErrorType.CONFIG,
+        code,
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        timestampMs: Date.now(),
+        userFriendlyMessage: config?.supportEmail
+          ? String(config.supportEmail)
+          : "",
+        suggestion: translate("actionRetryValidation"),
+        kind: "serializable",
+      }
+    }
   )
 
   /* AbortController för att kunna avbryta pågående startup-validering */
@@ -781,16 +785,16 @@ function WidgetContent(
       } catch {}
 
       const errorToUse = parsedError || err
-      const errorKey = mapErrorFromNetwork(errorToUse) || "errorUnknown"
+      const errorKey =
+        parsedError?.message ||
+        mapErrorFromNetwork(errorToUse, extractHttpStatus(errorToUse))
       const errorCode =
         typeof errorToUse === "object" &&
         errorToUse !== null &&
         "code" in errorToUse
           ? String(errorToUse.code)
           : "STARTUP_VALIDATION_FAILED"
-      setValidationError(
-        createStartupError(errorKey, errorCode, runStartupValidation)
-      )
+      setValidationError(createStartupError(errorKey, errorCode))
     } finally {
       startupAbort.finalize(controller)
     }
@@ -1055,7 +1059,7 @@ function WidgetContent(
       /* Oväntade fel som inte fångades av executeJobSubmission */
       if (!isAbortError(error)) {
         dispatchError(
-          translate("errorUnknown"),
+          translate("errorJobSubmission"),
           ErrorType.MODULE,
           "SUBMISSION_UNEXPECTED_ERROR"
         )

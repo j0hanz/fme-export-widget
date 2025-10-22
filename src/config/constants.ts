@@ -325,19 +325,12 @@ export const TIME_CONSTANTS = Object.freeze({
 })
 
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
-  ARCGIS_MODULE_ERROR: "errorNetworkIssue",
-  NETWORK_ERROR: "errorNetworkIssue",
   INVALID_RESPONSE_FORMAT: "errorTokenIssue",
   WEBHOOK_AUTH_ERROR: "errorTokenIssue",
-  WEBHOOK_BAD_RESPONSE: "errorServerIssue",
-  WEBHOOK_NON_JSON: "errorServerIssue",
   WEBHOOK_TIMEOUT: "requestTimedOut",
-  SERVER_URL_ERROR: "connectionFailedMessage",
-  REPOSITORIES_ERROR: "errorServerIssue",
-  REPOSITORY_ITEMS_ERROR: "errorServerIssue",
-  WORKSPACE_ITEM_ERROR: "errorServerIssue",
+  REPOSITORIES_ERROR: "errorRepositoryAccess",
+  REPOSITORY_ITEMS_ERROR: "errorRepositoryAccess",
   JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  DATA_DOWNLOAD_ERROR: "errorServerIssue",
   INVALID_CONFIG: "errorSetupRequired",
   CONFIG_INCOMPLETE: "errorSetupRequired",
   configMissing: "errorSetupRequired",
@@ -348,17 +341,13 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
 }
 
 export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
-  0: "errorNetworkIssue",
   401: "errorTokenIssue",
-  403: "errorTokenIssue",
-  404: "connectionFailedMessage",
   408: "requestTimedOut",
   429: "rateLimitExceeded",
   431: "headersTooLargeMessage",
 }
 
 export const MESSAGE_PATTERNS = Object.freeze([
-  { pattern: /failed to fetch/i, key: "errorNetworkIssue" },
   { pattern: /timeout/i, key: "requestTimedOut" },
   { pattern: /cors/i, key: "corsBlocked" },
   { pattern: /url.*too/i, key: "urlTooLongMessage" },

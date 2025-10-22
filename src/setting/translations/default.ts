@@ -23,7 +23,6 @@ export default {
   connectionOk: "Anslutningen lyckades.",
   connectionOkRepositoryWarning:
     "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera behörigheter.",
-  connectionFailed: "Anslutningen misslyckades:",
   availableRepositories: "Tillgängliga repositorys",
   mapConfiguration: "Kartinställningar",
   serverUrlPlaceholder: "https://fme.server.com",

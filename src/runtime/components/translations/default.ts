@@ -74,7 +74,6 @@ export default {
   failedToLoadWorkspaces: "Det gick inte att ladda arbetsytor",
   failedToLoadWorkspaceDetails:
     "Det gick inte att ladda information om arbetsytan",
-  errorUnknown: "Ett okänt fel inträffade",
   largeAreaWarning:
     "Det angivna området ({current}) är stort och kan göra att exporten tar längre tid än vanligt.",
   largeAreaWarningWithThreshold:

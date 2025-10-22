@@ -442,7 +442,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
     } else if (rawMessage) {
       messageText = rawMessage
     } else {
-      messageText = translate("errorUnknown")
+      messageText = translate("errorJobSubmission")
     }
   }
 

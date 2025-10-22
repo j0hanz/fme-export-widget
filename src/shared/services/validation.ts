@@ -38,7 +38,7 @@ export async function validateConnection(
             success: false,
             steps,
             error: {
-              message: "connectionFailedMessage",
+              message: undefined,
               type: "server",
               status: 0,
             },
@@ -73,7 +73,7 @@ export async function validateConnection(
               success: false,
               steps,
               error: {
-                message: mapErrorFromNetwork(error, status),
+                message: "errorTokenIssue",
                 type: "token",
                 status,
               },
@@ -87,7 +87,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: mapErrorFromNetwork(error, status),
+                  message: "errorServerUnreachable",
                   type: "server",
                   status,
                 },
@@ -115,7 +115,7 @@ export async function validateConnection(
                   success: false,
                   steps,
                   error: {
-                    message: mapErrorFromNetwork(error, status),
+                    message: "errorTokenIssue",
                     type: "token",
                     status,
                   },
@@ -127,7 +127,7 @@ export async function validateConnection(
                   success: false,
                   steps,
                   error: {
-                    message: mapErrorFromNetwork(error, status),
+                    message: "errorServerUnreachable",
                     type: "server",
                     status,
                   },
@@ -140,7 +140,7 @@ export async function validateConnection(
                 success: false,
                 steps,
                 error: {
-                  message: mapErrorFromNetwork(error, status),
+                  message: "errorServerUnreachable",
                   type: "server",
                   status,
                 },
@@ -272,26 +272,27 @@ export async function validateWidgetStartup(
     })
 
     if (!connectionResult.success) {
+      const errorMessage =
+        connectionResult.error?.message || "errorValidationFailed"
+      const errorType = connectionResult.error?.type || "server"
+
       return {
         isValid: false,
         canProceed: false,
         requiresSettings: true,
-        error: createError(
-          connectionResult.error?.message || "errorConnectionIssue",
-          {
-            type: ErrorType.NETWORK,
-            code:
-              connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
-            suggestion:
-              connectionResult.error?.type === "token"
-                ? translate("tokenSettingsHint")
-                : connectionResult.error?.type === "server"
-                  ? translate("serverUrlSettingsHint")
-                  : connectionResult.error?.type === "repository"
-                    ? translate("repositorySettingsHint")
-                    : translate("connectionSettingsHint"),
-          }
-        ),
+        error: createError(errorMessage, {
+          type: ErrorType.NETWORK,
+          code:
+            connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
+          suggestion:
+            errorType === "token"
+              ? translate("tokenSettingsHint")
+              : errorType === "server"
+                ? translate("serverUrlSettingsHint")
+                : errorType === "repository"
+                  ? translate("repositorySettingsHint")
+                  : translate("connectionSettingsHint"),
+        }),
       }
     }
 
@@ -315,7 +316,7 @@ export async function validateWidgetStartup(
       isValid: false,
       canProceed: false,
       requiresSettings: true,
-      error: createError("errorNetworkIssue", {
+      error: createError("errorStartupFailed", {
         type: ErrorType.NETWORK,
         code: "STARTUP_NETWORK_ERROR",
         suggestion: translate("networkConnectionHint"),

@@ -182,7 +182,6 @@ const statusToKeyInternal = (status?: number): string | undefined => {
   if (ERROR_MAPPING_RULES.statusToKey[status]) {
     return ERROR_MAPPING_RULES.statusToKey[status]
   }
-  if (isServerError(status)) return "errorServerIssue"
   return undefined
 }
 
@@ -194,11 +193,14 @@ const matchMessagePatternInternal = (message: string): string | undefined => {
   return undefined
 }
 
-export const mapErrorFromNetwork = (err: unknown, status?: number): string => {
+export const mapErrorFromNetwork = (
+  err: unknown,
+  status?: number
+): string | undefined => {
   const classification = classifyError(err, status)
 
   if (classification.isRequestFailed) {
-    return statusToKeyInternal(classification.status) || "errorServerIssue"
+    return statusToKeyInternal(classification.status)
   }
 
   if (
@@ -216,10 +218,10 @@ export const mapErrorFromNetwork = (err: unknown, status?: number): string => {
     if (messageKey) return messageKey
   }
 
-  return "errorUnknown"
+  return undefined
 }
 
-export const mapErrorFromValidation = (err: unknown): string => {
+export const mapErrorFromValidation = (err: unknown): string | undefined => {
   const classification = classifyError(err)
 
   if (
@@ -234,7 +236,7 @@ export const mapErrorFromValidation = (err: unknown): string => {
     if (messageKey) return messageKey
   }
 
-  return "errorUnknown"
+  return undefined
 }
 
 export const mapErrorFromGeometry = (err: unknown): string => {

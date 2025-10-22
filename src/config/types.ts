@@ -1406,7 +1406,7 @@ export interface ConnectionValidationResult {
   readonly version?: string
   readonly repositories?: readonly string[]
   readonly error?: {
-    readonly message: string
+    readonly message?: string
     readonly type: "server" | "token" | "repository" | "network" | "generic"
     readonly status?: number
   }

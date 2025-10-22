@@ -104,9 +104,11 @@ const handleValidationFailure = (
     setFieldErrors: React.Dispatch<React.SetStateAction<FieldErrors>>
     translate: TranslateFn
     version?: string
+    errorMessage?: string
   }
 ) => {
-  const { setCheckSteps, setFieldErrors, translate, version } = opts
+  const { setCheckSteps, setFieldErrors, translate, version, errorMessage } =
+    opts
   if (errorType === "server" || errorType === "network") {
     setCheckSteps((prev) => ({
       ...prev,
@@ -115,7 +117,12 @@ const handleValidationFailure = (
       repository: "idle",
       version: "",
     }))
-    setError(setFieldErrors, "serverUrl", translate("errorInvalidServerUrl"))
+    const errorKey = errorMessage || "errorInvalidServerUrl"
+    setError(
+      setFieldErrors,
+      "serverUrl",
+      errorKey ? translate(errorKey) : undefined
+    )
     clearErrors(setFieldErrors, ["token", "repository"])
     return
   }
@@ -127,7 +134,12 @@ const handleValidationFailure = (
       repository: "idle",
       version: "",
     }))
-    setError(setFieldErrors, "token", translate("errorTokenIsInvalid"))
+    const errorKey = errorMessage || "errorTokenIsInvalid"
+    setError(
+      setFieldErrors,
+      "token",
+      errorKey ? translate(errorKey) : undefined
+    )
     clearErrors(setFieldErrors, ["serverUrl", "repository"])
     return
   }
@@ -139,7 +151,12 @@ const handleValidationFailure = (
     repository: "fail",
     version: version || "",
   }))
-  setError(setFieldErrors, "repository", translate("errorRepositoryNotFound"))
+  const errorKey = errorMessage || "errorRepositoryNotFound"
+  setError(
+    setFieldErrors,
+    "repository",
+    errorKey ? translate(errorKey) : undefined
+  )
   clearErrors(setFieldErrors, ["serverUrl", "token"])
   /* Repository-lista hanteras av useRepositories query hook */
 }
@@ -718,13 +735,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setFieldErrors,
         translate,
         version: validationResult.version,
+        errorMessage: error?.message,
       })
 
       if (!silent) {
         setTestState({
           status: "error",
           isTesting: false,
-          message: error?.message || translate("connectionFailed"),
+          message: error?.message ? translate(error.message) : undefined,
           type: "error",
         })
       } else {
@@ -741,23 +759,21 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const errorStatus = extractHttpStatus(err)
       const failureType =
         !errorStatus || errorStatus === 0 ? "network" : "server"
+      const errorKey = mapErrorFromNetwork(err, errorStatus)
+
       handleValidationFailure(failureType, {
         setCheckSteps,
         setFieldErrors,
         translate,
         version: "",
+        errorMessage: errorKey,
       })
 
       if (!silent) {
-        const status = err instanceof Error ? 0 : extractHttpStatus(err)
-        const errorKey = mapErrorFromNetwork(err, status)
         setTestState({
           status: "error",
           isTesting: false,
-          message:
-            failureType === "network"
-              ? translate("errorInvalidServerUrl")
-              : translate(errorKey),
+          message: errorKey ? translate(errorKey) : undefined,
           type: "error",
         })
       }

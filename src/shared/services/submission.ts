@@ -139,18 +139,22 @@ export function buildSubmissionErrorResult(
     return null
   }
 
-  const rawKey = mapErrorFromNetwork(error) || "errorUnknown"
+  const rawKey = mapErrorFromNetwork(error)
   let localizedErr = ""
-  try {
-    localizedErr = resolveMessageOrKey(rawKey, translate)
-  } catch {
-    localizedErr = translate("errorUnknown")
+  if (rawKey) {
+    try {
+      localizedErr = resolveMessageOrKey(rawKey, translate)
+    } catch {
+      localizedErr = ""
+    }
   }
 
   const contactHint = buildSupportHintText(translate, supportEmail)
   const baseFailMessage = translate("errorOrderFailed")
-  const resultMessage =
-    `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
+
+  // Build message parts, filtering out empty strings
+  const parts = [baseFailMessage, localizedErr, contactHint].filter(Boolean)
+  const resultMessage = parts.join(". ")
 
   return {
     success: false,
