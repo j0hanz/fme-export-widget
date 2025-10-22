@@ -187,6 +187,112 @@ export const styleCss = (style?: React.CSSProperties) =>
 
 export const pad2 = (n: number): string => String(n).padStart(2, "0")
 
+// Regex för ISO lokal datum och tid
+export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
+export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
+
+// Parsar ISO lokal datum-tid-sträng till Date-objekt
+export const parseIsoLocalDateTime = (value?: string): Date | null => {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const normalized = trimmed.includes("T") ? trimmed : `${trimmed}T00:00:00`
+  const [datePart = "", timePart = ""] = normalized.split("T")
+
+  const dateMatch = ISO_LOCAL_DATE.exec(datePart)
+  const timeMatch = ISO_LOCAL_TIME.exec(timePart)
+  if (!dateMatch || !timeMatch) return null
+
+  const year = Number(dateMatch[1])
+  const month = Number(dateMatch[2])
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+  const second = timeMatch[3] ? Number(timeMatch[3]) : 0
+
+  // Validera numeriska komponenter är finita
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null
+  }
+
+  // Validera intervall INNAN Date-konstruktion för att förhindra övergång
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+  if (hour < 0 || hour > 23) return null
+  if (minute < 0 || minute > 59) return null
+  if (second < 0 || second > 59) return null
+
+  const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
+
+  // Verifiera att Date inte gick över (t.ex. 30 feb → 2 mars)
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day ||
+    parsed.getHours() !== hour ||
+    parsed.getMinutes() !== minute ||
+    parsed.getSeconds() !== second
+  ) {
+    return null
+  }
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+// Formaterar Date-objekt till ISO eller FME lokal datum-tid-sträng
+export const formatIsoLocalDateTime = (
+  value: Date | null | undefined,
+  format: "iso" | "fme" = "iso"
+): string => {
+  if (!value) return ""
+  const timestamp = value.getTime()
+  if (Number.isNaN(timestamp)) return ""
+  const yyyy = value.getFullYear()
+  const mm = pad2(value.getMonth() + 1)
+  const dd = pad2(value.getDate())
+  const hh = pad2(value.getHours())
+  const mi = pad2(value.getMinutes())
+  const ss = pad2(value.getSeconds())
+
+  // FME-format: YYYY-MM-DD HH:mm:ss (mellanslag som separator)
+  if (format === "fme") {
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+  }
+
+  // ISO-format: YYYY-MM-DDTHH:mm:ss (T som separator)
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
+}
+
+// Plattar till hierarkiska options för Select/MultiSelect komponenter
+export const flattenHierarchicalOptions = <
+  T extends {
+    readonly value: string | number
+    readonly children?: readonly T[]
+  },
+>(
+  list: readonly T[] | undefined,
+  hierarchical: boolean,
+  depth = 0,
+  acc: Array<{ option: T; depth: number }> = []
+): Array<{ option: T; depth: number }> => {
+  if (!list) return acc
+  for (const opt of list) {
+    if (!opt || opt.value == null) continue
+    acc.push({ option: opt, depth })
+    if (hierarchical && opt.children?.length) {
+      flattenHierarchicalOptions(opt.children, hierarchical, depth + 1, acc)
+    }
+  }
+  return acc
+}
+
 const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i
 const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/
 
