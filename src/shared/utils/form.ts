@@ -12,8 +12,17 @@ import {
   mapDefined,
   toStringValue,
   toTrimmedString,
+  normalizeParameterValue,
 } from "./conversion"
 import { isValidExternalUrlForOptGetUrl } from "../validations"
+
+// Build choice set for parameter validation (moved from validations.ts)
+export const buildChoiceSet = (
+  list: WorkspaceParameter["listOptions"]
+): Set<string | number> | null =>
+  list?.length
+    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+    : null
 
 export const makePlaceholders = (
   translate: TranslateFn,

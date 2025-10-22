@@ -12,8 +12,8 @@ import {
   toTrimmedString,
   isNonEmptyTrimmedString,
   toNonEmptyTrimmedString,
+  isValidEmail,
 } from "./conversion"
-import { isValidEmail } from "../validations"
 
 export const formatByteSize = (size: unknown): string | null => {
   if (!isFiniteNumber(size) || size < 0) {
@@ -729,6 +729,32 @@ const resolveMetricDisplay = (area: number): AreaDisplay => {
   }
 }
 
+// Helper to find matching unit conversion
+const findUnitConversion = (
+  factor: number,
+  unitId: string
+): UnitConversion | null => {
+  return (
+    UNIT_CONVERSIONS.find(
+      (conv) =>
+        approxLengthUnit(factor, conv.factor) ||
+        matchesUnitKeywords(unitId, conv.keywords)
+    ) ?? null
+  )
+}
+
+// Helper to create custom unit display
+const createCustomUnitDisplay = (
+  area: number,
+  factor: number,
+  unit: unknown
+): AreaDisplay => {
+  const value = area / (factor * factor)
+  const decimals = getDecimalPlaces(value)
+  const label = typeof unit === "string" ? normalizeUnitLabel(unit) : "units²"
+  return { value, label, decimals }
+}
+
 const resolveAreaForSpatialReference = (
   area: number,
   spatialReference?: __esri.SpatialReference | null
@@ -738,9 +764,7 @@ const resolveAreaForSpatialReference = (
   }
 
   const metersPerUnit = spatialReference.metersPerUnit
-  const hasValidFactor = isFiniteNumber(metersPerUnit)
-
-  if (!hasValidFactor) {
+  if (!isFiniteNumber(metersPerUnit)) {
     return resolveMetricDisplay(area)
   }
 
@@ -749,20 +773,11 @@ const resolveAreaForSpatialReference = (
       ? spatialReference.unit.toLowerCase()
       : ""
 
-  const factor = metersPerUnit
+  const conversion = findUnitConversion(metersPerUnit, unitId)
 
-  for (const conversion of UNIT_CONVERSIONS) {
-    if (
-      approxLengthUnit(factor, conversion.factor) ||
-      matchesUnitKeywords(unitId, conversion.keywords)
-    ) {
-      return convertAreaByUnit(area, factor, conversion)
-    }
-  }
-
-  const value = area / (factor * factor)
-  const decimals = getDecimalPlaces(value)
-  return { value, label: normalizeUnitLabel(spatialReference.unit), decimals }
+  return conversion
+    ? convertAreaByUnit(area, metersPerUnit, conversion)
+    : createCustomUnitDisplay(area, metersPerUnit, spatialReference.unit)
 }
 
 export function formatArea(

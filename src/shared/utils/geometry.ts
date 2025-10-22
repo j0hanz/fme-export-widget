@@ -193,8 +193,60 @@ export const polygonJsonToWkt = (poly: any): string => {
   return `POLYGON(${serialized.join(", ")})`
 }
 
-const isWgs84Spatial = (sr: any): boolean =>
-  sr?.isWGS84 === true || sr?.wkid === 4326
+// Spatial reference utilities (consolidated from validations.ts)
+export const readWkids = (
+  sr: unknown
+): { wkid?: number; latestWkid?: number } => {
+  if (typeof sr !== "object" || sr === null) {
+    return {}
+  }
+
+  const ref = sr as { wkid?: unknown; latestWkid?: unknown }
+  const wkid = typeof ref.wkid === "number" ? ref.wkid : undefined
+  const latestWkid =
+    typeof ref.latestWkid === "number" ? ref.latestWkid : undefined
+
+  return { wkid, latestWkid }
+}
+
+export const isWebMercatorSr = (sr: unknown): boolean => {
+  const ref = sr as { isWebMercator?: boolean } | undefined
+  if (ref?.isWebMercator) return true
+  const { wkid, latestWkid } = readWkids(sr)
+  const WKID_WEB_MERCATOR = 3857
+  return wkid === WKID_WEB_MERCATOR || latestWkid === WKID_WEB_MERCATOR
+}
+
+export const isWgs84Sr = (sr: unknown): boolean => {
+  const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
+  if (ref?.isGeographic || ref?.isWGS84) return true
+  const { wkid, latestWkid } = readWkids(sr)
+  const WKID_WGS84 = 4326
+  return wkid === WKID_WGS84 || latestWkid === WKID_WGS84
+}
+
+export const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
+  try {
+    if (
+      isWgs84Sr(polygon.spatialReference) ||
+      isWebMercatorSr(polygon.spatialReference)
+    ) {
+      return true
+    }
+
+    const json = polygon.toJSON?.()
+    if (json && typeof json === "object") {
+      const spatialRef = (json as { spatialReference?: unknown })
+        .spatialReference
+      return isWgs84Sr(spatialRef) || isWebMercatorSr(spatialRef)
+    }
+  } catch {}
+
+  return false
+}
+
+// Legacy helper for backward compatibility
+const isWgs84Spatial = (sr: any): boolean => isWgs84Sr(sr)
 
 const projectToWgs84 = (
   poly: __esri.Polygon,

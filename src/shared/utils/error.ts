@@ -163,3 +163,25 @@ export const createErrorActions = (
 
   return actions
 }
+
+// Validation helper functions (refactoring #2)
+export const buildValidationErrors = <T extends { [key: string]: any }>(
+  validations: Array<{
+    field: keyof T
+    validator: () => { ok: boolean; key?: string; reason?: string }
+  }>
+): { ok: boolean; errors: Partial<T> } => {
+  const errors: Partial<T> = {}
+
+  for (const { field, validator } of validations) {
+    const result = validator()
+    if (!result.ok) {
+      const errorKey = result.key || result.reason
+      if (errorKey) {
+        errors[field] = errorKey as any
+      }
+    }
+  }
+
+  return { ok: Object.keys(errors).length === 0, errors }
+}

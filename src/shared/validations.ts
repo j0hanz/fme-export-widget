@@ -23,7 +23,6 @@ import {
   ParameterType,
   MIN_TOKEN_LENGTH,
   FME_REST_PATH,
-  WKID,
   GEODESIC_SEGMENT_LENGTH_METERS,
   MIN_PLANAR_SEGMENT_DEGREES,
   DEGREES_PER_METER,
@@ -34,8 +33,6 @@ import {
   SERVER_URL_REASON_TO_KEY,
   REQUIRED_CONFIG_FIELDS,
   STATUS_PROPERTIES,
-  EMAIL_REGEX,
-  NO_REPLY_REGEX,
   PRIVATE_IPV4_RANGES,
   FORBIDDEN_HOSTNAME_SUFFIXES,
   MAX_URL_LENGTH,
@@ -49,49 +46,12 @@ import {
   toTrimmedString,
   isFileObject,
   isFiniteNumber,
-  normalizeParameterValue,
-  toStr,
+  isWgs84Sr,
+  isWebMercatorSr,
+  isGeographicSpatialRef,
 } from "./utils"
 
-export const isValidEmail = (email: unknown): boolean => {
-  if (typeof email !== "string" || !email) return false
-  if (NO_REPLY_REGEX.test(email)) return false
-  return EMAIL_REGEX.test(email)
-}
-
-export const validateEmailField = (
-  email: string | undefined,
-  options: { required?: boolean } = {}
-): { ok: boolean; errorKey?: string } => {
-  const trimmed = (email ?? "").trim()
-
-  if (!trimmed) {
-    return options.required
-      ? { ok: false, errorKey: "emailRequired" }
-      : { ok: true }
-  }
-
-  if (!isValidEmail(trimmed)) {
-    return { ok: false, errorKey: "invalidEmail" }
-  }
-
-  return { ok: true }
-}
-
-export const getSupportEmail = (
-  configuredEmailRaw: unknown
-): string | undefined => {
-  const cfg = toTrimmedString(configuredEmailRaw)
-  return cfg && isValidEmail(cfg) ? cfg : undefined
-}
-
-export const buildChoiceSet = (
-  list: WorkspaceParameter["listOptions"]
-): Set<string | number> | null =>
-  list?.length
-    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
-    : null
-
+// URL validation helpers
 const parseIpv4 = (hostname: string): number[] | null => {
   const parts = hostname.split(".")
   if (parts.length !== 4) return null
@@ -160,43 +120,6 @@ export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
   }
 
   return true
-}
-
-export const isNavigatorOffline = (): boolean => {
-  if (typeof navigator === "undefined") return false
-
-  try {
-    const nav = (globalThis as any)?.navigator
-    return Boolean(nav && nav.onLine === false)
-  } catch {
-    return false
-  }
-}
-
-const ABORT_REGEX = /\baborted?\b/i
-
-export const isAbortError = (error: unknown): boolean => {
-  if (!error) return false
-
-  if (typeof error === "object" && error !== null) {
-    const candidate = error as {
-      name?: unknown
-      code?: unknown
-      message?: unknown
-    }
-    const name = toStr(candidate.name ?? candidate.code)
-    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
-      return true
-    if (!name || name === "Error") {
-      const message = toStr(candidate.message)
-      return ABORT_REGEX.test(message) || message.includes("signal is aborted")
-    }
-    return false
-  }
-  if (typeof error === "string") {
-    return ABORT_REGEX.test(error)
-  }
-  return false
 }
 
 const isNumericSelectOptionValue = (value: unknown): boolean => {
@@ -503,30 +426,48 @@ const matchMessagePattern = (message: string): string | undefined => {
   return undefined
 }
 
-// Mappar error till översättningsnyckel via status/code/message
-export const mapErrorToKey = (err: unknown, status?: number): string => {
-  if (status == null) {
-    status = extractHttpStatus(err)
-  }
+// Helper to extract and classify error information
+const classifyError = (err: unknown, status?: number) => {
+  const resolvedStatus = status ?? extractHttpStatus(err)
+
+  let errorCode: string | undefined
+  let message: string | undefined
 
   if (err && typeof err === "object") {
-    const code = (err as any).code
-    if (typeof code === "string") {
-      if (code === "REQUEST_FAILED") {
-        return statusToKey(status) || "errorServerIssue"
-      }
-      const mapped = ERROR_CODE_TO_KEY[code]
-      if (mapped) return mapped
-    }
+    errorCode = (err as any).code
+    message = (err as Error)?.message
   }
 
-  const byStatus = statusToKey(status)
-  if (byStatus) return byStatus
+  return {
+    status: resolvedStatus,
+    code: typeof errorCode === "string" ? errorCode : undefined,
+    message: typeof message === "string" ? message : undefined,
+    isRequestFailed: errorCode === "REQUEST_FAILED",
+  }
+}
 
-  const message = (err as Error)?.message
-  if (typeof message === "string") {
-    const matched = matchMessagePattern(message)
-    if (matched) return matched
+// Mappar error till översättningsnyckel via status/code/message
+export const mapErrorToKey = (err: unknown, status?: number): string => {
+  const classification = classifyError(err, status)
+
+  // Priority 1: Request-failed should use status
+  if (classification.isRequestFailed) {
+    return statusToKey(classification.status) || "errorServerIssue"
+  }
+
+  // Priority 2: Known error codes
+  if (classification.code && ERROR_CODE_TO_KEY[classification.code]) {
+    return ERROR_CODE_TO_KEY[classification.code]
+  }
+
+  // Priority 3: HTTP status codes
+  const statusKey = statusToKey(classification.status)
+  if (statusKey) return statusKey
+
+  // Priority 4: Message pattern matching
+  if (classification.message) {
+    const messageKey = matchMessagePattern(classification.message)
+    if (messageKey) return messageKey
   }
 
   return "errorUnknown"
@@ -586,24 +527,41 @@ export function validateConnectionInputs(args: {
 } {
   const { url, token, repository, availableRepos } = args || ({} as any)
 
-  const errors: { serverUrl?: string; token?: string; repository?: string } = {}
+  // Use buildValidationErrors helper from utils/error
+  const { buildValidationErrors } = require("./utils/error")
 
-  const serverValidation = validateServerUrl(url)
-  if (!serverValidation.ok) {
-    const reason = (serverValidation as { reason?: string }).reason
-    errors.serverUrl = mapServerUrlReasonToKey(reason)
-  }
-
-  const t = validateToken(token)
-  if (!t.ok) errors.token = t.key || "errorTokenIssue"
-
-  const repoCheck = validateRepository(
-    repository || "",
-    availableRepos === undefined ? [] : availableRepos
-  )
-  if (!repoCheck.ok) errors.repository = repoCheck.key || "invalidRepository"
-
-  return { ok: Object.keys(errors).length === 0, errors }
+  return buildValidationErrors([
+    {
+      field: "serverUrl",
+      validator: () => {
+        const result = validateServerUrl(url)
+        return result.ok
+          ? { ok: true }
+          : { ok: false, key: mapServerUrlReasonToKey((result as any).reason) }
+      },
+    },
+    {
+      field: "token",
+      validator: () => {
+        const result = validateToken(token)
+        return result.ok
+          ? { ok: true }
+          : { ok: false, key: result.key || "errorTokenIssue" }
+      },
+    },
+    {
+      field: "repository",
+      validator: () => {
+        const result = validateRepository(
+          repository || "",
+          availableRepos === undefined ? [] : availableRepos
+        )
+        return result.ok
+          ? { ok: true }
+          : { ok: false, key: result.key || "invalidRepository" }
+      },
+    },
+  ])
 }
 
 // Validerar att alla obligatoriska fält är satta i config
@@ -746,57 +704,6 @@ export const sanitizeFormValues = (
   }
 
   return sanitized
-}
-
-// Läser wkid & latestWkid från spatial reference object
-const readWkids = (sr: unknown): { wkid?: number; latestWkid?: number } => {
-  if (typeof sr !== "object" || sr === null) {
-    return {}
-  }
-
-  const ref = sr as { wkid?: unknown; latestWkid?: unknown }
-  const wkid = typeof ref.wkid === "number" ? ref.wkid : undefined
-  const latestWkid =
-    typeof ref.latestWkid === "number" ? ref.latestWkid : undefined
-
-  return { wkid, latestWkid }
-}
-
-// Kollar om SR är Web Mercator (3857)
-const isWebMercatorSr = (sr: unknown): boolean => {
-  const ref = sr as { isWebMercator?: boolean } | undefined
-  if (ref?.isWebMercator) return true
-  const { wkid, latestWkid } = readWkids(sr)
-  return wkid === WKID.WEB_MERCATOR || latestWkid === WKID.WEB_MERCATOR
-}
-
-// Kollar om SR är WGS84 (4326)
-const isWgs84Sr = (sr: unknown): boolean => {
-  const ref = sr as { isGeographic?: boolean; isWGS84?: boolean } | undefined
-  if (ref?.isGeographic || ref?.isWGS84) return true
-  const { wkid, latestWkid } = readWkids(sr)
-  return wkid === WKID.WGS84 || latestWkid === WKID.WGS84
-}
-
-// Avgör om polygon har geographic SR (WGS84/Web Mercator)
-const isGeographicSpatialRef = (polygon: __esri.Polygon): boolean => {
-  try {
-    if (
-      isWgs84Sr(polygon.spatialReference) ||
-      isWebMercatorSr(polygon.spatialReference)
-    ) {
-      return true
-    }
-
-    const json = polygon.toJSON?.()
-    if (json && typeof json === "object") {
-      const spatialRef = (json as { spatialReference?: unknown })
-        .spatialReference
-      return isWgs84Sr(spatialRef) || isWebMercatorSr(spatialRef)
-    }
-  } catch {}
-
-  return false
 }
 
 // Beräknar area med geodesic/planar via GeometryEngine

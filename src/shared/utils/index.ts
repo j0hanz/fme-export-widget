@@ -15,13 +15,7 @@ import { fmeActions } from "../../extensions/store"
 
 export * from "./conversion"
 export {
-  isValidEmail,
-  validateEmailField,
-  getSupportEmail,
-  buildChoiceSet,
   isValidExternalUrlForOptGetUrl,
-  isNavigatorOffline,
-  isAbortError,
   computeSelectCoerce,
   parseTableRows,
   shouldApplyRemoteDatasetUrl,

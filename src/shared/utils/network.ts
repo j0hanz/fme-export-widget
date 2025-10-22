@@ -11,6 +11,44 @@ import {
   toNonEmptyTrimmedString,
 } from "./conversion"
 
+// Network and environment utilities
+export const isNavigatorOffline = (): boolean => {
+  if (typeof navigator === "undefined") return false
+
+  try {
+    const nav = (globalThis as any)?.navigator
+    return Boolean(nav && nav.onLine === false)
+  } catch {
+    return false
+  }
+}
+
+const ABORT_REGEX = /\baborted?\b/i
+
+export const isAbortError = (error: unknown): boolean => {
+  if (!error) return false
+
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      name?: unknown
+      code?: unknown
+      message?: unknown
+    }
+    const name = toStr(candidate.name ?? candidate.code)
+    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
+      return true
+    if (!name || name === "Error") {
+      const message = toStr(candidate.message)
+      return ABORT_REGEX.test(message) || message.includes("signal is aborted")
+    }
+    return false
+  }
+  if (typeof error === "string") {
+    return ABORT_REGEX.test(error)
+  }
+  return false
+}
+
 export const maskToken = (token: string): string => {
   if (!token) return ""
   if (token.length <= 4) return "*".repeat(token.length)

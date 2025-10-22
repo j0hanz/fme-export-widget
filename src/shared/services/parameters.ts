@@ -961,28 +961,26 @@ export class ParameterFormService {
     }
   }
 
-  private deriveToggleConfig(
-    type: FormFieldType,
-    param: WorkspaceParameter,
+  // Helper: Parse option entries for toggle fields
+  private parseToggleOptionEntries(
     options?: readonly OptionItem[]
-  ): ToggleFieldConfig | undefined {
-    if (type !== FormFieldType.SWITCH && type !== FormFieldType.CHECKBOX) {
-      return undefined
-    }
+  ): Array<{ value: any; label?: string }> {
+    if (!Array.isArray(options)) return []
 
-    const meta = this.getParameterMetadata(param)
-    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
-    const defaultBoolean = toBooleanValue(param.defaultValue)
+    return options
+      .map((opt) => ({
+        value: this.normalizeToggleValue(opt?.value),
+        label: toTrimmedString(opt?.label) ?? undefined,
+      }))
+      .filter((entry) => entry.value !== undefined || entry.label)
+  }
 
-    const optionEntries = Array.isArray(options)
-      ? options
-          .map((opt) => ({
-            value: this.normalizeToggleValue(opt?.value),
-            label: toTrimmedString(opt?.label) ?? undefined,
-          }))
-          .filter((entry) => entry.value !== undefined || entry.label)
-      : []
-
+  // Helper: Resolve checked/unchecked values from option entries
+  private resolveToggleOptionsFromEntries(
+    optionEntries: Array<{ value: any; label?: string }>,
+    normalizedDefault: any,
+    meta: any
+  ): { checkedValue: any; uncheckedValue: any } {
     let checkedValue = this.extractToggleMetaValue(meta, [
       "checkedValue",
       "checked_value",
@@ -1051,28 +1049,52 @@ export class ParameterFormService {
       }
     }
 
+    return { checkedValue, uncheckedValue }
+  }
+
+  // Helper: Apply default values to toggle options
+  private applyToggleDefaults(
+    checkedValue: any,
+    uncheckedValue: any,
+    normalizedDefault: any,
+    defaultBoolean: boolean | undefined
+  ): { checkedValue: any; uncheckedValue: any } {
+    let finalChecked = checkedValue
+    let finalUnchecked = uncheckedValue
+
     if (defaultBoolean !== undefined) {
-      if (checkedValue === undefined && defaultBoolean) {
-        checkedValue = this.normalizeToggleValue(true)
+      if (finalChecked === undefined && defaultBoolean) {
+        finalChecked = this.normalizeToggleValue(true)
       }
 
-      if (uncheckedValue === undefined && !defaultBoolean) {
-        uncheckedValue = this.normalizeToggleValue(false)
+      if (finalUnchecked === undefined && !defaultBoolean) {
+        finalUnchecked = this.normalizeToggleValue(false)
       }
     }
 
-    if (uncheckedValue === undefined && normalizedDefault !== undefined) {
-      uncheckedValue = normalizedDefault
+    if (finalUnchecked === undefined && normalizedDefault !== undefined) {
+      finalUnchecked = normalizedDefault
     }
 
+    // Avoid duplicate values
     if (
-      checkedValue !== undefined &&
-      uncheckedValue !== undefined &&
-      this.areToggleValuesEqual(checkedValue, uncheckedValue)
+      finalChecked !== undefined &&
+      finalUnchecked !== undefined &&
+      this.areToggleValuesEqual(finalChecked, finalUnchecked)
     ) {
-      uncheckedValue = undefined
+      finalUnchecked = undefined
     }
 
+    return { checkedValue: finalChecked, uncheckedValue: finalUnchecked }
+  }
+
+  // Helper: Extract toggle labels from metadata or options
+  private extractToggleLabels(
+    meta: any,
+    optionEntries: Array<{ value: any; label?: string }>,
+    checkedValue: any,
+    uncheckedValue: any
+  ): { checkedLabel?: string; uncheckedLabel?: string } {
     const checkedLabel =
       pickString(meta, [
         "checkedLabel",
@@ -1105,6 +1127,51 @@ export class ParameterFormService {
           this.areToggleValuesEqual(entry.value, uncheckedValue)
       )?.label
 
+    return { checkedLabel, uncheckedLabel }
+  }
+
+  private deriveToggleConfig(
+    type: FormFieldType,
+    param: WorkspaceParameter,
+    options?: readonly OptionItem[]
+  ): ToggleFieldConfig | undefined {
+    if (type !== FormFieldType.SWITCH && type !== FormFieldType.CHECKBOX) {
+      return undefined
+    }
+
+    const meta = this.getParameterMetadata(param)
+    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
+    const defaultBoolean = toBooleanValue(param.defaultValue)
+
+    // Step 1: Parse option entries
+    const optionEntries = this.parseToggleOptionEntries(options)
+
+    // Step 2: Resolve checked/unchecked values from entries
+    let { checkedValue, uncheckedValue } = this.resolveToggleOptionsFromEntries(
+      optionEntries,
+      normalizedDefault,
+      meta
+    )
+
+    // Step 3: Apply defaults
+    const finalValues = this.applyToggleDefaults(
+      checkedValue,
+      uncheckedValue,
+      normalizedDefault,
+      defaultBoolean
+    )
+    checkedValue = finalValues.checkedValue
+    uncheckedValue = finalValues.uncheckedValue
+
+    // Step 4: Extract labels
+    const { checkedLabel, uncheckedLabel } = this.extractToggleLabels(
+      meta,
+      optionEntries,
+      checkedValue,
+      uncheckedValue
+    )
+
+    // Build result
     const result: ToggleFieldConfig = {
       ...(checkedValue !== undefined && { checkedValue }),
       ...(uncheckedValue !== undefined && { uncheckedValue }),
