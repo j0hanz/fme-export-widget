@@ -4,10 +4,28 @@ import type {
   FmeExportConfig,
   MutableParams,
   WorkspaceParameter,
+  AreaEvaluation,
+  AreaStrategy,
+  ArcgisGeometryModules,
+  GeometryEngineLike,
+  PolygonMaybe,
+  NormalizeUtilsModule,
+  EsriConfigLike,
+  GeometryServiceModule,
+  AreasAndLengthsParametersCtor,
 } from "../../config/index"
-import { ErrorSeverity, ErrorType, ParameterType } from "../../config/index"
+import {
+  ErrorSeverity,
+  ErrorType,
+  ParameterType,
+  GEODESIC_SEGMENT_LENGTH_METERS,
+  MIN_PLANAR_SEGMENT_DEGREES,
+  DEGREES_PER_METER,
+} from "../../config/index"
 import { toTrimmedString } from "./conversion"
 import { sanitizeParamKey } from "./form"
+import { loadArcgisModules } from "./index"
+import { createRuntimeError } from "./error"
 
 const createAoiSerializationError = (): ErrorState => ({
   message: "GEOMETRY_SERIALIZATION_FAILED",
@@ -433,4 +451,688 @@ export const makeGeoJson = (polygon: __esri.Polygon) => {
     type: "Polygon" as const,
     coordinates: normalized,
   }
+}
+
+// Promise-like type guard
+const isPromiseLike = (value: unknown): value is PromiseLike<unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  "then" in value &&
+  typeof (value as { then?: unknown }).then === "function"
+
+// Polygon geometry type guard
+const isPolygonGeometryLike = (value: unknown): value is __esri.Polygon =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "polygon"
+
+// Module caching for lazy loading
+let normalizeUtilsCache: NormalizeUtilsModule | null | undefined
+let geometryServiceCache: GeometryServiceModule | null | undefined
+let areasAndLengthsParamsCache: AreasAndLengthsParametersCtor | null | undefined
+let esriConfigCache: EsriConfigLike | null | undefined
+
+// Unpacks module object to .default or the module itself
+const unwrapModule = (module: unknown): unknown =>
+  (module as { default?: unknown }).default ?? module
+
+// Beräknar area med geodesic/planar via GeometryEngine
+const tryCalcArea = async (
+  engine: GeometryEngineLike | undefined,
+  polygon: __esri.Polygon,
+  isGeographic: boolean
+): Promise<number> => {
+  if (!engine) return 0
+
+  const geodesicAreaFn = engine.geodesicArea
+  if (isGeographic && typeof geodesicAreaFn === "function") {
+    const area = await geodesicAreaFn(polygon, "square-meters")
+    if (Number.isFinite(area) && area > 0) return area
+  }
+
+  const planarAreaFn = engine.planarArea
+  if (typeof planarAreaFn === "function") {
+    const area = await planarAreaFn(polygon, "square-meters")
+    if (Number.isFinite(area) && area > 0) return area
+  }
+
+  return 0
+}
+
+// Laddar & cachar normalizeUtils modul om ej tillgänglig i modules
+const ensureNormalizeUtils = async (
+  modules: ArcgisGeometryModules
+): Promise<NormalizeUtilsModule | null> => {
+  if (modules?.normalizeUtils?.normalizeCentralMeridian) {
+    return modules.normalizeUtils
+  }
+
+  if (normalizeUtilsCache !== undefined) return normalizeUtilsCache
+
+  try {
+    const [normalizeUtilsMod] = await loadArcgisModules([
+      "esri/geometry/support/normalizeUtils",
+    ])
+    normalizeUtilsCache = unwrapModule(
+      normalizeUtilsMod
+    ) as NormalizeUtilsModule
+  } catch {
+    normalizeUtilsCache = null
+  }
+
+  return normalizeUtilsCache
+}
+
+// Laddar & cachar esriConfig modul om ej tillgänglig i modules
+const ensureEsriConfig = async (
+  modules: ArcgisGeometryModules
+): Promise<EsriConfigLike | null> => {
+  if (modules?.esriConfig) return modules.esriConfig
+  if (esriConfigCache !== undefined) return esriConfigCache
+
+  try {
+    const [configMod] = await loadArcgisModules(["esri/config"])
+    esriConfigCache = unwrapModule(configMod) as EsriConfigLike
+  } catch {
+    esriConfigCache = null
+  }
+
+  return esriConfigCache
+}
+
+// Laddar geometryService & AreasAndLengthsParameters moduler
+const ensureGeometryServiceModules = async (): Promise<{
+  geometryService: GeometryServiceModule | null
+  AreasAndLengthsParameters: AreasAndLengthsParametersCtor | null
+}> => {
+  if (
+    geometryServiceCache !== undefined &&
+    areasAndLengthsParamsCache !== undefined
+  ) {
+    return {
+      geometryService: geometryServiceCache,
+      AreasAndLengthsParameters: areasAndLengthsParamsCache,
+    }
+  }
+
+  try {
+    const [geometryServiceMod, paramsMod] = await loadArcgisModules([
+      "esri/rest/geometryService",
+      "esri/rest/support/AreasAndLengthsParameters",
+    ])
+    geometryServiceCache = unwrapModule(
+      geometryServiceMod
+    ) as GeometryServiceModule
+    areasAndLengthsParamsCache = unwrapModule(
+      paramsMod
+    ) as AreasAndLengthsParametersCtor
+  } catch {
+    geometryServiceCache = null
+    areasAndLengthsParamsCache = null
+  }
+
+  return {
+    geometryService: geometryServiceCache,
+    AreasAndLengthsParameters: areasAndLengthsParamsCache,
+  }
+}
+
+// Hämtar geometryServiceUrl från esriConfig eller portalSelf
+const resolveGeometryServiceUrl = async (
+  modules: ArcgisGeometryModules
+): Promise<string | null> => {
+  try {
+    const directUrl = modules?.esriConfig?.geometryServiceUrl
+    if (typeof directUrl === "string" && directUrl) return directUrl
+
+    const config = await ensureEsriConfig(modules)
+    if (!config) return null
+
+    const directConfigUrl = config.geometryServiceUrl
+    if (typeof directConfigUrl === "string" && directConfigUrl) {
+      return directConfigUrl
+    }
+
+    const requestUrl = config.request?.geometryServiceUrl
+    if (typeof requestUrl === "string" && requestUrl) return requestUrl
+
+    const helperUrl =
+      config.portalSelf?.helperServices?.geometry?.url ||
+      config.portalInfo?.helperServices?.geometry?.url ||
+      config.helperServices?.geometry?.url
+
+    if (typeof helperUrl === "string" && helperUrl) return helperUrl
+  } catch {}
+
+  return null
+}
+
+// Wrapprar polygon-värden (kan vara Promise eller synkront)
+const maybeResolvePolygon = async (
+  value: PolygonMaybe
+): Promise<__esri.Polygon | null> => {
+  if (!value) return null
+  try {
+    const resolved = isPromiseLike(value) ? await value : value
+    if (isPolygonGeometryLike(resolved)) {
+      return resolved
+    }
+  } catch {}
+  return null
+}
+
+// Försöker densify med geodesicDensify eller planar densify
+const attemptDensify = async (
+  engine: GeometryEngineLike | undefined,
+  method: "geodesicDensify" | "densify",
+  geometry: __esri.Polygon,
+  args: readonly unknown[]
+): Promise<__esri.Polygon | null> => {
+  const densify = engine?.[method]
+  if (typeof densify !== "function") return null
+  try {
+    const result = densify(geometry, ...(args as [number, string?]))
+    return await maybeResolvePolygon(result)
+  } catch {
+    return null
+  }
+}
+
+// Normaliserar polygon över central meridian (WGS84/Web Mercator)
+const normalizePolygon = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  const sr = polygon?.spatialReference
+  const shouldNormalize = isWgs84Sr(sr) || isWebMercatorSr(sr)
+  if (!shouldNormalize) return polygon
+
+  const normalizeUtils = await ensureNormalizeUtils(modules)
+  if (!normalizeUtils?.normalizeCentralMeridian) return polygon
+
+  try {
+    const results = await normalizeUtils.normalizeCentralMeridian([polygon])
+    const normalized = Array.isArray(results) ? results[0] : null
+    if (isPolygonGeometryLike(normalized)) {
+      return normalized
+    }
+  } catch {}
+
+  return polygon
+}
+
+// Applicerar geodesic eller planar densify beroende på SR
+const applyDensify = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  const sr = polygon?.spatialReference
+  const canUseGeodesic = isWgs84Sr(sr) || isWebMercatorSr(sr)
+  const isGeographic = isWgs84Sr(sr)
+
+  let working = polygon
+
+  if (canUseGeodesic) {
+    const geodesicArgs: readonly unknown[] = [
+      GEODESIC_SEGMENT_LENGTH_METERS,
+      "meters",
+    ]
+    const geodesicResult =
+      (await attemptDensify(
+        modules?.geometryEngineAsync,
+        "geodesicDensify",
+        working,
+        geodesicArgs
+      )) ??
+      (await attemptDensify(
+        modules?.geometryEngine,
+        "geodesicDensify",
+        working,
+        geodesicArgs
+      ))
+
+    if (geodesicResult) {
+      working = geodesicResult
+    }
+  }
+
+  const planarSegment = isGeographic
+    ? Math.max(
+        GEODESIC_SEGMENT_LENGTH_METERS * DEGREES_PER_METER,
+        MIN_PLANAR_SEGMENT_DEGREES
+      )
+    : GEODESIC_SEGMENT_LENGTH_METERS
+
+  const planarArgs: readonly unknown[] = [planarSegment]
+  const planarResult =
+    (await attemptDensify(
+      modules?.geometryEngineAsync,
+      "densify",
+      working,
+      planarArgs
+    )) ??
+    (await attemptDensify(
+      modules?.geometryEngine,
+      "densify",
+      working,
+      planarArgs
+    ))
+
+  if (planarResult) {
+    working = planarResult
+  }
+
+  return working
+}
+
+// Förbereder polygon: normalisering + densify för area-beräkning
+const preparePolygonForArea = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<__esri.Polygon> => {
+  let working = polygon
+  working = await normalizePolygon(working, modules)
+  working = await applyDensify(working, modules)
+  return working
+}
+
+// Beräknar area via remote geometry service (error recovery strategy)
+const calcAreaViaGeometryService = async (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules
+): Promise<number> => {
+  const serviceUrl = await resolveGeometryServiceUrl(modules)
+  if (!serviceUrl) return 0
+
+  const { geometryService, AreasAndLengthsParameters } =
+    await ensureGeometryServiceModules()
+
+  if (
+    !geometryService?.areasAndLengths ||
+    typeof geometryService.areasAndLengths !== "function" ||
+    !AreasAndLengthsParameters
+  ) {
+    return 0
+  }
+
+  try {
+    const paramOptions: __esri.AreasAndLengthsParametersProperties & {
+      geodesic?: boolean
+    } = {
+      polygons: [polygon],
+      areaUnit: "square-meters",
+      lengthUnit: "meters",
+      calculationType: "geodesic",
+      geodesic: true,
+    }
+    const params = new AreasAndLengthsParameters(paramOptions)
+
+    const response = await geometryService.areasAndLengths(serviceUrl, params)
+    const area = response?.areas?.[0]
+    if (Number.isFinite(area) && Math.abs(area) > 0) {
+      return Math.abs(area)
+    }
+  } catch {}
+
+  return 0
+}
+
+// Tvingar area operator till function eller null
+const coerceAreaOperator = (
+  candidate: unknown
+):
+  | ((geometry: __esri.Geometry, unit?: string) => number | Promise<number>)
+  | null => {
+  return typeof candidate === "function" ? (candidate as any) : null
+}
+
+// Väljer geodesic/planar operator från operators record
+const pickGeometryOperator = (
+  operators: unknown,
+  geographic: boolean
+):
+  | ((geometry: __esri.Geometry, unit?: string) => number | Promise<number>)
+  | null => {
+  if (!operators) return null
+  if (typeof operators === "function") {
+    return operators as any
+  }
+
+  if (typeof operators !== "object") {
+    return null
+  }
+
+  const record = operators as { [key: string]: unknown }
+  const lookupOrder = geographic
+    ? ["geodesicArea", "geodesic", "planarArea", "planar"]
+    : ["planarArea", "planar", "geodesicArea", "geodesic"]
+
+  for (const key of lookupOrder) {
+    const fn = coerceAreaOperator(record[key])
+    if (fn) return fn
+  }
+
+  if (record.area) {
+    return pickGeometryOperator(record.area, geographic)
+  }
+
+  return null
+}
+
+// Skapar lista med area-strategier för resilient beräkning
+const createAreaStrategies = (
+  polygon: __esri.Polygon,
+  modules: ArcgisGeometryModules,
+  geographic: boolean
+): AreaStrategy[] => {
+  const strategies: AreaStrategy[] = []
+
+  const operatorFn = pickGeometryOperator(
+    modules?.geometryOperators,
+    geographic
+  )
+  if (operatorFn) {
+    strategies.push(async () => {
+      try {
+        const args =
+          operatorFn.length >= 2 ? [polygon, "square-meters"] : [polygon]
+        const callable = operatorFn as (...fnArgs: any[]) => unknown
+        const result = callable(...args)
+        const area = isPromiseLike(result) ? await result : result
+        if (typeof area === "number" && Math.abs(area) > 0) {
+          return Math.abs(area)
+        }
+      } catch {}
+      return 0
+    })
+  }
+
+  if (modules?.geometryEngineAsync) {
+    strategies.push(() =>
+      tryCalcArea(modules.geometryEngineAsync, polygon, geographic)
+    )
+  }
+
+  if (modules?.geometryEngine) {
+    strategies.push(() =>
+      tryCalcArea(modules.geometryEngine, polygon, geographic)
+    )
+  }
+
+  return strategies
+}
+
+// Beräknar area via strategy chain: operators → engine → service
+export const calcArea = async (
+  geometry: __esri.Geometry | undefined,
+  modules: ArcgisGeometryModules
+): Promise<number> => {
+  if (!geometry || geometry.type !== "polygon") return 0
+
+  const polygon = geometry as __esri.Polygon
+  let prepared = polygon
+
+  try {
+    prepared = await preparePolygonForArea(polygon, modules)
+  } catch {
+    prepared = polygon
+  }
+
+  const geographic = isGeographicSpatialRef(prepared)
+
+  const strategies = createAreaStrategies(prepared, modules, geographic)
+  for (const runStrategy of strategies) {
+    try {
+      const area = await runStrategy()
+      if (area > 0) return area
+    } catch {}
+  }
+
+  const geometryServiceArea = await calcAreaViaGeometryService(
+    prepared,
+    modules
+  )
+  if (geometryServiceArea > 0) return geometryServiceArea
+
+  return 0
+}
+
+// Simplifierar polygon och validerar att den är simple
+const simplifyPolygon = async (
+  poly: __esri.Polygon,
+  engine: GeometryEngineLike | undefined,
+  engineAsync: GeometryEngineLike | undefined
+): Promise<__esri.Polygon | null> => {
+  const simplifyAsync = engineAsync?.simplify
+  if (typeof simplifyAsync === "function") {
+    const asyncResult = await simplifyAsync(poly)
+    const simplified = await maybeResolvePolygon(asyncResult)
+    if (!simplified) return null
+
+    const checkSimple = engineAsync?.isSimple ?? engine?.isSimple
+    if (typeof checkSimple === "function") {
+      const simpleResult = checkSimple(simplified)
+      const isSimple = isPromiseLike(simpleResult)
+        ? await simpleResult
+        : simpleResult
+      if (!isSimple) return null
+    }
+
+    return simplified
+  }
+
+  const simplifySync = engine?.simplify
+  if (typeof simplifySync === "function") {
+    const simplified = await maybeResolvePolygon(simplifySync(poly))
+    if (!simplified) return null
+    const isSimpleFn = engine?.isSimple
+    if (typeof isSimpleFn === "function") {
+      const simpleResult = isSimpleFn(simplified)
+      const isSimple = isPromiseLike(simpleResult)
+        ? await simpleResult
+        : simpleResult
+      if (!isSimple) return null
+    }
+    return simplified
+  }
+
+  const isSimpleFn = engine?.isSimple
+  if (typeof isSimpleFn === "function") {
+    const simpleResult = isSimpleFn(poly)
+    const isSimple = isPromiseLike(simpleResult)
+      ? await simpleResult
+      : simpleResult
+    if (!isSimple) return null
+  }
+
+  return poly
+}
+
+// Kontrollerar att ring är stängd (första=sista punkt)
+const isRingClosed = (ring: unknown[]): boolean => {
+  if (!Array.isArray(ring) || ring.length === 0) return false
+  const first = ring[0] as number[] | undefined
+  const last = ring[ring.length - 1] as number[] | undefined
+  return Boolean(
+    first &&
+      last &&
+      Array.isArray(first) &&
+      Array.isArray(last) &&
+      first[0] === last[0] &&
+      first[1] === last[1]
+  )
+}
+
+// Validerar att alla rings har >=4 punkter och är stängda
+const validateRingStructure = (rings: unknown[]): boolean => {
+  if (!Array.isArray(rings) || rings.length === 0) return false
+
+  for (const ring of rings) {
+    if (!Array.isArray(ring) || ring.length < 4) return false
+    if (!isRingClosed(ring)) return false
+  }
+
+  return true
+}
+
+// Validerar att alla holes är innanför första ringen (outer)
+const validateHolesWithinOuter = (
+  rings: unknown[],
+  poly: __esri.Polygon,
+  engine: GeometryEngineLike | undefined,
+  modules: ArcgisGeometryModules
+): boolean => {
+  if (rings.length <= 1) return true
+  const contains = engine?.contains
+  if (typeof contains !== "function") return true
+
+  try {
+    const PolygonCtor = modules?.Polygon
+    if (!PolygonCtor) return true
+
+    const outer = PolygonCtor.fromJSON({
+      rings: [rings[0]],
+      spatialReference: poly.spatialReference,
+    })
+
+    for (let i = 1; i < rings.length; i++) {
+      const hole = PolygonCtor.fromJSON({
+        rings: [rings[i]],
+        spatialReference: poly.spatialReference,
+      })
+      if (!contains(outer, hole)) return false
+    }
+  } catch {
+    return true
+  }
+
+  return true
+}
+
+// Helper to create geometry error states
+const makeGeometryError = (
+  messageKey: string,
+  code: string
+): { valid: false; error: ErrorState } => ({
+  valid: false,
+  error: createRuntimeError(messageKey, {
+    type: ErrorType.GEOMETRY,
+    code,
+  }),
+})
+
+// Validerar polygon: simplify, ring structure, area, holes
+export const validatePolygon = async (
+  geometry: __esri.Geometry | undefined,
+  modules: ArcgisGeometryModules
+): Promise<{
+  valid: boolean
+  error?: ErrorState
+  simplified?: __esri.Polygon
+}> => {
+  if (!geometry) {
+    return makeGeometryError("geometryMissingMessage", "NO_GEOMETRY")
+  }
+
+  if (geometry.type !== "polygon") {
+    return makeGeometryError("geometryPolygonRequired", "INVALID_GEOMETRY_TYPE")
+  }
+
+  if (!modules?.geometryEngine && !modules?.geometryEngineAsync) {
+    return { valid: true }
+  }
+
+  try {
+    const engine = modules.geometryEngine
+    const engineAsync = modules.geometryEngineAsync
+    let poly = geometry as __esri.Polygon
+
+    const simplified = await simplifyPolygon(poly, engine, engineAsync)
+    if (!simplified) {
+      return makeGeometryError("geometryNotSimple", "INVALID_GEOMETRY")
+    }
+    poly = simplified
+
+    const rawRings = (poly as { rings?: unknown }).rings
+    const rings = Array.isArray(rawRings) ? rawRings : []
+    if (!validateRingStructure(rings)) {
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
+    }
+
+    const area = await calcArea(poly, modules)
+    if (!area || area <= 0) {
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
+    }
+
+    if (!validateHolesWithinOuter(rings, poly, engine, modules)) {
+      return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID")
+    }
+
+    return { valid: true, simplified: poly }
+  } catch {
+    return makeGeometryError(
+      "geometryValidationFailedMessage",
+      "GEOMETRY_VALIDATION_ERROR"
+    )
+  }
+}
+
+// Konverterar area limit till number eller undefined
+const resolveAreaLimit = (limit?: number): number | undefined => {
+  if (typeof limit !== "number" || !Number.isFinite(limit)) return undefined
+  if (limit <= 0) return undefined
+  return limit
+}
+
+// Utvärderar area mot max/warning thresholds
+export const evaluateArea = (
+  area: number,
+  limits?: { maxArea?: number; largeArea?: number }
+): AreaEvaluation => {
+  const normalized = Math.abs(area) || 0
+  const maxThreshold = resolveAreaLimit(limits?.maxArea)
+  const warningThreshold = resolveAreaLimit(limits?.largeArea)
+  const exceedsMaximum =
+    typeof maxThreshold === "number" ? normalized > maxThreshold : false
+  const shouldWarn =
+    !exceedsMaximum &&
+    typeof warningThreshold === "number" &&
+    normalized > warningThreshold
+
+  return {
+    area: normalized,
+    maxThreshold,
+    warningThreshold,
+    exceedsMaximum,
+    shouldWarn,
+  }
+}
+
+// Validerar om area överskrider max area
+export const checkMaxArea = (
+  area: number,
+  maxArea?: number
+): { ok: boolean; message?: string; code?: string } => {
+  const resolved = resolveAreaLimit(maxArea)
+  if (!resolved || area <= resolved) {
+    return { ok: true }
+  }
+
+  return {
+    ok: false,
+    message: "geometryAreaTooLargeCode",
+    code: "AREA_TOO_LARGE",
+  }
+}
+
+// Kontrollerar om area ska trigga warning (large area)
+export const checkLargeArea = (area: number, largeArea?: number): boolean =>
+  evaluateArea(area, { largeArea }).shouldWarn
+
+// Återställer geometry calculation caches för test-syfte
+export const resetGeometryCachesForTest = () => {
+  normalizeUtilsCache = undefined
+  geometryServiceCache = undefined
+  areasAndLengthsParamsCache = undefined
+  esriConfigCache = undefined
 }

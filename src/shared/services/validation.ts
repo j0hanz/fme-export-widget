@@ -10,9 +10,8 @@ import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
 import {
   extractHttpStatus,
   validateRequiredFields,
-  createError,
-  mapErrorToKey,
 } from "../validations"
+import { createError, mapErrorToKey } from "../utils/error"
 import { inFlight } from "./inflight"
 import { healthCheck, extractFmeVersion, hasProxyError } from "./network"
 

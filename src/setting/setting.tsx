@@ -51,12 +51,12 @@ import {
   validateServerUrl,
   validateToken,
   extractHttpStatus,
-  mapErrorToKey,
   mapServerUrlReasonToKey,
   validateConnectionInputs,
   isValidEmail,
   validateEmailField,
 } from "../shared/validations"
+import { mapErrorToKey } from "../shared/utils/error"
 import { createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,

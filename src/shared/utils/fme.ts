@@ -7,6 +7,10 @@ import type {
   WorkspaceItemDetail,
   WorkspaceParameter,
   EsriModules,
+  ExportResult,
+  TranslateFn,
+  FmeResponse,
+  NormalizedServiceInfo,
 } from "../../config/index"
 import { collectGeometryParamNames, attachAoi } from "./geometry"
 import {
@@ -281,4 +285,157 @@ export const extractRepositoryNames = (source: unknown): string[] => {
   }
 
   return []
+}
+
+// Factory för att skapa FME response objekt
+const createFmeResponse = {
+  blob: (blob: Blob, workspace: string, userEmail: string) => ({
+    success: true,
+    blob,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadFilename: `${workspace}_export.zip`,
+    blobMetadata: {
+      type: toTrimmedString(blob.type),
+      size:
+        typeof blob.size === "number" && Number.isFinite(blob.size)
+          ? blob.size
+          : undefined,
+    },
+  }),
+
+  success: (
+    serviceInfo: NormalizedServiceInfo,
+    workspace: string,
+    userEmail: string
+  ) => ({
+    success: true,
+    jobId:
+      typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+    email: userEmail,
+    workspaceName: workspace,
+    downloadUrl: serviceInfo.url,
+    downloadFilename: serviceInfo.url ? `${workspace}_export.zip` : undefined,
+    status: serviceInfo.status,
+    statusMessage: serviceInfo.message,
+  }),
+
+  failure: (
+    message: string,
+    serviceInfo?: NormalizedServiceInfo,
+    code = "FME_JOB_FAILURE"
+  ) => ({
+    success: false,
+    message,
+    code,
+    ...(typeof serviceInfo?.jobId === "number" && {
+      jobId: serviceInfo.jobId,
+    }),
+    ...(serviceInfo?.status && { status: serviceInfo.status }),
+    ...(serviceInfo?.message && { statusMessage: serviceInfo.message }),
+  }),
+}
+
+// Validerar att url är en giltig http/https URL
+const isValidDownloadUrl = (url: unknown): boolean =>
+  typeof url === "string" && /^https?:\/\//.test(url)
+
+// Processerar FME response och returnerar ExportResult
+export const processFmeResponse = (
+  fmeResponse: unknown,
+  workspace: string,
+  userEmail: string,
+  translateFn: TranslateFn
+): ExportResult => {
+  const response = fmeResponse as any
+  const data = response?.data
+
+  if (!data) {
+    return {
+      success: false,
+      message: translateFn("noDataInResponse"),
+      code: "NO_DATA",
+    }
+  }
+
+  if (data.blob instanceof Blob) {
+    return createFmeResponse.blob(data.blob, workspace, userEmail)
+  }
+
+  const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
+  const normalizedStatus = (serviceInfo.status || "")
+    .toString()
+    .trim()
+    .toUpperCase()
+
+  if (normalizedStatus === "CANCELLED" || normalizedStatus === "CANCELED") {
+    const statusMessage = serviceInfo.message || ""
+    const normalizedMessage = statusMessage.toLowerCase()
+    const timeoutIndicators = [
+      "timeout",
+      "time limit",
+      "time-limit",
+      "max execution",
+      "maximum execution",
+      "max runtime",
+      "maximum runtime",
+      "max run time",
+    ]
+    const isTimeout = timeoutIndicators.some((indicator) =>
+      normalizedMessage.includes(indicator)
+    )
+    const translationKey = isTimeout ? "jobCancelledTimeout" : "jobCancelled"
+    return {
+      success: false,
+      cancelled: true,
+      message: translateFn(translationKey),
+      code: isTimeout ? "FME_JOB_CANCELLED_TIMEOUT" : "FME_JOB_CANCELLED",
+      status: serviceInfo.status,
+      statusMessage,
+      jobId:
+        typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
+    }
+  }
+
+  const failureStatuses = new Set([
+    "FAILURE",
+    "FAILED",
+    "JOB_FAILURE",
+    "FME_FAILURE",
+  ])
+
+  if (failureStatuses.has(normalizedStatus)) {
+    const failureMessage =
+      toTrimmedString(serviceInfo.message) || translateFn("jobFailed")
+    return createFmeResponse.failure(
+      failureMessage,
+      serviceInfo,
+      "FME_JOB_FAILURE"
+    )
+  }
+
+  const hasValidResult =
+    normalizedStatus === "SUCCESS" ||
+    isValidDownloadUrl(serviceInfo.url) ||
+    (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0)
+
+  if (hasValidResult) {
+    return createFmeResponse.success(serviceInfo, workspace, userEmail)
+  }
+
+  return createFmeResponse.failure(
+    serviceInfo.message || translateFn("errorJobSubmission"),
+    serviceInfo
+  )
+}
+
+// Normaliserar FME service response till NormalizedServiceInfo
+export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
+  const r: any = resp || {}
+  const raw = r?.data?.serviceResponse || r?.data || r
+  const status = raw?.statusInfo?.status || raw?.status
+  const message = raw?.statusInfo?.message || raw?.message
+  const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id
+  const url = raw?.url
+  return { status, message, jobId, url }
 }

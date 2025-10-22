@@ -157,7 +157,7 @@ export async function processDrawingCompletion(params: {
   }
 
   const { validatePolygon, calcArea, evaluateArea, checkMaxArea } =
-    await import("../validations")
+    await import("../utils/geometry")
 
   if (signal.aborted) {
     return { success: false, error: { code: "ABORTED" } }

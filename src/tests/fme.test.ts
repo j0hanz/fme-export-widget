@@ -22,7 +22,7 @@ import {
   type WorkspaceParameter,
 } from "../config/index"
 import { VisibilityEvaluator } from "../shared/visibility"
-import { processFmeResponse } from "../shared/validations"
+import { processFmeResponse } from "../shared/utils/fme"
 
 initGlobal()
 

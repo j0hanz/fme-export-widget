@@ -30,10 +30,10 @@ import {
   extractHttpStatus,
   isRetryableError,
   validateRequiredConfig,
-  mapErrorToKey,
   validateServerUrl,
   mapServerUrlReasonToKey,
 } from "./validations"
+import { mapErrorToKey } from "./utils/error"
 import {
   buildUrl,
   buildParams,

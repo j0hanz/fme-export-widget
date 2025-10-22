@@ -53,13 +53,10 @@ import {
   runStartupValidationFlow,
   processDrawingCompletion,
 } from "../shared/services"
-import {
-  mapErrorToKey,
-  checkMaxArea,
-  evaluateArea,
-  processFmeResponse,
-  getSupportEmail,
-} from "../shared/validations"
+import { getSupportEmail } from "../shared/validations"
+import { processFmeResponse } from "../shared/utils/fme"
+import { mapErrorToKey } from "../shared/utils/error"
+import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
 import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
   resolveMessageOrKey,
