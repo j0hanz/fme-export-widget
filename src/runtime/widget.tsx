@@ -54,15 +54,13 @@ import {
   runStartupValidationFlow,
   processDrawingCompletion,
   executeJobSubmission,
+  setupFmeDebugTools,
+  updateFmeDebugTools,
 } from "../shared/services"
 import { getSupportEmail, extractHttpStatus } from "../shared/validations"
 import { mapErrorFromNetwork } from "../shared/utils/error"
 import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
-import {
-  initialFmeState,
-  createFmeSelectors,
-  fmeActions,
-} from "../extensions/store"
+import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
   determineServiceMode,
   formatArea,
@@ -1717,184 +1715,22 @@ function WidgetContent(
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
-  // Expose debug helpers to browser console
-  hooks.useEffectOnce(() => {
-    const widgetId = props.id || (props as any).widgetId
-    ;(window as any).__FME_DEBUG__ = {
-      widgetId,
-      getConfig: () => props.config,
-      getState: () => {
-        const store = getAppStore()
-        const state = store.getState() as IMStateWithFmeExport
-        const globalState = state["fme-state"] as any
-        return globalState?.byId?.[widgetId] || null
-      },
-      getQueryCache: () => {
-        const cache = fmeQueryClient.getQueryCache()
-        return cache.getAll().map((query) => ({
-          queryKey: query.queryKey,
-          state: query.state,
-          queryHash: query.queryHash,
-        }))
-      },
-      getMutationCache: () => {
-        const cache = fmeQueryClient.getMutationCache()
-        return cache.getAll().map((mutation) => ({
-          mutationId: mutation.mutationId,
-          state: mutation.state,
-        }))
-      },
-      clearQueryCache: () => {
-        fmeQueryClient.clear()
-        console.log(
-          "%c[FME Debug] Query cache cleared",
-          "color: #FF9800; font-weight: bold"
-        )
-      },
-      invalidateQueries: (filters?: any) => {
-        fmeQueryClient.invalidateQueries(filters)
-        console.log(
-          "%c[FME Debug] Queries invalidated",
-          "color: #FF9800; font-weight: bold",
-          filters
-        )
-      },
-      getAppState: () => {
-        const store = getAppStore()
-        return store.getState()
-      },
-      dispatch: (action: any) => {
-        const store = getAppStore()
-        console.log(
-          "%c[FME Debug] Dispatching action:",
-          "color: #9C27B0; font-weight: bold",
-          action
-        )
-        store.dispatch(action)
-      },
-      actions: fmeActions,
-      utils: {
-        maskToken: (token: string) => {
-          const { maskToken } = require("../shared/utils/network")
-          return maskToken(token)
-        },
-        formatArea: (
-          area: number,
-          spatialReference?: __esri.SpatialReference
-        ) => {
-          const { formatArea } = require("../shared/utils/format")
-          // Handle null modules by creating a basic formatter
-          const mockModules = {
-            intl: {
-              formatNumber: (value: number, options: any) => {
-                return value.toLocaleString(undefined, {
-                  minimumFractionDigits: options.minimumFractionDigits || 0,
-                  maximumFractionDigits: options.maximumFractionDigits || 2,
-                })
-              },
-            },
-          }
-          return formatArea(area, mockModules as any, spatialReference)
-        },
-        safeLogParams: (params: { [key: string]: any }) => {
-          const { safeLogParams } = require("../shared/utils/network")
-          return safeLogParams(params)
-        },
-      },
-      // Helper methods for common debugging scenarios
-      helpers: {
-        // Log current widget state in a readable format
-        inspectState: () => {
-          const debugObj = (window as any).__FME_DEBUG__
-          const state = debugObj.getState()
-          if (!state) {
-            console.log("%c[FME Debug] No state found", "color: #F44336")
-            return
-          }
-          console.log(
-            "%c[FME Debug] Widget State:",
-            "color: #4CAF50; font-weight: bold"
-          )
-          console.table({
-            viewMode: state.viewMode,
-            drawingTool: state.drawingTool,
-            hasGeometry: !!state.geometryJson,
-            drawnArea: state.drawnArea,
-            selectedWorkspace: state.selectedWorkspace,
-            canExport: state.canExport,
-          })
-        },
-        // Log all cached queries
-        inspectQueries: () => {
-          const debugObj = (window as any).__FME_DEBUG__
-          const queries = debugObj.getQueryCache()
-          console.log(
-            "%c[FME Debug] Query Cache:",
-            "color: #2196F3; font-weight: bold"
-          )
-          queries.forEach((query: any) => {
-            console.log("Query:", query.queryKey)
-            console.log("Status:", query.state.status)
-            console.log("Data:", query.state.data)
-            console.log("---")
-          })
-        },
-        // Reset widget to initial drawing state
-        resetToDrawing: () => {
-          const debugObj = (window as any).__FME_DEBUG__
-          debugObj.dispatch(debugObj.actions.resetState(debugObj.widgetId))
-          console.log(
-            "%c[FME Debug] Widget reset to drawing state",
-            "color: #4CAF50"
-          )
-        },
-        // Trigger a test error
-        testError: (errorType = "network", code = "TEST_ERROR") => {
-          const debugObj = (window as any).__FME_DEBUG__
-          debugObj.dispatch(
-            debugObj.actions.setError(
-              "general",
-              {
-                type: errorType,
-                code,
-                message: "Test error message",
-                severity: "error",
-                scope: "general",
-                recoverable: true,
-                timestampMs: Date.now(),
-              },
-              debugObj.widgetId
-            )
-          )
-          console.log("%c[FME Debug] Test error dispatched", "color: #FF9800")
-        },
-      },
-    }
-    console.log(
-      "%c[FME Debug] Global debug object available at window.__FME_DEBUG__",
-      "color: #4CAF50; font-weight: bold"
-    )
-    console.log(
-      "%cTry: __FME_DEBUG__.getState() or __FME_DEBUG__.getConfig()",
-      "color: #2196F3"
-    )
-    console.log(
-      "%cHelpers: __FME_DEBUG__.helpers.inspectState() or __FME_DEBUG__.helpers.inspectQueries()",
-      "color: #9C27B0"
-    )
+  const resolveWidgetId = (): string =>
+    (props.id ?? (props as any).widgetId) as unknown as string
 
-    return () => {
-      delete (window as any).__FME_DEBUG__
-    }
+  hooks.useEffectOnce(() => {
+    setupFmeDebugTools({
+      widgetId: resolveWidgetId(),
+      config: props.config,
+    })
+    return undefined
   })
 
   hooks.useUpdateEffect(() => {
-    const widgetId = props.id || (props as any).widgetId
-    const debugObj = (window as any).__FME_DEBUG__
-    if (debugObj) {
-      debugObj.widgetId = widgetId
-      debugObj.getConfig = () => props.config
-    }
+    updateFmeDebugTools({
+      widgetId: resolveWidgetId(),
+      config: props.config,
+    })
   }, [props.id, props.config])
 
   return (
