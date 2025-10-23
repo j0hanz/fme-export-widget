@@ -50,7 +50,8 @@ export default {
 
   // === MESSAGES ===
   msgOrderCancelled: "Beställningen avbröts innan den slutfördes.",
-  msgOrderTimeout: "Beställningen avbröts på grund av tidsgräns. Arbetsytan tog för lång tid att köra.",
+  msgOrderTimeout:
+    "Beställningen avbröts på grund av tidsgräns. Arbetsytan tog för lång tid att köra.",
   msgNoResult: "Inget tillgängligt",
   msgJobCancelled: "Jobbet avbröts",
   msgJobTimeout: "Jobbet avbröts på grund av tidsgräns",
@@ -68,10 +69,13 @@ export default {
   msgCheckGeom: "Kontrollerar geometri…",
   msgPleaseWait: "Vänligen vänta…",
   msgProcessingActive: "Bearbetning pågår…",
-  msgLargeArea: "Det angivna området ({current}) är stort och kan göra att exporten tar längre tid än vanligt.",
-  msgLargeAreaThreshold: "Det angivna området {current} är stort och kan göra att exporten tar längre tid än vanligt. Rekommenderad yta är under {threshold}.",
+  msgLargeArea:
+    "Det angivna området ({current}) är stort och kan göra att exporten tar längre tid än vanligt.",
+  msgLargeAreaThreshold:
+    "Det angivna området {current} är stort och kan göra att exporten tar längre tid än vanligt. Rekommenderad yta är under {threshold}.",
   msgNoWorkspaces: "Inga arbetsytor hittades i detta repository",
-  msgAsyncForced: "Det angivna området {area} är stort och kan göra att exporten tar längre tid än vanligt.",
+  msgAsyncForced:
+    "Det angivna området {area} är stort och kan göra att exporten tar längre tid än vanligt.",
   msgNoGeometry: "Ingen geometri vald. Rita ett område i kartan.",
   msgGeomReady: "Geometri fångad ({rings} ringar, {vertices} hörn).",
   msgContactSupport: "Kontakta supporten via {email}.",
@@ -79,13 +83,15 @@ export default {
   msgTableEmpty: "Inga rader tillagda",
 
   // === ERRORS ===
-  errTransformFailed: "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
+  errTransformFailed:
+    "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
   errLoadWorkspaces: "Det gick inte att ladda arbetsytor",
   errLoadParams: "Det gick inte att ladda information om arbetsytan",
   errNoConfig: "Saknar exportkonfiguration",
   errGeomParse: "Fel: Kunde inte tolka geometri-JSON.",
   errFileLarge: "Filen är för stor. Maximal storlek är {maxSize} MB.",
-  errFileType: "Filtypen är inte tillåten. Tillåtna format: .zip, .kmz, .json, .geojson, .gml",
+  errFileType:
+    "Filtypen är inte tillåten. Tillåtna format: .zip, .kmz, .json, .geojson, .gml",
   errFileInvalid: "Ogiltig fil vald.",
   errDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
   errLoadTimeout: "Inläsningen tog för lång tid. Försök igen.",

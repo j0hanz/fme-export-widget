@@ -35,7 +35,8 @@ export default {
   errLoadRepositories: "Kunde inte läsa repositorys.",
   errServerUrl: "Ogiltig URL.",
   errRepositoryMissing: "Det valda repositoryt finns inte i listan.",
-  errRepositoryAccess: "Det valda repositoryt är inte åtkomligt. Kontrollera behörigheter.",
+  errRepositoryAccess:
+    "Det valda repositoryt är inte åtkomligt. Kontrollera behörigheter.",
   errAreaTooLarge: "Värdet är för stort.",
   errUploadParamRequired: "Ange parameter för uppladdad fil.",
   errInvalidEmail: "Ogiltig e‑postadress.",
@@ -58,27 +59,43 @@ export default {
 
   // === MESSAGES ===
   msgConnectionOk: "Anslutningen lyckades.",
-  msgConnectionWarning: "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera behörigheter.",
+  msgConnectionWarning:
+    "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera behörigheter.",
   msgFixErrors: "Åtgärda felen ovan.",
   msgNoRepositories: "Inga repositorys hittades.",
-  msgAreaExceeds: "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
+  msgAreaExceeds:
+    "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
 
   // === HINTS ===
-  hintServiceMode: "Välj hur resultatet ska levereras: via e-post eller direkt i webbläsaren.",
+  hintServiceMode:
+    "Välj hur resultatet ska levereras: via e-post eller direkt i webbläsaren.",
   hintMaskEmail: "Döljer större delen av e‑postadressen i orderbekräftelsen.",
-  hintShowResult: "Styr FME‑parametern opt_showresult. Av: svaren innehåller endast jobbinformation.",
-  hintAllowUpload: "Tillåt användaren att ladda upp fil direkt till FME Flows TEMP‑resurs.",
-  hintAllowUrl: "Tillåt användaren att ange säker (HTTPS) URL som indata. Kräver filuppladdning.",
-  hintUploadParam: "FME‑parameter som tar emot uppladdad fils målsökväg. Krävs om filuppladdning är tillåten.",
-  hintMaxArea: "Lämna tomt för obegränsad yta. Högsta tillåtna värde: {maxM2} m².",
-  hintLargeArea: "Visa varning när ritad yta överstiger detta värde. Högsta värde: {maxM2} m².",
-  hintTimeCompute: "Maximal körtid innan jobbet avbryts. Gäller endast i synkront läge. Lämna tomt för serverns standard.",
-  hintTimeQueue: "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för serverns standard.",
-  hintRequestTimeout: "Maximal väntetid på serversvar i millisekunder. Standard: 30 sekunder.",
-  hintAoiParam: "Publicerat parameternamn för området. Standard: AreaOfInterest.",
-  hintRequireHttps: "På: Tillåt endast HTTPS för FME‑server‑URL. Av: Tillåt både HTTP och HTTPS.",
-  hintAutoClose: "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
-  hintSupportEmail: "Om en adress anges visas den i felmeddelanden som supportkontakt.",
+  hintShowResult:
+    "Styr FME‑parametern opt_showresult. Av: svaren innehåller endast jobbinformation.",
+  hintAllowUpload:
+    "Tillåt användaren att ladda upp fil direkt till FME Flows TEMP‑resurs.",
+  hintAllowUrl:
+    "Tillåt användaren att ange säker (HTTPS) URL som indata. Kräver filuppladdning.",
+  hintUploadParam:
+    "FME‑parameter som tar emot uppladdad fils målsökväg. Krävs om filuppladdning är tillåten.",
+  hintMaxArea:
+    "Lämna tomt för obegränsad yta. Högsta tillåtna värde: {maxM2} m².",
+  hintLargeArea:
+    "Visa varning när ritad yta överstiger detta värde. Högsta värde: {maxM2} m².",
+  hintTimeCompute:
+    "Maximal körtid innan jobbet avbryts. Gäller endast i synkront läge. Lämna tomt för serverns standard.",
+  hintTimeQueue:
+    "Maximal kötid innan jobbet tas bort eller markeras som misslyckat. Lämna tomt för serverns standard.",
+  hintRequestTimeout:
+    "Maximal väntetid på serversvar i millisekunder. Standard: 30 sekunder.",
+  hintAoiParam:
+    "Publicerat parameternamn för området. Standard: AreaOfInterest.",
+  hintRequireHttps:
+    "På: Tillåt endast HTTPS för FME‑server‑URL. Av: Tillåt både HTTP och HTTPS.",
+  hintAutoClose:
+    "Stäng andra widgets när FME‑exporten öppnas för att hålla kartan ren.",
+  hintSupportEmail:
+    "Om en adress anges visas den i felmeddelanden som supportkontakt.",
   hintTestFirst: "Testa anslutningen först",
 
   // === PLACEHOLDERS ===

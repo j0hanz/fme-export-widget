@@ -13,7 +13,8 @@ export default {
   errNoSetup: "Widgeten måste konfigureras.",
   errTokenInvalid: "API-nyckeln saknas eller är ogiltig.",
   errNoRepository: "Repositoryt kunde inte nås.",
-  errNoAccess: "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter eller välj ett annat repository.",
+  errNoAccess:
+    "Repositoryt kunde inte verifieras med den här API-nyckeln. Kontrollera behörigheter eller välj ett annat repository.",
   errServerUnreach: "Servern kunde inte nås.",
   errConnectFail: "Anslutningen till servern misslyckades.",
   errAuthFail: "Autentisering misslyckades.",
@@ -81,7 +82,8 @@ export default {
   hintDrawContinue: "Fortsätt klicka för att lägga till hörn.",
   hintDrawComplete: "Dubbelklicka för att avsluta polygonen.",
   hintSelectMode: "Välj ett ritläge för att börja.",
-  hintGeomInvalid: "Polygonen är inte sluten, korsar sig själv eller har noll area.",
+  hintGeomInvalid:
+    "Polygonen är inte sluten, korsar sig själv eller har noll area.",
   hintAreaLarge: "Prova med ett mindre område.",
 
   // Geometry validation codes

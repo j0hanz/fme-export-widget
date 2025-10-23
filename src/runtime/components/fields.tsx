@@ -1,7 +1,12 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx } from "jimu-core"
-import { TagInput as JimuTagInput, MultiSelect, RichDisplayer } from "jimu-ui"
+import {
+  TagInput as JimuTagInput,
+  MultiSelect,
+  RichDisplayer,
+  defaultMessages as jimuDefaultMessages,
+} from "jimu-ui"
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import {
   Select,
@@ -457,7 +462,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   translate: translateProp,
   disabled: disabledProp,
 }) => {
-  const fallbackTranslate = hooks.useTranslation(defaultMessages)
+  const fallbackTranslate = hooks.useTranslation(
+    defaultMessages,
+    jimuDefaultMessages
+  )
   const translate = translateProp ?? fallbackTranslate
   const styles = useUiStyles()
   // Bestämmer om fältet är flervärdigt (multi-select, attribute list)
@@ -1413,9 +1421,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                   })}
             </div>
             {truncated ? (
-              <pre aria-label={translate("ariaGeomPreview")}>
-                {truncated}
-              </pre>
+              <pre aria-label={translate("ariaGeomPreview")}>{truncated}</pre>
             ) : null}
           </div>
         )
@@ -1820,7 +1826,7 @@ export const MultiSelectControl: React.FC<{
   allowSearch = false,
   hierarchical = false,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const styles = useStyles()
 
   const [current, setCurrent] = useValue<Array<string | number>>(

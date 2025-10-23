@@ -30,7 +30,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import { Switch } from "jimu-ui"
+import { Switch, defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import {
   Alert,
   NumericInput,
@@ -167,7 +167,10 @@ const handleValidationFailure = (
  */
 function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
-  const translate = hooks.useTranslation(defaultMessages as any)
+  const translate = hooks.useTranslation(
+    defaultMessages as any,
+    jimuDefaultMessages
+  )
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
@@ -1079,9 +1082,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               localToken={localToken}
               localRepository={selectedRepository}
               availableRepos={availableRepos}
-              label={
-                <RequiredLabel text={translate("lblRepositories")} />
-              }
+              label={<RequiredLabel text={translate("lblRepositories")} />}
               fieldErrors={fieldErrors}
               validateServerUrl={validateServerUrl}
               validateToken={validateToken}
@@ -1124,10 +1125,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <SettingRow
             flow="no-wrap"
             label={
-              <Tooltip
-                content={translate("hintAllowUpload")}
-                placement="top"
-              >
+              <Tooltip content={translate("hintAllowUpload")} placement="top">
                 <span>{translate("lblAllowUpload")}</span>
               </Tooltip>
             }
@@ -1148,10 +1146,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <FieldRow
               id={ID.uploadTargetParamName}
               label={
-                <Tooltip
-                  content={translate("hintUploadParam")}
-                  placement="top"
-                >
+                <Tooltip content={translate("hintUploadParam")} placement="top">
                   <span>{translate("lblUploadParam")}</span>
                 </Tooltip>
               }
@@ -1177,10 +1172,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow
               flow="no-wrap"
               label={
-                <Tooltip
-                  content={translate("hintAllowUrl")}
-                  placement="top"
-                >
+                <Tooltip content={translate("hintAllowUrl")} placement="top">
                   <span>{translate("lblAllowUrl")}</span>
                 </Tooltip>
               }
@@ -1329,10 +1321,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <FieldRow
             id={ID.aoiParamName}
             label={
-              <Tooltip
-                content={translate("hintAoiParam")}
-                placement="top"
-              >
+              <Tooltip content={translate("hintAoiParam")} placement="top">
                 <span>{translate("lblAoiParam")}</span>
               </Tooltip>
             }
@@ -1352,10 +1341,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <SettingRow
             flow="no-wrap"
             label={
-              <Tooltip
-                content={translate("hintRequireHttps")}
-                placement="top"
-              >
+              <Tooltip content={translate("hintRequireHttps")} placement="top">
                 <span>{translate("lblRequireHttps")}</span>
               </Tooltip>
             }
@@ -1376,10 +1362,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             <SettingRow
               flow="no-wrap"
               label={
-                <Tooltip
-                  content={translate("hintMaskEmail")}
-                  placement="top"
-                >
+                <Tooltip content={translate("hintMaskEmail")} placement="top">
                   <span>{translate("lblMaskEmail")}</span>
                 </Tooltip>
               }
@@ -1421,10 +1404,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <SettingRow
             flow="no-wrap"
             label={
-              <Tooltip
-                content={translate("hintAutoClose")}
-                placement="top"
-              >
+              <Tooltip content={translate("hintAutoClose")} placement="top">
                 <span>{translate("lblAutoClose")}</span>
               </Tooltip>
             }
@@ -1445,10 +1425,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <FieldRow
             id={ID.supportEmail}
             label={
-              <Tooltip
-                content={translate("hintSupportEmail")}
-                placement="top"
-              >
+              <Tooltip content={translate("hintSupportEmail")} placement="top">
                 <span>{translate("lblSupportEmail")}</span>
               </Tooltip>
             }

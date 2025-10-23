@@ -14,6 +14,7 @@ import {
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
+import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import {
   type WorkflowProps,
   type WorkspaceItem,
@@ -560,9 +561,7 @@ const ExportForm: React.FC<
 
   // Bygger lokalt valideringsmeddelande med aktuell översättning
   const errorMsg = hooks.useEventCallback((count: number): string =>
-    count === 1
-      ? translate("valSingleError")
-      : translate("valMultipleErrors")
+    count === 1 ? translate("valSingleError") : translate("valMultipleErrors")
   )
 
   // Skapar validator med aktuella parametrar - use ref to maintain stable reference
@@ -948,7 +947,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   submissionPhase = "idle",
   modeNotice,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
@@ -1547,14 +1546,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     const waitMessage = translate("statusInitMap")
     const waitDetail = translate("msgLoadingDraw")
     if (isModulesLoading) {
-      return renderLoading(waitMessage, waitDetail, [
-        translate("tipDrawMode"),
-      ])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
     }
     if (!canDraw) {
-      return renderLoading(waitMessage, waitDetail, [
-        translate("tipDrawMode"),
-      ])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
     }
     return renderDrawingModeTabs()
   }
