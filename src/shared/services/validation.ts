@@ -13,6 +13,13 @@ import { extractHttpStatus, validateRequiredFields } from "../validations"
 import { createError, mapErrorFromNetwork } from "../utils/error"
 import { inFlight } from "./inflight"
 import { healthCheck, extractFmeVersion, hasProxyError } from "./network"
+import {
+  translationKey as makeKey,
+  translationKeys as tk,
+  translateKey,
+} from "../translations"
+
+const VALIDATION_TRANSLATION_SCOPE = "shared.services.validation"
 
 // Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
@@ -240,8 +247,18 @@ export async function validateWidgetStartup(
       error: createError("errorSetupRequired", {
         type: ErrorType.CONFIG,
         code: "configMissing",
-        suggestion: translate("actionOpenSettings"),
-        userFriendlyMessage: translate("hintSetupWidget"),
+        suggestion: translateKey(
+          translate,
+          tk.action("open", "settings"),
+          undefined,
+          { scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.openSettings` }
+        ),
+        userFriendlyMessage: translateKey(
+          translate,
+          tk.hint("setup", "widget"),
+          undefined,
+          { scope: `${VALIDATION_TRANSLATION_SCOPE}.hints.setupWidget` }
+        ),
       }),
     }
   }
@@ -286,12 +303,40 @@ export async function validateWidgetStartup(
             connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
           suggestion:
             errorType === "token"
-              ? translate("tokenSettingsHint")
+              ? translateKey(
+                  translate,
+                  makeKey("token", "settings", "hint"),
+                  undefined,
+                  {
+                    scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.tokenHint`,
+                  }
+                )
               : errorType === "server"
-                ? translate("serverUrlSettingsHint")
+                ? translateKey(
+                    translate,
+                    makeKey("server", "url", "settings", "hint"),
+                    undefined,
+                    {
+                      scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.serverUrlHint`,
+                    }
+                  )
                 : errorType === "repository"
-                  ? translate("repositorySettingsHint")
-                  : translate("connectionSettingsHint"),
+                  ? translateKey(
+                      translate,
+                      makeKey("repository", "settings", "hint"),
+                      undefined,
+                      {
+                        scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.repositoryHint`,
+                      }
+                    )
+                  : translateKey(
+                      translate,
+                      makeKey("connection", "settings", "hint"),
+                      undefined,
+                      {
+                        scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.connectionHint`,
+                      }
+                    ),
         }),
       }
     }
@@ -319,7 +364,12 @@ export async function validateWidgetStartup(
       error: createError("errorStartupFailed", {
         type: ErrorType.NETWORK,
         code: "STARTUP_NETWORK_ERROR",
-        suggestion: translate("networkConnectionHint"),
+        suggestion: translateKey(
+          translate,
+          makeKey("network", "connection", "hint"),
+          undefined,
+          { scope: `${VALIDATION_TRANSLATION_SCOPE}.suggestions.networkHint` }
+        ),
       }),
     }
   }
@@ -330,15 +380,27 @@ export async function runStartupValidationFlow(
 ): Promise<StartupValidationFlowResult> {
   const { config, useMapWidgetIds, translate, signal, onProgress } = options
 
-  onProgress(translate("validatingStartup"))
+  onProgress(
+    translateKey(translate, makeKey("validating", "startup"), undefined, {
+      scope: `${VALIDATION_TRANSLATION_SCOPE}.progress.validatingStartup`,
+    })
+  )
 
   // Step 1: validate map configuration
-  onProgress(translate("statusValidatingMap"))
+  onProgress(
+    translateKey(translate, tk.status("validating", "map"), undefined, {
+      scope: `${VALIDATION_TRANSLATION_SCOPE}.progress.validatingMap`,
+    })
+  )
   const hasMapConfigured =
     Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
 
   // Step 2: validate widget config and FME connection
-  onProgress(translate("statusValidatingConnection"))
+  onProgress(
+    translateKey(translate, tk.status("validating", "connection"), undefined, {
+      scope: `${VALIDATION_TRANSLATION_SCOPE}.progress.validatingConnection`,
+    })
+  )
   const validationResult = await validateWidgetStartup({
     config,
     translate,
@@ -361,7 +423,11 @@ export async function runStartupValidationFlow(
 
   // Step 3: validate user email for async mode
   if (!config?.syncMode) {
-    onProgress(translate("statusValidatingEmail"))
+    onProgress(
+      translateKey(translate, tk.status("validating", "email"), undefined, {
+        scope: `${VALIDATION_TRANSLATION_SCOPE}.progress.validatingEmail`,
+      })
+    )
     try {
       const { getEmail, isValidEmail } = await import("../utils")
       const email = await getEmail(config)

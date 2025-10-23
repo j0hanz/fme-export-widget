@@ -16,6 +16,9 @@ import {
   sanitizeParamKey,
 } from "./conversion"
 import { isValidExternalUrlForOptGetUrl } from "../validations"
+import { translationKeys as tk, translateKey } from "../translations"
+
+const FORM_TRANSLATION_SCOPE = "shared.utils.form"
 
 // Bygger ett Set av normaliserade choice-värden för parameter-validering
 export const buildChoiceSet = (
@@ -30,14 +33,24 @@ export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
 ) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
+  enter: translateKey(
+    translate,
+    tk.placeholder("enter"),
+    { field: fieldLabel },
+    { scope: `${FORM_TRANSLATION_SCOPE}.placeholder.enter` }
+  ),
+  select: translateKey(
+    translate,
+    tk.placeholder("select"),
+    { field: fieldLabel },
+    { scope: `${FORM_TRANSLATION_SCOPE}.placeholder.select` }
+  ),
 })
 
 const PLACEHOLDER_KIND_MAP = Object.freeze({
-  email: "placeholderEmail",
-  phone: "placeholderPhone",
-  search: "placeholderSearch",
+  email: tk.placeholder("email"),
+  phone: tk.placeholder("phone"),
+  search: tk.placeholder("search"),
 } as const)
 
 export const getTextPlaceholder = (
@@ -47,7 +60,10 @@ export const getTextPlaceholder = (
   kind?: "email" | "phone" | "search"
 ): string => {
   if (field?.placeholder) return field.placeholder
-  if (kind) return translate(PLACEHOLDER_KIND_MAP[kind])
+  if (kind)
+    return translateKey(translate, PLACEHOLDER_KIND_MAP[kind], undefined, {
+      scope: `${FORM_TRANSLATION_SCOPE}.placeholder.kind.${kind}`,
+    })
   return placeholders.enter
 }
 

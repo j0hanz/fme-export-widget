@@ -16,6 +16,7 @@ import {
 } from "../../config/index"
 import { extractHttpStatus } from "../validations"
 import { resolveMessageOrKey, buildSupportHintText } from "./format"
+import { translationKeys as tk, translateKey } from "../translations"
 
 const DEFAULT_ERROR_ICON = "error"
 
@@ -51,6 +52,8 @@ const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
 
 const normalizeCodeForMatching = (raw: string): string =>
   raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
+
+const ERROR_TRANSLATION_SCOPE = "shared.utils.error"
 
 export const getErrorIconSrc = (code?: string): string => {
   if (typeof code !== "string") return DEFAULT_ERROR_ICON
@@ -112,14 +115,18 @@ export const createErrorActions = (
 
   if (handlers.onRetry) {
     actions.push({
-      label: translate("actionRetry"),
+      label: translateKey(translate, tk.action("retry"), undefined, {
+        scope: `${ERROR_TRANSLATION_SCOPE}.actions.retry`,
+      }),
       onClick: handlers.onRetry,
     })
   }
 
   if (handlers.onReload) {
     actions.push({
-      label: translate("actionReload"),
+      label: translateKey(translate, tk.action("reload"), undefined, {
+        scope: `${ERROR_TRANSLATION_SCOPE}.actions.reload`,
+      }),
       onClick: handlers.onReload,
     })
   }
@@ -340,11 +347,17 @@ export const formatErrorPresentation = (
 
   let hint: string
   if (isGeometryInvalid) {
-    hint = translate("hintGeometryInvalid")
+    hint = translateKey(translate, tk.hint("geometry", "invalid"), undefined, {
+      scope: `${ERROR_TRANSLATION_SCOPE}.hints.geometryInvalid`,
+    })
   } else if (isAreaTooLarge) {
-    hint = translate("hintAreaTooLarge")
+    hint = translateKey(translate, tk.hint("area", "too", "large"), undefined, {
+      scope: `${ERROR_TRANSLATION_SCOPE}.hints.areaTooLarge`,
+    })
   } else if (isConfigIncomplete) {
-    hint = translate("hintSetupWidget")
+    hint = translateKey(translate, tk.hint("setup", "widget"), undefined, {
+      scope: `${ERROR_TRANSLATION_SCOPE}.hints.setupWidget`,
+    })
   } else {
     hint = buildSupportHintText(translate, supportEmail, userFriendly)
   }

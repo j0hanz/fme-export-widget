@@ -14,6 +14,12 @@ import {
   toNonEmptyTrimmedString,
 } from "./conversion"
 import { isValidEmail } from "../validations"
+import {
+  translationKey as makeKey,
+  translateKey,
+} from "../translations"
+
+const FORMAT_TRANSLATION_SCOPE = "shared.utils.format"
 
 export const formatByteSize = (size: unknown): string | null => {
   if (!isFiniteNumber(size) || size < 0) {
@@ -63,7 +69,9 @@ export const translateOptional = (
   key: string | null | undefined
 ): string | undefined => {
   if (!key) return undefined
-  return translate(key)
+  return translateKey(translate, key, undefined, {
+    scope: `${FORMAT_TRANSLATION_SCOPE}.optional`,
+  })
 }
 
 export const maskEmailForDisplay = (email: unknown): string => {
@@ -88,7 +96,12 @@ export const buildSupportHintText = (
   const email = toTrimmedString(supportEmail)
   if (!email) return toTrimmedString(userFriendly) || ""
 
-  const template = translate("contactSupportEmail")
+  const template = translateKey(
+    translate,
+    makeKey("contact", "support", "email"),
+    undefined,
+    { scope: `${FORMAT_TRANSLATION_SCOPE}.support.contactEmail` }
+  )
   return template.replace(EMAIL_PLACEHOLDER, email)
 }
 
@@ -655,13 +668,20 @@ export const buildLargeAreaWarningMessage = ({
   const threshold = toTrimmedString(thresholdAreaText)
 
   if (threshold) {
-    return translate("largeAreaWarningWithThreshold", {
-      current,
-      threshold,
-    })
+    return translateKey(
+      translate,
+      makeKey("large", "area", "warning", "with", "threshold"),
+      { current, threshold },
+      { scope: `${FORMAT_TRANSLATION_SCOPE}.largeArea.warningWithThreshold` }
+    )
   }
 
-  return translate("largeAreaWarning", { current })
+  return translateKey(
+    translate,
+    makeKey("large", "area", "warning"),
+    { current },
+    { scope: `${FORMAT_TRANSLATION_SCOPE}.largeArea.warning` }
+  )
 }
 
 const matchesUnitKeywords = (

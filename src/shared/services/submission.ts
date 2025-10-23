@@ -25,6 +25,9 @@ import {
 import { getSupportEmail } from "../validations"
 import { processFmeResponse } from "../utils/fme"
 import { resolveRemoteDataset } from "./dataset"
+import { translationKeys as tk, translateKey } from "../translations"
+
+const SUBMISSION_TRANSLATION_SCOPE = "shared.services.submission"
 
 // Förbereder submission-parametrar med AOI och remote dataset-upplösning
 export async function prepareSubmissionParams({
@@ -150,7 +153,12 @@ export function buildSubmissionErrorResult(
   }
 
   const contactHint = buildSupportHintText(translate, supportEmail)
-  const baseFailMessage = translate("errorOrderFailed")
+  const baseFailMessage = translateKey(
+    translate,
+    tk.error("order", "failed"),
+    undefined,
+    { scope: `${SUBMISSION_TRANSLATION_SCOPE}.errors.orderFailed` }
+  )
 
   // Build message parts, filtering out empty strings
   const parts = [baseFailMessage, localizedErr, contactHint].filter(Boolean)
