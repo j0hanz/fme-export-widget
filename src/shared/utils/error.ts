@@ -11,7 +11,6 @@ import {
   ERROR_CODE_TO_KEY,
   STATUS_TO_KEY_MAP,
   MESSAGE_PATTERNS,
-  isServerError,
   ErrorType as ErrorTypeEnum,
   ErrorSeverity as ErrorSeverityEnum,
 } from "../../config/index"
@@ -193,13 +192,14 @@ const matchMessagePatternInternal = (message: string): string | undefined => {
   return undefined
 }
 
-export const mapErrorFromNetwork = (
+const mapErrorInternal = (
   err: unknown,
-  status?: number
+  status?: number,
+  context: "network" | "validation" | "geometry" = "network"
 ): string | undefined => {
   const classification = classifyError(err, status)
 
-  if (classification.isRequestFailed) {
+  if (context === "network" && classification.isRequestFailed) {
     return statusToKeyInternal(classification.status)
   }
 
@@ -210,25 +210,9 @@ export const mapErrorFromNetwork = (
     return ERROR_MAPPING_RULES.codeToKey[classification.code]
   }
 
-  const statusKey = statusToKeyInternal(classification.status)
-  if (statusKey) return statusKey
-
-  if (classification.message) {
-    const messageKey = matchMessagePatternInternal(classification.message)
-    if (messageKey) return messageKey
-  }
-
-  return undefined
-}
-
-export const mapErrorFromValidation = (err: unknown): string | undefined => {
-  const classification = classifyError(err)
-
-  if (
-    classification.code &&
-    ERROR_MAPPING_RULES.codeToKey[classification.code]
-  ) {
-    return ERROR_MAPPING_RULES.codeToKey[classification.code]
+  if (context !== "geometry") {
+    const statusKey = statusToKeyInternal(classification.status)
+    if (statusKey) return statusKey
   }
 
   if (classification.message) {
@@ -236,21 +220,20 @@ export const mapErrorFromValidation = (err: unknown): string | undefined => {
     if (messageKey) return messageKey
   }
 
-  return undefined
+  return context === "geometry" ? "geometrySerializationFailedCode" : undefined
 }
 
-export const mapErrorFromGeometry = (err: unknown): string => {
-  const classification = classifyError(err)
+export const mapErrorFromNetwork = (
+  err: unknown,
+  status?: number
+): string | undefined => mapErrorInternal(err, status, "network")
 
-  if (
-    classification.code &&
-    ERROR_MAPPING_RULES.codeToKey[classification.code]
-  ) {
-    return ERROR_MAPPING_RULES.codeToKey[classification.code]
-  }
+export const mapErrorFromValidation = (err: unknown): string | undefined =>
+  mapErrorInternal(err, undefined, "validation")
 
-  return "geometrySerializationFailedCode"
-}
+export const mapErrorFromGeometry = (err: unknown): string =>
+  mapErrorInternal(err, undefined, "geometry") ??
+  "geometrySerializationFailedCode"
 
 /* createError - Helper for creating ErrorState (runtime errors for validation) */
 
@@ -284,20 +267,22 @@ export const createError = (
 
 /* ErrorFactory - Centralized error creation producing SerializableErrorState */
 
-export const createNetworkError = (
+const createTypedError = (
+  type: ErrorTypeEnum,
   messageKey: string,
   options: ErrorFactoryOptions = {}
 ): SerializableErrorState => {
   const timestampMs = Date.now()
-  const code = options.code ?? "NETWORK_ERROR"
+  const code = options.code ?? `${type.toUpperCase()}_ERROR`
   const scope = options.scope ?? "general"
+  const recoverable = options.recoverable ?? type !== ErrorTypeEnum.MODULE
 
   return {
     message: messageKey,
-    type: ErrorTypeEnum.NETWORK,
+    type,
     code,
     severity: options.severity ?? ErrorSeverityEnum.ERROR,
-    recoverable: options.recoverable ?? true,
+    recoverable,
     timestampMs,
     userFriendlyMessage: options.userFriendlyMessage ?? "",
     suggestion: options.suggestion ?? "",
@@ -306,98 +291,36 @@ export const createNetworkError = (
     errorId: `${scope}_${code}`,
   }
 }
+
+export const createNetworkError = (
+  messageKey: string,
+  options: ErrorFactoryOptions = {}
+): SerializableErrorState =>
+  createTypedError(ErrorTypeEnum.NETWORK, messageKey, options)
 
 export const createValidationError = (
   messageKey: string,
   options: ErrorFactoryOptions = {}
-): SerializableErrorState => {
-  const timestampMs = Date.now()
-  const code = options.code ?? "VALIDATION_ERROR"
-  const scope = options.scope ?? "general"
-
-  return {
-    message: messageKey,
-    type: ErrorTypeEnum.VALIDATION,
-    code,
-    severity: options.severity ?? ErrorSeverityEnum.ERROR,
-    recoverable: options.recoverable ?? true,
-    timestampMs,
-    userFriendlyMessage: options.userFriendlyMessage ?? "",
-    suggestion: options.suggestion ?? "",
-    details: options.details,
-    kind: "serializable",
-    errorId: `${scope}_${code}`,
-  }
-}
+): SerializableErrorState =>
+  createTypedError(ErrorTypeEnum.VALIDATION, messageKey, options)
 
 export const createConfigError = (
   messageKey: string,
   options: ErrorFactoryOptions = {}
-): SerializableErrorState => {
-  const timestampMs = Date.now()
-  const code = options.code ?? "CONFIG_ERROR"
-  const scope = options.scope ?? "general"
-
-  return {
-    message: messageKey,
-    type: ErrorTypeEnum.CONFIG,
-    code,
-    severity: options.severity ?? ErrorSeverityEnum.ERROR,
-    recoverable: options.recoverable ?? true,
-    timestampMs,
-    userFriendlyMessage: options.userFriendlyMessage ?? "",
-    suggestion: options.suggestion ?? "",
-    details: options.details,
-    kind: "serializable",
-    errorId: `${scope}_${code}`,
-  }
-}
+): SerializableErrorState =>
+  createTypedError(ErrorTypeEnum.CONFIG, messageKey, options)
 
 export const createGeometryError = (
   messageKey: string,
   options: ErrorFactoryOptions = {}
-): SerializableErrorState => {
-  const timestampMs = Date.now()
-  const code = options.code ?? "GEOMETRY_ERROR"
-  const scope = options.scope ?? "general"
-
-  return {
-    message: messageKey,
-    type: ErrorTypeEnum.GEOMETRY,
-    code,
-    severity: options.severity ?? ErrorSeverityEnum.ERROR,
-    recoverable: options.recoverable ?? true,
-    timestampMs,
-    userFriendlyMessage: options.userFriendlyMessage ?? "",
-    suggestion: options.suggestion ?? "",
-    details: options.details,
-    kind: "serializable",
-    errorId: `${scope}_${code}`,
-  }
-}
+): SerializableErrorState =>
+  createTypedError(ErrorTypeEnum.GEOMETRY, messageKey, options)
 
 export const createModuleError = (
   messageKey: string,
   options: ErrorFactoryOptions = {}
-): SerializableErrorState => {
-  const timestampMs = Date.now()
-  const code = options.code ?? "MODULE_ERROR"
-  const scope = options.scope ?? "general"
-
-  return {
-    message: messageKey,
-    type: ErrorTypeEnum.MODULE,
-    code,
-    severity: options.severity ?? ErrorSeverityEnum.ERROR,
-    recoverable: options.recoverable ?? false,
-    timestampMs,
-    userFriendlyMessage: options.userFriendlyMessage ?? "",
-    suggestion: options.suggestion ?? "",
-    details: options.details,
-    kind: "serializable",
-    errorId: `${scope}_${code}`,
-  }
-}
+): SerializableErrorState =>
+  createTypedError(ErrorTypeEnum.MODULE, messageKey, options)
 
 export const formatErrorPresentation = (
   error: SerializableErrorState | ErrorState,

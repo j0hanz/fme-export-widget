@@ -58,6 +58,14 @@ export function resolveMessageOrKey(
   return translate(raw)
 }
 
+export const translateOptional = (
+  translate: TranslateFn,
+  key: string | null | undefined
+): string | undefined => {
+  if (!key) return undefined
+  return translate(key)
+}
+
 export const maskEmailForDisplay = (email: unknown): string => {
   const trimmed = toTrimmedString(email)
   if (!trimmed || !isValidEmail(trimmed)) return trimmed || ""

@@ -25,6 +25,7 @@ import {
   maskToken,
   safeParseUrl,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
   isFileObject,
   isFiniteNumber,
 } from "./utils"
@@ -72,7 +73,7 @@ const hasDisallowedSuffix = (hostname: string): boolean => {
 }
 
 export const isValidExternalUrlForOptGetUrl = (s: string): boolean => {
-  const trimmed = (s || "").trim()
+  const trimmed = toTrimmedStringOrEmpty(s)
   if (!trimmed || trimmed.length > MAX_URL_LENGTH) return false
 
   let url: URL
@@ -228,7 +229,7 @@ export function validateServerUrl(
     disallowRestForWebhook?: boolean
   }
 ): UrlValidation {
-  const trimmed = (url || "").trim()
+  const trimmed = toTrimmedStringOrEmpty(url)
   if (!trimmed) return { ok: false, reason: "invalid_url" }
 
   try {
@@ -297,7 +298,7 @@ export const validateEmailField = (
   email: string | undefined,
   options: { required?: boolean } = {}
 ): { ok: boolean; errorKey?: string } => {
-  const trimmed = (email ?? "").trim()
+  const trimmed = toTrimmedStringOrEmpty(email)
 
   if (!trimmed) {
     return options.required

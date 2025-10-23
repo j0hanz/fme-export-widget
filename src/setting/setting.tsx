@@ -52,6 +52,7 @@ import {
   validateEmailField,
 } from "../shared/validations"
 import { mapErrorFromNetwork } from "../shared/utils/error"
+import { translateOptional } from "../shared/utils/format"
 import { createFmeSelectors } from "../extensions/store"
 import type {
   FmeExportConfig,
@@ -121,7 +122,7 @@ const handleValidationFailure = (
     setError(
       setFieldErrors,
       "serverUrl",
-      errorKey ? translate(errorKey) : undefined
+      translateOptional(translate, errorKey)
     )
     clearErrors(setFieldErrors, ["token", "repository"])
     return
@@ -135,11 +136,7 @@ const handleValidationFailure = (
       version: "",
     }))
     const errorKey = errorMessage || "errorTokenIsInvalid"
-    setError(
-      setFieldErrors,
-      "token",
-      errorKey ? translate(errorKey) : undefined
-    )
+    setError(setFieldErrors, "token", translateOptional(translate, errorKey))
     clearErrors(setFieldErrors, ["serverUrl", "repository"])
     return
   }
@@ -152,11 +149,7 @@ const handleValidationFailure = (
     version: version || "",
   }))
   const errorKey = errorMessage || "errorRepositoryNotFound"
-  setError(
-    setFieldErrors,
-    "repository",
-    errorKey ? translate(errorKey) : undefined
-  )
+  setError(setFieldErrors, "repository", translateOptional(translate, errorKey))
   clearErrors(setFieldErrors, ["serverUrl", "token"])
   /* Repository-lista hanteras av useRepositories query hook */
 }
@@ -615,17 +608,26 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const messages: Partial<FieldErrors> = {}
       if (!composite.ok) {
         if (composite.errors.serverUrl)
-          messages.serverUrl = translate(composite.errors.serverUrl)
+          messages.serverUrl = translateOptional(
+            translate,
+            composite.errors.serverUrl
+          )
         if (composite.errors.token)
-          messages.token = translate(composite.errors.token)
+          messages.token = translateOptional(translate, composite.errors.token)
         if (!skipRepoCheck && composite.errors.repository)
-          messages.repository = translate(composite.errors.repository)
+          messages.repository = translateOptional(
+            translate,
+            composite.errors.repository
+          )
       }
 
       /* Support-email är valfri men måste vara giltig om angiven */
       const emailValidation = validateEmailField(localSupportEmail)
       if (!emailValidation.ok && emailValidation.errorKey) {
-        messages.supportEmail = translate(emailValidation.errorKey)
+        messages.supportEmail = translateOptional(
+          translate,
+          emailValidation.errorKey
+        )
       }
 
       if (localAllowRemoteDataset) {
@@ -745,7 +747,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setTestState({
           status: "error",
           isTesting: false,
-          message: error?.message ? translate(error.message) : undefined,
+          message: translateOptional(translate, error?.message),
           type: "error",
         })
       } else {
@@ -776,7 +778,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setTestState({
           status: "error",
           isTesting: false,
-          message: errorKey ? translate(errorKey) : undefined,
+          message: translateOptional(translate, errorKey),
           type: "error",
         })
       }
