@@ -395,11 +395,22 @@ function WidgetContent(
       const store = typeof getAppStore === "function" ? getAppStore() : null
       const state = store?.getState?.()
       const runtimeInfo = state?.widgetsRuntimeInfo as
-        | { [id: string]: { state?: WidgetState | string } | undefined }
+        | {
+            [id: string]:
+              | { state?: WidgetState | string; isClassLoaded?: boolean }
+              | undefined
+          }
         | undefined
       const targets = computeWidgetsToClose(runtimeInfo, widgetId)
       if (targets.length) {
-        dispatch(appActions.closeWidgets(targets))
+        /* Filter to only widgets with loaded classes to prevent race conditions */
+        const safeTargets = targets.filter((targetId) => {
+          const targetInfo = runtimeInfo?.[targetId]
+          return Boolean(targetInfo?.isClassLoaded)
+        })
+        if (safeTargets.length) {
+          dispatch(appActions.closeWidgets(safeTargets))
+        }
       }
     } catch (err) {
       logIfNotAbort("closeOtherWidgets error", err)
@@ -1741,7 +1752,6 @@ export default function Widget(
   )
 }
 
-/* Mappar extra Redux state-props för widgeten */
 Reflect.set(
   Widget as any,
   "mapExtraStateProps",

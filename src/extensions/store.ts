@@ -1,4 +1,5 @@
 import * as SeamlessImmutable from "seamless-immutable"
+import { createSelector } from "reselect"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,
@@ -737,7 +738,6 @@ const setSubState = (
   return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
 
-// Hämtar FME-slice för specifik widget från global state
 export const selectFmeSlice = (
   state: IMStateWithFmeExport,
   widgetId: string
@@ -748,66 +748,64 @@ export const selectFmeSlice = (
   return slice ?? null
 }
 
-// Skapar memoized selectors för specifik widget-instans
 export const createFmeSelectors = (widgetId: string) => {
-  const getSlice = (state: IMStateWithFmeExport) =>
-    selectFmeSlice(state, widgetId)
+  // Base selector för att hämta widget-specifikt state slice
+  const getSlice = (
+    state: IMStateWithFmeExport
+  ): ImmutableObject<FmeWidgetState> | null => selectFmeSlice(state, widgetId)
 
-  return {
-    selectSlice: getSlice,
-    selectViewMode: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.viewMode ?? initialFmeState.viewMode,
-    selectDrawingTool: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.drawingTool ?? initialFmeState.drawingTool,
-    selectGeometryJson: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.geometryJson ?? null,
-    selectDrawnArea: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
-    selectWorkspaceItems: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
-    selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceParameters ??
-      initialFmeState.workspaceParameters,
-    selectWorkspaceItem: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem,
-    selectSelectedWorkspace: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace,
-    selectOrderResult: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.orderResult ?? initialFmeState.orderResult,
-    selectErrors: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.errors ?? initialFmeState.errors,
-    selectPrimaryError: (state: IMStateWithFmeExport) => {
-      const errors = getSlice(state)?.errors ?? initialFmeState.errors
-      return pickPrimaryError(errors)
-    },
-    selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
-      getSlice(state)?.errors?.[scope] ?? null,
-    selectLoading: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.loading ?? initialFmeState.loading,
-    selectLoadingFlag:
-      (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
-        getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
-    // Beräknad selector: kontrollerar om giltig AOI finns
-    selectHasValidAoi: (state: IMStateWithFmeExport) => {
-      const slice = getSlice(state)
-      if (!slice) return false
-      return Boolean(slice.geometryJson) && (slice.drawnArea ?? 0) > 0
-    },
-    // Beräknad selector: kan export utföras?
-    selectCanExport: (state: IMStateWithFmeExport) => {
-      const slice = getSlice(state)
-      if (!slice) return false
+  // Input selectors för memoized computed selectors
+  const selectGeometryJson = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.geometryJson ?? null
+  const selectDrawnArea = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.drawnArea ?? initialFmeState.drawnArea
+  const selectSelectedWorkspace = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace
+  const selectWorkspaceParameters = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.workspaceParameters ?? initialFmeState.workspaceParameters
+  const selectWorkspaceItem = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem
+  const selectErrors = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.errors ?? initialFmeState.errors
+  const selectLoading = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.loading ?? initialFmeState.loading
+
+  // Memoized: Har giltig AOI ritats?
+  const selectHasValidAoi = createSelector(
+    [selectGeometryJson, selectDrawnArea],
+    (geometryJson, drawnArea): boolean => Boolean(geometryJson) && drawnArea > 0
+  )
+
+  // Memoized: Väljer primärt fel från error-map
+  const selectPrimaryError = createSelector(
+    [selectErrors],
+    (errors): ErrorWithScope | null => pickPrimaryError(errors)
+  )
+
+  // Memoized: Kan export initieras?
+  const selectCanExport = createSelector(
+    [
+      selectGeometryJson,
+      selectDrawnArea,
+      selectSelectedWorkspace,
+      selectWorkspaceParameters,
+      selectWorkspaceItem,
+      selectErrors,
+    ],
+    (
+      geometryJson,
+      drawnArea,
+      selectedWorkspace,
+      workspaceParameters,
+      workspaceItem,
+      errors
+    ): boolean => {
       const hasGeometry =
-        Boolean(slice.geometryJson) &&
-        Number.isFinite(slice.drawnArea) &&
-        slice.drawnArea > 0
-      const hasWorkspace = Boolean(
-        normalizeWorkspaceName(slice.selectedWorkspace)
-      )
+        Boolean(geometryJson) && Number.isFinite(drawnArea) && drawnArea > 0
+      const hasWorkspace = Boolean(normalizeWorkspaceName(selectedWorkspace))
       const hasWorkspaceDetails =
-        (slice.workspaceParameters?.length ?? 0) > 0 ||
-        slice.workspaceItem !== null
-      const generalError = slice.errors?.general
+        workspaceParameters.length > 0 || workspaceItem !== null
+      const generalError = errors?.general
       const blockingError = generalError
         ? (ERROR_SEVERITY_RANK[generalError.severity] ?? 0) >=
           ERROR_SEVERITY_RANK[ErrorSeverity.ERROR]
@@ -815,17 +813,45 @@ export const createFmeSelectors = (widgetId: string) => {
       return (
         hasGeometry && hasWorkspace && hasWorkspaceDetails && !blockingError
       )
-    },
-    // Beräknad selector: pågår någon laddning?
-    selectIsBusy: (state: IMStateWithFmeExport) => {
-      const loading = getSlice(state)?.loading ?? initialFmeState.loading
-      return (
-        loading.workspaces ||
-        loading.parameters ||
-        loading.modules ||
-        loading.submission
-      )
-    },
+    }
+  )
+
+  // Memoized: Är någon laddningsflagga aktiv?
+  const selectIsBusy = createSelector(
+    [selectLoading],
+    (loading): boolean =>
+      loading.workspaces ||
+      loading.parameters ||
+      loading.modules ||
+      loading.submission
+  )
+
+  return {
+    selectSlice: getSlice,
+    selectViewMode: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.viewMode ?? initialFmeState.viewMode,
+    selectDrawingTool: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.drawingTool ?? initialFmeState.drawingTool,
+    selectGeometryJson,
+    selectDrawnArea,
+    selectWorkspaceItems: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
+    selectWorkspaceParameters,
+    selectWorkspaceItem,
+    selectSelectedWorkspace,
+    selectOrderResult: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.orderResult ?? initialFmeState.orderResult,
+    selectErrors,
+    selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
+      getSlice(state)?.errors?.[scope] ?? null,
+    selectLoading,
+    selectLoadingFlag:
+      (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
+        getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
+    selectHasValidAoi,
+    selectPrimaryError,
+    selectCanExport,
+    selectIsBusy,
   }
 }
 
