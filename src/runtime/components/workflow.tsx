@@ -1629,32 +1629,23 @@ export const Workflow: React.FC<WorkflowProps> = ({
     const baseMessage = translate(baseKey)
 
     let phaseKey: string | null = null
-    let detailKey: string | null = null
 
     switch (submissionPhase) {
       case "preparing":
-        phaseKey = "submissionPhasePreparing"
-        detailKey = "submissionPhasePreparingDetail"
+        phaseKey = "statusPreparing"
         break
       case "uploading":
-        phaseKey = "submissionPhaseUploading"
-        detailKey = "submissionPhaseUploadingDetail"
+        phaseKey = "statusUploading"
         break
       case "finalizing":
-        phaseKey = "submissionPhaseFinalizing"
-        detailKey = "submissionPhaseFinalizingDetail"
-        break
-      case "submitting":
-        phaseKey = "submissionPhaseSubmitting"
-        detailKey = "submissionPhaseSubmittingDetail"
+        phaseKey = "statusFinalizing"
         break
       default:
         phaseKey = null
-        detailKey = null
     }
 
-    if (phaseKey && detailKey) {
-      return renderLoading(translate(phaseKey), translate(detailKey))
+    if (phaseKey) {
+      return renderLoading(baseMessage, translate(phaseKey))
     }
 
     if (isSyncMode) {

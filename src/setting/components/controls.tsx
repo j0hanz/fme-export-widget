@@ -215,7 +215,7 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           <div css={css(styles.status.labelGroup)}>
             <>
               {label}
-              <span aria-hidden="true">{translate("colon")}</span>
+              <div aria-hidden="true">{translate("uiColon")}</div>
             </>
           </div>
           <div css={css(color)}>{getStatusText(status)}</div>

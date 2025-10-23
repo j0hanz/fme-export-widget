@@ -37,6 +37,8 @@ export default {
   statusFinalizing: "Slutför…",
   statusTransforming: "Transformerar…",
   statusDownloading: "Hämtar…",
+  submittingOrder: "Skickar exportjobb…",
+  submittingOrderSync: "Bearbetar synkron export…",
   statusInitMap: "Förbereder kartverktyg…",
   statusLoadWorkspaces: "Hämtar workspaces…",
   statusLoadParams: "Hämtar parametrar för workspace…",

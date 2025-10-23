@@ -75,7 +75,8 @@ export default {
   statusPreparing: "Förbereder exporten…",
   statusUploading: "Överför datakälla…",
   statusFinalizing: "Slutför…",
-  statusSubmitting: "Skickar jobb…",
+  submittingOrder: "Skickar exportjobb…",
+  submittingOrderSync: "Bearbetar synkron export…",
   msgContactSupport: "Kontakta gärna support via {email}",
   msgSetupWidget: "Widgeten behöver konfigureras innan den kan användas",
   msgCheckSettings:
@@ -98,6 +99,8 @@ export default {
   msgFormReady: "Parametrar redo för ifyllnad",
   msgOrderSuccess: "Exporten skickades",
   msgOrderFail: "Exporten misslyckades",
+  msgProcessingWait: "Vänligen vänta medan jobbet bearbetas…",
+  msgPleaseWait: "Vänligen vänta…",
   hintUrlFormat: "Exempel: https://fmeflow.example.com",
   hintClickMap: "Klicka i kartan för att definiera exportområdet",
   hintDrawRect: "Dra för att rita en rektangel",
