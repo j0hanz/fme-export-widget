@@ -44,7 +44,7 @@ export const RequiredLabel: React.FC<{
 }> = ({ text, translate, requiredStyle, requiredSymbol }) => (
   <>
     {text}
-    <Tooltip content={translate("requiredField")} placement="top">
+    <Tooltip content={translate("valRequiredField")} placement="top">
       <span
         css={requiredStyle}
         aria-label={translate("ariaRequired")}
@@ -182,23 +182,23 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   const getStatusText = hooks.useEventCallback(
     (status: StepStatus | string): string => {
       if (typeof status === "string") {
-        if (status === "ok") return translate("ok")
-        if (status === "fail") return translate("failed")
-        if (status === "skip") return translate("skipped")
-        return translate("checking")
+        if (status === "ok") return translate("statusOk")
+        if (status === "fail") return translate("statusFailed")
+        if (status === "skip") return translate("statusSkipped")
+        return translate("statusChecking")
       }
-      if (isStepStatus(status) && status.completed) return translate("ok")
-      if (isStepStatus(status) && status.error) return translate("failed")
-      return translate("checking")
+      if (isStepStatus(status) && status.completed) return translate("statusOk")
+      if (isStepStatus(status) && status.error) return translate("statusFailed")
+      return translate("statusChecking")
     }
   )
 
   /* Renderar anslutningsstatus med alla validerings-steg */
   const renderConnectionStatus = (): React.ReactNode => {
     const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
-      { label: translate("fmeServerUrl"), status: checkSteps.serverUrl },
-      { label: translate("fmeServerToken"), status: checkSteps.token },
-      { label: translate("fmeRepository"), status: checkSteps.repository },
+      { label: translate("lblServerUrl"), status: checkSteps.serverUrl },
+      { label: translate("lblApiToken"), status: checkSteps.token },
+      { label: translate("lblRepository"), status: checkSteps.repository },
     ]
     const rows = rowsAll.filter((r) => r.status !== "idle")
 
@@ -268,8 +268,8 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           {hasVersion && (
             <div css={css(styles.status.row)}>
               <div css={css(styles.status.labelGroup)}>
-                {translate("fmeVersion")}
-                <span aria-hidden="true">{translate("colon")}</span>
+                {translate("lblFmeVersion")}
+                <span aria-hidden="true">{translate("uiColon")}</span>
               </div>
               <div>{versionText}</div>
             </div>
@@ -289,8 +289,8 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           type="primary"
           text={
             testState.isTesting
-              ? translate("testing")
-              : translate("testConnection")
+              ? translate("statusTesting")
+              : translate("btnTestConnection")
           }
           onClick={onTestConnection}
         />
@@ -351,18 +351,18 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   /* Bestämmer placeholder-text baserat på validerings-status */
   const repositoryPlaceholder = (() => {
     if (!hasValidServer || !hasValidToken) {
-      return translate("testConnectionFirst")
+      return translate("hintTestFirst")
     }
 
     if (availableRepos === null) {
-      return translate("loadingRepositories")
+      return translate("statusLoadRepos")
     }
 
     if (Array.isArray(availableRepos) && availableRepos.length === 0) {
-      return translate("noRepositoriesFound")
+      return translate("msgNoRepositories")
     }
 
-    return translate("repoPlaceholder")
+    return translate("phRepository")
   })()
 
   return (
@@ -377,7 +377,7 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
               block={false}
               onClick={onRefreshRepositories}
               type="tertiary"
-              title={translate("refreshRepositories")}
+              title={translate("btnRefreshRepos")}
               icon={<Icon src={resetIcon} size={14} />}
             />
           )}
@@ -548,8 +548,8 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         <SettingRow
           flow="wrap"
           label={
-            <Tooltip content={translate("tm_ttcHelper")} placement="top">
-              <span>{translate("tm_ttcLabel")}</span>
+            <Tooltip content={translate("hintTimeCompute")} placement="top">
+              <span>{translate("lblTimeCompute")}</span>
             </Tooltip>
           }
           level={2}
@@ -561,7 +561,7 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             min={0}
             step={1}
             precision={0}
-            placeholder={translate("tm_ttcPlaceholder")}
+            placeholder={translate("phTimeCompute")}
             aria-invalid={fieldErrors.tm_ttc ? true : undefined}
             aria-describedby={
               fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
@@ -591,8 +591,8 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
       <SettingRow
         flow="wrap"
         label={
-          <Tooltip content={translate("tm_ttlHelper")} placement="top">
-            <span>{translate("tm_ttlLabel")}</span>
+          <Tooltip content={translate("hintTimeQueue")} placement="top">
+            <span>{translate("lblTimeQueue")}</span>
           </Tooltip>
         }
         level={2}
@@ -604,7 +604,7 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
           min={0}
           step={1}
           precision={0}
-          placeholder={translate("tm_ttlPlaceholder")}
+          placeholder={translate("phTimeQueue")}
           aria-invalid={fieldErrors.tm_ttl ? true : undefined}
           aria-describedby={
             fieldErrors.tm_ttl ? `${ID.tm_ttl}-error` : undefined

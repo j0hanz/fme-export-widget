@@ -521,7 +521,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   /* Hanterar repository query-fel */
   hooks.useEffectWithPreviousValues(() => {
     if (repositoriesQuery.isError && !isAbortError(repositoriesQuery.error)) {
-      setReposHint(translate("errorRepositories"))
+      setReposHint(translate("errLoadRepositories"))
     } else if (repositoriesQuery.isSuccess) {
       setReposHint(null)
     }
@@ -586,7 +586,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const RequiredLabel: React.FC<{ text: string }> = ({ text }) => (
     <>
       {text}
-      <Tooltip content={translate("requiredField")} placement="top">
+      <Tooltip content={translate("valRequiredField")} placement="top">
         <span
           css={styles.typo.required}
           aria-label={translate("ariaRequired")}
@@ -710,8 +710,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           status: "success",
           isTesting: false,
           message: hasRepositoryWarning
-            ? translate("connectionOkRepositoryWarning")
-            : translate("connectionOk"),
+            ? translate("msgConnectionWarning")
+            : translate("msgConnectionOk"),
           type: hasRepositoryWarning ? "warning" : "success",
         })
       } else {
@@ -792,7 +792,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         setTestState({
           status: "error",
           isTesting: false,
-          message: translate("fixErrorsAbove"),
+          message: translate("msgFixErrors"),
           type: "error",
         })
       }
@@ -806,7 +806,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     setTestState({
       status: "running",
       isTesting: true,
-      message: silent ? null : translate("testingConnection"),
+      message: silent ? null : translate("statusTestConnection"),
       type: "info",
     })
     setCheckSteps({
@@ -820,7 +820,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       if (!silent) {
         setTestState((prev) => ({
           ...prev,
-          message: translate("testingConnection"),
+          message: translate("statusTestConnection"),
         }))
       }
 
@@ -964,7 +964,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const hasRepo = availableRepos.includes(selectedRepository)
       const errorMessage = hasRepo
         ? undefined
-        : translate("errorRepositoryNotFound")
+        : translate("errRepositoryMissing")
       setError(setFieldErrors, "repository", errorMessage)
     } else if (
       Array.isArray(availableRepos) &&
@@ -1029,7 +1029,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       <SettingRow
         flow="wrap"
         level={2}
-        label={<RequiredLabel text={translate("mapConfiguration")} />}
+        label={<RequiredLabel text={translate("titleMapConfig")} />}
       >
         <MapWidgetSelector
           useMapWidgetIds={useMapWidgetIds}
@@ -1041,11 +1041,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           {/* FME Server connection-fält */}
           <FieldRow
             id={ID.serverUrl}
-            label={<RequiredLabel text={translate("fmeServerUrl")} />}
+            label={<RequiredLabel text={translate("lblServerUrl")} />}
             value={localServerUrl}
             onChange={handleServerUrlChange}
             onBlur={handleServerUrlBlur}
-            placeholder={translate("serverUrlPlaceholder")}
+            placeholder={translate("phServerUrl")}
             required
             errorText={fieldErrors.serverUrl}
             isPending={isServerValidationPending}
@@ -1053,11 +1053,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           />
           <FieldRow
             id={ID.token}
-            label={<RequiredLabel text={translate("fmeServerToken")} />}
+            label={<RequiredLabel text={translate("lblApiToken")} />}
             value={localToken}
             onChange={handleTokenChange}
             onBlur={handleTokenBlur}
-            placeholder={translate("tokenPlaceholder")}
+            placeholder={translate("phApiToken")}
             type="password"
             required
             errorText={fieldErrors.token}
@@ -1080,7 +1080,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               localRepository={selectedRepository}
               availableRepos={availableRepos}
               label={
-                <RequiredLabel text={translate("availableRepositories")} />
+                <RequiredLabel text={translate("lblRepositories")} />
               }
               fieldErrors={fieldErrors}
               validateServerUrl={validateServerUrl}
@@ -1101,8 +1101,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           <SettingRow
             flow="wrap"
             label={
-              <Tooltip content={translate("serviceModeHelper")} placement="top">
-                <span>{translate("serviceModeLabel")}</span>
+              <Tooltip content={translate("hintServiceMode")} placement="top">
+                <span>{translate("lblServiceMode")}</span>
               </Tooltip>
             }
             level={2}
@@ -1115,20 +1115,20 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 updateConfig("syncMode", nextMode)
               }}
               options={[
-                { label: translate("serviceModeAsync"), value: "async" },
-                { label: translate("serviceModeSync"), value: "sync" },
+                { label: translate("optAsync"), value: "async" },
+                { label: translate("optSync"), value: "sync" },
               ]}
-              aria-label={translate("serviceModeLabel")}
+              aria-label={translate("lblServiceMode")}
             />
           </SettingRow>
           <SettingRow
             flow="no-wrap"
             label={
               <Tooltip
-                content={translate("allowRemoteDatasetHelper")}
+                content={translate("hintAllowUpload")}
                 placement="top"
               >
-                <span>{translate("allowRemoteDatasetLabel")}</span>
+                <span>{translate("lblAllowUpload")}</span>
               </Tooltip>
             }
             level={2}
@@ -1141,7 +1141,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalAllowRemoteDataset(checked)
                 updateConfig("allowRemoteDataset", checked)
               }}
-              aria-label={translate("allowRemoteDatasetLabel")}
+              aria-label={translate("lblAllowUpload")}
             />
           </SettingRow>
           {shouldShowRemoteDatasetSettings && (
@@ -1149,10 +1149,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               id={ID.uploadTargetParamName}
               label={
                 <Tooltip
-                  content={translate("uploadTargetParamNameHelper")}
+                  content={translate("hintUploadParam")}
                   placement="top"
                 >
-                  <span>{translate("uploadTargetParamNameLabel")}</span>
+                  <span>{translate("lblUploadParam")}</span>
                 </Tooltip>
               }
               value={localUploadTargetParamName}
@@ -1168,7 +1168,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   uploadTargetParamName: undefined,
                 }))
               }}
-              placeholder={translate("uploadTargetParamNamePlaceholder")}
+              placeholder={translate("phUploadParam")}
               errorText={fieldErrors.uploadTargetParamName}
               styles={settingStyles}
             />
@@ -1178,10 +1178,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               flow="no-wrap"
               label={
                 <Tooltip
-                  content={translate("allowRemoteUrlDatasetHelper")}
+                  content={translate("hintAllowUrl")}
                   placement="top"
                 >
-                  <span>{translate("allowRemoteUrlDatasetLabel")}</span>
+                  <span>{translate("lblAllowUrl")}</span>
                 </Tooltip>
               }
               level={2}
@@ -1195,7 +1195,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   setLocalAllowRemoteUrlDataset(checked)
                   updateConfig("allowRemoteUrlDataset", checked)
                 }}
-                aria-label={translate("allowRemoteUrlDatasetLabel")}
+                aria-label={translate("lblAllowUrl")}
               />
             </SettingRow>
           )}
@@ -1203,12 +1203,12 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             flow="wrap"
             label={
               <Tooltip
-                content={translate("maxAreaHelper", {
+                content={translate("hintMaxArea", {
                   maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
                 })}
                 placement="top"
               >
-                <span>{translate("maxAreaLabel")}</span>
+                <span>{translate("lblMaxArea")}</span>
               </Tooltip>
             }
             level={2}
@@ -1220,7 +1220,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               min={0}
               step={10000}
               precision={0}
-              placeholder={translate("maxAreaPlaceholder")}
+              placeholder={translate("phMaxArea")}
               aria-invalid={fieldErrors.maxArea ? true : undefined}
               aria-describedby={
                 fieldErrors.maxArea ? `${ID.maxArea}-error` : undefined
@@ -1299,10 +1299,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             flow="wrap"
             label={
               <Tooltip
-                content={translate("requestTimeoutHelper")}
+                content={translate("hintRequestTimeout")}
                 placement="top"
               >
-                <span>{translate("requestTimeoutLabel")}</span>
+                <span>{translate("lblRequestTimeout")}</span>
               </Tooltip>
             }
             level={2}
@@ -1314,8 +1314,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               min={0}
               step={10000}
               precision={0}
-              placeholder={translate("requestTimeoutPlaceholder")}
-              aria-label={translate("requestTimeoutLabel")}
+              placeholder={translate("phRequestTimeout")}
+              aria-label={translate("lblRequestTimeout")}
               onChange={(value) => {
                 setLocalRequestTimeout(value === undefined ? "" : String(value))
               }}
@@ -1330,10 +1330,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             id={ID.aoiParamName}
             label={
               <Tooltip
-                content={translate("aoiParamNameHelper")}
+                content={translate("hintAoiParam")}
                 placement="top"
               >
-                <span>{translate("aoiParamNameLabel")}</span>
+                <span>{translate("lblAoiParam")}</span>
               </Tooltip>
             }
             value={localAoiParamName}
@@ -1346,17 +1346,17 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               updateConfig("aoiParamName", finalValue)
               setLocalAoiParamName(finalValue)
             }}
-            placeholder={translate("aoiParamNamePlaceholder")}
+            placeholder={translate("phAoiParam")}
             styles={settingStyles}
           />
           <SettingRow
             flow="no-wrap"
             label={
               <Tooltip
-                content={translate("requireHttpsHelper")}
+                content={translate("hintRequireHttps")}
                 placement="top"
               >
-                <span>{translate("requireHttpsLabel")}</span>
+                <span>{translate("lblRequireHttps")}</span>
               </Tooltip>
             }
             level={2}
@@ -1369,7 +1369,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalRequireHttps(checked)
                 updateConfig("requireHttps", checked)
               }}
-              aria-label={translate("requireHttpsLabel")}
+              aria-label={translate("lblRequireHttps")}
             />
           </SettingRow>
           {shouldShowMaskEmailSetting && (
@@ -1377,10 +1377,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               flow="no-wrap"
               label={
                 <Tooltip
-                  content={translate("maskEmailOnSuccessHelper")}
+                  content={translate("hintMaskEmail")}
                   placement="top"
                 >
-                  <span>{translate("maskEmailOnSuccess")}</span>
+                  <span>{translate("lblMaskEmail")}</span>
                 </Tooltip>
               }
               level={2}
@@ -1394,15 +1394,15 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   setLocalMaskEmailOnSuccess(checked)
                   updateConfig("maskEmailOnSuccess", checked)
                 }}
-                aria-label={translate("maskEmailOnSuccess")}
+                aria-label={translate("lblMaskEmail")}
               />
             </SettingRow>
           )}
           <SettingRow
             flow="no-wrap"
             label={
-              <Tooltip content={translate("showResultHelper")} placement="top">
-                <span>{translate("showResultLabel")}</span>
+              <Tooltip content={translate("hintShowResult")} placement="top">
+                <span>{translate("lblShowResult")}</span>
               </Tooltip>
             }
             level={2}
@@ -1415,17 +1415,17 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalShowResult(checked)
                 updateConfig("showResult", checked)
               }}
-              aria-label={translate("showResultLabel")}
+              aria-label={translate("lblShowResult")}
             />
           </SettingRow>
           <SettingRow
             flow="no-wrap"
             label={
               <Tooltip
-                content={translate("autoCloseOtherWidgetsHelper")}
+                content={translate("hintAutoClose")}
                 placement="top"
               >
-                <span>{translate("autoCloseOtherWidgetsLabel")}</span>
+                <span>{translate("lblAutoClose")}</span>
               </Tooltip>
             }
             level={2}
@@ -1439,17 +1439,17 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalAutoCloseOtherWidgets(checked)
                 updateConfig("autoCloseOtherWidgets", checked)
               }}
-              aria-label={translate("autoCloseOtherWidgetsLabel")}
+              aria-label={translate("lblAutoClose")}
             />
           </SettingRow>
           <FieldRow
             id={ID.supportEmail}
             label={
               <Tooltip
-                content={translate("supportEmailHelper")}
+                content={translate("hintSupportEmail")}
                 placement="top"
               >
-                <span>{translate("supportEmail")}</span>
+                <span>{translate("lblSupportEmail")}</span>
               </Tooltip>
             }
             type="email"
@@ -1470,14 +1470,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 return
               }
               const isValid = isValidEmail(trimmed)
-              const err = !isValid ? translate("invalidEmail") : undefined
+              const err = !isValid ? translate("errInvalidEmail") : undefined
               setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
               if (!err) {
                 updateConfig("supportEmail", trimmed)
                 setLocalSupportEmail(trimmed)
               }
             }}
-            placeholder={translate("supportEmailPlaceholder")}
+            placeholder={translate("phEmail")}
             errorText={fieldErrors.supportEmail}
             styles={settingStyles}
           />
@@ -1485,12 +1485,12 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             flow="wrap"
             label={
               <Tooltip
-                content={translate("largeAreaHelper", {
+                content={translate("hintLargeArea", {
                   maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
                 })}
                 placement="top"
               >
-                <span>{translate("largeAreaLabel")}</span>
+                <span>{translate("lblLargeArea")}</span>
               </Tooltip>
             }
             level={2}
@@ -1502,7 +1502,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               min={0}
               step={10000}
               precision={0}
-              placeholder={translate("largeAreaPlaceholder")}
+              placeholder={translate("phLargeArea")}
               aria-invalid={fieldErrors.largeArea ? true : undefined}
               aria-describedby={
                 fieldErrors.largeArea ? `${ID.largeArea}-error` : undefined
@@ -1529,7 +1529,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
           </SettingRow>
           <SettingRow
             flow="wrap"
-            label={translate("drawingColorLabel")}
+            label={translate("lblDrawColor")}
             level={2}
             tag="label"
           >
@@ -1545,7 +1545,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 setLocalDrawingColor(cleaned)
                 updateConfig("drawingColor", cleaned as any)
               }}
-              aria-label={translate("drawingColorLabel")}
+              aria-label={translate("lblDrawColor")}
             />
           </SettingRow>
         </>

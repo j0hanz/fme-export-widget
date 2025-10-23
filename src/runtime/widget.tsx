@@ -616,17 +616,17 @@ function WidgetContent(
   /* Annonserar viktiga vyändringar för skärmläsare */
   hooks.useUpdateEffect(() => {
     if (viewMode === ViewMode.WORKSPACE_SELECTION) {
-      setAnnouncement(translate("workspaceSelectionReady"))
+      setAnnouncement(translate("msgWorkspacesReady"))
       return
     }
 
     if (viewMode === ViewMode.EXPORT_FORM) {
-      setAnnouncement(translate("formReady"))
+      setAnnouncement(translate("msgFormReady"))
       return
     }
 
     if (viewMode === ViewMode.ORDER_RESULT) {
-      const key = orderResult?.success ? "orderSuccess" : "orderFailed"
+      const key = orderResult?.success ? "msgOrderSuccess" : "msgOrderFail"
       setAnnouncement(translate(key))
       return
     }
@@ -747,7 +747,7 @@ function WidgetContent(
         userFriendlyMessage: config?.supportEmail
           ? String(config.supportEmail)
           : "",
-        suggestion: translate("actionRetryValidation"),
+        suggestion: translate("btnRetryValidation"),
         kind: "serializable",
       }
     }
@@ -929,7 +929,7 @@ function WidgetContent(
             if (result.error) {
               if (result.error.code === "ZERO_AREA") {
                 dispatchError(
-                  translate("geometryInvalidCode"),
+                  translate("errGeomInvalid"),
                   ErrorType.VALIDATION,
                   "ZERO_AREA"
                 )
@@ -968,7 +968,7 @@ function WidgetContent(
         if (!controller.signal.aborted) {
           updateAreaWarning(false)
           dispatchError(
-            translate("errorDrawingComplete"),
+            translate("errDrawComplete"),
             ErrorType.VALIDATION,
             "DRAWING_COMPLETE_ERROR"
           )
@@ -1059,7 +1059,7 @@ function WidgetContent(
       /* Oväntade fel som inte fångades av executeJobSubmission */
       if (!isAbortError(error)) {
         dispatchError(
-          translate("errorJobSubmission"),
+          translate("errJobSubmit"),
           ErrorType.MODULE,
           "SUBMISSION_UNEXPECTED_ERROR"
         )
@@ -1085,7 +1085,7 @@ function WidgetContent(
       try {
         /* Lokaliserar ritnings-lagrets titel */
         ;(layer as unknown as { [key: string]: any }).title =
-          translate("labelDrawingLayer")
+          translate("lblDrawLayer")
       } catch {}
       const { sketchViewModel: svm, cleanup } = createSketchVM({
         jmv,
@@ -1102,7 +1102,7 @@ function WidgetContent(
       setSketchViewModel(svm)
     } catch (error) {
       dispatchError(
-        translate("errorMapInit"),
+        translate("errMapInit"),
         ErrorType.MODULE,
         "MAP_INIT_ERROR"
       )
@@ -1198,22 +1198,22 @@ function WidgetContent(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
       /* Visar allmän instruktion före första klicket */
       if (clickCount === 0) {
-        return translate("hintStartDrawing")
+        return translate("hintClickMap")
       }
 
       /* Efter första klicket, visa verktygsspecifika instruktioner */
       if (tool === DrawingTool.RECTANGLE) {
-        return translate("hintDrawRectangle")
+        return translate("hintDrawRect")
       }
 
       if (tool === DrawingTool.POLYGON) {
         if (clickCount < 3) {
-          return translate("hintDrawPolygonContinue")
+          return translate("hintDrawContinue")
         }
-        return translate("hintDrawPolygonComplete")
+        return translate("hintDrawComplete")
       }
 
-      return translate("hintSelectDrawingMode")
+      return translate("hintSelectMode")
     }
   )
 

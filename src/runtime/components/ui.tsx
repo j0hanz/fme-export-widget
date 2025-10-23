@@ -230,7 +230,7 @@ const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
   styles: UiStyles
 ) => (
-  <Tooltip content={translate("requiredField")} placement="bottom">
+  <Tooltip content={translate("valRequiredField")} placement="bottom">
     <span
       css={styles.typo.required}
       aria-label={translate("ariaRequired")}
@@ -722,7 +722,7 @@ export const Select: React.FC<SelectProps> = ({
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
   const [searchTerm, setSearchTerm] = React.useState("")
   const resolvedPlaceholder =
-    placeholder || translate("placeholderSelectGeneric")
+    placeholder || translate("phSelectOption")
 
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
     if (coerce === "number" && typeof val === "string") {
@@ -841,7 +841,7 @@ export const Select: React.FC<SelectProps> = ({
         <Input
           type="search"
           value={searchTerm}
-          placeholder={translate("placeholderSearch")}
+          placeholder={translate("phSearch")}
           onChange={(val) => {
             setSearchTerm(typeof val === "string" ? val : "")
           }}
@@ -939,7 +939,7 @@ export const Button: React.FC<ButtonProps> = ({
     !!icon,
     explicitAriaLabel,
     tooltip,
-    translate("ariaButtonLabel")
+    translate("ariaButton")
   )
 
   // Absorberar stil/css från inkommande props så inga inline-attribut vidare
@@ -1409,7 +1409,7 @@ const StateView: React.FC<StateViewProps> = ({
                 {detailNode}
                 {state.code ? (
                   <div>
-                    {translate("errorCode")}: {state.code}
+                    {translate("lblErrorCode")}: {state.code}
                   </div>
                 ) : null}
               </>
@@ -1569,19 +1569,19 @@ export const Form: React.FC<FormProps> = (props) => {
               secondaryButton={
                 onBack
                   ? {
-                      text: translate("back"),
+                      text: translate("btnBack"),
                       onClick: onBack,
                       disabled: loading,
-                      tooltip: translate("tooltipBackToOptions"),
+                      tooltip: translate("tipBackOptions"),
                     }
                   : undefined
               }
               primaryButton={{
-                text: translate("submit"),
+                text: translate("btnSubmit"),
                 onClick: onSubmit,
                 disabled: !isValid || loading,
                 loading,
-                tooltip: translate("tooltipSubmitOrder"),
+                tooltip: translate("tipSubmitOrder"),
               }}
             />
           </div>
@@ -1704,7 +1704,7 @@ export const renderSupportHint = (
 ): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
 
-  const fullText = translate("contactSupportEmail")
+  const fullText = translate("msgContactSupport")
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
@@ -1715,7 +1715,7 @@ export const renderSupportHint = (
         <a
           href={`mailto:${supportEmail}`}
           css={styles.typo.link}
-          aria-label={translate("contactSupportEmail", {
+          aria-label={translate("msgContactSupport", {
             email: supportEmail,
           })}
         >
@@ -1733,7 +1733,7 @@ export const renderSupportHint = (
           <a
             href={`mailto:${supportEmail}`}
             css={styles.typo.link}
-            aria-label={translate("contactSupportEmail", {
+            aria-label={translate("msgContactSupport", {
               email: supportEmail,
             })}
           >

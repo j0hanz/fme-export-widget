@@ -328,25 +328,25 @@ const OrderResult: React.FC<OrderResultProps> = ({
     )
   }
 
-  addInfoRow(translate("jobId"), orderResult.jobId)
-  addInfoRow(translate("workspace"), orderResult.workspaceName)
+  addInfoRow(translate("lblJobId"), orderResult.jobId)
+  addInfoRow(translate("lblWorkspace"), orderResult.workspaceName)
 
   const deliveryModeKey =
     serviceMode === "async" ? "deliveryModeAsync" : "deliveryModeSync"
-  addInfoRow(translate("deliveryMode"), translate(deliveryModeKey))
+  addInfoRow(translate("lblDelivery"), translate(deliveryModeKey))
 
   if (orderResult.downloadFilename) {
-    addInfoRow(translate("downloadFilename"), orderResult.downloadFilename)
+    addInfoRow(translate("lblFilename"), orderResult.downloadFilename)
   }
 
   const statusValue = toTrimmedString(orderResult.status)
   if (statusValue) {
-    addInfoRow(translate("flowStatus"), statusValue)
+    addInfoRow(translate("lblFmeStatus"), statusValue)
   }
 
   const statusMessage = toTrimmedString(orderResult.statusMessage)
   if (statusMessage && statusMessage !== toTrimmedString(orderResult.message)) {
-    addInfoRow(translate("flowMessage"), statusMessage)
+    addInfoRow(translate("lblFmeMessage"), statusMessage)
   }
 
   const blobType = toTrimmedString(orderResult.blobMetadata?.type)
@@ -365,32 +365,32 @@ const OrderResult: React.FC<OrderResultProps> = ({
       config?.maskEmailOnSuccess && isSuccess
         ? maskEmailForDisplay(emailVal)
         : emailVal
-    addInfoRow(translate("notificationEmail"), masked)
+    addInfoRow(translate("lblEmail"), masked)
   }
 
   // Visar felkod endast vid misslyckad order
   if (orderResult.code && isFailure) {
-    addInfoRow(translate("errorCode"), orderResult.code)
+    addInfoRow(translate("lblErrorCode"), orderResult.code)
   }
 
   const titleText = isCancelled
-    ? translate("orderCancelledTitle")
+    ? translate("titleOrderCancelled")
     : isSuccess
       ? serviceMode === "sync"
-        ? translate("orderComplete")
-        : translate("orderConfirmation")
-      : translate("orderSentError")
+        ? translate("titleOrderComplete")
+        : translate("titleOrderConfirmed")
+      : translate("titleOrderFailed")
 
   const buttonText = isCancelled
-    ? translate("actionNewOrder")
+    ? translate("btnNewOrder")
     : isSuccess
-      ? translate("reuseGeography")
-      : translate("actionRetry")
+      ? translate("btnReuseArea")
+      : translate("btnRetry")
 
   const primaryTooltip = isCancelled
-    ? translate("tooltipNewOrder")
+    ? translate("tipNewOrder")
     : isSuccess
-      ? translate("tooltipReuseGeography")
+      ? translate("tipReuseArea")
       : undefined
 
   const handlePrimary = hooks.useEventCallback(() => {
@@ -417,11 +417,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
     const failureCode = (orderResult.code || "").toString().toUpperCase()
     const isTimeout = failureCode.includes("TIMEOUT")
     messageText = isTimeout
-      ? translate("orderCancelledTimeoutMessage")
-      : translate("orderCancelledMessage")
+      ? translate("msgOrderTimeout")
+      : translate("msgOrderCancelled")
   } else if (isSuccess) {
     if (serviceMode === "async") {
-      messageText = translate("emailNotificationSent")
+      messageText = translate("msgEmailSent")
     }
   } else {
     const failureCode = (orderResult.code || "").toString().toUpperCase()
@@ -431,18 +431,18 @@ const OrderResult: React.FC<OrderResultProps> = ({
       ""
 
     if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
-      messageText = translate("jobCancelledTimeout")
+      messageText = translate("msgJobTimeout")
     } else if (failureCode === "FME_JOB_CANCELLED") {
-      messageText = translate("jobCancelled")
+      messageText = translate("msgJobCancelled")
     } else if (
       failureCode === "FME_JOB_FAILURE" ||
       /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
     ) {
-      messageText = translate("fmeFlowTransformationFailed")
+      messageText = translate("errTransformFailed")
     } else if (rawMessage) {
       messageText = rawMessage
     } else {
-      messageText = translate("errorJobSubmission")
+      messageText = translate("msgJobFailed")
     }
   }
 
@@ -462,7 +462,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
                 css={styles.typo.link}
                 download={orderResult.downloadFilename}
               >
-                {translate("clickToDownload")}
+                {translate("btnDownload")}
               </a>
             </div>
           )}
@@ -473,9 +473,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
         <div css={styles.form.footer}>
           <ButtonGroup
             secondaryButton={{
-              text: translate("actionEnd"),
+              text: translate("btnEnd"),
               onClick: handleEnd,
-              tooltip: translate("tooltipCancel"),
+              tooltip: translate("tipCancel"),
               tooltipPlacement: "bottom",
               logging: { enabled: true, prefix: "FME-Export" },
             }}
@@ -561,8 +561,8 @@ const ExportForm: React.FC<
   // Bygger lokalt valideringsmeddelande med aktuell översättning
   const errorMsg = hooks.useEventCallback((count: number): string =>
     count === 1
-      ? translate("formValidationSingleError")
-      : translate("formValidationMultipleErrors")
+      ? translate("valSingleError")
+      : translate("valMultipleErrors")
   )
 
   // Skapar validator med aktuella parametrar - use ref to maintain stable reference
@@ -814,7 +814,7 @@ const ExportForm: React.FC<
       subtitle={
         workspaceItem?.description
           ? stripHtml(workspaceItem.description)
-          : translate("configureWorkspaceParameters")
+          : translate("titleConfigParams")
       }
       onBack={onBack}
       onSubmit={handleSubmit}
@@ -826,13 +826,13 @@ const ExportForm: React.FC<
       {/* Direct upload field - replaces remote dataset URL */}
       {config?.allowRemoteDataset && (
         <Field
-          label={translate("remoteDatasetUploadLabel")}
-          helper={translate("remoteDatasetUploadHelper")}
+          label={translate("lblUploadFile")}
+          helper={translate("hintUploadFile")}
         >
           <DynamicField
             field={{
               name: "__upload_file__",
-              label: translate("remoteDatasetUploadLabel"),
+              label: translate("lblUploadFile"),
               type: FormFieldType.FILE,
               required: false,
               readOnly: false,
@@ -847,8 +847,8 @@ const ExportForm: React.FC<
       {/* Remote dataset URL (opt_geturl) */}
       {config?.allowRemoteDataset && config?.allowRemoteUrlDataset && (
         <Field
-          label={translate("remoteDatasetUrlLabel")}
-          helper={translate("remoteDatasetUrlHelper")}
+          label={translate("lblRemoteUrl")}
+          helper={translate("hintRemoteUrl")}
         >
           <UrlInput
             value={(formState.values.__remote_dataset_url__ as string) || ""}
@@ -1040,7 +1040,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
     const helperText = isNonEmptyTrimmedString(instructionText)
       ? instructionText
-      : translate("drawingModeTooltip")
+      : translate("tipDrawMode")
 
     return (
       <div css={styles.form.layout}>
@@ -1060,7 +1060,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               onChange={(val) => {
                 onDrawingModeChange?.(val as DrawingTool)
               }}
-              aria-label={translate("drawingModeTooltip")}
+              aria-label={translate("tipDrawMode")}
             />
           </div>
         </div>
@@ -1114,7 +1114,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         }
       }
 
-      const waitText = translate("pleaseWait")
+      const waitText = translate("msgPleaseWait")
       const hasWaitAlready = additionalMessages.some(
         (entry) => typeof entry === "string" && entry === waitText
       )
@@ -1151,9 +1151,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     ) => {
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
-        actions.push({ label: translate("actionRetry"), onClick: onRetry })
+        actions.push({ label: translate("btnRetry"), onClick: onRetry })
       } else if (onBack) {
-        actions.push({ label: translate("back"), onClick: onBack })
+        actions.push({ label: translate("btnBack"), onClick: onBack })
       }
       // Bygger supporthjälp och länk om e-post konfigurerad
       const rawEmail = getSupportEmail(config?.supportEmail)
@@ -1521,15 +1521,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (resetEnabled) {
         resetButton = (
           <Button
-            tooltip={translate("tooltipCancel")}
+            tooltip={translate("tipCancel")}
             tooltipPlacement="bottom"
             onClick={onReset}
             color="inherit"
             type="default"
             variant="contained"
-            text={translate("cancel")}
+            text={translate("btnCancel")}
             size="sm"
-            aria-label={translate("tooltipCancel")}
+            aria-label={translate("tipCancel")}
             logging={{ enabled: true, prefix: "FME-Export-Header" }}
             block={false}
           />
@@ -1544,16 +1544,16 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)
   const renderInitial = () => {
-    const waitMessage = translate("statusPreparingMapTools")
-    const waitDetail = translate("statusPreparingMapToolsDetail")
+    const waitMessage = translate("statusInitMap")
+    const waitDetail = translate("msgLoadingDraw")
     if (isModulesLoading) {
       return renderLoading(waitMessage, waitDetail, [
-        translate("drawingModeTooltip"),
+        translate("tipDrawMode"),
       ])
     }
     if (!canDraw) {
       return renderLoading(waitMessage, waitDetail, [
-        translate("drawingModeTooltip"),
+        translate("tipDrawMode"),
       ])
     }
     return renderDrawingModeTabs()
@@ -1611,7 +1611,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     const loadingMessage =
-      startupValidationStep || translate("validatingStartup")
+      startupValidationStep || translate("statusValidating")
     return renderLoading(loadingMessage)
   }
 
@@ -1663,10 +1663,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (isSyncMode) {
-      return renderLoading(baseMessage, translate("submittingOrderSyncDetail"))
+      return renderLoading(baseMessage, translate("msgProcessingWait"))
     }
 
-    return renderLoading(baseMessage, translate("pleaseWait"))
+    return renderLoading(baseMessage, translate("msgPleaseWait"))
   }
 
   // Renderar fel med användarmeddelande
@@ -1683,8 +1683,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const renderGeometryValidation = () => (
     <StateView
       state={makeLoadingView(
-        translate("loadingGeometryValidation"),
-        translate("loadingGeometryValidationDetail")
+        translate("statusValidateGeom"),
+        translate("msgCheckGeom")
       )}
     />
   )
@@ -1705,7 +1705,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case ViewMode.EXPORT_FORM:
         return renderForm()
       case ViewMode.ORDER_RESULT:
-        return renderError(translate("orderResultMissing"), onBack)
+        return renderError(translate("msgNoResult"), onBack)
       default:
         return renderInitial()
     }
@@ -1727,18 +1727,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
 
       const message = isPrefetchLoading
-        ? translate("prefetchingWorkspaces")
+        ? translate("statusLoadWorkspaces")
         : workspaceItems.length
-          ? translate("loadingWorkspaceDetails")
-          : translate("loadingWorkspaces")
+          ? translate("statusLoadParams")
+          : translate("statusLoadWorkspaces")
 
       const detail = isPrefetchLoading
         ? ""
         : workspaceItems.length
-          ? translate("loadingWorkspaceDetailsDetail")
-          : translate("loadingWorkspacesDetail")
+          ? translate("msgLoadRepoParams")
+          : translate("msgLoadRepos")
 
-      return renderLoading(message, detail, [translate("tooltipBackToOptions")])
+      return renderLoading(message, detail, [translate("tipBackOptions")])
     }
 
     if (workspaceError) {
@@ -1747,8 +1747,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     if (!workspaceItems.length) {
       const actions = [
-        { label: translate("actionRetry"), onClick: loadWsList },
-        { label: translate("back"), onClick: onBack },
+        { label: translate("btnRetry"), onClick: loadWsList },
+        { label: translate("btnBack"), onClick: onBack },
       ]
       return (
         <StateView
@@ -1769,14 +1769,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Renderar exportformulär med parametrar
   const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
-      return renderError(translate("missingExportConfiguration"), onBack)
+      return renderError(translate("errNoFormConfig"), onBack)
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
       return renderLoading(
-        translate("loadingWorkspaceDetails"),
-        translate("loadingWorkspaceDetailsDetail"),
-        [translate("configureWorkspaceParameters")]
+        translate("statusLoadParams"),
+        translate("msgLoadRepoParams"),
+        [translate("titleConfigParams")]
       )
     }
 

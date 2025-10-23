@@ -549,7 +549,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           return (
             <div data-testid="table-field">
               {rows.length === 0 ? (
-                <div>{translate("tableEmpty")}</div>
+                <div>{translate("msgTableEmpty")}</div>
               ) : (
                 <Table responsive hover aria-label={field.label}>
                   <tbody>
@@ -571,13 +571,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         </td>
                         <td>
                           <Button
-                            text={translate("deleteRow")}
+                            text={translate("btnDeleteRow")}
                             variant="text"
                             type="tertiary"
                             onClick={() => {
                               removeRow(i)
                             }}
-                            aria-label={translate("deleteRow")}
+                            aria-label={translate("btnDeleteRow")}
                             disabled={isDisabled}
                           />
                         </td>
@@ -587,10 +587,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 </Table>
               )}
               <Button
-                text={translate("addRow")}
+                text={translate("btnAddRow")}
                 variant="outlined"
                 onClick={addRow}
-                aria-label={translate("addRow")}
+                aria-label={translate("btnAddRow")}
                 disabled={isDisabled}
               />
             </div>
@@ -604,7 +604,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             : [
                 {
                   key: "value",
-                  label: field.label || translate("tableColumnDefault"),
+                  label: field.label || translate("lblColumnDefault"),
                   type: "text" as const,
                 },
               ]
@@ -618,9 +618,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const maxRows = tableConfig?.maxRows
         const allowReorder = tableConfig?.allowReorder ?? false
         const showHeader = tableConfig?.showHeader ?? true
-        const addLabel = tableConfig?.addRowLabel || translate("addRow")
+        const addLabel = tableConfig?.addRowLabel || translate("btnAddRow")
         const removeLabel =
-          tableConfig?.removeRowLabel || translate("deleteRow")
+          tableConfig?.removeRowLabel || translate("btnDeleteRow")
 
         // Bestämmer om användaren kan lägga till/ta bort rader
         const canRemove = !isDisabled && rows.length > minRows
@@ -772,7 +772,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <div data-testid="table-field">
             {rows.length === 0 ? (
-              <div>{translate("tableEmpty")}</div>
+              <div>{translate("msgTableEmpty")}</div>
             ) : (
               <Table responsive hover aria-label={field.label}>
                 {showHeader ? (
@@ -781,7 +781,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                       {columns.map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
-                      <th>{translate("tableActionsHeader")}</th>
+                      <th>{translate("lblActions")}</th>
                     </tr>
                   </thead>
                 ) : null}
@@ -813,7 +813,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         {allowReorder ? (
                           <React.Fragment>
                             <Button
-                              text={translate("tableMoveUp")}
+                              text={translate("btnMoveUp")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
@@ -824,7 +824,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                                   -1
                                 )
                               }}
-                              aria-label={translate("tableMoveUp")}
+                              aria-label={translate("btnMoveUp")}
                               disabled={
                                 isDisabled ||
                                 rows.findIndex(
@@ -833,7 +833,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               }
                             />
                             <Button
-                              text={translate("tableMoveDown")}
+                              text={translate("btnMoveDown")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
@@ -844,7 +844,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                                   1
                                 )
                               }}
-                              aria-label={translate("tableMoveDown")}
+                              aria-label={translate("btnMoveDown")}
                               disabled={
                                 isDisabled ||
                                 rows.findIndex(
@@ -1139,10 +1139,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
-                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
                 : validation.error === "fileTypeNotAllowed"
-                  ? translate("fileTypeNotAllowed")
-                  : translate("fileInvalid")
+                  ? translate("errFileType")
+                  : translate("errFileInvalid")
             )
             evt.target.value = ""
             return
@@ -1244,10 +1244,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
-                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
                 : validation.error === "fileTypeNotAllowed"
-                  ? translate("fileTypeNotAllowed")
-                  : translate("fileInvalid")
+                  ? translate("errFileType")
+                  : translate("errFileInvalid")
             )
             evt.target.value = ""
             return
@@ -1267,11 +1267,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               items={[
                 {
                   value: TEXT_OR_FILE_MODES.TEXT,
-                  label: translate("textInput"),
+                  label: translate("lblTextInput"),
                 },
                 {
                   value: TEXT_OR_FILE_MODES.FILE,
-                  label: translate("fileInput"),
+                  label: translate("lblFileInput"),
                 },
               ]}
               value={resolvedMode}
@@ -1370,7 +1370,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         if (!trimmed) {
           return (
             <div css={styles.typo.hint} data-testid="geometry-field">
-              {translate("geometryFieldMissing")}
+              {translate("msgNoGeometry")}
             </div>
           )
         }
@@ -1406,14 +1406,14 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           <div data-testid="geometry-field">
             <div css={styles.typo.hint}>
               {parseError
-                ? translate("geometryFieldParseError")
-                : translate("geometryFieldReady", {
+                ? translate("errGeomParse")
+                : translate("msgGeomReady", {
                     rings,
                     vertices,
                   })}
             </div>
             {truncated ? (
-              <pre aria-label={translate("geometryFieldPreviewLabel")}>
+              <pre aria-label={translate("ariaGeomPreview")}>
                 {truncated}
               </pre>
             ) : null}
@@ -1478,7 +1478,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (precision === 0) {
             const hasDecimals = numericValue % 1 !== 0
             if (hasDecimals) {
-              validationError = translate("integerRequired")
+              validationError = translate("valIntegerOnly")
             }
           }
 
@@ -1489,8 +1489,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               : numericValue < field.min
             if (belowMin) {
               validationError = field.minExclusive
-                ? translate("mustBeGreaterThan", { value: field.min })
-                : translate("mustBeAtLeast", { value: field.min })
+                ? translate("valGreaterThan", { value: field.min })
+                : translate("valAtLeast", { value: field.min })
             }
           }
 
@@ -1501,8 +1501,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               : numericValue > field.max
             if (aboveMax) {
               validationError = field.maxExclusive
-                ? translate("mustBeLessThan", { value: field.max })
-                : translate("mustBeAtMost", { value: field.max })
+                ? translate("valLessThan", { value: field.max })
+                : translate("valAtMost", { value: field.max })
             }
           }
         }
@@ -1554,7 +1554,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <TagInput
             value={values}
-            placeholder={field.placeholder || translate("placeholderTags")}
+            placeholder={field.placeholder || translate("phTags")}
             onChange={(values) => {
               if (isDisabled) return
               onChange(values as FormPrimitive)
@@ -1829,7 +1829,7 @@ export const MultiSelectControl: React.FC<{
   )
   const [searchTerm, setSearchTerm] = React.useState("")
 
-  const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
+  const finalPlaceholder = placeholder || translate("phSelectOption")
   const trimmedSearch = allowSearch ? searchTerm.trim() : ""
   const normalizedSearch = trimmedSearch.toLowerCase()
 
@@ -1889,7 +1889,7 @@ export const MultiSelectControl: React.FC<{
         <Input
           type="search"
           value={searchTerm}
-          placeholder={translate("placeholderSearch")}
+          placeholder={translate("phSearch")}
           onChange={(val) => {
             setSearchTerm(typeof val === "string" ? val : "")
           }}
