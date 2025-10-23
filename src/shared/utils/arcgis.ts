@@ -1,15 +1,27 @@
 import { WidgetState } from "jimu-core"
 import type { PopupSuppressionRecord } from "../../config/index"
 
-export const buildSymbols = (rgb: readonly [number, number, number]) => {
+export const buildSymbols = (
+  rgb: readonly [number, number, number],
+  options?: {
+    outlineWidth?: number
+    fillOpacity?: number
+  }
+) => {
   const base = [rgb[0], rgb[1], rgb[2]] as [number, number, number]
+  const rawOutlineWidth =
+    typeof options?.outlineWidth === "number" ? options.outlineWidth : 2
+  const outlineWidth = Math.min(5, Math.max(0.1, rawOutlineWidth))
+  const rawFillOpacity =
+    typeof options?.fillOpacity === "number" ? options.fillOpacity : 0.2
+  const fillOpacity = Math.min(1, Math.max(0, rawFillOpacity))
+
   const highlight = {
     type: "simple-fill" as const,
-    color: [...base, 0.2] as [number, number, number, number],
+    color: [...base, fillOpacity] as [number, number, number, number],
     outline: {
       color: base,
-      width: 2,
-      style: "solid" as const,
+      width: outlineWidth,
     },
   }
   const symbols = {
@@ -17,8 +29,7 @@ export const buildSymbols = (rgb: readonly [number, number, number]) => {
     polyline: {
       type: "simple-line",
       color: base,
-      width: 2,
-      style: "solid",
+      width: outlineWidth,
     },
     point: {
       type: "simple-marker",

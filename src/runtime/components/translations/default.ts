@@ -75,7 +75,7 @@ export default {
   msgNoGeometry: "Inget område har valts. Rita ett område i kartan",
   msgGeomReady: "Område definierat ({rings} polygoner, {vertices} hörnpunkter)",
   msgContactSupport: "Kontakta gärna support via {email}",
-  msgEmailSent: "E-postnotifiering skickas när jobbet är klart",
+  msgEmailSent: "E-postmeddelande skickas när jobbet är klart",
   msgTableEmpty: "Inga rader har lagts till",
   errTransformFailed:
     "FME Flow-transformationen misslyckades. Se loggfilen ovan för detaljer",
@@ -106,7 +106,7 @@ export default {
   phSearch: "Sök…",
   phSelectOption: "Välj ett alternativ",
   optSyncMode: "Direkt nedladdning",
-  optAsyncMode: "E-postnotifiering",
+  optAsyncMode: "E-postmeddelande",
   optPolygon: "Polygon",
   optRectangle: "Rektangel",
   optTextInput: "Textinmatning",

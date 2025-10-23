@@ -732,6 +732,8 @@ export interface FmeExportConfig {
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
   readonly drawingColor?: string
+  readonly drawingOutlineWidth?: number
+  readonly drawingFillOpacity?: number
 }
 
 export interface RequestConfig {

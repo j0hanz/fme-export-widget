@@ -586,6 +586,7 @@ export const Slider: React.FC<{
   "aria-label"?: string
   decimalPrecision?: number
   showValue?: boolean
+  valueFormatter?: (value: number) => string
 }> = ({
   value,
   defaultValue,
@@ -598,10 +599,14 @@ export const Slider: React.FC<{
   "aria-label": ariaLabel,
   decimalPrecision,
   showValue = true,
+  valueFormatter,
 }) => {
   const styles = useStyles()
 
   const formatValue = hooks.useEventCallback((val: number): string => {
+    if (typeof valueFormatter === "function") {
+      return valueFormatter(val)
+    }
     return formatNumericDisplay(val, decimalPrecision)
   })
 

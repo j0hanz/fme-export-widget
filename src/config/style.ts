@@ -207,7 +207,7 @@ export const createUiStyles = (theme: IMThemeVariables) => {
     form: {
       layout: flex("column", { flex: auto, minBlockSize: 0, gap }),
       header: css({ flex: "0 0 auto" }),
-      sliderField: flex("row", { alignItems: "center", gap }),
+      sliderField: flex("row", { alignItems: "center", width: "100%", gap }),
       sliderValue: css({
         ...typo(typography?.label2),
         textAlign: "center",

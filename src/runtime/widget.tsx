@@ -405,11 +405,20 @@ function WidgetContent(
 
   /* Bygger symboler från konfigurerad drawingColor (config är källa) */
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
-  const symbolsRef = React.useRef(buildSymbols(hexToRgbArray(currentHex)))
+  const drawingStyleOptions = {
+    outlineWidth: config?.drawingOutlineWidth,
+    fillOpacity: config?.drawingFillOpacity,
+  }
+  const symbolsRef = React.useRef(
+    buildSymbols(hexToRgbArray(currentHex), drawingStyleOptions)
+  )
 
   hooks.useUpdateEffect(() => {
-    symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
-  }, [currentHex])
+    symbolsRef.current = buildSymbols(
+      hexToRgbArray(currentHex),
+      drawingStyleOptions
+    )
+  }, [currentHex, config?.drawingOutlineWidth, config?.drawingFillOpacity])
 
   /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {
@@ -1138,7 +1147,7 @@ function WidgetContent(
     }
   }, [shouldAutoStart, sketchViewModel, drawingTool])
 
-  /* Uppdaterar symboler när drawingColor ändras */
+  /* Uppdaterar symboler när ritstil ändras */
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (syms) {
@@ -1147,6 +1156,21 @@ function WidgetContent(
           ;(sketchViewModel as any).polygonSymbol = syms.polygon
           ;(sketchViewModel as any).polylineSymbol = syms.polyline
           ;(sketchViewModel as any).pointSymbol = syms.point
+
+          const internalVm = (sketchViewModel as any).viewModel
+          const updateSymbol = (graphic: any) => {
+            if (graphic && typeof graphic === "object") {
+              graphic.symbol = syms.polygon
+            }
+          }
+          updateSymbol(internalVm?.graphic)
+          updateSymbol(internalVm?.previewGraphic)
+          const sketchLayer = internalVm?.sketchGraphicsLayer
+          sketchLayer?.graphics?.forEach?.((graphic: any) => {
+            if (graphic?.geometry?.type === "polygon") {
+              graphic.symbol = syms.polygon
+            }
+          })
         } catch {}
       }
       if (graphicsLayer) {
@@ -1159,7 +1183,13 @@ function WidgetContent(
         } catch {}
       }
     }
-  }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
+  }, [
+    sketchViewModel,
+    graphicsLayer,
+    (config as any)?.drawingColor,
+    config?.drawingOutlineWidth,
+    config?.drawingFillOpacity,
+  ])
 
   /* Avbryter ritning om widget förlorar aktivering */
   hooks.useUpdateEffect(() => {

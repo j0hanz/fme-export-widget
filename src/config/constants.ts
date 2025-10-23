@@ -31,6 +31,8 @@ export const LAYER_CONFIG = Object.freeze({
 })
 
 export const DEFAULT_DRAWING_HEX = "#0079C1"
+export const DEFAULT_OUTLINE_WIDTH = 2
+export const DEFAULT_FILL_OPACITY = 0.2
 
 export const UPLOAD_PARAM_TYPES = Object.freeze([
   "FILENAME",

@@ -19,6 +19,8 @@ export default {
   lblRequireHttps: "Kräv HTTPS",
   lblAutoClose: "Stäng andra widgets automatiskt",
   lblDrawColor: "Färg för ritverktyg",
+  lblOutlineWidth: "Konturens tjocklek",
+  lblFillOpacity: "Fyllnadstransparens (%)",
   lblSupportEmail: "Supportkontakt",
   errNoServerUrl: "FME Flow server-URL krävs",
   errNoToken: "API-token krävs",
@@ -80,7 +82,7 @@ export default {
   msgAreaExceeds:
     "Varningsgränsen ({largeM2} m²) bör vara lägre än maxgränsen ({maxM2} m²)",
   hintServiceMode:
-    "Välj leveransmetod: Direkt nedladdning för mindre dataset eller e-postnotifiering för större exporter",
+    "Välj leveransmetod: Direkt nedladdning för mindre dataset eller e-postmeddelande för större exporter",
   hintMaskEmail:
     "Döljer delar av e-postadressen i exportbekräftelsen (t.ex. a***@example.com)",
   hintShowResult:
@@ -107,6 +109,10 @@ export default {
     "När aktiverad accepteras endast HTTPS-anslutningar till FME Flow. Inaktiverad tillåter både HTTP och HTTPS",
   hintAutoClose:
     "Stänger automatiskt andra widgets när FME Export öppnas för att minimera visuella störningar",
+  hintOutlineWidth:
+    "Konturens tjocklek i pixlar (0,1–5,0). Justeras stegvis via reglaget",
+  hintFillOpacity:
+    "Transparens för områdesfyllnad (0-100%). Högre värde ger mer ogenomskinlig fyllnad",
   hintSupportEmail:
     "Visas i felmeddelanden som kontaktväg för användare. Lämna tomt för att inte visa supportkontakt",
   hintTestFirst: "Testa anslutningen innan du fortsätter konfigurationen",
@@ -128,10 +134,12 @@ export default {
   phRequestTimeout: "30000",
   phAoiParam: "AreaOfInterest",
   phUploadParam: "DEST_DATASET",
-  optAsync: "E-postnotifiering",
+  optAsync: "E-postmeddelande",
   optSync: "Direkt nedladdning",
   valRequiredField: "Obligatoriskt fält",
   ariaRequired: "Obligatoriskt fält",
   uiColon: ":",
   titleMapConfig: "Kartkonfiguration",
+  panelAdvancedSettings: "Avancerade inställningar",
+  panelDrawingSettings: "Ritinställningar",
 }
