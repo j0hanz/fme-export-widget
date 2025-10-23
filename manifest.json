@@ -8,6 +8,7 @@
   "description": "Draw an area and export via FME Flow.",
   "icon": "icon.svg",
   "dependency": "jimu-arcgis",
+  "publishMessages": ["DATA_RECORD_SET_CHANGE"],
   "extensions": [
     {
       "name": "Fme Store",

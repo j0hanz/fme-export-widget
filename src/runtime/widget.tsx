@@ -11,6 +11,8 @@ import {
   appActions,
   getAppStore,
   ReactDOM,
+  MessageManager,
+  DataRecordSetChangeMessage,
 } from "jimu-core"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
@@ -1004,6 +1006,39 @@ function WidgetContent(
     }
   )
 
+  // Publicerar meddelande om jobbs slutförande
+  const publishJobCompletionMessage = hooks.useEventCallback(
+    (result: ExportResult) => {
+      try {
+        // Bygger jobbrekordet för meddelandet
+        const jobRecord = {
+          jobId: result.jobId || result.code || "unknown",
+          workspace: selectedWorkspace || "unknown",
+          status: result.success ? "completed" : "failed",
+          downloadUrl: result.downloadUrl || "",
+          message: result.message || "",
+          timestamp: new Date().toISOString(),
+          serviceMode: result.serviceMode || "unknown",
+        }
+
+        // Bygger och publicerar meddelandet
+        const message = new DataRecordSetChangeMessage(
+          widgetId,
+          [jobRecord] as any,
+          []
+        )
+
+        MessageManager.getInstance().publishMessage(message)
+      } catch (error) {
+        // Ignorera publiceringfel - huvudfunktionalitet påverkas ej
+        console.warn(
+          "FME Export: Failed to publish job completion message",
+          error
+        )
+      }
+    }
+  )
+
   // Slutför orderprocessen genom att spara resultat i Redux och navigera
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
     const currentRuntimeState = runtimeState
@@ -1013,6 +1048,9 @@ function WidgetContent(
 
     fmeDispatch.setOrderResult(result)
     navigateTo(ViewMode.ORDER_RESULT)
+
+    // Publicera meddelande om lyckad/misslyckad export
+    publishJobCompletionMessage(result)
   })
 
   /* Hanterar formulär-submission: validerar, förbereder, kör workspace */

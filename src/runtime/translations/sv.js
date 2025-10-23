@@ -141,6 +141,10 @@ System.register([], function (_export) {
         errGeomReq: "Ingen geometri har angivits",
         errGeomPolygon: "Geometrin måste vara en polygon",
         errorWidgetIdMissing: "Widget-ID saknas eller är ogiltigt",
+        msgJobCompletionPublished:
+          "Meddelande om exportjobbets slutförande skickat till andra widgets",
+        msgJobMessagePublishFailed:
+          "Kunde inte meddela andra widgets om exportens slutförande",
       })
     },
   }

@@ -132,4 +132,8 @@ export default {
   errGeomReq: "No geometry has been specified",
   errGeomPolygon: "Geometry must be a polygon",
   errorWidgetIdMissing: "Widget ID is missing or invalid",
+  msgJobCompletionPublished:
+    "Export job completion notification sent to other widgets",
+  msgJobMessagePublishFailed:
+    "Failed to notify other widgets about export completion",
 }
