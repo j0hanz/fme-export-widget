@@ -1202,8 +1202,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.TEXT_OR_FILE: {
         // Renderar fält med växel mellan text- och filuppladdningsläge
-        const currentValue: NormalizedTextOrFile =
-          normalizeTextOrFileValue(fieldValue, translate)
+        const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(
+          fieldValue,
+          translate
+        )
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
