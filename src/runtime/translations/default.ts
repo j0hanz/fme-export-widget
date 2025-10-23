@@ -74,9 +74,8 @@ export default {
   statusInitMap: "Förbereder kartverktyg…",
   statusPreparing: "Förbereder exporten…",
   statusUploading: "Överför datakälla…",
-  statusFinalizing: "Slutför…",
   submittingOrder: "Skickar exportjobb…",
-  submittingOrderSync: "Bearbetar synkron export…",
+  submittingOrderSync: "Bearbetar export…",
   msgContactSupport: "Kontakta gärna support via {email}",
   msgSetupWidget: "Widgeten behöver konfigureras innan den kan användas",
   msgCheckSettings:

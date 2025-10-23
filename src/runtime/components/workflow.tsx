@@ -77,16 +77,16 @@ import { VisibilityEvaluator } from "../../shared/visibility"
 const DRAWING_MODE_TABS = [
   {
     value: DrawingTool.POLYGON,
-    label: "drawingModePolygon",
+    label: "optPolygon",
     icon: polygonIcon,
-    tooltip: "drawingModePolygonTooltip",
+    tooltip: "tipDrawPolygon",
     hideLabel: true,
   },
   {
     value: DrawingTool.RECTANGLE,
-    label: "drawingModeRectangle",
+    label: "optRectangle",
     icon: rectangleIcon,
-    tooltip: "drawingModeRectangleTooltip",
+    tooltip: "tipDrawRectangle",
     hideLabel: true,
   },
 ] as const
@@ -333,7 +333,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   addInfoRow(translate("lblWorkspace"), orderResult.workspaceName)
 
   const deliveryModeKey =
-    serviceMode === "async" ? "deliveryModeAsync" : "deliveryModeSync"
+    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
   addInfoRow(translate("lblDelivery"), translate(deliveryModeKey))
 
   if (orderResult.downloadFilename) {
@@ -352,12 +352,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
   const blobType = toTrimmedString(orderResult.blobMetadata?.type)
   if (blobType) {
-    addInfoRow(translate("blobType"), blobType)
+    addInfoRow(translate("lblBlobType"), blobType)
   }
 
   const blobSizeFormatted = formatByteSize(orderResult.blobMetadata?.size)
   if (blobSizeFormatted) {
-    addInfoRow(translate("blobSize"), blobSizeFormatted)
+    addInfoRow(translate("lblBlobSize"), blobSizeFormatted)
   }
 
   if (serviceMode !== "sync") {
@@ -1637,9 +1637,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
       case "uploading":
         phaseKey = "statusUploading"
         break
-      case "finalizing":
-        phaseKey = "statusFinalizing"
-        break
       default:
         phaseKey = null
     }
@@ -1721,7 +1718,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       const detail = isPrefetchLoading
         ? ""
         : workspaceItems.length
-          ? translate("msgLoadRepoParams")
+          ? translate("msgLoadParams")
           : translate("msgLoadRepos")
 
       return renderLoading(message, detail, [translate("tipBackOptions")])
@@ -1738,7 +1735,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
       ]
       return (
         <StateView
-          state={makeEmptyView(translate("noWorkspacesFound"), actions)}
+          state={makeEmptyView(translate("msgNoWorkspaces"), actions)}
         />
       )
     }
@@ -1755,13 +1752,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Renderar exportformulär med parametrar
   const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
-      return renderError(translate("errNoFormConfig"), onBack)
+      return renderError(translate("errNoConfig"), onBack)
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
       return renderLoading(
         translate("statusLoadParams"),
-        translate("msgLoadRepoParams"),
+        translate("msgLoadParams"),
         [translate("titleConfigParams")]
       )
     }
