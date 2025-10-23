@@ -8,6 +8,9 @@ import type {
   IMStateWithFmeExport,
 } from "../../config/index"
 import { ErrorSeverity, ErrorType } from "../../config/index"
+import { getNetworkHistory, clearNetworkHistory } from "../api"
+import { maskToken } from "../utils/network"
+import { formatArea } from "../utils/format"
 
 export interface FmeDebugContext {
   readonly widgetId: string | null | undefined
@@ -146,13 +149,17 @@ const createDebugObject = (context: {
     store.dispatch(action)
   },
   actions: fmeActions,
+  getNetworkHistory: () => getNetworkHistory(),
+  clearNetworkHistory: () => {
+    clearNetworkHistory()
+    console.log(
+      "%c[FME Debug] Network history cleared",
+      "color: #FF9800; font-weight: bold"
+    )
+  },
   utils: {
-    maskToken: (token: string) => {
-      const { maskToken } = require("../utils/network")
-      return maskToken(token)
-    },
+    maskToken: (token: string) => maskToken(token),
     formatArea: (area: number, spatialReference?: __esri.SpatialReference) => {
-      const { formatArea } = require("../utils/format")
       const mockModules = {
         intl: {
           formatNumber: (value: number, options: any) => {
@@ -165,10 +172,7 @@ const createDebugObject = (context: {
       }
       return formatArea(area, mockModules as any, spatialReference)
     },
-    safeLogParams: (params: { [key: string]: any }) => {
-      const { safeLogParams } = require("../utils/network")
-      return safeLogParams(params)
-    },
+    safeLogParams: (params: { [key: string]: any }) => params,
   },
   helpers: {
     inspectState: () => {
@@ -240,6 +244,191 @@ const createDebugObject = (context: {
       )
       console.log("%c[FME Debug] Test error dispatched", "color: #FF9800")
     },
+    inspectNetwork: (filter?: { failed?: boolean; slow?: boolean }) => {
+      const debugObj = (window as any).__FME_DEBUG__
+      const history = debugObj?.getNetworkHistory?.() ?? []
+
+      let filtered = [...history]
+      if (filter?.failed) {
+        filtered = filtered.filter((r: any) => !r.ok)
+      }
+      if (filter?.slow) {
+        filtered = filtered.filter((r: any) => r.durationMs > 1000)
+      }
+
+      if (filtered.length === 0) {
+        console.log("%c[FME Debug] No network requests found", "color: #FF9800")
+        return
+      }
+
+      console.log(
+        `%c[FME Debug] Network History (${filtered.length} requests):`,
+        "color: #FF9800; font-weight: bold"
+      )
+      console.table(
+        filtered.map((r: any) => ({
+          method: r.method,
+          path: r.path,
+          status: r.status || "?",
+          duration: r.durationMs + "ms",
+          ok: r.ok ? "✓" : "✗",
+          time: new Date(r.timestamp).toLocaleTimeString(),
+        }))
+      )
+    },
+    showFullState: () => {
+      const debugObj = (window as any).__FME_DEBUG__
+      const state = debugObj?.getState?.()
+      if (!state) {
+        console.log("%c[FME Debug] No state found", "color: #F44336")
+        return
+      }
+      console.log(
+        "%c[FME Debug] Full Widget State:",
+        "color: #4CAF50; font-weight: bold"
+      )
+      console.log(state)
+    },
+    showConfig: () => {
+      const debugObj = (window as any).__FME_DEBUG__
+      const config = debugObj?.getConfig?.()
+      if (!config) {
+        console.log("%c[FME Debug] No config found", "color: #F44336")
+        return
+      }
+      const safeConfig = {
+        serverUrl: config.fmeServerUrl || "[NONE]",
+        repository: config.repository || "[NONE]",
+        token: config.fmeServerToken
+          ? maskToken(config.fmeServerToken)
+          : "[NONE]",
+        timeout: config.requestTimeout,
+        largeAreaThreshold: config.largeAreaThreshold,
+        scheduleEnabled: config.allowSchedule,
+      }
+      console.log(
+        "%c[FME Debug] Widget Config:",
+        "color: #4CAF50; font-weight: bold"
+      )
+      console.table(safeConfig)
+    },
+    showTimeline: () => {
+      const debugObj = (window as any).__FME_DEBUG__
+      const network = debugObj?.getNetworkHistory?.() ?? []
+      const state = debugObj?.getState?.()
+
+      if (network.length === 0) {
+        console.log("%c[FME Debug] No timeline data", "color: #FF9800")
+        return
+      }
+
+      console.log(
+        "%c[FME Debug] Timeline:",
+        "color: #2196F3; font-weight: bold"
+      )
+
+      const timeline = network.map((r: any) => ({
+        time: new Date(r.timestamp).toLocaleTimeString(),
+        event: r.method + " " + r.path,
+        status: r.ok ? "✓ " + (r.status || "") : "✗ " + (r.status || "error"),
+        duration: r.durationMs + "ms",
+      }))
+
+      console.table(timeline)
+
+      if (state) {
+        console.log("%cCurrent State:", "color: #9C27B0; font-weight: bold")
+        console.log("  View Mode:", state.viewMode)
+        console.log("  Has Geometry:", !!state.geometryJson)
+        console.log(
+          "  Selected Workspace:",
+          state.selectedWorkspace || "[NONE]"
+        )
+      }
+    },
+    exportDebugInfo: () => {
+      const debugObj = (window as any).__FME_DEBUG__
+      const state = debugObj?.getState?.()
+      const config = debugObj?.getConfig?.()
+      const network = debugObj?.getNetworkHistory?.() ?? []
+      const queries = debugObj?.getQueryCache?.() ?? []
+
+      const safeConfig = config
+        ? {
+            serverUrl: config.fmeServerUrl || "[NONE]",
+            repository: config.repository || "[NONE]",
+            hasToken: !!config.fmeServerToken,
+            tokenMasked: config.fmeServerToken
+              ? maskToken(config.fmeServerToken)
+              : "[NONE]",
+            timeout: config.requestTimeout,
+          }
+        : null
+
+      const safeState = state
+        ? {
+            viewMode: state.viewMode,
+            drawingTool: state.drawingTool,
+            hasGeometry: !!state.geometryJson,
+            drawnArea: state.drawnArea,
+            selectedWorkspace: state.selectedWorkspace,
+            hasError: !!(state.errors && Object.keys(state.errors).length > 0),
+          }
+        : null
+
+      const networkSummary = {
+        total: network.length,
+        failed: network.filter((r: any) => !r.ok).length,
+        avgDurationMs:
+          network.length > 0
+            ? Math.round(
+                network.reduce((sum: number, r: any) => sum + r.durationMs, 0) /
+                  network.length
+              )
+            : 0,
+        slowRequests: network.filter((r: any) => r.durationMs > 1000).length,
+      }
+
+      const debugPackage = {
+        timestamp: new Date().toISOString(),
+        widgetId: debugObj?.widgetId,
+        config: safeConfig,
+        state: safeState,
+        networkSummary,
+        queryCacheSize: queries.length,
+        recentRequests: network.slice(-10).map((r: any) => ({
+          method: r.method,
+          path: r.path,
+          status: r.status,
+          ok: r.ok,
+          durationMs: r.durationMs,
+          time: new Date(r.timestamp).toISOString(),
+        })),
+      }
+
+      const json = JSON.stringify(debugPackage, null, 2)
+
+      console.log(
+        "%c[FME Debug] Debug Package:",
+        "color: #4CAF50; font-weight: bold"
+      )
+      console.log(json)
+
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(json).then(
+            () => {
+              console.log("%c✓ Copied to clipboard", "color: #4CAF50")
+            },
+            () => {
+              console.log("%c⚠ Could not copy to clipboard", "color: #FF9800")
+            }
+          )
+        }
+      } catch {}
+
+      return json
+    },
   },
 })
 
@@ -277,8 +466,12 @@ export const setupFmeDebugTools = (context: FmeDebugContext): void => {
       "color: #2196F3"
     )
     console.log(
-      "%cHelpers: __FME_DEBUG__.helpers.inspectState() or __FME_DEBUG__.helpers.inspectQueries()",
+      "%cHelpers: __FME_DEBUG__.helpers.inspectState() | inspectQueries() | inspectNetwork()",
       "color: #9C27B0"
+    )
+    console.log(
+      "%cExport: __FME_DEBUG__.helpers.exportDebugInfo() | showTimeline() | showConfig()",
+      "color: #FF9800"
     )
   }
 }

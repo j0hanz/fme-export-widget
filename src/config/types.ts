@@ -1785,6 +1785,8 @@ export interface FmeDebugObject {
   getAppState: () => IMState
   dispatch: (action: any) => void
   readonly actions: typeof fmeActions
+  getNetworkHistory: () => readonly RequestLog[]
+  clearNetworkHistory: () => void
   readonly utils: {
     maskToken: (token: string) => string
     formatArea: (
@@ -1798,6 +1800,11 @@ export interface FmeDebugObject {
     inspectQueries: () => void
     resetToDrawing: () => void
     testError: (errorType?: string, code?: string) => void
+    inspectNetwork: (filter?: { failed?: boolean; slow?: boolean }) => void
+    showFullState: () => void
+    showConfig: () => void
+    showTimeline: () => void
+    exportDebugInfo: () => string
   }
 }
 

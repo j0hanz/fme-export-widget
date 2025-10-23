@@ -60,6 +60,25 @@ const DEFAULT_CONFIG: NetworkConfig = {
 
 const config: NetworkConfig = { ...DEFAULT_CONFIG }
 
+// Network history buffer för debugging
+const networkHistory: RequestLog[] = []
+const MAX_NETWORK_HISTORY = 50
+
+function addToNetworkHistory(log: RequestLog): void {
+  networkHistory.push(log)
+  if (networkHistory.length > MAX_NETWORK_HISTORY) {
+    networkHistory.shift()
+  }
+}
+
+export function getNetworkHistory(): readonly RequestLog[] {
+  return [...networkHistory]
+}
+
+export function clearNetworkHistory(): void {
+  networkHistory.length = 0
+}
+
 // Instrumenterar HTTP-förfrågan med logging och timing
 export async function instrumentedRequest<T>(
   options: InstrumentedRequestOptions<T>
@@ -98,6 +117,7 @@ export async function instrumentedRequest<T>(
     }
 
     logRequest("success", log, options.body)
+    addToNetworkHistory(log)
     return response
   } catch (error) {
     const durationMs = Date.now() - startMs
@@ -123,6 +143,7 @@ export async function instrumentedRequest<T>(
     }
 
     logRequest("error", log, options.body, error)
+    addToNetworkHistory(log)
     throw error instanceof Error ? error : new Error(extractErrorMessage(error))
   }
 }
