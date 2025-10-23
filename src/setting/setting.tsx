@@ -1192,209 +1192,232 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       {shouldShowRemainingSettings && (
         <>
           <SettingSection>
-            <SettingRow
-              flow="wrap"
-              label={
-                <Tooltip content={translate("hintServiceMode")} placement="top">
-                  <span>{translate("lblServiceMode")}</span>
-                </Tooltip>
-              }
-              level={2}
+            <CollapsablePanel
+              label={translate("panelSettings")}
+              type="default"
+              level={1}
+              role="group"
+              aria-label={translate("panelSettings")}
             >
-              <Select
-                value={localSyncMode ? "sync" : "async"}
-                onChange={(value) => {
-                  const nextMode = value === "sync"
-                  setLocalSyncMode(nextMode)
-                  updateConfig("syncMode", nextMode)
-                }}
-                options={[
-                  { label: translate("optAsync"), value: "async" },
-                  { label: translate("optSync"), value: "sync" },
-                ]}
-                aria-label={translate("lblServiceMode")}
-              />
-            </SettingRow>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip content={translate("hintAllowUpload")} placement="top">
-                  <span>{translate("lblAllowUpload")}</span>
-                </Tooltip>
-              }
-              level={2}
-            >
-              <Switch
-                id={ID.allowRemoteDataset}
-                checked={localAllowRemoteDataset}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localAllowRemoteDataset
-                  setLocalAllowRemoteDataset(checked)
-                  updateConfig("allowRemoteDataset", checked)
-                }}
-                aria-label={translate("lblAllowUpload")}
-              />
-            </SettingRow>
-            {shouldShowRemoteDatasetSettings && (
-              <FieldRow
-                id={ID.uploadTargetParamName}
+              <SettingRow
+                flow="wrap"
                 label={
                   <Tooltip
-                    content={translate("hintUploadParam")}
+                    content={translate("hintServiceMode")}
                     placement="top"
                   >
-                    <span>{translate("lblUploadParam")}</span>
+                    <span>{translate("lblServiceMode")}</span>
                   </Tooltip>
                 }
-                value={localUploadTargetParamName}
+                level={2}
+              >
+                <Select
+                  value={localSyncMode ? "sync" : "async"}
+                  onChange={(value) => {
+                    const nextMode = value === "sync"
+                    setLocalSyncMode(nextMode)
+                    updateConfig("syncMode", nextMode)
+                  }}
+                  options={[
+                    { label: translate("optAsync"), value: "async" },
+                    { label: translate("optSync"), value: "sync" },
+                  ]}
+                  aria-label={translate("lblServiceMode")}
+                />
+              </SettingRow>
+              <SettingRow
+                flow="no-wrap"
+                label={
+                  <Tooltip
+                    content={translate("hintAllowUpload")}
+                    placement="top"
+                  >
+                    <span>{translate("lblAllowUpload")}</span>
+                  </Tooltip>
+                }
+                level={2}
+              >
+                <Switch
+                  id={ID.allowRemoteDataset}
+                  checked={localAllowRemoteDataset}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked =
+                      evt?.target?.checked ?? !localAllowRemoteDataset
+                    setLocalAllowRemoteDataset(checked)
+                    updateConfig("allowRemoteDataset", checked)
+                  }}
+                  aria-label={translate("lblAllowUpload")}
+                />
+              </SettingRow>
+              {shouldShowRemoteDatasetSettings && (
+                <FieldRow
+                  id={ID.uploadTargetParamName}
+                  label={
+                    <Tooltip
+                      content={translate("hintUploadParam")}
+                      placement="top"
+                    >
+                      <span>{translate("lblUploadParam")}</span>
+                    </Tooltip>
+                  }
+                  value={localUploadTargetParamName}
+                  onChange={(val: string) => {
+                    setLocalUploadTargetParamName(val)
+                  }}
+                  onBlur={(val: string) => {
+                    const sanitized = sanitizeParamKey(val, "")
+                    setLocalUploadTargetParamName(sanitized)
+                    updateConfig("uploadTargetParamName", sanitized)
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      uploadTargetParamName: undefined,
+                    }))
+                  }}
+                  placeholder={translate("phUploadParam")}
+                  errorText={fieldErrors.uploadTargetParamName}
+                  styles={settingStyles}
+                />
+              )}
+              {shouldShowRemoteDatasetSettings && (
+                <SettingRow
+                  flow="no-wrap"
+                  label={
+                    <Tooltip
+                      content={translate("hintAllowUrl")}
+                      placement="top"
+                    >
+                      <span>{translate("lblAllowUrl")}</span>
+                    </Tooltip>
+                  }
+                  level={2}
+                >
+                  <Switch
+                    id={ID.allowRemoteUrlDataset}
+                    checked={localAllowRemoteUrlDataset}
+                    onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                      const checked =
+                        evt?.target?.checked ?? !localAllowRemoteUrlDataset
+                      setLocalAllowRemoteUrlDataset(checked)
+                      updateConfig("allowRemoteUrlDataset", checked)
+                    }}
+                    aria-label={translate("lblAllowUrl")}
+                  />
+                </SettingRow>
+              )}
+              <FieldRow
+                id={ID.aoiParamName}
+                label={
+                  <Tooltip content={translate("hintAoiParam")} placement="top">
+                    <span>{translate("lblAoiParam")}</span>
+                  </Tooltip>
+                }
+                value={localAoiParamName}
                 onChange={(val: string) => {
-                  setLocalUploadTargetParamName(val)
+                  setLocalAoiParamName(val)
                 }}
                 onBlur={(val: string) => {
-                  const sanitized = sanitizeParamKey(val, "")
-                  setLocalUploadTargetParamName(sanitized)
-                  updateConfig("uploadTargetParamName", sanitized)
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    uploadTargetParamName: undefined,
-                  }))
+                  const trimmed = val.trim()
+                  const finalValue = trimmed || "AreaOfInterest"
+                  updateConfig("aoiParamName", finalValue)
+                  setLocalAoiParamName(finalValue)
                 }}
-                placeholder={translate("phUploadParam")}
-                errorText={fieldErrors.uploadTargetParamName}
+                placeholder={translate("phAoiParam")}
                 styles={settingStyles}
               />
-            )}
-            {shouldShowRemoteDatasetSettings && (
               <SettingRow
                 flow="no-wrap"
                 label={
-                  <Tooltip content={translate("hintAllowUrl")} placement="top">
-                    <span>{translate("lblAllowUrl")}</span>
+                  <Tooltip
+                    content={translate("hintRequireHttps")}
+                    placement="top"
+                  >
+                    <span>{translate("lblRequireHttps")}</span>
                   </Tooltip>
                 }
                 level={2}
               >
                 <Switch
-                  id={ID.allowRemoteUrlDataset}
-                  checked={localAllowRemoteUrlDataset}
+                  id={ID.requireHttps}
+                  checked={localRequireHttps}
                   onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked =
-                      evt?.target?.checked ?? !localAllowRemoteUrlDataset
-                    setLocalAllowRemoteUrlDataset(checked)
-                    updateConfig("allowRemoteUrlDataset", checked)
+                    const checked = evt?.target?.checked ?? !localRequireHttps
+                    setLocalRequireHttps(checked)
+                    updateConfig("requireHttps", checked)
                   }}
-                  aria-label={translate("lblAllowUrl")}
+                  aria-label={translate("lblRequireHttps")}
                 />
               </SettingRow>
-            )}
-            <FieldRow
-              id={ID.aoiParamName}
-              label={
-                <Tooltip content={translate("hintAoiParam")} placement="top">
-                  <span>{translate("lblAoiParam")}</span>
-                </Tooltip>
-              }
-              value={localAoiParamName}
-              onChange={(val: string) => {
-                setLocalAoiParamName(val)
-              }}
-              onBlur={(val: string) => {
-                const trimmed = val.trim()
-                const finalValue = trimmed || "AreaOfInterest"
-                updateConfig("aoiParamName", finalValue)
-                setLocalAoiParamName(finalValue)
-              }}
-              placeholder={translate("phAoiParam")}
-              styles={settingStyles}
-            />
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip
-                  content={translate("hintRequireHttps")}
-                  placement="top"
+              {shouldShowMaskEmailSetting && (
+                <SettingRow
+                  flow="no-wrap"
+                  label={
+                    <Tooltip
+                      content={translate("hintMaskEmail")}
+                      placement="top"
+                    >
+                      <span>{translate("lblMaskEmail")}</span>
+                    </Tooltip>
+                  }
+                  level={2}
                 >
-                  <span>{translate("lblRequireHttps")}</span>
-                </Tooltip>
-              }
-              level={2}
-            >
-              <Switch
-                id={ID.requireHttps}
-                checked={localRequireHttps}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked = evt?.target?.checked ?? !localRequireHttps
-                  setLocalRequireHttps(checked)
-                  updateConfig("requireHttps", checked)
-                }}
-                aria-label={translate("lblRequireHttps")}
-              />
-            </SettingRow>
-            {shouldShowMaskEmailSetting && (
+                  <Switch
+                    id={ID.maskEmailOnSuccess}
+                    checked={localMaskEmailOnSuccess}
+                    onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                      const checked =
+                        evt?.target?.checked ?? !localMaskEmailOnSuccess
+                      setLocalMaskEmailOnSuccess(checked)
+                      updateConfig("maskEmailOnSuccess", checked)
+                    }}
+                    aria-label={translate("lblMaskEmail")}
+                  />
+                </SettingRow>
+              )}
               <SettingRow
                 flow="no-wrap"
                 label={
-                  <Tooltip content={translate("hintMaskEmail")} placement="top">
-                    <span>{translate("lblMaskEmail")}</span>
+                  <Tooltip
+                    content={translate("hintShowResult")}
+                    placement="top"
+                  >
+                    <span>{translate("lblShowResult")}</span>
                   </Tooltip>
                 }
                 level={2}
               >
                 <Switch
-                  id={ID.maskEmailOnSuccess}
-                  checked={localMaskEmailOnSuccess}
+                  id={ID.showResult}
+                  checked={localShowResult}
                   onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked =
-                      evt?.target?.checked ?? !localMaskEmailOnSuccess
-                    setLocalMaskEmailOnSuccess(checked)
-                    updateConfig("maskEmailOnSuccess", checked)
+                    const checked = evt?.target?.checked ?? !localShowResult
+                    setLocalShowResult(checked)
+                    updateConfig("showResult", checked)
                   }}
-                  aria-label={translate("lblMaskEmail")}
+                  aria-label={translate("lblShowResult")}
                 />
               </SettingRow>
-            )}
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip content={translate("hintShowResult")} placement="top">
-                  <span>{translate("lblShowResult")}</span>
-                </Tooltip>
-              }
-              level={2}
-            >
-              <Switch
-                id={ID.showResult}
-                checked={localShowResult}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked = evt?.target?.checked ?? !localShowResult
-                  setLocalShowResult(checked)
-                  updateConfig("showResult", checked)
-                }}
-                aria-label={translate("lblShowResult")}
-              />
-            </SettingRow>
-            <SettingRow
-              flow="no-wrap"
-              label={
-                <Tooltip content={translate("hintAutoClose")} placement="top">
-                  <span>{translate("lblAutoClose")}</span>
-                </Tooltip>
-              }
-              level={2}
-            >
-              <Switch
-                id={ID.autoCloseOtherWidgets}
-                checked={localAutoCloseOtherWidgets}
-                onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                  const checked =
-                    evt?.target?.checked ?? !localAutoCloseOtherWidgets
-                  setLocalAutoCloseOtherWidgets(checked)
-                  updateConfig("autoCloseOtherWidgets", checked)
-                }}
-                aria-label={translate("lblAutoClose")}
-              />
-            </SettingRow>
+              <SettingRow
+                flow="no-wrap"
+                label={
+                  <Tooltip content={translate("hintAutoClose")} placement="top">
+                    <span>{translate("lblAutoClose")}</span>
+                  </Tooltip>
+                }
+                level={2}
+              >
+                <Switch
+                  id={ID.autoCloseOtherWidgets}
+                  checked={localAutoCloseOtherWidgets}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked =
+                      evt?.target?.checked ?? !localAutoCloseOtherWidgets
+                    setLocalAutoCloseOtherWidgets(checked)
+                    updateConfig("autoCloseOtherWidgets", checked)
+                  }}
+                  aria-label={translate("lblAutoClose")}
+                />
+              </SettingRow>
+            </CollapsablePanel>
           </SettingSection>
           <SettingSection>
             <CollapsablePanel

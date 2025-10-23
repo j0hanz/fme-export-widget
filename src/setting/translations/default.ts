@@ -140,6 +140,7 @@ export default {
   ariaRequired: "Obligatoriskt fält",
   uiColon: ":",
   titleMapConfig: "Kartkonfiguration",
+  panelSettings: "Inställningar",
   panelAdvancedSettings: "Avancerade inställningar",
   panelDrawingSettings: "Ritinställningar",
 }
