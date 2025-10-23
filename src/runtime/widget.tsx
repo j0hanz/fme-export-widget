@@ -374,8 +374,8 @@ function WidgetContent(
           mapView
         )
         try {
-          if (typeof popup.close === "function") {
-            popup.close()
+          if (typeof mapView.closePopup === "function") {
+            mapView.closePopup()
           }
         } catch (error) {
           logIfNotAbort("Failed to close map popup", error)

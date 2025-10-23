@@ -1,7 +1,7 @@
-System.register([], function (_export) {
+System.register([], function (e) {
   return {
     execute: function () {
-      _export({
+      e({
         btnRetry: "Försök igen",
         btnReload: "Ladda om sidan",
         btnEnd: "Avsluta",

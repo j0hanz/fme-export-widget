@@ -102,8 +102,8 @@ const closePopupSafely = (
   popup: __esri.Popup | null | undefined
 ): void => {
   try {
-    if (popup && typeof popup.close === "function") {
-      popup.close()
+    if (view && typeof view.closePopup === "function") {
+      view.closePopup()
     }
   } catch {}
 }
@@ -180,8 +180,8 @@ export const applyPopupSuppression = (
 
   if (ref.current?.popup === popup) {
     try {
-      if (popup && typeof popup.close === "function") {
-        popup.close()
+      if (view && typeof view.closePopup === "function") {
+        view.closePopup()
       }
     } catch {}
     return

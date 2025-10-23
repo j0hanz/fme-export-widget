@@ -1,7 +1,7 @@
-System.register([], function (_export) {
+System.register([], function (e) {
   return {
     execute: function () {
-      _export({
+      e({
         btnBack: "Tillbaka",
         btnSubmit: "Skicka export",
         btnCancel: "Avbryt",
