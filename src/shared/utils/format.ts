@@ -14,10 +14,7 @@ import {
   toNonEmptyTrimmedString,
 } from "./conversion"
 import { isValidEmail } from "../validations"
-import {
-  translationKey as makeKey,
-  translateKey,
-} from "../translations"
+import { translationKey as makeKey, translateKey } from "../translations"
 
 const FORMAT_TRANSLATION_SCOPE = "shared.utils.format"
 

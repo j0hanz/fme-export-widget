@@ -38,54 +38,46 @@ export { useLatestAbortController } from "../hooks"
 export const createFmeDispatcher = (
   dispatch: Dispatch<any>,
   widgetId: string
-) => ({
-  setDrawingTool: (tool: DrawingTool) => {
-    dispatch(fmeActions.setDrawingTool(tool, widgetId))
-  },
-  setViewMode: (mode: ViewMode) => {
-    dispatch(fmeActions.setViewMode(mode, widgetId))
-  },
-  setError: (scope: ErrorScope, error: SerializableErrorState | null) => {
-    dispatch(fmeActions.setError(scope, error, widgetId))
-  },
-  clearError: (scope: ErrorScope | "all") => {
-    dispatch(fmeActions.clearError(scope, widgetId))
-  },
-  setGeometry: (geometryJson: any, area: number) => {
-    dispatch(fmeActions.setGeometry(geometryJson, area, widgetId))
-  },
-  setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
-    dispatch(fmeActions.setWorkspaceItems(items as WorkspaceItem[], widgetId))
-  },
-  applyWorkspaceData: (payload: {
-    readonly workspaceName: string
-    readonly parameters: readonly WorkspaceParameter[]
-    readonly item: WorkspaceItemDetail
-  }) => {
-    dispatch(fmeActions.applyWorkspaceData(payload, widgetId))
-  },
-  completeDrawing: (geometryJson: any, area: number, nextView: ViewMode) => {
-    dispatch(fmeActions.completeDrawing(geometryJson, area, nextView, widgetId))
-  },
-  clearWorkspaceState: () => {
-    dispatch(fmeActions.clearWorkspaceState(widgetId))
-  },
-  resetState: () => {
-    dispatch(fmeActions.resetState(widgetId))
-  },
-  resetToDrawing: () => {
-    dispatch(fmeActions.resetToDrawing(widgetId))
-  },
-  setLoadingFlag: (flag: LoadingFlagKey, loading: boolean) => {
-    dispatch(fmeActions.setLoadingFlag(flag, loading, widgetId))
-  },
-  setOrderResult: (result: ExportResult) => {
-    dispatch(fmeActions.setOrderResult(result, widgetId))
-  },
-  completeStartup: () => {
-    dispatch(fmeActions.completeStartup(widgetId))
-  },
-  removeWidgetState: () => {
-    dispatch(fmeActions.removeWidgetState(widgetId))
-  },
-})
+) => {
+  const bindWidgetAction =
+    <Args extends any[]>(
+      action: (...actionArgs: [...Args, string]) => unknown
+    ) =>
+    (...args: Args) => {
+      dispatch(action(...args, widgetId))
+    }
+
+  return {
+    setDrawingTool: bindWidgetAction<[DrawingTool]>(fmeActions.setDrawingTool),
+    setViewMode: bindWidgetAction<[ViewMode]>(fmeActions.setViewMode),
+    setError: bindWidgetAction<[ErrorScope, SerializableErrorState | null]>(
+      fmeActions.setError
+    ),
+    clearError: bindWidgetAction<[ErrorScope | "all"]>(fmeActions.clearError),
+    setGeometry: bindWidgetAction<[any, number]>(fmeActions.setGeometry),
+    setWorkspaceItems: bindWidgetAction<[readonly WorkspaceItem[]]>(
+      fmeActions.setWorkspaceItems
+    ),
+    applyWorkspaceData: bindWidgetAction<
+      [
+        {
+          readonly workspaceName: string
+          readonly parameters: readonly WorkspaceParameter[]
+          readonly item: WorkspaceItemDetail
+        },
+      ]
+    >(fmeActions.applyWorkspaceData),
+    completeDrawing: bindWidgetAction<[any, number, ViewMode]>(
+      fmeActions.completeDrawing
+    ),
+    clearWorkspaceState: bindWidgetAction<[]>(fmeActions.clearWorkspaceState),
+    resetState: bindWidgetAction<[]>(fmeActions.resetState),
+    resetToDrawing: bindWidgetAction<[]>(fmeActions.resetToDrawing),
+    setLoadingFlag: bindWidgetAction<[LoadingFlagKey, boolean]>(
+      fmeActions.setLoadingFlag
+    ),
+    setOrderResult: bindWidgetAction<[ExportResult]>(fmeActions.setOrderResult),
+    completeStartup: bindWidgetAction<[]>(fmeActions.completeStartup),
+    removeWidgetState: bindWidgetAction<[]>(fmeActions.removeWidgetState),
+  }
+}
