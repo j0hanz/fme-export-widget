@@ -1,5 +1,4 @@
 export default {
-  // === LABELS ===
   lblServerUrl: "FME‑server‑URL",
   lblApiToken: "API‑nyckel",
   lblRepository: "Repository",
@@ -21,8 +20,6 @@ export default {
   lblAutoClose: "Stäng andra widgets automatiskt",
   lblDrawColor: "Ritningsfärg",
   lblSupportEmail: "Support‑e‑postadress",
-
-  // === ERRORS ===
   errNoServerUrl: "Ange FME‑server‑URL.",
   errNoToken: "Ange API‑nyckeln.",
   errTokenSpaces: "API‑nyckeln får inte innehålla blanksteg.",
@@ -40,12 +37,8 @@ export default {
   errAreaTooLarge: "Värdet är för stort.",
   errUploadParamRequired: "Ange parameter för uppladdad fil.",
   errInvalidEmail: "Ogiltig e‑postadress.",
-
-  // === BUTTONS ===
   btnTestConnection: "Kör anslutningstest",
   btnRefreshRepos: "Uppdatera listan",
-
-  // === STATUS ===
   statusTesting: "Testar anslutning…",
   statusTestConnection: "Testar…",
   statusLoadRepos: "Läser repositorys…",
@@ -56,8 +49,6 @@ export default {
   statusSkipped: "Ej utförd",
   statusChecking: "Kontrollerar…",
   statusError: "Fel",
-
-  // === MESSAGES ===
   msgConnectionOk: "Anslutningen lyckades.",
   msgConnectionWarning:
     "Anslutningen lyckades men repositoryt kunde inte verifieras. Kontrollera behörigheter.",
@@ -65,8 +56,6 @@ export default {
   msgNoRepositories: "Inga repositorys hittades.",
   msgAreaExceeds:
     "Varningsgränsen {largeM2} m² bör vara lägre än maxgränsen {maxM2} m².",
-
-  // === HINTS ===
   hintServiceMode:
     "Välj hur resultatet ska levereras: via e-post eller direkt i webbläsaren.",
   hintMaskEmail: "Döljer större delen av e‑postadressen i orderbekräftelsen.",
@@ -97,8 +86,6 @@ export default {
   hintSupportEmail:
     "Om en adress anges visas den i felmeddelanden som supportkontakt.",
   hintTestFirst: "Testa anslutningen först",
-
-  // === PLACEHOLDERS ===
   phServerUrl: "https://fme.server.com",
   phApiToken: "Din API‑nyckel",
   phRepository: "Välj ett repository",
@@ -110,20 +97,10 @@ export default {
   phRequestTimeout: "30000",
   phAoiParam: "AreaOfInterest",
   phUploadParam: "t.ex. DEST_DATASET",
-
-  // === OPTIONS ===
   optAsync: "E-postmeddelande (async)",
   optSync: "Direkt nerladdning (sync)",
-
-  // === VALIDATION ===
   valRequiredField: "Obligatoriskt fält",
-
-  // === ARIA ===
   ariaRequired: "Obligatoriskt fält",
-
-  // === UI ===
   uiColon: ":",
-
-  // === TITLES ===
   titleMapConfig: "Kartinställningar",
 }

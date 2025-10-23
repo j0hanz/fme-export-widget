@@ -1,15 +1,10 @@
 export default {
-  // Buttons
   btnRetry: "Försök igen",
   btnReload: "Ladda om sidan",
   btnEnd: "Avsluta",
   btnRetryValidation: "Försök igen",
   btnOpenSettings: "Öppna inställningspanelen.",
-
-  // Labels
   lblDrawLayer: "Rityta",
-
-  // Errors
   errNoSetup: "Widgeten måste konfigureras.",
   errTokenInvalid: "API-nyckeln saknas eller är ogiltig.",
   errNoRepository: "Repositoryt kunde inte nås.",
@@ -40,8 +35,6 @@ export default {
   errNoUserEmail: "Användarens e-postadress krävs för denna funktion.",
   errLoadTimeout: "Inläsningen tog för lång tid. Försök igen.",
   errEmailInvalid: "Ogiltig e-postadress.",
-
-  // Status messages
   statusValidating: "Verifierar inställningar…",
   statusCheckMap: "Kontrollerar kartkonfiguration…",
   statusCheckConnection: "Verifierar anslutning…",
@@ -51,8 +44,6 @@ export default {
   statusUploading: "Laddar upp dataset…",
   statusFinalizing: "Slutför begäran…",
   statusSubmitting: "Skickar beställning…",
-
-  // User messages
   msgContactSupport: "Kontakta supporten via {email}.",
   msgSetupWidget: "Slutför konfigurationen innan widgeten används.",
   msgCheckSettings: "Kontrollera anslutningsinställningarna.",
@@ -74,8 +65,6 @@ export default {
   msgFormReady: "Formulär redo för ifyllning",
   msgOrderSuccess: "Beställningen skickad",
   msgOrderFail: "Beställningen misslyckades",
-
-  // Hints/Help
   hintUrlFormat: "Exempel på giltig URL: https://fme.server.com.",
   hintClickMap: "Klicka på kartan för att ange utbredning för din beställning.",
   hintDrawRect: "Fortsätt dra för att rita en rektangel.",
@@ -85,8 +74,6 @@ export default {
   hintGeomInvalid:
     "Polygonen är inte sluten, korsar sig själv eller har noll area.",
   hintAreaLarge: "Prova med ett mindre område.",
-
-  // Geometry validation codes
   errGeomMissing: "Geometri saknas.",
   errGeomType: "Endast polygoner stöds.",
   errGeomInvalid: "Ogiltig geometri.",

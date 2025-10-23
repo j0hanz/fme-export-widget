@@ -1,5 +1,4 @@
 export default {
-  // === BUTTONS ===
   btnBack: "Tillbaka",
   btnSubmit: "Beställ",
   btnCancel: "Avbryt",
@@ -12,8 +11,6 @@ export default {
   btnMoveUp: "Flytta upp",
   btnMoveDown: "Flytta ned",
   btnReuseArea: "Ny beställning",
-
-  // === LABELS ===
   lblJobId: "Jobb-ID",
   lblWorkspace: "Arbetsyta",
   lblEmail: "E‑post",
@@ -27,15 +24,11 @@ export default {
   lblRemoteUrl: "Fjärr‑dataset URL (HTTPS)",
   lblTableValue: "Värde",
   lblTableActions: "Åtgärder",
-
-  // === TITLES ===
   titleOrderConfirmed: "Beställningen är bekräftad",
   titleOrderComplete: "Exporten är klar",
   titleOrderFailed: "Beställningen misslyckades",
   titleOrderCancelled: "Beställning avbruten",
   titleConfigParams: "Konfigurera arbetsytans parametrar",
-
-  // === STATUS ===
   statusSubmitting: "Skickar beställning…",
   statusProcessing: "Bearbetar export…",
   statusPreparing: "Förbereder…",
@@ -47,8 +40,6 @@ export default {
   statusLoadWorkspaces: "Läser arbetsytor…",
   statusLoadParams: "Läser arbetsytedata…",
   statusValidateGeom: "Validerar område…",
-
-  // === MESSAGES ===
   msgOrderCancelled: "Beställningen avbröts innan den slutfördes.",
   msgOrderTimeout:
     "Beställningen avbröts på grund av tidsgräns. Arbetsytan tog för lång tid att köra.",
@@ -81,8 +72,6 @@ export default {
   msgContactSupport: "Kontakta supporten via {email}.",
   msgEmailSent: "E‑postmeddelande skickas när jobbet är klart.",
   msgTableEmpty: "Inga rader tillagda",
-
-  // === ERRORS ===
   errTransformFailed:
     "FME Flow-transformationen misslyckades. Kontrollera loggfilen ovan för detaljer.",
   errLoadWorkspaces: "Det gick inte att ladda arbetsytor",
@@ -95,8 +84,6 @@ export default {
   errFileInvalid: "Ogiltig fil vald.",
   errDateTimeFormat: "Ogiltigt format. Använd YYYY-MM-DD HH:mm:ss",
   errLoadTimeout: "Inläsningen tog för lång tid. Försök igen.",
-
-  // === VALIDATION ===
   valRequiredField: "Detta fält är obligatoriskt.",
   valSingleError: "Vänligen fyll i det obligatoriska fältet.",
   valMultipleErrors: "Vänligen fyll i alla obligatoriska fält.",
@@ -106,8 +93,6 @@ export default {
   valAtLeast: "Måste vara minst {value}",
   valLessThan: "Måste vara mindre än {value}",
   valAtMost: "Måste vara högst {value}",
-
-  // === PLACEHOLDERS ===
   phSelect: "{field}…",
   phEnter: "{field}…",
   phTags: "Ange taggar separerade med kommatecken",
@@ -115,16 +100,12 @@ export default {
   phPhone: "Ange telefonnummer",
   phSearch: "Sök…",
   phSelectOption: "Välj ett alternativ",
-
-  // === OPTIONS ===
   optSyncMode: "Direkt nedladdning",
   optAsyncMode: "E‑postmeddelande",
   optPolygon: "Polygon",
   optRectangle: "Rektangel",
   optTextInput: "Textinmatning",
   optFileInput: "Filuppladdning",
-
-  // === TOOLTIPS ===
   tipDrawMode: "Välj ritläge för att definiera området",
   tipDrawPolygon: "Rita en polygon för att definiera området",
   tipDrawRectangle: "Rita en rektangel för att definiera området",
@@ -133,13 +114,9 @@ export default {
   tipCancel: "Avbryt nuvarande åtgärd och börja om",
   tipReuseArea: "Skapa ny beställning med samma geografi",
   tipNewOrder: "Starta en ny beställning med samma geografi",
-
-  // === HINTS ===
   hintUploadFile: "Välj fil som används som indata för jobbet.",
   hintRemoteUrl: "Ange HTTPS‑URL som används som indata för jobbet.",
   hintFileFormats: "Accepterar: .zip, .kmz, .json, .geojson, .gml (max 150 MB)",
-
-  // === ARIA ===
   ariaButton: "Knapp",
   ariaLoading: "Laddningsdetaljer",
   ariaErrorActions: "Felåtgärder",
