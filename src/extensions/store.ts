@@ -1,4 +1,4 @@
-import * as SeamlessImmutable from "seamless-immutable"
+import SeamlessImmutable from "seamless-immutable"
 import { createSelector } from "reselect"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
