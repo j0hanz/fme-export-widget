@@ -1,4 +1,4 @@
-import { css, getAppStore, type IMThemeVariables } from "jimu-core"
+import { getAppStore } from "jimu-core"
 import { fmeQueryClient } from "../query-client"
 import { fmeActions } from "../../extensions/store"
 import type {
@@ -28,21 +28,20 @@ interface NetworkRequest {
 
 const SLOW_REQUEST_THRESHOLD_MS = 1000
 
-export const DEBUG_STYLES = (theme: IMThemeVariables) =>
-  ({
-    success: css({ color: theme?.sys?.color?.success?.main }),
-    info: css({ color: theme?.sys?.color?.info?.main }),
-    warn: css({ color: theme?.sys?.color?.warning?.main }),
-    error: css({ color: theme?.sys?.color?.error?.main }),
-    action: css({ color: theme?.sys?.color?.primary?.main }),
-  }) as const
+export const DEBUG_STYLES = {
+  success: "color: #28a745; font-weight: bold",
+  info: "color: #007bff; font-weight: bold",
+  warn: "color: #ffc107; font-weight: bold",
+  error: "color: #dc3545; font-weight: bold",
+  action: "color: #0078d4; font-weight: bold",
+} as const
 
 const logDebugMessage = (
   message: string,
-  _style: "success" | "info" | "warn" | "error" | "action" = "info",
+  style: "success" | "info" | "warn" | "error" | "action" = "info",
   ...args: any[]
 ): void => {
-  console.log(`[FME Debug] ${message}`, ...args)
+  console.log(`%c[FME Debug] ${message}`, DEBUG_STYLES[style], ...args)
 }
 
 const getDebugObject = (): FmeDebugObject | null => {
@@ -571,14 +570,19 @@ export const setupFmeDebugTools = (context: FmeDebugContext): void => {
   if (!hadExisting) {
     logDebugMessage(
       "Global debug object available at window.__FME_DEBUG__",
-      "success"
+      "action"
     )
-    console.log("Try: __FME_DEBUG__.getState() or __FME_DEBUG__.getConfig()")
-    console.log(
-      "Helpers: __FME_DEBUG__.helpers.inspectState() | inspectQueries() | inspectNetwork()"
+    logDebugMessage(
+      "Try: __FME_DEBUG__.getState() or __FME_DEBUG__.getConfig()",
+      "action"
     )
-    console.log(
-      "Export: __FME_DEBUG__.helpers.exportDebugInfo() | showTimeline() | showConfig()"
+    logDebugMessage(
+      "Helpers: __FME_DEBUG__.helpers.inspectState() | inspectQueries() | inspectNetwork()",
+      "action"
+    )
+    logDebugMessage(
+      "Export: __FME_DEBUG__.helpers.exportDebugInfo() | showTimeline() | showConfig()",
+      "action"
     )
   }
 }
