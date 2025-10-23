@@ -1,4 +1,4 @@
-import { getAppStore } from "jimu-core"
+import { css, getAppStore, type IMThemeVariables } from "jimu-core"
 import { fmeQueryClient } from "../query-client"
 import { fmeActions } from "../../extensions/store"
 import type {
@@ -17,6 +17,137 @@ export interface FmeDebugContext {
   readonly config: FmeExportConfig | null | undefined
 }
 
+interface NetworkRequest {
+  method: string
+  path: string
+  status?: number
+  ok?: boolean
+  durationMs: number
+  timestamp: number
+}
+
+const SLOW_REQUEST_THRESHOLD_MS = 1000
+
+export const DEBUG_STYLES = (theme: IMThemeVariables) =>
+  ({
+    success: css({ color: theme?.sys?.color?.success?.main }),
+    info: css({ color: theme?.sys?.color?.info?.main }),
+    warn: css({ color: theme?.sys?.color?.warning?.main }),
+    error: css({ color: theme?.sys?.color?.error?.main }),
+    action: css({ color: theme?.sys?.color?.primary?.main }),
+  }) as const
+
+const logDebugMessage = (
+  message: string,
+  _style: "success" | "info" | "warn" | "error" | "action" = "info",
+  ...args: any[]
+): void => {
+  console.log(`[FME Debug] ${message}`, ...args)
+}
+
+const getDebugObject = (): FmeDebugObject | null => {
+  if (typeof window === "undefined") {
+    return null
+  }
+  return (window as any).__FME_DEBUG__ ?? null
+}
+
+const buildSafeConfig = (config: FmeExportConfig | null) => {
+  if (!config) {
+    return null
+  }
+  return {
+    serverUrl: config.fmeServerUrl || "[NONE]",
+    repository: config.repository || "[NONE]",
+    token: config.fmeServerToken ? maskToken(config.fmeServerToken) : "[NONE]",
+    timeout: config.requestTimeout,
+    largeArea: config.largeArea,
+    maxArea: config.maxArea,
+  }
+}
+
+const buildSafeState = (state: FmeWidgetState | null) => {
+  if (!state) {
+    return null
+  }
+  return {
+    viewMode: state.viewMode,
+    drawingTool: state.drawingTool,
+    hasGeometry: !!state.geometryJson,
+    drawnArea: state.drawnArea,
+    selectedWorkspace: state.selectedWorkspace,
+    hasError: !!(state.errors && Object.keys(state.errors).length > 0),
+  }
+}
+
+const calculateNetworkStats = (history: readonly NetworkRequest[]) => ({
+  total: history.length,
+  failed: history.filter((r) => r.ok !== undefined && !r.ok).length,
+  avgDurationMs:
+    history.length > 0
+      ? Math.round(
+          history.reduce((sum, r) => sum + r.durationMs, 0) / history.length
+        )
+      : 0,
+  slowRequests: history.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS)
+    .length,
+})
+
+const filterNetworkHistory = (
+  history: readonly NetworkRequest[],
+  filter?: { failed?: boolean; slow?: boolean }
+) => {
+  let filtered = [...history]
+  if (filter?.failed) {
+    filtered = filtered.filter((r) => r.ok !== undefined && !r.ok)
+  }
+  if (filter?.slow) {
+    filtered = filtered.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS)
+  }
+  return filtered
+}
+
+const formatNetworkRequest = (request: NetworkRequest) => ({
+  method: request.method ?? "[UNKNOWN]",
+  path: request.path ?? "[UNKNOWN]",
+  status: request.status ?? "?",
+  duration: (request.durationMs ?? 0) + "ms",
+  ok: request.ok === undefined ? "?" : request.ok ? "✓" : "✗",
+  time: new Date(request.timestamp).toLocaleTimeString(),
+})
+
+const copyToClipboard = (text: string): void => {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => {
+          logDebugMessage("Copied to clipboard", "success")
+        },
+        (err) => {
+          logDebugMessage("Could not copy to clipboard", "error")
+          console.error("Clipboard error:", err)
+        }
+      )
+    } else {
+      logDebugMessage("Clipboard API not available", "warn")
+    }
+  } catch (err) {
+    logDebugMessage("Clipboard API not available or permissions denied", "warn")
+    console.error("Clipboard error:", err)
+  }
+}
+
+const createMockIntlModules = () => ({
+  intl: {
+    formatNumber: (value: number, options?: Intl.NumberFormatOptions) => {
+      return value.toLocaleString(undefined, {
+        minimumFractionDigits: options?.minimumFractionDigits ?? 0,
+        maximumFractionDigits: options?.maximumFractionDigits ?? 2,
+      })
+    },
+  },
+})
+
 const collectDebugTargets = (): Window[] => {
   if (typeof window === "undefined") {
     return []
@@ -34,25 +165,61 @@ const collectDebugTargets = (): Window[] => {
   }
 
   let current: Window | null = window
-  while (current) {
+  let iterations = 0
+  const MAX_ITERATIONS = 100 // Safety limit
+
+  while (current && iterations < MAX_ITERATIONS) {
     addTarget(current)
     let next: Window | null = null
     try {
       next = current.parent
     } catch {
+      // Cross-origin frame access blocked
       break
     }
-    if (!next || next === current) {
+    if (!next || next === current || seen.has(next)) {
       break
     }
     current = next
+    iterations++
   }
 
   try {
     addTarget(window.opener as Window)
-  } catch {}
+  } catch {
+    // No opener or cross-origin
+  }
 
   return targets
+}
+
+const safeAssignDebugObject = (
+  target: Window,
+  debugObj: FmeDebugObject
+): void => {
+  try {
+    Object.defineProperty(target, "__FME_DEBUG__", {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: debugObj,
+    })
+  } catch {
+    // defineProperty not supported, fall back to direct assignment
+    try {
+      ;(target as any).__FME_DEBUG__ = debugObj
+    } catch {
+      // Assignment failed, ignore
+    }
+  }
+}
+
+const safeGetDebugObject = (target: Window): FmeDebugObject | null => {
+  try {
+    return (target as any).__FME_DEBUG__ ?? null
+  } catch {
+    return null
+  }
 }
 
 const assignDebugObjectToTargets = (
@@ -60,29 +227,16 @@ const assignDebugObjectToTargets = (
   targets: Window[]
 ): void => {
   targets.forEach((target) => {
-    try {
-      Object.defineProperty(target, "__FME_DEBUG__", {
-        configurable: true,
-        enumerable: false,
-        writable: true,
-        value: debugObj,
-      })
-    } catch {
-      try {
-        ;(target as any).__FME_DEBUG__ = debugObj
-      } catch {}
-    }
+    safeAssignDebugObject(target, debugObj)
   })
 }
 
-const findExistingDebugObject = (targets: Window[]): any => {
+const findExistingDebugObject = (targets: Window[]): FmeDebugObject | null => {
   for (const candidate of targets) {
-    try {
-      const existing = (candidate as any).__FME_DEBUG__
-      if (existing) {
-        return existing
-      }
-    } catch {}
+    const existing = safeGetDebugObject(candidate)
+    if (existing) {
+      return existing
+    }
   }
   return null
 }
@@ -96,6 +250,221 @@ const getWidgetState = (widgetId: string): FmeWidgetState | null => {
       }
     | undefined
   return globalState?.byId?.[widgetId] ?? null
+}
+
+const createStateInspectionHelper = (): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const state = debugObj.getState?.()
+    if (!state) {
+      logDebugMessage("No state found", "error")
+      return
+    }
+    logDebugMessage("Widget State:", "success")
+    console.table({
+      viewMode: state.viewMode,
+      drawingTool: state.drawingTool,
+      hasGeometry: !!state.geometryJson,
+      drawnArea: state.drawnArea,
+      selectedWorkspace: state.selectedWorkspace,
+    })
+  }
+}
+
+const createQueryInspectionHelper = (): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const queries = debugObj.getQueryCache?.() ?? []
+    logDebugMessage("Query Cache:", "info")
+    console.table(
+      queries.map((query: any) => ({
+        queryKey: JSON.stringify(query.queryKey),
+        status: query.state.status,
+        hasData: !!query.state.data,
+      }))
+    )
+  }
+}
+
+const createResetHelper = (widgetId: string): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    debugObj.dispatch(debugObj.actions.resetState(widgetId))
+    logDebugMessage("Widget reset to drawing state", "success")
+  }
+}
+
+const createTestErrorHelper = (
+  widgetId: string
+): ((errorType?: string, code?: string) => void) => {
+  return (errorType: string = ErrorType.NETWORK, code = "TEST_ERROR") => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    debugObj.dispatch(
+      debugObj.actions.setError(
+        "general",
+        {
+          type: errorType as ErrorType,
+          code,
+          message: "Test error message",
+          severity: ErrorSeverity.ERROR,
+          recoverable: true,
+          timestampMs: Date.now(),
+        },
+        widgetId
+      )
+    )
+    logDebugMessage("Test error dispatched", "warn")
+  }
+}
+
+const formatRequestStatus = (request: NetworkRequest): string => {
+  const symbol = request.ok === undefined ? "?" : request.ok ? "✓" : "✗"
+  const status =
+    request.status ?? (request.ok !== undefined && !request.ok ? "error" : "")
+  return `${symbol} ${status}`
+}
+
+const createNetworkInspectionHelper = (): ((filter?: {
+  failed?: boolean
+  slow?: boolean
+}) => void) => {
+  return (filter?: { failed?: boolean; slow?: boolean }) => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const history = debugObj.getNetworkHistory?.() ?? []
+    const filtered = filterNetworkHistory(history, filter)
+
+    if (filtered.length === 0) {
+      logDebugMessage("No network requests found", "warn")
+      return
+    }
+
+    logDebugMessage(`Network History (${filtered.length} requests):`, "warn")
+    console.table(filtered.map(formatNetworkRequest))
+  }
+}
+
+const createFullStateHelper = (): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const state = debugObj.getState?.()
+    if (!state) {
+      logDebugMessage("No state found", "error")
+      return
+    }
+    logDebugMessage("Full Widget State:", "success")
+    console.log(state)
+  }
+}
+
+const createConfigHelper = (): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const config = debugObj.getConfig?.()
+    const safeConfig = buildSafeConfig(config)
+    if (!safeConfig) {
+      logDebugMessage("No config found", "error")
+      return
+    }
+    logDebugMessage("Widget Config:", "success")
+    console.table(safeConfig)
+  }
+}
+
+const createTimelineHelper = (): (() => void) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return
+    }
+    const network = debugObj.getNetworkHistory?.() ?? []
+    const state = debugObj.getState?.()
+
+    if (network.length === 0) {
+      logDebugMessage("No timeline data", "warn")
+      return
+    }
+
+    logDebugMessage("Timeline:", "info")
+
+    const timeline = network.map((r: NetworkRequest) => ({
+      time: new Date(r.timestamp).toLocaleTimeString(),
+      event: `${r.method} ${r.path}`,
+      status: formatRequestStatus(r),
+      duration: r.durationMs + "ms",
+    }))
+
+    console.table(timeline)
+
+    if (state) {
+      console.log("Current State:")
+      console.log("  View Mode:", state.viewMode)
+      console.log("  Has Geometry:", !!state.geometryJson)
+      console.log("  Selected Workspace:", state.selectedWorkspace || "[NONE]")
+    }
+  }
+}
+
+const createExportDebugInfoHelper = (): (() => string) => {
+  return () => {
+    const debugObj = getDebugObject()
+    if (!debugObj) {
+      return ""
+    }
+    const state = debugObj.getState?.()
+    const config = debugObj.getConfig?.()
+    const network = debugObj.getNetworkHistory?.() ?? []
+    const queries = debugObj.getQueryCache?.() ?? []
+
+    const safeConfig = buildSafeConfig(config)
+    const safeState = buildSafeState(state)
+    const networkSummary = calculateNetworkStats(network)
+
+    const debugPackage = {
+      timestamp: new Date().toISOString(),
+      widgetId: debugObj.widgetId,
+      config: safeConfig,
+      state: safeState,
+      networkSummary,
+      queryCacheSize: queries.length,
+      recentRequests: network.slice(-10).map((r: NetworkRequest) => ({
+        method: r.method,
+        path: r.path,
+        status: r.status,
+        ok: r.ok,
+        durationMs: r.durationMs,
+        time: new Date(r.timestamp).toISOString(),
+      })),
+    }
+
+    const json = JSON.stringify(debugPackage, null, 2)
+
+    logDebugMessage("Debug Package:", "success")
+    console.log(json)
+    copyToClipboard(json)
+
+    return json
+  }
 }
 
 const createDebugObject = (context: {
@@ -122,18 +491,11 @@ const createDebugObject = (context: {
   },
   clearQueryCache: () => {
     fmeQueryClient.clear()
-    console.log(
-      "%c[FME Debug] Query cache cleared",
-      "color: #FF9800; font-weight: bold"
-    )
+    logDebugMessage("Query cache cleared", "warn")
   },
   invalidateQueries: (filters?: any) => {
     fmeQueryClient.invalidateQueries(filters)
-    console.log(
-      "%c[FME Debug] Queries invalidated",
-      "color: #FF9800; font-weight: bold",
-      filters
-    )
+    logDebugMessage("Queries invalidated", "warn", filters)
   },
   getAppState: () => {
     const store = getAppStore()
@@ -141,294 +503,31 @@ const createDebugObject = (context: {
   },
   dispatch: (action: any) => {
     const store = getAppStore()
-    console.log(
-      "%c[FME Debug] Dispatching action:",
-      "color: #9C27B0; font-weight: bold",
-      action
-    )
+    logDebugMessage("Dispatching action:", "action", action)
     store.dispatch(action)
   },
   actions: fmeActions,
   getNetworkHistory: () => getNetworkHistory(),
   clearNetworkHistory: () => {
     clearNetworkHistory()
-    console.log(
-      "%c[FME Debug] Network history cleared",
-      "color: #FF9800; font-weight: bold"
-    )
+    logDebugMessage("Network history cleared", "warn")
   },
   utils: {
     maskToken: (token: string) => maskToken(token),
-    formatArea: (area: number, spatialReference?: __esri.SpatialReference) => {
-      const mockModules = {
-        intl: {
-          formatNumber: (value: number, options: any) => {
-            return value.toLocaleString(undefined, {
-              minimumFractionDigits: options.minimumFractionDigits || 0,
-              maximumFractionDigits: options.maximumFractionDigits || 2,
-            })
-          },
-        },
-      }
-      return formatArea(area, mockModules as any, spatialReference)
-    },
+    formatArea: (area: number, spatialReference?: __esri.SpatialReference) =>
+      formatArea(area, createMockIntlModules() as any, spatialReference),
     safeLogParams: (params: { [key: string]: any }) => params,
   },
   helpers: {
-    inspectState: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const state = debugObj?.getState?.()
-      if (!state) {
-        console.log("%c[FME Debug] No state found", "color: #F44336")
-        return
-      }
-      console.log(
-        "%c[FME Debug] Widget State:",
-        "color: #4CAF50; font-weight: bold"
-      )
-      console.table({
-        viewMode: state.viewMode,
-        drawingTool: state.drawingTool,
-        hasGeometry: !!state.geometryJson,
-        drawnArea: state.drawnArea,
-        selectedWorkspace: state.selectedWorkspace,
-      })
-    },
-    inspectQueries: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const queries = debugObj?.getQueryCache?.() ?? []
-      console.log(
-        "%c[FME Debug] Query Cache:",
-        "color: #2196F3; font-weight: bold"
-      )
-      queries.forEach((query: any) => {
-        console.log("Query:", query.queryKey)
-        console.log("Status:", query.state.status)
-        console.log("Data:", query.state.data)
-        console.log("---")
-      })
-    },
-    resetToDrawing: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      if (!debugObj) {
-        return
-      }
-      debugObj.dispatch(debugObj.actions.resetState(context.widgetId))
-      console.log(
-        "%c[FME Debug] Widget reset to drawing state",
-        "color: #4CAF50"
-      )
-    },
-    testError: (
-      errorType: ErrorType = ErrorType.NETWORK,
-      code = "TEST_ERROR"
-    ) => {
-      const debugObj = (window as any).__FME_DEBUG__
-      if (!debugObj) {
-        return
-      }
-      debugObj.dispatch(
-        debugObj.actions.setError(
-          "general",
-          {
-            type: errorType,
-            code,
-            message: "Test error message",
-            severity: ErrorSeverity.ERROR,
-            scope: "general",
-            recoverable: true,
-            timestampMs: Date.now(),
-          },
-          context.widgetId
-        )
-      )
-      console.log("%c[FME Debug] Test error dispatched", "color: #FF9800")
-    },
-    inspectNetwork: (filter?: { failed?: boolean; slow?: boolean }) => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const history = debugObj?.getNetworkHistory?.() ?? []
-
-      let filtered = [...history]
-      if (filter?.failed) {
-        filtered = filtered.filter((r: any) => !r.ok)
-      }
-      if (filter?.slow) {
-        filtered = filtered.filter((r: any) => r.durationMs > 1000)
-      }
-
-      if (filtered.length === 0) {
-        console.log("%c[FME Debug] No network requests found", "color: #FF9800")
-        return
-      }
-
-      console.log(
-        `%c[FME Debug] Network History (${filtered.length} requests):`,
-        "color: #FF9800; font-weight: bold"
-      )
-      console.table(
-        filtered.map((r: any) => ({
-          method: r.method,
-          path: r.path,
-          status: r.status || "?",
-          duration: r.durationMs + "ms",
-          ok: r.ok ? "✓" : "✗",
-          time: new Date(r.timestamp).toLocaleTimeString(),
-        }))
-      )
-    },
-    showFullState: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const state = debugObj?.getState?.()
-      if (!state) {
-        console.log("%c[FME Debug] No state found", "color: #F44336")
-        return
-      }
-      console.log(
-        "%c[FME Debug] Full Widget State:",
-        "color: #4CAF50; font-weight: bold"
-      )
-      console.log(state)
-    },
-    showConfig: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const config = debugObj?.getConfig?.()
-      if (!config) {
-        console.log("%c[FME Debug] No config found", "color: #F44336")
-        return
-      }
-      const safeConfig = {
-        serverUrl: config.fmeServerUrl || "[NONE]",
-        repository: config.repository || "[NONE]",
-        token: config.fmeServerToken
-          ? maskToken(config.fmeServerToken)
-          : "[NONE]",
-        timeout: config.requestTimeout,
-        largeAreaThreshold: config.largeAreaThreshold,
-        scheduleEnabled: config.allowSchedule,
-      }
-      console.log(
-        "%c[FME Debug] Widget Config:",
-        "color: #4CAF50; font-weight: bold"
-      )
-      console.table(safeConfig)
-    },
-    showTimeline: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const network = debugObj?.getNetworkHistory?.() ?? []
-      const state = debugObj?.getState?.()
-
-      if (network.length === 0) {
-        console.log("%c[FME Debug] No timeline data", "color: #FF9800")
-        return
-      }
-
-      console.log(
-        "%c[FME Debug] Timeline:",
-        "color: #2196F3; font-weight: bold"
-      )
-
-      const timeline = network.map((r: any) => ({
-        time: new Date(r.timestamp).toLocaleTimeString(),
-        event: r.method + " " + r.path,
-        status: r.ok ? "✓ " + (r.status || "") : "✗ " + (r.status || "error"),
-        duration: r.durationMs + "ms",
-      }))
-
-      console.table(timeline)
-
-      if (state) {
-        console.log("%cCurrent State:", "color: #9C27B0; font-weight: bold")
-        console.log("  View Mode:", state.viewMode)
-        console.log("  Has Geometry:", !!state.geometryJson)
-        console.log(
-          "  Selected Workspace:",
-          state.selectedWorkspace || "[NONE]"
-        )
-      }
-    },
-    exportDebugInfo: () => {
-      const debugObj = (window as any).__FME_DEBUG__
-      const state = debugObj?.getState?.()
-      const config = debugObj?.getConfig?.()
-      const network = debugObj?.getNetworkHistory?.() ?? []
-      const queries = debugObj?.getQueryCache?.() ?? []
-
-      const safeConfig = config
-        ? {
-            serverUrl: config.fmeServerUrl || "[NONE]",
-            repository: config.repository || "[NONE]",
-            hasToken: !!config.fmeServerToken,
-            tokenMasked: config.fmeServerToken
-              ? maskToken(config.fmeServerToken)
-              : "[NONE]",
-            timeout: config.requestTimeout,
-          }
-        : null
-
-      const safeState = state
-        ? {
-            viewMode: state.viewMode,
-            drawingTool: state.drawingTool,
-            hasGeometry: !!state.geometryJson,
-            drawnArea: state.drawnArea,
-            selectedWorkspace: state.selectedWorkspace,
-            hasError: !!(state.errors && Object.keys(state.errors).length > 0),
-          }
-        : null
-
-      const networkSummary = {
-        total: network.length,
-        failed: network.filter((r: any) => !r.ok).length,
-        avgDurationMs:
-          network.length > 0
-            ? Math.round(
-                network.reduce((sum: number, r: any) => sum + r.durationMs, 0) /
-                  network.length
-              )
-            : 0,
-        slowRequests: network.filter((r: any) => r.durationMs > 1000).length,
-      }
-
-      const debugPackage = {
-        timestamp: new Date().toISOString(),
-        widgetId: debugObj?.widgetId,
-        config: safeConfig,
-        state: safeState,
-        networkSummary,
-        queryCacheSize: queries.length,
-        recentRequests: network.slice(-10).map((r: any) => ({
-          method: r.method,
-          path: r.path,
-          status: r.status,
-          ok: r.ok,
-          durationMs: r.durationMs,
-          time: new Date(r.timestamp).toISOString(),
-        })),
-      }
-
-      const json = JSON.stringify(debugPackage, null, 2)
-
-      console.log(
-        "%c[FME Debug] Debug Package:",
-        "color: #4CAF50; font-weight: bold"
-      )
-      console.log(json)
-
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(json).then(
-            () => {
-              console.log("%c✓ Copied to clipboard", "color: #4CAF50")
-            },
-            () => {
-              console.log("%c⚠ Could not copy to clipboard", "color: #FF9800")
-            }
-          )
-        }
-      } catch {}
-
-      return json
-    },
+    inspectState: createStateInspectionHelper(),
+    inspectQueries: createQueryInspectionHelper(),
+    resetToDrawing: createResetHelper(context.widgetId),
+    testError: createTestErrorHelper(context.widgetId),
+    inspectNetwork: createNetworkInspectionHelper(),
+    showFullState: createFullStateHelper(),
+    showConfig: createConfigHelper(),
+    showTimeline: createTimelineHelper(),
+    exportDebugInfo: createExportDebugInfoHelper(),
   },
 })
 
@@ -440,57 +539,62 @@ const normalizeWidgetId = (raw: string | null | undefined): string | null => {
   return trimmed.length ? trimmed : null
 }
 
-export const setupFmeDebugTools = (context: FmeDebugContext): void => {
+const validateDebugContext = (
+  context: FmeDebugContext
+): { widgetId: string; config: FmeExportConfig; targets: Window[] } | null => {
   const widgetId = normalizeWidgetId(context.widgetId)
   if (!widgetId || !context.config) {
-    return
+    return null
   }
 
   const targets = collectDebugTargets()
   if (targets.length === 0) {
+    return null
+  }
+
+  return { widgetId, config: context.config, targets }
+}
+
+export const setupFmeDebugTools = (context: FmeDebugContext): void => {
+  const validated = validateDebugContext(context)
+  if (!validated) {
     return
   }
 
+  const { widgetId, config, targets } = validated
+
   const hadExisting = Boolean(findExistingDebugObject(targets))
-  const debugObj = createDebugObject({ widgetId, config: context.config })
+  const debugObj = createDebugObject({ widgetId, config })
 
   assignDebugObjectToTargets(debugObj, targets)
 
   if (!hadExisting) {
+    logDebugMessage(
+      "Global debug object available at window.__FME_DEBUG__",
+      "success"
+    )
+    console.log("Try: __FME_DEBUG__.getState() or __FME_DEBUG__.getConfig()")
     console.log(
-      "%c[FME Debug] Global debug object available at window.__FME_DEBUG__",
-      "color: #4CAF50; font-weight: bold"
+      "Helpers: __FME_DEBUG__.helpers.inspectState() | inspectQueries() | inspectNetwork()"
     )
     console.log(
-      "%cTry: __FME_DEBUG__.getState() or __FME_DEBUG__.getConfig()",
-      "color: #2196F3"
-    )
-    console.log(
-      "%cHelpers: __FME_DEBUG__.helpers.inspectState() | inspectQueries() | inspectNetwork()",
-      "color: #9C27B0"
-    )
-    console.log(
-      "%cExport: __FME_DEBUG__.helpers.exportDebugInfo() | showTimeline() | showConfig()",
-      "color: #FF9800"
+      "Export: __FME_DEBUG__.helpers.exportDebugInfo() | showTimeline() | showConfig()"
     )
   }
 }
 
 export const updateFmeDebugTools = (context: FmeDebugContext): void => {
-  const widgetId = normalizeWidgetId(context.widgetId)
-  if (!widgetId || !context.config) {
+  const validated = validateDebugContext(context)
+  if (!validated) {
     return
   }
 
-  const targets = collectDebugTargets()
-  if (targets.length === 0) {
-    return
-  }
+  const { widgetId, config, targets } = validated
 
   if (!findExistingDebugObject(targets)) {
     return
   }
 
-  const debugObj = createDebugObject({ widgetId, config: context.config })
+  const debugObj = createDebugObject({ widgetId, config })
   assignDebugObjectToTargets(debugObj, targets)
 }
