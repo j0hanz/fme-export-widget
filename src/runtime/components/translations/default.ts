@@ -26,6 +26,7 @@ export default {
   lblRemoteUrl: "Fjärr-URL (HTTPS)",
   lblTableValue: "Värde",
   lblTableActions: "Åtgärder",
+  lblUnnamedFile: "Namnlös fil",
   lblActions: "Åtgärder",
   titleOrderConfirmed: "Exporten skickades",
   titleOrderComplete: "Exporten slutfördes",

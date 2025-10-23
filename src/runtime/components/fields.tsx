@@ -38,6 +38,7 @@ import {
   type ToggleFieldConfig,
   type OptionItem,
   type UiStyles,
+  type TranslateFn,
 } from "../../config/index"
 import { useUiStyles as useConfigStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
@@ -233,7 +234,10 @@ const renderDateTimeInput = (
 )
 
 // Normaliserar TEXT_OR_FILE-värde till konsistent struktur
-const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
+const normalizeTextOrFileValue = (
+  rawValue: unknown,
+  translate?: TranslateFn
+): NormalizedTextOrFile => {
   if (
     rawValue &&
     typeof rawValue === "object" &&
@@ -248,7 +252,7 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
         fileName:
           typeof obj.fileName === "string"
             ? obj.fileName
-            : getFileDisplayName(obj.file),
+            : getFileDisplayName(obj.file, translate),
       }
     }
     if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
@@ -262,7 +266,7 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
     return {
       mode: TEXT_OR_FILE_MODES.FILE,
       file: rawValue,
-      fileName: getFileDisplayName(rawValue),
+      fileName: getFileDisplayName(rawValue, translate),
     }
   }
   return {
@@ -425,18 +429,24 @@ const validateFile = (
 }
 
 // Extraherar läsbar sökväg/namn från FME dataset-metadata
-const resolveFileDisplayValue = (raw: unknown): string | undefined => {
-  if (typeof raw === "string") return raw
+const resolveFileDisplayValue = (
+  raw: unknown,
+  translate?: TranslateFn
+): string | undefined => {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim()
+    return trimmed || undefined
+  }
   if (typeof raw === "number" || typeof raw === "boolean") {
     return String(raw)
   }
   if (!raw) return undefined
   if (isFileObject(raw)) {
-    return getFileDisplayName(raw)
+    return getFileDisplayName(raw, translate)
   }
   if (Array.isArray(raw)) {
     for (const entry of raw) {
-      const resolved = resolveFileDisplayValue(entry)
+      const resolved = resolveFileDisplayValue(entry, translate)
       if (resolved) return resolved
     }
     return undefined
@@ -445,7 +455,7 @@ const resolveFileDisplayValue = (raw: unknown): string | undefined => {
     const obj = raw as { [key: string]: unknown }
     for (const key of FILE_UPLOAD.FILE_DISPLAY_KEYS) {
       if (key in obj) {
-        const resolved = resolveFileDisplayValue(obj[key])
+        const resolved = resolveFileDisplayValue(obj[key], translate)
         if (resolved) return resolved
       }
     }
@@ -1117,13 +1127,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           ? acceptTokens.join(",")
           : undefined
         const resolvedDefault = !selectedFile
-          ? (resolveFileDisplayValue(value) ??
-            resolveFileDisplayValue(fieldValue) ??
-            resolveFileDisplayValue(field.defaultValue))
-          : resolveFileDisplayValue(field.defaultValue)
+          ? (resolveFileDisplayValue(value, translate) ??
+            resolveFileDisplayValue(fieldValue, translate) ??
+            resolveFileDisplayValue(field.defaultValue, translate))
+          : resolveFileDisplayValue(field.defaultValue, translate)
         const defaultDisplay = toTrimmedString(resolvedDefault) || ""
         const displayText = selectedFile
-          ? getFileDisplayName(selectedFile)
+          ? getFileDisplayName(selectedFile, translate)
           : defaultDisplay
         const hasDisplay = Boolean(displayText)
         const message = hasDisplay ? displayText : null
@@ -1193,7 +1203,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       case FormFieldType.TEXT_OR_FILE: {
         // Renderar fält med växel mellan text- och filuppladdningsläge
         const currentValue: NormalizedTextOrFile =
-          normalizeTextOrFileValue(fieldValue)
+          normalizeTextOrFileValue(fieldValue, translate)
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
@@ -1265,7 +1275,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           onChange({
             mode: TEXT_OR_FILE_MODES.FILE,
             file,
-            fileName: getFileDisplayName(file),
+            fileName: getFileDisplayName(file, translate),
           } as unknown as FormPrimitive)
         }
 
@@ -1317,7 +1327,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 {isFileObject(currentValue.file) && !fileError ? (
                   <div data-testid="text-or-file-name">
                     {currentValue.fileName ||
-                      getFileDisplayName(currentValue.file)}
+                      getFileDisplayName(currentValue.file, translate)}
                   </div>
                 ) : null}
               </div>

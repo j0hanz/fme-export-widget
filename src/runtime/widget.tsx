@@ -203,10 +203,22 @@ function WidgetContent(
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
   const completionControllerRef = React.useRef<AbortController | null>(null)
-  /* Unik identifierare för popup-suppression i denna widget-instans */
-  const popupClientIdRef = React.useRef<symbol>(
-    Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
-  )
+  const popupClientIdRef = React.useRef<symbol>()
+  if (!popupClientIdRef.current) {
+    popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+  }
+
+  const previousWidgetId = hooks.usePrevious(widgetId)
+  hooks.useUpdateEffect(() => {
+    if (previousWidgetId && previousWidgetId !== widgetId) {
+      const oldSymbol = popupClientIdRef.current
+      if (oldSymbol) {
+        popupSuppressionManager.release(oldSymbol)
+      }
+      popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+    }
+  }, [widgetId, previousWidgetId])
+
   /* Timer för fördröjd repository cache warmup */
   const warmupTimerRef = React.useRef<number | null>(null)
 
@@ -355,15 +367,13 @@ function WidgetContent(
           popup,
           mapView
         )
-      }
-      try {
-        if (typeof (mapView as any).closePopup === "function") {
-          ;(mapView as any).closePopup()
-        } else if (popup && typeof popup.close === "function") {
-          popup.close()
+        try {
+          if (typeof popup.close === "function") {
+            popup.close()
+          }
+        } catch (error) {
+          logIfNotAbort("Failed to close map popup", error)
         }
-      } catch (error) {
-        logIfNotAbort("Failed to close map popup", error)
       }
     }
   )
@@ -372,7 +382,6 @@ function WidgetContent(
     popupSuppressionManager.release(popupClientIdRef.current)
   })
 
-  /* Stänger andra öppna widgets enligt autoCloseOtherWidgets-inställning */
   const closeOtherWidgets = hooks.useEventCallback(() => {
     const autoCloseSetting = configRef.current?.autoCloseOtherWidgets
     if (autoCloseSetting !== undefined && !autoCloseSetting) {
@@ -1488,6 +1497,19 @@ function WidgetContent(
         : defaultRoute
     navigateTo(target)
   })
+
+  if (!widgetId || typeof widgetId !== "string" || !widgetId.trim()) {
+    console.error("[FME Export] Critical: Widget ID missing or invalid")
+    return (
+      <div css={styles.parent}>
+        <StateView
+          state={makeErrorView(translate("errorWidgetIdMissing"), {
+            code: "WIDGET_ID_MISSING",
+          })}
+        />
+      </div>
+    )
+  }
 
   /* Renderar laddningsvy om moduler fortfarande laddas */
   if (modulesLoading) {

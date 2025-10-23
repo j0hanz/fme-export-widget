@@ -102,9 +102,7 @@ const closePopupSafely = (
   popup: __esri.Popup | null | undefined
 ): void => {
   try {
-    if (view && typeof (view as any).closePopup === "function") {
-      ;(view as any).closePopup()
-    } else if (popup && typeof popup.close === "function") {
+    if (popup && typeof popup.close === "function") {
       popup.close()
     }
   } catch {}
@@ -182,9 +180,7 @@ export const applyPopupSuppression = (
 
   if (ref.current?.popup === popup) {
     try {
-      if (view && typeof (view as any).closePopup === "function") {
-        ;(view as any).closePopup()
-      } else if (typeof popup.close === "function") {
+      if (popup && typeof popup.close === "function") {
         popup.close()
       }
     } catch {}

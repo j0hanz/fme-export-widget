@@ -944,49 +944,71 @@ export function usePrefetchWorkspaces(
         for (const chunk of chunks) {
           if (cancelled) break
 
-          // Prefetcha chunk parallellt
+          // Prefetcha chunk med max 5 samtidiga requests för att inte överbelasta browser/nätverk
+          const MAX_CONCURRENT = 5
+          const semaphore = { active: 0, queue: [] as Array<() => void> }
+
+          const withLimit = async <T>(fn: () => Promise<T>): Promise<T> => {
+            while (semaphore.active >= MAX_CONCURRENT) {
+              await new Promise<void>((resolve) =>
+                semaphore.queue.push(resolve)
+              )
+            }
+            semaphore.active++
+            try {
+              return await fn()
+            } finally {
+              semaphore.active--
+              const next = semaphore.queue.shift()
+              if (next) next()
+            }
+          }
+
+          // Prefetcha chunk med concurrency limit
           await Promise.all(
             chunk.map((ws) =>
-              queryClient.prefetchQuery({
-                queryKey: [
-                  "fme",
-                  "workspace-item",
-                  ws.name,
-                  repository,
-                  fmeServerUrl,
-                  buildTokenCacheKey(fmeServerToken),
-                ],
-                queryFn: async ({ signal }) => {
-                  const controller = new AbortController()
-                  const unregister = registerAbortController(controller)
-                  const unlink = linkSignals(signal, controller)
-                  try {
-                    const effectiveSignal = controller.signal
-                    const [itemResp, paramsResp] = await Promise.all([
-                      client.getWorkspaceItem(
-                        ws.name,
-                        repository,
-                        effectiveSignal
-                      ),
-                      client.getWorkspaceParameters(
-                        ws.name,
-                        repository,
-                        effectiveSignal
-                      ),
-                    ])
-                    return {
-                      item: itemResp.data,
-                      parameters: Array.isArray(paramsResp?.data)
-                        ? paramsResp.data
-                        : [],
+              withLimit(() =>
+                queryClient.prefetchQuery({
+                  queryKey: [
+                    "fme",
+                    "workspace-item",
+                    ws.name,
+                    repository,
+                    fmeServerUrl,
+                    buildTokenCacheKey(fmeServerToken),
+                  ],
+                  queryFn: async ({ signal }) => {
+                    const controller = new AbortController()
+                    const unregister = registerAbortController(controller)
+                    const unlink = linkSignals(signal, controller)
+                    try {
+                      const effectiveSignal = controller.signal
+                      const [itemResp, paramsResp] = await Promise.all([
+                        client.getWorkspaceItem(
+                          ws.name,
+                          repository,
+                          effectiveSignal
+                        ),
+                        client.getWorkspaceParameters(
+                          ws.name,
+                          repository,
+                          effectiveSignal
+                        ),
+                      ])
+                      return {
+                        item: itemResp.data,
+                        parameters: Array.isArray(paramsResp?.data)
+                          ? paramsResp.data
+                          : [],
+                      }
+                    } finally {
+                      unlink()
+                      unregister()
                     }
-                  } finally {
-                    unlink()
-                    unregister()
-                  }
-                },
-                staleTime: TIME_CONSTANTS.TEN_MINUTES,
-              })
+                  },
+                  staleTime: TIME_CONSTANTS.TEN_MINUTES,
+                })
+              )
             )
           )
 

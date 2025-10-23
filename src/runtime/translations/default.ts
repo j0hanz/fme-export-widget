@@ -135,4 +135,5 @@ export default {
   errAreaLarge: "Området överskrider maxgränsen",
   errGeomReq: "Ingen geometri har angivits",
   errGeomPolygon: "Geometrin måste vara en polygon",
+  errorWidgetIdMissing: "Widget-ID saknas eller är ogiltigt",
 }

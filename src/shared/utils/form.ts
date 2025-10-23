@@ -30,14 +30,14 @@ export const makePlaceholders = (
   translate: TranslateFn,
   fieldLabel: string
 ) => ({
-  enter: translate("placeholderEnter", { field: fieldLabel }),
-  select: translate("placeholderSelect", { field: fieldLabel }),
+  enter: translate("phEnter", { field: fieldLabel }),
+  select: translate("phSelect", { field: fieldLabel }),
 })
 
 const PLACEHOLDER_KIND_MAP = Object.freeze({
-  email: "placeholderEmail",
-  phone: "placeholderPhone",
-  search: "placeholderSearch",
+  email: "phEmail",
+  phone: "phPhone",
+  search: "phSearch",
 } as const)
 
 export const getTextPlaceholder = (
@@ -176,9 +176,13 @@ export const resolveUploadTargetParam = (
   return sanitized || null
 }
 
-export const getFileDisplayName = (file: File): string => {
+export const getFileDisplayName = (
+  file: File,
+  translate?: TranslateFn
+): string => {
   const name = toTrimmedString((file as any)?.name)
-  return name || "unnamed-file"
+  if (name) return name
+  return translate ? translate("lblUnnamedFile") : "unnamed-file"
 }
 
 const isCompositeValue = (

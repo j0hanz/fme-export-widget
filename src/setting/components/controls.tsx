@@ -395,7 +395,7 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           onChange={(val: string) => {
             onRepositoryChange(val)
           }}
-          placeholder={translate("repoPlaceholder")}
+          placeholder={translate("phRepository")}
           aria-describedby={
             fieldErrors.repository ? `${ID.repository}-error` : undefined
           }
