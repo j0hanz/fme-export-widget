@@ -2,6 +2,7 @@ import type { IMState, ImmutableObject } from "jimu-core"
 import type React from "react"
 
 import type FmeFlowApiClient from "../shared/api"
+import type { fmeActions } from "../extensions/store"
 import type { SettingStyles } from "./style"
 import type {
   DrawingTool,
@@ -1763,4 +1764,45 @@ export interface ErrorFactoryOptions {
   readonly suggestion?: string
   readonly details?: { [key: string]: unknown }
   readonly scope?: ErrorScope
+}
+
+/* Debug object interface for __FME_DEBUG__ global */
+export interface FmeDebugObject {
+  readonly widgetId: string
+  getConfig: () => FmeExportConfig
+  getState: () => FmeWidgetState | null
+  getQueryCache: () => ReadonlyArray<{
+    queryKey: unknown
+    state: any
+    queryHash: string
+  }>
+  getMutationCache: () => ReadonlyArray<{
+    mutationId: number
+    state: any
+  }>
+  clearQueryCache: () => void
+  invalidateQueries: (filters?: any) => void
+  getAppState: () => IMState
+  dispatch: (action: any) => void
+  readonly actions: typeof fmeActions
+  readonly utils: {
+    maskToken: (token: string) => string
+    formatArea: (
+      area: number,
+      spatialReference?: __esri.SpatialReference
+    ) => string
+    safeLogParams: (params: { [key: string]: any }) => { [key: string]: any }
+  }
+  readonly helpers: {
+    inspectState: () => void
+    inspectQueries: () => void
+    resetToDrawing: () => void
+    testError: (errorType?: string, code?: string) => void
+  }
+}
+
+declare global {
+  interface Window {
+    __FME_DEBUG__?: FmeDebugObject
+  }
 }
