@@ -63,12 +63,14 @@ import {
   toStringValue,
   resolveMessageOrKey,
   toBooleanValue,
-  normalizeParameterValue,
+  areToggleValuesEqual,
   isNonEmptyTrimmedString,
   parseIsoLocalDateTime,
   formatIsoLocalDateTime,
   flattenHierarchicalOptions,
   styleCss,
+  collectLayerAttributes,
+  attributesToOptions,
 } from "../../shared/utils"
 import { useControlledValue } from "../../shared/hooks"
 
@@ -96,20 +98,6 @@ const TEXT_OR_FILE_MODES = {
 
 const toDisplayString = (value: unknown): string => toStringValue(value) ?? ""
 
-const compareToggleValues = (a: unknown, b: unknown): boolean => {
-  if (a === undefined || a === null || b === undefined || b === null) {
-    return false
-  }
-
-  try {
-    const normalizedA = normalizeParameterValue(a)
-    const normalizedB = normalizeParameterValue(b)
-    return normalizedA === normalizedB
-  } catch {
-    return false
-  }
-}
-
 const resolveToggleChecked = (
   current: unknown,
   config?: ToggleFieldConfig
@@ -117,13 +105,13 @@ const resolveToggleChecked = (
   if (config) {
     if (
       config.checkedValue !== undefined &&
-      compareToggleValues(current, config.checkedValue)
+      areToggleValuesEqual(current, config.checkedValue)
     ) {
       return true
     }
     if (
       config.uncheckedValue !== undefined &&
-      compareToggleValues(current, config.uncheckedValue)
+      areToggleValuesEqual(current, config.uncheckedValue)
     ) {
       return false
     }
@@ -464,6 +452,155 @@ const resolveFileDisplayValue = (
   return undefined
 }
 
+// ============================================
+// Attribute Names Field (Added: Oct 24, 2025)
+// ============================================
+
+interface AttributeNamesFieldProps {
+  readonly value: FormPrimitive
+  readonly onChange: (value: FormPrimitive) => void
+  readonly field: DynamicFieldProps["field"]
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
+  readonly translate?: TranslateFn
+  readonly disabled?: boolean
+  readonly placeholder?: string
+}
+
+const AttributeNamesField: React.FC<AttributeNamesFieldProps> = ({
+  value,
+  onChange,
+  field,
+  jimuMapView,
+  translate,
+  disabled,
+  placeholder,
+}) => {
+  const [runtimeOptions, setRuntimeOptions] = React.useState<
+    ReadonlyArray<{ readonly value: string; readonly label: string }>
+  >([])
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  // Dynamically load attributes from map layers
+  React.useEffect(() => {
+    if (
+      !field.choiceSetConfig ||
+      field.choiceSetConfig.type !== "attributeNames"
+    ) {
+      return
+    }
+
+    if (!jimuMapView) {
+      setError("No map view available")
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const result = collectLayerAttributes(jimuMapView)
+      const options = attributesToOptions(result)
+      setRuntimeOptions(options)
+      setLoading(false)
+    } catch (err) {
+      console.log("Failed to collect layer attributes", err)
+      setError("Failed to load attributes")
+      setLoading(false)
+    }
+  }, [field.choiceSetConfig, jimuMapView])
+
+  // Merge static options (from field.options) with runtime discovered options
+  const staticOptions = field.options || []
+  const mergedOptions =
+    runtimeOptions.length === 0
+      ? staticOptions
+      : (() => {
+          const seen = new Set<string>()
+          const combined: Array<{ value: string; label: string }> = []
+
+          // Add static options first
+          staticOptions.forEach((opt) => {
+            const val = String(opt.value ?? "")
+            if (val && !seen.has(val)) {
+              seen.add(val)
+              combined.push({ value: val, label: opt.label ?? val })
+            }
+          })
+
+          // Add runtime options
+          runtimeOptions.forEach((opt) => {
+            if (!seen.has(opt.value)) {
+              seen.add(opt.value)
+              combined.push(opt)
+            }
+          })
+
+          return combined
+        })()
+
+  if (error) {
+    return (
+      <Alert type="warning" withIcon>
+        {error}
+      </Alert>
+    )
+  }
+
+  if (loading) {
+    return (
+      <Select
+        value={value as SelectValue}
+        options={[]}
+        placeholder="Loading attributes..."
+        disabled
+        aria-label={field.label}
+      />
+    )
+  }
+
+  if (mergedOptions.length === 0) {
+    // Fallback to text input if no options available
+    return (
+      <Input
+        type="text"
+        value={toDisplayString(value)}
+        placeholder={placeholder || "Enter attribute name"}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+          const val = e.target.value
+          onChange(val as FormPrimitive)
+        }}
+        disabled={disabled}
+        aria-label={field.label}
+      />
+    )
+  }
+
+  const isSelectType = SELECT_FIELD_TYPES.has(field.type)
+  const selectOptions = mergedOptions as ReadonlyArray<{
+    readonly value?: unknown
+  }>
+  const selectCoerce = computeSelectCoerce(isSelectType, selectOptions)
+  const selectConfig = field.selectConfig
+
+  return (
+    <Select
+      value={value as SelectValue}
+      options={mergedOptions}
+      placeholder={placeholder || "Select attribute"}
+      onChange={(val) => {
+        onChange(val as FormPrimitive)
+      }}
+      aria-label={field.label}
+      disabled={disabled}
+      coerce={selectCoerce}
+      allowSearch={selectConfig?.allowSearch ?? true}
+      allowCustomValues={selectConfig?.allowCustomValues ?? true}
+      hierarchical={selectConfig?.hierarchical}
+    />
+  )
+}
+
 /* Huvudkomponent för dynamiska formulärfält */
 
 export const DynamicField: React.FC<DynamicFieldProps> = ({
@@ -472,6 +609,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   onChange,
   translate: translateProp,
   disabled: disabledProp,
+  jimuMapView,
 }) => {
   const fallbackTranslate = hooks.useTranslation(
     defaultMessages,
@@ -896,7 +1034,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.COORDSYS:
-      case FormFieldType.ATTRIBUTE_NAME:
       case FormFieldType.DB_CONNECTION:
       case FormFieldType.WEB_CONNECTION:
       case FormFieldType.REPROJECTION_FILE:
@@ -962,6 +1099,21 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
+      case FormFieldType.ATTRIBUTE_NAME:
+      case FormFieldType.ATTRIBUTE_LIST: {
+        // Use AttributeNamesField for runtime attribute discovery
+        return (
+          <AttributeNamesField
+            value={fieldValue}
+            onChange={onChange}
+            field={field}
+            jimuMapView={jimuMapView}
+            translate={translate}
+            disabled={isDisabled}
+            placeholder={placeholders.select}
+          />
+        )
+      }
       case FormFieldType.DATE_TIME: {
         // Renderar lokal datetime (utan sekunder), lagrar som FME datetime-sträng
         const val =
@@ -992,7 +1144,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           />
         )
       }
-      case FormFieldType.ATTRIBUTE_LIST:
       case FormFieldType.MULTI_SELECT: {
         // Renderar multi-select för flera val
         const options = field.options || []

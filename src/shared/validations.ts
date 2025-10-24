@@ -194,6 +194,67 @@ export const isNum = (value: unknown): boolean => {
   return num !== null
 }
 
+/** Validates parameter type matches expected type. Returns error key or null. */
+export const validateParameterType = (
+  paramType: string,
+  paramName: string,
+  value: unknown
+): string | null => {
+  // Import ParameterType constants
+  const INTEGER = "integer"
+  const FLOAT = "float"
+
+  switch (paramType) {
+    case INTEGER:
+      return isInt(value) ? null : `${paramName}:integer`
+    case FLOAT:
+      return isNum(value) ? null : `${paramName}:number`
+    default:
+      return null
+  }
+}
+
+/** Validates parameter value is within allowed choices. Returns error key or null. */
+export const validateParameterChoices = (
+  paramName: string,
+  value: unknown,
+  validChoices: Set<string | number> | null,
+  isMultiSelect: boolean
+): string | null => {
+  if (!validChoices) return null
+
+  // Import normalizeParameterValue from utils
+  const normalize = (v: unknown): string | number => {
+    if (typeof v === "number" && Number.isFinite(v)) return v
+    if (typeof v === "string") return v
+    if (typeof v === "boolean") return v ? "true" : "false"
+    return JSON.stringify(v ?? null)
+  }
+
+  if (isMultiSelect) {
+    const values = Array.isArray(value) ? value : [value]
+    if (values.some((v) => !validChoices.has(normalize(v)))) {
+      return `${paramName}:choice`
+    }
+  } else if (!validChoices.has(normalize(value))) {
+    return `${paramName}:choice`
+  }
+
+  return null
+}
+
+/** Checks if required field value is missing. */
+export const isRequiredFieldMissing = (
+  value: unknown,
+  required: boolean
+): boolean => {
+  if (!required) return false
+  if (value === undefined || value === null || value === "") return true
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === "string") return !value.trim()
+  return false
+}
+
 // URL validation helpers
 
 // Normaliserar bas-URL genom att ta bort credentials och query params

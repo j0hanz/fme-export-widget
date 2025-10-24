@@ -1679,6 +1679,7 @@ function WidgetContent(
         canStartDrawing={!!sketchViewModel}
         submissionPhase={submissionPhase}
         modeNotice={modeNotice}
+        jimuMapView={jimuMapView?.view ?? null}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={orderResult}

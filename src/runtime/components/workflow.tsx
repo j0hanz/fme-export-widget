@@ -512,6 +512,7 @@ const ExportForm: React.FC<
   widgetId,
   config,
   geometryJson,
+  jimuMapView,
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
   const fmeDispatchRef = React.useRef(
@@ -839,6 +840,7 @@ const ExportForm: React.FC<
             value={formState.values.__upload_file__}
             onChange={(val) => setField("__upload_file__", val)}
             translate={translate}
+            jimuMapView={jimuMapView}
           />
         </Field>
       )}
@@ -887,6 +889,7 @@ const ExportForm: React.FC<
                 onChange={(val) => setField(field.name, val)}
                 translate={translate}
                 disabled={disabled}
+                jimuMapView={jimuMapView}
               />
             </Field>
           )
@@ -938,6 +941,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   workspacePrefetchProgress,
   workspacePrefetchStatus,
   geometryJson,
+  jimuMapView,
   // Workspace collection now arrives from the parent widget via props
   // Startup validation props
   isStartupValidating: _isStartupValidating,
@@ -1777,6 +1781,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           translate={translate}
           config={config}
           geometryJson={geometryJson}
+          jimuMapView={jimuMapView}
         />
       </>
     )

@@ -534,6 +534,7 @@ export interface ExportFormProps {
   readonly isSubmitting?: boolean
   readonly translate?: TranslateFn
   readonly config?: FmeExportConfig
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface FormProps extends BaseProps {
@@ -686,6 +687,7 @@ export interface DynamicFieldConfig {
   readonly tableConfig?: TableFieldConfig
   readonly dateTimeConfig?: DateTimeFieldConfig
   readonly selectConfig?: SelectFieldConfig
+  readonly choiceSetConfig?: ChoiceSetConfig
   readonly fileConfig?: FileFieldConfig
   readonly colorConfig?: ColorFieldConfig
   readonly toggleConfig?: ToggleFieldConfig
@@ -701,6 +703,7 @@ export interface DynamicFieldProps {
   ) => void
   readonly translate: TranslateFn
   readonly disabled?: boolean
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface FmeFlowConfig {
@@ -970,6 +973,71 @@ export interface WorkspaceParameter {
   readonly schema?: { readonly [key: string]: unknown }
   readonly ui?: { readonly [key: string]: unknown }
   readonly extra?: { readonly [key: string]: unknown }
+  readonly choiceSet?: ChoiceSetConfig
+}
+
+export interface AttributeNamesChoiceSet {
+  readonly type: "attributeNames"
+  readonly includeDestinationFormatAttrs?: boolean
+  readonly includeDestinationUserAttrs?: boolean
+  readonly includeSourceFormatAttrs?: boolean
+  readonly includeSourceUserAttrs?: boolean
+  readonly excludeIncoming?: boolean
+  readonly includeUnexposedAttrs?: boolean
+  readonly listSupport?:
+    | "none"
+    | "full"
+    | "exclusive"
+    | "singleDepthOnly"
+    | "listNamesOnly"
+  readonly sourcePorts?: readonly string[]
+}
+
+export interface CoordinateSystemsChoiceSet {
+  readonly type: "coordinateSystems"
+  readonly reprojectionEngine?: "fme" | "esri" | "csmap" | "proj" | "mapinfo"
+  readonly allowReadCoordSysFromFeature?: boolean
+}
+
+export interface DatabaseConnectionsChoiceSet {
+  readonly type: "dbConnections"
+  readonly allowManualEntry?: boolean
+}
+
+export interface WebConnectionsChoiceSet {
+  readonly type: "webConnections"
+  readonly allowManualEntry?: boolean
+}
+
+export type ChoiceSetConfig =
+  | AttributeNamesChoiceSet
+  | CoordinateSystemsChoiceSet
+  | DatabaseConnectionsChoiceSet
+  | WebConnectionsChoiceSet
+
+export interface LayerAttributeInfo {
+  readonly name: string
+  readonly alias?: string
+  readonly type: string
+  readonly domain?: {
+    readonly type: string
+    readonly codedValues?: ReadonlyArray<{
+      readonly name: string
+      readonly code: unknown
+    }>
+  }
+  readonly nullable?: boolean
+  readonly editable?: boolean
+  readonly layerName?: string
+  readonly layerId?: string
+  readonly geometryType?: string
+}
+
+export interface AttributeCollectionResult {
+  readonly attributes: readonly LayerAttributeInfo[]
+  readonly layerCount: number
+  readonly totalAttributeCount: number
+  readonly hasGeometry: boolean
 }
 
 export interface JobDirectives {
@@ -1386,6 +1454,7 @@ export interface WorkflowProps extends BaseProps {
   readonly startupValidationStep?: string
   readonly startupValidationError?: SerializableErrorState | null
   readonly onRetryValidation?: () => void
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface ModeNotice {

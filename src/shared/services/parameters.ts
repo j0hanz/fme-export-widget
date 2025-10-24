@@ -18,6 +18,7 @@ import type {
   FormPrimitive,
   TextOrFileValue,
   MutableNode,
+  ChoiceSetConfig,
 } from "../../config/index"
 import {
   ParameterType,
@@ -43,11 +44,17 @@ import {
   unwrapArray,
   toMetadataRecord,
   normalizeParameterValue,
+  normalizeToggleValue,
+  areToggleValuesEqual,
   buildChoiceSet,
   toNonEmptyTrimmedString,
   isNonEmptyTrimmedString,
 } from "../utils"
-import { isInt, isNum } from "../validations"
+import {
+  isNum,
+  validateParameterType as validateParamType,
+  validateParameterChoices as validateParamChoices,
+} from "../validations"
 
 /* Parameter Service - Formulärgenerering och validering */
 
@@ -99,27 +106,6 @@ export class ParameterFormService {
     })
   }
 
-  private normalizeToggleValue(value: unknown): string | number | undefined {
-    if (value === undefined || value === null) return undefined
-    if (typeof value === "string") {
-      const trimmed = value.trim()
-      if (!trimmed) return undefined
-      return normalizeParameterValue(trimmed)
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      return normalizeParameterValue(value)
-    }
-    return undefined
-  }
-
-  private areToggleValuesEqual(a: unknown, b: unknown): boolean {
-    const normalizedA = this.normalizeToggleValue(a)
-    if (normalizedA === undefined) return false
-    const normalizedB = this.normalizeToggleValue(b)
-    if (normalizedB === undefined) return false
-    return normalizedA === normalizedB
-  }
-
   private extractToggleMetaValue(
     meta: { readonly [key: string]: unknown } | undefined,
     keys: readonly string[]
@@ -127,7 +113,7 @@ export class ParameterFormService {
     if (!meta) return undefined
     for (const key of keys) {
       if (!(key in meta)) continue
-      const candidate = this.normalizeToggleValue(
+      const candidate = normalizeToggleValue(
         (meta as { readonly [key: string]: unknown })[key]
       )
       if (candidate !== undefined) {
@@ -961,6 +947,56 @@ export class ParameterFormService {
     }
   }
 
+  // ============================================
+  // Choice Set Extraction (Added: Oct 24, 2025)
+  // ============================================
+
+  public extractChoiceSetConfig(
+    param: WorkspaceParameter
+  ): ChoiceSetConfig | undefined {
+    if (!param || !param.choiceSet) return undefined
+
+    const choiceSet = param.choiceSet
+    const type = choiceSet.type
+
+    if (!type) return undefined
+
+    switch (type) {
+      case "attributeNames":
+        return {
+          type: "attributeNames",
+          includeDestinationFormatAttrs:
+            choiceSet.includeDestinationFormatAttrs,
+          includeDestinationUserAttrs: choiceSet.includeDestinationUserAttrs,
+          includeSourceFormatAttrs: choiceSet.includeSourceFormatAttrs,
+          includeSourceUserAttrs: choiceSet.includeSourceUserAttrs,
+          excludeIncoming: choiceSet.excludeIncoming,
+          includeUnexposedAttrs: choiceSet.includeUnexposedAttrs,
+          listSupport: choiceSet.listSupport,
+          sourcePorts: choiceSet.sourcePorts,
+        }
+
+      case "coordinateSystems":
+        return {
+          type: "coordinateSystems",
+          reprojectionEngine: choiceSet.reprojectionEngine,
+          allowReadCoordSysFromFeature: choiceSet.allowReadCoordSysFromFeature,
+        }
+
+      case "dbConnections":
+        return {
+          type: "dbConnections",
+          allowManualEntry: choiceSet.allowManualEntry,
+        }
+
+      case "webConnections":
+        return {
+          type: "webConnections",
+          allowManualEntry: choiceSet.allowManualEntry,
+        }
+    }
+  }
+
   // Helper: Parse option entries for toggle fields
   private parseToggleOptionEntries(
     options?: readonly OptionItem[]
@@ -969,7 +1005,7 @@ export class ParameterFormService {
 
     return options
       .map((opt) => ({
-        value: this.normalizeToggleValue(opt?.value),
+        value: normalizeToggleValue(opt?.value),
         label: toTrimmedString(opt?.label) ?? undefined,
       }))
       .filter((entry) => entry.value !== undefined || entry.label)
@@ -1008,7 +1044,7 @@ export class ParameterFormService {
       if (normalizedDefault !== undefined && uncheckedValue === undefined) {
         if (
           first.value !== undefined &&
-          this.areToggleValuesEqual(first.value, normalizedDefault)
+          areToggleValuesEqual(first.value, normalizedDefault)
         ) {
           uncheckedValue = first.value
           if (checkedValue === undefined) {
@@ -1016,7 +1052,7 @@ export class ParameterFormService {
           }
         } else if (
           second.value !== undefined &&
-          this.areToggleValuesEqual(second.value, normalizedDefault)
+          areToggleValuesEqual(second.value, normalizedDefault)
         ) {
           uncheckedValue = second.value
           if (checkedValue === undefined) {
@@ -1034,9 +1070,9 @@ export class ParameterFormService {
         if (
           fallback !== undefined &&
           checkedValue !== undefined &&
-          this.areToggleValuesEqual(fallback, checkedValue) &&
+          areToggleValuesEqual(fallback, checkedValue) &&
           first.value !== undefined &&
-          !this.areToggleValuesEqual(first.value, checkedValue)
+          !areToggleValuesEqual(first.value, checkedValue)
         ) {
           uncheckedValue = first.value
         } else {
@@ -1064,11 +1100,11 @@ export class ParameterFormService {
 
     if (defaultBoolean !== undefined) {
       if (finalChecked === undefined && defaultBoolean) {
-        finalChecked = this.normalizeToggleValue(true)
+        finalChecked = normalizeToggleValue(true)
       }
 
       if (finalUnchecked === undefined && !defaultBoolean) {
-        finalUnchecked = this.normalizeToggleValue(false)
+        finalUnchecked = normalizeToggleValue(false)
       }
     }
 
@@ -1080,7 +1116,7 @@ export class ParameterFormService {
     if (
       finalChecked !== undefined &&
       finalUnchecked !== undefined &&
-      this.areToggleValuesEqual(finalChecked, finalUnchecked)
+      areToggleValuesEqual(finalChecked, finalUnchecked)
     ) {
       finalUnchecked = undefined
     }
@@ -1108,7 +1144,7 @@ export class ParameterFormService {
           entry.label &&
           checkedValue !== undefined &&
           entry.value !== undefined &&
-          this.areToggleValuesEqual(entry.value, checkedValue)
+          areToggleValuesEqual(entry.value, checkedValue)
       )?.label
 
     const uncheckedLabel =
@@ -1124,7 +1160,7 @@ export class ParameterFormService {
           entry.label &&
           uncheckedValue !== undefined &&
           entry.value !== undefined &&
-          this.areToggleValuesEqual(entry.value, uncheckedValue)
+          areToggleValuesEqual(entry.value, uncheckedValue)
       )?.label
 
     return { checkedLabel, uncheckedLabel }
@@ -1140,7 +1176,7 @@ export class ParameterFormService {
     }
 
     const meta = this.getParameterMetadata(param)
-    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
+    const normalizedDefault = normalizeToggleValue(param.defaultValue)
     const defaultBoolean = toBooleanValue(param.defaultValue)
 
     // Step 1: Parse option entries
@@ -1260,13 +1296,19 @@ export class ParameterFormService {
       }
 
       if (!isEmpty(value)) {
-        const typeError = this.validateParameterType(param, value)
+        const typeError = validateParamType(param.type, param.name, value)
         if (typeError) {
           errors.push(typeError)
           continue
         }
 
-        const choiceError = this.validateParameterChoices(param, value)
+        const validChoices = buildChoiceSet(param.listOptions)
+        const choiceError = validateParamChoices(
+          param.name,
+          value,
+          validChoices,
+          MULTI_SELECT_TYPES.has(param.type)
+        )
         if (choiceError) {
           errors.push(choiceError)
         }
@@ -1274,41 +1316,6 @@ export class ParameterFormService {
     }
 
     return { isValid: errors.length === 0, errors }
-  }
-
-  // Validerar primitiv typ-matchning för parameter-värde
-  private validateParameterType(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    switch (param.type) {
-      case ParameterType.INTEGER:
-        return isInt(value) ? null : `${param.name}:integer`
-      case ParameterType.FLOAT:
-        return isNum(value) ? null : `${param.name}:number`
-      default:
-        return null
-    }
-  }
-
-  // Validerar att värde matchar tillåtna choices i parameter
-  private validateParameterChoices(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    const validChoices = buildChoiceSet(param.listOptions)
-    if (!validChoices) return null
-
-    if (MULTI_SELECT_TYPES.has(param.type)) {
-      const values = Array.isArray(value) ? value : [value]
-      if (values.some((v) => !validChoices.has(normalizeParameterValue(v)))) {
-        return `${param.name}:choice`
-      }
-    } else if (!validChoices.has(normalizeParameterValue(value))) {
-      return `${param.name}:choice`
-    }
-
-    return null
   }
 
   // Parser för condition clause från raw object
@@ -1444,6 +1451,7 @@ export class ParameterFormService {
       const colorConfig = this.deriveColorConfig(param)
       const toggleConfig = this.deriveToggleConfig(type, param, options)
       const visibility = this.deriveVisibilityConfig(param)
+      const choiceSetConfig = this.extractChoiceSetConfig(param)
       const readOnly = this.isReadOnlyField(type, scripted)
       const helper =
         scripted?.instructions ??
@@ -1470,26 +1478,18 @@ export class ParameterFormService {
           (type === FormFieldType.SWITCH || type === FormFieldType.CHECKBOX) &&
           toggleConfig
         ) {
-          const normalizedDefault = this.normalizeToggleValue(
-            param.defaultValue
-          )
+          const normalizedDefault = normalizeToggleValue(param.defaultValue)
           if (
             normalizedDefault !== undefined &&
             toggleConfig.checkedValue !== undefined &&
-            this.areToggleValuesEqual(
-              normalizedDefault,
-              toggleConfig.checkedValue
-            )
+            areToggleValuesEqual(normalizedDefault, toggleConfig.checkedValue)
           ) {
             return toggleConfig.checkedValue as FormPrimitive
           }
           if (
             normalizedDefault !== undefined &&
             toggleConfig.uncheckedValue !== undefined &&
-            this.areToggleValuesEqual(
-              normalizedDefault,
-              toggleConfig.uncheckedValue
-            )
+            areToggleValuesEqual(normalizedDefault, toggleConfig.uncheckedValue)
           ) {
             return toggleConfig.uncheckedValue as FormPrimitive
           }
@@ -1554,6 +1554,7 @@ export class ParameterFormService {
         ...(fileConfig && { fileConfig }),
         ...(colorConfig && { colorConfig }),
         ...(toggleConfig && { toggleConfig }),
+        ...(choiceSetConfig && { choiceSetConfig }),
         ...(visibility && { visibility }),
       }
       return field

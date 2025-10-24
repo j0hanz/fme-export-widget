@@ -8,7 +8,13 @@ import type {
   StartupValidationFlowResult,
 } from "../../config/index"
 import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
-import { createFmeClient, extractErrorMessage, isAbortError } from "../utils"
+import {
+  createFmeClient,
+  extractErrorMessage,
+  isAbortError,
+  getEmail,
+  isValidEmail,
+} from "../utils"
 import { extractHttpStatus, validateRequiredFields } from "../validations"
 import { createError, mapErrorFromNetwork } from "../utils/error"
 import { inFlight } from "./inflight"
@@ -363,7 +369,6 @@ export async function runStartupValidationFlow(
   if (!config?.syncMode) {
     onProgress(translate("statusValidatingEmail"))
     try {
-      const { getEmail, isValidEmail } = await import("../utils")
       const email = await getEmail(config)
       if (!isValidEmail(email)) {
         const err = createError("userEmailMissingError", {
