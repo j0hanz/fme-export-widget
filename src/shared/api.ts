@@ -1484,11 +1484,13 @@ export class FmeFlowApiClient {
         }
 
         // Sätt timeout om konfigurerad
+        // Om ingen timeout är konfigurerad, sätt 0 för att inaktivera esriRequest's 60s default
+        // FME Flow's tm_ttc parameter hanterar workspace timeout på serversidan
         const timeoutMs =
           typeof this.config.timeout === "number" && this.config.timeout > 0
             ? this.config.timeout
-            : undefined
-        if (timeoutMs) {
+            : 0
+        if (timeoutMs > 0) {
           timeoutId = setTimeout(() => {
             didTimeout = true
             try {

@@ -98,7 +98,7 @@ export default {
   hintTimeQueue:
     "Maximum queue time before job is removed from queue. Leave empty for server default",
   hintRequestTimeout:
-    "Maximum wait time for FME Flow response in milliseconds. Default: 30000 ms (30 seconds)",
+    "Maximum wait time for FME Flow response in milliseconds. Leave empty to disable timeout (recommended for long-running workspaces). Example: 30000 ms (30 seconds)",
   hintAoiParam:
     "Name of workspace parameter that receives the export area. Default value: AreaOfInterest",
   hintRequireHttps:
