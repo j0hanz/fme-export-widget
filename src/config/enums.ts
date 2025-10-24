@@ -113,6 +113,7 @@ export const enum ParameterType {
   REPROJECTION_FILE = "REPROJECTION_FILE",
   SCRIPTED = "SCRIPTED",
   NOVALUE = "NOVALUE",
+  GROUP = "GROUP",
 }
 
 export const enum JobStatus {

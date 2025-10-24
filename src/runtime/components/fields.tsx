@@ -22,6 +22,7 @@ import {
   ButtonTabs,
   Table,
   ColorPickerWrapper,
+  Alert,
   useStyles as useUiStyles,
 } from "./ui"
 import {
@@ -536,9 +537,12 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return <></>
       }
       case FormFieldType.MESSAGE: {
-        // Renderar meddelande/instruktion som rich text
-        const html = field.description || field.label || ""
-        return <RichText html={html} />
+        // Renderar meddelande/instruktion som info-alert
+        const message = field.description || field.label || ""
+        if (!message.trim()) return <></>
+        return (
+          <Alert type="info" withIcon open text={message} aria-live="polite" />
+        )
       }
       case FormFieldType.TABLE: {
         const tableConfig = field.tableConfig

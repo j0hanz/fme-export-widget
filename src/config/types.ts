@@ -963,6 +963,7 @@ export interface WorkspaceParameter {
   readonly minimumExclusive?: boolean
   readonly maximumExclusive?: boolean
   readonly decimalPrecision?: number
+  readonly parameters?: readonly WorkspaceParameter[]
   readonly attributes?: { readonly [key: string]: unknown }
   readonly control?: { readonly [key: string]: unknown }
   readonly definition?: { readonly [key: string]: unknown }

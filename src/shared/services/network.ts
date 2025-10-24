@@ -27,6 +27,14 @@ export function extractFmeVersion(info: unknown): string {
   if (!info) return ""
 
   const data = (info as any)?.data ?? info
+
+  // V4 healthcheck doesn't return version info, so we return empty string
+  // Version info might be available in the message field for healthcheck
+  if (data?.status === "ok" && !data?.version && !data?.build) {
+    // V4 healthcheck response - no version available
+    return ""
+  }
+
   const fmePattern = /\bFME\s+(?:Flow|Server)\s+(\d{4}(?:\.\d+)?)\b/i
   const versionPattern = /\b(\d+\.\d+(?:\.\d+)?|20\d{2}(?:\.\d+)?)\b/
 
@@ -42,6 +50,7 @@ export function extractFmeVersion(info: unknown): string {
     "productName",
     "product",
     "name",
+    "message",
   ]
 
   for (const key of directKeys) {

@@ -680,6 +680,236 @@ const isStatusRetryable = (status?: number): boolean => {
 const makeFlowError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status, isStatusRetryable(status))
 
+const V4_TYPE_MAP: { [key: string]: string } = {
+  text: "TEXT",
+  string: "STRING",
+  text_edit: "TEXT_EDIT",
+  textedit: "TEXT_EDIT",
+  textarea: "TEXT_EDIT",
+  password: "PASSWORD",
+  url: "URL",
+  integer: "INTEGER",
+  int: "INTEGER",
+  float: "FLOAT",
+  number: "FLOAT",
+  decimal: "FLOAT",
+  boolean: "BOOLEAN",
+  bool: "BOOLEAN",
+  checkbox: "CHECKBOX",
+  choice: "CHOICE",
+  dropdown: "CHOICE",
+  select: "CHOICE",
+  listbox: "LISTBOX",
+  lookup_choice: "LOOKUP_CHOICE",
+  lookup_listbox: "LOOKUP_LISTBOX",
+  tree: "SCRIPTED",
+  filename: "FILENAME",
+  file: "FILENAME",
+  filename_mustexist: "FILENAME_MUSTEXIST",
+  dirname: "DIRNAME",
+  directory: "DIRNAME",
+  dirname_mustexist: "DIRNAME_MUSTEXIST",
+  dirname_src: "DIRNAME_SRC",
+  lookup_file: "LOOKUP_FILE",
+  date: "DATE",
+  time: "TIME",
+  datetime: "DATETIME",
+  date_time: "DATE_TIME",
+  month: "MONTH",
+  week: "WEEK",
+  color: "COLOR",
+  colour: "COLOR",
+  color_pick: "COLOR_PICK",
+  colorpick: "COLOR_PICK",
+  coordsys: "COORDSYS",
+  coordinate_system: "COORDSYS",
+  geometry: "GEOMETRY",
+  message: "MESSAGE",
+  range_slider: "RANGE_SLIDER",
+  slider: "RANGE_SLIDER",
+  text_or_file: "TEXT_OR_FILE",
+  attribute_name: "ATTRIBUTE_NAME",
+  attribute_list: "ATTRIBUTE_LIST",
+  db_connection: "DB_CONNECTION",
+  web_connection: "WEB_CONNECTION",
+  reprojection_file: "REPROJECTION_FILE",
+  scripted: "SCRIPTED",
+  group: "GROUP",
+}
+
+// Normalizes V4 parameter type to internal format
+const normalizeParameterType = (rawType: unknown): string => {
+  if (typeof rawType !== "string") return "TEXT"
+
+  const normalized = rawType.trim().toLowerCase()
+  const mapped = V4_TYPE_MAP[normalized]
+
+  // If we have a mapping, use it
+  if (mapped) return mapped
+
+  // If it's already uppercase (V3 format), keep it
+  if (rawType === rawType.toUpperCase() && rawType.length > 0) {
+    return rawType
+  }
+
+  // Otherwise, try uppercase version
+  return rawType.toUpperCase()
+}
+
+// Normaliserar V4 parameter-format till intern struktur
+// V4 changed listOptions -> choiceSettings.choices, caption -> display
+const normalizeV4Parameter = (raw: any): any => {
+  if (!raw || typeof raw !== "object") return raw
+
+  const normalized: any = { ...raw }
+
+  // Normalize parameter type (lowercase -> uppercase)
+  if (raw.type) {
+    normalized.type = normalizeParameterType(raw.type)
+  }
+
+  // Handle V4 number type with showSlider flag
+  if (raw.type === "number" && raw.showSlider === true) {
+    normalized.type = "RANGE_SLIDER"
+  }
+
+  // Handle V4 datetime with date-only format
+  if (raw.type === "datetime" && raw.format === "date") {
+    normalized.type = "DATE"
+  }
+
+  // Handle V4 file type variations (itemsToSelect)
+  if (raw.type === "file" && raw.itemsToSelect) {
+    const itemType = raw.itemsToSelect.toLowerCase()
+    if (itemType === "folders" || itemType === "directories") {
+      normalized.type = raw.validateExistence ? "DIRNAME_MUSTEXIST" : "DIRNAME"
+    } else if (itemType === "files") {
+      normalized.type = raw.validateExistence
+        ? "FILENAME_MUSTEXIST"
+        : "FILENAME"
+    }
+  }
+
+  // Handle V4 text type with url editor
+  if (raw.type === "text" && raw.editor === "url") {
+    normalized.type = "URL"
+  }
+
+  // Convert V4 choiceSettings.choices to listOptions format
+  if (raw.choiceSettings?.choices && !raw.listOptions) {
+    const choices = Array.isArray(raw.choiceSettings.choices)
+      ? raw.choiceSettings.choices
+      : []
+
+    normalized.listOptions = choices.map((choice: any) => {
+      // V4 uses 'display' for label and 'value' for actual value
+      const choiceValue = choice.value ?? choice.caption
+      const choiceCaption = choice.display ?? choice.caption ?? choiceValue
+
+      return {
+        caption: choiceCaption,
+        value: choiceValue,
+        ...(choice.description && { description: choice.description }),
+        ...(choice.path && { path: choice.path }),
+        ...(choice.disabled && { disabled: choice.disabled }),
+        ...(choice.metadata && { metadata: choice.metadata }),
+      }
+    })
+
+    // If type is 'text' but has choiceSettings, it should be a CHOICE/dropdown
+    if (raw.type === "text" && normalized.type !== "URL") {
+      normalized.type = "CHOICE"
+    }
+  }
+
+  // Handle V4 tree type with nodeDelimiter
+  if (raw.type === "tree" && raw.nodeDelimiter) {
+    // Store delimiter for hierarchical parsing
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      breadcrumbSeparator: raw.nodeDelimiter,
+      pathSeparator: raw.nodeDelimiter,
+    }
+  }
+
+  // Map V4 'prompt' to 'description' if description is missing
+  if (raw.prompt && !raw.description) {
+    normalized.description = raw.prompt
+  }
+
+  // Map V4 'required' to 'optional' (inverted)
+  // V4 defaults to required=true if not specified
+  if ("required" in raw) {
+    normalized.optional = !raw.required
+  } else if (!("optional" in raw)) {
+    // If neither field exists, default to optional=false (required)
+    normalized.optional = false
+  }
+
+  // Handle V4 number constraints
+  if (raw.type === "number" || normalized.type === "RANGE_SLIDER") {
+    if (typeof raw.minimum === "number") {
+      normalized.minimum = raw.minimum
+    }
+    if (typeof raw.maximum === "number") {
+      normalized.maximum = raw.maximum
+    }
+    if (typeof raw.minimumExclusive === "boolean") {
+      normalized.minimumExclusive = raw.minimumExclusive
+    }
+    if (typeof raw.maximumExclusive === "boolean") {
+      normalized.maximumExclusive = raw.maximumExclusive
+    }
+    if (typeof raw.multipleOf === "number") {
+      normalized.decimalPrecision = raw.multipleOf === 1 ? 0 : undefined
+    }
+  }
+
+  // Handle V4 color with colorSpace
+  if (raw.type === "color" && raw.colorSpace) {
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      colorSpace: raw.colorSpace,
+    }
+  }
+
+  // Handle V4 visibility conditions
+  if (raw.visibility) {
+    normalized.visibility = raw.visibility
+  }
+
+  // Handle V4 nested group parameters
+  if (raw.type === "group" && Array.isArray(raw.parameters)) {
+    normalized.parameters = raw.parameters.map(normalizeV4Parameter)
+  }
+
+  return normalized
+}
+
+// Normaliserar array av V4 parametrar och plattar ut grupper
+const normalizeV4Parameters = (raw: any): any => {
+  // V4 API wraps parameters in { value: [...], Count: n } structure
+  const params = raw?.value || raw
+
+  if (!Array.isArray(params)) return raw
+
+  const normalized = params.map(normalizeV4Parameter)
+
+  // Flatten group parameters: extract nested parameters and add them to top level
+  const flattened: any[] = []
+  for (const param of normalized) {
+    // Always add the parameter itself (groups will be filtered later by ALWAYS_SKIPPED_TYPES)
+    flattened.push(param)
+
+    // If it's a group with nested parameters, add those too
+    if (param.type === "GROUP" && Array.isArray(param.parameters)) {
+      flattened.push(...param.parameters)
+    }
+  }
+
+  return flattened
+}
+
 /* Response interpreters för esriRequest */
 
 // Response interpreters for esriRequest responses
@@ -1280,15 +1510,6 @@ export class FmeFlowApiClient {
     return repository || this.config.repository
   }
 
-  // Bygger service-URL från repository och workspace
-  private buildServiceUrl(
-    service: string,
-    repository: string,
-    workspace: string
-  ): string {
-    return buildUrl(this.config.serverUrl, service, repository, workspace)
-  }
-
   // Formaterar jobb-parametrar till FME publishedParameters-struktur
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     // Om redan i rätt format, returnera direkt
@@ -1313,19 +1534,21 @@ export class FmeFlowApiClient {
     )
   }
 
-  // Bygger transformation-endpoint (submit/run etc.)
-  private transformEndpoint(
-    action: string,
+  private jobsEndpoint(): string {
+    return buildUrl(this.config.serverUrl, this.basePath.slice(1), "jobs")
+  }
+  private workspaceEndpoint(
     repository: string,
-    workspace: string
+    workspace: string,
+    ...segments: string[]
   ): string {
     return buildUrl(
       this.config.serverUrl,
       this.basePath.slice(1),
-      "transformations",
-      action,
+      "workspaces",
       repository,
-      workspace
+      workspace,
+      ...segments
     )
   }
 
@@ -1359,16 +1582,21 @@ export class FmeFlowApiClient {
     }
   }
 
-  /**
-   * Calls /info on FME server to verify connectivity and get version info.
-   */
-  async testConnection(
-    signal?: AbortSignal
-  ): Promise<ApiResponse<{ build: string; version: string }>> {
-    return this.request<{ build: string; version: string }>("/info", { signal })
+  async testConnection(signal?: AbortSignal): Promise<
+    ApiResponse<{
+      status: string
+      message?: string
+      build?: string
+      version?: string
+    }>
+  > {
+    return this.request<{
+      status: string
+      message?: string
+      build?: string
+      version?: string
+    }>("/healthcheck/liveness", { signal })
   }
-
-  /* Publika API-metoder för FME Flow */
 
   // Validerar att repository existerar
   async validateRepository(
@@ -1394,7 +1622,7 @@ export class FmeFlowApiClient {
         const raw = await this.request<any>(listEndpoint, {
           signal,
           cacheHint: false, // Undvik cache över tokens
-          query: { limit: -1, offset: -1 },
+          query: { limit: 1000, offset: 0 },
         })
 
         const data = raw?.data
@@ -1419,18 +1647,24 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(
+    // V4 API: Use /workspaces/{repo}/{workspace}/parameters/{parameter}
+    const endpoint = this.workspaceEndpoint(
       repo,
-      "items",
       workspace,
       "parameters",
       parameter
     )
-    return this.request<WorkspaceParameter>(endpoint, {
+    const response = await this.request<any>(endpoint, {
       signal,
       cacheHint: false, // Avaktivera cache
       repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
     })
+
+    // Normalize V4 parameter format to internal structure
+    return {
+      ...response,
+      data: normalizeV4Parameter(response.data),
+    }
   }
 
   // Hämtar alla workspace-parametrar från FME Flow
@@ -1440,14 +1674,22 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter[]>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
+    // V4 API: Use /workspaces/{repo}/{workspace}/parameters
+    const endpoint = this.workspaceEndpoint(repo, workspace, "parameters")
     return this.withApiError(
-      () =>
-        this.request<WorkspaceParameter[]>(endpoint, {
+      async () => {
+        const response = await this.request<any[]>(endpoint, {
           signal,
           cacheHint: false, // Avaktivera cache
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
-        }),
+        })
+
+        // Normalize V4 parameters format to internal structure
+        return {
+          ...response,
+          data: normalizeV4Parameters(response.data),
+        }
+      },
       "WORKSPACE_PARAMETERS_ERROR",
       "WORKSPACE_PARAMETERS_ERROR"
     )
@@ -1496,7 +1738,8 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<any>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(repo, "items", workspace)
+    // V4 API: Use /workspaces/{repo}/{workspace}
+    const endpoint = this.workspaceEndpoint(repo, workspace)
     return this.withApiError(
       () =>
         this.request<any>(endpoint, {
@@ -1517,14 +1760,20 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.transformEndpoint("submit", repo, workspace)
+    const endpoint = this.jobsEndpoint()
     const jobRequest = this.formatJobParams(parameters)
+    const bodyWithWorkspace = {
+      repository: repo,
+      workspace: workspace,
+      ...jobRequest,
+    }
+
     return this.withApiError(
       () =>
         this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jobRequest),
+          body: JSON.stringify(bodyWithWorkspace),
           signal,
           cacheHint: false,
         }),

@@ -90,6 +90,7 @@ export default {
   errFileInvalid: "Invalid file",
   errDateTimeFormat: "Invalid date format. Use YYYY-MM-DD HH:MM:SS",
   errLoadTimeout: "Loading exceeded time limit",
+  failedToLoadWorkspaces: "Failed to load workspaces",
   valRequiredField: "This field is required",
   valSingleError: "Fill in the required field",
   valMultipleErrors: "Fill in all required fields",

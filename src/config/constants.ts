@@ -107,7 +107,7 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/Graphic",
 ] as const)
 
-export const WORKSPACE_ITEM_TYPE = "WORKSPACE"
+export const WORKSPACE_ITEM_TYPE = "workspace"
 
 export const PREFETCH_CONFIG = Object.freeze({
   DEFAULT_CHUNK_SIZE: 10,
@@ -396,7 +396,7 @@ export const SKIPPED_PARAMETER_NAMES = Object.freeze(
 )
 
 export const ALWAYS_SKIPPED_TYPES = Object.freeze(
-  new Set<ParameterType>([ParameterType.NOVALUE])
+  new Set<ParameterType>([ParameterType.NOVALUE, ParameterType.GROUP])
 )
 
 export const LIST_REQUIRED_TYPES = Object.freeze(
@@ -427,7 +427,7 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.PASSWORD]: FormFieldType.PASSWORD,
   [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
   [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
-  [ParameterType.CHOICE]: FormFieldType.RADIO,
+  [ParameterType.CHOICE]: FormFieldType.SELECT,
   [ParameterType.FILENAME]: FormFieldType.FILE,
   [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
   [ParameterType.DIRNAME]: FormFieldType.FILE,

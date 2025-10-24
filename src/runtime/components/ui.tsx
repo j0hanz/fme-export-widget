@@ -555,19 +555,19 @@ export const Radio: React.FC<{
       aria-label={ariaLabel}
     >
       {options.map((option, index) => (
-        <JimuRadio
-          key={`${option.value}-${index}`}
-          value={option.value}
-          {...(isControlled
-            ? { checked: value === option.value }
-            : { defaultChecked: defaultValue === option.value })}
-          disabled={disabled}
-          onChange={(e) => {
-            onChange?.(e.target.value)
-          }}
-        >
+        <Label key={`${option.value}-${index}`} check centric>
+          <JimuRadio
+            value={option.value}
+            {...(isControlled
+              ? { checked: value === option.value }
+              : { defaultChecked: defaultValue === option.value })}
+            disabled={disabled}
+            onChange={(e) => {
+              onChange?.(e.target.value)
+            }}
+          />
           {option.label}
-        </JimuRadio>
+        </Label>
       ))}
     </div>
   )

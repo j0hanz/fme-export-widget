@@ -94,6 +94,7 @@ System.register([], function (e) {
         errFileInvalid: "Ogiltig fil",
         errDateTimeFormat: "Ogiltigt datumformat. Använd ÅÅÅÅ-MM-DD TT:MM:SS",
         errLoadTimeout: "Inläsningen överskred tidsgränsen",
+        failedToLoadWorkspaces: "Kunde inte ladda workspaces",
         valRequiredField: "Detta fält är obligatoriskt",
         valSingleError: "Fyll i det obligatoriska fältet",
         valMultipleErrors: "Fyll i alla obligatoriska fält",
