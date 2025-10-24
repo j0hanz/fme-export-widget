@@ -1509,14 +1509,19 @@ export class FmeFlowApiClient {
             ok: getEsriResponseOk,
             size: getEsriResponseSize,
           },
-          execute: () =>
-            esriRequestFn(fullUrl, {
+          execute: () => {
+            const requestOptions: any = {
               method: "get",
               responseType: "json",
               headers: requestHeaders,
               signal: controller.signal,
-              timeout: timeoutMs,
-            }),
+            }
+            // Only set timeout if explicitly configured and valid
+            if (typeof timeoutMs === "number" && timeoutMs > 0) {
+              requestOptions.timeout = timeoutMs
+            }
+            return esriRequestFn(fullUrl, requestOptions)
+          },
         })
 
         return this.parseWebhookResponse(response)

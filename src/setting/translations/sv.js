@@ -101,7 +101,7 @@ System.register([], function (e) {
         hintTimeQueue:
           "Maximal kötid innan jobb tas bort från kön. Lämna tomt för serverns standardvärde",
         hintRequestTimeout:
-          "Maximal väntetid på FME Flow-svar i millisekunder. Standard: 30000 ms (30 sekunder)",
+          "Maximal väntetid på FME Flow-svar i millisekunder. Lämna tomt för att inaktivera timeout (rekommenderas för långvariga workspaces). Exempel: 30000 ms (30 sekunder)",
         hintAoiParam:
           "Namnet på workspace-parametern som tar emot exportområdet. Standardvärde: AreaOfInterest",
         hintRequireHttps:
