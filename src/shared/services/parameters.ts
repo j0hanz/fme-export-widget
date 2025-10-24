@@ -1565,6 +1565,10 @@ export class ParameterFormService {
     const override = PARAMETER_FIELD_TYPE_MAP[param.type]
     if (override) return override
 
+    if (MULTI_SELECT_TYPES.has(param.type)) {
+      return FormFieldType.MULTI_SELECT
+    }
+
     const hasOptions = param.listOptions?.length > 0
     if (hasOptions) {
       return MULTI_SELECT_TYPES.has(param.type)

@@ -636,6 +636,53 @@ describe("FME shared logic", () => {
     })
   })
 
+  describe("ParameterFormService - field type mapping", () => {
+    const service = new ParameterFormService()
+
+    it("uses select UI for lookup choice without list options", () => {
+      const params: WorkspaceParameter[] = [
+        {
+          name: "LOOKUP_CHOICE_PARAM",
+          type: ParameterType.LOOKUP_CHOICE,
+          optional: false,
+        },
+      ]
+
+      const [field] = service.convertParametersToFields(params)
+
+      expect(field.type).toBe(FormFieldType.SELECT)
+    })
+
+    it("uses multi-select UI for lookup listbox without list options", () => {
+      const params: WorkspaceParameter[] = [
+        {
+          name: "LOOKUP_LISTBOX_PARAM",
+          type: ParameterType.LOOKUP_LISTBOX,
+          optional: false,
+        },
+      ]
+
+      const [field] = service.convertParametersToFields(params)
+
+      expect(field.type).toBe(FormFieldType.MULTI_SELECT)
+    })
+
+    it("uses multi-select UI for listbox when list options are absent", () => {
+      const params: WorkspaceParameter[] = [
+        {
+          name: "LISTBOX_PARAM",
+          type: ParameterType.LISTBOX,
+          optional: false,
+          listOptions: [],
+        },
+      ]
+
+      const [field] = service.convertParametersToFields(params)
+
+      expect(field.type).toBe(FormFieldType.MULTI_SELECT)
+    })
+  })
+
   describe("ParameterFormService - dynamic visibility", () => {
     const service = new ParameterFormService()
 
