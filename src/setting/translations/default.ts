@@ -29,7 +29,6 @@ export default {
   errInvalidRepository: "The selected repository is not in the list",
   errInvalidUrl: "Invalid URL format",
   errRequireHttps: "Only HTTPS addresses are allowed",
-  errNoFmerest: "Enter base URL without /fmerest for webhook configuration",
   errTokenInvalid: "API token is invalid",
   errLoadRepositories: "Could not fetch repositories from FME Flow",
   errServerUrl: "Invalid URL",
@@ -49,8 +48,6 @@ export default {
   require_https: "Only HTTPS addresses are allowed",
   invalid_url: "Invalid URL format",
   no_query_or_hash: "URL cannot contain query strings or hash",
-  disallow_fmerest_for_webhook:
-    "Enter base URL without /fmerest for webhook configuration",
   missingToken: "API token is required",
   tokenWithWhitespace: "API token cannot contain spaces",
   errorTokenIssue: "API token is missing or invalid",

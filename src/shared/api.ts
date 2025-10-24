@@ -1179,8 +1179,8 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
 }
 
 // Skapar interceptor som injicerar FME-token i requests
-const FME_ENDPOINT_PATTERN =
-  /\/(?:fmerest|fmedatadownload|fmedataupload|fmejobsubmitter)\b/i
+// Matches v4 data streaming endpoints
+const FME_ENDPOINT_PATTERN = /\/(?:fmedatadownload|fmedataupload|fmeapiv4)\b/i
 
 const isAllowedFmePath = (rawUrl: unknown): boolean => {
   if (typeof rawUrl === "string") {

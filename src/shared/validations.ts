@@ -7,7 +7,6 @@ import {
   type WorkspaceParameter,
   ParameterType,
   MIN_TOKEN_LENGTH,
-  FME_REST_PATH,
   EMAIL_REGEX,
   HTTP_STATUS_CODES,
   isHttpStatus,
@@ -197,26 +196,17 @@ export const isNum = (value: unknown): boolean => {
 
 // URL validation helpers
 
-// Kontrollerar om pathname innehåller förbjuden FME REST path
-const hasForbiddenPath = (pathname: string): boolean =>
-  pathname.toLowerCase().includes(FME_REST_PATH)
-
-// Normaliserar bas-URL genom att ta bort legacy /fmerest path och credentials
+// Normaliserar bas-URL genom att ta bort credentials och query params
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
-
-  let path = u.pathname || "/"
-  const idxRest = path.toLowerCase().indexOf(FME_REST_PATH)
-  if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
 
   u.search = ""
   u.hash = ""
   u.username = ""
   u.password = ""
-  u.pathname = path
 
-  const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
+  const cleanPath = u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "")
   return `${u.origin}${cleanPath}`
 }
 
@@ -226,7 +216,6 @@ export function validateServerUrl(
   opts?: {
     strict?: boolean
     requireHttps?: boolean
-    disallowRestForWebhook?: boolean
   }
 ): UrlValidation {
   const trimmed = toTrimmedStringOrEmpty(url)
@@ -249,17 +238,6 @@ export function validateServerUrl(
 
     if (parsed.search || parsed.hash) {
       return { ok: false, reason: "no_query_or_hash" }
-    }
-
-    if (
-      opts?.disallowRestForWebhook &&
-      /\/fmerest(?:\/|$)/i.test(parsed.pathname)
-    ) {
-      return { ok: false, reason: "disallow_fmerest_for_webhook" }
-    }
-
-    if (hasForbiddenPath(parsed.pathname)) {
-      return { ok: false, reason: "invalid_url" }
     }
 
     if (parsed.hostname.endsWith(".")) {

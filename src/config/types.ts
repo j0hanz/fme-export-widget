@@ -722,7 +722,6 @@ export interface FmeExportConfig {
   readonly supportEmail?: string
   readonly requireHttps?: boolean
   readonly defaultRequesterEmail?: string
-  readonly disallowRestForWebhook?: boolean
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly showResult?: boolean

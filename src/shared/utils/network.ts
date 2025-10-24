@@ -129,9 +129,7 @@ export const buildUrl = (serverUrl: string, ...segments: string[]): string =>
   _composeUrl(serverUrl, segments)
 
 const _composeUrl = (base: string, segments: string[]): string => {
-  const normalizedBase = base
-    .replace(/\/(?:fmeserver|fmerest)$/i, "") // Remove legacy server path suffixes
-    .replace(/\/$/, "")
+  const normalizedBase = base.replace(/\/$/, "")
 
   const encodePath = (s: string): string =>
     s

@@ -250,7 +250,6 @@ export const TOKEN_ICON_PRIORITY = Object.freeze([
 ] as const)
 
 export const MIN_TOKEN_LENGTH = 10
-export const FME_REST_PATH = "/fmerest"
 
 export const WKID = Object.freeze({
   WGS84: 4326,
@@ -362,7 +361,6 @@ export const MESSAGE_PATTERNS = Object.freeze([
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
   require_https: "require_https",
   no_query_or_hash: "invalid_url",
-  disallow_fmerest_for_webhook: "disallow_fmerest_for_webhook",
   invalid_url: "invalid_url",
 }
 

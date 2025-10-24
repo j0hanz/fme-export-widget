@@ -509,7 +509,6 @@ export const createWebhookArtifacts = (
   const baseUrlValidation = validateServerUrl(baseUrl, {
     strict: true,
     requireHttps: true,
-    disallowRestForWebhook: true,
   })
 
   if (!baseUrlValidation.ok) {
