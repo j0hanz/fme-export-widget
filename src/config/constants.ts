@@ -31,6 +31,8 @@ export const LAYER_CONFIG = Object.freeze({
 })
 
 export const DEFAULT_DRAWING_HEX = "#0079C1"
+export const DEFAULT_OUTLINE_WIDTH = 2
+export const DEFAULT_FILL_OPACITY = 0.2
 
 export const UPLOAD_PARAM_TYPES = Object.freeze([
   "FILENAME",
@@ -148,15 +150,6 @@ export const MAX_URL_LENGTH = 4000
 
 export const ABORT_REGEX = /abort/i
 
-export const SCHEDULE_TRIGGER_DEFAULT = "runonce"
-export const SCHEDULE_METADATA_FIELDS = Object.freeze([
-  "start",
-  "name",
-  "category",
-  "description",
-  "trigger",
-] as const)
-
 export const TM_PARAM_KEYS = Object.freeze([
   "tm_ttc",
   "tm_ttl",
@@ -182,14 +175,12 @@ export const WEBHOOK_EXCLUDE_PARAMS = Object.freeze([
 
 export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([
   ...TM_PARAM_KEYS,
-  ...SCHEDULE_METADATA_FIELDS,
   ...OPTIONAL_OPT_KEYS,
 ])
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",
   "async",
-  "schedule",
 ] as const)
 
 export const GEOMETRY_CONSTS = Object.freeze({
@@ -285,21 +276,66 @@ export const HTTP_STATUS_CODES = Object.freeze({
   SERVER_ERROR_MAX: 599,
 })
 
+// HTTP Status Ranges
+export const HTTP_STATUS_RANGES = Object.freeze({
+  SUCCESS_MIN: 200,
+  SUCCESS_MAX: 399,
+  CLIENT_ERROR_MIN: 400,
+  CLIENT_ERROR_MAX: 499,
+  SERVER_ERROR_MIN: 500,
+  SERVER_ERROR_MAX: 599,
+  MIN_VALID: 100,
+  MAX_VALID: 599,
+})
+
+// HTTP Status Classification Helpers
+export const isSuccessStatus = (status?: number): boolean =>
+  typeof status === "number" &&
+  status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
+  status <= HTTP_STATUS_RANGES.SUCCESS_MAX
+
+export const isServerError = (status?: number): boolean =>
+  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN
+
+export const isClientError = (status?: number): boolean =>
+  typeof status === "number" &&
+  status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
+  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX
+
+export const isHttpStatus = (n: unknown): n is number =>
+  typeof n === "number" &&
+  n >= HTTP_STATUS_RANGES.MIN_VALID &&
+  n <= HTTP_STATUS_RANGES.MAX_VALID
+
+export const isRetryableStatus = (status?: number): boolean => {
+  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true
+  if (isServerError(status)) return true
+  return (
+    status === HTTP_STATUS_CODES.TIMEOUT ||
+    status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS
+  )
+}
+
+// Time Constants (milliseconds)
+export const TIME_CONSTANTS = Object.freeze({
+  SECOND: 1000,
+  MINUTE: 60 * 1000,
+  FIVE_MINUTES: 5 * 60 * 1000,
+  TEN_MINUTES: 10 * 60 * 1000,
+  MAX_RESPONSE_TIME: 300000, // 5 minutes
+  SLOW_REQUEST_THRESHOLD: 1000, // 1 second
+})
+
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
-  ARCGIS_MODULE_ERROR: "errorNetworkIssue",
-  NETWORK_ERROR: "errorNetworkIssue",
   INVALID_RESPONSE_FORMAT: "errorTokenIssue",
   WEBHOOK_AUTH_ERROR: "errorTokenIssue",
-  WEBHOOK_BAD_RESPONSE: "errorServerIssue",
-  WEBHOOK_NON_JSON: "errorServerIssue",
   WEBHOOK_TIMEOUT: "requestTimedOut",
-  SERVER_URL_ERROR: "connectionFailedMessage",
-  REPOSITORIES_ERROR: "errorServerIssue",
-  REPOSITORY_ITEMS_ERROR: "errorServerIssue",
-  WORKSPACE_ITEM_ERROR: "errorServerIssue",
+  REPOSITORIES_ERROR: "errorRepositoryAccess",
+  REPOSITORY_ITEMS_ERROR: "errorRepositoryAccess",
   JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  DATA_DOWNLOAD_ERROR: "errorServerIssue",
   INVALID_CONFIG: "errorSetupRequired",
+  CONFIG_INCOMPLETE: "errorSetupRequired",
+  configMissing: "errorSetupRequired",
   GEOMETRY_MISSING: "geometryMissingCode",
   GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
   GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
@@ -307,17 +343,13 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
 }
 
 export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
-  0: "errorNetworkIssue",
   401: "errorTokenIssue",
-  403: "errorTokenIssue",
-  404: "connectionFailedMessage",
   408: "requestTimedOut",
   429: "rateLimitExceeded",
   431: "headersTooLargeMessage",
 }
 
 export const MESSAGE_PATTERNS = Object.freeze([
-  { pattern: /failed to fetch/i, key: "errorNetworkIssue" },
   { pattern: /timeout/i, key: "requestTimedOut" },
   { pattern: /cors/i, key: "corsBlocked" },
   { pattern: /url.*too/i, key: "urlTooLongMessage" },
@@ -430,4 +462,67 @@ export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
   "projection",
   "webMercatorUtils",
   "SpatialReference",
+] as const)
+
+export const FILE_UPLOAD = Object.freeze({
+  DEFAULT_MAX_SIZE_MB: 150,
+  ONE_MB_IN_BYTES: 1024 * 1024,
+  GEOMETRY_PREVIEW_MAX_LENGTH: 1500,
+  DEFAULT_ALLOWED_EXTENSIONS: Object.freeze([
+    ".zip",
+    ".kmz",
+    ".json",
+    ".geojson",
+    ".gml",
+  ] as const),
+  DEFAULT_ALLOWED_MIME_TYPES: Object.freeze(
+    new Set(
+      [
+        "application/zip",
+        "application/x-zip-compressed",
+        "application/vnd.google-earth.kmz",
+        "application/json",
+        "application/geo+json",
+        "application/gml+xml",
+        "text/plain",
+        "",
+      ].map((type) => type.toLowerCase())
+    )
+  ),
+  FILE_DISPLAY_KEYS: Object.freeze([
+    "text",
+    "path",
+    "location",
+    "value",
+    "dataset",
+    "defaultValue",
+    "fileName",
+    "filename",
+    "file_path",
+    "file",
+    "uri",
+    "url",
+    "name",
+  ] as const),
+})
+
+export const NETWORK_INDICATORS = Object.freeze([
+  "failed to fetch",
+  "networkerror",
+  "net::",
+  "dns",
+  "enotfound",
+  "econnrefused",
+  "timeout",
+  "name or service not known",
+  "err_name_not_resolved",
+  "unable to load",
+  "/sharing/proxy",
+  "proxy",
+] as const)
+
+export const PROXY_INDICATORS = Object.freeze([
+  "unable to load",
+  "/sharing/proxy",
+  "proxy",
 ] as const)

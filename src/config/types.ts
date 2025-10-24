@@ -2,6 +2,7 @@ import type { IMState, ImmutableObject } from "jimu-core"
 import type React from "react"
 
 import type FmeFlowApiClient from "../shared/api"
+import type { fmeActions } from "../extensions/store"
 import type { SettingStyles } from "./style"
 import type {
   DrawingTool,
@@ -63,29 +64,7 @@ export type FormPrimitive = Exclude<FormValue, undefined>
 
 export type SelectValue = string | number | ReadonlyArray<string | number>
 
-// SCHEDULE TYPES
-export interface ScheduleMetadata {
-  readonly start: string
-  readonly name: string
-  readonly category: string
-  readonly description?: string
-  readonly trigger?: string
-}
-
-export type ServiceMode = "sync" | "async" | "schedule"
-
-export interface ScheduleValidationResult {
-  readonly valid: boolean
-  readonly errors?: {
-    readonly start?: string
-    readonly name?: string
-    readonly category?: string
-  }
-  readonly warnings?: {
-    readonly pastTime?: boolean
-    readonly pastTimeMessage?: string
-  }
-}
+export type ServiceMode = "sync" | "async"
 
 export interface FormValues {
   [key: string]: FormValue
@@ -242,6 +221,7 @@ export interface SerializableErrorState {
   readonly userFriendlyMessage?: string
   readonly suggestion?: string
   readonly kind?: "serializable"
+  readonly errorId?: string
 }
 
 export type AnyErrorState = ErrorState | SerializableErrorState
@@ -748,11 +728,13 @@ export interface FmeExportConfig {
   readonly showResult?: boolean
   readonly aoiParamName?: string
   readonly uploadTargetParamName?: string
-  readonly allowScheduleMode?: boolean
+
   readonly allowRemoteDataset?: boolean
   readonly allowRemoteUrlDataset?: boolean
   readonly autoCloseOtherWidgets?: boolean
   readonly drawingColor?: string
+  readonly drawingOutlineWidth?: number
+  readonly drawingFillOpacity?: number
 }
 
 export interface RequestConfig {
@@ -1109,13 +1091,6 @@ export interface ExportResult {
   readonly downloadUrl?: string
   readonly blob?: Blob
   readonly downloadFilename?: string
-  readonly scheduleMetadata?: {
-    readonly start?: string
-    readonly name?: string
-    readonly category?: string
-    readonly description?: string
-    readonly trigger?: string
-  }
   readonly status?: string
   readonly statusMessage?: string
   readonly serviceMode?: ServiceMode
@@ -1312,13 +1287,6 @@ export interface UseDebounceOptions {
   onPendingChange?: (pending: boolean) => void
 }
 
-export interface ScheduleFieldsProps {
-  readonly values: { [key: string]: unknown }
-  readonly onChange: (field: string, value: string) => void
-  readonly translate: (key: string, params?: any) => string
-  readonly disabled?: boolean
-}
-
 export interface RepositorySelectorProps {
   readonly localServerUrl: string
   readonly localToken: string
@@ -1441,7 +1409,7 @@ export interface ConnectionValidationResult {
   readonly version?: string
   readonly repositories?: readonly string[]
   readonly error?: {
-    readonly message: string
+    readonly message?: string
     readonly type: "server" | "token" | "repository" | "network" | "generic"
     readonly status?: number
   }
@@ -1714,10 +1682,6 @@ export interface UseFmeMutationResult<TData, TVariables> {
   status: QueryStatus
 }
 
-/**
- * Internal cache entry structure
- * @internal
- */
 export interface CacheEntry<T> {
   data: T | undefined
   error: unknown
@@ -1726,4 +1690,126 @@ export interface CacheEntry<T> {
   subscribers: Set<() => void>
   retryCount: number
   abortController: AbortController | null
+}
+
+export interface SubmissionOrchestrationOptions {
+  formData: unknown
+  config: FmeExportConfig
+  geometryJson: unknown
+  geometry: __esri.Geometry | null | undefined
+  modules: EsriModules
+  workspaceParameters: readonly WorkspaceParameter[]
+  workspaceItem: WorkspaceItemDetail | null
+  selectedWorkspace: string | null
+  areaWarning: boolean
+  drawnArea: number
+  fmeClient: FmeFlowApiClient
+  submissionAbort: {
+    abortAndCreate: () => AbortController
+    finalize: (controller: AbortController | null) => void
+  }
+  widgetId: string
+  translate: (id: string, data?: any) => string
+  makeCancelable: <T>(promise: Promise<T>) => Promise<T>
+  onStatusChange?: (phase: string) => void
+  getActiveGeometry: () => __esri.Geometry | null
+}
+
+export interface SubmissionOrchestrationResult {
+  success: boolean
+  result?: ExportResult
+  error?: unknown
+  serviceMode?: ServiceMode | null
+}
+
+export interface StartupValidationFlowOptions {
+  config: any
+  useMapWidgetIds: string[]
+  translate: (key: string) => string
+  signal: AbortSignal
+  onProgress: (step: string) => void
+}
+
+export interface StartupValidationFlowResult {
+  success: boolean
+  error?: any
+}
+
+export interface DrawingCompletionResult {
+  success: boolean
+  geometry?: __esri.Polygon
+  area?: number
+  error?: any
+  shouldWarn?: boolean
+}
+
+export interface ErrorMappingRules {
+  readonly codeToKey: { readonly [code: string]: string }
+  readonly statusToKey: { readonly [status: number]: string }
+  readonly messagePatterns: ReadonlyArray<{ pattern: RegExp; key: string }>
+}
+
+export interface ClassifiedError {
+  readonly status?: number
+  readonly code?: string
+  readonly message?: string
+  readonly isRequestFailed: boolean
+}
+
+export interface ErrorFactoryOptions {
+  readonly code?: string
+  readonly severity?: ErrorSeverity
+  readonly recoverable?: boolean
+  readonly userFriendlyMessage?: string
+  readonly suggestion?: string
+  readonly details?: { [key: string]: unknown }
+  readonly scope?: ErrorScope
+}
+
+/* Debug object interface for __FME_DEBUG__ global */
+export interface FmeDebugObject {
+  readonly widgetId: string
+  getConfig: () => FmeExportConfig
+  getState: () => FmeWidgetState | null
+  getQueryCache: () => ReadonlyArray<{
+    queryKey: unknown
+    state: any
+    queryHash: string
+  }>
+  getMutationCache: () => ReadonlyArray<{
+    mutationId: number
+    state: any
+  }>
+  clearQueryCache: () => void
+  invalidateQueries: (filters?: any) => void
+  getAppState: () => IMState
+  dispatch: (action: any) => void
+  readonly actions: typeof fmeActions
+  getNetworkHistory: () => readonly RequestLog[]
+  clearNetworkHistory: () => void
+  readonly utils: {
+    maskToken: (token: string) => string
+    formatArea: (
+      area: number,
+      spatialReference?: __esri.SpatialReference
+    ) => string
+    safeLogParams: (params: { [key: string]: any }) => { [key: string]: any }
+  }
+  readonly helpers: {
+    inspectState: () => void
+    inspectQueries: () => void
+    resetToDrawing: () => void
+    testError: (errorType?: string, code?: string) => void
+    inspectNetwork: (filter?: { failed?: boolean; slow?: boolean }) => void
+    showFullState: () => void
+    showConfig: () => void
+    showTimeline: () => void
+    exportDebugInfo: () => string
+  }
+}
+
+declare global {
+  interface Window {
+    __FME_DEBUG__?: FmeDebugObject
+  }
 }

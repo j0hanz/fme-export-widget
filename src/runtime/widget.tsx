@@ -11,10 +11,13 @@ import {
   appActions,
   getAppStore,
   ReactDOM,
+  MessageManager,
+  DataRecordSetChangeMessage,
 } from "jimu-core"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
+import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import { fmeQueryClient } from "../shared/query-client"
 import { Workflow } from "./components/workflow"
 import { StateView, renderSupportHint, useStyles } from "./components/ui"
@@ -23,12 +26,10 @@ import defaultMessages from "./translations/default"
 import type {
   FmeExportConfig,
   ExportResult,
-  ServiceMode,
   IMStateWithFmeExport,
   FmeWidgetState,
   WorkspaceParameter,
   WorkspaceItemDetail,
-  WorkspaceItem,
   ErrorState,
   SerializableErrorState,
   DrawingSessionState,
@@ -46,47 +47,37 @@ import {
   ErrorSeverity,
   VIEW_ROUTES,
   DEFAULT_DRAWING_HEX,
-  DEFAULT_REPOSITORY,
-  WORKSPACE_ITEM_TYPE,
 } from "../config/index"
 import {
-  validateWidgetStartup,
-  prepareSubmissionParams,
   createLayers,
   createSketchVM,
+  runStartupValidationFlow,
+  processDrawingCompletion,
+  executeJobSubmission,
+  setupFmeDebugTools,
+  updateFmeDebugTools,
 } from "../shared/services"
+import { getSupportEmail, extractHttpStatus } from "../shared/validations"
+import { mapErrorFromNetwork } from "../shared/utils/error"
+import { checkMaxArea, evaluateArea } from "../shared/utils/geometry"
+import { initialFmeState, createFmeSelectors } from "../extensions/store"
 import {
-  mapErrorToKey,
-  calcArea,
-  validatePolygon,
-  checkMaxArea,
-  evaluateArea,
-  processFmeResponse,
-} from "../shared/validations"
-import {
-  fmeActions,
-  initialFmeState,
-  createFmeSelectors,
-} from "../extensions/store"
-import {
-  resolveMessageOrKey,
-  buildSupportHintText,
-  getEmail,
   determineServiceMode,
   formatArea,
-  isValidEmail,
-  getSupportEmail,
-  formatErrorForView,
+  formatErrorPresentation,
   useLatestAbortController,
   toTrimmedString,
   logIfNotAbort,
+  safeAbort,
   popupSuppressionManager,
   hexToRgbArray,
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
-  buildTokenCacheKey,
   isAbortError,
+  createFmeDispatcher,
+  shouldSuppressError,
+  createErrorActions,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -191,7 +182,10 @@ function WidgetContent(
     : null
 
   const styles = useStyles()
-  const translateWidget = hooks.useTranslation(defaultMessages)
+  const translateWidget = hooks.useTranslation(
+    defaultMessages,
+    jimuDefaultMessages
+  )
 
   /* Wrapper för översättningsfunktion med stabila callbacks */
   const translate = hooks.useEventCallback((key: string): string => {
@@ -212,12 +206,32 @@ function WidgetContent(
   const fmeClientKeyRef = React.useRef<string | null>(null)
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
-  /* Unik identifierare för popup-suppression i denna widget-instans */
-  const popupClientIdRef = React.useRef<symbol>(
-    Symbol(widgetId ? `fme-popup-${widgetId}` : "fme-popup")
-  )
+  const completionControllerRef = React.useRef<AbortController | null>(null)
+  const popupClientIdRef = React.useRef<symbol>()
+  if (!popupClientIdRef.current) {
+    popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+  }
+
+  const previousWidgetId = hooks.usePrevious(widgetId)
+  hooks.useUpdateEffect(() => {
+    if (previousWidgetId && previousWidgetId !== widgetId) {
+      const oldSymbol = popupClientIdRef.current
+      if (oldSymbol) {
+        popupSuppressionManager.release(oldSymbol)
+      }
+      popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+    }
+  }, [widgetId, previousWidgetId])
+
   /* Timer för fördröjd repository cache warmup */
   const warmupTimerRef = React.useRef<number | null>(null)
+
+  /* Ger enkel åtkomst till Redux-dispatch med widgetId */
+  const fmeDispatchRef = React.useRef(createFmeDispatcher(dispatch, widgetId))
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(dispatch, widgetId)
+  }, [dispatch, widgetId])
+  const fmeDispatch = fmeDispatchRef.current
 
   /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
@@ -229,6 +243,7 @@ function WidgetContent(
   /* Spårar submission-fas för feedback under export */
   const [submissionPhase, setSubmissionPhase] =
     React.useState<SubmissionPhase>("idle")
+  const [announcement, setAnnouncement] = React.useState("")
 
   const updateDrawingSession = hooks.useEventCallback(
     (updates: Partial<DrawingSessionState>) => {
@@ -261,7 +276,7 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setDrawingTool(tool, widgetId))
+    fmeDispatch.setDrawingTool(tool)
   })
 
   const [areaWarning, setAreaWarning] = React.useState(false)
@@ -285,7 +300,7 @@ function WidgetContent(
     setModeNotice(null)
   })
 
-  /* Sätter modenotis baserat på tvingad servicemode (async/schedule) */
+  /* Hanterar övergång vid tvingad async-läge */
   const setForcedModeNotice = hooks.useEventCallback(
     (
       info: ServiceModeOverrideInfo | null,
@@ -336,64 +351,7 @@ function WidgetContent(
     }
   })
 
-  /* Förladdar workspace-listan från FME Flow för snabbare användarval */
-  const warmRepositoryCache = hooks.useEventCallback(() => {
-    const latestConfig = configRef.current
-    if (!latestConfig?.fmeServerUrl || !latestConfig?.fmeServerToken) {
-      return
-    }
-
-    const repository = latestConfig.repository || DEFAULT_REPOSITORY
-    const tokenKey = buildTokenCacheKey(latestConfig.fmeServerToken)
-    const queryKey = [
-      "fme",
-      "workspaces",
-      repository,
-      latestConfig.fmeServerUrl,
-      tokenKey,
-    ] as const
-
-    void fmeQueryClient
-      .fetchQuery<WorkspaceItem[]>({
-        queryKey,
-        staleTime: 5 * 60 * 1000,
-        retry: 1,
-        queryFn: async ({ signal }) => {
-          const client = getOrCreateFmeClient()
-          const response = await client.getRepositoryItems(
-            repository,
-            WORKSPACE_ITEM_TYPE,
-            undefined,
-            undefined,
-            signal
-          )
-          const items = Array.isArray(response?.data?.items)
-            ? (response.data.items as WorkspaceItem[])
-            : []
-          return items
-        },
-      })
-      .then((items) => {
-        if (Array.isArray(items) && items.length) {
-          dispatch(fmeActions.setWorkspaceItems(items, widgetId))
-        }
-      })
-      .catch((error) => {
-        logIfNotAbort("Repository warmup error", error)
-      })
-  })
-
-  const scheduleRepositoryWarmup = hooks.useEventCallback(() => {
-    clearWarmupTimer()
-    if (typeof window === "undefined") {
-      warmRepositoryCache()
-      return
-    }
-    warmupTimerRef.current = window.setTimeout(() => {
-      warmupTimerRef.current = null
-      warmRepositoryCache()
-    }, 300)
-  })
+  /* Removed scheduleRepositoryWarmup function */
 
   hooks.useUpdateEffect(() => {
     if (!isStartupPhase) {
@@ -413,15 +371,13 @@ function WidgetContent(
           popup,
           mapView
         )
-      }
-      try {
-        if (typeof (mapView as any).closePopup === "function") {
-          ;(mapView as any).closePopup()
-        } else if (popup && typeof popup.close === "function") {
-          popup.close()
+        try {
+          if (typeof mapView.closePopup === "function") {
+            mapView.closePopup()
+          }
+        } catch (error) {
+          logIfNotAbort("Failed to close map popup", error)
         }
-      } catch (error) {
-        logIfNotAbort("Failed to close map popup", error)
       }
     }
   )
@@ -430,7 +386,6 @@ function WidgetContent(
     popupSuppressionManager.release(popupClientIdRef.current)
   })
 
-  /* Stänger andra öppna widgets enligt autoCloseOtherWidgets-inställning */
   const closeOtherWidgets = hooks.useEventCallback(() => {
     const autoCloseSetting = configRef.current?.autoCloseOtherWidgets
     if (autoCloseSetting !== undefined && !autoCloseSetting) {
@@ -440,11 +395,22 @@ function WidgetContent(
       const store = typeof getAppStore === "function" ? getAppStore() : null
       const state = store?.getState?.()
       const runtimeInfo = state?.widgetsRuntimeInfo as
-        | { [id: string]: { state?: WidgetState | string } | undefined }
+        | {
+            [id: string]:
+              | { state?: WidgetState | string; isClassLoaded?: boolean }
+              | undefined
+          }
         | undefined
       const targets = computeWidgetsToClose(runtimeInfo, widgetId)
       if (targets.length) {
-        dispatch(appActions.closeWidgets(targets))
+        /* Filter to only widgets with loaded classes to prevent race conditions */
+        const safeTargets = targets.filter((targetId) => {
+          const targetInfo = runtimeInfo?.[targetId]
+          return Boolean(targetInfo?.isClassLoaded)
+        })
+        if (safeTargets.length) {
+          dispatch(appActions.closeWidgets(safeTargets))
+        }
       }
     } catch (err) {
       logIfNotAbort("closeOtherWidgets error", err)
@@ -456,18 +422,27 @@ function WidgetContent(
   const submissionAbort = useLatestAbortController()
 
   const navigateTo = hooks.useEventCallback((nextView: ViewMode) => {
-    dispatch(fmeActions.clearError("export", widgetId))
-    dispatch(fmeActions.clearError("import", widgetId))
-    dispatch(fmeActions.setViewMode(nextView, widgetId))
+    fmeDispatch.clearError("export")
+    fmeDispatch.clearError("import")
+    fmeDispatch.setViewMode(nextView)
   })
 
   /* Bygger symboler från konfigurerad drawingColor (config är källa) */
   const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX
-  const symbolsRef = React.useRef(buildSymbols(hexToRgbArray(currentHex)))
+  const drawingStyleOptions = {
+    outlineWidth: config?.drawingOutlineWidth,
+    fillOpacity: config?.drawingFillOpacity,
+  }
+  const symbolsRef = React.useRef(
+    buildSymbols(hexToRgbArray(currentHex), drawingStyleOptions)
+  )
 
   hooks.useUpdateEffect(() => {
-    symbolsRef.current = buildSymbols(hexToRgbArray(currentHex))
-  }, [currentHex])
+    symbolsRef.current = buildSymbols(
+      hexToRgbArray(currentHex),
+      drawingStyleOptions
+    )
+  }, [currentHex, config?.drawingOutlineWidth, config?.drawingFillOpacity])
 
   /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {
@@ -522,15 +497,11 @@ function WidgetContent(
   hooks.useUpdateEffect(() => {
     if (!config?.fmeServerUrl || !config?.fmeServerToken) {
       clearWarmupTimer()
-      return
     }
-
-    scheduleRepositoryWarmup()
   }, [
     config?.fmeServerUrl,
     config?.fmeServerToken,
     config?.repository,
-    scheduleRepositoryWarmup,
     clearWarmupTimer,
   ])
 
@@ -540,24 +511,26 @@ function WidgetContent(
     disposeFmeClient()
     disablePopupGuard()
     clearWarmupTimer()
+    safeAbort(completionControllerRef.current)
+    completionControllerRef.current = null
   })
 
   /* Centraliserade Redux-återställnings-hjälpfunktioner */
   const resetReduxForRevalidation = hooks.useEventCallback(() => {
     const activeTool = drawingToolRef.current
 
-    dispatch(fmeActions.resetState(widgetId))
+    fmeDispatch.resetState()
     updateAreaWarning(false)
 
-    dispatch(fmeActions.clearWorkspaceState(widgetId))
+    fmeDispatch.clearWorkspaceState()
 
     if (activeTool) {
-      dispatch(fmeActions.setDrawingTool(activeTool, widgetId))
+      fmeDispatch.setDrawingTool(activeTool)
     }
   })
 
   const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
-    dispatch(fmeActions.resetToDrawing(widgetId))
+    fmeDispatch.resetToDrawing()
     updateAreaWarning(false)
     updateDrawingSession({ isActive: false, clickCount: 0 })
   })
@@ -574,94 +547,58 @@ function WidgetContent(
       error: ErrorState | null,
       onRetry?: () => void
     ): React.ReactElement | null => {
-      if (!error) return null
+      if (shouldSuppressError(error)) return null
 
-      /* Undertrycker avbrutna/cancelled fel från användargränssnittet */
-      if (
-        error.code === "CANCELLED" ||
-        error.code === "ABORT" ||
-        /cancel/i.test(error.message)
-      ) {
-        return null
-      }
-
-      /* Översätter felmeddelande och bestämmer användarhjälp */
-      const baseMsgKey = error.message || "errorUnknown"
-      const resolvedMessage = resolveMessageOrKey(baseMsgKey, translate)
-
-      /* Avgör om support-ledtråd ska visas baserat på feltyp */
-      const codeUpper = (error.code || "").toUpperCase()
-      const isGeometryInvalid =
-        codeUpper === "GEOMETRY_INVALID" || codeUpper === "INVALID_GEOMETRY"
-      const isAreaTooLarge = codeUpper === "AREA_TOO_LARGE"
-      const isAoiRetryableError = isGeometryInvalid || isAreaTooLarge
-      const isConfigIncomplete = codeUpper === "CONFIG_INCOMPLETE"
-      const suppressSupport = isAoiRetryableError || isConfigIncomplete
-
-      /* Bygger kontextuell felhjälp beroende på feltyp */
-      const ufm = error.userFriendlyMessage
       const supportEmail = getSupportEmail(configRef.current?.supportEmail)
-      const supportHint = isGeometryInvalid
-        ? translate("hintGeometryInvalid")
-        : isAreaTooLarge
-          ? translate("hintAreaTooLarge")
-          : isConfigIncomplete
-            ? translate("hintSetupWidget")
-            : formatErrorForView(
-                translate,
-                baseMsgKey,
-                error.code,
-                supportEmail,
-                typeof ufm === "string" ? ufm : undefined
-              ).hint
+      const context = formatErrorPresentation(error, translate, supportEmail)
+      const resolvedMessage = context.message
 
       /* Bygger retry-action som rensar fel och återgår till ritläge */
-      const actions: Array<{ label: string; onClick: () => void }> = []
-      const retryHandler =
-        onRetry ??
-        (() => {
-          /* Rensar fel och återgår till ritläge vid geometry-fel */
-          dispatch(fmeActions.clearError("general", widgetId))
-          if (isAoiRetryableError) {
-            /* Markerar att ritning ska auto-starta när verktyg återinits */
-            setShouldAutoStart(true)
-            dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-            /* Om ritresurser rensades, återinitierar dem nu */
-            try {
-              const currentSketchVM = sketchViewModel
-              const currentModules = modules
-              const currentJimuView = jimuMapView
-              if (!currentSketchVM && currentModules && currentJimuView) {
-                handleMapViewReady(currentJimuView)
-              }
-            } catch {}
-          }
-        })
-      actions.push({ label: translate("actionRetry"), onClick: retryHandler })
+      const defaultRetryHandler = () => {
+        fmeDispatch.clearError("general")
+        const codeUpper = (error?.code || "").toUpperCase()
+        const isAoiRetryable =
+          codeUpper === "GEOMETRY_INVALID" ||
+          codeUpper === "INVALID_GEOMETRY" ||
+          codeUpper === "AREA_TOO_LARGE"
 
-      /* Lägger till reload-knapp vid offline-fel */
-      if (isNavigatorOffline()) {
-        actions.push({
-          label: translate("actionReload"),
-          onClick: () => {
-            try {
-              ;(globalThis as any).location?.reload()
-            } catch {}
-          },
-        })
+        if (isAoiRetryable) {
+          setShouldAutoStart(true)
+          fmeDispatch.setViewMode(ViewMode.DRAWING)
+          try {
+            if (!sketchViewModel && modules && jimuMapView) {
+              handleMapViewReady(jimuMapView)
+            }
+          } catch {}
+        }
       }
 
-      const hintText = toTrimmedString(supportHint)
+      const actions = createErrorActions(
+        error,
+        {
+          onRetry: onRetry ?? defaultRetryHandler,
+          onReload: isNavigatorOffline()
+            ? () => {
+                try {
+                  ;(globalThis as any).location?.reload()
+                } catch {}
+              }
+            : undefined,
+        },
+        translate
+      )
+
+      const hintText = toTrimmedString(context.hint)
       const supportDetail = !hintText
         ? undefined
-        : suppressSupport
+        : !context.code
           ? hintText
           : renderSupportHint(supportEmail, translate, styles, hintText)
 
       return (
         <StateView
           state={makeErrorView(resolvedMessage, {
-            code: suppressSupport ? undefined : error.code,
+            code: context.code,
             actions,
             detail: supportDetail,
           })}
@@ -693,10 +630,8 @@ function WidgetContent(
 
   /* Synkar modulers laddningsstatus med Redux */
   hooks.useEffectWithPreviousValues(() => {
-    dispatch(
-      fmeActions.setLoadingFlag("modules", Boolean(modulesLoading), widgetId)
-    )
-  }, [modulesLoading, dispatch, widgetId])
+    fmeDispatchRef.current.setLoadingFlag("modules", Boolean(modulesLoading))
+  }, [modulesLoading])
 
   hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {
@@ -711,9 +646,30 @@ function WidgetContent(
       modules &&
       generalError?.code === "MAP_MODULES_LOAD_FAILED"
     ) {
-      dispatch(fmeActions.clearError("general", widgetId))
+      fmeDispatchRef.current.clearError("general")
     }
-  }, [modulesLoading, modules, generalError?.code, dispatch, widgetId])
+  }, [modulesLoading, modules, generalError?.code])
+
+  /* Annonserar viktiga vyändringar för skärmläsare */
+  hooks.useUpdateEffect(() => {
+    if (viewMode === ViewMode.WORKSPACE_SELECTION) {
+      setAnnouncement(translate("msgWorkspacesReady"))
+      return
+    }
+
+    if (viewMode === ViewMode.EXPORT_FORM) {
+      setAnnouncement(translate("msgFormReady"))
+      return
+    }
+
+    if (viewMode === ViewMode.ORDER_RESULT) {
+      const key = orderResult?.success ? "msgOrderSuccess" : "msgOrderFail"
+      setAnnouncement(translate(key))
+      return
+    }
+
+    setAnnouncement("")
+  }, [viewMode, orderResult?.success, translate])
 
   const getActiveGeometry = hooks.useEventCallback(() => {
     if (!geometryJson || !modules?.Polygon) {
@@ -731,19 +687,13 @@ function WidgetContent(
   })
 
   hooks.useUpdateEffect(() => {
-    if (viewMode !== ViewMode.EXPORT_FORM) {
-      clearModeNotice()
-      return
-    }
-
-    const latestConfig = configRef.current
-    if (!latestConfig) {
+    if (viewMode !== ViewMode.EXPORT_FORM || !configRef.current) {
       clearModeNotice()
       return
     }
 
     let forcedInfo: ServiceModeOverrideInfo | null = null
-    determineServiceMode({ data: {} }, latestConfig, {
+    determineServiceMode({ data: {} }, configRef.current, {
       workspaceItem,
       areaWarning,
       drawnArea,
@@ -752,12 +702,9 @@ function WidgetContent(
       },
     })
 
-    if (forcedInfo) {
-      setForcedModeNotice(forcedInfo, modules, jimuMapView)
-      return
-    }
-
-    clearModeNotice()
+    forcedInfo
+      ? setForcedModeNotice(forcedInfo, modules, jimuMapView)
+      : clearModeNotice()
   }, [
     viewMode,
     workspaceItem,
@@ -766,7 +713,6 @@ function WidgetContent(
     modules,
     jimuMapView,
     config?.syncMode,
-    config?.allowScheduleMode,
     config?.largeArea,
     clearModeNotice,
     setForcedModeNotice,
@@ -791,20 +737,20 @@ function WidgetContent(
   const exitDrawingMode = hooks.useEventCallback(
     (nextViewMode: ViewMode, options?: { clearLocalGeometry?: boolean }) => {
       endSketchSession(options)
-      dispatch(fmeActions.setViewMode(nextViewMode, widgetId))
+      fmeDispatch.setViewMode(nextViewMode)
     }
   )
 
-  // Startup validation step updater
+  // Uppdaterar uppstarts-valideringssteg
   const setValidationStep = hooks.useEventCallback((step: string) => {
     setStartupStep(step)
   })
 
   const setValidationSuccess = hooks.useEventCallback(() => {
     setStartupStep(undefined)
-    dispatch(fmeActions.clearError("general", widgetId))
-    dispatch(fmeActions.completeStartup(widgetId))
-    scheduleRepositoryWarmup()
+    fmeDispatch.clearError("general")
+    fmeDispatch.completeStartup()
+    /* Removed scheduleRepositoryWarmup call */
     const currentViewMode = viewModeRef.current
     const isUnset =
       currentViewMode === null || typeof currentViewMode === "undefined"
@@ -816,28 +762,32 @@ function WidgetContent(
     }
   })
 
-  const setValidationError = hooks.useEventCallback((error: ErrorState) => {
-    setStartupStep(undefined)
-    dispatch(fmeActions.setError("general", error, widgetId))
-  })
+  const setValidationError = hooks.useEventCallback(
+    (error: SerializableErrorState) => {
+      setStartupStep(undefined)
+      fmeDispatch.setError("general", error)
+    }
+  )
 
-  /* Skapar konsekvent startup-valideringsfel med retry-callback */
+  /* Skapar konsekvent startup-valideringsfel utan retry-callback (Redux-kompatibelt) */
   const createStartupError = hooks.useEventCallback(
-    (messageKey: string, code: string, retry?: () => void): ErrorState => ({
-      message: translate(messageKey),
-      type: ErrorType.CONFIG,
-      code,
-      severity: ErrorSeverity.ERROR,
-      recoverable: true,
-      timestamp: new Date(),
-      timestampMs: Date.now(),
-      userFriendlyMessage: config?.supportEmail
-        ? String(config.supportEmail)
-        : "",
-      suggestion: translate("actionRetryValidation"),
-      retry,
-      kind: "runtime",
-    })
+    (messageKey: string | undefined, code: string): SerializableErrorState => {
+      const finalKey = messageKey || "errorStartupFailed"
+
+      return {
+        message: translate(finalKey),
+        type: ErrorType.CONFIG,
+        code,
+        severity: ErrorSeverity.ERROR,
+        recoverable: true,
+        timestampMs: Date.now(),
+        userFriendlyMessage: config?.supportEmail
+          ? String(config.supportEmail)
+          : "",
+        suggestion: translate("btnRetryValidation"),
+        kind: "serializable",
+      }
+    }
   )
 
   /* AbortController för att kunna avbryta pågående startup-validering */
@@ -846,79 +796,42 @@ function WidgetContent(
   /* Kör startup-validering: karta, config, FME-anslutning, e-post */
   const runStartupValidation = hooks.useEventCallback(async () => {
     const controller = startupAbort.abortAndCreate()
-    dispatch(fmeActions.clearError("general", widgetId))
-    setValidationStep(translate("validatingStartup"))
+    fmeDispatch.clearError("general")
 
     try {
-      /* Steg 1: validera kartkonfiguration */
-      setValidationStep(translate("statusValidatingMap"))
-      const hasMapConfigured =
-        Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
-
-      /* Steg 2: validera widget-config och FME-anslutning */
-      setValidationStep(translate("statusValidatingConnection"))
-      const validationResult = await validateWidgetStartup({
+      await runStartupValidationFlow({
         config,
+        useMapWidgetIds: (useMapWidgetIds
+          ? [...useMapWidgetIds]
+          : []) as string[],
         translate,
         signal: controller.signal,
-        mapConfigured: hasMapConfigured,
+        onProgress: setValidationStep,
       })
-
-      if (!validationResult.isValid) {
-        if (validationResult.error) {
-          setValidationError(validationResult.error)
-        } else if (validationResult.requiresSettings) {
-          setValidationError(
-            createStartupError(
-              "configurationInvalid",
-              "VALIDATION_FAILED",
-              runStartupValidation
-            )
-          )
-        } else {
-          setStartupStep(undefined)
-        }
+      setValidationSuccess()
+    } catch (err: unknown) {
+      if (isAbortError(err)) {
         return
       }
 
-      /* Steg 3: validera användarens e-post för async-läge */
-      if (!config?.syncMode) {
-        setValidationStep(translate("statusValidatingEmail"))
-        try {
-          const email = await getEmail(config)
-          if (!isValidEmail(email)) {
-            setValidationError(
-              createStartupError(
-                "userEmailMissingError",
-                "UserEmailMissing",
-                runStartupValidation
-              )
-            )
-            return
-          }
-        } catch (emailErr) {
-          setValidationError(
-            createStartupError(
-              "userEmailMissingError",
-              "UserEmailMissing",
-              runStartupValidation
-            )
-          )
-          return
+      let parsedError: any = null
+      try {
+        if (err instanceof Error && err.message) {
+          parsedError = JSON.parse(err.message)
         }
-      }
+      } catch {}
 
-      /* All validering lyckades */
-      setValidationSuccess()
-    } catch (err: unknown) {
-      const errorKey = mapErrorToKey(err) || "errorUnknown"
+      const errorToUse = parsedError || err
+      const errorKey =
+        parsedError?.message ||
+        mapErrorFromNetwork(errorToUse, extractHttpStatus(errorToUse))
       const errorCode =
-        typeof err === "object" && err !== null && "code" in err
-          ? String((err as any).code)
+        typeof errorToUse === "object" &&
+        errorToUse !== null &&
+        "code" in errorToUse
+          ? String(errorToUse.code)
           : "STARTUP_VALIDATION_FAILED"
-      setValidationError(
-        createStartupError(errorKey, errorCode, runStartupValidation)
-      )
+      setValidationError(createStartupError(errorKey, errorCode))
     } finally {
       startupAbort.finalize(controller)
     }
@@ -1009,105 +922,132 @@ function WidgetContent(
   /* Hanterar slutförd ritning med geometri-validering och area-beräkning */
   const onDrawComplete = hooks.useEventCallback(
     async (evt: __esri.SketchCreateEvent) => {
-      const geometry = evt.graphic?.geometry
-      if (!geometry) {
-        return
-      }
+      if (!evt.graphic?.geometry) return
+
       if (isCompletingRef.current) {
+        console.log("Drawing completion already in progress, ignoring")
         return
       }
 
+      const previousController = completionControllerRef.current
+      if (previousController && !previousController.signal.aborted) {
+        safeAbort(previousController)
+      }
+
+      const controller = new AbortController()
+      completionControllerRef.current = controller
       isCompletingRef.current = true
+
       try {
         endSketchSession()
         updateAreaWarning(false)
 
-        /* Validerar geometri och förenklar om nödvändigt */
-
-        const validation = await validatePolygon(geometry, modules)
-
-        if (!validation.valid) {
-          try {
-            graphicsLayer?.remove(evt.graphic as any)
-          } catch {}
-          teardownDrawingResources()
-          dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          updateAreaWarning(false)
-          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
-          if (validation.error) {
-            dispatch(fmeActions.setError("general", validation.error, widgetId))
-          }
-
-          return
-        }
-        const geomForUse = validation.simplified ?? (geometry as __esri.Polygon)
-
-        const calculatedArea = await calcArea(geomForUse, modules)
-
-        if (!calculatedArea || calculatedArea <= 0) {
-          updateAreaWarning(false)
-          dispatchError(
-            translate("geometryInvalidCode"),
-            ErrorType.VALIDATION,
-            "ZERO_AREA"
-          )
-
-          return
-        }
-
-        const normalizedArea = Math.abs(calculatedArea)
-
-        const areaEvaluation = evaluateArea(normalizedArea, {
-          maxArea: config?.maxArea,
-          largeArea: config?.largeArea,
+        const result = await processDrawingCompletion({
+          geometry: evt.graphic.geometry,
+          modules,
+          graphicsLayer,
+          config,
+          signal: controller.signal,
         })
 
-        if (areaEvaluation.exceedsMaximum) {
-          const maxCheck = checkMaxArea(normalizedArea, config?.maxArea)
+        if (controller.signal.aborted) return
+
+        if (!result.success) {
           try {
             graphicsLayer?.remove(evt.graphic as any)
           } catch {}
-          teardownDrawingResources()
-          dispatch(fmeActions.setGeometry(null, 0, widgetId))
-          updateAreaWarning(false)
-          exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
-          if (maxCheck.message) {
-            const messageKey = maxCheck.message || "geometryAreaTooLargeCode"
 
-            dispatchError(messageKey, ErrorType.VALIDATION, maxCheck.code)
+          if (!controller.signal.aborted) {
+            teardownDrawingResources()
+            fmeDispatch.setGeometry(null, 0)
+            updateAreaWarning(false)
+            exitDrawingMode(ViewMode.INITIAL, { clearLocalGeometry: true })
+
+            if (result.error) {
+              if (result.error.code === "ZERO_AREA") {
+                dispatchError(
+                  translate("errGeomInvalid"),
+                  ErrorType.VALIDATION,
+                  "ZERO_AREA"
+                )
+              } else if (result.error.message) {
+                dispatchError(
+                  result.error.message,
+                  ErrorType.VALIDATION,
+                  result.error.code
+                )
+              } else {
+                fmeDispatch.setError("general", result.error)
+              }
+            }
           }
-
           return
         }
 
-        updateAreaWarning(areaEvaluation.shouldWarn)
+        updateAreaWarning(result.shouldWarn || false)
 
-        if (evt.graphic) {
-          evt.graphic.geometry = geomForUse
+        if (evt.graphic && result.geometry) {
+          evt.graphic.geometry = result.geometry
           const highlightSymbol = symbolsRef.current?.HIGHLIGHT_SYMBOL
           if (highlightSymbol) {
             evt.graphic.symbol = highlightSymbol as any
           }
         }
 
-        dispatch(
-          fmeActions.completeDrawing(
-            geomForUse,
-            normalizedArea,
-            ViewMode.WORKSPACE_SELECTION,
-            widgetId
+        if (result.geometry && result.area !== undefined) {
+          fmeDispatch.completeDrawing(
+            result.geometry,
+            result.area,
+            ViewMode.WORKSPACE_SELECTION
           )
-        )
-        // Göm ritverktygen tills vidare
+        }
       } catch (error) {
-        updateAreaWarning(false)
-        dispatchError(
-          translate("errorDrawingComplete"),
-          ErrorType.VALIDATION,
-          "DRAWING_COMPLETE_ERROR"
-        )
+        if (!controller.signal.aborted) {
+          updateAreaWarning(false)
+          dispatchError(
+            translate("errDrawComplete"),
+            ErrorType.VALIDATION,
+            "DRAWING_COMPLETE_ERROR"
+          )
+        }
       } finally {
+        if (completionControllerRef.current === controller) {
+          completionControllerRef.current = null
+        }
         isCompletingRef.current = false
+      }
+    }
+  )
+
+  // Publicerar meddelande om jobbs slutförande
+  const publishJobCompletionMessage = hooks.useEventCallback(
+    (result: ExportResult) => {
+      try {
+        // Bygger jobbrekordet för meddelandet
+        const jobRecord = {
+          jobId: result.jobId || result.code || "unknown",
+          workspace: selectedWorkspace || "unknown",
+          status: result.success ? "completed" : "failed",
+          downloadUrl: result.downloadUrl || "",
+          message: result.message || "",
+          timestamp: new Date().toISOString(),
+          serviceMode: result.serviceMode || "unknown",
+        }
+
+        // Bygger och publicerar meddelandet
+        const message = new DataRecordSetChangeMessage(
+          widgetId,
+          [jobRecord] as any,
+          []
+        )
+
+        MessageManager.getInstance().publishMessage(message)
+      } catch (error) {
+        // Ignorera publiceringfel - huvudfunktionalitet påverkas ej
+        console.warn(
+          "FME Export: Failed to publish job completion message",
+          error
+        )
       }
     }
   )
@@ -1119,90 +1059,16 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setOrderResult(result, widgetId))
+    fmeDispatch.setOrderResult(result)
     navigateTo(ViewMode.ORDER_RESULT)
+
+    // Publicera meddelande om lyckad/misslyckad export
+    publishJobCompletionMessage(result)
   })
-
-  /* Hanterar lyckad submission och bygger resultat-objekt */
-  const handleSubmissionSuccess = (
-    fmeResponse: unknown,
-    workspace: string,
-    userEmail: string,
-    formData: { [key: string]: unknown } | undefined,
-    serviceMode?: ServiceMode | null
-  ) => {
-    const baseResult = processFmeResponse(
-      fmeResponse,
-      workspace,
-      userEmail,
-      translate
-    )
-
-    let nextResult: ExportResult = {
-      ...baseResult,
-      ...(serviceMode ? { serviceMode } : {}),
-    }
-
-    if (formData && config?.allowScheduleMode) {
-      const startVal = toTrimmedString(formData.start)
-      const name = toTrimmedString(formData.name)
-      const category = toTrimmedString(formData.category)
-      const description = toTrimmedString(formData.description)
-      const trigger = toTrimmedString(formData.trigger)
-
-      if (startVal && name && category) {
-        const scheduleMetadata = {
-          ...(nextResult.scheduleMetadata ?? {}),
-          start: startVal,
-          name,
-          category,
-          ...(description ? { description } : {}),
-          ...(trigger ? { trigger } : {}),
-        }
-        nextResult = { ...nextResult, scheduleMetadata }
-      }
-    }
-
-    finalizeOrder(nextResult)
-  }
-
-  /* Hanterar submission-fel och bygger användarmeddelande */
-  const handleSubmissionError = (
-    error: unknown,
-    serviceMode?: ServiceMode | null
-  ) => {
-    if (isAbortError(error)) {
-      return
-    }
-
-    /* Översätter fel till lokaliserad nyckel */
-    const rawKey = mapErrorToKey(error) || "errorUnknown"
-    let localizedErr = ""
-    try {
-      localizedErr = resolveMessageOrKey(rawKey, translate)
-    } catch {
-      localizedErr = translate("errorUnknown")
-    }
-    /* Bygger felmeddelande med support-ledtråd */
-    const configured = getSupportEmail(configRef.current?.supportEmail)
-    const contactHint = buildSupportHintText(translate, configured)
-    const baseFailMessage = translate("errorOrderFailed")
-    const resultMessage =
-      `${baseFailMessage}. ${localizedErr}. ${contactHint}`.trim()
-    const result: ExportResult = {
-      success: false,
-      message: resultMessage,
-      code: (error as { code?: string }).code || "SUBMISSION_ERROR",
-      ...(serviceMode ? { serviceMode } : {}),
-    }
-    finalizeOrder(result)
-  }
 
   /* Hanterar formulär-submission: validerar, förbereder, kör workspace */
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
-    if (isSubmitting || !canExport) {
-      return
-    }
+    if (isSubmitting || !canExport) return
 
     const maxCheck = checkMaxArea(drawnArea, config?.maxArea)
     if (!maxCheck.ok && maxCheck.message) {
@@ -1211,107 +1077,69 @@ function WidgetContent(
       return
     }
 
-    dispatch(fmeActions.setLoadingFlag("submission", true, widgetId))
+    fmeDispatch.setLoadingFlag("submission", true)
     setSubmissionPhase("preparing")
-
-    let controller: AbortController | null = null
-    let serviceMode: ServiceMode | null = null
+    clearModeNotice()
 
     try {
-      const latestConfig = configRef.current
+      const fmeClient = getOrCreateFmeClient()
       const rawDataEarly = ((formData as any)?.data || {}) as {
         [key: string]: unknown
       }
-      clearModeNotice()
-      /* Avgör serviceMode tidigt för e-post-krav */
-      const determinedMode = determineServiceMode(
-        { data: rawDataEarly },
-        latestConfig,
-        {
-          workspaceItem,
-          areaWarning,
-          drawnArea,
-          onModeOverride: setForcedModeNotice,
-        }
-      )
-      serviceMode =
-        determinedMode === "sync" ||
-        determinedMode === "async" ||
-        determinedMode === "schedule"
-          ? determinedMode
-          : null
-      const fmeClient = getOrCreateFmeClient()
-      const requiresEmail =
-        serviceMode === "async" || serviceMode === "schedule"
-      const userEmail = requiresEmail ? await getEmail(latestConfig) : ""
 
-      const workspace = selectedWorkspace
-      if (!workspace) {
-        setSubmissionPhase("idle")
-        return
-      }
+      /* Bestämmer och sätter service mode notice */
+      determineServiceMode({ data: rawDataEarly }, configRef.current, {
+        workspaceItem,
+        areaWarning,
+        drawnArea,
+        onModeOverride: setForcedModeNotice,
+      })
 
-      /* Skapar AbortController för denna request (upload + run) */
-      controller = submissionAbort.abortAndCreate()
-
-      /* Förbereder parametrar och hanterar remote URL / fil-upload */
-      const subfolder = `widget_${(props as any)?.id || "fme"}`
-      const preparation = await prepareSubmissionParams({
-        rawFormData: rawDataEarly,
-        userEmail,
+      const submissionResult = await executeJobSubmission({
+        formData,
+        config: configRef.current,
         geometryJson,
         geometry: getActiveGeometry() || undefined,
         modules,
-        config: latestConfig,
         workspaceParameters,
         workspaceItem,
-        selectedWorkspaceName: workspace,
+        selectedWorkspace,
         areaWarning,
         drawnArea,
-        makeCancelable,
         fmeClient,
-        signal: controller.signal,
-        remoteDatasetSubfolder: subfolder,
+        submissionAbort,
+        widgetId,
+        translate,
+        makeCancelable,
         onStatusChange: handlePreparationStatus,
+        getActiveGeometry,
       })
 
-      if (preparation.aoiError) {
-        setSubmissionPhase("idle")
-        dispatch(fmeActions.setError("general", preparation.aoiError, widgetId))
-        return
+      if (!submissionResult.success && submissionResult.error) {
+        /* Kolla om det är ett AOI-fel från prepareSubmissionParams */
+        const errorObj = submissionResult.error as any
+        if (errorObj && typeof errorObj === "object" && "kind" in errorObj) {
+          setSubmissionPhase("idle")
+          fmeDispatch.setError("general", errorObj)
+          return
+        }
       }
 
-      const finalParams = preparation.params
-      if (!finalParams) {
-        throw new Error("Submission parameter preparation failed")
+      if (submissionResult.result) {
+        finalizeOrder(submissionResult.result)
       }
-      setSubmissionPhase("submitting")
-      /* Skickar till FME Flow */
-      const fmeResponse = await makeCancelable(
-        fmeClient.runWorkspace(
-          workspace,
-          finalParams,
-          undefined,
-          controller.signal
-        )
-      )
-      if (controller.signal.aborted) {
-        return
-      }
-
-      handleSubmissionSuccess(
-        fmeResponse,
-        workspace,
-        userEmail,
-        rawDataEarly,
-        serviceMode
-      )
     } catch (error) {
-      handleSubmissionError(error, serviceMode)
+      /* Oväntade fel som inte fångades av executeJobSubmission */
+      if (!isAbortError(error)) {
+        dispatchError(
+          translate("errJobSubmit"),
+          ErrorType.MODULE,
+          "SUBMISSION_UNEXPECTED_ERROR"
+        )
+      }
     } finally {
       setSubmissionPhase("idle")
-      dispatch(fmeActions.setLoadingFlag("submission", false, widgetId))
-      submissionAbort.finalize(controller)
+      fmeDispatch.setLoadingFlag("submission", false)
     }
   })
 
@@ -1330,7 +1158,7 @@ function WidgetContent(
       try {
         /* Lokaliserar ritnings-lagrets titel */
         ;(layer as unknown as { [key: string]: any }).title =
-          translate("labelDrawingLayer")
+          translate("lblDrawLayer")
       } catch {}
       const { sketchViewModel: svm, cleanup } = createSketchVM({
         jmv,
@@ -1346,11 +1174,7 @@ function WidgetContent(
       setCleanupHandles(cleanup)
       setSketchViewModel(svm)
     } catch (error) {
-      dispatchError(
-        translate("errorMapInit"),
-        ErrorType.MODULE,
-        "MAP_INIT_ERROR"
-      )
+      dispatchError(translate("errMapInit"), ErrorType.MODULE, "MAP_INIT_ERROR")
     }
   })
 
@@ -1383,7 +1207,7 @@ function WidgetContent(
     }
   }, [shouldAutoStart, sketchViewModel, drawingTool])
 
-  /* Uppdaterar symboler när drawingColor ändras */
+  /* Uppdaterar symboler när ritstil ändras */
   hooks.useUpdateEffect(() => {
     const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS
     if (syms) {
@@ -1392,6 +1216,21 @@ function WidgetContent(
           ;(sketchViewModel as any).polygonSymbol = syms.polygon
           ;(sketchViewModel as any).polylineSymbol = syms.polyline
           ;(sketchViewModel as any).pointSymbol = syms.point
+
+          const internalVm = (sketchViewModel as any).viewModel
+          const updateSymbol = (graphic: any) => {
+            if (graphic && typeof graphic === "object") {
+              graphic.symbol = syms.polygon
+            }
+          }
+          updateSymbol(internalVm?.graphic)
+          updateSymbol(internalVm?.previewGraphic)
+          const sketchLayer = internalVm?.sketchGraphicsLayer
+          sketchLayer?.graphics?.forEach?.((graphic: any) => {
+            if (graphic?.geometry?.type === "polygon") {
+              graphic.symbol = syms.polygon
+            }
+          })
         } catch {}
       }
       if (graphicsLayer) {
@@ -1404,7 +1243,13 @@ function WidgetContent(
         } catch {}
       }
     }
-  }, [sketchViewModel, graphicsLayer, (config as any)?.drawingColor])
+  }, [
+    sketchViewModel,
+    graphicsLayer,
+    (config as any)?.drawingColor,
+    config?.drawingOutlineWidth,
+    config?.drawingFillOpacity,
+  ])
 
   /* Avbryter ritning om widget förlorar aktivering */
   hooks.useUpdateEffect(() => {
@@ -1434,7 +1279,7 @@ function WidgetContent(
       /* Rensar kart-/ritresurser */
       cleanupResources()
       /* Tar bort widget-state från Redux */
-      dispatch(fmeActions.removeWidgetState(widgetId))
+      fmeDispatch.removeWidgetState()
     }
   })
 
@@ -1443,22 +1288,22 @@ function WidgetContent(
     (tool: DrawingTool, isDrawing: boolean, clickCount: number) => {
       /* Visar allmän instruktion före första klicket */
       if (clickCount === 0) {
-        return translate("hintStartDrawing")
+        return translate("hintClickMap")
       }
 
       /* Efter första klicket, visa verktygsspecifika instruktioner */
       if (tool === DrawingTool.RECTANGLE) {
-        return translate("hintDrawRectangle")
+        return translate("hintDrawRect")
       }
 
       if (tool === DrawingTool.POLYGON) {
         if (clickCount < 3) {
-          return translate("hintDrawPolygonContinue")
+          return translate("hintDrawContinue")
         }
-        return translate("hintDrawPolygonComplete")
+        return translate("hintDrawComplete")
       }
 
-      return translate("hintSelectDrawingMode")
+      return translate("hintSelectMode")
     }
   )
 
@@ -1472,9 +1317,9 @@ function WidgetContent(
       /* Sätter verktyg och uppdaterar session-state */
       updateDrawingSession({ isActive: true, clickCount: 0 })
 
-      dispatch(fmeActions.setDrawingTool(tool, widgetId))
+      fmeDispatch.setDrawingTool(tool)
 
-      dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
+      fmeDispatch.setViewMode(ViewMode.DRAWING)
 
       updateAreaWarning(false)
     })
@@ -1492,11 +1337,9 @@ function WidgetContent(
         safeCancelSketch(sketchViewModel)
       }
     } catch {
-      // fallback best-effort cancel
+      // fallback för avbrytning om allt annat misslyckas
       safeCancelSketch(sketchViewModel)
-    }
-
-    /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
+    } /* Startar ritning omedelbart; tidigare cancel undviker överlappning */
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon"
 
@@ -1683,12 +1526,11 @@ function WidgetContent(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      dispatch(
-        fmeActions.applyWorkspaceData(
-          { workspaceName, parameters, item: workspaceItem },
-          widgetId
-        )
-      )
+      fmeDispatchRef.current.applyWorkspaceData({
+        workspaceName,
+        parameters,
+        item: workspaceItem,
+      })
       navigateTo(ViewMode.EXPORT_FORM)
     }
   )
@@ -1706,6 +1548,19 @@ function WidgetContent(
         : defaultRoute
     navigateTo(target)
   })
+
+  if (!widgetId || typeof widgetId !== "string" || !widgetId.trim()) {
+    console.error("[FME Export] Critical: Widget ID missing or invalid")
+    return (
+      <div css={styles.parent}>
+        <StateView
+          state={makeErrorView(translate("errorWidgetIdMissing"), {
+            code: "WIDGET_ID_MISSING",
+          })}
+        />
+      </div>
+    )
+  }
 
   /* Renderar laddningsvy om moduler fortfarande laddas */
   if (modulesLoading) {
@@ -1786,6 +1641,20 @@ function WidgetContent(
         />
       )}
 
+      <div
+        aria-live="assertive"
+        aria-atomic="true"
+        style={{
+          position: "absolute",
+          left: "-10000px",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+      >
+        {announcement}
+      </div>
+
       <Workflow
         widgetId={widgetId}
         config={workflowConfig}
@@ -1822,17 +1691,17 @@ function WidgetContent(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
-          dispatch(fmeActions.setDrawingTool(tool, widgetId))
+          fmeDispatchRef.current.setDrawingTool(tool)
           if (sketchViewModel) {
             safeCancelSketch(sketchViewModel)
             updateDrawingSession({ isActive: false, clickCount: 0 })
           }
         }}
-        // Drawing props
+        // Ritnings-props
         isDrawing={drawingSession.isActive}
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
-        // Header props
+        // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
         }
@@ -1843,7 +1712,7 @@ function WidgetContent(
         selectedWorkspace={selectedWorkspace}
         workspaceParameters={workspaceParameters}
         workspaceItem={workspaceItem}
-        // Startup validation props
+        // Uppstarts-valideringsProps
         isStartupValidating={isStartupValidating}
         startupValidationStep={startupValidationStep}
         startupValidationError={startupValidationErrorDetails}
@@ -1857,17 +1726,32 @@ function WidgetContent(
 export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
+  const resolveWidgetId = (): string =>
+    (props.id ?? (props as any).widgetId) as unknown as string
+
+  hooks.useEffectOnce(() => {
+    setupFmeDebugTools({
+      widgetId: resolveWidgetId(),
+      config: props.config,
+    })
+    return undefined
+  })
+
+  hooks.useUpdateEffect(() => {
+    updateFmeDebugTools({
+      widgetId: resolveWidgetId(),
+      config: props.config,
+    })
+  }, [props.id, props.config])
+
   return (
     <QueryClientProvider client={fmeQueryClient}>
       <WidgetContent {...props} />
-      {process.env.NODE_ENV === "development" && (
-        <ReactQueryDevtools initialIsOpen={false} />
-      )}
+      <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   )
 }
 
-/* Mappar extra Redux state-props för widgeten */
 Reflect.set(
   Widget as any,
   "mapExtraStateProps",

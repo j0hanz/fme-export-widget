@@ -2,8 +2,14 @@
 /** @jsxFrag React.Fragment */
 import { React, hooks, jsx } from "jimu-core"
 import {
+  TagInput as JimuTagInput,
+  MultiSelect,
+  RichDisplayer,
+  defaultMessages as jimuDefaultMessages,
+} from "jimu-ui"
+import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
+import {
   Select,
-  MultiSelectControl,
   TextArea,
   Input,
   UrlInput,
@@ -12,16 +18,15 @@ import {
   Radio,
   Slider,
   NumericInput,
-  TagInput,
-  ColorPickerWrapper,
-  DateTimePickerWrapper,
   Button,
   ButtonTabs,
-  RichText,
   Table,
+  ColorPickerWrapper,
+  useStyles as useUiStyles,
 } from "./ui"
 import {
   FormFieldType,
+  FILE_UPLOAD,
   type DynamicFieldProps,
   type FormPrimitive,
   type SelectValue,
@@ -31,11 +36,13 @@ import {
   type FileFieldConfig,
   type FileValidationResult,
   type ToggleFieldConfig,
+  type OptionItem,
+  type UiStyles,
+  type TranslateFn,
 } from "../../config/index"
-import { useUiStyles } from "../../config/style"
+import { useUiStyles as useConfigStyles } from "../../config/style"
 import defaultMessages from "./translations/default"
 import {
-  asString,
   makePlaceholders,
   getTextPlaceholder,
   computeSelectCoerce,
@@ -52,10 +59,17 @@ import {
   isFileObject,
   getFileDisplayName,
   toTrimmedString,
+  toStringValue,
   resolveMessageOrKey,
   toBooleanValue,
   normalizeParameterValue,
+  isNonEmptyTrimmedString,
+  parseIsoLocalDateTime,
+  formatIsoLocalDateTime,
+  flattenHierarchicalOptions,
+  styleCss,
 } from "../../shared/utils"
+import { useControlledValue } from "../../shared/hooks"
 
 // Fälttyper som använder select/dropdown-komponenter
 const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
@@ -78,6 +92,8 @@ const TEXT_OR_FILE_MODES = {
   TEXT: "text" as const,
   FILE: "file" as const,
 }
+
+const toDisplayString = (value: unknown): string => toStringValue(value) ?? ""
 
 const compareToggleValues = (a: unknown, b: unknown): boolean => {
   if (a === undefined || a === null || b === undefined || b === null) {
@@ -208,7 +224,7 @@ const renderDateTimeInput = (
 ): JSX.Element => (
   <Input
     type={inputType}
-    value={asString(value)}
+    value={toDisplayString(value)}
     placeholder={placeholder}
     onChange={(val) => {
       onChange(val as FormPrimitive)
@@ -218,7 +234,10 @@ const renderDateTimeInput = (
 )
 
 // Normaliserar TEXT_OR_FILE-värde till konsistent struktur
-const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
+const normalizeTextOrFileValue = (
+  rawValue: unknown,
+  translate?: TranslateFn
+): NormalizedTextOrFile => {
   if (
     rawValue &&
     typeof rawValue === "object" &&
@@ -233,13 +252,13 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
         fileName:
           typeof obj.fileName === "string"
             ? obj.fileName
-            : getFileDisplayName(obj.file),
+            : getFileDisplayName(obj.file, translate),
       }
     }
     if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
       return {
         mode: TEXT_OR_FILE_MODES.TEXT,
-        text: asString(obj.text),
+        text: toDisplayString(obj.text),
       }
     }
   }
@@ -247,12 +266,12 @@ const normalizeTextOrFileValue = (rawValue: unknown): NormalizedTextOrFile => {
     return {
       mode: TEXT_OR_FILE_MODES.FILE,
       file: rawValue,
-      fileName: getFileDisplayName(rawValue),
+      fileName: getFileDisplayName(rawValue, translate),
     }
   }
   return {
     mode: TEXT_OR_FILE_MODES.TEXT,
-    text: asString(rawValue),
+    text: toDisplayString(rawValue),
   }
 }
 
@@ -279,15 +298,16 @@ const normalizeTableRows = (
     })
   }
 
-  if (typeof raw === "string" && raw.trim()) {
+  if (isNonEmptyTrimmedString(raw)) {
+    const trimmed = raw.trim()
     try {
-      const parsed = JSON.parse(raw)
+      const parsed = JSON.parse(trimmed)
       if (Array.isArray(parsed)) {
         return normalizeTableRows(parsed, columns)
       }
       return []
     } catch {
-      return raw
+      return trimmed
         .split(/\r?\n/)
         .map((entry) => entry.trim())
         .filter(Boolean)
@@ -310,50 +330,7 @@ const prepareNewTableRow = (
   return row
 }
 
-// Nycklar som används för att extrahera filnamn från dataset-metadata
-const FILE_DISPLAY_KEYS = [
-  "text",
-  "path",
-  "location",
-  "value",
-  "dataset",
-  "defaultValue",
-  "fileName",
-  "filename",
-  "file_path",
-  "file",
-  "uri",
-  "url",
-  "name",
-] as const
-
 /* Filvalidering */
-
-// Standardgränser för filuppladdning
-const DEFAULT_MAX_FILE_SIZE_MB = 150
-const ONE_MB_IN_BYTES = 1024 * 1024
-const GEOMETRY_PREVIEW_MAX_LENGTH = 1500
-// Tillåtna filtyper om inget annat specificeras
-const DEFAULT_ALLOWED_FILE_EXTENSIONS: readonly string[] = [
-  ".zip",
-  ".kmz",
-  ".json",
-  ".geojson",
-  ".gml",
-]
-// Tillåtna MIME-typer för standardvalidering
-const DEFAULT_ALLOWED_MIME_TYPES = new Set(
-  [
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/vnd.google-earth.kmz",
-    "application/json",
-    "application/geo+json",
-    "application/gml+xml",
-    "text/plain",
-    "",
-  ].map((type) => type.toLowerCase())
-)
 
 // Normaliserar accept-token (filtyp/MIME) till enhetligt format
 const normalizeAcceptToken = (token: string): string | null => {
@@ -396,7 +373,7 @@ const validateFile = (
       : undefined
   const effectiveMaxMb =
     configuredMaxMb === undefined
-      ? DEFAULT_MAX_FILE_SIZE_MB
+      ? FILE_UPLOAD.DEFAULT_MAX_SIZE_MB
       : configuredMaxMb > 0
         ? configuredMaxMb
         : undefined
@@ -404,7 +381,7 @@ const validateFile = (
   // Kontrollerar om filen överskrider storleksgränsen
   if (
     effectiveMaxMb !== undefined &&
-    file.size > effectiveMaxMb * ONE_MB_IN_BYTES
+    file.size > effectiveMaxMb * FILE_UPLOAD.ONE_MB_IN_BYTES
   ) {
     return {
       valid: false,
@@ -436,14 +413,14 @@ const validateFile = (
     }
   } else {
     // Använder standardvalidering om ingen accept-lista angavs
-    const matchesDefaultExtension = DEFAULT_ALLOWED_FILE_EXTENSIONS.some(
+    const matchesDefaultExtension = FILE_UPLOAD.DEFAULT_ALLOWED_EXTENSIONS.some(
       (ext) => fileNameLower.endsWith(ext)
     )
     if (!matchesDefaultExtension) {
       return { valid: false, error: "fileTypeNotAllowed" }
     }
 
-    if (!DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
+    if (!FILE_UPLOAD.DEFAULT_ALLOWED_MIME_TYPES.has(fileTypeLower)) {
       return { valid: false, error: "fileTypeNotAllowed" }
     }
   }
@@ -452,27 +429,33 @@ const validateFile = (
 }
 
 // Extraherar läsbar sökväg/namn från FME dataset-metadata
-const resolveFileDisplayValue = (raw: unknown): string | undefined => {
-  if (typeof raw === "string") return raw
+const resolveFileDisplayValue = (
+  raw: unknown,
+  translate?: TranslateFn
+): string | undefined => {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim()
+    return trimmed || undefined
+  }
   if (typeof raw === "number" || typeof raw === "boolean") {
     return String(raw)
   }
   if (!raw) return undefined
   if (isFileObject(raw)) {
-    return getFileDisplayName(raw)
+    return getFileDisplayName(raw, translate)
   }
   if (Array.isArray(raw)) {
     for (const entry of raw) {
-      const resolved = resolveFileDisplayValue(entry)
+      const resolved = resolveFileDisplayValue(entry, translate)
       if (resolved) return resolved
     }
     return undefined
   }
   if (isPlainObject(raw)) {
     const obj = raw as { [key: string]: unknown }
-    for (const key of FILE_DISPLAY_KEYS) {
+    for (const key of FILE_UPLOAD.FILE_DISPLAY_KEYS) {
       if (key in obj) {
-        const resolved = resolveFileDisplayValue(obj[key])
+        const resolved = resolveFileDisplayValue(obj[key], translate)
         if (resolved) return resolved
       }
     }
@@ -489,7 +472,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   translate: translateProp,
   disabled: disabledProp,
 }) => {
-  const fallbackTranslate = hooks.useTranslation(defaultMessages)
+  const fallbackTranslate = hooks.useTranslation(
+    defaultMessages,
+    jimuDefaultMessages
+  )
   const translate = translateProp ?? fallbackTranslate
   const styles = useUiStyles()
   // Bestämmer om fältet är flervärdigt (multi-select, attribute list)
@@ -536,7 +522,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     const isUnset =
       current === undefined ||
       current === null ||
-      (typeof current === "string" && current.trim() === "")
+      (typeof current === "string" && !isNonEmptyTrimmedString(current))
     if (isUnset || !Object.is(current, onlyVal)) {
       onChange(onlyVal as FormPrimitive)
     }
@@ -581,7 +567,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           return (
             <div data-testid="table-field">
               {rows.length === 0 ? (
-                <div>{translate("tableEmpty")}</div>
+                <div>{translate("msgTableEmpty")}</div>
               ) : (
                 <Table responsive hover aria-label={field.label}>
                   <tbody>
@@ -603,13 +589,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         </td>
                         <td>
                           <Button
-                            text={translate("deleteRow")}
+                            text={translate("btnDeleteRow")}
                             variant="text"
                             type="tertiary"
                             onClick={() => {
                               removeRow(i)
                             }}
-                            aria-label={translate("deleteRow")}
+                            aria-label={translate("btnDeleteRow")}
                             disabled={isDisabled}
                           />
                         </td>
@@ -619,10 +605,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 </Table>
               )}
               <Button
-                text={translate("addRow")}
+                text={translate("btnAddRow")}
                 variant="outlined"
                 onClick={addRow}
-                aria-label={translate("addRow")}
+                aria-label={translate("btnAddRow")}
                 disabled={isDisabled}
               />
             </div>
@@ -636,7 +622,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             : [
                 {
                   key: "value",
-                  label: field.label || translate("tableColumnDefault"),
+                  label: field.label || translate("lblColumnDefault"),
                   type: "text" as const,
                 },
               ]
@@ -650,9 +636,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const maxRows = tableConfig?.maxRows
         const allowReorder = tableConfig?.allowReorder ?? false
         const showHeader = tableConfig?.showHeader ?? true
-        const addLabel = tableConfig?.addRowLabel || translate("addRow")
+        const addLabel = tableConfig?.addRowLabel || translate("btnAddRow")
         const removeLabel =
-          tableConfig?.removeRowLabel || translate("deleteRow")
+          tableConfig?.removeRowLabel || translate("btnDeleteRow")
 
         // Bestämmer om användaren kan lägga till/ta bort rader
         const canRemove = !isDisabled && rows.length > minRows
@@ -713,7 +699,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="number"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     const numVal =
                       val === ""
@@ -756,7 +742,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="date"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -768,7 +754,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="time"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -778,7 +764,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             case "datetime":
               return (
                 <DateTimePickerWrapper
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -790,7 +776,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               return (
                 <Input
                   type="text"
-                  value={asString(cellValue)}
+                  value={toDisplayString(cellValue)}
                   onChange={(val) => {
                     handleCellChange(rowIndex, column.key, val as FormPrimitive)
                   }}
@@ -804,7 +790,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <div data-testid="table-field">
             {rows.length === 0 ? (
-              <div>{translate("tableEmpty")}</div>
+              <div>{translate("msgTableEmpty")}</div>
             ) : (
               <Table responsive hover aria-label={field.label}>
                 {showHeader ? (
@@ -813,7 +799,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                       {columns.map((column) => (
                         <th key={column.key}>{column.label}</th>
                       ))}
-                      <th>{translate("tableActionsHeader")}</th>
+                      <th>{translate("lblActions")}</th>
                     </tr>
                   </thead>
                 ) : null}
@@ -845,7 +831,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         {allowReorder ? (
                           <React.Fragment>
                             <Button
-                              text={translate("tableMoveUp")}
+                              text={translate("btnMoveUp")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
@@ -856,7 +842,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                                   -1
                                 )
                               }}
-                              aria-label={translate("tableMoveUp")}
+                              aria-label={translate("btnMoveUp")}
                               disabled={
                                 isDisabled ||
                                 rows.findIndex(
@@ -865,7 +851,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                               }
                             />
                             <Button
-                              text={translate("tableMoveDown")}
+                              text={translate("btnMoveDown")}
                               variant="text"
                               type="tertiary"
                               onClick={() => {
@@ -876,7 +862,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                                   1
                                 )
                               }}
-                              aria-label={translate("tableMoveDown")}
+                              aria-label={translate("btnMoveDown")}
                               disabled={
                                 isDisabled ||
                                 rows.findIndex(
@@ -990,7 +976,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         )
       }
       case FormFieldType.URL: {
-        const val = asString(fieldValue)
+        const val = toDisplayString(fieldValue)
         return (
           <UrlInput
             value={val}
@@ -1028,7 +1014,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         // Renderar flerradigt textfält
         return (
           <TextArea
-            value={asString(fieldValue)}
+            value={toDisplayString(fieldValue)}
             placeholder={placeholders.enter}
             onChange={(val) => {
               onChange(val as FormPrimitive)
@@ -1141,13 +1127,13 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           ? acceptTokens.join(",")
           : undefined
         const resolvedDefault = !selectedFile
-          ? (resolveFileDisplayValue(value) ??
-            resolveFileDisplayValue(fieldValue) ??
-            resolveFileDisplayValue(field.defaultValue))
-          : resolveFileDisplayValue(field.defaultValue)
+          ? (resolveFileDisplayValue(value, translate) ??
+            resolveFileDisplayValue(fieldValue, translate) ??
+            resolveFileDisplayValue(field.defaultValue, translate))
+          : resolveFileDisplayValue(field.defaultValue, translate)
         const defaultDisplay = toTrimmedString(resolvedDefault) || ""
         const displayText = selectedFile
-          ? getFileDisplayName(selectedFile)
+          ? getFileDisplayName(selectedFile, translate)
           : defaultDisplay
         const hasDisplay = Boolean(displayText)
         const message = hasDisplay ? displayText : null
@@ -1171,10 +1157,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
-                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
                 : validation.error === "fileTypeNotAllowed"
-                  ? translate("fileTypeNotAllowed")
-                  : translate("fileInvalid")
+                  ? translate("errFileType")
+                  : translate("errFileInvalid")
             )
             evt.target.value = ""
             return
@@ -1216,8 +1202,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.TEXT_OR_FILE: {
         // Renderar fält med växel mellan text- och filuppladdningsläge
-        const currentValue: NormalizedTextOrFile =
-          normalizeTextOrFileValue(fieldValue)
+        const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(
+          fieldValue,
+          translate
+        )
         const resolvedMode: TextOrFileMode =
           currentValue.mode === TEXT_OR_FILE_MODES.FILE
             ? TEXT_OR_FILE_MODES.FILE
@@ -1239,7 +1227,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           } else {
             onChange({
               mode: TEXT_OR_FILE_MODES.TEXT,
-              text: asString(currentValue.text),
+              text: toDisplayString(currentValue.text),
             } as unknown as FormPrimitive)
           }
         }
@@ -1276,10 +1264,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (!validation.valid) {
             setFileError(
               validation.error === "fileTooLarge"
-                ? translate("fileTooLarge", { maxSize: validation.maxSizeMB })
+                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
                 : validation.error === "fileTypeNotAllowed"
-                  ? translate("fileTypeNotAllowed")
-                  : translate("fileInvalid")
+                  ? translate("errFileType")
+                  : translate("errFileInvalid")
             )
             evt.target.value = ""
             return
@@ -1289,7 +1277,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           onChange({
             mode: TEXT_OR_FILE_MODES.FILE,
             file,
-            fileName: getFileDisplayName(file),
+            fileName: getFileDisplayName(file, translate),
           } as unknown as FormPrimitive)
         }
 
@@ -1299,11 +1287,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               items={[
                 {
                   value: TEXT_OR_FILE_MODES.TEXT,
-                  label: translate("textInput"),
+                  label: translate("lblTextInput"),
                 },
                 {
                   value: TEXT_OR_FILE_MODES.FILE,
-                  label: translate("fileInput"),
+                  label: translate("lblFileInput"),
                 },
               ]}
               value={resolvedMode}
@@ -1314,7 +1302,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             />
             {resolvedMode === TEXT_OR_FILE_MODES.TEXT ? (
               <TextArea
-                value={asString(currentValue.text)}
+                value={toDisplayString(currentValue.text)}
                 placeholder={field.placeholder || placeholders.enter}
                 onChange={handleTextChange}
                 disabled={isDisabled}
@@ -1341,7 +1329,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                 {isFileObject(currentValue.file) && !fileError ? (
                   <div data-testid="text-or-file-name">
                     {currentValue.fileName ||
-                      getFileDisplayName(currentValue.file)}
+                      getFileDisplayName(currentValue.file, translate)}
                   </div>
                 ) : null}
               </div>
@@ -1351,10 +1339,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.SCRIPTED: {
         // Renderar skriptgenererat innehåll som rich text
-        const content =
-          typeof fieldValue === "string" && fieldValue.trim().length > 0
-            ? fieldValue
-            : asString(field.defaultValue) || field.description || field.label
+        const content = isNonEmptyTrimmedString(fieldValue)
+          ? fieldValue
+          : toDisplayString(field.defaultValue) ||
+            field.description ||
+            field.label
         return <RichText html={content || ""} />
       }
       case FormFieldType.RADIO: {
@@ -1397,11 +1386,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       }
       case FormFieldType.GEOMETRY: {
         // Renderar geometri (AOI polygon) med statistik
-        const trimmed = asString(fieldValue).trim()
+        const trimmed = toDisplayString(fieldValue).trim()
         if (!trimmed) {
           return (
             <div css={styles.typo.hint} data-testid="geometry-field">
-              {translate("geometryFieldMissing")}
+              {translate("msgNoGeometry")}
             </div>
           )
         }
@@ -1429,24 +1418,22 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
         // Trunkerar för lång geometri-JSON
         const truncated =
-          preview.length > GEOMETRY_PREVIEW_MAX_LENGTH
-            ? `${preview.slice(0, GEOMETRY_PREVIEW_MAX_LENGTH)}…`
+          preview.length > FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH
+            ? `${preview.slice(0, FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH)}…`
             : preview
 
         return (
           <div data-testid="geometry-field">
             <div css={styles.typo.hint}>
               {parseError
-                ? translate("geometryFieldParseError")
-                : translate("geometryFieldReady", {
+                ? translate("errGeomParse")
+                : translate("msgGeomReady", {
                     rings,
                     vertices,
                   })}
             </div>
             {truncated ? (
-              <pre aria-label={translate("geometryFieldPreviewLabel")}>
-                {truncated}
-              </pre>
+              <pre aria-label={translate("ariaGeomPreview")}>{truncated}</pre>
             ) : null}
           </div>
         )
@@ -1456,8 +1443,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const numericValue =
           typeof fieldValue === "number"
             ? fieldValue
-            : typeof fieldValue === "string" && fieldValue.trim() !== ""
-              ? Number(fieldValue)
+            : isNonEmptyTrimmedString(fieldValue)
+              ? Number(fieldValue.trim())
               : typeof field.defaultValue === "number"
                 ? field.defaultValue
                 : (field.min ?? 0)
@@ -1489,8 +1476,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         const numericValue =
           typeof fieldValue === "number"
             ? fieldValue
-            : typeof fieldValue === "string" && fieldValue.trim() !== ""
-              ? Number(fieldValue)
+            : isNonEmptyTrimmedString(fieldValue)
+              ? Number(fieldValue.trim())
               : undefined
         const defaultNumeric =
           numericValue === undefined && typeof field.defaultValue === "number"
@@ -1509,7 +1496,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           if (precision === 0) {
             const hasDecimals = numericValue % 1 !== 0
             if (hasDecimals) {
-              validationError = translate("integerRequired")
+              validationError = translate("valIntegerOnly")
             }
           }
 
@@ -1520,8 +1507,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               : numericValue < field.min
             if (belowMin) {
               validationError = field.minExclusive
-                ? translate("mustBeGreaterThan", { value: field.min })
-                : translate("mustBeAtLeast", { value: field.min })
+                ? translate("valGreaterThan", { value: field.min })
+                : translate("valAtLeast", { value: field.min })
             }
           }
 
@@ -1532,8 +1519,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
               : numericValue > field.max
             if (aboveMax) {
               validationError = field.maxExclusive
-                ? translate("mustBeLessThan", { value: field.max })
-                : translate("mustBeAtMost", { value: field.max })
+                ? translate("valLessThan", { value: field.max })
+                : translate("valAtMost", { value: field.max })
             }
           }
         }
@@ -1585,7 +1572,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         return (
           <TagInput
             value={values}
-            placeholder={field.placeholder || translate("placeholderTags")}
+            placeholder={field.placeholder || translate("phTags")}
             onChange={(values) => {
               if (isDisabled) return
               onChange(values as FormPrimitive)
@@ -1670,6 +1657,274 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   }
 
   return renderByType()
+}
+
+// ============================================================================
+// Form-Specific UI Components (moved from ui.tsx)
+// ============================================================================
+
+// Local helpers for moved components
+const useStyles = (): UiStyles => useConfigStyles()
+const useValue = useControlledValue
+
+const applyComponentStyles = (base: any[], customStyle?: React.CSSProperties) =>
+  [...base, styleCss(customStyle)].filter(Boolean)
+
+const applyFullWidthStyles = (
+  styles: UiStyles,
+  customStyle?: React.CSSProperties
+) => applyComponentStyles([styles.fullWidth], customStyle)
+
+// TagInput component
+export const TagInput: React.FC<{
+  value?: string[]
+  suggestions?: string[]
+  placeholder?: string
+  onChange?: (values: string[]) => void
+  style?: React.CSSProperties
+}> = ({ value, suggestions, placeholder, onChange, style }) => {
+  const styles = useStyles()
+  return (
+    <JimuTagInput
+      values={value}
+      suggestions={suggestions}
+      placeholder={placeholder}
+      onChange={(vals) => {
+        onChange?.(vals)
+      }}
+      css={applyFullWidthStyles(styles, style)}
+    />
+  )
+}
+
+// DateTimePicker component
+export const DateTimePickerWrapper: React.FC<{
+  value?: string // ISO lokal: YYYY-MM-DDTHH:mm:ss eller FME: YYYY-MM-DD HH:mm:ss
+  defaultValue?: string
+  onChange?: (dateTime: string) => void
+  style?: React.CSSProperties
+  disabled?: boolean
+  "aria-label"?: string
+  mode?: "date-time" | "date"
+  format?: "iso" | "fme" // Utdataformat: iso (standard) eller fme (mellanslag)
+}> = ({
+  value,
+  defaultValue,
+  onChange,
+  style,
+  disabled,
+  "aria-label": ariaLabel,
+  mode = "date-time",
+  format = "iso",
+}) => {
+  const styles = useStyles()
+  const [currentValue, setCurrentValue] = useValue(
+    value,
+    defaultValue,
+    onChange
+  )
+
+  // Bygger fallback-datum beroende på läge
+  const buildFallbackDate = () => {
+    const base = new Date()
+    if (mode === "date") base.setHours(0, 0, 0, 0)
+    return base
+  }
+  const fallbackDateRef = React.useRef<Date>(buildFallbackDate())
+
+  hooks.useUpdateEffect(() => {
+    fallbackDateRef.current = buildFallbackDate()
+  }, [mode])
+
+  const fallbackDate = fallbackDateRef.current
+
+  const selectedDate =
+    parseIsoLocalDateTime(currentValue) ||
+    parseIsoLocalDateTime(defaultValue) ||
+    fallbackDate
+
+  const handleChange = hooks.useEventCallback(
+    (rawValue: any, _label: string) => {
+      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+        const next = new Date(rawValue)
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next, format))
+        return
+      }
+
+      if (rawValue instanceof Date) {
+        const next = new Date(rawValue.getTime())
+        if (mode === "date") next.setHours(0, 0, 0, 0)
+        setCurrentValue(formatIsoLocalDateTime(next, format))
+        return
+      }
+
+      if (rawValue == null) {
+        setCurrentValue("")
+      }
+    }
+  )
+
+  const containerStyles = applyComponentStyles(
+    [styles.fullWidth, styles.relative],
+    style
+  )
+
+  const picker = (
+    <div css={containerStyles}>
+      <JimuDatePicker
+        selectedDate={selectedDate}
+        runtime={false}
+        showTimeInput={mode === "date-time"}
+        isLongTime={mode === "date-time"}
+        supportVirtualDateList={false}
+        disablePortal
+        onChange={handleChange}
+        aria-label={ariaLabel}
+      />
+    </div>
+  )
+
+  if (disabled) {
+    return (
+      <span aria-disabled="true" css={styles.disabledPicker}>
+        {picker}
+      </span>
+    )
+  }
+
+  return picker
+}
+
+// RichText component
+export const RichText: React.FC<{
+  html?: string
+  placeholder?: string
+  className?: string
+  style?: React.CSSProperties
+}> = ({ html, placeholder, className, style }) => {
+  if (!html || html.trim().length === 0) {
+    return (
+      <div className={className} css={styleCss(style)}>
+        {placeholder || ""}
+      </div>
+    )
+  }
+
+  return (
+    <RichDisplayer className={className} css={styleCss(style)} value={html} />
+  )
+}
+
+// MultiSelectControl component
+export const MultiSelectControl: React.FC<{
+  options?: readonly OptionItem[]
+  values?: Array<string | number>
+  defaultValues?: Array<string | number>
+  onChange?: (values: Array<string | number>) => void
+  placeholder?: string
+  disabled?: boolean
+  style?: React.CSSProperties
+  allowSearch?: boolean
+  hierarchical?: boolean
+}> = ({
+  options = [],
+  values,
+  defaultValues = [],
+  onChange,
+  placeholder,
+  disabled = false,
+  style,
+  allowSearch = false,
+  hierarchical = false,
+}) => {
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const styles = useStyles()
+
+  const [current, setCurrent] = useValue<Array<string | number>>(
+    values,
+    defaultValues
+  )
+  const [searchTerm, setSearchTerm] = React.useState("")
+
+  const finalPlaceholder = placeholder || translate("phSelectOption")
+  const trimmedSearch = allowSearch ? searchTerm.trim() : ""
+  const normalizedSearch = trimmedSearch.toLowerCase()
+
+  const flattenedEntries = flattenHierarchicalOptions(options, hierarchical)
+  const filteredEntries = normalizedSearch
+    ? flattenedEntries.filter(({ option }) => {
+        const baseLabel =
+          option.label && option.label.trim()
+            ? option.label.trim()
+            : String(option.value)
+        return baseLabel.toLowerCase().includes(normalizedSearch)
+      })
+    : flattenedEntries
+
+  const entriesToDisplay = filteredEntries
+
+  const items = entriesToDisplay
+    .map(({ option, depth }) => {
+      if (!option || option.value == null) {
+        return null
+      }
+      const baseLabel =
+        option.label && option.label.trim()
+          ? option.label.trim()
+          : String(option.value)
+      const label =
+        hierarchical && depth > 0
+          ? `${"- ".repeat(depth)}${baseLabel}`
+          : baseLabel
+      return {
+        value: option.value,
+        label,
+        disabled: Boolean(option.disabled),
+      }
+    })
+    .filter(Boolean) as Array<{
+    value: string | number
+    label: string
+    disabled: boolean
+  }>
+
+  const handleChange = hooks.useEventCallback(
+    (_value: string | number, newValues: Array<string | number>) => {
+      const normalized = Array.isArray(newValues)
+        ? newValues.filter(
+            (nextValue): nextValue is string | number => nextValue != null
+          )
+        : []
+      setCurrent(normalized)
+      onChange?.(normalized)
+    }
+  )
+
+  return (
+    <div css={applyComponentStyles([styles.fullWidth], style)}>
+      {allowSearch ? (
+        <Input
+          type="search"
+          value={searchTerm}
+          placeholder={translate("phSearch")}
+          onChange={(val) => {
+            setSearchTerm(typeof val === "string" ? val : "")
+          }}
+          disabled={disabled}
+        />
+      ) : null}
+      <MultiSelect
+        values={current || []}
+        defaultValues={defaultValues}
+        onChange={handleChange}
+        placeholder={finalPlaceholder}
+        disabled={disabled}
+        items={items}
+        css={styles.fullWidth}
+      />
+    </div>
+  )
 }
 
 export default DynamicField

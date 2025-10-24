@@ -1,4 +1,5 @@
-import * as SeamlessImmutable from "seamless-immutable"
+import SeamlessImmutable from "seamless-immutable"
+import { createSelector } from "reselect"
 import type { extensionSpec, ImmutableObject } from "jimu-core"
 import {
   ViewMode,
@@ -6,7 +7,6 @@ import {
   FmeActionType,
   FME_ACTION_TYPES,
   type FmeWidgetState,
-  type ErrorState,
   type SerializableErrorState,
   type WorkspaceItem,
   type WorkspaceItemDetail,
@@ -21,7 +21,7 @@ import {
   type LoadingFlagKey,
   type ErrorMap,
 } from "../config/index"
-import { toSerializable } from "../shared/utils"
+import { toTrimmedString } from "../shared/utils"
 
 /* Action creators för FME-widget state management */
 export const fmeActions = {
@@ -110,40 +110,37 @@ export const fmeActions = {
   // Sätter enskilt fel för specifik scope (general/import/export)
   setError: (
     scope: ErrorScope,
-    error: ErrorState | SerializableErrorState | null,
+    error: SerializableErrorState | null,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_ERROR,
     scope,
-    error: error ? toSerializable(error) : null,
+    error,
     widgetId,
   }),
   // Sätter flera fel samtidigt (batch-uppdatering)
   setErrors: (
     errors: Partial<{
-      [scope in ErrorScope]?:
-        | ErrorState
-        | SerializableErrorState
-        | null
-        | undefined
+      [scope in ErrorScope]?: SerializableErrorState | null | undefined
     }>,
     widgetId: string
   ) => {
-    // Serialiserar alla fel till Redux-kompatibelt format
-    const serialized: Partial<{
+    // Filtrerar bort undefined-värden
+    const filtered: Partial<{
       [scope in ErrorScope]?: SerializableErrorState | null
     }> = {}
 
     for (const [scopeKey, maybeError] of Object.entries(errors) as Array<
-      [ErrorScope, ErrorState | SerializableErrorState | null | undefined]
+      [ErrorScope, SerializableErrorState | null | undefined]
     >) {
-      if (typeof maybeError === "undefined") continue
-      serialized[scopeKey] = maybeError ? toSerializable(maybeError) : null
+      if (typeof maybeError !== "undefined") {
+        filtered[scopeKey] = maybeError
+      }
     }
 
     return {
       type: FmeActionType.SET_ERRORS,
-      errors: serialized,
+      errors: filtered,
       widgetId,
     }
   },
@@ -190,15 +187,12 @@ export const fmeActions = {
     workspaceItem: payload.item,
     widgetId,
   }),
-  // Intern action för att ta bort widget-state vid unmount
-  // Internal action to remove entire widget state (e.g. on unmount)
+  // Intern action för att ta bort widget-state från global store
   removeWidgetState: (widgetId: string) => ({
     type: FmeActionType.REMOVE_WIDGET_STATE,
     widgetId,
   }),
 }
-
-/* Type helpers och initial state */
 
 export type FmeAction = ReturnType<(typeof fmeActions)[keyof typeof fmeActions]>
 
@@ -232,13 +226,10 @@ export const initialFmeState: FmeWidgetState = {
   errors: createInitialErrorMap(),
 }
 
-// Seamless-immutable typing är trasig, tvingar typning här
-// Seamless-immutable typing is broken, so we need to force it here
+// Immutable wrapper
 const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
   input: any
 ) => any
-
-/* Hjälpfunktioner för state-hantering */
 
 const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
   Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>
@@ -246,11 +237,7 @@ const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
 // Normaliserar workspace-namn (trim och null-hantering)
 const normalizeWorkspaceName = (
   name: string | null | undefined
-): string | null => {
-  if (typeof name !== "string") return null
-  const trimmed = name.trim()
-  return trimmed || null
-}
+): string | null => toTrimmedString(name) ?? null
 
 // Serialiserar ArcGIS-geometri till JSON för Redux-lagring
 const serializeGeometry = (
@@ -290,8 +277,6 @@ function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
     a.submission === b.submission
   )
 }
-
-/* Error-hantering och prioritering */
 
 // Prioritetsrangordning för felallvarlighet (högre = allvarligare)
 const ERROR_SEVERITY_RANK: {
@@ -351,10 +336,9 @@ function applyErrorPatch(
   }
 
   const currentMap = (state.errors as ErrorMap) ?? createInitialErrorMap()
-  let changed = false
-  const nextMap: Partial<{ [scope in ErrorScope]: SerializableErrorState }> = {
-    ...currentMap,
-  }
+  const changes: Partial<{
+    [scope in ErrorScope]: SerializableErrorState | null
+  }> = {}
 
   for (const [scopeKey, maybeError] of Object.entries(patch) as Array<
     [ErrorScope, SerializableErrorState | null]
@@ -362,30 +346,26 @@ function applyErrorPatch(
     // Validerar att scope är giltig enum-medlem
     if (!(scopeKey in ERROR_SCOPE_PRIORITY)) continue
 
-    if (!maybeError) {
-      if (scopeKey in nextMap) {
-        delete nextMap[scopeKey]
-        changed = true
-      }
-      continue
-    }
-
-    const current = nextMap[scopeKey]
+    const current = currentMap[scopeKey]
     if (current !== maybeError) {
-      nextMap[scopeKey] = maybeError
-      changed = true
+      changes[scopeKey] = maybeError
     }
   }
 
-  if (!changed) {
+  if (Object.keys(changes).length === 0) {
     return state
   }
+
+  const nextMap = Object.entries({ ...currentMap, ...changes }).reduce<
+    Partial<{ [scope in ErrorScope]: SerializableErrorState }>
+  >((acc, [key, val]) => {
+    if (val !== null) acc[key as ErrorScope] = val
+    return acc
+  }, {})
 
   const readonlyMap = nextMap as ErrorMap
   return state.set("errors", readonlyMap)
 }
-
-/* Reducer för enskild widget-instans */
 
 // Reducer for a single widget instance
 const reduceOne = (
@@ -724,8 +704,6 @@ const reduceOne = (
   return nextState
 }
 
-/* State-access och hydration helpers */
-
 // Säkerställer att sub-state finns och är korrekt hydrerad
 const ensureSubState = (
   global: IMFmeGlobalState,
@@ -760,9 +738,6 @@ const setSubState = (
   return Immutable({ byId }) as unknown as IMFmeGlobalState
 }
 
-/* Selectors för att hämta state från Redux store */
-
-// Hämtar FME-slice för specifik widget från global state
 export const selectFmeSlice = (
   state: IMStateWithFmeExport,
   widgetId: string
@@ -773,66 +748,64 @@ export const selectFmeSlice = (
   return slice ?? null
 }
 
-// Skapar memoized selectors för specifik widget-instans
 export const createFmeSelectors = (widgetId: string) => {
-  const getSlice = (state: IMStateWithFmeExport) =>
-    selectFmeSlice(state, widgetId)
+  // Base selector för att hämta widget-specifikt state slice
+  const getSlice = (
+    state: IMStateWithFmeExport
+  ): ImmutableObject<FmeWidgetState> | null => selectFmeSlice(state, widgetId)
 
-  return {
-    selectSlice: getSlice,
-    selectViewMode: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.viewMode ?? initialFmeState.viewMode,
-    selectDrawingTool: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.drawingTool ?? initialFmeState.drawingTool,
-    selectGeometryJson: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.geometryJson ?? null,
-    selectDrawnArea: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.drawnArea ?? initialFmeState.drawnArea,
-    selectWorkspaceItems: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
-    selectWorkspaceParameters: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceParameters ??
-      initialFmeState.workspaceParameters,
-    selectWorkspaceItem: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem,
-    selectSelectedWorkspace: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace,
-    selectOrderResult: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.orderResult ?? initialFmeState.orderResult,
-    selectErrors: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.errors ?? initialFmeState.errors,
-    selectPrimaryError: (state: IMStateWithFmeExport) => {
-      const errors = getSlice(state)?.errors ?? initialFmeState.errors
-      return pickPrimaryError(errors)
-    },
-    selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
-      getSlice(state)?.errors?.[scope] ?? null,
-    selectLoading: (state: IMStateWithFmeExport) =>
-      getSlice(state)?.loading ?? initialFmeState.loading,
-    selectLoadingFlag:
-      (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
-        getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
-    // Beräknad selector: kontrollerar om giltig AOI finns
-    selectHasValidAoi: (state: IMStateWithFmeExport) => {
-      const slice = getSlice(state)
-      if (!slice) return false
-      return Boolean(slice.geometryJson) && (slice.drawnArea ?? 0) > 0
-    },
-    // Beräknad selector: kan export utföras?
-    selectCanExport: (state: IMStateWithFmeExport) => {
-      const slice = getSlice(state)
-      if (!slice) return false
+  // Input selectors för memoized computed selectors
+  const selectGeometryJson = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.geometryJson ?? null
+  const selectDrawnArea = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.drawnArea ?? initialFmeState.drawnArea
+  const selectSelectedWorkspace = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.selectedWorkspace ?? initialFmeState.selectedWorkspace
+  const selectWorkspaceParameters = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.workspaceParameters ?? initialFmeState.workspaceParameters
+  const selectWorkspaceItem = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.workspaceItem ?? initialFmeState.workspaceItem
+  const selectErrors = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.errors ?? initialFmeState.errors
+  const selectLoading = (state: IMStateWithFmeExport) =>
+    getSlice(state)?.loading ?? initialFmeState.loading
+
+  // Memoized: Har giltig AOI ritats?
+  const selectHasValidAoi = createSelector(
+    [selectGeometryJson, selectDrawnArea],
+    (geometryJson, drawnArea): boolean => Boolean(geometryJson) && drawnArea > 0
+  )
+
+  // Memoized: Väljer primärt fel från error-map
+  const selectPrimaryError = createSelector(
+    [selectErrors],
+    (errors): ErrorWithScope | null => pickPrimaryError(errors)
+  )
+
+  // Memoized: Kan export initieras?
+  const selectCanExport = createSelector(
+    [
+      selectGeometryJson,
+      selectDrawnArea,
+      selectSelectedWorkspace,
+      selectWorkspaceParameters,
+      selectWorkspaceItem,
+      selectErrors,
+    ],
+    (
+      geometryJson,
+      drawnArea,
+      selectedWorkspace,
+      workspaceParameters,
+      workspaceItem,
+      errors
+    ): boolean => {
       const hasGeometry =
-        Boolean(slice.geometryJson) &&
-        Number.isFinite(slice.drawnArea) &&
-        slice.drawnArea > 0
-      const hasWorkspace = Boolean(
-        normalizeWorkspaceName(slice.selectedWorkspace)
-      )
+        Boolean(geometryJson) && Number.isFinite(drawnArea) && drawnArea > 0
+      const hasWorkspace = Boolean(normalizeWorkspaceName(selectedWorkspace))
       const hasWorkspaceDetails =
-        (slice.workspaceParameters?.length ?? 0) > 0 ||
-        slice.workspaceItem !== null
-      const generalError = slice.errors?.general
+        workspaceParameters.length > 0 || workspaceItem !== null
+      const generalError = errors?.general
       const blockingError = generalError
         ? (ERROR_SEVERITY_RANK[generalError.severity] ?? 0) >=
           ERROR_SEVERITY_RANK[ErrorSeverity.ERROR]
@@ -840,21 +813,47 @@ export const createFmeSelectors = (widgetId: string) => {
       return (
         hasGeometry && hasWorkspace && hasWorkspaceDetails && !blockingError
       )
-    },
-    // Beräknad selector: pågår någon laddning?
-    selectIsBusy: (state: IMStateWithFmeExport) => {
-      const loading = getSlice(state)?.loading ?? initialFmeState.loading
-      return (
-        loading.workspaces ||
-        loading.parameters ||
-        loading.modules ||
-        loading.submission
-      )
-    },
+    }
+  )
+
+  // Memoized: Är någon laddningsflagga aktiv?
+  const selectIsBusy = createSelector(
+    [selectLoading],
+    (loading): boolean =>
+      loading.workspaces ||
+      loading.parameters ||
+      loading.modules ||
+      loading.submission
+  )
+
+  return {
+    selectSlice: getSlice,
+    selectViewMode: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.viewMode ?? initialFmeState.viewMode,
+    selectDrawingTool: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.drawingTool ?? initialFmeState.drawingTool,
+    selectGeometryJson,
+    selectDrawnArea,
+    selectWorkspaceItems: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.workspaceItems ?? initialFmeState.workspaceItems,
+    selectWorkspaceParameters,
+    selectWorkspaceItem,
+    selectSelectedWorkspace,
+    selectOrderResult: (state: IMStateWithFmeExport) =>
+      getSlice(state)?.orderResult ?? initialFmeState.orderResult,
+    selectErrors,
+    selectErrorByScope: (scope: ErrorScope) => (state: IMStateWithFmeExport) =>
+      getSlice(state)?.errors?.[scope] ?? null,
+    selectLoading,
+    selectLoadingFlag:
+      (flag: LoadingFlagKey) => (state: IMStateWithFmeExport) =>
+        getSlice(state)?.loading?.[flag] ?? initialFmeState.loading[flag],
+    selectHasValidAoi,
+    selectPrimaryError,
+    selectCanExport,
+    selectIsBusy,
   }
 }
-
-/* Root reducer och action guards */
 
 // Root reducer that delegates to per-widget reducer
 const initialGlobalState = Immutable({
@@ -878,8 +877,7 @@ const fmeReducer = (
   if (!isFmeAction(action)) {
     return state
   }
-  // Specialfall: ta bort hela widget-state vid unmount
-  // Special: remove entire widget state
+  // Hanterar intern action för att ta bort widget-state
   if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
     const byId = { ...((state as any)?.byId || {}) }
     if (!(action.widgetId in byId)) {
@@ -891,8 +889,7 @@ const fmeReducer = (
 
   const widgetId: string | undefined = action?.widgetId
   if (!widgetId) {
-    // Inget widgetId: returnera oförändrad state för säkerhet
-    // No widgetId provided — return state unchanged for safety
+    // Ingen widgetId specificerad i action, returnerar oförändrat state
     return state
   }
 
@@ -902,8 +899,6 @@ const fmeReducer = (
   return setSubState(state, widgetId, nextSub)
 }
 
-/* Redux store extension för jimu-core */
-
 // Store extension
 export default class FmeReduxStoreExtension
   implements extensionSpec.ReduxStoreExtension
@@ -912,7 +907,6 @@ export default class FmeReduxStoreExtension
 
   // Returnerar alla action-typer som string-array
   getActions(): string[] {
-    // Return all action types as string array
     return [...FME_ACTION_TYPES]
   }
 

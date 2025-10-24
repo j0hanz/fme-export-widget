@@ -16,52 +16,24 @@ import type {
   ScriptedOptionNode,
   OptionItem,
   FormPrimitive,
-  CheckSteps,
-  ConnectionValidationOptions,
-  ConnectionValidationResult,
-  StartupValidationResult,
-  StartupValidationOptions,
   TextOrFileValue,
-  EsriModules,
-  RemoteDatasetOptions,
-  SubmissionPreparationOptions,
-  SubmissionPreparationResult,
-  DrawingSessionState,
-  MutableParams,
-  ApiResponse,
   MutableNode,
-} from "../config/index"
+} from "../../config/index"
 import {
   ParameterType,
   FormFieldType,
-  ErrorType,
-  LAYER_CONFIG,
-  DrawingTool,
-  ViewMode,
   SKIPPED_PARAMETER_NAMES,
   ALWAYS_SKIPPED_TYPES,
   LIST_REQUIRED_TYPES,
   MULTI_SELECT_TYPES,
   PARAMETER_FIELD_TYPE_MAP,
-} from "../config/index"
-import type { JimuMapView } from "jimu-arcgis"
+} from "../../config/index"
 import {
   isEmpty,
-  extractErrorMessage,
-  isAbortError,
   isFileObject,
   toTrimmedString,
   toBooleanValue,
   extractTemporalParts,
-  shouldApplyRemoteDatasetUrl,
-  shouldUploadRemoteDataset,
-  removeAoiErrorMarker,
-  applyUploadedDatasetParam,
-  parseSubmissionFormData,
-  normalizeSketchCreateTool,
-  prepFmeParams,
-  applyDirectiveDefaults,
-  logIfNotAbort,
   toArray,
   isPlainObject,
   pickString,
@@ -72,92 +44,10 @@ import {
   toMetadataRecord,
   normalizeParameterValue,
   buildChoiceSet,
-  createFmeClient,
-  sanitizeOptGetUrlParam,
-  resolveUploadTargetParam,
-  normalizeServiceModeConfig,
-} from "./utils"
-import {
-  isInt,
-  isNum,
-  extractHttpStatus,
-  validateServerUrl,
-  validateRequiredFields,
-  createError,
-  mapErrorToKey,
-} from "./validations"
-import { safeCancelSketch } from "./hooks"
-import { fmeActions } from "../extensions/store"
-
-/* Inflight Request Cache för request-deduplicering */
-
-// Generisk cache för inflight requests med automatisk cleanup
-class InflightCache<T> {
-  private readonly cache = new Map<string, Promise<T>>()
-
-  // Kör factory om inget inflight request finns, annars returnera befintligt
-  async execute(key: string, factory: () => Promise<T>): Promise<T> {
-    const existing = this.cache.get(key)
-    if (existing) return existing
-
-    const promise = factory()
-    this.cache.set(key, promise)
-
-    // Rensa cache när request är klar
-    return promise.finally(() => {
-      this.cache.delete(key)
-    })
-  }
-}
-
-// Inflight request-cacher för vanliga operationer
-const inFlight = {
-  healthCheck: new InflightCache<{
-    reachable: boolean
-    version?: string
-    responseTime?: number
-    error?: string
-    status?: number
-  }>(),
-  validateConnection: new InflightCache<ConnectionValidationResult>(),
-}
-
-/* Network Error Detection */
-
-// Indikatorer för nätverksfel i felmeddelanden
-const NETWORK_INDICATORS = Object.freeze([
-  "Failed to fetch",
-  "NetworkError",
-  "net::",
-  "DNS",
-  "ENOTFOUND",
-  "ECONNREFUSED",
-  "timeout",
-  "Name or service not known",
-  "ERR_NAME_NOT_RESOLVED",
-  "Unable to load",
-  "/sharing/proxy",
-  "proxy",
-])
-
-// Indikatorer för proxy-relaterade fel
-const PROXY_INDICATORS = Object.freeze([
-  "Unable to load",
-  "/sharing/proxy",
-  "proxy",
-])
-
-// Kontrollerar om felmeddelande indikerar nätverksfel
-const hasNetworkError = (message: string): boolean =>
-  NETWORK_INDICATORS.some((indicator) =>
-    message.toLowerCase().includes(indicator.toLowerCase())
-  )
-
-// Kontrollerar om felmeddelande indikerar proxy-fel
-const hasProxyError = (message: string): boolean =>
-  PROXY_INDICATORS.some((indicator) =>
-    message.toLowerCase().includes(indicator.toLowerCase())
-  )
+  toNonEmptyTrimmedString,
+  isNonEmptyTrimmedString,
+} from "../utils"
+import { isInt, isNum } from "../validations"
 
 /* Parameter Service - Formulärgenerering och validering */
 
@@ -196,9 +86,7 @@ export class ParameterFormService {
     if (!list?.length) return undefined
     return list.map((o) => {
       const normalizedValue = normalizeParameterValue(o.value)
-      const label =
-        (typeof o.caption === "string" && o.caption.trim()) ||
-        String(normalizedValue)
+      const label = toNonEmptyTrimmedString(o.caption, String(normalizedValue))
 
       return {
         label,
@@ -318,33 +206,6 @@ export class ParameterFormService {
     }
   }
 
-  // Tolkar booleanliknande värden från metadata
-  private resolveBooleanFlag(
-    source: { readonly [key: string]: unknown } | null | undefined,
-    keys: readonly string[]
-  ): boolean | undefined {
-    if (!isPlainObject(source)) return undefined
-    for (const key of keys) {
-      if (!(key in source)) continue
-      const raw = (source as { readonly [key: string]: unknown })[key]
-      if (typeof raw === "boolean") return raw
-      if (typeof raw === "number") {
-        if (raw === 1) return true
-        if (raw === 0) return false
-      }
-      if (typeof raw === "string") {
-        const normalized = raw.trim().toLowerCase()
-        if (["true", "1", "yes", "y", "on"].includes(normalized)) {
-          return true
-        }
-        if (["false", "0", "no", "n", "off"].includes(normalized)) {
-          return false
-        }
-      }
-    }
-    return undefined
-  }
-
   // Avgör om RANGE_SLIDER ska använda slider-UI eller numeriskt fält
   private shouldUseRangeSliderUi(param: WorkspaceParameter): boolean {
     if (param.type !== ParameterType.RANGE_SLIDER) return false
@@ -366,7 +227,7 @@ export class ParameterFormService {
       return false
     }
 
-    // Default för RANGE_SLIDER är att visa slider-UI
+    // Standard för RANGE_SLIDER är att visa slider-UI
     return true
   }
 
@@ -1100,31 +961,26 @@ export class ParameterFormService {
     }
   }
 
-  private deriveToggleConfig(
-    type: FormFieldType,
-    param: WorkspaceParameter,
+  // Helper: Parse option entries for toggle fields
+  private parseToggleOptionEntries(
     options?: readonly OptionItem[]
-  ): ToggleFieldConfig | undefined {
-    if (type !== FormFieldType.SWITCH && type !== FormFieldType.CHECKBOX) {
-      return undefined
-    }
+  ): Array<{ value: any; label?: string }> {
+    if (!Array.isArray(options)) return []
 
-    const meta = this.getParameterMetadata(param)
-    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
-    const defaultBoolean = toBooleanValue(param.defaultValue)
+    return options
+      .map((opt) => ({
+        value: this.normalizeToggleValue(opt?.value),
+        label: toTrimmedString(opt?.label) ?? undefined,
+      }))
+      .filter((entry) => entry.value !== undefined || entry.label)
+  }
 
-    const optionEntries = Array.isArray(options)
-      ? options
-          .map((opt) => ({
-            value: this.normalizeToggleValue(opt?.value),
-            label:
-              typeof opt?.label === "string" && opt.label.trim()
-                ? opt.label.trim()
-                : undefined,
-          }))
-          .filter((entry) => entry.value !== undefined || entry.label)
-      : []
-
+  // Helper: Resolve checked/unchecked values from option entries
+  private resolveToggleOptionsFromEntries(
+    optionEntries: Array<{ value: any; label?: string }>,
+    normalizedDefault: any,
+    meta: any
+  ): { checkedValue: any; uncheckedValue: any } {
     let checkedValue = this.extractToggleMetaValue(meta, [
       "checkedValue",
       "checked_value",
@@ -1193,28 +1049,52 @@ export class ParameterFormService {
       }
     }
 
+    return { checkedValue, uncheckedValue }
+  }
+
+  // Helper: Apply default values to toggle options
+  private applyToggleDefaults(
+    checkedValue: any,
+    uncheckedValue: any,
+    normalizedDefault: any,
+    defaultBoolean: boolean | undefined
+  ): { checkedValue: any; uncheckedValue: any } {
+    let finalChecked = checkedValue
+    let finalUnchecked = uncheckedValue
+
     if (defaultBoolean !== undefined) {
-      if (checkedValue === undefined && defaultBoolean) {
-        checkedValue = this.normalizeToggleValue(true)
+      if (finalChecked === undefined && defaultBoolean) {
+        finalChecked = this.normalizeToggleValue(true)
       }
 
-      if (uncheckedValue === undefined && !defaultBoolean) {
-        uncheckedValue = this.normalizeToggleValue(false)
+      if (finalUnchecked === undefined && !defaultBoolean) {
+        finalUnchecked = this.normalizeToggleValue(false)
       }
     }
 
-    if (uncheckedValue === undefined && normalizedDefault !== undefined) {
-      uncheckedValue = normalizedDefault
+    if (finalUnchecked === undefined && normalizedDefault !== undefined) {
+      finalUnchecked = normalizedDefault
     }
 
+    // Avoid duplicate values
     if (
-      checkedValue !== undefined &&
-      uncheckedValue !== undefined &&
-      this.areToggleValuesEqual(checkedValue, uncheckedValue)
+      finalChecked !== undefined &&
+      finalUnchecked !== undefined &&
+      this.areToggleValuesEqual(finalChecked, finalUnchecked)
     ) {
-      uncheckedValue = undefined
+      finalUnchecked = undefined
     }
 
+    return { checkedValue: finalChecked, uncheckedValue: finalUnchecked }
+  }
+
+  // Helper: Extract toggle labels from metadata or options
+  private extractToggleLabels(
+    meta: any,
+    optionEntries: Array<{ value: any; label?: string }>,
+    checkedValue: any,
+    uncheckedValue: any
+  ): { checkedLabel?: string; uncheckedLabel?: string } {
     const checkedLabel =
       pickString(meta, [
         "checkedLabel",
@@ -1247,6 +1127,51 @@ export class ParameterFormService {
           this.areToggleValuesEqual(entry.value, uncheckedValue)
       )?.label
 
+    return { checkedLabel, uncheckedLabel }
+  }
+
+  private deriveToggleConfig(
+    type: FormFieldType,
+    param: WorkspaceParameter,
+    options?: readonly OptionItem[]
+  ): ToggleFieldConfig | undefined {
+    if (type !== FormFieldType.SWITCH && type !== FormFieldType.CHECKBOX) {
+      return undefined
+    }
+
+    const meta = this.getParameterMetadata(param)
+    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
+    const defaultBoolean = toBooleanValue(param.defaultValue)
+
+    // Step 1: Parse option entries
+    const optionEntries = this.parseToggleOptionEntries(options)
+
+    // Step 2: Resolve checked/unchecked values from entries
+    let { checkedValue, uncheckedValue } = this.resolveToggleOptionsFromEntries(
+      optionEntries,
+      normalizedDefault,
+      meta
+    )
+
+    // Step 3: Apply defaults
+    const finalValues = this.applyToggleDefaults(
+      checkedValue,
+      uncheckedValue,
+      normalizedDefault,
+      defaultBoolean
+    )
+    checkedValue = finalValues.checkedValue
+    uncheckedValue = finalValues.uncheckedValue
+
+    // Step 4: Extract labels
+    const { checkedLabel, uncheckedLabel } = this.extractToggleLabels(
+      meta,
+      optionEntries,
+      checkedValue,
+      uncheckedValue
+    )
+
+    // Build result
     const result: ToggleFieldConfig = {
       ...(checkedValue !== undefined && { checkedValue }),
       ...(uncheckedValue !== undefined && { uncheckedValue }),
@@ -1386,51 +1311,38 @@ export class ParameterFormService {
     return null
   }
 
-  // Extraherar synlighets-konfiguration från parameter-metadata
-  private deriveVisibilityConfig(
-    param: WorkspaceParameter
-  ): VisibilityExpression | undefined {
-    const meta = this.getParameterMetadata(param)
-    const visibilityRaw = meta.visibility
-    if (!isPlainObject(visibilityRaw)) return undefined
+  // Parser för condition clause från raw object
+  private parseConditionClause(clauseObj: {
+    readonly [key: string]: unknown
+  }): DynamicPropertyClause<VisibilityState> | null {
+    const thenValue = this.parseVisibilityState(clauseObj.then)
+    if (!thenValue) return null
 
-    const visibilityObj = visibilityRaw as { readonly [key: string]: unknown }
-    const ifArray = unwrapArray(visibilityObj.if)
-    if (!ifArray?.length) return undefined
+    const conditionKeys = Object.keys(clauseObj).filter((key) =>
+      key.startsWith("$")
+    )
 
-    const clauses: Array<DynamicPropertyClause<VisibilityState>> = []
-
-    for (const clause of ifArray) {
-      if (!isPlainObject(clause)) continue
-
-      const clauseObj = clause as { readonly [key: string]: unknown }
-      const thenValue = this.parseVisibilityState(clauseObj.then)
-      if (!thenValue) continue
-
-      const conditionKeys = Object.keys(clauseObj).filter((key) =>
-        key.startsWith("$")
-      )
-
-      if (conditionKeys.length === 0) {
-        clauses.push({ then: thenValue })
-        continue
-      }
-
-      const clauseWithCondition: { [key: string]: unknown } = {
-        then: thenValue,
-      }
-      for (const key of conditionKeys) {
-        clauseWithCondition[key] = clauseObj[key]
-      }
-
-      clauses.push(
-        clauseWithCondition as DynamicPropertyClause<VisibilityState>
-      )
+    // Enkel clause utan villkor (bara then)
+    if (conditionKeys.length === 0) {
+      return { then: thenValue }
     }
 
-    if (!clauses.length) return undefined
+    // Clause med villkor ($ keys)
+    const clauseWithCondition: { [key: string]: unknown } = {
+      then: thenValue,
+    }
+    for (const key of conditionKeys) {
+      clauseWithCondition[key] = clauseObj[key]
+    }
 
-    const defaultObj = visibilityObj.default
+    return clauseWithCondition as DynamicPropertyClause<VisibilityState>
+  }
+
+  // Bygger visibility expression från clauses och default state
+  private buildVisibilityExpression(
+    clauses: Array<DynamicPropertyClause<VisibilityState>>,
+    defaultObj?: unknown
+  ): VisibilityExpression {
     const defaultValue = isPlainObject(defaultObj)
       ? this.parseVisibilityState(
           (defaultObj as { readonly [key: string]: unknown }).value
@@ -1452,6 +1364,35 @@ export class ParameterFormService {
     }
 
     return result
+  }
+
+  // Extraherar synlighets-konfiguration från parameter-metadata (förenklad)
+  private deriveVisibilityConfig(
+    param: WorkspaceParameter
+  ): VisibilityExpression | undefined {
+    const meta = this.getParameterMetadata(param)
+    const visibilityRaw = meta.visibility
+    if (!isPlainObject(visibilityRaw)) return undefined
+
+    const visibilityObj = visibilityRaw as { readonly [key: string]: unknown }
+    const ifArray = unwrapArray(visibilityObj.if)
+    if (!ifArray?.length) return undefined
+
+    const clauses: Array<DynamicPropertyClause<VisibilityState>> = []
+
+    for (const clause of ifArray) {
+      if (!isPlainObject(clause)) continue
+
+      const clauseObj = clause as { readonly [key: string]: unknown }
+      const parsedClause = this.parseConditionClause(clauseObj)
+      if (parsedClause) {
+        clauses.push(parsedClause)
+      }
+    }
+
+    if (!clauses.length) return undefined
+
+    return this.buildVisibilityExpression(clauses, visibilityObj.default)
   }
 
   // Parser för enskild visibility state från sträng
@@ -1675,8 +1616,7 @@ export class ParameterFormService {
 
       if (field.type === FormFieldType.TEXT_OR_FILE) {
         const tf = value as TextOrFileValue | undefined
-        const hasText =
-          typeof tf?.text === "string" && tf.text.trim().length > 0
+        const hasText = isNonEmptyTrimmedString(tf?.text)
         const hasFile = isFileObject(tf?.file)
         if (field.required && !hasText && !hasFile) {
           errors[field.name] = ""
@@ -1751,798 +1691,5 @@ export class ParameterFormService {
     }
 
     return { isValid: Object.keys(errors).length === 0, errors }
-  }
-}
-
-/* Utility Functions för FME Flow Integration */
-
-// Extraherar FME-version från server-respons
-function extractFmeVersion(info: unknown): string {
-  if (!info) return ""
-
-  const data = (info as any)?.data ?? info
-  const versionPattern = /\b(\d+\.\d+(?:\.\d+)?|20\d{2}(?:\.\d+)?)\b/
-
-  const directKeys = [
-    "version",
-    "fmeVersion",
-    "fmeflowVersion",
-    "app.version",
-    "about.version",
-    "server.version",
-    "edition",
-    "build",
-    "productName",
-    "product",
-    "name",
-  ]
-
-  for (const key of directKeys) {
-    const value = key.includes(".")
-      ? key.split(".").reduce((obj, k) => obj?.[k], data)
-      : data?.[key]
-
-    if (typeof value === "string") {
-      const match = value.match(versionPattern)
-      if (match) return match[1]
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value)
-    }
-  }
-
-  // Search all values as fallback
-  try {
-    const allValues = Object.values(data || {})
-    for (const val of allValues) {
-      if (typeof val === "string") {
-        const match = val.match(versionPattern)
-        if (match) return match[1]
-      }
-    }
-  } catch {
-    // Ignore
-  }
-
-  return ""
-}
-
-// Kontrollerar FME Flow server-hälsa och version
-export async function healthCheck(
-  serverUrl: string,
-  token: string,
-  signal?: AbortSignal
-): Promise<{
-  reachable: boolean
-  version?: string
-  responseTime?: number
-  error?: string
-  status?: number
-}> {
-  const key = `${serverUrl}|${token}`
-  const urlValidation = validateServerUrl(serverUrl)
-  if (!urlValidation.ok) {
-    return {
-      reachable: false,
-      responseTime: 0,
-      error: "invalidUrl",
-      status: 0,
-    }
-  }
-
-  return await inFlight.healthCheck.execute(key, async () => {
-    const startTime = Date.now()
-    try {
-      const client = createFmeClient(serverUrl, token)
-      const response = await client.testConnection(signal)
-      const elapsed = Date.now() - startTime
-      const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
-
-      return {
-        reachable: true,
-        version: extractFmeVersion(response),
-        responseTime,
-      }
-    } catch (error) {
-      const elapsed = Date.now() - startTime
-      const responseTime =
-        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
-      const status = extractHttpStatus(error)
-      const errorMessage = extractErrorMessage(error)
-
-      if (status === 401 || status === 403) {
-        if (hasNetworkError(errorMessage)) {
-          return {
-            reachable: false,
-            responseTime,
-            error: errorMessage,
-            status,
-          }
-        }
-
-        const strictValidation = validateServerUrl(serverUrl, { strict: true })
-        if (!strictValidation.ok) {
-          return {
-            reachable: false,
-            responseTime,
-            error: "invalidUrl",
-            status,
-          }
-        }
-        return { reachable: true, responseTime, status }
-      }
-
-      return {
-        reachable: false,
-        responseTime,
-        error: errorMessage,
-        status,
-      }
-    }
-  })
-}
-
-// Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
-export async function validateConnection(
-  options: ConnectionValidationOptions
-): Promise<ConnectionValidationResult> {
-  const { serverUrl, token, repository, signal } = options
-  const key = `${serverUrl}|${token}|${repository || "_"}`
-  const steps: CheckSteps = {
-    serverUrl: "pending",
-    token: "pending",
-    repository: repository ? "pending" : "skip",
-    version: "",
-  }
-
-  return await inFlight.validateConnection.execute(
-    key,
-    async (): Promise<ConnectionValidationResult> => {
-      try {
-        const client = createFmeClient(serverUrl, token, repository)
-
-        if (!client) {
-          return {
-            success: false,
-            steps,
-            error: {
-              message: "connectionFailedMessage",
-              type: "server",
-              status: 0,
-            },
-          }
-        }
-
-        // Step 1: Test connection and get server info
-        let serverInfo: any
-        try {
-          serverInfo = await client.testConnection(signal)
-          steps.serverUrl = "ok"
-          steps.token = "ok"
-          steps.version = extractFmeVersion(serverInfo)
-        } catch (error) {
-          if (isAbortError(error)) {
-            return {
-              success: false,
-              steps,
-              error: {
-                message: (error as Error).message || "aborted",
-                type: "generic",
-                status: 0,
-              },
-            }
-          }
-          const status = extractHttpStatus(error)
-
-          if (status === 401) {
-            steps.serverUrl = "ok"
-            steps.token = "fail"
-            return {
-              success: false,
-              steps,
-              error: {
-                message: mapErrorToKey(error, status),
-                type: "token",
-                status,
-              },
-            }
-          } else if (status === 403) {
-            const rawMessage = extractErrorMessage(error)
-            if (hasProxyError(rawMessage)) {
-              steps.serverUrl = "fail"
-              steps.token = "skip"
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: mapErrorToKey(error, status),
-                  type: "server",
-                  status,
-                },
-              }
-            }
-            try {
-              const healthResult = await healthCheck(serverUrl, token, signal)
-
-              if (healthResult.reachable) {
-                steps.serverUrl = "ok"
-                steps.token = "fail"
-                return {
-                  success: false,
-                  steps,
-                  error: {
-                    message: mapErrorToKey(error, status),
-                    type: "token",
-                    status,
-                  },
-                }
-              } else {
-                steps.serverUrl = "fail"
-                steps.token = "skip"
-                return {
-                  success: false,
-                  steps,
-                  error: {
-                    message: mapErrorToKey(error, status),
-                    type: "server",
-                    status,
-                  },
-                }
-              }
-            } catch (healthError) {
-              steps.serverUrl = "fail"
-              steps.token = "skip"
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: mapErrorToKey(error, status),
-                  type: "server",
-                  status,
-                },
-              }
-            }
-          } else {
-            steps.serverUrl = "fail"
-            steps.token = "skip"
-            return {
-              success: false,
-              steps,
-              error: {
-                message: mapErrorToKey(error, status),
-                type: status === 0 ? "network" : "server",
-                status,
-              },
-            }
-          }
-        }
-
-        const warnings: string[] = []
-
-        // Step 3: Validate specific repository if provided
-        if (repository) {
-          try {
-            await client.validateRepository(repository, signal)
-            steps.repository = "ok"
-          } catch (error) {
-            const status = extractHttpStatus(error)
-            if (status === 401 || status === 403) {
-              steps.repository = "skip"
-              warnings.push("repositoryNotAccessible")
-            } else {
-              steps.repository = "fail"
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: mapErrorToKey(error, status),
-                  type: "repository",
-                  status,
-                },
-              }
-            }
-          }
-        }
-
-        return {
-          success: true,
-          version: typeof steps.version === "string" ? steps.version : "",
-          steps,
-          warnings: warnings.length ? warnings : undefined,
-        }
-      } catch (error) {
-        if (isAbortError(error)) {
-          return {
-            success: false,
-            steps,
-            error: {
-              message: (error as Error).message || "aborted",
-              type: "generic",
-              status: 0,
-            },
-          }
-        }
-
-        const status = extractHttpStatus(error)
-        return {
-          success: false,
-          steps,
-          error: {
-            message: mapErrorToKey(error, status),
-            type: "generic",
-            status,
-          },
-        }
-      }
-    }
-  )
-}
-
-// Löser remote dataset genom att ladda upp eller länka via opt_geturl
-export async function resolveRemoteDataset({
-  params,
-  remoteUrl,
-  uploadFile,
-  config,
-  workspaceParameters,
-  makeCancelable,
-  fmeClient,
-  signal,
-  subfolder,
-  workspaceName,
-}: RemoteDatasetOptions): Promise<void> {
-  sanitizeOptGetUrlParam(params, config)
-
-  if (shouldApplyRemoteDatasetUrl(remoteUrl, config)) {
-    params.opt_geturl = remoteUrl
-    return
-  }
-
-  if (!shouldUploadRemoteDataset(config, uploadFile)) {
-    return
-  }
-
-  const targetWorkspace = toTrimmedString(workspaceName)
-  if (!targetWorkspace) {
-    throw new Error("REMOTE_DATASET_WORKSPACE_REQUIRED")
-  }
-
-  if (typeof params.opt_geturl !== "undefined") {
-    delete params.opt_geturl
-  }
-
-  const uploadResponse = await makeCancelable<ApiResponse<{ path: string }>>(
-    fmeClient.uploadToTemp(uploadFile, {
-      subfolder,
-      signal,
-      repository: config?.repository,
-      workspace: targetWorkspace,
-    })
-  )
-
-  const uploadedPath = uploadResponse.data?.path
-  applyUploadedDatasetParam({
-    finalParams: params,
-    uploadedPath,
-    parameters: workspaceParameters,
-    explicitTarget: resolveUploadTargetParam(config),
-  })
-}
-
-// Förbereder submission-parametrar med AOI och remote dataset-upplösning
-export async function prepareSubmissionParams({
-  rawFormData,
-  userEmail,
-  geometryJson,
-  geometry,
-  modules,
-  config,
-  workspaceParameters,
-  workspaceItem,
-  selectedWorkspaceName,
-  areaWarning,
-  drawnArea,
-  makeCancelable,
-  fmeClient,
-  signal,
-  remoteDatasetSubfolder,
-  onStatusChange,
-}: SubmissionPreparationOptions): Promise<SubmissionPreparationResult> {
-  onStatusChange?.("normalizing")
-  const { sanitizedFormData, uploadFile, remoteUrl } =
-    parseSubmissionFormData(rawFormData)
-  const normalizedConfig = normalizeServiceModeConfig(config || undefined)
-
-  const baseParams = prepFmeParams(
-    {
-      data: sanitizedFormData,
-    },
-    userEmail,
-    geometryJson,
-    geometry || undefined,
-    modules,
-    {
-      config: normalizedConfig,
-      workspaceParameters,
-      workspaceItem,
-      areaWarning,
-      drawnArea,
-    }
-  )
-
-  const aoiError = (baseParams as MutableParams).__aoi_error__
-  if (aoiError) {
-    onStatusChange?.("complete")
-    return { params: null, aoiError }
-  }
-
-  const params: MutableParams = { ...baseParams }
-
-  const shouldResolveRemoteDataset = Boolean(
-    uploadFile || (typeof remoteUrl === "string" && remoteUrl.trim())
-  )
-
-  if (shouldResolveRemoteDataset) {
-    onStatusChange?.("resolvingDataset")
-  }
-
-  await resolveRemoteDataset({
-    params,
-    remoteUrl,
-    uploadFile,
-    config: normalizedConfig,
-    workspaceParameters,
-    makeCancelable,
-    fmeClient,
-    signal,
-    subfolder: remoteDatasetSubfolder,
-    workspaceName:
-      toTrimmedString(workspaceItem?.name) ||
-      toTrimmedString(selectedWorkspaceName) ||
-      null,
-  })
-
-  onStatusChange?.("applyingDefaults")
-  const paramsWithDefaults = applyDirectiveDefaults(params, normalizedConfig)
-  removeAoiErrorMarker(paramsWithDefaults as MutableParams)
-
-  onStatusChange?.("complete")
-  return { params: paramsWithDefaults }
-}
-
-// Skapar GraphicsLayers för ritning och preview
-export function createLayers(
-  jmv: JimuMapView,
-  modules: EsriModules,
-  setGraphicsLayer: (layer: __esri.GraphicsLayer) => void
-): __esri.GraphicsLayer {
-  const layer = new modules.GraphicsLayer(LAYER_CONFIG)
-  jmv.view.map.add(layer)
-  setGraphicsLayer(layer)
-
-  return layer
-}
-
-// Konfigurerar event-handlers för SketchViewModel (create/update/undo/redo)
-export function setupSketchEventHandlers({
-  sketchViewModel,
-  onDrawComplete,
-  dispatch,
-  widgetId,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  sketchViewModel: __esri.SketchViewModel
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}): () => void {
-  let clickCount = 0
-
-  const createHandle = sketchViewModel.on(
-    "create",
-    (evt: __esri.SketchCreateEvent) => {
-      switch (evt.state) {
-        case "start": {
-          clickCount = 0
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (!normalizedTool) {
-            safeCancelSketch(sketchViewModel)
-            onDrawingSessionChange({ isActive: false, clickCount: 0 })
-            return
-          }
-          onDrawingSessionChange({ isActive: true, clickCount: 0 })
-          onSketchToolStart(
-            normalizedTool === "rectangle"
-              ? DrawingTool.RECTANGLE
-              : DrawingTool.POLYGON
-          )
-          break
-        }
-
-        case "active": {
-          const normalizedTool = normalizeSketchCreateTool(evt.tool)
-          if (normalizedTool === "polygon" && evt.graphic?.geometry) {
-            const geometry = evt.graphic.geometry as __esri.Polygon
-            const vertices = geometry.rings?.[0]
-            const actualClicks = vertices ? Math.max(0, vertices.length - 1) : 0
-            if (actualClicks > clickCount) {
-              clickCount = actualClicks
-              onDrawingSessionChange({
-                clickCount: actualClicks,
-                isActive: true,
-              })
-              if (actualClicks === 1) {
-                dispatch(fmeActions.setViewMode(ViewMode.DRAWING, widgetId))
-              }
-            }
-          } else if (normalizedTool === "rectangle" && clickCount !== 1) {
-            clickCount = 1
-            onDrawingSessionChange({ clickCount: 1, isActive: true })
-          }
-          break
-        }
-
-        case "complete":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          try {
-            onDrawComplete(evt)
-          } catch (err: unknown) {
-            logIfNotAbort("onDrawComplete error", err)
-          }
-          break
-
-        case "cancel":
-          clickCount = 0
-          onDrawingSessionChange({ isActive: false, clickCount: 0 })
-          break
-      }
-    }
-  )
-
-  const updateHandle = sketchViewModel.on(
-    "update",
-    (evt: __esri.SketchUpdateEvent) => {
-      if (
-        evt.state === "complete" &&
-        Array.isArray(evt.graphics) &&
-        evt.graphics.length > 0 &&
-        (evt.graphics[0] as any)?.geometry
-      ) {
-        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool)
-        try {
-          onDrawComplete({
-            graphic: evt.graphics[0] as any,
-            state: "complete",
-            tool: normalizedTool ?? (evt as any).tool,
-          } as any)
-        } catch (err: unknown) {
-          logIfNotAbort("onDrawComplete update error", err)
-        }
-      }
-    }
-  )
-
-  return () => {
-    try {
-      createHandle?.remove()
-    } catch {}
-    try {
-      updateHandle?.remove()
-    } catch {}
-    try {
-      ;(sketchViewModel as any).__fmeCleanup__ = undefined
-    } catch {}
-  }
-}
-
-// Skapar SketchViewModel med event-handlers och cleanup-funktioner
-export function createSketchVM({
-  jmv,
-  modules,
-  layer,
-  onDrawComplete,
-  dispatch,
-  widgetId,
-  symbols,
-  onDrawingSessionChange,
-  onSketchToolStart,
-}: {
-  jmv: JimuMapView
-  modules: EsriModules
-  layer: __esri.GraphicsLayer
-  onDrawComplete: (evt: __esri.SketchCreateEvent) => void
-  dispatch: (action: unknown) => void
-  widgetId: string
-  symbols: {
-    polygon: any
-    polyline: any
-    point: any
-  }
-  onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void
-  onSketchToolStart: (tool: DrawingTool) => void
-}): {
-  sketchViewModel: __esri.SketchViewModel
-  cleanup: () => void
-} {
-  const sketchViewModel = new modules.SketchViewModel({
-    view: jmv.view,
-    layer,
-    polygonSymbol: symbols.polygon,
-    polylineSymbol: symbols.polyline,
-    pointSymbol: symbols.point,
-    defaultCreateOptions: {
-      hasZ: false,
-      mode: "click",
-    },
-    defaultUpdateOptions: {
-      tool: "reshape",
-      toggleToolOnClick: false,
-      enableRotation: true,
-      enableScaling: true,
-      preserveAspectRatio: false,
-    },
-    snappingOptions: {
-      enabled: true,
-      selfEnabled: true,
-      featureEnabled: true,
-    },
-    tooltipOptions: {
-      enabled: true,
-      inputEnabled: true,
-      visibleElements: {
-        area: true,
-        totalLength: true,
-        distance: true,
-        coordinates: false,
-        elevation: false,
-        rotation: false,
-        scale: false,
-        size: false,
-        radius: true,
-        direction: true,
-        header: true,
-        helpMessage: true,
-      },
-    },
-    valueOptions: {
-      directionMode: "relative",
-      displayUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-      inputUnits: {
-        length: "meters",
-        verticalLength: "meters",
-        area: "square-meters",
-      },
-    },
-  })
-
-  const cleanup = setupSketchEventHandlers({
-    sketchViewModel,
-    onDrawComplete,
-    dispatch,
-    widgetId,
-    onDrawingSessionChange,
-    onSketchToolStart,
-  })
-  ;(sketchViewModel as any).__fmeCleanup__ = cleanup
-  return { sketchViewModel, cleanup }
-}
-
-/* Widget Startup Validation */
-
-// Validerar widget-uppstart: config, required fields, FME-anslutning
-export async function validateWidgetStartup(
-  options: StartupValidationOptions
-): Promise<StartupValidationResult> {
-  const { config, translate, signal, mapConfigured } = options
-
-  // Step 1: Check if config exists
-  if (!config) {
-    return {
-      isValid: false,
-      canProceed: false,
-      requiresSettings: true,
-      error: createError(
-        "errorSetupRequired",
-        ErrorType.CONFIG,
-        "configMissing",
-        translate,
-        {
-          suggestion: translate("actionOpenSettings"),
-          userFriendlyMessage: translate("hintSetupWidget"),
-        }
-      ),
-    }
-  }
-
-  // Step 2: Validate required config fields
-  const requiredFieldsResult = validateRequiredFields(config, translate, {
-    mapConfigured: mapConfigured ?? true,
-  })
-  if (!requiredFieldsResult.isValid) {
-    return {
-      isValid: false,
-      canProceed: false,
-      requiresSettings: true,
-      error: createError(
-        "errorSetupRequired",
-        ErrorType.CONFIG,
-        "CONFIG_INCOMPLETE",
-        translate
-      ),
-    }
-  }
-
-  // Step 3: Test FME Flow connection
-  try {
-    const connectionResult = await validateConnection({
-      serverUrl: config.fmeServerUrl,
-      token: config.fmeServerToken,
-      repository: config.repository,
-      signal,
-    })
-
-    if (!connectionResult.success) {
-      return {
-        isValid: false,
-        canProceed: false,
-        requiresSettings: true,
-        error: createError(
-          connectionResult.error?.message || "errorConnectionIssue",
-          ErrorType.NETWORK,
-          connectionResult.error?.type?.toUpperCase() || "CONNECTION_ERROR",
-          translate,
-          {
-            suggestion:
-              connectionResult.error?.type === "token"
-                ? translate("tokenSettingsHint")
-                : connectionResult.error?.type === "server"
-                  ? translate("serverUrlSettingsHint")
-                  : connectionResult.error?.type === "repository"
-                    ? translate("repositorySettingsHint")
-                    : translate("connectionSettingsHint"),
-          }
-        ),
-      }
-    }
-
-    // All validation passed
-    return {
-      isValid: true,
-      canProceed: true,
-      requiresSettings: false,
-    }
-  } catch (error) {
-    if (isAbortError(error)) {
-      // Don't treat abort as an error - just return neutral state
-      return {
-        isValid: false,
-        canProceed: false,
-        requiresSettings: false,
-      }
-    }
-
-    return {
-      isValid: false,
-      canProceed: false,
-      requiresSettings: true,
-      error: createError(
-        "errorNetworkIssue",
-        ErrorType.NETWORK,
-        "STARTUP_NETWORK_ERROR",
-        translate,
-        {
-          suggestion: translate("networkConnectionHint"),
-        }
-      ),
-    }
   }
 }

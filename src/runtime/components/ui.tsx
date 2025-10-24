@@ -19,16 +19,13 @@ import {
   Radio as JimuRadio,
   Slider as JimuSlider,
   NumericInput as JimuNumericInput,
-  TagInput as JimuTagInput,
-  MultiSelect,
   SVG,
   Table as JimuTable,
-  RichDisplayer,
   Alert as JimuAlert,
+  defaultMessages as jimuDefaultMessages,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
-import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker"
 import {
   useUniqueId,
   useControlledValue,
@@ -57,7 +54,6 @@ import type {
   StateViewProps,
   TranslateFn,
   UiStyles,
-  ScheduleFieldsProps,
 } from "../../config/index"
 import defaultMessages from "./translations/default"
 import {
@@ -65,15 +61,12 @@ import {
   getErrorIconSrc,
   getBtnAria,
   ariaDesc,
-  pad2,
   formatNumericDisplay,
   resolveMessageOrKey,
+  flattenHierarchicalOptions,
 } from "../../shared/utils"
-import {
-  validateScheduleDateTime,
-  validateScheduleName,
-  validateScheduleCategory,
-} from "../../shared/validations"
+
+// Removed schedule validation imports from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg"
 import emailIcon from "../../assets/icons/email.svg"
 import errorIcon from "../../assets/icons/error.svg"
@@ -238,7 +231,7 @@ const getRequiredMark = (
   translate: (k: string, vars?: any) => string,
   styles: UiStyles
 ) => (
-  <Tooltip content={translate("requiredField")} placement="bottom">
+  <Tooltip content={translate("valRequiredField")} placement="bottom">
     <span
       css={styles.typo.required}
       aria-label={translate("ariaRequired")}
@@ -593,6 +586,7 @@ export const Slider: React.FC<{
   "aria-label"?: string
   decimalPrecision?: number
   showValue?: boolean
+  valueFormatter?: (value: number) => string
 }> = ({
   value,
   defaultValue,
@@ -605,10 +599,14 @@ export const Slider: React.FC<{
   "aria-label": ariaLabel,
   decimalPrecision,
   showValue = true,
+  valueFormatter,
 }) => {
   const styles = useStyles()
 
   const formatValue = hooks.useEventCallback((val: number): string => {
+    if (typeof valueFormatter === "function") {
+      return valueFormatter(val)
+    }
     return formatNumericDisplay(val, decimalPrecision)
   })
 
@@ -684,28 +682,6 @@ export const NumericInput: React.FC<NumericInputProps> = ({
   )
 }
 
-// TagInput-komponent
-export const TagInput: React.FC<{
-  value?: string[]
-  suggestions?: string[]
-  placeholder?: string
-  onChange?: (values: string[]) => void
-  style?: React.CSSProperties
-}> = ({ value, suggestions, placeholder, onChange, style }) => {
-  const styles = useStyles()
-  return (
-    <JimuTagInput
-      values={value}
-      suggestions={suggestions}
-      placeholder={placeholder}
-      onChange={(vals) => {
-        onChange?.(vals)
-      }}
-      css={applyFullWidthStyles(styles, style)}
-    />
-  )
-}
-
 // Table-komponent
 export const Table: React.FC<React.ComponentProps<typeof JimuTable>> = (
   props
@@ -733,208 +709,6 @@ export const ColorPickerWrapper: React.FC<{
   )
 }
 
-// Regex för ISO lokal datum och tid
-const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/
-const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/
-
-// Parsar ISO lokal datum-tid-sträng till Date-objekt
-const parseIsoLocalDateTime = (value?: string): Date | null => {
-  if (!value) return null
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  const normalized = trimmed.includes("T") ? trimmed : `${trimmed}T00:00:00`
-  const [datePart = "", timePart = ""] = normalized.split("T")
-
-  const dateMatch = ISO_LOCAL_DATE.exec(datePart)
-  const timeMatch = ISO_LOCAL_TIME.exec(timePart)
-  if (!dateMatch || !timeMatch) return null
-
-  const year = Number(dateMatch[1])
-  const month = Number(dateMatch[2])
-  const day = Number(dateMatch[3])
-  const hour = Number(timeMatch[1])
-  const minute = Number(timeMatch[2])
-  const second = timeMatch[3] ? Number(timeMatch[3]) : 0
-
-  // Validera numeriska komponenter är finita
-  if (
-    !Number.isFinite(year) ||
-    !Number.isFinite(month) ||
-    !Number.isFinite(day) ||
-    !Number.isFinite(hour) ||
-    !Number.isFinite(minute) ||
-    !Number.isFinite(second)
-  ) {
-    return null
-  }
-
-  // Validera intervall INNAN Date-konstruktion för att förhindra övergång
-  if (month < 1 || month > 12) return null
-  if (day < 1 || day > 31) return null
-  if (hour < 0 || hour > 23) return null
-  if (minute < 0 || minute > 59) return null
-  if (second < 0 || second > 59) return null
-
-  const parsed = new Date(year, month - 1, day, hour, minute, second, 0)
-
-  // Verifiera att Date inte gick över (t.ex. 30 feb → 2 mars)
-  if (
-    parsed.getFullYear() !== year ||
-    parsed.getMonth() !== month - 1 ||
-    parsed.getDate() !== day ||
-    parsed.getHours() !== hour ||
-    parsed.getMinutes() !== minute ||
-    parsed.getSeconds() !== second
-  ) {
-    return null
-  }
-
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-// Formaterar Date-objekt till ISO eller FME lokal datum-tid-sträng
-const formatIsoLocalDateTime = (
-  value: Date | null | undefined,
-  format: "iso" | "fme" = "iso"
-): string => {
-  if (!value) return ""
-  const timestamp = value.getTime()
-  if (Number.isNaN(timestamp)) return ""
-  const yyyy = value.getFullYear()
-  const mm = pad2(value.getMonth() + 1)
-  const dd = pad2(value.getDate())
-  const hh = pad2(value.getHours())
-  const mi = pad2(value.getMinutes())
-  const ss = pad2(value.getSeconds())
-
-  // FME-format: YYYY-MM-DD HH:mm:ss (mellanslag som separator)
-  if (format === "fme") {
-    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
-  }
-
-  // ISO-format: YYYY-MM-DDTHH:mm:ss (T som separator)
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`
-}
-
-// DateTimePicker-komponent
-export const DateTimePickerWrapper: React.FC<{
-  value?: string // ISO lokal: YYYY-MM-DDTHH:mm:ss eller FME: YYYY-MM-DD HH:mm:ss
-  defaultValue?: string
-  onChange?: (dateTime: string) => void
-  style?: React.CSSProperties
-  disabled?: boolean
-  "aria-label"?: string
-  mode?: "date-time" | "date"
-  format?: "iso" | "fme" // Utdataformat: iso (standard) eller fme (mellanslag)
-}> = ({
-  value,
-  defaultValue,
-  onChange,
-  style,
-  disabled,
-  "aria-label": ariaLabel,
-  mode = "date-time",
-  format = "iso",
-}) => {
-  const styles = useStyles()
-  const [currentValue, setCurrentValue] = useValue(
-    value,
-    defaultValue,
-    onChange
-  )
-
-  // Bygger fallback-datum beroende på läge
-  const buildFallbackDate = () => {
-    const base = new Date()
-    if (mode === "date") base.setHours(0, 0, 0, 0)
-    return base
-  }
-  const fallbackDateRef = React.useRef<Date>(buildFallbackDate())
-
-  hooks.useUpdateEffect(() => {
-    fallbackDateRef.current = buildFallbackDate()
-  }, [mode])
-
-  const fallbackDate = fallbackDateRef.current
-
-  const selectedDate =
-    parseIsoLocalDateTime(currentValue) ||
-    parseIsoLocalDateTime(defaultValue) ||
-    fallbackDate
-
-  const handleChange = hooks.useEventCallback(
-    (rawValue: any, _label: string) => {
-      if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
-        const next = new Date(rawValue)
-        if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next, format))
-        return
-      }
-
-      if (rawValue instanceof Date) {
-        const next = new Date(rawValue.getTime())
-        if (mode === "date") next.setHours(0, 0, 0, 0)
-        setCurrentValue(formatIsoLocalDateTime(next, format))
-        return
-      }
-
-      if (rawValue == null) {
-        setCurrentValue("")
-      }
-    }
-  )
-
-  const containerStyles = applyComponentStyles(
-    [styles.fullWidth, styles.relative],
-    style
-  )
-
-  const picker = (
-    <div css={containerStyles}>
-      <JimuDatePicker
-        selectedDate={selectedDate}
-        runtime={false}
-        showTimeInput={mode === "date-time"}
-        isLongTime={mode === "date-time"}
-        supportVirtualDateList={false}
-        disablePortal
-        onChange={handleChange}
-        aria-label={ariaLabel}
-      />
-    </div>
-  )
-
-  if (disabled) {
-    return (
-      <span aria-disabled="true" css={styles.disabledPicker}>
-        {picker}
-      </span>
-    )
-  }
-
-  return picker
-}
-
-// RichText-komponent
-export const RichText: React.FC<{
-  html?: string
-  placeholder?: string
-  className?: string
-  style?: React.CSSProperties
-}> = ({ html, placeholder, className, style }) => {
-  if (!html || html.trim().length === 0) {
-    return (
-      <div className={className} css={styleCss(style)}>
-        {placeholder || ""}
-      </div>
-    )
-  }
-
-  return (
-    <RichDisplayer className={className} css={styleCss(style)} value={html} />
-  )
-}
-
 // Select-komponent
 export const Select: React.FC<SelectProps> = ({
   options = [],
@@ -949,12 +723,11 @@ export const Select: React.FC<SelectProps> = ({
   allowCustomValues = false,
   hierarchical = false,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
   const [searchTerm, setSearchTerm] = React.useState("")
-  const resolvedPlaceholder =
-    placeholder || translate("placeholderSelectGeneric")
+  const resolvedPlaceholder = placeholder || translate("phSelectOption")
 
   const coerceValue = hooks.useEventCallback((val: unknown): unknown => {
     if (coerce === "number" && typeof val === "string") {
@@ -990,23 +763,7 @@ export const Select: React.FC<SelectProps> = ({
 
   const showFilter = allowSearch || allowCustomValues
 
-  const flattenOptions = (
-    list: readonly OptionItem[] | undefined,
-    depth = 0,
-    acc: Array<{ option: OptionItem; depth: number }> = []
-  ): Array<{ option: OptionItem; depth: number }> => {
-    if (!list) return acc
-    for (const opt of list) {
-      if (!opt || opt.value == null) continue
-      acc.push({ option: opt, depth })
-      if (hierarchical && opt.children?.length) {
-        flattenOptions(opt.children, depth + 1, acc)
-      }
-    }
-    return acc
-  }
-
-  const flattenedEntries = flattenOptions(options, 0, [])
+  const flattenedEntries = flattenHierarchicalOptions(options, hierarchical)
   const trimmedSearch = showFilter ? searchTerm.trim() : ""
   const normalizedSearch = trimmedSearch.toLowerCase()
   const filteredEntries = normalizedSearch
@@ -1089,7 +846,7 @@ export const Select: React.FC<SelectProps> = ({
         <Input
           type="search"
           value={searchTerm}
-          placeholder={translate("placeholderSearch")}
+          placeholder={translate("phSearch")}
           onChange={(val) => {
             setSearchTerm(typeof val === "string" ? val : "")
           }}
@@ -1151,133 +908,6 @@ export const Select: React.FC<SelectProps> = ({
   )
 }
 
-// MultiSelectControl-komponent
-export const MultiSelectControl: React.FC<{
-  options?: readonly OptionItem[]
-  values?: Array<string | number>
-  defaultValues?: Array<string | number>
-  onChange?: (values: Array<string | number>) => void
-  placeholder?: string
-  disabled?: boolean
-  style?: React.CSSProperties
-  allowSearch?: boolean
-  hierarchical?: boolean
-}> = ({
-  options = [],
-  values,
-  defaultValues = [],
-  onChange,
-  placeholder,
-  disabled = false,
-  style,
-  allowSearch = false,
-  hierarchical = false,
-}) => {
-  const translate = hooks.useTranslation(defaultMessages)
-  const styles = useStyles()
-
-  const [current, setCurrent] = useValue<Array<string | number>>(
-    values,
-    defaultValues
-  )
-  const [searchTerm, setSearchTerm] = React.useState("")
-
-  const finalPlaceholder = placeholder || translate("placeholderSelectGeneric")
-  const trimmedSearch = allowSearch ? searchTerm.trim() : ""
-  const normalizedSearch = trimmedSearch.toLowerCase()
-
-  const flattenOptions = (
-    list: readonly OptionItem[] | undefined,
-    depth = 0,
-    acc: Array<{ option: OptionItem; depth: number }> = []
-  ): Array<{ option: OptionItem; depth: number }> => {
-    if (!list) return acc
-    for (const option of list) {
-      if (!option || option.value == null) continue
-      acc.push({ option, depth })
-      if (hierarchical && option.children?.length) {
-        flattenOptions(option.children, depth + 1, acc)
-      }
-    }
-    return acc
-  }
-
-  const flattenedEntries = flattenOptions(options, 0, [])
-  const filteredEntries = normalizedSearch
-    ? flattenedEntries.filter(({ option }) => {
-        const baseLabel =
-          option.label && option.label.trim()
-            ? option.label.trim()
-            : String(option.value)
-        return baseLabel.toLowerCase().includes(normalizedSearch)
-      })
-    : flattenedEntries
-
-  const entriesToDisplay = filteredEntries
-
-  const items = entriesToDisplay
-    .map(({ option, depth }) => {
-      if (!option || option.value == null) {
-        return null
-      }
-      const baseLabel =
-        option.label && option.label.trim()
-          ? option.label.trim()
-          : String(option.value)
-      const label =
-        hierarchical && depth > 0
-          ? `${"- ".repeat(depth)}${baseLabel}`
-          : baseLabel
-      return {
-        value: option.value,
-        label,
-        disabled: Boolean(option.disabled),
-      }
-    })
-    .filter(Boolean) as Array<{
-    value: string | number
-    label: string
-    disabled: boolean
-  }>
-
-  const handleChange = hooks.useEventCallback(
-    (_value: string | number, newValues: Array<string | number>) => {
-      const normalized = Array.isArray(newValues)
-        ? newValues.filter(
-            (nextValue): nextValue is string | number => nextValue != null
-          )
-        : []
-      setCurrent(normalized)
-      onChange?.(normalized)
-    }
-  )
-
-  return (
-    <div css={applyComponentStyles([styles.fullWidth], style)}>
-      {allowSearch ? (
-        <Input
-          type="search"
-          value={searchTerm}
-          placeholder={translate("placeholderSearch")}
-          onChange={(val) => {
-            setSearchTerm(typeof val === "string" ? val : "")
-          }}
-          disabled={disabled}
-        />
-      ) : null}
-      <MultiSelect
-        values={current || []}
-        defaultValues={defaultValues}
-        onChange={handleChange}
-        placeholder={finalPlaceholder}
-        disabled={disabled}
-        items={items}
-        css={styles.fullWidth}
-      />
-    </div>
-  )
-}
-
 // Sammansatta kontroller
 
 // Knapp-komponent
@@ -1300,7 +930,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...jimuProps
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
 
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
@@ -1314,7 +944,7 @@ export const Button: React.FC<ButtonProps> = ({
     !!icon,
     explicitAriaLabel,
     tooltip,
-    translate("ariaButtonLabel")
+    translate("ariaButton")
   )
 
   // Absorberar stil/css från inkommande props så inga inline-attribut vidare
@@ -1570,7 +1200,7 @@ const StateView: React.FC<StateViewProps> = ({
   center,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0)
@@ -1784,7 +1414,7 @@ const StateView: React.FC<StateViewProps> = ({
                 {detailNode}
                 {state.code ? (
                   <div>
-                    {translate("errorCode")}: {state.code}
+                    {translate("lblErrorCode")}: {state.code}
                   </div>
                 ) : null}
               </>
@@ -1915,7 +1545,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
 // Form-komponent
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const styles = useStyles()
 
   if (variant === "layout") {
@@ -1944,19 +1574,19 @@ export const Form: React.FC<FormProps> = (props) => {
               secondaryButton={
                 onBack
                   ? {
-                      text: translate("back"),
+                      text: translate("btnBack"),
                       onClick: onBack,
                       disabled: loading,
-                      tooltip: translate("tooltipBackToOptions"),
+                      tooltip: translate("tipBackOptions"),
                     }
                   : undefined
               }
               primaryButton={{
-                text: translate("submit"),
+                text: translate("btnSubmit"),
                 onClick: onSubmit,
                 disabled: !isValid || loading,
                 loading,
-                tooltip: translate("tooltipSubmitOrder"),
+                tooltip: translate("tipSubmitOrder"),
               }}
             />
           </div>
@@ -1998,7 +1628,7 @@ export const Field: React.FC<FieldProps> = ({
   children,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const autoId = useId()
   const { id: fieldId, child: renderedChild } = withId(
     children,
@@ -2068,116 +1698,7 @@ export type {
   TabItem,
 }
 
-// ScheduleFields-komponent för schemainställningar
-export const ScheduleFields: React.FC<ScheduleFieldsProps> = ({
-  values,
-  onChange,
-  translate,
-  disabled = false,
-}) => {
-  // Utför valideringar
-  const startValidation = (() => {
-    const start = typeof values.start === "string" ? values.start.trim() : ""
-    if (!start) return null
-    return validateScheduleDateTime(start)
-  })()
-
-  const nameValidation = (() => {
-    const name = typeof values.name === "string" ? values.name.trim() : ""
-    if (!name) return null
-    return validateScheduleName(name)
-  })()
-
-  const categoryValidation = (() => {
-    const category =
-      typeof values.category === "string" ? values.category.trim() : ""
-    if (!category) return null
-    return validateScheduleCategory(category)
-  })()
-
-  // Hjälpfunktion för att hämta felmeddelande
-  const getErrorMessage = (
-    validation: { valid: boolean; error?: string } | null
-  ): string | undefined => {
-    if (!validation || validation.valid) return undefined
-    return validation.error ? translate(validation.error) : undefined
-  }
-
-  return (
-    <>
-      <Field
-        label={translate("scheduleStartLabel")}
-        required={true}
-        helper={translate("scheduleTimezoneHelper")}
-        error={getErrorMessage(startValidation)}
-      >
-        <DateTimePickerWrapper
-          value={typeof values.start === "string" ? values.start : ""}
-          onChange={(dateTime: string) => {
-            onChange("start", dateTime)
-          }}
-          mode="date-time"
-          format="fme"
-          disabled={disabled}
-          aria-label={translate("scheduleStartLabel")}
-        />
-      </Field>
-      <Field
-        label={translate("scheduleNameLabel")}
-        required={true}
-        helper={translate("scheduleNameHelper")}
-        error={getErrorMessage(nameValidation)}
-      >
-        <Input
-          type="text"
-          value={typeof values.name === "string" ? values.name : ""}
-          placeholder={translate("scheduleNamePlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("name", newValue)
-          }}
-          disabled={disabled}
-          aria-required="true"
-          aria-invalid={
-            nameValidation && !nameValidation.valid ? "true" : "false"
-          }
-        />
-      </Field>
-      <Field
-        label={translate("scheduleCategoryLabel")}
-        required={true}
-        helper={translate("scheduleCategoryHelper")}
-        error={getErrorMessage(categoryValidation)}
-      >
-        <Input
-          type="text"
-          value={typeof values.category === "string" ? values.category : ""}
-          placeholder={translate("scheduleCategoryPlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("category", newValue)
-          }}
-          disabled={disabled}
-          aria-required="true"
-          aria-invalid={
-            categoryValidation && !categoryValidation.valid ? "true" : "false"
-          }
-        />
-      </Field>
-      <Field label={translate("scheduleDescriptionLabel")} required={false}>
-        <TextArea
-          value={
-            typeof values.description === "string" ? values.description : ""
-          }
-          placeholder={translate("scheduleDescriptionPlaceholder")}
-          onChange={(newValue: string) => {
-            onChange("description", newValue)
-          }}
-          disabled={disabled}
-          rows={2}
-        />
-      </Field>
-    </>
-  )
-}
+// Removed ScheduleFields component
 
 // Renderar supporthjälp med valfri e-postlänk
 export const renderSupportHint = (
@@ -2188,7 +1709,7 @@ export const renderSupportHint = (
 ): React.ReactNode => {
   if (!supportEmail) return <>{fallbackText}</>
 
-  const fullText = translate("contactSupportEmail")
+  const fullText = translate("msgContactSupport")
   const parts = fullText.split(EMAIL_PLACEHOLDER)
 
   if (parts.length < 2) {
@@ -2199,7 +1720,7 @@ export const renderSupportHint = (
         <a
           href={`mailto:${supportEmail}`}
           css={styles.typo.link}
-          aria-label={translate("contactSupportEmail", {
+          aria-label={translate("msgContactSupport", {
             email: supportEmail,
           })}
         >
@@ -2217,7 +1738,7 @@ export const renderSupportHint = (
           <a
             href={`mailto:${supportEmail}`}
             css={styles.typo.link}
-            aria-label={translate("contactSupportEmail", {
+            aria-label={translate("msgContactSupport", {
               email: supportEmail,
             })}
           >

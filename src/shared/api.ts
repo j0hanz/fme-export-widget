@@ -15,29 +15,23 @@ import type {
   WebhookErrorCode,
   TMDirectives,
   NMDirectives,
-  WebhookArtifacts,
 } from "../config/index"
 import {
   FmeFlowApiError,
   HttpMethod,
   ESRI_GLOBAL_MOCK_KEYS,
   FME_FLOW_API,
-  TM_NUMERIC_PARAM_KEYS,
   PUBLISHED_PARAM_EXCLUDE_SET,
-  WEBHOOK_EXCLUDE_PARAMS,
 } from "../config/index"
 import {
   extractHttpStatus,
   isRetryableError,
   validateRequiredConfig,
-  mapErrorToKey,
-  validateServerUrl,
-  mapServerUrlReasonToKey,
 } from "./validations"
+import { isSuccessStatus, isRetryableStatus } from "../config/constants"
+import { mapErrorFromNetwork } from "./utils/error"
 import {
   buildUrl,
-  resolveRequestUrl,
-  buildParams,
   createHostPattern,
   interceptorExists,
   safeParseUrl,
@@ -49,7 +43,11 @@ import {
   isAbortError,
   extractRepositoryNames,
   loadArcgisModules,
+  parseNonNegativeInt,
+  toTrimmedString,
+  toNonEmptyTrimmedString,
 } from "./utils"
+import { createWebhookArtifacts } from "./utils/fme"
 
 // Configuration
 /* Standardkonfiguration för nätverksinstrumentering */
@@ -61,6 +59,25 @@ const DEFAULT_CONFIG: NetworkConfig = {
 }
 
 const config: NetworkConfig = { ...DEFAULT_CONFIG }
+
+// Network history buffer för debugging
+const networkHistory: RequestLog[] = []
+const MAX_NETWORK_HISTORY = 50
+
+function addToNetworkHistory(log: RequestLog): void {
+  networkHistory.push(log)
+  if (networkHistory.length > MAX_NETWORK_HISTORY) {
+    networkHistory.shift()
+  }
+}
+
+export function getNetworkHistory(): readonly RequestLog[] {
+  return [...networkHistory]
+}
+
+export function clearNetworkHistory(): void {
+  networkHistory.length = 0
+}
 
 // Instrumenterar HTTP-förfrågan med logging och timing
 export async function instrumentedRequest<T>(
@@ -100,6 +117,7 @@ export async function instrumentedRequest<T>(
     }
 
     logRequest("success", log, options.body)
+    addToNetworkHistory(log)
     return response
   } catch (error) {
     const durationMs = Date.now() - startMs
@@ -125,6 +143,7 @@ export async function instrumentedRequest<T>(
     }
 
     logRequest("error", log, options.body, error)
+    addToNetworkHistory(log)
     throw error instanceof Error ? error : new Error(extractErrorMessage(error))
   }
 }
@@ -227,20 +246,22 @@ function buildSearchParams(
 // Sanerar URLSearchParams, maskerar känsliga nycklar (token, auth, etc.)
 function sanitizeParams(params: URLSearchParams): URLSearchParams {
   const sanitized = new URLSearchParams()
-  params.forEach((value, key) => {
+  for (const [key, value] of params.entries()) {
     if (isSensitiveKey(key.toLowerCase())) {
       sanitized.set(key, "[TOKEN]")
     } else {
       sanitized.set(key, redactSensitiveText(value))
     }
-  })
+  }
   return sanitized
 }
 
 // Serialiserar URLSearchParams till query-sträng, sorterad alfabetiskt
 function serializeParams(params: URLSearchParams): string {
   const entries: Array<[string, string]> = []
-  params.forEach((value, key) => entries.push([key, value]))
+  for (const [key, value] of params.entries()) {
+    entries.push([key, value])
+  }
   entries.sort(([a], [b]) => (a > b ? 1 : a < b ? -1 : 0))
   return entries
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
@@ -375,7 +396,7 @@ function logRequest(
 // Härleder ok-status från HTTP-statuskod
 function inferOk(status?: number): boolean | undefined {
   if (typeof status !== "number") return undefined
-  return status >= 200 && status < 400
+  return isSuccessStatus(status)
 }
 
 // Skapar abort-reason för AbortController
@@ -532,9 +553,7 @@ export const abortManager = new AbortControllerManager()
 
 // Kontrollerar om HTTP-status är retry-bar
 const isStatusRetryable = (status?: number): boolean => {
-  if (!status || status < 100) return true
-  if (status >= 500) return true
-  return status === 408 || status === 429
+  return isRetryableStatus(status)
 }
 
 // Skapar typat FME Flow API-fel med enhetlig struktur
@@ -560,7 +579,7 @@ const getEsriResponseStatus = (response: any): number | undefined => {
 const getEsriResponseOk = (response: any): boolean | undefined => {
   const status = getEsriResponseStatus(response)
   if (typeof status !== "number") return undefined
-  return status >= 200 && status < 400
+  return isSuccessStatus(status)
 }
 
 // Beräknar storlek av esriRequest-svar (bytes)
@@ -651,8 +670,7 @@ const areEsriModulesLoaded = (): boolean =>
 
 // Kontrollerar om globala Esri-mocks finns (testläge)
 const hasGlobalEsriMocks = (): boolean => {
-  const globalAny =
-    typeof globalThis !== "undefined" ? (globalThis as any) : undefined
+  const globalAny = globalThis as any
   return Boolean(
     globalAny && ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
   )
@@ -817,6 +835,31 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
 }
 
 // Skapar interceptor som injicerar FME-token i requests
+const FME_ENDPOINT_PATTERN =
+  /\/(?:fmerest|fmedatadownload|fmedataupload|fmejobsubmitter)\b/i
+
+const isAllowedFmePath = (rawUrl: unknown): boolean => {
+  if (typeof rawUrl === "string") {
+    return FME_ENDPOINT_PATTERN.test(rawUrl)
+  }
+
+  if (rawUrl instanceof URL) {
+    return FME_ENDPOINT_PATTERN.test(rawUrl.pathname)
+  }
+
+  if (rawUrl && typeof rawUrl === "object") {
+    const candidate =
+      typeof (rawUrl as { href?: unknown }).href === "string"
+        ? (rawUrl as { href?: string }).href
+        : typeof (rawUrl as { url?: unknown }).url === "string"
+          ? (rawUrl as { url?: string }).url
+          : null
+    return candidate ? FME_ENDPOINT_PATTERN.test(candidate) : false
+  }
+
+  return false
+}
+
 const createTokenInterceptor = (
   hostKey: string,
   pattern: RegExp
@@ -827,6 +870,10 @@ const createTokenInterceptor = (
 } => ({
   urls: pattern,
   before(params: any) {
+    if (!isAllowedFmePath(params?.url)) {
+      return
+    }
+
     if (!params?.requestOptions) {
       params.requestOptions = {}
     }
@@ -912,25 +959,6 @@ const getMaxUrlLength = (): number => {
   return _cachedMaxUrlLength
 }
 
-// Kontrollerar om webhook-URL skulle överskrida maxlängd
-export function isWebhookUrlTooLong(
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
-  token?: string
-): boolean {
-  const { fullUrl } = createWebhookArtifacts(
-    serverUrl,
-    repository,
-    workspace,
-    parameters,
-    token
-  )
-  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
-}
-
 /* Esri-konfiguration för FME Flow API */
 
 // Säkerställer att Esri config har tillräcklig maxUrlLength
@@ -945,80 +973,12 @@ async function setApiSettings(config: FmeFlowConfig): Promise<void> {
   )
 }
 
-/* Request processing utilities */
-
-// Konverterar till positivt heltal eller undefined
-const toPosInt = (v: unknown): number | undefined => {
-  const n = typeof v === "string" ? Number(v) : (v as number)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined
-}
-
-// Trimmar sträng, returnerar tom sträng om inte sträng
-const toTrimmedString = (value: unknown): string =>
-  typeof value === "string" ? value.trim() : ""
-
-// Normaliserar och trunkerar text till maxlängd
-const normalizeText = (value: unknown, limit: number): string | undefined => {
-  const trimmed = toTrimmedString(value)
-  return trimmed ? trimmed.slice(0, limit) : undefined
-}
-
-// Lägger till Transaction Manager (TM) numeriska parametrar
-const appendWebhookTmParams = (
-  params: URLSearchParams,
-  source: PrimitiveParams = {}
-): void => {
-  // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
-  for (const key of TM_NUMERIC_PARAM_KEYS) {
-    const value = toPosInt((source as any)[key])
-    if (value !== undefined) params.set(key, String(value))
-  }
-
-  // Lägg till tm_tag om definierad
-  const tag = normalizeText((source as any).tm_tag, 128)
-  if (tag) params.set("tm_tag", tag)
-}
-
-// Skapar webhook-URL med query-parametrar för FME-jobb
-const createWebhookArtifacts = (
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  token?: string
-): WebhookArtifacts => {
-  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
-  const baseUrlValidation = validateServerUrl(baseUrl, {
-    strict: true,
-    requireHttps: true,
-    disallowRestForWebhook: true,
-  })
-
-  if (!baseUrlValidation.ok) {
-    const reason = mapServerUrlReasonToKey(
-      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
-    )
-    throw makeError("WEBHOOK_AUTH_ERROR", 0, reason)
-  }
-
-  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
-  if (token) {
-    params.set("token", token)
-  }
-  appendWebhookTmParams(params, parameters)
-  return {
-    baseUrl,
-    params,
-    fullUrl: `${baseUrl}?${params.toString()}`,
-  }
-}
-
 /* TM/NM directives builders för FME-jobb */
 
 // Bygger Transaction Manager (TM) directives från parametrar
 const buildTMDirectives = (params: any): TMDirectives => {
-  const ttc = toPosInt(params?.tm_ttc)
-  const ttl = toPosInt(params?.tm_ttl)
+  const ttc = parseNonNegativeInt(params?.tm_ttc)
+  const ttl = parseNonNegativeInt(params?.tm_ttl)
   const tag = toTrimmedString(params?.tm_tag)
 
   const out: TMDirectives = {}
@@ -1028,35 +988,9 @@ const buildTMDirectives = (params: any): TMDirectives => {
   return out
 }
 
-// Bygger Notification Manager (NM) schedule-directives
-const buildNMDirectives = (params: any): NMDirectives | null => {
-  const serviceMode = params?.opt_servicemode
-  if (serviceMode !== "schedule") return null
-
-  const start = toTrimmedString(params?.start)
-  const name = toTrimmedString(params?.name)
-  const category = toTrimmedString(params?.category)
-  const trigger = toTrimmedString(params?.trigger) || "runonce"
-  const description = toTrimmedString(params?.description)
-
-  // Kräver start, name och category för schemaläggning
-  if (!start || !name || !category) return null
-
-  const scheduleDirective: any = {
-    name: "schedule",
-    begin: start,
-    scheduleName: name,
-    scheduleCategory: category,
-    scheduleTrigger: trigger,
-  }
-
-  if (description) {
-    scheduleDirective.scheduleDescription = description
-  }
-
-  return {
-    directives: [scheduleDirective],
-  }
+// Bygger Notification Manager (NM) directives - removed schedule support
+const buildNMDirectives = (params: any): null => {
+  return null
 }
 
 // Skapar request-body för FME-jobb-submit (TM/NM + parameters)
@@ -1151,22 +1085,23 @@ export class FmeFlowApiClient {
       workspace?: string
     }
   ): Promise<ApiResponse<{ path: string }>> {
+    if (options?.signal?.aborted) {
+      throw new DOMException("Aborted", "AbortError")
+    }
+
     const repository = this.resolveRepository(options?.repository)
-    const workspace = (options?.workspace || "").trim()
+    const workspace = toNonEmptyTrimmedString(options?.workspace)
     if (!workspace) {
       throw makeFlowError("DATA_UPLOAD_ERROR")
     }
 
-    const fileNameSource = (file as any)?.name
     const rawName =
-      typeof fileNameSource === "string" && fileNameSource.trim()
-        ? fileNameSource.trim()
-        : `upload_${Date.now()}`
+      toNonEmptyTrimmedString((file as any)?.name) || `upload_${Date.now()}`
     const safeName =
       rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
       `upload_${Date.now()}`
 
-    const rawNamespace = options?.subfolder ? options.subfolder.trim() : ""
+    const rawNamespace = toNonEmptyTrimmedString(options?.subfolder)
     const sanitizedNamespace = rawNamespace
       .replace(/[^A-Za-z0-9_-]/g, "-")
       .slice(0, 64)
@@ -1208,10 +1143,7 @@ export class FmeFlowApiClient {
     })
 
     const fileInfo = response.data?.file
-    const resolvedPath =
-      typeof fileInfo?.path === "string" && fileInfo.path.trim()
-        ? fileInfo.path
-        : null
+    const resolvedPath = toTrimmedString(fileInfo?.path) ?? null
 
     if (!resolvedPath) {
       throw makeFlowError("DATA_UPLOAD_ERROR", response.status)
@@ -1489,15 +1421,6 @@ export class FmeFlowApiClient {
     repository?: string,
     signal?: AbortSignal
   ): Promise<ApiResponse> {
-    // Detektera schedule-läge och route till REST API istället
-    const serviceMode = parameters?.opt_servicemode
-    const isScheduleMode = serviceMode === "schedule"
-
-    if (isScheduleMode) {
-      // Schema-jobb måste använda REST API submit, inte webhook
-      return await this.submitJob(workspace, parameters, repository, signal)
-    }
-
     return await this.runDataDownload(workspace, parameters, repository, signal)
   }
 
@@ -1717,11 +1640,19 @@ export class FmeFlowApiClient {
     }
     await ensureEsri()
 
-    const url = resolveRequestUrl(
-      endpoint,
-      this.config.serverUrl,
-      this.basePath
-    )
+    const stripLeadingSlash = (value: string): string =>
+      value.startsWith("/") ? value.slice(1) : value
+
+    const normalizedBase = stripLeadingSlash(this.basePath || "")
+    const baseSegments = normalizedBase ? [normalizedBase] : []
+    const normalizedEndpoint = stripLeadingSlash(endpoint)
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : endpoint.startsWith("/fme")
+        ? buildUrl(this.config.serverUrl, normalizedEndpoint)
+        : normalizedEndpoint
+          ? buildUrl(this.config.serverUrl, ...baseSegments, normalizedEndpoint)
+          : buildUrl(this.config.serverUrl, ...baseSegments)
     const headers: { [key: string]: string } = {
       ...(options.headers || {}),
     }
@@ -1835,7 +1766,7 @@ export class FmeFlowApiClient {
       }
 
       // Hämta användarvänlig translations-nyckel via centraliserad mapping
-      const translationKey = mapErrorToKey(err, httpStatus)
+      const translationKey = mapErrorFromNetwork(err, httpStatus)
 
       throw new FmeFlowApiError(
         translationKey,

@@ -10,11 +10,11 @@ import {
   ButtonTabs,
   Alert,
   renderSupportHint,
-  ScheduleFields,
   UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
 import defaultMessages from "./translations/default"
+import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import {
   type WorkflowProps,
   type WorkspaceItem,
@@ -26,6 +26,7 @@ import {
   type DynamicFieldConfig,
   type LoadingState,
   type ServiceMode,
+  type VisibilityState,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -33,7 +34,7 @@ import {
   makeLoadingView,
   makeEmptyView,
   ErrorType,
-  type ErrorState,
+  type SerializableErrorState,
   ErrorSeverity,
   makeErrorView,
   MS_LOADING,
@@ -43,26 +44,26 @@ import {
 import polygonIcon from "../../assets/icons/polygon.svg"
 import rectangleIcon from "../../assets/icons/rectangle.svg"
 import itemIcon from "../../assets/icons/item.svg"
-import { fmeActions } from "../../extensions/store"
 import { ParameterFormService } from "../../shared/services"
 import {
   validateDateTimeFormat,
-  validateScheduleDateTime,
+  getSupportEmail,
 } from "../../shared/validations"
 import {
   resolveMessageOrKey,
   buildSupportHintText,
   maskEmailForDisplay,
   stripHtmlToText,
-  getSupportEmail,
   stripErrorLabel,
   initFormValues,
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
   formatByteSize,
   isAbortError,
-  isNonEmptyString,
+  isNonEmptyTrimmedString,
+  createFmeDispatcher,
 } from "../../shared/utils"
 import {
   useFormStateManager,
@@ -76,16 +77,16 @@ import { VisibilityEvaluator } from "../../shared/visibility"
 const DRAWING_MODE_TABS = [
   {
     value: DrawingTool.POLYGON,
-    label: "drawingModePolygon",
+    label: "optPolygon",
     icon: polygonIcon,
-    tooltip: "drawingModePolygonTooltip",
+    tooltip: "tipDrawPolygon",
     hideLabel: true,
   },
   {
     value: DrawingTool.RECTANGLE,
-    label: "drawingModeRectangle",
+    label: "optRectangle",
     icon: rectangleIcon,
-    tooltip: "drawingModeRectangleTooltip",
+    tooltip: "tipDrawRectangle",
     hideLabel: true,
   },
 ] as const
@@ -167,7 +168,7 @@ const useDownloadResource = (
       objectUrlRef.current = null
     }
 
-    const trimmedUrl = typeof remoteUrl === "string" ? remoteUrl.trim() : ""
+    const trimmedUrl = toTrimmedStringOrEmpty(remoteUrl)
     if (trimmedUrl) {
       setResourceUrl(trimmedUrl)
       return
@@ -264,7 +265,7 @@ const createFormValidator = (
 
     // Validerar schema-startfältets format när det anges
     const startRaw = values.start
-    if (isNonEmptyString(startRaw)) {
+    if (isNonEmptyTrimmedString(startRaw)) {
       try {
         if (!validateDateTimeFormat(startRaw.trim())) {
           errors.start = "invalidDateTimeFormat"
@@ -302,9 +303,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const isFailure = !isCancelled && !isSuccess
   const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
   const serviceMode: ServiceMode =
-    orderResult.serviceMode === "sync" ||
-    orderResult.serviceMode === "async" ||
-    orderResult.serviceMode === "schedule"
+    orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
       ? orderResult.serviceMode
       : fallbackMode
   const downloadUrl = useDownloadResource(
@@ -330,39 +329,35 @@ const OrderResult: React.FC<OrderResultProps> = ({
     )
   }
 
-  addInfoRow(translate("jobId"), orderResult.jobId)
-  addInfoRow(translate("workspace"), orderResult.workspaceName)
+  addInfoRow(translate("lblJobId"), orderResult.jobId)
+  addInfoRow(translate("lblWorkspace"), orderResult.workspaceName)
 
   const deliveryModeKey =
-    serviceMode === "schedule"
-      ? "deliveryModeSchedule"
-      : serviceMode === "async"
-        ? "deliveryModeAsync"
-        : "deliveryModeSync"
-  addInfoRow(translate("deliveryMode"), translate(deliveryModeKey))
+    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
+  addInfoRow(translate("lblDelivery"), translate(deliveryModeKey))
 
   if (orderResult.downloadFilename) {
-    addInfoRow(translate("downloadFilename"), orderResult.downloadFilename)
+    addInfoRow(translate("lblFilename"), orderResult.downloadFilename)
   }
 
   const statusValue = toTrimmedString(orderResult.status)
   if (statusValue) {
-    addInfoRow(translate("flowStatus"), statusValue)
+    addInfoRow(translate("lblFmeStatus"), statusValue)
   }
 
   const statusMessage = toTrimmedString(orderResult.statusMessage)
   if (statusMessage && statusMessage !== toTrimmedString(orderResult.message)) {
-    addInfoRow(translate("flowMessage"), statusMessage)
+    addInfoRow(translate("lblFmeMessage"), statusMessage)
   }
 
   const blobType = toTrimmedString(orderResult.blobMetadata?.type)
   if (blobType) {
-    addInfoRow(translate("blobType"), blobType)
+    addInfoRow(translate("lblBlobType"), blobType)
   }
 
   const blobSizeFormatted = formatByteSize(orderResult.blobMetadata?.size)
   if (blobSizeFormatted) {
-    addInfoRow(translate("blobSize"), blobSizeFormatted)
+    addInfoRow(translate("lblBlobSize"), blobSizeFormatted)
   }
 
   if (serviceMode !== "sync") {
@@ -371,43 +366,32 @@ const OrderResult: React.FC<OrderResultProps> = ({
       config?.maskEmailOnSuccess && isSuccess
         ? maskEmailForDisplay(emailVal)
         : emailVal
-    addInfoRow(translate("notificationEmail"), masked)
+    addInfoRow(translate("lblEmail"), masked)
   }
 
   // Visar felkod endast vid misslyckad order
   if (orderResult.code && isFailure) {
-    addInfoRow(translate("errorCode"), orderResult.code)
+    addInfoRow(translate("lblErrorCode"), orderResult.code)
   }
 
-  // Visar schema-metadata om tillgänglig
-  const scheduleMetadata = orderResult.scheduleMetadata
-  const hasScheduleInfo =
-    scheduleMetadata &&
-    typeof scheduleMetadata.start === "string" &&
-    scheduleMetadata.start.trim() !== "" &&
-    typeof scheduleMetadata.name === "string" &&
-    scheduleMetadata.name.trim() !== "" &&
-    typeof scheduleMetadata.category === "string" &&
-    scheduleMetadata.category.trim() !== ""
-
   const titleText = isCancelled
-    ? translate("orderCancelledTitle")
+    ? translate("titleOrderCancelled")
     : isSuccess
       ? serviceMode === "sync"
-        ? translate("orderComplete")
-        : translate("orderConfirmation")
-      : translate("orderSentError")
+        ? translate("titleOrderComplete")
+        : translate("titleOrderConfirmed")
+      : translate("titleOrderFailed")
 
   const buttonText = isCancelled
-    ? translate("actionNewOrder")
+    ? translate("btnNewOrder")
     : isSuccess
-      ? translate("reuseGeography")
-      : translate("actionRetry")
+      ? translate("btnReuseArea")
+      : translate("btnRetry")
 
   const primaryTooltip = isCancelled
-    ? translate("tooltipNewOrder")
+    ? translate("tipNewOrder")
     : isSuccess
-      ? translate("tooltipReuseGeography")
+      ? translate("tipReuseArea")
       : undefined
 
   const handlePrimary = hooks.useEventCallback(() => {
@@ -434,11 +418,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
     const failureCode = (orderResult.code || "").toString().toUpperCase()
     const isTimeout = failureCode.includes("TIMEOUT")
     messageText = isTimeout
-      ? translate("orderCancelledTimeoutMessage")
-      : translate("orderCancelledMessage")
+      ? translate("msgOrderTimeout")
+      : translate("msgOrderCancelled")
   } else if (isSuccess) {
     if (serviceMode === "async") {
-      messageText = translate("emailNotificationSent")
+      messageText = translate("msgEmailSent")
     }
   } else {
     const failureCode = (orderResult.code || "").toString().toUpperCase()
@@ -448,59 +432,19 @@ const OrderResult: React.FC<OrderResultProps> = ({
       ""
 
     if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
-      messageText = translate("jobCancelledTimeout")
+      messageText = translate("msgJobTimeout")
     } else if (failureCode === "FME_JOB_CANCELLED") {
-      messageText = translate("jobCancelled")
+      messageText = translate("msgJobCancelled")
     } else if (
       failureCode === "FME_JOB_FAILURE" ||
       /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
     ) {
-      messageText = translate("fmeFlowTransformationFailed")
+      messageText = translate("errTransformFailed")
     } else if (rawMessage) {
       messageText = rawMessage
     } else {
-      messageText = translate("errorUnknown")
+      messageText = translate("msgJobFailed")
     }
-  }
-
-  // Bygger schemasektionen med varningar för tidigare tidpunkter
-  let scheduleSection: React.ReactNode = null
-  if (hasScheduleInfo && isSuccess && scheduleMetadata) {
-    const validation = validateScheduleDateTime(scheduleMetadata.start || "")
-    const scheduleWarning = validation.isPast ? (
-      <Alert
-        type="warning"
-        text={translate("schedulePastTimeWarning")}
-        variant="default"
-        withIcon={true}
-      />
-    ) : null
-
-    scheduleSection = (
-      <>
-        <div css={styles.typo.caption}>
-          {translate("scheduleJobName")}: {scheduleMetadata.name}
-        </div>
-        <div css={styles.typo.caption}>
-          {translate("scheduleJobCategory")}: {scheduleMetadata.category}
-        </div>
-        <div css={styles.typo.caption}>
-          {translate("scheduleStartTime")}: {scheduleMetadata.start}
-        </div>
-        {scheduleMetadata.trigger ? (
-          <div css={styles.typo.caption}>
-            {translate("scheduleTrigger")}: {scheduleMetadata.trigger}
-          </div>
-        ) : null}
-        {scheduleMetadata.description ? (
-          <div css={styles.typo.caption}>
-            {translate("scheduleJobDescription")}:{" "}
-            {scheduleMetadata.description}
-          </div>
-        ) : null}
-        {scheduleWarning}
-      </>
-    )
   }
 
   return (
@@ -509,7 +453,6 @@ const OrderResult: React.FC<OrderResultProps> = ({
         <div css={styles.form.body}>
           <div css={styles.typo.title}>{titleText}</div>
           {infoRows}
-          {scheduleSection}
 
           {showDownloadLink && (
             <div css={styles.typo.caption}>
@@ -520,7 +463,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
                 css={styles.typo.link}
                 download={orderResult.downloadFilename}
               >
-                {translate("clickToDownload")}
+                {translate("btnDownload")}
               </a>
             </div>
           )}
@@ -531,9 +474,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
         <div css={styles.form.footer}>
           <ButtonGroup
             secondaryButton={{
-              text: translate("actionEnd"),
+              text: translate("btnEnd"),
               onClick: handleEnd,
-              tooltip: translate("tooltipCancel"),
+              tooltip: translate("tipCancel"),
               tooltipPlacement: "bottom",
               logging: { enabled: true, prefix: "FME-Export" },
             }}
@@ -571,6 +514,13 @@ const ExportForm: React.FC<
   geometryJson,
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
+  const fmeDispatchRef = React.useRef(
+    createFmeDispatcher(reduxDispatch, widgetId)
+  )
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(reduxDispatch, widgetId)
+  }, [reduxDispatch, widgetId])
+  const fmeDispatch = fmeDispatchRef.current
   const [parameterService] = React.useState(() => new ParameterFormService())
   const [evaluatedFields, setEvaluatedFields] = React.useState<
     readonly DynamicFieldConfig[]
@@ -611,9 +561,7 @@ const ExportForm: React.FC<
 
   // Bygger lokalt valideringsmeddelande med aktuell översättning
   const errorMsg = hooks.useEventCallback((count: number): string =>
-    count === 1
-      ? translate("formValidationSingleError")
-      : translate("formValidationMultipleErrors")
+    count === 1 ? translate("valSingleError") : translate("valMultipleErrors")
   )
 
   // Skapar validator med aktuella parametrar - use ref to maintain stable reference
@@ -685,12 +633,10 @@ const ExportForm: React.FC<
     if (!validator) return
 
     const baseFields = validator.getFormConfig()
-    const previousStates = new Map(
-      evaluatedFieldsRef.current.map((field) => [
-        field.name,
-        field.visibilityState,
-      ])
-    )
+    const previousStates = new Map<string, VisibilityState | undefined>()
+    for (const field of evaluatedFieldsRef.current) {
+      previousStates.set(field.name, field.visibilityState)
+    }
 
     const evaluator = new VisibilityEvaluator(
       formValuesRef.current || {},
@@ -709,17 +655,20 @@ const ExportForm: React.FC<
     evaluatedFieldsRef.current = nextFields
     setEvaluatedFields(nextFields)
 
-    const hiddenDisabledNames = nextFields
-      .filter((field) => field.visibilityState === "hiddenDisabled")
-      .map((field) => field.name)
+    const hiddenDisabledNames: string[] = []
+    const nonVisibleNames: string[] = []
 
-    const nonVisibleNames = nextFields
-      .filter(
-        (field) =>
-          field.visibilityState !== undefined &&
-          field.visibilityState !== "visibleEnabled"
-      )
-      .map((field) => field.name)
+    for (const field of nextFields) {
+      if (field.visibilityState === "hiddenDisabled") {
+        hiddenDisabledNames.push(field.name)
+      }
+      if (
+        field.visibilityState !== undefined &&
+        field.visibilityState !== "visibleEnabled"
+      ) {
+        nonVisibleNames.push(field.name)
+      }
+    }
 
     let valuesCleared = false
 
@@ -822,18 +771,19 @@ const ExportForm: React.FC<
     if (!validation.isValid) {
       const count = Object.keys(validation.errors).length
       const errorMessage = errorMsg(count)
-      const error: ErrorState = {
+      const error: SerializableErrorState = {
         message: errorMessage,
         type: ErrorType.VALIDATION,
         code: "FORM_INVALID",
         severity: ErrorSeverity.ERROR,
         recoverable: true,
-        timestamp: new Date(),
         timestampMs: Date.now(),
-        kind: "runtime",
+        kind: "serializable",
+        userFriendlyMessage: "",
+        suggestion: "",
       }
       // Dispatch error to the store
-      reduxDispatch(fmeActions.setError("general", error, widgetId))
+      fmeDispatch.setError("general", error)
       return
     }
     // Merge file inputs with other values
@@ -863,33 +813,25 @@ const ExportForm: React.FC<
       subtitle={
         workspaceItem?.description
           ? stripHtml(workspaceItem.description)
-          : translate("configureWorkspaceParameters")
+          : translate("titleConfigParams")
       }
       onBack={onBack}
       onSubmit={handleSubmit}
       isValid={formState.isValid}
       loading={isSubmitting}
     >
-      {/* Schedule fields component */}
-      {config?.allowScheduleMode && (
-        <ScheduleFields
-          values={formState.values}
-          onChange={setField}
-          translate={translate}
-          disabled={isSubmitting}
-        />
-      )}
+      {/* Removed Schedule fields component */}
 
       {/* Direct upload field - replaces remote dataset URL */}
       {config?.allowRemoteDataset && (
         <Field
-          label={translate("remoteDatasetUploadLabel")}
-          helper={translate("remoteDatasetUploadHelper")}
+          label={translate("lblUploadFile")}
+          helper={translate("hintUploadFile")}
         >
           <DynamicField
             field={{
               name: "__upload_file__",
-              label: translate("remoteDatasetUploadLabel"),
+              label: translate("lblUploadFile"),
               type: FormFieldType.FILE,
               required: false,
               readOnly: false,
@@ -904,8 +846,8 @@ const ExportForm: React.FC<
       {/* Remote dataset URL (opt_geturl) */}
       {config?.allowRemoteDataset && config?.allowRemoteUrlDataset && (
         <Field
-          label={translate("remoteDatasetUrlLabel")}
-          helper={translate("remoteDatasetUrlHelper")}
+          label={translate("lblRemoteUrl")}
+          helper={translate("hintRemoteUrl")}
         >
           <UrlInput
             value={(formState.values.__remote_dataset_url__ as string) || ""}
@@ -1005,7 +947,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   submissionPhase = "idle",
   modeNotice,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages)
+  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
@@ -1017,6 +959,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
         : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
   }
   const effectiveWidgetId = effectiveWidgetIdRef.current
+  const fmeDispatchRef = React.useRef(
+    createFmeDispatcher(reduxDispatch, effectiveWidgetId)
+  )
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = createFmeDispatcher(
+      reduxDispatch,
+      effectiveWidgetId
+    )
+  }, [reduxDispatch, effectiveWidgetId])
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE
   // Latchar laddningsstatus med fördröjning för smidigare UI
@@ -1086,9 +1037,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar ritverktygsläges-flikar
   const renderDrawingModeTabs = hooks.useEventCallback(() => {
-    const helperText = isNonEmptyString(instructionText)
+    const helperText = isNonEmptyTrimmedString(instructionText)
       ? instructionText
-      : translate("drawingModeTooltip")
+      : translate("tipDrawMode")
 
     return (
       <div css={styles.form.layout}>
@@ -1108,7 +1059,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
               onChange={(val) => {
                 onDrawingModeChange?.(val as DrawingTool)
               }}
-              aria-label={translate("drawingModeTooltip")}
+              aria-label={translate("tipDrawMode")}
             />
           </div>
         </div>
@@ -1162,7 +1113,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
         }
       }
 
-      const waitText = translate("pleaseWait")
+      const waitText = translate("msgPleaseWait")
       const hasWaitAlready = additionalMessages.some(
         (entry) => typeof entry === "string" && entry === waitText
       )
@@ -1199,9 +1150,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
     ) => {
       const actions: Array<{ label: string; onClick: () => void }> = []
       if (onRetry) {
-        actions.push({ label: translate("actionRetry"), onClick: onRetry })
+        actions.push({ label: translate("btnRetry"), onClick: onRetry })
       } else if (onBack) {
-        actions.push({ label: translate("back"), onClick: onBack })
+        actions.push({ label: translate("btnBack"), onClick: onBack })
       }
       // Bygger supporthjälp och länk om e-post konfigurerad
       const rawEmail = getSupportEmail(config?.supportEmail)
@@ -1231,8 +1182,9 @@ export const Workflow: React.FC<WorkflowProps> = ({
   )
 
   // Hämtar konfigurerade servervärden
-  const configuredRepository = toTrimmedString(config?.repository)
-  const previousConfiguredRepository = hooks.usePrevious(configuredRepository)
+  const configuredRepository = toTrimmedString(config?.repository) ?? ""
+  const previousConfiguredRepository =
+    hooks.usePrevious(configuredRepository) ?? ""
   const serverUrl = toTrimmedString(
     (config as { fmeServerUrl?: string })?.fmeServerUrl
   )
@@ -1359,14 +1311,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
       return
     }
 
-    reduxDispatch(fmeActions.setWorkspaceItems(nextItems, effectiveWidgetId))
-  }, [
-    sanitizedWorkspaces,
-    workspaceItems,
-    canFetchWorkspaces,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setWorkspaceItems(nextItems)
+  }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces])
 
   // Rensar workspace-state när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
@@ -1376,13 +1322,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (!workspaceItems.length) {
       return
     }
-    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
-  }, [
-    canFetchWorkspaces,
-    workspaceItems.length,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.clearWorkspaceState()
+  }, [canFetchWorkspaces, workspaceItems.length])
 
   // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
@@ -1391,7 +1332,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     setPendingWorkspace(null)
-    reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+    fmeDispatchRef.current.clearWorkspaceState()
 
     if (!configuredRepository || !canFetchWorkspaces) {
       return
@@ -1401,13 +1342,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (typeof refetch === "function") {
       void refetch()
     }
-  }, [
-    configuredRepository,
-    previousConfiguredRepository,
-    canFetchWorkspaces,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+  }, [configuredRepository, previousConfiguredRepository, canFetchWorkspaces])
 
   // Rensar pending workspace om hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
@@ -1439,26 +1374,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (onWorkspaceSelected) {
       onWorkspaceSelected(workspaceName, payload.parameters, payload.item)
     } else {
-      reduxDispatch(
-        fmeActions.applyWorkspaceData(
-          {
-            workspaceName,
-            parameters: payload.parameters,
-            item: payload.item,
-          },
-          effectiveWidgetId
-        )
-      )
+      fmeDispatchRef.current.applyWorkspaceData({
+        workspaceName,
+        parameters: payload.parameters,
+        item: payload.item,
+      })
     }
 
     setPendingWorkspace(null)
-  }, [
-    pendingWorkspace,
-    workspaceItemQuery.data,
-    onWorkspaceSelected,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+  }, [pendingWorkspace, workspaceItemQuery.data, onWorkspaceSelected])
 
   // Synkroniserar workspace-hämtningsstatus till Redux
   const hasWorkspaceItems = workspaceItems.length > 0
@@ -1479,19 +1403,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (previousWorkspaceLoadingActive === workspaceLoadingActive) {
       return
     }
-    reduxDispatch(
-      fmeActions.setLoadingFlag(
-        "workspaces",
-        workspaceLoadingActive,
-        effectiveWidgetId
-      )
-    )
-  }, [
-    workspaceLoadingActive,
-    previousWorkspaceLoadingActive,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setLoadingFlag("workspaces", workspaceLoadingActive)
+  }, [workspaceLoadingActive, previousWorkspaceLoadingActive])
 
   // Synkroniserar parameterhämtningsstatus till Redux
   const parametersFetching = Boolean(workspaceItemQuery.isFetching)
@@ -1500,19 +1413,8 @@ export const Workflow: React.FC<WorkflowProps> = ({
     if (previousParametersFetching === parametersFetching) {
       return
     }
-    reduxDispatch(
-      fmeActions.setLoadingFlag(
-        "parameters",
-        parametersFetching,
-        effectiveWidgetId
-      )
-    )
-  }, [
-    parametersFetching,
-    previousParametersFetching,
-    reduxDispatch,
-    effectiveWidgetId,
-  ])
+    fmeDispatchRef.current.setLoadingFlag("parameters", parametersFetching)
+  }, [parametersFetching, previousParametersFetching])
 
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
@@ -1550,7 +1452,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     setPendingWorkspace(null)
 
     if (!canFetchWorkspaces) {
-      reduxDispatch(fmeActions.clearWorkspaceState(effectiveWidgetId))
+      fmeDispatchRef.current.clearWorkspaceState()
       return
     }
 
@@ -1618,15 +1520,15 @@ export const Workflow: React.FC<WorkflowProps> = ({
       if (resetEnabled) {
         resetButton = (
           <Button
-            tooltip={translate("tooltipCancel")}
+            tooltip={translate("tipCancel")}
             tooltipPlacement="bottom"
             onClick={onReset}
             color="inherit"
             type="default"
             variant="contained"
-            text={translate("cancel")}
+            text={translate("btnCancel")}
             size="sm"
-            aria-label={translate("tooltipCancel")}
+            aria-label={translate("tipCancel")}
             logging={{ enabled: true, prefix: "FME-Export-Header" }}
             block={false}
           />
@@ -1641,17 +1543,13 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar initialt tillstånd (väntar på moduler eller ritverktygsval)
   const renderInitial = () => {
-    const waitMessage = translate("statusPreparingMapTools")
-    const waitDetail = translate("statusPreparingMapToolsDetail")
+    const waitMessage = translate("statusInitMap")
+    const waitDetail = translate("msgLoadingDraw")
     if (isModulesLoading) {
-      return renderLoading(waitMessage, waitDetail, [
-        translate("drawingModeTooltip"),
-      ])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
     }
     if (!canDraw) {
-      return renderLoading(waitMessage, waitDetail, [
-        translate("drawingModeTooltip"),
-      ])
+      return renderLoading(waitMessage, waitDetail, [translate("tipDrawMode")])
     }
     return renderDrawingModeTabs()
   }
@@ -1670,6 +1568,132 @@ export const Workflow: React.FC<WorkflowProps> = ({
     </div>
   )
 
+  // Route guard: Kontrollera om startup-validering ska visas
+  const shouldShowStartupValidation = () =>
+    state === ViewMode.STARTUP_VALIDATION
+
+  // Route guard: Kontrollera om orderresultat ska visas
+  const shouldShowOrderResult = () =>
+    state === ViewMode.ORDER_RESULT && orderResult
+
+  // Route guard: Kontrollera om submission progress ska visas
+  const shouldShowSubmissionProgress = () => isSubmittingOrder
+
+  // Route guard: Kontrollera om fel ska visas
+  const shouldShowError = () => Boolean(error)
+
+  // Route guard: Kontrollera om geometry-validering pågår
+  const shouldShowGeometryValidation = () =>
+    isCompleting &&
+    (state === ViewMode.DRAWING ||
+      state === ViewMode.EXPORT_OPTIONS ||
+      state === ViewMode.WORKSPACE_SELECTION)
+
+  // Renderar startup-validering (fel eller laddning)
+  const renderStartupValidation = () => {
+    if (startupValidationError) {
+      const supportHint = config?.supportEmail || ""
+      return renderError(
+        startupValidationError.message,
+        undefined,
+        onRetryValidation ||
+          (() => {
+            window.location.reload()
+          }),
+        startupValidationError.code,
+        startupValidationError.userFriendlyMessage || supportHint
+      )
+    }
+
+    const loadingMessage =
+      startupValidationStep || translate("statusValidating")
+    return renderLoading(loadingMessage)
+  }
+
+  // Renderar orderresultat
+  const renderOrderResult = () => (
+    <OrderResult
+      orderResult={orderResult}
+      translate={translate}
+      onReuseGeography={onReuseGeography}
+      onBack={onBack}
+      onReset={onReset}
+      config={config}
+    />
+  )
+
+  // Renderar submission progress med fasmeddelanden
+  const renderSubmissionProgress = () => {
+    const isSyncMode = Boolean(config?.syncMode)
+    const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
+    const baseMessage = translate(baseKey)
+
+    let phaseKey: string | null = null
+
+    switch (submissionPhase) {
+      case "preparing":
+        phaseKey = "statusPreparing"
+        break
+      case "uploading":
+        phaseKey = "statusUploading"
+        break
+      default:
+        phaseKey = null
+    }
+
+    if (phaseKey) {
+      return renderLoading(baseMessage, translate(phaseKey))
+    }
+
+    if (isSyncMode) {
+      return renderLoading(baseMessage, translate("msgProcessingWait"))
+    }
+
+    return renderLoading(baseMessage, translate("msgPleaseWait"))
+  }
+
+  // Renderar fel med användarmeddelande
+  const renderErrorView = () =>
+    renderError(
+      error.message,
+      undefined,
+      error.severity !== "info" ? onBack : undefined,
+      error.code,
+      error.userFriendlyMessage
+    )
+
+  // Renderar geometry-validering laddning
+  const renderGeometryValidation = () => (
+    <StateView
+      state={makeLoadingView(
+        translate("statusValidateGeom"),
+        translate("msgCheckGeom")
+      )}
+    />
+  )
+
+  // Renderar vy baserat på state (för normala vyer)
+  const renderViewByState = () => {
+    switch (state) {
+      case ViewMode.INITIAL:
+        return renderInitial()
+      case ViewMode.DRAWING:
+        if ((clickCount || 0) === 0) {
+          return renderDrawingModeTabs()
+        }
+        return renderDrawing()
+      case ViewMode.EXPORT_OPTIONS:
+      case ViewMode.WORKSPACE_SELECTION:
+        return renderSelection()
+      case ViewMode.EXPORT_FORM:
+        return renderForm()
+      case ViewMode.ORDER_RESULT:
+        return renderError(translate("msgNoResult"), onBack)
+      default:
+        return renderInitial()
+    }
+  }
+
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
     const shouldShowLoading = shouldShowWorkspaceLoading(
@@ -1686,18 +1710,18 @@ export const Workflow: React.FC<WorkflowProps> = ({
       )
 
       const message = isPrefetchLoading
-        ? translate("prefetchingWorkspaces")
+        ? translate("statusLoadWorkspaces")
         : workspaceItems.length
-          ? translate("loadingWorkspaceDetails")
-          : translate("loadingWorkspaces")
+          ? translate("statusLoadParams")
+          : translate("statusLoadWorkspaces")
 
       const detail = isPrefetchLoading
         ? ""
         : workspaceItems.length
-          ? translate("loadingWorkspaceDetailsDetail")
-          : translate("loadingWorkspacesDetail")
+          ? translate("msgLoadParams")
+          : translate("msgLoadRepos")
 
-      return renderLoading(message, detail, [translate("tooltipBackToOptions")])
+      return renderLoading(message, detail, [translate("tipBackOptions")])
     }
 
     if (workspaceError) {
@@ -1706,12 +1730,12 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
     if (!workspaceItems.length) {
       const actions = [
-        { label: translate("actionRetry"), onClick: loadWsList },
-        { label: translate("back"), onClick: onBack },
+        { label: translate("btnRetry"), onClick: loadWsList },
+        { label: translate("btnBack"), onClick: onBack },
       ]
       return (
         <StateView
-          state={makeEmptyView(translate("noWorkspacesFound"), actions)}
+          state={makeEmptyView(translate("msgNoWorkspaces"), actions)}
         />
       )
     }
@@ -1728,14 +1752,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
   // Renderar exportformulär med parametrar
   const renderForm = () => {
     if (!onFormBack || !onFormSubmit) {
-      return renderError(translate("missingExportConfiguration"), onBack)
+      return renderError(translate("errNoConfig"), onBack)
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
       return renderLoading(
-        translate("loadingWorkspaceDetails"),
-        translate("loadingWorkspaceDetailsDetail"),
-        [translate("configureWorkspaceParameters")]
+        translate("statusLoadParams"),
+        translate("msgLoadParams"),
+        [translate("titleConfigParams")]
       )
     }
 
@@ -1758,140 +1782,14 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
   }
 
-  // Renderar aktuell vy baserat på state
+  // Renderar aktuell vy baserat på state (förenklad med route guards)
   const renderCurrent = () => {
-    // Uppstartsvalidering
-    if (state === ViewMode.STARTUP_VALIDATION) {
-      if (startupValidationError) {
-        const supportHint = config?.supportEmail || ""
-        return renderError(
-          startupValidationError.message,
-          undefined,
-          onRetryValidation ||
-            (() => {
-              window.location.reload()
-            }),
-          startupValidationError.code,
-          startupValidationError.userFriendlyMessage || supportHint
-        )
-      }
-
-      const loadingMessage =
-        startupValidationStep || translate("validatingStartup")
-      return renderLoading(loadingMessage)
-    }
-
-    // Orderresultat
-    if (state === ViewMode.ORDER_RESULT && orderResult) {
-      return (
-        <OrderResult
-          orderResult={orderResult}
-          translate={translate}
-          onReuseGeography={onReuseGeography}
-          onBack={onBack}
-          onReset={onReset}
-          config={config}
-        />
-      )
-    }
-
-    // Inlämningsprocessen
-    if (isSubmittingOrder) {
-      const isSyncMode = Boolean(config?.syncMode)
-      const baseKey = isSyncMode ? "submittingOrderSync" : "submittingOrder"
-      const baseMessage = translate(baseKey)
-
-      let phaseKey: string | null = null
-      let detailKey: string | null = null
-
-      // Väljer meddelanden baserat på inlämningsfas
-      switch (submissionPhase) {
-        case "preparing":
-          phaseKey = "submissionPhasePreparing"
-          detailKey = "submissionPhasePreparingDetail"
-          break
-        case "uploading":
-          phaseKey = "submissionPhaseUploading"
-          detailKey = "submissionPhaseUploadingDetail"
-          break
-        case "finalizing":
-          phaseKey = "submissionPhaseFinalizing"
-          detailKey = "submissionPhaseFinalizingDetail"
-          break
-        case "submitting":
-          phaseKey = "submissionPhaseSubmitting"
-          detailKey = "submissionPhaseSubmittingDetail"
-          break
-        default:
-          phaseKey = null
-          detailKey = null
-      }
-
-      if (phaseKey && detailKey) {
-        return renderLoading(translate(phaseKey), translate(detailKey))
-      }
-
-      // Fallback för sync-läge med förbättrad detalj
-      if (isSyncMode) {
-        return renderLoading(
-          baseMessage,
-          translate("submittingOrderSyncDetail")
-        )
-      }
-
-      return renderLoading(baseMessage, translate("pleaseWait"))
-    }
-
-    // Felhantering
-    if (error) {
-      return renderError(
-        error.message,
-        undefined,
-        error.severity !== "info" ? onBack : undefined,
-        error.code,
-        error.userFriendlyMessage
-      )
-    }
-
-    // Väljer vy baserat på state
-    switch (state) {
-      case ViewMode.INITIAL:
-        return renderInitial()
-      case ViewMode.DRAWING:
-        // Vid slutförande av ritning, visa laddning för att undvika flimmer
-        if (isCompleting) {
-          return (
-            <StateView
-              state={makeLoadingView(
-                translate("loadingGeometryValidation"),
-                translate("loadingGeometryValidationDetail")
-              )}
-            />
-          )
-        }
-        if ((clickCount || 0) === 0) {
-          return renderDrawingModeTabs()
-        }
-        return renderDrawing()
-      case ViewMode.EXPORT_OPTIONS:
-      case ViewMode.WORKSPACE_SELECTION:
-        // Vid slutförande av ritning, visa laddning för att undvika flimmer
-        if (isCompleting) {
-          return (
-            <StateView
-              state={makeLoadingView(
-                translate("loadingGeometryValidation"),
-                translate("loadingGeometryValidationDetail")
-              )}
-            />
-          )
-        }
-        return renderSelection()
-      case ViewMode.EXPORT_FORM:
-        return renderForm()
-      case ViewMode.ORDER_RESULT:
-        return renderError(translate("orderResultMissing"), onBack)
-    }
+    if (shouldShowStartupValidation()) return renderStartupValidation()
+    if (shouldShowOrderResult()) return renderOrderResult()
+    if (shouldShowSubmissionProgress()) return renderSubmissionProgress()
+    if (shouldShowError()) return renderErrorView()
+    if (shouldShowGeometryValidation()) return renderGeometryValidation()
+    return renderViewByState()
   }
 
   return (
