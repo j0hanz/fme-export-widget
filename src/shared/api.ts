@@ -738,26 +738,21 @@ const V4_TYPE_MAP: { [key: string]: string } = {
 }
 
 // Normalizes V4 parameter type to internal format
+// V4 API returns lowercase types (e.g., "text", "integer") that we map to uppercase internal format
 const normalizeParameterType = (rawType: unknown): string => {
   if (typeof rawType !== "string") return "TEXT"
 
   const normalized = rawType.trim().toLowerCase()
   const mapped = V4_TYPE_MAP[normalized]
 
-  // If we have a mapping, use it
   if (mapped) return mapped
 
-  // If it's already uppercase (V3 format), keep it
-  if (rawType === rawType.toUpperCase() && rawType.length > 0) {
-    return rawType
-  }
-
-  // Otherwise, try uppercase version
+  // Fallback: uppercase the raw type
   return rawType.toUpperCase()
 }
 
 // Normaliserar V4 parameter-format till intern struktur
-// V4 changed listOptions -> choiceSettings.choices, caption -> display
+// V4 API changes: listOptions -> choiceSettings.choices, caption -> display, lowercase types
 const normalizeV4Parameter = (raw: any): any => {
   if (!raw || typeof raw !== "object") return raw
 

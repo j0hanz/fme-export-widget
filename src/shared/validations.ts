@@ -201,7 +201,7 @@ export const isNum = (value: unknown): boolean => {
 const hasForbiddenPath = (pathname: string): boolean =>
   pathname.toLowerCase().includes(FME_REST_PATH)
 
-// Normaliserar bas-URL genom att ta bort fmerest och credentials
+// Normaliserar bas-URL genom att ta bort legacy /fmerest path och credentials
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
