@@ -45,7 +45,7 @@ export const UPLOAD_PARAM_TYPES = Object.freeze([
 ] as const)
 
 export const FME_FLOW_API = Object.freeze({
-  BASE_PATH: "/fmerest/v3",
+  BASE_PATH: "/fmeapiv4",
   MAX_URL_LENGTH: 4000,
   WEBHOOK_EXCLUDE_KEYS: [] as const,
   WEBHOOK_LOG_WHITELIST: Object.freeze([

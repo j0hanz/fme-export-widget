@@ -15,6 +15,7 @@ import type {
   WebhookErrorCode,
   TMDirectives,
   NMDirectives,
+  ErrorDetailInput,
 } from "../config/index"
 import {
   FmeFlowApiError,
@@ -397,6 +398,124 @@ function logRequest(
 function inferOk(status?: number): boolean | undefined {
   if (typeof status !== "number") return undefined
   return isSuccessStatus(status)
+}
+
+const DETAIL_VALUE_LIMIT = 320
+const DETAIL_MESSAGE_KEYS = [
+  "message",
+  "error",
+  "detail",
+  "description",
+  "reason",
+  "text",
+]
+
+interface UnknownValueMap {
+  [key: string]: unknown
+}
+
+const coerceDetailValue = (value: unknown, depth = 0): string | null => {
+  if (value == null) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+    return null
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    if (depth >= 3) return null
+    const parts = value
+      .map((entry) => coerceDetailValue(entry, depth + 1))
+      .filter((part): part is string => Boolean(part))
+    if (!parts.length) return null
+    const joined = parts.join(", ")
+    return truncate(joined, DETAIL_VALUE_LIMIT)
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return null
+    for (const key of DETAIL_MESSAGE_KEYS) {
+      const nested = coerceDetailValue((value as any)?.[key], depth + 1)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+const normalizeDetailMap = (
+  candidate: unknown
+): ErrorDetailInput | undefined => {
+  if (!candidate) return undefined
+
+  const result: ErrorDetailInput = {}
+
+  if (Array.isArray(candidate)) {
+    candidate.forEach((entry, index) => {
+      if (entry == null) return
+      if (typeof entry === "object" && !Array.isArray(entry)) {
+        const objectEntry = entry as UnknownValueMap
+        const nameValue =
+          typeof objectEntry.name === "string" ? objectEntry.name : undefined
+        const fieldValue =
+          typeof objectEntry.field === "string" ? objectEntry.field : undefined
+        const parameterValue =
+          typeof objectEntry.parameter === "string"
+            ? objectEntry.parameter
+            : undefined
+        const key =
+          toNonEmptyTrimmedString(nameValue) ||
+          toNonEmptyTrimmedString(fieldValue) ||
+          toNonEmptyTrimmedString(parameterValue) ||
+          String(index)
+        const message =
+          coerceDetailValue(entry, 1) || coerceDetailValue(objectEntry.value, 1)
+        if (message) result[key] = truncate(message, DETAIL_VALUE_LIMIT)
+      } else {
+        const message = coerceDetailValue(entry, 1)
+        if (message)
+          result[String(index)] = truncate(message, DETAIL_VALUE_LIMIT)
+      }
+    })
+    return Object.keys(result).length ? result : undefined
+  }
+
+  if (typeof candidate === "object" && !Array.isArray(candidate)) {
+    const objectCandidate = candidate as UnknownValueMap
+    for (const key of Object.keys(objectCandidate)) {
+      const normalized = coerceDetailValue(objectCandidate[key])
+      if (normalized) result[key] = truncate(normalized, DETAIL_VALUE_LIMIT)
+    }
+    return Object.keys(result).length ? result : undefined
+  }
+
+  const normalized = coerceDetailValue(candidate)
+  if (normalized) {
+    result.general = truncate(normalized, DETAIL_VALUE_LIMIT)
+    return result
+  }
+
+  return undefined
+}
+
+const extractErrorDetails = (error: unknown): ErrorDetailInput | undefined => {
+  if (!error || typeof error !== "object") return undefined
+
+  const candidateSources: unknown[] = [
+    (error as any)?.details,
+    (error as any)?.response?.details,
+    (error as any)?.response?.data?.details,
+    (error as any)?.data?.details,
+    (error as any)?.body?.details,
+    (error as any)?.error?.details,
+  ]
+
+  for (const candidate of candidateSources) {
+    const normalized = normalizeDetailMap(candidate)
+    if (normalized) return normalized
+  }
+
+  return undefined
 }
 
 // Skapar abort-reason för AbortController
@@ -1220,7 +1339,23 @@ export class FmeFlowApiClient {
     } catch (err) {
       const status = extractHttpStatus(err)
       const retryable = isRetryableError(err)
-      throw new FmeFlowApiError(errorMessage, errorCode, status || 0, retryable)
+      const existing = err instanceof FmeFlowApiError ? err : null
+      const details = existing?.details ?? extractErrorDetails(err)
+      const severity = existing?.severity
+      const httpStatus =
+        typeof status === "number"
+          ? status
+          : typeof existing?.httpStatus === "number"
+            ? existing.httpStatus
+            : 0
+      throw new FmeFlowApiError(
+        errorMessage,
+        errorCode,
+        httpStatus,
+        retryable,
+        severity,
+        details
+      )
     }
   }
 
@@ -1772,12 +1907,16 @@ export class FmeFlowApiClient {
 
       // Hämta användarvänlig translations-nyckel via centraliserad mapping
       const translationKey = mapErrorFromNetwork(err, httpStatus)
+      const details = extractErrorDetails(err)
+      const messageKey = translationKey || errorCode
 
       throw new FmeFlowApiError(
-        translationKey,
+        messageKey,
         errorCode,
         httpStatus,
-        retryable
+        retryable,
+        undefined,
+        details
       )
     }
   }

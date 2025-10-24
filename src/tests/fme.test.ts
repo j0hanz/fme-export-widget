@@ -117,6 +117,101 @@ describe("FME shared logic", () => {
     })
   })
 
+  describe("FmeFlowApiClient endpoints", () => {
+    const baseConfig = {
+      fmeServerUrl: "https://flow.server.com",
+      fmeServerToken: "secret-token",
+      repository: "CityData",
+    }
+
+    it("uses V4 base path for repository endpoints", () => {
+      const client = createFmeFlowClient(baseConfig as any)
+      const endpoint = (client as any).repoEndpoint("Samples")
+      expect(endpoint).toBe(
+        "https://flow.server.com/fmeapiv4/repositories/Samples"
+      )
+    })
+
+    it("uses V4 base path for transformation endpoints", () => {
+      const client = createFmeFlowClient(baseConfig as any)
+      const submitEndpoint = (client as any).transformEndpoint(
+        "submit",
+        "CityData",
+        "Parcels.fmw"
+      )
+      expect(submitEndpoint).toBe(
+        "https://flow.server.com/fmeapiv4/transformations/submit/CityData/Parcels.fmw"
+      )
+    })
+
+    it("keeps data service endpoints outside the API base path", () => {
+      const client = createFmeFlowClient(baseConfig as any)
+      const serviceUrl = (client as any).buildServiceUrl(
+        "fmedataupload",
+        "CityData",
+        "WorkspaceA"
+      )
+      expect(serviceUrl).toBe(
+        "https://flow.server.com/fmedataupload/CityData/WorkspaceA"
+      )
+    })
+
+    it("parses repository lists from V4 responses", async () => {
+      const client = createFmeFlowClient(baseConfig as any)
+      const requestSpy = jest
+        .spyOn(client as any, "request")
+        .mockResolvedValue({
+          data: {
+            items: [{ name: "Repo1" }, { name: "Repo2" }],
+            totalCount: 2,
+            limit: -1,
+            offset: -1,
+          },
+          status: 200,
+          statusText: "OK",
+        })
+
+      const response = await client.getRepositories()
+
+      expect(requestSpy).toHaveBeenCalledWith(
+        "https://flow.server.com/fmeapiv4/repositories",
+        expect.objectContaining({ query: { limit: -1, offset: -1 } })
+      )
+      expect(response.data).toEqual([{ name: "Repo1" }, { name: "Repo2" }])
+
+      requestSpy.mockRestore()
+    })
+
+    it("propagates validation details from V4 error responses", async () => {
+      const client = createFmeFlowClient(baseConfig as any)
+      const esriRequestMock = globalAny.esriRequest as jest.Mock
+      const error = Object.assign(new Error("Validation failed"), {
+        httpStatus: 422,
+        response: {
+          data: {
+            message: "Validation failed",
+            details: {
+              name: "Name is required",
+              email: "Invalid email format",
+            },
+          },
+        },
+      })
+      esriRequestMock.mockImplementationOnce(() => Promise.reject(error))
+
+      await expect(
+        client.getWorkspaceParameters("ParcelExport")
+      ).rejects.toMatchObject({
+        code: "WORKSPACE_PARAMETERS_ERROR",
+        httpStatus: 422,
+        details: {
+          name: "Name is required",
+          email: "Invalid email format",
+        },
+      })
+    })
+  })
+
   describe("sanitizeOptGetUrlParam", () => {
     it("removes unsafe dataset urls when remote datasets are disabled", () => {
       const params = { opt_geturl: "  https://example.com/data.csv  " }

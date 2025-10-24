@@ -5,7 +5,7 @@
   "version": "1.18.0",
   "exbVersion": "1.18.0",
   "author": "j0hanz",
-  "description": "Draw an area and export via FME Flow.",
+  "description": "Draw an area and export via FME Flow REST API.",
   "icon": "icon.svg",
   "dependency": "jimu-arcgis",
   "publishMessages": ["DATA_RECORD_SET_CHANGE"],

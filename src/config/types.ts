@@ -774,12 +774,20 @@ export interface ApiResponse<T = unknown> {
   readonly statusText: string
 }
 
+export interface ErrorDetailMap {
+  readonly [key: string]: string
+}
+export interface ErrorDetailInput {
+  [key: string]: string
+}
+
 export interface FmeError {
   readonly message: string
   readonly severity: ErrorSeverity
   readonly httpStatus?: number
   readonly code?: string
   readonly retryable?: boolean
+  readonly details?: ErrorDetailMap
 }
 
 export class FmeFlowApiError extends Error implements FmeError {
@@ -789,13 +797,15 @@ export class FmeFlowApiError extends Error implements FmeError {
   public readonly severity: ErrorSeverity
   public readonly retryable: boolean
   public readonly isRetryable: boolean
+  public readonly details?: ErrorDetailMap
 
   constructor(
     message: string,
     code: string,
     httpStatus?: number,
     isRetryable?: boolean,
-    severity: ErrorSeverity = ErrorSeverity.ERROR
+    severity: ErrorSeverity = ErrorSeverity.ERROR,
+    details?: ErrorDetailInput | ErrorDetailMap
   ) {
     super(message)
     this.name = "FmeFlowApiError"
@@ -805,6 +815,7 @@ export class FmeFlowApiError extends Error implements FmeError {
     this.retryable = Boolean(isRetryable)
     this.isRetryable = this.retryable
     this.severity = severity
+    this.details = details ? Object.freeze({ ...details }) : undefined
   }
 }
 

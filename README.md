@@ -4,6 +4,10 @@ Exportera ett *Area of Interest* (AOI) från en karta i ArcGIS Experience Builde
 
 > 📝 **Dokumentation**: Publiceras vid lansering.
 
+## FME Flow API Version
+
+Widgeten adresserar FME Flow REST API V4 via baskontexten `/fmeapiv4`. Äldre miljöer kan byggas mot V3 genom att justera `FME_FLOW_API.BASE_PATH` i `src/config/constants.ts` före bygge.
+
 ## Presentation
 
 * 📄 **FME Användarträff 2025**
