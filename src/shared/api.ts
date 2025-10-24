@@ -1484,13 +1484,11 @@ export class FmeFlowApiClient {
         }
 
         // Sätt timeout om konfigurerad
-        // Om ingen timeout är konfigurerad, sätt 0 för att inaktivera esriRequest's 60s default
-        // FME Flow's tm_ttc parameter hanterar workspace timeout på serversidan
         const timeoutMs =
           typeof this.config.timeout === "number" && this.config.timeout > 0
             ? this.config.timeout
-            : 0
-        if (timeoutMs > 0) {
+            : undefined
+        if (timeoutMs) {
           timeoutId = setTimeout(() => {
             didTimeout = true
             try {
@@ -1511,14 +1509,19 @@ export class FmeFlowApiClient {
             ok: getEsriResponseOk,
             size: getEsriResponseSize,
           },
-          execute: () =>
-            esriRequestFn(fullUrl, {
+          execute: () => {
+            const requestOptions: any = {
               method: "get",
               responseType: "json",
               headers: requestHeaders,
               signal: controller.signal,
-              timeout: timeoutMs,
-            }),
+            }
+            // Only set timeout if explicitly configured and valid
+            if (typeof timeoutMs === "number" && timeoutMs > 0) {
+              requestOptions.timeout = timeoutMs
+            }
+            return esriRequestFn(fullUrl, requestOptions)
+          },
         })
 
         return this.parseWebhookResponse(response)
