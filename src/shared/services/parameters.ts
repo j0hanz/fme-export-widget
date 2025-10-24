@@ -963,36 +963,31 @@ export class ParameterFormService {
 
     switch (type) {
       case "attributeNames":
+        // Spread bevarar framtida FME-properties
         return {
           type: "attributeNames",
-          includeDestinationFormatAttrs:
-            choiceSet.includeDestinationFormatAttrs,
-          includeDestinationUserAttrs: choiceSet.includeDestinationUserAttrs,
-          includeSourceFormatAttrs: choiceSet.includeSourceFormatAttrs,
-          includeSourceUserAttrs: choiceSet.includeSourceUserAttrs,
-          excludeIncoming: choiceSet.excludeIncoming,
-          includeUnexposedAttrs: choiceSet.includeUnexposedAttrs,
-          listSupport: choiceSet.listSupport,
-          sourcePorts: choiceSet.sourcePorts,
+          ...choiceSet,
         }
 
       case "coordinateSystems":
+        // Spread bevarar framtida FME-properties
         return {
           type: "coordinateSystems",
-          reprojectionEngine: choiceSet.reprojectionEngine,
-          allowReadCoordSysFromFeature: choiceSet.allowReadCoordSysFromFeature,
+          ...choiceSet,
         }
 
       case "dbConnections":
+        // Spread bevarar framtida FME-properties
         return {
           type: "dbConnections",
-          allowManualEntry: choiceSet.allowManualEntry,
+          ...choiceSet,
         }
 
       case "webConnections":
+        // Spread bevarar framtida FME-properties
         return {
           type: "webConnections",
-          allowManualEntry: choiceSet.allowManualEntry,
+          ...choiceSet,
         }
     }
   }
@@ -1334,7 +1329,7 @@ export class ParameterFormService {
       return { then: thenValue }
     }
 
-    // Clause med villkor ($ keys)
+    // Clause med villkor ($ keys) - via unknown för strikt typing
     const clauseWithCondition: { [key: string]: unknown } = {
       then: thenValue,
     }
@@ -1342,7 +1337,7 @@ export class ParameterFormService {
       clauseWithCondition[key] = clauseObj[key]
     }
 
-    return clauseWithCondition as DynamicPropertyClause<VisibilityState>
+    return clauseWithCondition as unknown as DynamicPropertyClause<VisibilityState>
   }
 
   // Bygger visibility expression från clauses och default state
@@ -1403,6 +1398,7 @@ export class ParameterFormService {
   }
 
   // Parser för enskild visibility state från sträng
+  // Accepterar både V3 snake_case och V4 camelCase för bakåtkompabilitet
   private parseVisibilityState(value: unknown): VisibilityState | undefined {
     if (typeof value !== "string") return undefined
 

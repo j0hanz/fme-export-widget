@@ -651,7 +651,27 @@ export interface LogicalCondition {
 
 export interface DynamicPropertyClause<T> {
   readonly then: T
-  readonly [operator: string]: unknown
+  readonly $equals?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $lessThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $greaterThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $matchesRegex?: {
+    readonly parameter: string
+    readonly regex: string
+  }
+  readonly $isEnabled?: { readonly parameter: string }
+  readonly $isRuntimeValue?: { readonly parameter: string }
+  readonly $allOf?: readonly ConditionExpression[]
+  readonly $anyOf?: readonly ConditionExpression[]
+  readonly $not?: ConditionExpression
 }
 
 export interface DynamicPropertyExpression<T> {
