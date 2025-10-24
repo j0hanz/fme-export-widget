@@ -394,7 +394,11 @@ export const SKIPPED_PARAMETER_NAMES = Object.freeze(
 )
 
 export const ALWAYS_SKIPPED_TYPES = Object.freeze(
-  new Set<ParameterType>([ParameterType.NOVALUE, ParameterType.GROUP])
+  new Set<ParameterType>([
+    ParameterType.NOVALUE,
+    ParameterType.GROUP,
+    ParameterType.group,
+  ])
 )
 
 export const LIST_REQUIRED_TYPES = Object.freeze(
@@ -413,12 +417,27 @@ export const MULTI_SELECT_TYPES = Object.freeze(
     ParameterType.LISTBOX,
     ParameterType.LOOKUP_LISTBOX,
     ParameterType.ATTRIBUTE_LIST,
+    ParameterType.listbox, // FME V4
   ])
 )
 
 export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [K in ParameterType]?: FormFieldType
 }> = Object.freeze({
+  [ParameterType.text]: FormFieldType.TEXT,
+  [ParameterType.number]: FormFieldType.NUMBER,
+  [ParameterType.checkbox]: FormFieldType.CHECKBOX,
+  [ParameterType.dropdown]: FormFieldType.RADIO,
+  [ParameterType.listbox]: FormFieldType.MULTI_SELECT,
+  [ParameterType.tree]: FormFieldType.SELECT,
+  [ParameterType.password]: FormFieldType.PASSWORD,
+  [ParameterType.datetime]: FormFieldType.DATE_TIME,
+  [ParameterType.message]: FormFieldType.MESSAGE,
+  [ParameterType.group]: FormFieldType.HIDDEN,
+  [ParameterType.file]: FormFieldType.FILE,
+  [ParameterType.color]: FormFieldType.COLOR,
+
+  // Legacy uppercase types
   [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
   [ParameterType.INTEGER]: FormFieldType.NUMBER,
   [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,

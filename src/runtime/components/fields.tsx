@@ -674,7 +674,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
   const renderMessageField = (): JSX.Element => {
     // Renderar meddelande/instruktion som info-alert
-    const message = field.description || field.label || ""
+    const message = field.label || field.description || ""
     if (!message.trim()) return <></>
     return <Alert type="info" withIcon open text={message} aria-live="polite" />
   }

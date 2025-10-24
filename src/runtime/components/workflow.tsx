@@ -874,6 +874,20 @@ const ExportForm: React.FC<
             field.type === FormFieldType.CHECKBOX
           const disabled = field.visibilityState === "visibleDisabled"
 
+          if (field.type === FormFieldType.MESSAGE) {
+            return (
+              <DynamicField
+                key={field.name}
+                field={field}
+                value={formState.values[field.name]}
+                onChange={(val) => setField(field.name, val)}
+                translate={translate}
+                disabled={disabled}
+                jimuMapView={jimuMapView}
+              />
+            )
+          }
+
           return (
             <Field
               key={field.name}

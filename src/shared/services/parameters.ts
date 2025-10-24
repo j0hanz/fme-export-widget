@@ -68,8 +68,14 @@ export class ParameterFormService {
     if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
     if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false
     if (LIST_REQUIRED_TYPES.has(p.type)) {
+      const choiceSettings = (p as any).choiceSettings
+      const hasChoices =
+        choiceSettings &&
+        Array.isArray(choiceSettings.choices) &&
+        choiceSettings.choices.length > 0
+
       return (
-        (Array.isArray(p.listOptions) && p.listOptions.length > 0) ||
+        hasChoices ||
         (p.defaultValue !== null &&
           p.defaultValue !== undefined &&
           p.defaultValue !== "")
@@ -86,20 +92,37 @@ export class ParameterFormService {
     return parameters.filter((parameter) => this.isRenderableParam(parameter))
   }
 
-  // Mappar FME listOptions till OptionItem-format
+  // Mappar FME V4 choiceSettings.choices till OptionItem-format
   private mapListOptions(
-    list: WorkspaceParameter["listOptions"]
+    param: WorkspaceParameter
   ): readonly OptionItem[] | undefined {
-    if (!list?.length) return undefined
-    return list.map((o) => {
-      const normalizedValue = normalizeParameterValue(o.value)
-      const label = toNonEmptyTrimmedString(o.caption, String(normalizedValue))
+    const choiceSettings = (param as any).choiceSettings
+    if (!choiceSettings || !Array.isArray(choiceSettings.choices)) {
+      return undefined
+    }
+    const nodeDelimiter = (param as any).nodeDelimiter
+    const isTree = param.type === ParameterType.tree
+
+    return choiceSettings.choices.map((o: any) => {
+      const rawValue = o.value ?? o.id ?? o.code
+      const normalizedValue = normalizeParameterValue(rawValue)
+      const displayValue = o.display ?? o.caption ?? o.label ?? o.name
+      const label = toNonEmptyTrimmedString(
+        displayValue,
+        String(normalizedValue)
+      )
+      const path =
+        isTree && nodeDelimiter && typeof displayValue === "string"
+          ? displayValue
+          : typeof o.path === "string" && o.path
+            ? o.path
+            : undefined
 
       return {
         label,
         value: normalizedValue,
         ...(o.description && { description: o.description }),
-        ...(typeof o.path === "string" && o.path && { path: o.path }),
+        ...(path && { path }),
         ...(o.disabled && { disabled: true }),
         ...(o.metadata && { metadata: o.metadata }),
       }
@@ -681,7 +704,10 @@ export class ParameterFormService {
 
     const meta = this.getParameterMetadata(param)
     const options = this.extractScriptedOptions(param, baseOptions)
+    const nodeDelimiter =
+      (param as any).nodeDelimiter || (param as any).delimiter
     const separator =
+      nodeDelimiter ||
       pickString(meta, ["breadcrumbSeparator", "pathSeparator", "delimiter"]) ||
       "/"
     const nodes = this.buildScriptedNodes(options, separator)
@@ -837,6 +863,19 @@ export class ParameterFormService {
     if (!selectableTypes.has(type)) return undefined
 
     const meta = this.getParameterMetadata(param)
+    const isTreeParam = param.type === ParameterType.tree
+    const hasPathsInOptions = Boolean(
+      options?.some(
+        (opt) => opt.path || (opt.children && opt.children.length > 0)
+      )
+    )
+
+    const hierarchical = pickBoolean(
+      meta,
+      ["hierarchical", "tree", "grouped", "nested"],
+      isTreeParam || hasPathsInOptions
+    )
+
     const allowSearch = pickBoolean(
       meta,
       ["allowSearch", "searchable", "enableSearch"],
@@ -854,11 +893,6 @@ export class ParameterFormService {
       "pageLimit",
     ])
     const instructions = pickString(meta, ["instructions", "hint", "helper"])
-    const hierarchical = pickBoolean(
-      meta,
-      ["hierarchical", "tree", "grouped", "nested"],
-      Boolean(options?.some((opt) => opt.children && opt.children.length > 0))
-    )
 
     // Only return config if at least one non-default value exists
     if (
@@ -1271,7 +1305,7 @@ export class ParameterFormService {
     }
   }
 
-  // Validerar värden mot parameter-definitioner (required/type/choices)
+  // Validering av parameter-värden mot typ och valbara alternativ
   validateParameters(
     data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
@@ -1297,7 +1331,10 @@ export class ParameterFormService {
           continue
         }
 
-        const validChoices = buildChoiceSet(param.listOptions)
+        // Validering av valbara alternativ (choices)
+        const choiceSettings = (param as any).choiceSettings
+        const choices = choiceSettings?.choices
+        const validChoices = buildChoiceSet(choices)
         const choiceError = validateParamChoices(
           param.name,
           value,
@@ -1438,7 +1475,7 @@ export class ParameterFormService {
         param.type === ParameterType.RANGE_SLIDER && !sliderUiPreferred
           ? FormFieldType.NUMERIC_INPUT
           : baseType
-      const options = this.mapListOptions(param.listOptions)
+      const options = this.mapListOptions(param)
       const scripted = this.deriveScriptedConfig(param, options)
       const tableConfig = this.deriveTableConfig(param)
       const dateTimeConfig = this.deriveDateTimeConfig(param)
@@ -1513,13 +1550,13 @@ export class ParameterFormService {
 
       const field: DynamicFieldConfig = {
         name: param.name,
-        label: param.description || param.name,
+        label: (param as any).prompt || param.description || param.name,
         type,
         required: !param.optional,
         readOnly,
-        description: param.description,
+        description: (param as any).prompt || param.description,
         defaultValue,
-        placeholder: param.description || "",
+        placeholder: (param as any).prompt || param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
         ...((min !== undefined || max !== undefined || step !== undefined) && {
@@ -1559,18 +1596,48 @@ export class ParameterFormService {
 
   // Mappar parameter-typ till UI-fälttyp
   private getFieldType(param: WorkspaceParameter): FormFieldType {
-    const override = PARAMETER_FIELD_TYPE_MAP[param.type]
-    if (override) return override
-
+    // Direkt hantering av multi-select typer
     if (MULTI_SELECT_TYPES.has(param.type)) {
       return FormFieldType.MULTI_SELECT
     }
 
-    const hasOptions = param.listOptions?.length > 0
+    // Hantera valbara alternativ (choices)
+    const choiceSettings = (param as any).choiceSettings
+    const hasOptions =
+      choiceSettings &&
+      Array.isArray(choiceSettings.choices) &&
+      choiceSettings.choices.length > 0
+
     if (hasOptions) {
-      return MULTI_SELECT_TYPES.has(param.type)
-        ? FormFieldType.MULTI_SELECT
-        : FormFieldType.SELECT
+      // Bestäm om multi-select baserat på defaultValue
+      const defaultIsArray = Array.isArray(param.defaultValue)
+      return defaultIsArray ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
+    }
+
+    // Typ-override via mappning
+    const override = PARAMETER_FIELD_TYPE_MAP[param.type]
+    if (override) return override
+
+    // Specifik hantering för text-typer med editor
+    if (
+      param.type === ParameterType.text ||
+      param.type === ParameterType.TEXT
+    ) {
+      const editor = (param as any).editor
+
+      if (editor === "plaintext") {
+        return FormFieldType.TEXTAREA
+      }
+
+      if (editor === "url") {
+        return FormFieldType.URL
+      }
+
+      // Kontrollera valueType för stringEncoded
+      const valueType = (param as any).valueType
+      if (valueType === "stringEncoded") {
+        return FormFieldType.TEXTAREA
+      }
     }
 
     return FormFieldType.TEXT
