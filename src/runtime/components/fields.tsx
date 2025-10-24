@@ -667,665 +667,782 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     }
   }, [isSingleOption, onlyVal, fieldValue, onChange])
 
-  // Renderar fält baserat på fälttyp
-  const renderByType = (): JSX.Element => {
-    switch (field.type) {
-      case FormFieldType.HIDDEN: {
-        // Dolt fält: behåll värde i form men rendera inget
-        return <></>
+  const renderHiddenField = (): JSX.Element => {
+    // Dolt fält: behåll värde i form men rendera inget
+    return <></>
+  }
+
+  const renderMessageField = (): JSX.Element => {
+    // Renderar meddelande/instruktion som info-alert
+    const message = field.description || field.label || ""
+    if (!message.trim()) return <></>
+    return <Alert type="info" withIcon open text={message} aria-live="polite" />
+  }
+
+  const renderTextBasedField = (): JSX.Element => {
+    // Mappar fälttyp till HTML input-typ
+    const inputTypeMap: {
+      [key: string]: "text" | "email" | "tel" | "search" | "password"
+    } = {
+      [FormFieldType.PASSWORD]: "password",
+      [FormFieldType.EMAIL]: "email",
+      [FormFieldType.PHONE]: "tel",
+      [FormFieldType.SEARCH]: "search",
+      [FormFieldType.TEXT]: "text",
+    }
+    const inputType = inputTypeMap[field.type] || "text"
+    // Bestämmer placeholder-typ baserat på fälttyp
+    const placeholderType =
+      field.type === FormFieldType.PHONE
+        ? "phone"
+        : field.type === FormFieldType.EMAIL
+          ? "email"
+          : field.type === FormFieldType.SEARCH
+            ? "search"
+            : undefined
+    const placeholder =
+      field.type === FormFieldType.PASSWORD
+        ? getTextPlaceholder(field, placeholders, translate)
+        : getTextPlaceholder(field, placeholders, translate, placeholderType)
+
+    return renderTextInput(
+      inputType,
+      fieldValue as FormPrimitive,
+      placeholder,
+      onChange,
+      {
+        readOnly: isDisabled,
+        maxLength: field.maxLength,
       }
-      case FormFieldType.MESSAGE: {
-        // Renderar meddelande/instruktion som info-alert
-        const message = field.description || field.label || ""
-        if (!message.trim()) return <></>
-        return (
-          <Alert type="info" withIcon open text={message} aria-live="polite" />
-        )
+    )
+  }
+
+  const renderNumberField = (): JSX.Element => {
+    // Renderar numeriskt inmatningsfält
+    return renderTextInput(
+      "number",
+      fieldValue as FormPrimitive,
+      placeholders.enter,
+      onChange,
+      {
+        readOnly: isDisabled,
       }
-      case FormFieldType.TABLE: {
-        const tableConfig = field.tableConfig
-        // Enkel tabellrad-vy om inga kolumner konfigurerats
-        if (!tableConfig?.columns?.length) {
-          const rows = parseTableRows(value)
+    )
+  }
 
-          const updateRow = (idx: number, val: string) => {
-            if (isDisabled) return
-            const next = [...rows]
-            next[idx] = val
-            onChange(next as unknown as FormPrimitive)
-          }
+  const renderTextareaField = (): JSX.Element => {
+    // Renderar flerradigt textfält
+    return (
+      <TextArea
+        value={toDisplayString(fieldValue)}
+        placeholder={placeholders.enter}
+        onChange={(val) => {
+          onChange(val as FormPrimitive)
+        }}
+        disabled={isDisabled}
+        rows={field.rows}
+      />
+    )
+  }
 
-          const addRow = () => {
-            if (isDisabled) return
-            onChange([...(rows || []), ""] as unknown as FormPrimitive)
-          }
+  const renderUrlField = (): JSX.Element => {
+    const val = toDisplayString(fieldValue)
+    return (
+      <UrlInput
+        value={val}
+        placeholder={field.placeholder || placeholders.enter}
+        onChange={(v) => {
+          if (isDisabled) return
+          onChange(v)
+        }}
+      />
+    )
+  }
 
-          const removeRow = (idx: number) => {
-            if (isDisabled) return
-            const next = rows.filter((_, i) => i !== idx)
-            onChange(next as unknown as FormPrimitive)
-          }
+  const renderTableField = (): JSX.Element => {
+    const tableConfig = field.tableConfig
+    // Enkel tabellrad-vy om inga kolumner konfigurerats
+    if (!tableConfig?.columns?.length) {
+      const rows = parseTableRows(value)
 
+      const updateRow = (idx: number, val: string) => {
+        if (isDisabled) return
+        const next = [...rows]
+        next[idx] = val
+        onChange(next as unknown as FormPrimitive)
+      }
+
+      const addRow = () => {
+        if (isDisabled) return
+        onChange([...(rows || []), ""] as unknown as FormPrimitive)
+      }
+
+      const removeRow = (idx: number) => {
+        if (isDisabled) return
+        const next = rows.filter((_, i) => i !== idx)
+        onChange(next as unknown as FormPrimitive)
+      }
+
+      return (
+        <div data-testid="table-field">
+          {rows.length === 0 ? (
+            <div>{translate("msgTableEmpty")}</div>
+          ) : (
+            <Table responsive hover aria-label={field.label}>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i}>
+                    <td>
+                      <Input
+                        type="text"
+                        value={r}
+                        placeholder={field.placeholder || placeholders.enter}
+                        onChange={(val) => {
+                          const s = typeof val === "string" ? val : ""
+                          updateRow(i, s)
+                        }}
+                        disabled={isDisabled}
+                      />
+                    </td>
+                    <td>
+                      <Button
+                        text={translate("btnDeleteRow")}
+                        variant="text"
+                        type="tertiary"
+                        onClick={() => {
+                          removeRow(i)
+                        }}
+                        aria-label={translate("btnDeleteRow")}
+                        disabled={isDisabled}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+          <Button
+            text={translate("btnAddRow")}
+            variant="outlined"
+            onClick={addRow}
+            aria-label={translate("btnAddRow")}
+            disabled={isDisabled}
+          />
+        </div>
+      )
+    }
+
+    // Normaliserar kolumner från config eller använder standardkolumn
+    const columns =
+      tableConfig.columns && tableConfig.columns.length
+        ? tableConfig.columns
+        : [
+            {
+              key: "value",
+              label: field.label || translate("lblColumnDefault"),
+              type: "text" as const,
+            },
+          ]
+
+    // Normaliserar och hämtar konfigurerbara tabellbegränsningar
+    const rows = normalizeTableRows(value, columns).map((row, index) => ({
+      ...row,
+      __rowId: `${field.name}-row-${index}-${Date.now()}`,
+    }))
+    const minRows = tableConfig?.minRows ?? 0
+    const maxRows = tableConfig?.maxRows
+    const allowReorder = tableConfig?.allowReorder ?? false
+    const showHeader = tableConfig?.showHeader ?? true
+    const addLabel = tableConfig?.addRowLabel || translate("btnAddRow")
+    const removeLabel = tableConfig?.removeRowLabel || translate("btnDeleteRow")
+
+    // Bestämmer om användaren kan lägga till/ta bort rader
+    const canRemove = !isDisabled && rows.length > minRows
+    const canAddRow =
+      !isDisabled && (maxRows === undefined || rows.length < maxRows)
+
+    // Uppdaterar en cells värde i en specifik rad
+    const handleCellChange = (
+      rowIndex: number,
+      columnKey: string,
+      newValue: unknown
+    ) => {
+      if (isDisabled) return
+      const next = rows.map((row, idx) =>
+        idx === rowIndex ? { ...row, [columnKey]: newValue } : row
+      )
+      onChange(next as unknown as FormPrimitive)
+    }
+
+    // Lägger till ny tabellrad med standardvärden
+    const handleAddRow = () => {
+      if (!canAddRow) return
+      const nextRow = prepareNewTableRow(columns)
+      onChange([...rows, nextRow] as unknown as FormPrimitive)
+    }
+
+    // Tar bort rad från tabell
+    const handleRemoveRow = (rowIndex: number) => {
+      if (isDisabled || !canRemove) return
+      const next = rows.filter((_, idx) => idx !== rowIndex)
+      onChange(next as unknown as FormPrimitive)
+    }
+
+    // Flyttar rad uppåt eller nedåt i tabell
+    const handleMoveRow = (rowIndex: number, direction: -1 | 1) => {
+      if (isDisabled) return
+      const target = rowIndex + direction
+      if (target < 0 || target >= rows.length) return
+      const next = [...rows]
+      const [moved] = next.splice(rowIndex, 1)
+      next.splice(target, 0, moved)
+      onChange(next as unknown as FormPrimitive)
+    }
+
+    // Renderar enskild tabellcell baserat på kolumntyp
+    const renderCell = (
+      column: TableColumnConfig,
+      rowIndex: number,
+      rowValue: { [key: string]: unknown }
+    ) => {
+      const cellValue = rowValue[column.key]
+      const disabled = isDisabled || column.readOnly
+      const placeholder =
+        column.placeholder || field.placeholder || placeholders.enter
+
+      switch (column.type) {
+        case "number":
           return (
-            <div data-testid="table-field">
-              {rows.length === 0 ? (
-                <div>{translate("msgTableEmpty")}</div>
-              ) : (
-                <Table responsive hover aria-label={field.label}>
-                  <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={i}>
-                        <td>
-                          <Input
-                            type="text"
-                            value={r}
-                            placeholder={
-                              field.placeholder || placeholders.enter
-                            }
-                            onChange={(val) => {
-                              const s = typeof val === "string" ? val : ""
-                              updateRow(i, s)
-                            }}
-                            disabled={isDisabled}
-                          />
-                        </td>
-                        <td>
-                          <Button
-                            text={translate("btnDeleteRow")}
-                            variant="text"
-                            type="tertiary"
-                            onClick={() => {
-                              removeRow(i)
-                            }}
-                            aria-label={translate("btnDeleteRow")}
-                            disabled={isDisabled}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              )}
-              <Button
-                text={translate("btnAddRow")}
-                variant="outlined"
-                onClick={addRow}
-                aria-label={translate("btnAddRow")}
-                disabled={isDisabled}
-              />
-            </div>
+            <Input
+              type="number"
+              value={toDisplayString(cellValue)}
+              onChange={(val) => {
+                const numVal =
+                  val === "" ? null : Number((val as string).replace(/,/g, "."))
+                handleCellChange(
+                  rowIndex,
+                  column.key,
+                  Number.isFinite(numVal) ? numVal : null
+                )
+              }}
+              disabled={disabled}
+              placeholder={placeholder}
+            />
           )
-        }
-
-        // Normaliserar kolumner från config eller använder standardkolumn
-        const columns =
-          tableConfig.columns && tableConfig.columns.length
-            ? tableConfig.columns
-            : [
-                {
-                  key: "value",
-                  label: field.label || translate("lblColumnDefault"),
-                  type: "text" as const,
-                },
-              ]
-
-        // Normaliserar och hämtar konfigurerbara tabellbegränsningar
-        const rows = normalizeTableRows(value, columns).map((row, index) => ({
-          ...row,
-          __rowId: `${field.name}-row-${index}-${Date.now()}`,
-        }))
-        const minRows = tableConfig?.minRows ?? 0
-        const maxRows = tableConfig?.maxRows
-        const allowReorder = tableConfig?.allowReorder ?? false
-        const showHeader = tableConfig?.showHeader ?? true
-        const addLabel = tableConfig?.addRowLabel || translate("btnAddRow")
-        const removeLabel =
-          tableConfig?.removeRowLabel || translate("btnDeleteRow")
-
-        // Bestämmer om användaren kan lägga till/ta bort rader
-        const canRemove = !isDisabled && rows.length > minRows
-        const canAddRow =
-          !isDisabled && (maxRows === undefined || rows.length < maxRows)
-
-        // Uppdaterar en cells värde i en specifik rad
-        const handleCellChange = (
-          rowIndex: number,
-          columnKey: string,
-          newValue: unknown
-        ) => {
-          if (isDisabled) return
-          const next = rows.map((row, idx) =>
-            idx === rowIndex ? { ...row, [columnKey]: newValue } : row
+        case "select":
+          return (
+            <Select
+              value={cellValue as SelectValue}
+              options={column.options || []}
+              placeholder={placeholder}
+              onChange={(val) => {
+                handleCellChange(rowIndex, column.key, val as FormPrimitive)
+              }}
+              disabled={disabled}
+            />
           )
-          onChange(next as unknown as FormPrimitive)
-        }
+        case "boolean":
+          return (
+            <Checkbox
+              checked={Boolean(cellValue)}
+              onChange={(evt) => {
+                handleCellChange(rowIndex, column.key, evt.target.checked)
+              }}
+              disabled={disabled}
+              aria-label={column.label}
+            />
+          )
+        case "date":
+          return (
+            <Input
+              type="date"
+              value={toDisplayString(cellValue)}
+              onChange={(val) => {
+                handleCellChange(rowIndex, column.key, val as FormPrimitive)
+              }}
+              disabled={disabled}
+              placeholder={placeholder}
+            />
+          )
+        case "time":
+          return (
+            <Input
+              type="time"
+              value={toDisplayString(cellValue)}
+              onChange={(val) => {
+                handleCellChange(rowIndex, column.key, val as FormPrimitive)
+              }}
+              disabled={disabled}
+            />
+          )
+        case "datetime":
+          return (
+            <DateTimePickerWrapper
+              value={toDisplayString(cellValue)}
+              onChange={(val) => {
+                handleCellChange(rowIndex, column.key, val as FormPrimitive)
+              }}
+              disabled={disabled}
+              aria-label={column.label}
+            />
+          )
+        default:
+          return (
+            <Input
+              type="text"
+              value={toDisplayString(cellValue)}
+              onChange={(val) => {
+                handleCellChange(rowIndex, column.key, val as FormPrimitive)
+              }}
+              disabled={disabled}
+              placeholder={placeholder}
+            />
+          )
+      }
+    }
 
-        // Lägger till ny tabellrad med standardvärden
-        const handleAddRow = () => {
-          if (!canAddRow) return
-          const nextRow = prepareNewTableRow(columns)
-          onChange([...rows, nextRow] as unknown as FormPrimitive)
-        }
-
-        // Tar bort rad från tabell
-        const handleRemoveRow = (rowIndex: number) => {
-          if (isDisabled || !canRemove) return
-          const next = rows.filter((_, idx) => idx !== rowIndex)
-          onChange(next as unknown as FormPrimitive)
-        }
-
-        // Flyttar rad uppåt eller nedåt i tabell
-        const handleMoveRow = (rowIndex: number, direction: -1 | 1) => {
-          if (isDisabled) return
-          const target = rowIndex + direction
-          if (target < 0 || target >= rows.length) return
-          const next = [...rows]
-          const [moved] = next.splice(rowIndex, 1)
-          next.splice(target, 0, moved)
-          onChange(next as unknown as FormPrimitive)
-        }
-
-        // Renderar enskild tabellcell baserat på kolumntyp
-        const renderCell = (
-          column: TableColumnConfig,
-          rowIndex: number,
-          rowValue: { [key: string]: unknown }
-        ) => {
-          const cellValue = rowValue[column.key]
-          const disabled = isDisabled || column.readOnly
-          const placeholder =
-            column.placeholder || field.placeholder || placeholders.enter
-
-          switch (column.type) {
-            case "number":
-              return (
-                <Input
-                  type="number"
-                  value={toDisplayString(cellValue)}
-                  onChange={(val) => {
-                    const numVal =
-                      val === ""
-                        ? null
-                        : Number((val as string).replace(/,/g, "."))
-                    handleCellChange(
-                      rowIndex,
-                      column.key,
-                      Number.isFinite(numVal) ? numVal : null
-                    )
-                  }}
-                  disabled={disabled}
-                  placeholder={placeholder}
-                />
-              )
-            case "select":
-              return (
-                <Select
-                  value={cellValue as SelectValue}
-                  options={column.options || []}
-                  placeholder={placeholder}
-                  onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
-                  }}
-                  disabled={disabled}
-                />
-              )
-            case "boolean":
-              return (
-                <Checkbox
-                  checked={Boolean(cellValue)}
-                  onChange={(evt) => {
-                    handleCellChange(rowIndex, column.key, evt.target.checked)
-                  }}
-                  disabled={disabled}
-                  aria-label={column.label}
-                />
-              )
-            case "date":
-              return (
-                <Input
-                  type="date"
-                  value={toDisplayString(cellValue)}
-                  onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
-                  }}
-                  disabled={disabled}
-                  placeholder={placeholder}
-                />
-              )
-            case "time":
-              return (
-                <Input
-                  type="time"
-                  value={toDisplayString(cellValue)}
-                  onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
-                  }}
-                  disabled={disabled}
-                />
-              )
-            case "datetime":
-              return (
-                <DateTimePickerWrapper
-                  value={toDisplayString(cellValue)}
-                  onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
-                  }}
-                  disabled={disabled}
-                  aria-label={column.label}
-                />
-              )
-            default:
-              return (
-                <Input
-                  type="text"
-                  value={toDisplayString(cellValue)}
-                  onChange={(val) => {
-                    handleCellChange(rowIndex, column.key, val as FormPrimitive)
-                  }}
-                  disabled={disabled}
-                  placeholder={placeholder}
-                />
-              )
-          }
-        }
-
-        return (
-          <div data-testid="table-field">
-            {rows.length === 0 ? (
-              <div>{translate("msgTableEmpty")}</div>
-            ) : (
-              <Table responsive hover aria-label={field.label}>
-                {showHeader ? (
-                  <thead>
-                    <tr>
-                      {columns.map((column) => (
-                        <th key={column.key}>{column.label}</th>
-                      ))}
-                      <th>{translate("lblActions")}</th>
-                    </tr>
-                  </thead>
-                ) : null}
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.__rowId || `fallback-${Math.random()}`}>
-                      {columns.map((column) => (
-                        <td key={`${row.__rowId}-${column.key}`}>
-                          {renderCell(
-                            column,
-                            rows.findIndex((r) => r.__rowId === row.__rowId),
-                            row
-                          )}
-                        </td>
-                      ))}
-                      <td>
+    return (
+      <div data-testid="table-field">
+        {rows.length === 0 ? (
+          <div>{translate("msgTableEmpty")}</div>
+        ) : (
+          <Table responsive hover aria-label={field.label}>
+            {showHeader ? (
+              <thead>
+                <tr>
+                  {columns.map((column) => (
+                    <th key={column.key}>{column.label}</th>
+                  ))}
+                  <th>{translate("lblActions")}</th>
+                </tr>
+              </thead>
+            ) : null}
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.__rowId || `fallback-${Math.random()}`}>
+                  {columns.map((column) => (
+                    <td key={`${row.__rowId}-${column.key}`}>
+                      {renderCell(
+                        column,
+                        rows.findIndex((r) => r.__rowId === row.__rowId),
+                        row
+                      )}
+                    </td>
+                  ))}
+                  <td>
+                    <Button
+                      text={removeLabel}
+                      variant="text"
+                      type="tertiary"
+                      onClick={() => {
+                        handleRemoveRow(
+                          rows.findIndex((r) => r.__rowId === row.__rowId)
+                        )
+                      }}
+                      aria-label={removeLabel}
+                      disabled={!canRemove}
+                    />
+                    {allowReorder ? (
+                      <React.Fragment>
                         <Button
-                          text={removeLabel}
+                          text={translate("btnMoveUp")}
                           variant="text"
                           type="tertiary"
                           onClick={() => {
-                            handleRemoveRow(
-                              rows.findIndex((r) => r.__rowId === row.__rowId)
+                            handleMoveRow(
+                              rows.findIndex((r) => r.__rowId === row.__rowId),
+                              -1
                             )
                           }}
-                          aria-label={removeLabel}
-                          disabled={!canRemove}
+                          aria-label={translate("btnMoveUp")}
+                          disabled={
+                            isDisabled ||
+                            rows.findIndex((r) => r.__rowId === row.__rowId) ===
+                              0
+                          }
                         />
-                        {allowReorder ? (
-                          <React.Fragment>
-                            <Button
-                              text={translate("btnMoveUp")}
-                              variant="text"
-                              type="tertiary"
-                              onClick={() => {
-                                handleMoveRow(
-                                  rows.findIndex(
-                                    (r) => r.__rowId === row.__rowId
-                                  ),
-                                  -1
-                                )
-                              }}
-                              aria-label={translate("btnMoveUp")}
-                              disabled={
-                                isDisabled ||
-                                rows.findIndex(
-                                  (r) => r.__rowId === row.__rowId
-                                ) === 0
-                              }
-                            />
-                            <Button
-                              text={translate("btnMoveDown")}
-                              variant="text"
-                              type="tertiary"
-                              onClick={() => {
-                                handleMoveRow(
-                                  rows.findIndex(
-                                    (r) => r.__rowId === row.__rowId
-                                  ),
-                                  1
-                                )
-                              }}
-                              aria-label={translate("btnMoveDown")}
-                              disabled={
-                                isDisabled ||
-                                rows.findIndex(
-                                  (r) => r.__rowId === row.__rowId
-                                ) ===
-                                  rows.length - 1
-                              }
-                            />
-                          </React.Fragment>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-            <Button
-              text={addLabel}
-              variant="outlined"
-              onClick={() => {
-                handleAddRow()
-              }}
-              aria-label={addLabel}
-              disabled={!canAddRow}
-            />
+                        <Button
+                          text={translate("btnMoveDown")}
+                          variant="text"
+                          type="tertiary"
+                          onClick={() => {
+                            handleMoveRow(
+                              rows.findIndex((r) => r.__rowId === row.__rowId),
+                              1
+                            )
+                          }}
+                          aria-label={translate("btnMoveDown")}
+                          disabled={
+                            isDisabled ||
+                            rows.findIndex((r) => r.__rowId === row.__rowId) ===
+                              rows.length - 1
+                          }
+                        />
+                      </React.Fragment>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <Button
+          text={addLabel}
+          variant="outlined"
+          onClick={() => {
+            handleAddRow()
+          }}
+          aria-label={addLabel}
+          disabled={!canAddRow}
+        />
+      </div>
+    )
+  }
+
+  const renderSelectField = (): JSX.Element => {
+    // Hanterar select-fält med dynamiska alternativ (COORDSYS, DB_CONNECTION, etc.)
+    const options = field.options || []
+    const selectConfig = field.selectConfig
+
+    // Fallback till textinput om inga alternativ finns
+    if (options.length === 0) {
+      return renderTextInput(
+        "text",
+        fieldValue as FormPrimitive,
+        placeholders.enter,
+        onChange,
+        {
+          readOnly: isDisabled,
+        }
+      )
+    }
+
+    // Renderar read-only textfält när endast ett alternativ finns
+    if (isSingleOption) {
+      const soleOption = selectOptions[0] as {
+        readonly label?: string
+        readonly value?: unknown
+      }
+      const resolvedLabel = toTrimmedString(
+        resolveMessageOrKey(soleOption?.label || "", translate)
+      )
+      const displayValue =
+        resolvedLabel || toTrimmedString(soleOption?.value) || ""
+
+      return renderTextInput(
+        "text",
+        displayValue,
+        placeholders.select,
+        enforceSingleOptionValue,
+        {
+          readOnly: true,
+          overrides: {
+            readOnly: true,
+            disabled: true,
+          },
+        }
+      )
+    }
+
+    return (
+      <Select
+        value={fieldValue as SelectValue}
+        options={options}
+        placeholder={placeholders.select}
+        onChange={(val) => {
+          onChange(val as FormPrimitive)
+        }}
+        aria-label={field.label}
+        disabled={isDisabled}
+        coerce={selectCoerce}
+        allowSearch={selectConfig?.allowSearch}
+        allowCustomValues={selectConfig?.allowCustomValues}
+        hierarchical={selectConfig?.hierarchical}
+      />
+    )
+  }
+
+  const renderAttributeNamesField = (): JSX.Element => {
+    // Use AttributeNamesField for runtime attribute discovery
+    return (
+      <AttributeNamesField
+        value={fieldValue}
+        onChange={onChange}
+        field={field}
+        jimuMapView={jimuMapView}
+        translate={translate}
+        disabled={isDisabled}
+        placeholder={placeholders.select}
+      />
+    )
+  }
+
+  const renderDateTimeField = (): JSX.Element => {
+    // Renderar lokal datetime (utan sekunder), lagrar som FME datetime-sträng
+    const val =
+      typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
+    return (
+      <DateTimePickerWrapper
+        value={val}
+        onChange={(v) => {
+          const original =
+            typeof fieldValue === "string" ? fieldValue : undefined
+          const out = inputToFmeDateTime(v, original)
+          onChange(out as FormPrimitive)
+        }}
+        disabled={isDisabled}
+      />
+    )
+  }
+
+  const renderMultiSelectField = (): JSX.Element => {
+    // Renderar multi-select för flera val
+    const options = field.options || []
+    const values = Array.isArray(fieldValue)
+      ? (fieldValue as ReadonlyArray<string | number>)
+      : []
+    const selectConfig = field.selectConfig
+    return (
+      <MultiSelectControl
+        options={options}
+        values={[...values] as Array<string | number>}
+        placeholder={placeholders.select}
+        disabled={isDisabled}
+        onChange={(vals) => {
+          onChange(vals as unknown as FormPrimitive)
+        }}
+        allowSearch={selectConfig?.allowSearch}
+        hierarchical={selectConfig?.hierarchical}
+      />
+    )
+  }
+
+  const renderToggleField = (): JSX.Element => {
+    const toggleConfig = field.toggleConfig
+    const rawValue =
+      value !== undefined && value !== null && value !== ""
+        ? value
+        : field.defaultValue
+    const isChecked = resolveToggleChecked(rawValue, toggleConfig)
+
+    const handleToggleChange = (checked: boolean) => {
+      if (isDisabled) return
+      const nextValue = resolveToggleOutputValue(checked, toggleConfig)
+      onChange(nextValue)
+    }
+
+    if (field.type === FormFieldType.CHECKBOX) {
+      return (
+        <Checkbox
+          checked={isChecked}
+          onChange={(evt) => {
+            handleToggleChange(evt.target.checked)
+          }}
+          disabled={isDisabled}
+          aria-label={field.label}
+        />
+      )
+    }
+
+    return (
+      <Switch
+        checked={isChecked}
+        onChange={(_evt, checked) => {
+          handleToggleChange(checked)
+        }}
+        disabled={isDisabled}
+        aria-label={field.label}
+      />
+    )
+  }
+
+  const renderFileField = (): JSX.Element => {
+    // Renderar filuppladdningsfält med validering
+    const selectedFile = isFileObject(value) ? value : null
+    const acceptTokens = buildAcceptList(field.fileConfig)
+    const acceptAttr = acceptTokens.length ? acceptTokens.join(",") : undefined
+    const resolvedDefault = !selectedFile
+      ? (resolveFileDisplayValue(value, translate) ??
+        resolveFileDisplayValue(fieldValue, translate) ??
+        resolveFileDisplayValue(field.defaultValue, translate))
+      : resolveFileDisplayValue(field.defaultValue, translate)
+    const defaultDisplay = toTrimmedString(resolvedDefault) || ""
+    const displayText = selectedFile
+      ? getFileDisplayName(selectedFile, translate)
+      : defaultDisplay
+    const hasDisplay = Boolean(displayText)
+    const message = hasDisplay ? displayText : null
+
+    // Hanterar filändring och validerar fil
+    const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+      if (isDisabled) {
+        evt.target.value = ""
+        return
+      }
+      const files = evt.target.files
+      const file = files && files.length > 0 ? files[0] : null
+
+      if (!file) {
+        setFileError(null)
+        onChange(null)
+        return
+      }
+
+      const validation = validateFile(file, field.fileConfig)
+      if (!validation.valid) {
+        setFileError(
+          validation.error === "fileTooLarge"
+            ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
+            : validation.error === "fileTypeNotAllowed"
+              ? translate("errFileType")
+              : translate("errFileInvalid")
+        )
+        evt.target.value = ""
+        return
+      }
+
+      setFileError(null)
+      onChange(file)
+    }
+
+    return (
+      <div>
+        <Input
+          type="file"
+          accept={acceptAttr}
+          onFileChange={handleFileChange}
+          disabled={isDisabled}
+          aria-label={field.label}
+        />
+        {fileError ? (
+          <div
+            css={styles.typo.errorMessage}
+            data-testid="file-field-error"
+            role="alert"
+          >
+            {fileError}
           </div>
-        )
-      }
-      case FormFieldType.COORDSYS:
-      case FormFieldType.DB_CONNECTION:
-      case FormFieldType.WEB_CONNECTION:
-      case FormFieldType.REPROJECTION_FILE:
-      case FormFieldType.SELECT: {
-        // Hanterar select-fält med dynamiska alternativ
-        const options = field.options || []
-        const selectConfig = field.selectConfig
+        ) : null}
+        {message && !fileError ? (
+          <div
+            data-testid="file-field-display"
+            aria-live="polite"
+            css={styles.typo.hint}
+          >
+            {message}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
 
-        // Fallback till textinput om inga alternativ finns
-        if (options.length === 0) {
-          return renderTextInput(
-            "text",
-            fieldValue as FormPrimitive,
-            placeholders.enter,
-            onChange,
+  const renderTextOrFileField = (): JSX.Element => {
+    // Renderar fält med växel mellan text- och filuppladdningsläge
+    const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(
+      fieldValue,
+      translate
+    )
+    const resolvedMode: TextOrFileMode =
+      currentValue.mode === TEXT_OR_FILE_MODES.FILE
+        ? TEXT_OR_FILE_MODES.FILE
+        : TEXT_OR_FILE_MODES.TEXT
+    const acceptTokens = buildAcceptList(field.fileConfig)
+    const acceptAttr = acceptTokens.length ? acceptTokens.join(",") : undefined
+
+    // Växlar mellan text- och filläge
+    const handleModeChange = (nextMode: TextOrFileMode) => {
+      if (isDisabled) return
+      if (nextMode === TEXT_OR_FILE_MODES.FILE) {
+        onChange({
+          mode: TEXT_OR_FILE_MODES.FILE,
+          file: isFileObject(currentValue.file) ? currentValue.file : null,
+          fileName: currentValue.fileName,
+        } as unknown as FormPrimitive)
+      } else {
+        onChange({
+          mode: TEXT_OR_FILE_MODES.TEXT,
+          text: toDisplayString(currentValue.text),
+        } as unknown as FormPrimitive)
+      }
+    }
+
+    // Uppdaterar textlägets värde
+    const handleTextChange = (val: string) => {
+      if (isDisabled) return
+      onChange({
+        mode: TEXT_OR_FILE_MODES.TEXT,
+        text: val,
+      } as unknown as FormPrimitive)
+    }
+
+    // Hanterar filuppladdning i TEXT_OR_FILE-läge
+    const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
+      if (isDisabled) {
+        evt.target.value = ""
+        return
+      }
+      const files = evt.target.files
+      const file = files && files.length > 0 ? files[0] : null
+
+      if (!file) {
+        setFileError(null)
+        onChange({
+          mode: TEXT_OR_FILE_MODES.FILE,
+          file: null,
+          fileName: undefined,
+        } as unknown as FormPrimitive)
+        return
+      }
+
+      const validation = validateFile(file, field.fileConfig)
+      if (!validation.valid) {
+        setFileError(
+          validation.error === "fileTooLarge"
+            ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
+            : validation.error === "fileTypeNotAllowed"
+              ? translate("errFileType")
+              : translate("errFileInvalid")
+        )
+        evt.target.value = ""
+        return
+      }
+
+      setFileError(null)
+      onChange({
+        mode: TEXT_OR_FILE_MODES.FILE,
+        file,
+        fileName: getFileDisplayName(file, translate),
+      } as unknown as FormPrimitive)
+    }
+
+    return (
+      <>
+        <ButtonTabs
+          items={[
             {
-              readOnly: isDisabled,
-            }
-          )
-        }
-
-        // Renderar read-only textfält när endast ett alternativ finns
-        if (isSingleOption) {
-          const soleOption = selectOptions[0] as {
-            readonly label?: string
-            readonly value?: unknown
-          }
-          const resolvedLabel = toTrimmedString(
-            resolveMessageOrKey(soleOption?.label || "", translate)
-          )
-          const displayValue =
-            resolvedLabel || toTrimmedString(soleOption?.value) || ""
-
-          return renderTextInput(
-            "text",
-            displayValue,
-            placeholders.select,
-            enforceSingleOptionValue,
+              value: TEXT_OR_FILE_MODES.TEXT,
+              label: translate("lblTextInput"),
+            },
             {
-              readOnly: true,
-              overrides: {
-                readOnly: true,
-                disabled: true,
-              },
-            }
-          )
-        }
-
-        return (
-          <Select
-            value={fieldValue as SelectValue}
-            options={options}
-            placeholder={placeholders.select}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
-            aria-label={field.label}
-            disabled={isDisabled}
-            coerce={selectCoerce}
-            allowSearch={selectConfig?.allowSearch}
-            allowCustomValues={selectConfig?.allowCustomValues}
-            hierarchical={selectConfig?.hierarchical}
-          />
-        )
-      }
-      case FormFieldType.ATTRIBUTE_NAME:
-      case FormFieldType.ATTRIBUTE_LIST: {
-        // Use AttributeNamesField for runtime attribute discovery
-        return (
-          <AttributeNamesField
-            value={fieldValue}
-            onChange={onChange}
-            field={field}
-            jimuMapView={jimuMapView}
-            translate={translate}
-            disabled={isDisabled}
-            placeholder={placeholders.select}
-          />
-        )
-      }
-      case FormFieldType.DATE_TIME: {
-        // Renderar lokal datetime (utan sekunder), lagrar som FME datetime-sträng
-        const val =
-          typeof fieldValue === "string" ? fmeDateTimeToInput(fieldValue) : ""
-        return (
-          <DateTimePickerWrapper
-            value={val}
-            onChange={(v) => {
-              const original =
-                typeof fieldValue === "string" ? fieldValue : undefined
-              const out = inputToFmeDateTime(v, original)
-              onChange(out as FormPrimitive)
-            }}
-            disabled={isDisabled}
-          />
-        )
-      }
-      case FormFieldType.URL: {
-        const val = toDisplayString(fieldValue)
-        return (
-          <UrlInput
-            value={val}
-            placeholder={field.placeholder || placeholders.enter}
-            onChange={(v) => {
-              if (isDisabled) return
-              onChange(v)
-            }}
-          />
-        )
-      }
-      case FormFieldType.MULTI_SELECT: {
-        // Renderar multi-select för flera val
-        const options = field.options || []
-        const values = Array.isArray(fieldValue)
-          ? (fieldValue as ReadonlyArray<string | number>)
-          : []
-        const selectConfig = field.selectConfig
-        return (
-          <MultiSelectControl
-            options={options}
-            values={[...values] as Array<string | number>}
-            placeholder={placeholders.select}
-            disabled={isDisabled}
-            onChange={(vals) => {
-              onChange(vals as unknown as FormPrimitive)
-            }}
-            allowSearch={selectConfig?.allowSearch}
-            hierarchical={selectConfig?.hierarchical}
-          />
-        )
-      }
-      case FormFieldType.TEXTAREA:
-        // Renderar flerradigt textfält
-        return (
+              value: TEXT_OR_FILE_MODES.FILE,
+              label: translate("lblFileInput"),
+            },
+          ]}
+          value={resolvedMode}
+          onChange={(val) => {
+            handleModeChange(val as TextOrFileMode)
+          }}
+          ariaLabel={field.label}
+        />
+        {resolvedMode === TEXT_OR_FILE_MODES.TEXT ? (
           <TextArea
-            value={toDisplayString(fieldValue)}
-            placeholder={placeholders.enter}
-            onChange={(val) => {
-              onChange(val as FormPrimitive)
-            }}
+            value={toDisplayString(currentValue.text)}
+            placeholder={field.placeholder || placeholders.enter}
+            onChange={handleTextChange}
             disabled={isDisabled}
             rows={field.rows}
           />
-        )
-      case FormFieldType.NUMBER:
-        // Renderar numeriskt inmatningsfält
-        return renderTextInput(
-          "number",
-          fieldValue as FormPrimitive,
-          placeholders.enter,
-          onChange,
-          {
-            readOnly: isDisabled,
-          }
-        )
-      case FormFieldType.CHECKBOX:
-      case FormFieldType.SWITCH: {
-        const toggleConfig = field.toggleConfig
-        const rawValue =
-          value !== undefined && value !== null && value !== ""
-            ? value
-            : field.defaultValue
-        const isChecked = resolveToggleChecked(rawValue, toggleConfig)
-
-        const handleToggleChange = (checked: boolean) => {
-          if (isDisabled) return
-          const nextValue = resolveToggleOutputValue(checked, toggleConfig)
-          onChange(nextValue)
-        }
-
-        if (field.type === FormFieldType.CHECKBOX) {
-          return (
-            <Checkbox
-              checked={isChecked}
-              onChange={(evt) => {
-                handleToggleChange(evt.target.checked)
-              }}
-              disabled={isDisabled}
-              aria-label={field.label}
-            />
-          )
-        }
-
-        return (
-          <Switch
-            checked={isChecked}
-            onChange={(_evt, checked) => {
-              handleToggleChange(checked)
-            }}
-            disabled={isDisabled}
-            aria-label={field.label}
-          />
-        )
-      }
-      case FormFieldType.PASSWORD:
-      case FormFieldType.EMAIL:
-      case FormFieldType.PHONE:
-      case FormFieldType.SEARCH:
-      case FormFieldType.TEXT: {
-        // Mappar fälttyp till HTML input-typ
-        const inputTypeMap: {
-          [key: string]: "text" | "email" | "tel" | "search" | "password"
-        } = {
-          [FormFieldType.PASSWORD]: "password",
-          [FormFieldType.EMAIL]: "email",
-          [FormFieldType.PHONE]: "tel",
-          [FormFieldType.SEARCH]: "search",
-          [FormFieldType.TEXT]: "text",
-        }
-        const inputType = inputTypeMap[field.type] || "text"
-        // Bestämmer placeholder-typ baserat på fälttyp
-        const placeholderType =
-          field.type === FormFieldType.PHONE
-            ? "phone"
-            : field.type === FormFieldType.EMAIL
-              ? "email"
-              : field.type === FormFieldType.SEARCH
-                ? "search"
-                : undefined
-        const placeholder =
-          field.type === FormFieldType.PASSWORD
-            ? getTextPlaceholder(field, placeholders, translate)
-            : getTextPlaceholder(
-                field,
-                placeholders,
-                translate,
-                placeholderType
-              )
-
-        return renderTextInput(
-          inputType,
-          fieldValue as FormPrimitive,
-          placeholder,
-          onChange,
-          {
-            readOnly: isDisabled,
-            maxLength: field.maxLength,
-          }
-        )
-      }
-      case FormFieldType.FILE: {
-        // Renderar filuppladdningsfält med validering
-        const selectedFile = isFileObject(value) ? value : null
-        const acceptTokens = buildAcceptList(field.fileConfig)
-        const acceptAttr = acceptTokens.length
-          ? acceptTokens.join(",")
-          : undefined
-        const resolvedDefault = !selectedFile
-          ? (resolveFileDisplayValue(value, translate) ??
-            resolveFileDisplayValue(fieldValue, translate) ??
-            resolveFileDisplayValue(field.defaultValue, translate))
-          : resolveFileDisplayValue(field.defaultValue, translate)
-        const defaultDisplay = toTrimmedString(resolvedDefault) || ""
-        const displayText = selectedFile
-          ? getFileDisplayName(selectedFile, translate)
-          : defaultDisplay
-        const hasDisplay = Boolean(displayText)
-        const message = hasDisplay ? displayText : null
-
-        // Hanterar filändring och validerar fil
-        const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
-          if (isDisabled) {
-            evt.target.value = ""
-            return
-          }
-          const files = evt.target.files
-          const file = files && files.length > 0 ? files[0] : null
-
-          if (!file) {
-            setFileError(null)
-            onChange(null)
-            return
-          }
-
-          const validation = validateFile(file, field.fileConfig)
-          if (!validation.valid) {
-            setFileError(
-              validation.error === "fileTooLarge"
-                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
-                : validation.error === "fileTypeNotAllowed"
-                  ? translate("errFileType")
-                  : translate("errFileInvalid")
-            )
-            evt.target.value = ""
-            return
-          }
-
-          setFileError(null)
-          onChange(file)
-        }
-
-        return (
+        ) : (
           <div>
             <Input
               type="file"
@@ -1337,477 +1454,401 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
             {fileError ? (
               <div
                 css={styles.typo.errorMessage}
-                data-testid="file-field-error"
+                data-testid="text-or-file-error"
                 role="alert"
               >
                 {fileError}
               </div>
             ) : null}
-            {message && !fileError ? (
-              <div
-                data-testid="file-field-display"
-                aria-live="polite"
-                css={styles.typo.hint}
-              >
-                {message}
+            {isFileObject(currentValue.file) && !fileError ? (
+              <div data-testid="text-or-file-name">
+                {currentValue.fileName ||
+                  getFileDisplayName(currentValue.file, translate)}
               </div>
             ) : null}
           </div>
-        )
-      }
-      case FormFieldType.TEXT_OR_FILE: {
-        // Renderar fält med växel mellan text- och filuppladdningsläge
-        const currentValue: NormalizedTextOrFile = normalizeTextOrFileValue(
-          fieldValue,
-          translate
-        )
-        const resolvedMode: TextOrFileMode =
-          currentValue.mode === TEXT_OR_FILE_MODES.FILE
-            ? TEXT_OR_FILE_MODES.FILE
-            : TEXT_OR_FILE_MODES.TEXT
-        const acceptTokens = buildAcceptList(field.fileConfig)
-        const acceptAttr = acceptTokens.length
-          ? acceptTokens.join(",")
-          : undefined
+        )}
+      </>
+    )
+  }
 
-        // Växlar mellan text- och filläge
-        const handleModeChange = (nextMode: TextOrFileMode) => {
-          if (isDisabled) return
-          if (nextMode === TEXT_OR_FILE_MODES.FILE) {
-            onChange({
-              mode: TEXT_OR_FILE_MODES.FILE,
-              file: isFileObject(currentValue.file) ? currentValue.file : null,
-              fileName: currentValue.fileName,
-            } as unknown as FormPrimitive)
-          } else {
-            onChange({
-              mode: TEXT_OR_FILE_MODES.TEXT,
-              text: toDisplayString(currentValue.text),
-            } as unknown as FormPrimitive)
-          }
-        }
+  const renderScriptedField = (): JSX.Element => {
+    // Renderar skriptgenererat innehåll som rich text
+    const content = isNonEmptyTrimmedString(fieldValue)
+      ? fieldValue
+      : toDisplayString(field.defaultValue) || field.description || field.label
+    return <RichText html={content || ""} />
+  }
 
-        // Uppdaterar textlägets värde
-        const handleTextChange = (val: string) => {
-          if (isDisabled) return
-          onChange({
-            mode: TEXT_OR_FILE_MODES.TEXT,
-            text: val,
-          } as unknown as FormPrimitive)
-        }
+  const renderRadioField = (): JSX.Element => {
+    // Renderar radioknappsgrupp med coerce-stöd
+    const options = field.options || []
+    const coerce = computeSelectCoerce(true, options)
+    const stringValue =
+      fieldValue === null || fieldValue === undefined
+        ? undefined
+        : String(fieldValue)
 
-        // Hanterar filuppladdning i TEXT_OR_FILE-läge
-        const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
-          if (isDisabled) {
-            evt.target.value = ""
-            return
-          }
-          const files = evt.target.files
-          const file = files && files.length > 0 ? files[0] : null
-
-          if (!file) {
-            setFileError(null)
-            onChange({
-              mode: TEXT_OR_FILE_MODES.FILE,
-              file: null,
-              fileName: undefined,
-            } as unknown as FormPrimitive)
-            return
-          }
-
-          const validation = validateFile(file, field.fileConfig)
-          if (!validation.valid) {
-            setFileError(
-              validation.error === "fileTooLarge"
-                ? translate("errFileLarge", { maxSize: validation.maxSizeMB })
-                : validation.error === "fileTypeNotAllowed"
-                  ? translate("errFileType")
-                  : translate("errFileInvalid")
-            )
-            evt.target.value = ""
-            return
-          }
-
-          setFileError(null)
-          onChange({
-            mode: TEXT_OR_FILE_MODES.FILE,
-            file,
-            fileName: getFileDisplayName(file, translate),
-          } as unknown as FormPrimitive)
-        }
-
-        return (
-          <>
-            <ButtonTabs
-              items={[
-                {
-                  value: TEXT_OR_FILE_MODES.TEXT,
-                  label: translate("lblTextInput"),
-                },
-                {
-                  value: TEXT_OR_FILE_MODES.FILE,
-                  label: translate("lblFileInput"),
-                },
-              ]}
-              value={resolvedMode}
-              onChange={(val) => {
-                handleModeChange(val as TextOrFileMode)
-              }}
-              ariaLabel={field.label}
-            />
-            {resolvedMode === TEXT_OR_FILE_MODES.TEXT ? (
-              <TextArea
-                value={toDisplayString(currentValue.text)}
-                placeholder={field.placeholder || placeholders.enter}
-                onChange={handleTextChange}
-                disabled={isDisabled}
-                rows={field.rows}
-              />
-            ) : (
-              <div>
-                <Input
-                  type="file"
-                  accept={acceptAttr}
-                  onFileChange={handleFileChange}
-                  disabled={isDisabled}
-                  aria-label={field.label}
-                />
-                {fileError ? (
-                  <div
-                    css={styles.typo.errorMessage}
-                    data-testid="text-or-file-error"
-                    role="alert"
-                  >
-                    {fileError}
-                  </div>
-                ) : null}
-                {isFileObject(currentValue.file) && !fileError ? (
-                  <div data-testid="text-or-file-name">
-                    {currentValue.fileName ||
-                      getFileDisplayName(currentValue.file, translate)}
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </>
-        )
-      }
-      case FormFieldType.SCRIPTED: {
-        // Renderar skriptgenererat innehåll som rich text
-        const content = isNonEmptyTrimmedString(fieldValue)
-          ? fieldValue
-          : toDisplayString(field.defaultValue) ||
-            field.description ||
-            field.label
-        return <RichText html={content || ""} />
-      }
-      case FormFieldType.RADIO: {
-        // Renderar radioknappsgrupp med coerce-stöd
-        const options = field.options || []
-        const coerce = computeSelectCoerce(true, options)
-        const stringValue =
-          fieldValue === null || fieldValue === undefined
-            ? undefined
-            : String(fieldValue)
-
-        const handleChange = (raw: string) => {
-          if (coerce === "number") {
-            const nextNumber = Number(raw)
-            if (Number.isFinite(nextNumber)) {
-              onChange(nextNumber as FormPrimitive)
-            } else {
-              const matchingOption = options.find(
-                (opt) => String(opt.value) === raw
-              )
-              onChange(matchingOption?.value ?? raw)
-            }
-            return
-          }
-          onChange(raw as FormPrimitive)
-        }
-
-        return (
-          <Radio
-            options={options.map((opt) => ({
-              label: opt.label,
-              value: String(opt.value),
-            }))}
-            value={stringValue}
-            onChange={handleChange}
-            disabled={isDisabled}
-            aria-label={field.label}
-          />
-        )
-      }
-      case FormFieldType.GEOMETRY: {
-        // Renderar geometri (AOI polygon) med statistik
-        const trimmed = toDisplayString(fieldValue).trim()
-        if (!trimmed) {
-          return (
-            <div css={styles.typo.hint} data-testid="geometry-field">
-              {translate("msgNoGeometry")}
-            </div>
+    const handleChange = (raw: string) => {
+      if (coerce === "number") {
+        const nextNumber = Number(raw)
+        if (Number.isFinite(nextNumber)) {
+          onChange(nextNumber as FormPrimitive)
+        } else {
+          const matchingOption = options.find(
+            (opt) => String(opt.value) === raw
           )
+          onChange(matchingOption?.value ?? raw)
         }
-
-        // Parsar geometri och beräknar statistik (ringar, hörn)
-        let rings = 0
-        let vertices = 0
-        let preview = trimmed
-        let parseError = false
-
-        try {
-          const parsed = JSON.parse(trimmed)
-          const parsedRings = Array.isArray(parsed?.rings) ? parsed.rings : []
-          rings = parsedRings.length
-          vertices = parsedRings.reduce((count, ring) => {
-            return (
-              count +
-              (Array.isArray(ring) ? ring.filter(Array.isArray).length : 0)
-            )
-          }, 0)
-          preview = JSON.stringify(parsed, null, 2)
-        } catch {
-          parseError = true
-        }
-
-        // Trunkerar för lång geometri-JSON
-        const truncated =
-          preview.length > FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH
-            ? `${preview.slice(0, FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH)}…`
-            : preview
-
-        return (
-          <div data-testid="geometry-field">
-            <div css={styles.typo.hint}>
-              {parseError
-                ? translate("errGeomParse")
-                : translate("msgGeomReady", {
-                    rings,
-                    vertices,
-                  })}
-            </div>
-            {truncated ? (
-              <pre aria-label={translate("ariaGeomPreview")}>{truncated}</pre>
-            ) : null}
-          </div>
-        )
+        return
       }
-      case FormFieldType.SLIDER: {
-        // Renderar slider-kontroll med min/max/step och aktuell värdeetikett
-        const numericValue =
-          typeof fieldValue === "number"
-            ? fieldValue
-            : isNonEmptyTrimmedString(fieldValue)
-              ? Number(fieldValue.trim())
-              : typeof field.defaultValue === "number"
-                ? field.defaultValue
-                : (field.min ?? 0)
-        const safeValue = Number.isFinite(numericValue)
-          ? numericValue
-          : (field.min ?? 0)
-        const precision =
-          typeof field.decimalPrecision === "number" &&
-          field.decimalPrecision >= 0
-            ? field.decimalPrecision
-            : undefined
+      onChange(raw as FormPrimitive)
+    }
+
+    return (
+      <Radio
+        options={options.map((opt) => ({
+          label: opt.label,
+          value: String(opt.value),
+        }))}
+        value={stringValue}
+        onChange={handleChange}
+        disabled={isDisabled}
+        aria-label={field.label}
+      />
+    )
+  }
+
+  const renderGeometryField = (): JSX.Element => {
+    // Renderar geometri (AOI polygon) med statistik
+    const trimmed = toDisplayString(fieldValue).trim()
+    if (!trimmed) {
+      return (
+        <div css={styles.typo.hint} data-testid="geometry-field">
+          {translate("msgNoGeometry")}
+        </div>
+      )
+    }
+
+    // Parsar geometri och beräknar statistik (ringar, hörn)
+    let rings = 0
+    let vertices = 0
+    let preview = trimmed
+    let parseError = false
+
+    try {
+      const parsed = JSON.parse(trimmed)
+      const parsedRings = Array.isArray(parsed?.rings) ? parsed.rings : []
+      rings = parsedRings.length
+      vertices = parsedRings.reduce((count, ring) => {
         return (
-          <Slider
-            value={safeValue}
-            min={field.min ?? 0}
-            max={field.max ?? 100}
-            step={field.step ?? 1}
-            decimalPrecision={precision}
-            onChange={(value) => {
-              onChange(value)
-            }}
-            disabled={isDisabled}
-            aria-label={field.label}
-          />
+          count + (Array.isArray(ring) ? ring.filter(Array.isArray).length : 0)
         )
-      }
-      case FormFieldType.NUMERIC_INPUT: {
-        // Renderar numerisk input med precision och begränsningar
-        const numericValue =
-          typeof fieldValue === "number"
-            ? fieldValue
-            : isNonEmptyTrimmedString(fieldValue)
-              ? Number(fieldValue.trim())
-              : undefined
-        const defaultNumeric =
-          numericValue === undefined && typeof field.defaultValue === "number"
+      }, 0)
+      preview = JSON.stringify(parsed, null, 2)
+    } catch {
+      parseError = true
+    }
+
+    // Trunkerar för lång geometri-JSON
+    const truncated =
+      preview.length > FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH
+        ? `${preview.slice(0, FILE_UPLOAD.GEOMETRY_PREVIEW_MAX_LENGTH)}…`
+        : preview
+
+    return (
+      <div data-testid="geometry-field">
+        <div css={styles.typo.hint}>
+          {parseError
+            ? translate("errGeomParse")
+            : translate("msgGeomReady", {
+                rings,
+                vertices,
+              })}
+        </div>
+        {truncated ? (
+          <pre aria-label={translate("ariaGeomPreview")}>{truncated}</pre>
+        ) : null}
+      </div>
+    )
+  }
+
+  const renderSliderField = (): JSX.Element => {
+    // Renderar slider-kontroll med min/max/step och aktuell värdeetikett
+    const numericValue =
+      typeof fieldValue === "number"
+        ? fieldValue
+        : isNonEmptyTrimmedString(fieldValue)
+          ? Number(fieldValue.trim())
+          : typeof field.defaultValue === "number"
             ? field.defaultValue
-            : undefined
-        const precision =
-          typeof field.decimalPrecision === "number" &&
-          field.decimalPrecision >= 0
-            ? field.decimalPrecision
-            : 2
+            : (field.min ?? 0)
+    const safeValue = Number.isFinite(numericValue)
+      ? numericValue
+      : (field.min ?? 0)
+    const precision =
+      typeof field.decimalPrecision === "number" && field.decimalPrecision >= 0
+        ? field.decimalPrecision
+        : undefined
+    return (
+      <Slider
+        value={safeValue}
+        min={field.min ?? 0}
+        max={field.max ?? 100}
+        step={field.step ?? 1}
+        decimalPrecision={precision}
+        onChange={(value) => {
+          onChange(value)
+        }}
+        disabled={isDisabled}
+        aria-label={field.label}
+      />
+    )
+  }
 
-        // Validera numerisk input och generera felmeddelande
-        let validationError: string | null = null
-        if (numericValue !== undefined && Number.isFinite(numericValue)) {
-          // Kontrollera om decimaltal är tillåtet (precision = 0 => endast heltal)
-          if (precision === 0) {
-            const hasDecimals = numericValue % 1 !== 0
-            if (hasDecimals) {
-              validationError = translate("valIntegerOnly")
-            }
-          }
+  const renderNumericInputField = (): JSX.Element => {
+    // Renderar numerisk input med precision och begränsningar
+    const numericValue =
+      typeof fieldValue === "number"
+        ? fieldValue
+        : isNonEmptyTrimmedString(fieldValue)
+          ? Number(fieldValue.trim())
+          : undefined
+    const defaultNumeric =
+      numericValue === undefined && typeof field.defaultValue === "number"
+        ? field.defaultValue
+        : undefined
+    const precision =
+      typeof field.decimalPrecision === "number" && field.decimalPrecision >= 0
+        ? field.decimalPrecision
+        : 2
 
-          // Kontrollera min-begränsning
-          if (!validationError && typeof field.min === "number") {
-            const belowMin = field.minExclusive
-              ? numericValue <= field.min
-              : numericValue < field.min
-            if (belowMin) {
-              validationError = field.minExclusive
-                ? translate("valGreaterThan", { value: field.min })
-                : translate("valAtLeast", { value: field.min })
-            }
-          }
-
-          // Kontrollera max-begränsning
-          if (!validationError && typeof field.max === "number") {
-            const aboveMax = field.maxExclusive
-              ? numericValue >= field.max
-              : numericValue > field.max
-            if (aboveMax) {
-              validationError = field.maxExclusive
-                ? translate("valLessThan", { value: field.max })
-                : translate("valAtMost", { value: field.max })
-            }
-          }
+    // Validera numerisk input och generera felmeddelande
+    let validationError: string | null = null
+    if (numericValue !== undefined && Number.isFinite(numericValue)) {
+      // Kontrollera om decimaltal är tillåtet (precision = 0 => endast heltal)
+      if (precision === 0) {
+        const hasDecimals = numericValue % 1 !== 0
+        if (hasDecimals) {
+          validationError = translate("valIntegerOnly")
         }
+      }
 
-        const numericProps =
-          numericValue === undefined && defaultNumeric !== undefined
-            ? { defaultValue: defaultNumeric }
-            : { value: numericValue }
+      // Kontrollera min-begränsning
+      if (!validationError && typeof field.min === "number") {
+        const belowMin = field.minExclusive
+          ? numericValue <= field.min
+          : numericValue < field.min
+        if (belowMin) {
+          validationError = field.minExclusive
+            ? translate("valGreaterThan", { value: field.min })
+            : translate("valAtLeast", { value: field.min })
+        }
+      }
 
-        return (
-          <div>
-            <NumericInput
-              {...numericProps}
-              placeholder={field.placeholder || placeholders.enter}
-              min={field.min}
-              max={field.max}
-              step={field.step}
-              precision={precision}
-              disabled={isDisabled}
-              aria-label={field.label}
-              aria-invalid={!!validationError}
-              aria-describedby={
-                validationError ? `${field.name}-error` : undefined
-              }
-              onChange={(value) => {
-                if (value === undefined) {
-                  onChange(null)
-                  return
-                }
-                onChange(value)
-              }}
-            />
-            {validationError && (
-              <div
-                id={`${field.name}-error`}
-                css={styles.typo.errorMessage}
-                role="alert"
-                data-testid="numeric-input-error"
-              >
-                {validationError}
-              </div>
-            )}
+      // Kontrollera max-begränsning
+      if (!validationError && typeof field.max === "number") {
+        const aboveMax = field.maxExclusive
+          ? numericValue >= field.max
+          : numericValue > field.max
+        if (aboveMax) {
+          validationError = field.maxExclusive
+            ? translate("valLessThan", { value: field.max })
+            : translate("valAtMost", { value: field.max })
+        }
+      }
+    }
+
+    const numericProps =
+      numericValue === undefined && defaultNumeric !== undefined
+        ? { defaultValue: defaultNumeric }
+        : { value: numericValue }
+
+    return (
+      <div>
+        <NumericInput
+          {...numericProps}
+          placeholder={field.placeholder || placeholders.enter}
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          precision={precision}
+          disabled={isDisabled}
+          aria-label={field.label}
+          aria-invalid={!!validationError}
+          aria-describedby={validationError ? `${field.name}-error` : undefined}
+          onChange={(value) => {
+            if (value === undefined) {
+              onChange(null)
+              return
+            }
+            onChange(value)
+          }}
+        />
+        {validationError && (
+          <div
+            id={`${field.name}-error`}
+            css={styles.typo.errorMessage}
+            role="alert"
+            data-testid="numeric-input-error"
+          >
+            {validationError}
           </div>
-        )
-      }
-      case FormFieldType.TAG_INPUT: {
-        // Renderar tag-input för array av strängar
-        const values = Array.isArray(fieldValue) ? (fieldValue as string[]) : []
-        return (
-          <TagInput
-            value={values}
-            placeholder={field.placeholder || translate("phTags")}
-            onChange={(values) => {
-              if (isDisabled) return
-              onChange(values as FormPrimitive)
-            }}
-          />
-        )
-      }
-      case FormFieldType.COLOR: {
-        // Renderar färgväljare; lagrar normaliserade RGB-värden
-        // Accept normalized floats string or hex; render as hex, store normalized string
-        const colorConfig = field.colorConfig
-        const initial =
-          typeof fieldValue === "string"
-            ? normalizedRgbToHex(fieldValue, colorConfig) || fieldValue
-            : undefined
-        const val =
-          typeof initial === "string" && initial.startsWith("#")
-            ? initial
-            : "#000000"
-        return (
-          <ColorPickerWrapper
-            value={val}
-            onChange={(color) => {
-              if (isDisabled) return
-              const normalized = hexToNormalizedRgb(color, colorConfig) || color
-              onChange(normalized as FormPrimitive)
-            }}
-          />
-        )
-      }
-      case FormFieldType.DATE: {
-        // Renderar datumväljare (utan tid), lagrar som FME date-sträng
-        const val =
-          typeof fieldValue === "string" ? fmeDateToInput(fieldValue) : ""
-        const isoValue = val ? `${val}T00:00:00` : ""
-        return (
-          <DateTimePickerWrapper
-            mode="date"
-            value={isoValue}
-            onChange={(dateTime) => {
-              const raw = typeof dateTime === "string" ? dateTime : ""
-              const datePart = raw.split("T")[0] || ""
-              const out = inputToFmeDate(datePart)
-              onChange(out as FormPrimitive)
-            }}
-            aria-label={field.label}
-            disabled={isDisabled}
-          />
-        )
-      }
+        )}
+      </div>
+    )
+  }
+
+  const renderTagInputField = (): JSX.Element => {
+    // Renderar tag-input för array av strängar
+    const values = Array.isArray(fieldValue) ? (fieldValue as string[]) : []
+    return (
+      <TagInput
+        value={values}
+        placeholder={field.placeholder || translate("phTags")}
+        onChange={(values) => {
+          if (isDisabled) return
+          onChange(values as FormPrimitive)
+        }}
+      />
+    )
+  }
+
+  const renderColorField = (): JSX.Element => {
+    // Renderar färgväljare; lagrar normaliserade RGB-värden
+    const colorConfig = field.colorConfig
+    const initial =
+      typeof fieldValue === "string"
+        ? normalizedRgbToHex(fieldValue, colorConfig) || fieldValue
+        : undefined
+    const val =
+      typeof initial === "string" && initial.startsWith("#")
+        ? initial
+        : "#000000"
+    return (
+      <ColorPickerWrapper
+        value={val}
+        onChange={(color) => {
+          if (isDisabled) return
+          const normalized = hexToNormalizedRgb(color, colorConfig) || color
+          onChange(normalized as FormPrimitive)
+        }}
+      />
+    )
+  }
+
+  const renderDateField = (): JSX.Element => {
+    // Renderar datumväljare (utan tid), lagrar som FME date-sträng
+    const val = typeof fieldValue === "string" ? fmeDateToInput(fieldValue) : ""
+    const isoValue = val ? `${val}T00:00:00` : ""
+    return (
+      <DateTimePickerWrapper
+        mode="date"
+        value={isoValue}
+        onChange={(dateTime) => {
+          const raw = typeof dateTime === "string" ? dateTime : ""
+          const datePart = raw.split("T")[0] || ""
+          const out = inputToFmeDate(datePart)
+          onChange(out as FormPrimitive)
+        }}
+        aria-label={field.label}
+        disabled={isDisabled}
+      />
+    )
+  }
+
+  const renderMonthWeekField = (): JSX.Element => {
+    // Renderar månad/vecka-väljare med HTML5-inputtyp
+    const inputType = field.type === FormFieldType.MONTH ? "month" : "week"
+    return renderDateTimeInput(
+      inputType,
+      fieldValue as FormPrimitive,
+      getTextPlaceholder(field, placeholders, translate),
+      onChange,
+      isDisabled
+    )
+  }
+
+  const renderTimeField = (): JSX.Element => {
+    // Renderar tidsväljare, lagrar som FME time-sträng
+    const val = typeof fieldValue === "string" ? fmeTimeToInput(fieldValue) : ""
+    return (
+      <Input
+        type="time"
+        value={val}
+        onChange={(value) => {
+          const original =
+            typeof fieldValue === "string" ? fieldValue : undefined
+          const out = inputToFmeTime(value as string, original)
+          onChange(out as FormPrimitive)
+        }}
+        disabled={isDisabled}
+      />
+    )
+  }
+
+  // Main render dispatch function
+  const renderByType = (): JSX.Element => {
+    switch (field.type) {
+      case FormFieldType.HIDDEN:
+        return renderHiddenField()
+      case FormFieldType.MESSAGE:
+        return renderMessageField()
+      case FormFieldType.TEXT:
+      case FormFieldType.PASSWORD:
+      case FormFieldType.EMAIL:
+      case FormFieldType.PHONE:
+      case FormFieldType.SEARCH:
+        return renderTextBasedField()
+      case FormFieldType.NUMBER:
+        return renderNumberField()
+      case FormFieldType.TEXTAREA:
+        return renderTextareaField()
+      case FormFieldType.URL:
+        return renderUrlField()
+      case FormFieldType.TABLE:
+        return renderTableField()
+      case FormFieldType.COORDSYS:
+      case FormFieldType.DB_CONNECTION:
+      case FormFieldType.WEB_CONNECTION:
+      case FormFieldType.REPROJECTION_FILE:
+      case FormFieldType.SELECT:
+        return renderSelectField()
+      case FormFieldType.ATTRIBUTE_NAME:
+      case FormFieldType.ATTRIBUTE_LIST:
+        return renderAttributeNamesField()
+      case FormFieldType.DATE_TIME:
+        return renderDateTimeField()
+      case FormFieldType.MULTI_SELECT:
+        return renderMultiSelectField()
+      case FormFieldType.CHECKBOX:
+      case FormFieldType.SWITCH:
+        return renderToggleField()
+      case FormFieldType.FILE:
+        return renderFileField()
+      case FormFieldType.TEXT_OR_FILE:
+        return renderTextOrFileField()
+      case FormFieldType.SCRIPTED:
+        return renderScriptedField()
+      case FormFieldType.RADIO:
+        return renderRadioField()
+      case FormFieldType.GEOMETRY:
+        return renderGeometryField()
+      case FormFieldType.SLIDER:
+        return renderSliderField()
+      case FormFieldType.NUMERIC_INPUT:
+        return renderNumericInputField()
+      case FormFieldType.TAG_INPUT:
+        return renderTagInputField()
+      case FormFieldType.COLOR:
+        return renderColorField()
+      case FormFieldType.DATE:
+        return renderDateField()
       case FormFieldType.MONTH:
-      case FormFieldType.WEEK: {
-        // Renderar månad/vecka-väljare med HTML5-inputtyp
-        const inputType = field.type === FormFieldType.MONTH ? "month" : "week"
-        return renderDateTimeInput(
-          inputType,
-          fieldValue as FormPrimitive,
-          getTextPlaceholder(field, placeholders, translate),
-          onChange,
-          isDisabled
-        )
-      }
-      case FormFieldType.TIME: {
-        // Renderar tidsväljare, lagrar som FME time-sträng
-        const val =
-          typeof fieldValue === "string" ? fmeTimeToInput(fieldValue) : ""
-        return (
-          <Input
-            type="time"
-            value={val}
-            onChange={(value) => {
-              const original =
-                typeof fieldValue === "string" ? fieldValue : undefined
-              const out = inputToFmeTime(value as string, original)
-              onChange(out as FormPrimitive)
-            }}
-            disabled={isDisabled}
-          />
-        )
-      }
+      case FormFieldType.WEEK:
+        return renderMonthWeekField()
+      case FormFieldType.TIME:
+        return renderTimeField()
     }
   }
 
