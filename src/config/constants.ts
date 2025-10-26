@@ -436,8 +436,7 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.group]: FormFieldType.HIDDEN,
   [ParameterType.file]: FormFieldType.FILE,
   [ParameterType.color]: FormFieldType.COLOR,
-
-  // Legacy uppercase types
+  [ParameterType.range]: FormFieldType.SLIDER,
   [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
   [ParameterType.INTEGER]: FormFieldType.NUMBER,
   [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,

@@ -73,7 +73,6 @@ export const enum HttpMethod {
 }
 
 export const enum ParameterType {
-  // FME V4 types (lowercase as per API)
   text = "text",
   number = "number",
   checkbox = "checkbox",
@@ -86,8 +85,7 @@ export const enum ParameterType {
   group = "group",
   file = "file",
   color = "color",
-
-  // Legacy uppercase types (may still be used internally)
+  range = "range",
   TEXT = "TEXT",
   INTEGER = "INTEGER",
   FLOAT = "FLOAT",

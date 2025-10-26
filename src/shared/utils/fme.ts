@@ -528,7 +528,8 @@ export const createWebhookArtifacts = (
   const hostname = referenceUrl?.hostname || ""
 
   const enforceHttps = options?.requireHttps ?? true
-  const enforceStrict = options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
+  const enforceStrict =
+    options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
   const baseUrlValidation = validateServerUrl(baseUrl, {
     strict: enforceStrict,
     requireHttps: enforceHttps,

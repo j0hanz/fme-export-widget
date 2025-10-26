@@ -703,6 +703,7 @@ const V4_TYPE_MAP: { [key: string]: string } = {
   lookup_choice: "LOOKUP_CHOICE",
   lookup_listbox: "LOOKUP_LISTBOX",
   tree: "SCRIPTED",
+  range: "RANGE_SLIDER",
   filename: "FILENAME",
   file: "FILENAME",
   filename_mustexist: "FILENAME_MUSTEXIST",
@@ -817,9 +818,8 @@ const normalizeV4Parameter = (raw: any): any => {
     }
   }
 
-  // Handle V4 tree type with nodeDelimiter
+  // Handle V4 tree type with nodeDelimiter for path/breadcrumb separators
   if (raw.type === "tree" && raw.nodeDelimiter) {
-    // Store delimiter for hierarchical parsing
     normalized.metadata = {
       ...(normalized.metadata || {}),
       breadcrumbSeparator: raw.nodeDelimiter,
