@@ -33,9 +33,25 @@ import {
   toTrimmedStringOrEmpty,
 } from "./conversion"
 import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
-import { buildUrl, buildParams } from "./network"
+import { buildUrl, buildParams, safeParseUrl } from "./network"
 
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
+
+const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1"
+
+const isLoopbackHostname = (hostname: string): boolean => {
+  if (!hostname) return false
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase()
+  if (normalized === "localhost") return true
+  if (normalized === "::1" || normalized === LOOPBACK_IPV6) return true
+  if (normalized.startsWith("127.")) return true
+  return false
+}
+
+export interface WebhookArtifactOptions {
+  readonly requireHttps?: boolean
+  readonly strict?: boolean
+}
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,
@@ -503,12 +519,19 @@ export const createWebhookArtifacts = (
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  token?: string
+  token?: string,
+  options?: WebhookArtifactOptions
 ): WebhookArtifacts => {
   const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const referenceUrl =
+    safeParseUrl(serverUrl) ?? safeParseUrl(baseUrl) ?? undefined
+  const hostname = referenceUrl?.hostname || ""
+
+  const enforceHttps = options?.requireHttps ?? true
+  const enforceStrict = options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
   const baseUrlValidation = validateServerUrl(baseUrl, {
-    strict: true,
-    requireHttps: true,
+    strict: enforceStrict,
+    requireHttps: enforceHttps,
   })
 
   if (!baseUrlValidation.ok) {
@@ -531,20 +554,32 @@ export const createWebhookArtifacts = (
 }
 
 // Kontrollerar om webhook-URL skulle överskrida maxlängd
-export const isWebhookUrlTooLong = (
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
+export const isWebhookUrlTooLong = (args: {
+  serverUrl: string
+  repository: string
+  workspace: string
+  parameters?: PrimitiveParams
+  maxLen?: number
   token?: string
-): boolean => {
+  options?: WebhookArtifactOptions
+}): boolean => {
+  const {
+    serverUrl,
+    repository,
+    workspace,
+    parameters = {},
+    maxLen = FME_FLOW_API.MAX_URL_LENGTH,
+    token,
+    options,
+  } = args
+
   const { fullUrl } = createWebhookArtifacts(
     serverUrl,
     repository,
     workspace,
     parameters,
-    token
+    token,
+    options
   )
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }

@@ -1811,6 +1811,10 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
+      const webhookOptions = {
+        requireHttps: this.config.requireHttps,
+      }
+
       const {
         baseUrl: webhookUrl,
         params,
@@ -1820,7 +1824,8 @@ export class FmeFlowApiClient {
         repository,
         workspace,
         parameters,
-        this.config.token
+        this.config.token,
+        webhookOptions
       )
 
       // Kontrollera URL-längd mot maxlängd
@@ -2178,6 +2183,7 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
     "",
   repository: config.repository || "",
   timeout: config.requestTimeout,
+  requireHttps: config.requireHttps,
 })
 
 // Factory-funktion för att skapa FME Flow API-klient

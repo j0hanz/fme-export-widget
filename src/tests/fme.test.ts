@@ -11,6 +11,7 @@ import {
   sanitizeOptGetUrlParam,
   applyDirectiveDefaults,
   normalizeServiceModeConfig,
+  createWebhookArtifacts,
 } from "../shared/utils"
 import {
   ErrorType,
@@ -114,6 +115,34 @@ describe("FME shared logic", () => {
           repository: "",
         } as any)
       ).toThrow("INVALID_CONFIG")
+    })
+  })
+
+  describe("createWebhookArtifacts", () => {
+    it("allows HTTP hosts when HTTPS requirement is disabled", () => {
+      const result = createWebhookArtifacts(
+        "http://localhost:8000",
+        "CityData",
+        "WorkspaceA",
+        {},
+        "auth-token",
+        { requireHttps: false }
+      )
+
+      expect(result.baseUrl).toBe(
+        "http://localhost:8000/fmedatadownload/CityData/WorkspaceA"
+      )
+      expect(result.params.get("token")).toBe("auth-token")
+    })
+
+    it("rejects HTTP hosts when HTTPS is required", () => {
+      expect(() =>
+        createWebhookArtifacts(
+          "http://localhost:8000",
+          "CityData",
+          "WorkspaceA"
+        )
+      ).toThrow("WEBHOOK_AUTH_ERROR")
     })
   })
 

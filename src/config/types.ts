@@ -731,6 +731,7 @@ export interface FmeFlowConfig {
   readonly token: string
   readonly repository: string
   readonly timeout?: number
+  readonly requireHttps?: boolean
 }
 
 export interface FmeExportConfig {
