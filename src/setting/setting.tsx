@@ -116,7 +116,7 @@ const sliderValueToOutlineWidth = (value: number): number => {
   if (width >= MAX_OUTLINE_WIDTH) {
     return MAX_OUTLINE_WIDTH
   }
-  return width
+  return Math.round(width * 10) / 10
 }
 
 const formatOutlineWidthLabel = (value: number): string => {

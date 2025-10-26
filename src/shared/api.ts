@@ -67,7 +67,7 @@ const MAX_NETWORK_HISTORY = 50
 
 function addToNetworkHistory(log: RequestLog): void {
   networkHistory.push(log)
-  if (networkHistory.length > MAX_NETWORK_HISTORY) {
+  while (networkHistory.length > MAX_NETWORK_HISTORY) {
     networkHistory.shift()
   }
 }
@@ -1380,13 +1380,13 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
 /* FmeFlowApiClient – huvudklass för FME Flow API-anrop */
 
 export class FmeFlowApiClient {
-  private readonly config: FmeFlowConfig
+  private readonly config: Readonly<FmeFlowConfig>
   private readonly basePath = FME_FLOW_API.BASE_PATH
   private setupPromise: Promise<void>
   private disposed = false
 
   constructor(config: FmeFlowConfig) {
-    this.config = config
+    this.config = Object.freeze({ ...config })
     this.setupPromise = Promise.resolve()
     this.queueSetup(config)
   }

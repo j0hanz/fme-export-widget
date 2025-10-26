@@ -1298,6 +1298,7 @@ const StateView: React.FC<StateViewProps> = ({
       })
 
       if (cycleInterval > 0) {
+        if (cycleTimer) clearInterval(cycleTimer)
         cycleTimer = setInterval(() => {
           setActiveLoadingMessageIndex((prev) => {
             if (messageCount <= 1) {
