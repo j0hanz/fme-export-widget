@@ -1578,7 +1578,6 @@ export const Form: React.FC<FormProps> = (props) => {
                       text: translate("btnBack"),
                       onClick: onBack,
                       disabled: loading,
-                      tooltip: translate("tipBackOptions"),
                     }
                   : undefined
               }

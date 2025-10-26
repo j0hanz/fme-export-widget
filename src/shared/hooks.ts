@@ -1164,3 +1164,43 @@ export function useValidateConnection() {
     mutateAsync,
   }
 }
+
+// Hook för att hantera loading-flags med minimum display time
+export function useMinLoadingTime(
+  reduxDispatch: any,
+  widgetId: string,
+  minimumMs = 1000
+) {
+  const startTimesRef = React.useRef<{ [key: string]: number }>({})
+
+  const setFlag = hooks.useEventCallback((flag: string, value: boolean) => {
+    if (value) {
+      // Loading startar - sätt omedelbart och spara starttid
+      startTimesRef.current[flag] = Date.now()
+      reduxDispatch(fmeActions.setLoadingFlag(flag as any, true, widgetId))
+    } else {
+      // Loading slutar - säkerställ minimum display time
+      const startTime = startTimesRef.current[flag]
+      if (startTime) {
+        const elapsed = Date.now() - startTime
+        const remaining = Math.max(0, minimumMs - elapsed)
+
+        if (remaining > 0) {
+          setTimeout(() => {
+            reduxDispatch(
+              fmeActions.setLoadingFlag(flag as any, false, widgetId)
+            )
+            delete startTimesRef.current[flag]
+          }, remaining)
+        } else {
+          reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
+          delete startTimesRef.current[flag]
+        }
+      } else {
+        reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
+      }
+    }
+  })
+
+  return setFlag
+}

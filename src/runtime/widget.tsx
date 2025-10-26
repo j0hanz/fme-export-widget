@@ -86,6 +86,7 @@ import {
   safeCancelSketch,
   safeClearLayer,
   usePrefetchWorkspaces,
+  useMinLoadingTime,
 } from "../shared/hooks"
 
 /* Huvudkomponent för FME Export widget runtime */
@@ -633,10 +634,12 @@ function WidgetContent(
     cleanupResources,
   } = mapResources
 
-  /* Synkar modulers laddningsstatus med Redux */
-  hooks.useEffectWithPreviousValues(() => {
-    fmeDispatchRef.current.setLoadingFlag("modules", Boolean(modulesLoading))
-  }, [modulesLoading])
+  /* Synkar modulers laddningsstatus med Redux med minimum display time */
+  const setLoadingFlag = useMinLoadingTime(dispatch, props.id)
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("modules", Boolean(modulesLoading))
+  }, [modulesLoading, setLoadingFlag])
 
   hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {

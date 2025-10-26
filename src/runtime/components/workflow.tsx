@@ -70,6 +70,7 @@ import {
   useDebounce,
   useWorkspaces,
   useWorkspaceItem,
+  useMinLoadingTime,
 } from "../../shared/hooks"
 import { VisibilityEvaluator } from "../../shared/visibility"
 
@@ -999,7 +1000,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   hooks.useEffectWithPreviousValues(() => {
     const current = latchedLoadingRef.current
     const incoming = incomingLoadingState
-
     if (isLoadingActive(incoming)) {
       releaseLoadingState.cancel()
       if (!loadingStatesEqual(current, incoming)) {
@@ -1007,12 +1007,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
       }
       return
     }
-
     if (isLoadingActive(current)) {
       releaseLoadingState(incoming)
       return
     }
-
     if (!loadingStatesEqual(current, incoming)) {
       setLatchedLoadingState(incoming)
     }
@@ -1415,25 +1413,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
             workspacesQuery.isFetching)
       )
     : false
-  const previousWorkspaceLoadingActive = hooks.usePrevious(
-    workspaceLoadingActive
-  )
-  React.useEffect(() => {
-    if (previousWorkspaceLoadingActive === workspaceLoadingActive) {
-      return
-    }
-    fmeDispatchRef.current.setLoadingFlag("workspaces", workspaceLoadingActive)
-  }, [workspaceLoadingActive, previousWorkspaceLoadingActive])
 
-  // Synkroniserar parameterhämtningsstatus till Redux
-  const parametersFetching = Boolean(workspaceItemQuery.isFetching)
-  const previousParametersFetching = hooks.usePrevious(parametersFetching)
-  React.useEffect(() => {
-    if (previousParametersFetching === parametersFetching) {
-      return
-    }
-    fmeDispatchRef.current.setLoadingFlag("parameters", parametersFetching)
-  }, [parametersFetching, previousParametersFetching])
+  // Synkroniserar parameter-hämtningsstatus till Redux
+  const parametersFetching = Boolean(workspaceItemQuery.isLoading)
+
+  // Hook för att sätta loading flags med minimum display time
+  const setLoadingFlag = useMinLoadingTime(reduxDispatch, widgetId)
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("workspaces", workspaceLoadingActive)
+  }, [workspaceLoadingActive, setLoadingFlag])
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("parameters", parametersFetching)
+  }, [parametersFetching, setLoadingFlag])
 
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
@@ -1729,19 +1722,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
     )
 
     if (shouldShowLoading) {
-      const message = isPrefetchLoading
-        ? translate("statusLoadWorkspaces")
-        : workspaceItems.length
-          ? translate("statusLoadParams")
-          : translate("statusLoadWorkspaces")
+      const message = translate("statusLoadWorkspaces")
+      const detail = isPrefetchLoading ? "" : translate("statusLoadWorkspaces")
 
-      const detail = isPrefetchLoading
-        ? ""
-        : workspaceItems.length
-          ? translate("msgLoadParams")
-          : translate("msgLoadRepos")
-
-      return renderLoading(message, detail, [translate("tipBackOptions")])
+      return renderLoading(message, detail)
     }
 
     if (workspaceError) {
@@ -1776,11 +1760,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
-      return renderLoading(
-        translate("statusLoadParams"),
-        translate("msgLoadParams"),
-        [translate("titleConfigParams")]
-      )
+      return renderLoading(translate("statusLoadWorkspaces"))
     }
 
     return (
