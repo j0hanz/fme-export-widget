@@ -1027,6 +1027,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadingState = latchedLoadingState
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
+  // Endast workspace-lista-laddning, inte individuella parametrar
   const isWorkspaceLoading = Boolean(loadingState.workspaces)
   const canDraw = canStartDrawing ?? true
 
@@ -1714,19 +1715,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
+    const isPrefetchLoading = Boolean(
+      isPrefetchingWorkspaces &&
+        workspaceItems.length &&
+        state === ViewMode.WORKSPACE_SELECTION
+    )
+
     const shouldShowLoading = shouldShowWorkspaceLoading(
-      isWorkspaceLoading,
+      isWorkspaceLoading || isPrefetchLoading,
       workspaceItems,
       state,
       Boolean(workspaceError)
     )
-    if (shouldShowLoading) {
-      const isPrefetchLoading = Boolean(
-        isPrefetchingWorkspaces &&
-          workspaceItems.length &&
-          state === ViewMode.WORKSPACE_SELECTION
-      )
 
+    if (shouldShowLoading) {
       const message = isPrefetchLoading
         ? translate("statusLoadWorkspaces")
         : workspaceItems.length

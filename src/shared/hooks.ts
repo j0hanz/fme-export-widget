@@ -971,8 +971,8 @@ export function usePrefetchWorkspaces(
             }
           }
 
-          // Prefetcha chunk med concurrency limit
-          await Promise.all(
+          // Prefetcha alla workspaces i chunk parallellt med begränsning
+          await Promise.allSettled(
             chunk.map((ws) =>
               withLimit(() =>
                 queryClient.prefetchQuery({

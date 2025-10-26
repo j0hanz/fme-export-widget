@@ -232,7 +232,6 @@ export const shouldShowWorkspaceLoading = (
 
   const needsLoading =
     state === "workspace-selection" || state === "export-options"
-
   return needsLoading && isLoading
 }
 
