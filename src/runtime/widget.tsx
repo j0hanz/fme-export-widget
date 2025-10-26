@@ -437,12 +437,17 @@ function WidgetContent(
     buildSymbols(hexToRgbArray(currentHex), drawingStyleOptions)
   )
 
+  const currentStyleKey = `${currentHex}-${config?.drawingOutlineWidth}-${config?.drawingFillOpacity}`
+  const previousStyleKey = hooks.usePrevious(currentStyleKey)
+
   hooks.useUpdateEffect(() => {
-    symbolsRef.current = buildSymbols(
-      hexToRgbArray(currentHex),
-      drawingStyleOptions
-    )
-  }, [currentHex, config?.drawingOutlineWidth, config?.drawingFillOpacity])
+    if (currentStyleKey !== previousStyleKey) {
+      symbolsRef.current = buildSymbols(
+        hexToRgbArray(currentHex),
+        drawingStyleOptions
+      )
+    }
+  }, [currentStyleKey, previousStyleKey, currentHex, drawingStyleOptions])
 
   /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {

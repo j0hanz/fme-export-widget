@@ -697,6 +697,20 @@ const normalizePolygon = async (
     const results = await normalizeUtils.normalizeCentralMeridian([polygon])
     const normalized = Array.isArray(results) ? results[0] : null
     if (isPolygonGeometryLike(normalized)) {
+      if (normalized !== polygon) {
+        const originalBounds = polygon.extent
+        const normalizedBounds = normalized.extent
+        if (
+          originalBounds &&
+          normalizedBounds &&
+          Math.abs(originalBounds.xmin - normalizedBounds.xmin) > 180
+        ) {
+          console.log("[Geometry] Normalized dateline-crossing polygon", {
+            originalExtent: originalBounds,
+            normalizedExtent: normalizedBounds,
+          })
+        }
+      }
       return normalized
     }
   } catch {}
@@ -918,6 +932,21 @@ export const calcArea = async (
   if (!geometry || geometry.type !== "polygon") return 0
 
   const polygon = geometry as __esri.Polygon
+
+  const totalVertices =
+    polygon.rings?.reduce(
+      (sum, ring) => sum + (Array.isArray(ring) ? ring.length : 0),
+      0
+    ) ?? 0
+
+  if (totalVertices > 10000) {
+    console.warn("[Geometry] Processing complex polygon", {
+      vertices: totalVertices,
+      rings: polygon.rings?.length ?? 0,
+      estimatedProcessingTime: `${Math.round(totalVertices / 100)}ms`,
+    })
+  }
+
   let prepared = polygon
 
   try {
@@ -940,7 +969,16 @@ export const calcArea = async (
     prepared,
     modules
   )
-  if (geometryServiceArea > 0) return geometryServiceArea
+  if (geometryServiceArea > 0) {
+    console.warn(
+      "[Performance] Fell back to geometry service for area calculation",
+      {
+        polygonVertices: prepared.rings?.[0]?.length ?? 0,
+        spatialReference: prepared.spatialReference?.wkid,
+      }
+    )
+    return geometryServiceArea
+  }
 
   return 0
 }

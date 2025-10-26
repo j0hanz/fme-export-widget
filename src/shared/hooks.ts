@@ -237,12 +237,19 @@ export const useEsriModules = (
         ] = loaded
 
         // Ladda projection-modul om det har load-metod
+        const projectionLoadStart = performance.now()
         try {
           const proj = projection as any
           if (proj?.load && typeof proj.load === "function") {
             await proj.load()
+            const projectionLoadEnd = performance.now()
+            console.log("[Startup] Projection module loaded", {
+              duration: `${Math.round(projectionLoadEnd - projectionLoadStart)}ms`,
+            })
           }
-        } catch {}
+        } catch (error) {
+          console.error("[Startup] Projection module load failed", error)
+        }
 
         // Extrahera geometry operators från async eller sync engine
         const geometryOperators =
