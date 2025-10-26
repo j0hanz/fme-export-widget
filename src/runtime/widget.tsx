@@ -17,7 +17,6 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
-import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import { fmeQueryClient } from "../shared/query-client"
 import { Workflow } from "./components/workflow"
 import { StateView, renderSupportHint, useStyles } from "./components/ui"
@@ -183,10 +182,7 @@ function WidgetContent(
     : null
 
   const styles = useStyles()
-  const translateWidget = hooks.useTranslation(
-    defaultMessages,
-    jimuDefaultMessages
-  )
+  const translateWidget = hooks.useTranslation(defaultMessages)
 
   /* Wrapper för översättningsfunktion med stabila callbacks */
   const translate = hooks.useEventCallback((key: string): string => {

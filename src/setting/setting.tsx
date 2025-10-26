@@ -30,11 +30,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import {
-  Switch,
-  defaultMessages as jimuDefaultMessages,
-  CollapsablePanel,
-} from "jimu-ui"
+import { Switch, CollapsablePanel } from "jimu-ui"
 import {
   Alert,
   NumericInput,
@@ -206,10 +202,7 @@ const handleValidationFailure = (
  */
 function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
-  const translate = hooks.useTranslation(
-    defaultMessages as any,
-    jimuDefaultMessages
-  )
+  const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()

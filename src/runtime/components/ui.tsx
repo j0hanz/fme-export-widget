@@ -22,7 +22,6 @@ import {
   SVG,
   Table as JimuTable,
   Alert as JimuAlert,
-  defaultMessages as jimuDefaultMessages,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
@@ -55,7 +54,7 @@ import type {
   TranslateFn,
   UiStyles,
 } from "../../config/index"
-import defaultMessages from "./translations/default"
+import defaultMessages from "../translations/default"
 import {
   styleCss,
   getErrorIconSrc,
@@ -723,7 +722,7 @@ export const Select: React.FC<SelectProps> = ({
   allowCustomValues = false,
   hierarchical = false,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
   const [searchTerm, setSearchTerm] = React.useState("")
@@ -930,7 +929,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...jimuProps
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
 
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
@@ -1200,7 +1199,7 @@ const StateView: React.FC<StateViewProps> = ({
   center,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0)
@@ -1546,7 +1545,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
 // Form-komponent
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
 
   if (variant === "layout") {
@@ -1628,7 +1627,7 @@ export const Field: React.FC<FieldProps> = ({
   children,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const autoId = useId()
   const { id: fieldId, child: renderedChild } = withId(
     children,

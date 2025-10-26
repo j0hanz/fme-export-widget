@@ -13,8 +13,7 @@ import {
   UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
-import defaultMessages from "./translations/default"
-import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
+import defaultMessages from "../translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
@@ -966,7 +965,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   submissionPhase = "idle",
   modeNotice,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
