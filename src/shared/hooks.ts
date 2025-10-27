@@ -1178,7 +1178,7 @@ export function useValidateConnection() {
 export function useMinLoadingTime(
   reduxDispatch: any,
   widgetId: string,
-  minimumMs = 1000
+  minimumMs = 500
 ) {
   const startTimesRef = React.useRef<{ [key: string]: number }>({})
 

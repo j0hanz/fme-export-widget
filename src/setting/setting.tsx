@@ -1385,6 +1385,50 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   aria-label={translate("lblAutoClose")}
                 />
               </SettingRow>
+              <FieldRow
+                id={ID.supportEmail}
+                label={
+                  <Tooltip
+                    content={translate("hintSupportEmail")}
+                    placement="top"
+                  >
+                    <span>{translate("lblSupportEmail")}</span>
+                  </Tooltip>
+                }
+                type="email"
+                value={localSupportEmail}
+                onChange={(val: string) => {
+                  setLocalSupportEmail(val)
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    supportEmail: undefined,
+                  }))
+                }}
+                onBlur={(val: string) => {
+                  const trimmed = (val ?? "").trim()
+                  if (!trimmed) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      supportEmail: undefined,
+                    }))
+                    updateConfig("supportEmail", undefined as any)
+                    setLocalSupportEmail("")
+                    return
+                  }
+                  const isValid = isValidEmail(trimmed)
+                  const err = !isValid
+                    ? translate("errInvalidEmail")
+                    : undefined
+                  setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+                  if (!err) {
+                    updateConfig("supportEmail", trimmed)
+                    setLocalSupportEmail(trimmed)
+                  }
+                }}
+                placeholder={translate("phEmail")}
+                errorText={fieldErrors.supportEmail}
+                styles={settingStyles}
+              />
             </CollapsablePanel>
           </SettingSection>
           <SettingSection>
@@ -1598,50 +1642,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   }}
                 />
               </SettingRow>
-              <FieldRow
-                id={ID.supportEmail}
-                label={
-                  <Tooltip
-                    content={translate("hintSupportEmail")}
-                    placement="top"
-                  >
-                    <span>{translate("lblSupportEmail")}</span>
-                  </Tooltip>
-                }
-                type="email"
-                value={localSupportEmail}
-                onChange={(val: string) => {
-                  setLocalSupportEmail(val)
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    supportEmail: undefined,
-                  }))
-                }}
-                onBlur={(val: string) => {
-                  const trimmed = (val ?? "").trim()
-                  if (!trimmed) {
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      supportEmail: undefined,
-                    }))
-                    updateConfig("supportEmail", undefined as any)
-                    setLocalSupportEmail("")
-                    return
-                  }
-                  const isValid = isValidEmail(trimmed)
-                  const err = !isValid
-                    ? translate("errInvalidEmail")
-                    : undefined
-                  setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-                  if (!err) {
-                    updateConfig("supportEmail", trimmed)
-                    setLocalSupportEmail(trimmed)
-                  }
-                }}
-                placeholder={translate("phEmail")}
-                errorText={fieldErrors.supportEmail}
-                styles={settingStyles}
-              />
               <SettingRow
                 flow="no-wrap"
                 label={

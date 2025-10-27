@@ -17,6 +17,7 @@ import type {
   NMDirectives,
   ErrorDetailInput,
 } from "../config/index"
+import { conditionalLog } from "./services/logging"
 import {
   FmeFlowApiError,
   HttpMethod,
@@ -372,17 +373,17 @@ function logRequest(
       if (bodyPreview) payload.body = bodyPreview
       if (errorMessage) payload.error = errorMessage
 
-      console.log(`[FME][net] ${icon}`, payload)
+      conditionalLog(`[FME][net] ${icon}`, payload)
     } else if (config.logLevel === "warn") {
       const summary = `[FME][net] ${phase} ${log.method} ${log.path} ${log.status || "?"} ${log.durationMs}ms`
-      console.log(summary, {
+      conditionalLog(summary, {
         correlationId: log.correlationId,
         ...(log.caller && { caller: log.caller }),
       })
     }
 
     if (log.durationMs >= config.warnSlowMs) {
-      console.log("[FME][net] slow", {
+      conditionalLog("[FME][net] slow", {
         method: log.method,
         path: log.path,
         durationMs: log.durationMs,
