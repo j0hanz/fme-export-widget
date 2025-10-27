@@ -251,7 +251,7 @@ export const useEsriModules = (
             })
           }
         } catch (error) {
-          console.error("[Startup] Projection module load failed", error)
+          console.log("[Startup] Projection module load failed", error)
         }
 
         // Extrahera geometry operators från async eller sync engine

@@ -124,7 +124,7 @@ const copyToClipboard = (text: string): void => {
         },
         (err) => {
           logDebugMessage("Could not copy to clipboard", "error")
-          console.error("Clipboard error:", err)
+          console.log("Clipboard error:", err)
         }
       )
     } else {
@@ -132,7 +132,7 @@ const copyToClipboard = (text: string): void => {
     }
   } catch (err) {
     logDebugMessage("Clipboard API not available or permissions denied", "warn")
-    console.error("Clipboard error:", err)
+    console.log("Clipboard error:", err)
   }
 }
 

@@ -940,7 +940,7 @@ export const calcArea = async (
     ) ?? 0
 
   if (totalVertices > 10000) {
-    console.warn("[Geometry] Processing complex polygon", {
+    console.log("[Geometry] Processing complex polygon", {
       vertices: totalVertices,
       rings: polygon.rings?.length ?? 0,
       estimatedProcessingTime: `${Math.round(totalVertices / 100)}ms`,
@@ -970,7 +970,7 @@ export const calcArea = async (
     modules
   )
   if (geometryServiceArea > 0) {
-    console.warn(
+    console.log(
       "[Performance] Fell back to geometry service for area calculation",
       {
         polygonVertices: prepared.rings?.[0]?.length ?? 0,

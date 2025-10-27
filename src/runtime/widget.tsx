@@ -1059,7 +1059,7 @@ function WidgetContent(
         MessageManager.getInstance().publishMessage(message)
       } catch (error) {
         // Ignorera publiceringfel - huvudfunktionalitet påverkas ej
-        console.warn(
+        console.log(
           "FME Export: Failed to publish job completion message",
           error
         )
@@ -1148,7 +1148,7 @@ function WidgetContent(
               queryKey: ["fme", "workspace-item", selectedWorkspace],
             })
           } catch (queryErr) {
-            console.warn("Failed to invalidate workspace queries", queryErr)
+            console.log("Failed to invalidate workspace queries", queryErr)
           }
         }
       }
@@ -1574,7 +1574,7 @@ function WidgetContent(
   })
 
   if (!widgetId || typeof widgetId !== "string" || !widgetId.trim()) {
-    console.error("[FME Export] Critical: Widget ID missing or invalid")
+    console.log("[FME Export] Critical: Widget ID missing or invalid")
     return (
       <div css={styles.parent}>
         <StateView
