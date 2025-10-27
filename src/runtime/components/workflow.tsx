@@ -204,6 +204,9 @@ const OrderResult: React.FC<OrderResultProps> = ({
   config,
 }) => {
   const styles = useUiStyles()
+  const [fallbackDownloadUrl, setFallbackDownloadUrl] = React.useState<
+    string | null
+  >(null)
 
   // Bygger alert-meddelande baserat på orderResult-status
   let alertNode: React.ReactNode = null
@@ -265,14 +268,21 @@ const OrderResult: React.FC<OrderResultProps> = ({
     }
   }
 
-  const viewState = buildOrderResultView(orderResult, config, translate, {
-    onReuseGeography,
-    onBack,
-    onReset,
-  })
+  const viewState = buildOrderResultView(
+    orderResult,
+    config,
+    translate,
+    {
+      onReuseGeography,
+      onBack,
+      onReset,
+    },
+    fallbackDownloadUrl
+  )
 
   // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
   hooks.useEffectOnce(() => {
+    setFallbackDownloadUrl(null)
     if (!orderResult) return
 
     const isCancelled = Boolean(orderResult.cancelled)
@@ -285,10 +295,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
 
     if (!isSuccess || serviceMode !== "sync") return
 
-    // Skapa blob URL om det finns en blob
-    const blobUrl = orderResult.blob
-      ? URL.createObjectURL(orderResult.blob)
-      : null
+    let blobUrl: string | null = null
+    if (!orderResult.downloadUrl && orderResult.blob) {
+      blobUrl = URL.createObjectURL(orderResult.blob)
+      setFallbackDownloadUrl(blobUrl)
+    }
     const downloadUrl = orderResult.downloadUrl || blobUrl
 
     if (!downloadUrl) return

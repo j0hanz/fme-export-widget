@@ -54,7 +54,8 @@ export const buildOrderResultView = (
     readonly onBack?: () => void
     readonly onReset?: () => void
   },
-  alertNode?: React.ReactNode
+  alertNode?: React.ReactNode,
+  fallbackDownloadUrl?: string | null
 ): ViewState => {
   if (!result) {
     return makeErrorView(translate("msgNoResult"), {
@@ -203,8 +204,7 @@ export const buildOrderResultView = (
   // Hanter nedladdningslänk för synkrona jobb
   let downloadNode: React.ReactNode = null
   if (isSuccess && serviceMode === "sync") {
-    const blobUrl = result.blob ? URL.createObjectURL(result.blob) : null
-    const downloadUrl = result.downloadUrl || blobUrl
+    const downloadUrl = result.downloadUrl || fallbackDownloadUrl || null
     if (downloadUrl) {
       // Fallback download button if auto-download didn't start
       downloadNode = jsx(
