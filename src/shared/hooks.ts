@@ -1,6 +1,6 @@
 import { React, hooks } from "jimu-core"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
-import { useSelector } from "react-redux"
+import { useSelector, shallowEqual } from "react-redux"
 import type { JimuMapView } from "jimu-arcgis"
 import type {
   EsriModules,
@@ -29,6 +29,9 @@ import {
   logIfNotAbort,
   createFmeClient,
   buildTokenCacheKey,
+  queryKeys,
+  safeAbortController,
+  linkAbortSignal,
 } from "./utils"
 import { healthCheck, validateConnection } from "./services"
 
@@ -242,7 +245,9 @@ export const useEsriModules = (
           if (proj?.load && typeof proj.load === "function") {
             await proj.load()
           }
-        } catch {}
+        } catch (error) {
+          /* Non-critical projection module warmup failure */
+        }
 
         // Extrahera geometry operators från async eller sync engine
         const geometryOperators =
@@ -485,6 +490,22 @@ export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
   })
 }
 
+// Hook för selector med shallowEqual optimization
+export const useShallowEqualSelector = <T>(selector: (state: any) => T): T => {
+  return useSelector(selector, shallowEqual)
+}
+
+// Hook för builder-selector med shallowEqual optimization
+export const useBuilderShallowEqualSelector = <T>(
+  selector: (state: any) => T
+): T => {
+  return useSelector((state: any) => {
+    const builderState = state?.appStateInBuilder
+    const effectiveState = builderState ?? state
+    return selector(effectiveState)
+  }, shallowEqual)
+}
+
 // Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
 export const useUpdateConfig = (
   id: string,
@@ -679,11 +700,7 @@ export const useLatestAbortController = () => {
   // Avbryter aktuell controller och rensar referens
   const cancel = hooks.useEventCallback(() => {
     const controller = controllerRef.current
-    if (controller) {
-      try {
-        controller.abort()
-      } catch {}
-    }
+    safeAbortController(controller)
     controllerRef.current = null
   })
 
@@ -725,13 +742,11 @@ export function useWorkspaces(
   options?: { enabled?: boolean }
 ) {
   return useQuery<WorkspaceItem[]>({
-    queryKey: [
-      "fme",
-      "workspaces",
+    queryKey: queryKeys.workspaces(
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
-      buildTokenCacheKey(config.fmeServerToken),
-    ],
+      config.fmeServerToken
+    ),
     queryFn: async ({ signal }) => {
       const client = createFmeClient(
         config.fmeServerUrl,
@@ -776,14 +791,12 @@ export function useWorkspaceItem(
     item: WorkspaceItemDetail
     parameters: WorkspaceParameter[]
   }>({
-    queryKey: [
-      "fme",
-      "workspace-item",
+    queryKey: queryKeys.workspaceItem(
       workspace,
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
-      buildTokenCacheKey(config.fmeServerToken),
-    ],
+      config.fmeServerToken
+    ),
     queryFn: async ({ signal }) => {
       if (!workspace) {
         throw new Error("Workspace name required")
@@ -799,15 +812,29 @@ export function useWorkspaceItem(
       }
 
       const repositoryName = config.repository || DEFAULT_REPOSITORY
-      const [itemResp, paramsResp] = await Promise.all([
+
+      // Hämta workspace-item och parametrar parallellt
+      const [itemResult, paramsResult] = await Promise.allSettled([
         client.getWorkspaceItem(workspace, repositoryName, signal),
         client.getWorkspaceParameters(workspace, repositoryName, signal),
       ])
 
-      const parameters = Array.isArray(paramsResp?.data) ? paramsResp.data : []
+      // Kasta fel om item-hämtning misslyckas
+      if (itemResult.status === "rejected") {
+        throw itemResult.reason instanceof Error
+          ? itemResult.reason
+          : new Error(String(itemResult.reason))
+      }
+
+      // Extrahera parametrar om hämtning lyckades
+      const parameters =
+        paramsResult.status === "fulfilled" &&
+        Array.isArray(paramsResult.value?.data)
+          ? paramsResult.value.data
+          : []
 
       return {
-        item: itemResp.data,
+        item: itemResult.value.data,
         parameters,
       }
     },
@@ -852,7 +879,7 @@ export function usePrefetchWorkspaces(
   const workspacesRef = hooks.useLatest(workspaces)
   const onProgressRef = hooks.useLatest(options?.onProgress)
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     const workspacesSnapshot = workspacesRef.current
     if (!enabled || !workspacesSnapshot?.length) {
       setState({
@@ -886,13 +913,7 @@ export function usePrefetchWorkspaces(
 
     const abortAllControllers = (reason?: unknown): void => {
       abortControllers.forEach((controller) => {
-        try {
-          if (!controller.signal.aborted) {
-            controller.abort(reason)
-          }
-        } catch {
-          controller.abort()
-        }
+        safeAbortController(controller, reason)
       })
       abortControllers.clear()
     }
@@ -901,28 +922,7 @@ export function usePrefetchWorkspaces(
       source: AbortSignal | undefined,
       controller: AbortController
     ): (() => void) => {
-      if (!source) {
-        return () => undefined
-      }
-
-      const abortHandler = () => {
-        const reason = (source as { reason?: unknown }).reason
-        try {
-          if (!controller.signal.aborted) {
-            controller.abort(reason)
-          }
-        } catch {
-          controller.abort()
-        }
-      }
-
-      source.addEventListener("abort", abortHandler)
-
-      return () => {
-        try {
-          source.removeEventListener("abort", abortHandler)
-        } catch {}
-      }
+      return linkAbortSignal(source, controller)
     }
 
     const prefetch = async () => {
@@ -964,19 +964,17 @@ export function usePrefetchWorkspaces(
             }
           }
 
-          // Prefetcha chunk med concurrency limit
-          await Promise.all(
+          // Prefetcha alla workspaces i chunk parallellt med begränsning
+          await Promise.allSettled(
             chunk.map((ws) =>
               withLimit(() =>
                 queryClient.prefetchQuery({
-                  queryKey: [
-                    "fme",
-                    "workspace-item",
+                  queryKey: queryKeys.workspaceItem(
                     ws.name,
                     repository,
                     fmeServerUrl,
-                    buildTokenCacheKey(fmeServerToken),
-                  ],
+                    fmeServerToken
+                  ),
                   queryFn: async ({ signal }) => {
                     const controller = new AbortController()
                     const unregister = registerAbortController(controller)
@@ -1048,7 +1046,16 @@ export function usePrefetchWorkspaces(
       cancelled = true
       abortAllControllers()
     }
-  }, [enabled, queryClient, configRef, workspacesRef, onProgressRef, chunkSize])
+  }, [
+    enabled,
+    queryClient,
+    chunkSize,
+    onProgressRef,
+    config?.repository,
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
+    workspaces,
+  ])
 
   return state
 }
@@ -1081,7 +1088,7 @@ export function useHealthCheck(
   options?: { enabled?: boolean; refetchOnWindowFocus?: boolean }
 ) {
   return useQuery({
-    queryKey: ["fme", "health", serverUrl, buildTokenCacheKey(token)],
+    queryKey: queryKeys.health(serverUrl, token),
     queryFn: async ({ signal }) => {
       if (!serverUrl || !token) {
         throw new Error("Missing credentials")
@@ -1095,6 +1102,7 @@ export function useHealthCheck(
 
 // Hook för connection-validering med abort-hantering
 export function useValidateConnection() {
+  const queryClient = useQueryClient()
   const controllerRef = React.useRef<AbortController | null>(null)
 
   // Avbryter pågående validering
@@ -1120,6 +1128,14 @@ export function useValidateConnection() {
         repository: variables.repository,
         signal: controllerRef.current?.signal,
       })
+    },
+    onSuccess: (data, variables) => {
+      // Uppdatera health-check cache vid lyckad validering
+      if (data.success) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.health(variables.serverUrl, variables.token),
+        })
+      }
     },
   })
 
@@ -1156,4 +1172,44 @@ export function useValidateConnection() {
     mutate,
     mutateAsync,
   }
+}
+
+// Hook för att hantera loading-flags med minimum display time
+export function useMinLoadingTime(
+  reduxDispatch: any,
+  widgetId: string,
+  minimumMs = 500
+) {
+  const startTimesRef = React.useRef<{ [key: string]: number }>({})
+
+  const setFlag = hooks.useEventCallback((flag: string, value: boolean) => {
+    if (value) {
+      // Loading startar - sätt omedelbart och spara starttid
+      startTimesRef.current[flag] = Date.now()
+      reduxDispatch(fmeActions.setLoadingFlag(flag as any, true, widgetId))
+    } else {
+      // Loading slutar - säkerställ minimum display time
+      const startTime = startTimesRef.current[flag]
+      if (startTime) {
+        const elapsed = Date.now() - startTime
+        const remaining = Math.max(0, minimumMs - elapsed)
+
+        if (remaining > 0) {
+          setTimeout(() => {
+            reduxDispatch(
+              fmeActions.setLoadingFlag(flag as any, false, widgetId)
+            )
+            delete startTimesRef.current[flag]
+          }, remaining)
+        } else {
+          reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
+          delete startTimesRef.current[flag]
+        }
+      } else {
+        reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
+      }
+    }
+  })
+
+  return setFlag
 }

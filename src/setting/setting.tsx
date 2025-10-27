@@ -8,9 +8,9 @@ import {
   clearErrors,
   parseNonNegativeInt,
   toTrimmedString,
-  isAbortError,
   sanitizeParamKey,
   createFmeDispatcher,
+  isAbortError,
 } from "../shared/utils"
 import {
   useBuilderSelector,
@@ -18,7 +18,6 @@ import {
   useBooleanConfigValue,
   useNumberConfigValue,
   useUpdateConfig,
-  useLatestAbortController,
   useDebounce,
   useRepositories,
   useValidateConnection,
@@ -30,11 +29,7 @@ import {
   SettingSection,
   SettingRow,
 } from "jimu-ui/advanced/setting-components"
-import {
-  Switch,
-  defaultMessages as jimuDefaultMessages,
-  CollapsablePanel,
-} from "jimu-ui"
+import { Switch, CollapsablePanel } from "jimu-ui"
 import {
   Alert,
   NumericInput,
@@ -55,6 +50,7 @@ import {
   validateConnectionInputs,
   isValidEmail,
   validateEmailField,
+  validateAndNormalizeUrl,
 } from "../shared/validations"
 import { mapErrorFromNetwork } from "../shared/utils/error"
 import { translateOptional } from "../shared/utils/format"
@@ -116,7 +112,7 @@ const sliderValueToOutlineWidth = (value: number): number => {
   if (width >= MAX_OUTLINE_WIDTH) {
     return MAX_OUTLINE_WIDTH
   }
-  return width
+  return Math.round(width * 10) / 10
 }
 
 const formatOutlineWidthLabel = (value: number): string => {
@@ -206,10 +202,7 @@ const handleValidationFailure = (
  */
 function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props
-  const translate = hooks.useTranslation(
-    defaultMessages as any,
-    jimuDefaultMessages
-  )
+  const translate = hooks.useTranslation(defaultMessages as any)
   const styles = useStyles()
   const settingStyles = useSettingStyles()
   const dispatch = useDispatch()
@@ -263,6 +256,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     drawingColor: "setting-drawing-color",
     drawingOutlineWidth: "setting-drawing-outline-width",
     drawingFillOpacity: "setting-drawing-fill-opacity",
+    enableLogging: "setting-enable-logging",
   } as const
 
   /* Konsoliderat test-state för connection validation */
@@ -484,6 +478,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localFillOpacity, setLocalFillOpacity] = React.useState<number>(
     () => (getNumberConfig("drawingFillOpacity") ?? DEFAULT_FILL_OPACITY) * 100
   )
+  const [localEnableLogging, setLocalEnableLogging] = React.useState<boolean>(
+    () => getBooleanConfig("enableLogging", false)
+  )
 
   const configOutlineWidth = getNumberConfig("drawingOutlineWidth")
   hooks.useUpdateEffect(() => {
@@ -524,9 +521,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   /* Icke-blockerande ledtråd för repository-listfetchfel */
   const [reposHint, setReposHint] = React.useState<string | null>(null)
-
-  /* Spårar inflight cancellation scopes (endast testAbort behövs nu) */
-  const testAbort = useLatestAbortController()
 
   /* Håller senaste värden för asynkrona läsare */
   const translateRef = hooks.useLatest(translate)
@@ -622,7 +616,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
-    testAbort.cancel()
+    validateConnectionMutation.reset()
     setValidationPhase("idle")
     setTestState((prev) => {
       if (
@@ -650,7 +644,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   /* Städar upp vid unmount */
   hooks.useUnmount(() => {
-    testAbort.cancel()
+    validateConnectionMutation.reset()
     debouncedServerValidation.cancel()
     debouncedTokenValidation.cancel()
     /* Query hook hanterar cleanup automatiskt */
@@ -753,14 +747,19 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const token = localToken
       const repository = selectedRepository
 
-      const cleaned = normalizeBaseUrl(rawServerUrl || "")
-      const changed = cleaned !== rawServerUrl
+      const result = validateAndNormalizeUrl(rawServerUrl || "", {
+        requireHttps: localRequireHttps,
+      })
+
+      if (!result.ok) return null
+
+      const serverUrl = result.normalized || ""
+      const changed = serverUrl !== rawServerUrl
+
       /* Om sanering ändrade, uppdatera config */
       if (changed) {
-        updateConfig("fmeServerUrl", cleaned)
+        updateConfig("fmeServerUrl", serverUrl)
       }
-
-      const serverUrl = cleaned
 
       return serverUrl && token ? { serverUrl, token, repository } : null
     }
@@ -871,8 +870,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   const testConnection = hooks.useEventCallback(async (silent = false) => {
-    // Cancel any in-flight test first
-    testAbort.cancel()
+    // Cancel any in-flight test via mutation's internal abort controller
+    validateConnectionMutation.reset()
 
     const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
@@ -890,7 +889,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     setValidationPhase("checking")
-    const controller = testAbort.abortAndCreate()
 
     // Reset state for new test
     setTestState({
@@ -927,12 +925,22 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         handleTestFailure(validationResult, silent)
       }
     } catch (err) {
+      // Check if error is from abort
+      if (isAbortError(err)) {
+        // Reset to idle on abort without showing error
+        setValidationPhase("idle")
+        setTestState(getInitialTestState())
+        setCheckSteps(getInitialCheckSteps())
+        return
+      }
       handleTestError(err, silent)
     } finally {
-      if (controller.signal.aborted) {
-        setValidationPhase("idle")
-      }
-      testAbort.finalize(controller)
+      // Always ensure state is cleaned up
+      setValidationPhase((prev) => (prev === "checking" ? "idle" : prev))
+      setTestState((prev) => ({
+        ...prev,
+        isTesting: false,
+      }))
     }
   })
 
@@ -1012,7 +1020,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     /* Validerar vid blur */
     debouncedServerValidation.cancel()
-    const cleaned = normalizeBaseUrl(url)
+    const result = validateAndNormalizeUrl(url, {
+      requireHttps: localRequireHttps,
+    })
+    const cleaned = result.normalized || ""
     const hasChanged = cleaned !== configServerUrl
     if (cleaned !== localServerUrl) {
       setLocalServerUrl(cleaned)
@@ -1304,49 +1315,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   />
                 </SettingRow>
               )}
-              <FieldRow
-                id={ID.aoiParamName}
-                label={
-                  <Tooltip content={translate("hintAoiParam")} placement="top">
-                    <span>{translate("lblAoiParam")}</span>
-                  </Tooltip>
-                }
-                value={localAoiParamName}
-                onChange={(val: string) => {
-                  setLocalAoiParamName(val)
-                }}
-                onBlur={(val: string) => {
-                  const trimmed = val.trim()
-                  const finalValue = trimmed || "AreaOfInterest"
-                  updateConfig("aoiParamName", finalValue)
-                  setLocalAoiParamName(finalValue)
-                }}
-                placeholder={translate("phAoiParam")}
-                styles={settingStyles}
-              />
-              <SettingRow
-                flow="no-wrap"
-                label={
-                  <Tooltip
-                    content={translate("hintRequireHttps")}
-                    placement="top"
-                  >
-                    <span>{translate("lblRequireHttps")}</span>
-                  </Tooltip>
-                }
-                level={2}
-              >
-                <Switch
-                  id={ID.requireHttps}
-                  checked={localRequireHttps}
-                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked = evt?.target?.checked ?? !localRequireHttps
-                    setLocalRequireHttps(checked)
-                    updateConfig("requireHttps", checked)
-                  }}
-                  aria-label={translate("lblRequireHttps")}
-                />
-              </SettingRow>
               {shouldShowMaskEmailSetting && (
                 <SettingRow
                   flow="no-wrap"
@@ -1417,6 +1385,50 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   aria-label={translate("lblAutoClose")}
                 />
               </SettingRow>
+              <FieldRow
+                id={ID.supportEmail}
+                label={
+                  <Tooltip
+                    content={translate("hintSupportEmail")}
+                    placement="top"
+                  >
+                    <span>{translate("lblSupportEmail")}</span>
+                  </Tooltip>
+                }
+                type="email"
+                value={localSupportEmail}
+                onChange={(val: string) => {
+                  setLocalSupportEmail(val)
+                  setFieldErrors((prev) => ({
+                    ...prev,
+                    supportEmail: undefined,
+                  }))
+                }}
+                onBlur={(val: string) => {
+                  const trimmed = (val ?? "").trim()
+                  if (!trimmed) {
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      supportEmail: undefined,
+                    }))
+                    updateConfig("supportEmail", undefined as any)
+                    setLocalSupportEmail("")
+                    return
+                  }
+                  const isValid = isValidEmail(trimmed)
+                  const err = !isValid
+                    ? translate("errInvalidEmail")
+                    : undefined
+                  setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
+                  if (!err) {
+                    updateConfig("supportEmail", trimmed)
+                    setLocalSupportEmail(trimmed)
+                  }
+                }}
+                placeholder={translate("phEmail")}
+                errorText={fieldErrors.supportEmail}
+                styles={settingStyles}
+              />
             </CollapsablePanel>
           </SettingSection>
           <SettingSection>
@@ -1530,6 +1542,26 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   </SettingRow>
                 )}
               </SettingRow>
+              <FieldRow
+                id={ID.aoiParamName}
+                label={
+                  <Tooltip content={translate("hintAoiParam")} placement="top">
+                    <span>{translate("lblAoiParam")}</span>
+                  </Tooltip>
+                }
+                value={localAoiParamName}
+                onChange={(val: string) => {
+                  setLocalAoiParamName(val)
+                }}
+                onBlur={(val: string) => {
+                  const trimmed = val.trim()
+                  const finalValue = trimmed || "AreaOfInterest"
+                  updateConfig("aoiParamName", finalValue)
+                  setLocalAoiParamName(finalValue)
+                }}
+                placeholder={translate("phAoiParam")}
+                styles={settingStyles}
+              />
               <JobDirectivesSection
                 localTmTtc={localTmTtc}
                 localTmTtl={localTmTtl}
@@ -1610,50 +1642,52 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   }}
                 />
               </SettingRow>
-              <FieldRow
-                id={ID.supportEmail}
+              <SettingRow
+                flow="no-wrap"
                 label={
                   <Tooltip
-                    content={translate("hintSupportEmail")}
+                    content={translate("hintRequireHttps")}
                     placement="top"
                   >
-                    <span>{translate("lblSupportEmail")}</span>
+                    <span>{translate("lblRequireHttps")}</span>
                   </Tooltip>
                 }
-                type="email"
-                value={localSupportEmail}
-                onChange={(val: string) => {
-                  setLocalSupportEmail(val)
-                  setFieldErrors((prev) => ({
-                    ...prev,
-                    supportEmail: undefined,
-                  }))
-                }}
-                onBlur={(val: string) => {
-                  const trimmed = (val ?? "").trim()
-                  if (!trimmed) {
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      supportEmail: undefined,
-                    }))
-                    updateConfig("supportEmail", undefined as any)
-                    setLocalSupportEmail("")
-                    return
-                  }
-                  const isValid = isValidEmail(trimmed)
-                  const err = !isValid
-                    ? translate("errInvalidEmail")
-                    : undefined
-                  setFieldErrors((prev) => ({ ...prev, supportEmail: err }))
-                  if (!err) {
-                    updateConfig("supportEmail", trimmed)
-                    setLocalSupportEmail(trimmed)
-                  }
-                }}
-                placeholder={translate("phEmail")}
-                errorText={fieldErrors.supportEmail}
-                styles={settingStyles}
-              />
+                level={2}
+              >
+                <Switch
+                  id={ID.requireHttps}
+                  checked={localRequireHttps}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked = evt?.target?.checked ?? !localRequireHttps
+                    setLocalRequireHttps(checked)
+                    updateConfig("requireHttps", checked)
+                  }}
+                  aria-label={translate("lblRequireHttps")}
+                />
+              </SettingRow>
+              <SettingRow
+                flow="no-wrap"
+                label={
+                  <Tooltip
+                    content={translate("hintEnableLogging")}
+                    placement="top"
+                  >
+                    <span>{translate("lblEnableLogging")}</span>
+                  </Tooltip>
+                }
+                level={2}
+              >
+                <Switch
+                  id={ID.enableLogging}
+                  checked={localEnableLogging}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked = evt?.target?.checked ?? !localEnableLogging
+                    setLocalEnableLogging(checked)
+                    updateConfig("enableLogging", checked)
+                  }}
+                  aria-label={translate("lblEnableLogging")}
+                />
+              </SettingRow>
             </CollapsablePanel>
           </SettingSection>
           <SettingSection>

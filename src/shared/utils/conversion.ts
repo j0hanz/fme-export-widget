@@ -219,6 +219,31 @@ export const normalizeParameterValue = (value: unknown): string | number => {
   return JSON.stringify(value ?? null)
 }
 
+/** Normalizes toggle field values to string or number. */
+export const normalizeToggleValue = (
+  value: unknown
+): string | number | undefined => {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return undefined
+    return normalizeParameterValue(trimmed)
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return normalizeParameterValue(value)
+  }
+  return undefined
+}
+
+/** Checks if two toggle values are equal after normalization. */
+export const areToggleValuesEqual = (a: unknown, b: unknown): boolean => {
+  const normalizedA = normalizeToggleValue(a)
+  if (normalizedA === undefined) return false
+  const normalizedB = normalizeToggleValue(b)
+  if (normalizedB === undefined) return false
+  return normalizedA === normalizedB
+}
+
 /** Returns a string suitable for debug logging. */
 export const toStr = (val: unknown): string => {
   if (typeof val === "string") return val
@@ -289,4 +314,39 @@ export const mapDefined = <T, R>(
   }
 
   return result
+}
+
+/** Builds a Set of normalized choice values for parameter validation. */
+export const buildChoiceSet = (
+  list: ReadonlyArray<{ readonly value: unknown }> | null | undefined
+): Set<string | number> | null =>
+  list?.length
+    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
+    : null
+
+/** Creates placeholder texts for form fields. */
+export const makePlaceholders = (
+  translate: (key: string, params?: { [key: string]: string }) => string,
+  fieldLabel: string
+) => ({
+  enter: translate("phEnter", { field: fieldLabel }),
+  select: translate("phSelect", { field: fieldLabel }),
+})
+
+const PLACEHOLDER_KIND_MAP = Object.freeze({
+  email: "phEmail",
+  phone: "phPhone",
+  search: "phSearch",
+} as const)
+
+/** Gets text placeholder based on field configuration and kind. */
+export const getTextPlaceholder = (
+  field: { placeholder?: string } | undefined,
+  placeholders: { enter: string },
+  translate: (key: string) => string,
+  kind?: "email" | "phone" | "search"
+): string => {
+  if (field?.placeholder) return field.placeholder
+  if (kind) return translate(PLACEHOLDER_KIND_MAP[kind])
+  return placeholders.enter
 }

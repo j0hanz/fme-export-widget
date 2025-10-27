@@ -73,6 +73,19 @@ export const enum HttpMethod {
 }
 
 export const enum ParameterType {
+  text = "text",
+  number = "number",
+  checkbox = "checkbox",
+  dropdown = "dropdown",
+  listbox = "listbox",
+  tree = "tree",
+  password = "password",
+  datetime = "datetime",
+  message = "message",
+  group = "group",
+  file = "file",
+  color = "color",
+  range = "range",
   TEXT = "TEXT",
   INTEGER = "INTEGER",
   FLOAT = "FLOAT",
@@ -113,6 +126,7 @@ export const enum ParameterType {
   REPROJECTION_FILE = "REPROJECTION_FILE",
   SCRIPTED = "SCRIPTED",
   NOVALUE = "NOVALUE",
+  GROUP = "GROUP",
 }
 
 export const enum JobStatus {

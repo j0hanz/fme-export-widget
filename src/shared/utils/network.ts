@@ -17,37 +17,10 @@ export const isNavigatorOffline = (): boolean => {
 
   try {
     const nav = (globalThis as any)?.navigator
-    return Boolean(nav && nav.onLine === false)
+    return Boolean(nav && !nav.onLine)
   } catch {
     return false
   }
-}
-
-const ABORT_REGEX = /\baborted?\b/i
-
-// Kontrollerar om ett fel är ett abort/cancel-fel
-export const isAbortError = (error: unknown): boolean => {
-  if (!error) return false
-
-  if (typeof error === "object" && error !== null) {
-    const candidate = error as {
-      name?: unknown
-      code?: unknown
-      message?: unknown
-    }
-    const name = toStr(candidate.name ?? candidate.code)
-    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
-      return true
-    if (!name || name === "Error") {
-      const message = toStr(candidate.message)
-      return ABORT_REGEX.test(message) || message.includes("signal is aborted")
-    }
-    return false
-  }
-  if (typeof error === "string") {
-    return ABORT_REGEX.test(error)
-  }
-  return false
 }
 
 // Maskerar token för säker loggning (visar bara första/sista tecken)
@@ -129,9 +102,7 @@ export const buildUrl = (serverUrl: string, ...segments: string[]): string =>
   _composeUrl(serverUrl, segments)
 
 const _composeUrl = (base: string, segments: string[]): string => {
-  const normalizedBase = base
-    .replace(/\/(?:fmeserver|fmerest)$/i, "")
-    .replace(/\/$/, "")
+  const normalizedBase = base.replace(/\/$/, "")
 
   const encodePath = (s: string): string =>
     s
@@ -279,4 +250,44 @@ export const getEmail = async (config?: FmeExportConfig): Promise<string> => {
     throw err
   }
   return email
+}
+
+// Definierar unika nycklar för datacaching och hämtning
+export const queryKeys = {
+  fme: ["fme"] as const,
+  workspaces: (
+    repository: string,
+    serverUrl: string | undefined,
+    token: string | undefined
+  ) =>
+    [
+      ...queryKeys.fme,
+      "workspaces",
+      repository || DEFAULT_REPOSITORY,
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  workspaceItem: (
+    workspace: string | undefined,
+    repository: string,
+    serverUrl: string | undefined,
+    token: string | undefined
+  ) =>
+    [
+      ...queryKeys.fme,
+      "workspace-item",
+      workspace,
+      repository || DEFAULT_REPOSITORY,
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  repositories: (serverUrl: string | undefined, token: string | undefined) =>
+    [
+      ...queryKeys.fme,
+      "repositories",
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  health: (serverUrl: string | undefined, token: string | undefined) =>
+    [...queryKeys.fme, "health", serverUrl, buildTokenCacheKey(token)] as const,
 }

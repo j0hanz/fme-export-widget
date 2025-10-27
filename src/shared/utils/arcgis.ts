@@ -1,5 +1,9 @@
 import { WidgetState } from "jimu-core"
-import type { PopupSuppressionRecord } from "../../config/index"
+import type {
+  PopupSuppressionRecord,
+  LayerAttributeInfo,
+  AttributeCollectionResult,
+} from "../../config/index"
 
 export const buildSymbols = (
   rgb: readonly [number, number, number],
@@ -270,4 +274,145 @@ export const computeWidgetsToClose = (
   }
 
   return ids
+}
+
+// ============================================
+// Attribute Discovery (Added: Oct 24, 2025)
+// ============================================
+
+export function collectLayerAttributes(
+  jimuMapView: __esri.MapView | __esri.SceneView | null | undefined
+): AttributeCollectionResult {
+  const attributes: LayerAttributeInfo[] = []
+  let layerCount = 0
+  let hasGeometry = false
+
+  if (!jimuMapView) {
+    return { attributes, layerCount, totalAttributeCount: 0, hasGeometry }
+  }
+
+  const map = jimuMapView.map
+  if (!map || !map.layers) {
+    return { attributes, layerCount, totalAttributeCount: 0, hasGeometry }
+  }
+
+  try {
+    const allLayers = map.allLayers || map.layers
+    if (!allLayers) {
+      return { attributes, layerCount, totalAttributeCount: 0, hasGeometry }
+    }
+
+    allLayers.forEach((layer: any) => {
+      if (!layer || !layer.type) return
+
+      // Include feature layers, graphics layers with schema
+      const isFeatureLayer = layer.type === "feature"
+      const isGraphicsLayer = layer.type === "graphics"
+
+      if (!isFeatureLayer && !isGraphicsLayer) return
+
+      const fields = layer.fields as __esri.Field[] | null | undefined
+      if (!fields || !Array.isArray(fields) || fields.length === 0) return
+
+      layerCount++
+
+      const layerName = layer.title || layer.name || layer.id || "Unknown Layer"
+      const layerId = layer.id
+      const geometryType = layer.geometryType
+
+      if (geometryType) {
+        hasGeometry = true
+      }
+
+      fields.forEach((field: __esri.Field) => {
+        if (!field || !field.name) return
+
+        let domainInfo:
+          | {
+              readonly type: string
+              readonly codedValues?: ReadonlyArray<{
+                readonly name: string
+                readonly code: unknown
+              }>
+            }
+          | undefined
+
+        if (field.domain) {
+          if (field.domain.type === "coded-value") {
+            const codedDomain = field.domain as {
+              type: string
+              codedValues?: Array<{ name: string; code: unknown }>
+            }
+            domainInfo = {
+              type: codedDomain.type || "unknown",
+              codedValues: codedDomain.codedValues?.map((cv) => ({
+                name: cv.name,
+                code: cv.code,
+              })),
+            }
+          } else {
+            domainInfo = {
+              type: field.domain.type || "unknown",
+            }
+          }
+        }
+
+        const attrInfo: LayerAttributeInfo = {
+          name: field.name,
+          alias: field.alias || field.name,
+          type: field.type || "string",
+          nullable: field.nullable ?? true,
+          editable: field.editable ?? true,
+          layerName,
+          layerId,
+          geometryType,
+          domain: domainInfo,
+        }
+
+        attributes.push(attrInfo)
+      })
+    })
+  } catch (error) {
+    console.log("Error collecting layer attributes", error)
+  }
+
+  return {
+    attributes,
+    layerCount,
+    totalAttributeCount: attributes.length,
+    hasGeometry,
+  }
+}
+
+export function attributesToOptions(
+  result: AttributeCollectionResult
+): ReadonlyArray<{ readonly value: string; readonly label: string }> {
+  if (!result || !result.attributes || result.attributes.length === 0) {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const options: Array<{ value: string; label: string }> = []
+
+  result.attributes.forEach((attr) => {
+    if (!attr || !attr.name) return
+    if (seen.has(attr.name)) return
+
+    seen.add(attr.name)
+
+    const label =
+      attr.layerName && attr.layerName !== "Unknown Layer"
+        ? `${attr.name} (${attr.layerName})`
+        : attr.alias || attr.name
+
+    options.push({
+      value: attr.name,
+      label,
+    })
+  })
+
+  // Sort alphabetically by label
+  options.sort((a, b) => a.label.localeCompare(b.label))
+
+  return options
 }

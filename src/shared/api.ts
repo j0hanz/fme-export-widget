@@ -15,7 +15,9 @@ import type {
   WebhookErrorCode,
   TMDirectives,
   NMDirectives,
+  ErrorDetailInput,
 } from "../config/index"
+import { conditionalLog } from "./services/logging"
 import {
   FmeFlowApiError,
   HttpMethod,
@@ -29,7 +31,11 @@ import {
   validateRequiredConfig,
 } from "./validations"
 import { isSuccessStatus, isRetryableStatus } from "../config/constants"
-import { mapErrorFromNetwork } from "./utils/error"
+import {
+  mapErrorFromNetwork,
+  safeAbortController,
+  isAbortError,
+} from "./utils/error"
 import {
   buildUrl,
   createHostPattern,
@@ -40,7 +46,6 @@ import {
   isJson,
   extractHostFromUrl,
   extractErrorMessage,
-  isAbortError,
   extractRepositoryNames,
   loadArcgisModules,
   parseNonNegativeInt,
@@ -66,7 +71,7 @@ const MAX_NETWORK_HISTORY = 50
 
 function addToNetworkHistory(log: RequestLog): void {
   networkHistory.push(log)
-  if (networkHistory.length > MAX_NETWORK_HISTORY) {
+  while (networkHistory.length > MAX_NETWORK_HISTORY) {
     networkHistory.shift()
   }
 }
@@ -368,17 +373,17 @@ function logRequest(
       if (bodyPreview) payload.body = bodyPreview
       if (errorMessage) payload.error = errorMessage
 
-      console.log(`[FME][net] ${icon}`, payload)
+      conditionalLog(`[FME][net] ${icon}`, payload)
     } else if (config.logLevel === "warn") {
       const summary = `[FME][net] ${phase} ${log.method} ${log.path} ${log.status || "?"} ${log.durationMs}ms`
-      console.log(summary, {
+      conditionalLog(summary, {
         correlationId: log.correlationId,
         ...(log.caller && { caller: log.caller }),
       })
     }
 
     if (log.durationMs >= config.warnSlowMs) {
-      console.log("[FME][net] slow", {
+      conditionalLog("[FME][net] slow", {
         method: log.method,
         path: log.path,
         durationMs: log.durationMs,
@@ -397,6 +402,124 @@ function logRequest(
 function inferOk(status?: number): boolean | undefined {
   if (typeof status !== "number") return undefined
   return isSuccessStatus(status)
+}
+
+const DETAIL_VALUE_LIMIT = 320
+const DETAIL_MESSAGE_KEYS = [
+  "message",
+  "error",
+  "detail",
+  "description",
+  "reason",
+  "text",
+]
+
+interface UnknownValueMap {
+  [key: string]: unknown
+}
+
+const coerceDetailValue = (value: unknown, depth = 0): string | null => {
+  if (value == null) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed) return trimmed
+    return null
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    if (depth >= 3) return null
+    const parts = value
+      .map((entry) => coerceDetailValue(entry, depth + 1))
+      .filter((part): part is string => Boolean(part))
+    if (!parts.length) return null
+    const joined = parts.join(", ")
+    return truncate(joined, DETAIL_VALUE_LIMIT)
+  }
+  if (typeof value === "object") {
+    if (depth >= 3) return null
+    for (const key of DETAIL_MESSAGE_KEYS) {
+      const nested = coerceDetailValue((value as any)?.[key], depth + 1)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+const normalizeDetailMap = (
+  candidate: unknown
+): ErrorDetailInput | undefined => {
+  if (!candidate) return undefined
+
+  const result: ErrorDetailInput = {}
+
+  if (Array.isArray(candidate)) {
+    candidate.forEach((entry, index) => {
+      if (entry == null) return
+      if (typeof entry === "object" && !Array.isArray(entry)) {
+        const objectEntry = entry as UnknownValueMap
+        const nameValue =
+          typeof objectEntry.name === "string" ? objectEntry.name : undefined
+        const fieldValue =
+          typeof objectEntry.field === "string" ? objectEntry.field : undefined
+        const parameterValue =
+          typeof objectEntry.parameter === "string"
+            ? objectEntry.parameter
+            : undefined
+        const key =
+          toNonEmptyTrimmedString(nameValue) ||
+          toNonEmptyTrimmedString(fieldValue) ||
+          toNonEmptyTrimmedString(parameterValue) ||
+          String(index)
+        const message =
+          coerceDetailValue(entry, 1) || coerceDetailValue(objectEntry.value, 1)
+        if (message) result[key] = truncate(message, DETAIL_VALUE_LIMIT)
+      } else {
+        const message = coerceDetailValue(entry, 1)
+        if (message)
+          result[String(index)] = truncate(message, DETAIL_VALUE_LIMIT)
+      }
+    })
+    return Object.keys(result).length ? result : undefined
+  }
+
+  if (typeof candidate === "object" && !Array.isArray(candidate)) {
+    const objectCandidate = candidate as UnknownValueMap
+    for (const key of Object.keys(objectCandidate)) {
+      const normalized = coerceDetailValue(objectCandidate[key])
+      if (normalized) result[key] = truncate(normalized, DETAIL_VALUE_LIMIT)
+    }
+    return Object.keys(result).length ? result : undefined
+  }
+
+  const normalized = coerceDetailValue(candidate)
+  if (normalized) {
+    result.general = truncate(normalized, DETAIL_VALUE_LIMIT)
+    return result
+  }
+
+  return undefined
+}
+
+const extractErrorDetails = (error: unknown): ErrorDetailInput | undefined => {
+  if (!error || typeof error !== "object") return undefined
+
+  const candidateSources: unknown[] = [
+    (error as any)?.details,
+    (error as any)?.response?.details,
+    (error as any)?.response?.data?.details,
+    (error as any)?.data?.details,
+    (error as any)?.body?.details,
+    (error as any)?.error?.details,
+  ]
+
+  for (const candidate of candidateSources) {
+    const normalized = normalizeDetailMap(candidate)
+    if (normalized) return normalized
+  }
+
+  return undefined
 }
 
 // Skapar abort-reason för AbortController
@@ -428,17 +551,8 @@ export class AbortControllerManager {
     // Applicerar pending abort om det fanns en i kö
     const pendingReason = this.pendingReasons.get(key)
     if (pendingReason !== undefined) {
-      try {
-        if (!controller.signal.aborted) {
-          controller.abort(pendingReason)
-        }
-      } catch {
-        try {
-          controller.abort()
-        } catch {}
-      } finally {
-        this.pendingReasons.delete(key)
-      }
+      safeAbortController(controller, pendingReason)
+      this.pendingReasons.delete(key)
     }
   }
 
@@ -478,18 +592,8 @@ export class AbortControllerManager {
     }
 
     const abortReason = reason ?? createAbortReason()
-
-    try {
-      if (!controller.signal.aborted) {
-        controller.abort(abortReason)
-      }
-    } catch {
-      try {
-        controller.abort()
-      } catch {}
-    } finally {
-      this.release(key, controller)
-    }
+    safeAbortController(controller, abortReason)
+    this.release(key, controller)
   }
 
   // Länkar extern AbortSignal till intern controller
@@ -560,6 +664,231 @@ const isStatusRetryable = (status?: number): boolean => {
 // Construct a typed FME Flow API error with identical message and code.
 const makeFlowError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status, isStatusRetryable(status))
+
+const V4_TYPE_MAP: { [key: string]: string } = {
+  text: "TEXT",
+  string: "STRING",
+  text_edit: "TEXT_EDIT",
+  textedit: "TEXT_EDIT",
+  textarea: "TEXT_EDIT",
+  password: "PASSWORD",
+  url: "URL",
+  integer: "INTEGER",
+  int: "INTEGER",
+  float: "FLOAT",
+  number: "FLOAT",
+  decimal: "FLOAT",
+  boolean: "BOOLEAN",
+  bool: "BOOLEAN",
+  checkbox: "CHECKBOX",
+  choice: "CHOICE",
+  dropdown: "CHOICE",
+  select: "CHOICE",
+  listbox: "LISTBOX",
+  lookup_choice: "LOOKUP_CHOICE",
+  lookup_listbox: "LOOKUP_LISTBOX",
+  tree: "SCRIPTED",
+  range: "RANGE_SLIDER",
+  filename: "FILENAME",
+  file: "FILENAME",
+  filename_mustexist: "FILENAME_MUSTEXIST",
+  dirname: "DIRNAME",
+  directory: "DIRNAME",
+  dirname_mustexist: "DIRNAME_MUSTEXIST",
+  dirname_src: "DIRNAME_SRC",
+  lookup_file: "LOOKUP_FILE",
+  date: "DATE",
+  time: "TIME",
+  datetime: "DATETIME",
+  date_time: "DATE_TIME",
+  month: "MONTH",
+  week: "WEEK",
+  color: "COLOR",
+  colour: "COLOR",
+  color_pick: "COLOR_PICK",
+  colorpick: "COLOR_PICK",
+  coordsys: "COORDSYS",
+  coordinate_system: "COORDSYS",
+  geometry: "GEOMETRY",
+  message: "MESSAGE",
+  range_slider: "RANGE_SLIDER",
+  slider: "RANGE_SLIDER",
+  text_or_file: "TEXT_OR_FILE",
+  attribute_name: "ATTRIBUTE_NAME",
+  attribute_list: "ATTRIBUTE_LIST",
+  db_connection: "DB_CONNECTION",
+  web_connection: "WEB_CONNECTION",
+  reprojection_file: "REPROJECTION_FILE",
+  scripted: "SCRIPTED",
+  group: "GROUP",
+}
+
+// Normalizes V4 parameter type to internal format
+// V4 API returns lowercase types (e.g., "text", "integer") that we map to uppercase internal format
+const normalizeParameterType = (rawType: unknown): string => {
+  if (typeof rawType !== "string") return "TEXT"
+
+  const normalized = rawType.trim().toLowerCase()
+  const mapped = V4_TYPE_MAP[normalized]
+
+  if (mapped) return mapped
+
+  // Fallback: uppercase the raw type
+  return rawType.toUpperCase()
+}
+
+// Normaliserar V4 parameter-format till intern struktur
+// V4 API changes: listOptions -> choiceSettings.choices, caption -> display, lowercase types
+const normalizeV4Parameter = (raw: any): any => {
+  if (!raw || typeof raw !== "object") return raw
+
+  const normalized: any = { ...raw }
+
+  // Normalize parameter type (lowercase -> uppercase)
+  if (raw.type) {
+    normalized.type = normalizeParameterType(raw.type)
+  }
+
+  // Handle V4 number type with showSlider flag
+  if (raw.type === "number" && raw.showSlider === true) {
+    normalized.type = "RANGE_SLIDER"
+  }
+
+  // Handle V4 datetime with date-only format
+  if (raw.type === "datetime" && raw.format === "date") {
+    normalized.type = "DATE"
+  }
+
+  // Handle V4 file type variations (itemsToSelect)
+  if (raw.type === "file" && raw.itemsToSelect) {
+    const itemType = raw.itemsToSelect.toLowerCase()
+    if (itemType === "folders" || itemType === "directories") {
+      normalized.type = raw.validateExistence ? "DIRNAME_MUSTEXIST" : "DIRNAME"
+    } else if (itemType === "files") {
+      normalized.type = raw.validateExistence
+        ? "FILENAME_MUSTEXIST"
+        : "FILENAME"
+    }
+  }
+
+  // Handle V4 text type with url editor
+  if (raw.type === "text" && raw.editor === "url") {
+    normalized.type = "URL"
+  }
+
+  // Convert V4 choiceSettings.choices to listOptions format
+  if (raw.choiceSettings?.choices && !raw.listOptions) {
+    const choices = Array.isArray(raw.choiceSettings.choices)
+      ? raw.choiceSettings.choices
+      : []
+
+    normalized.listOptions = choices.map((choice: any) => {
+      // V4 uses 'display' for label and 'value' for actual value
+      const choiceValue = choice.value ?? choice.caption
+      const choiceCaption = choice.display ?? choice.caption ?? choiceValue
+
+      return {
+        caption: choiceCaption,
+        value: choiceValue,
+        ...(choice.description && { description: choice.description }),
+        ...(choice.path && { path: choice.path }),
+        ...(choice.disabled && { disabled: choice.disabled }),
+        ...(choice.metadata && { metadata: choice.metadata }),
+      }
+    })
+
+    // If type is 'text' but has choiceSettings, it should be a CHOICE/dropdown
+    if (raw.type === "text" && normalized.type !== "URL") {
+      normalized.type = "CHOICE"
+    }
+  }
+
+  // Handle V4 tree type with nodeDelimiter for path/breadcrumb separators
+  if (raw.type === "tree" && raw.nodeDelimiter) {
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      breadcrumbSeparator: raw.nodeDelimiter,
+      pathSeparator: raw.nodeDelimiter,
+    }
+  }
+
+  // Map V4 'prompt' to 'description' if description is missing
+  if (raw.prompt && !raw.description) {
+    normalized.description = raw.prompt
+  }
+
+  // Map V4 'required' to 'optional' (inverted)
+  // V4 defaults to required=true if not specified
+  if ("required" in raw) {
+    normalized.optional = !raw.required
+  } else if (!("optional" in raw)) {
+    // If neither field exists, default to optional=false (required)
+    normalized.optional = false
+  }
+
+  // Handle V4 number constraints
+  if (raw.type === "number" || normalized.type === "RANGE_SLIDER") {
+    if (typeof raw.minimum === "number") {
+      normalized.minimum = raw.minimum
+    }
+    if (typeof raw.maximum === "number") {
+      normalized.maximum = raw.maximum
+    }
+    if (typeof raw.minimumExclusive === "boolean") {
+      normalized.minimumExclusive = raw.minimumExclusive
+    }
+    if (typeof raw.maximumExclusive === "boolean") {
+      normalized.maximumExclusive = raw.maximumExclusive
+    }
+    if (typeof raw.multipleOf === "number") {
+      normalized.decimalPrecision = raw.multipleOf === 1 ? 0 : undefined
+    }
+  }
+
+  // Handle V4 color with colorSpace
+  if (raw.type === "color" && raw.colorSpace) {
+    normalized.metadata = {
+      ...(normalized.metadata || {}),
+      colorSpace: raw.colorSpace,
+    }
+  }
+
+  // Handle V4 visibility conditions
+  if (raw.visibility) {
+    normalized.visibility = raw.visibility
+  }
+
+  // Handle V4 nested group parameters
+  if (raw.type === "group" && Array.isArray(raw.parameters)) {
+    normalized.parameters = raw.parameters.map(normalizeV4Parameter)
+  }
+
+  return normalized
+}
+
+// Normaliserar array av V4 parametrar och plattar ut grupper
+const normalizeV4Parameters = (raw: any): any => {
+  // V4 API wraps parameters in { value: [...], Count: n } structure
+  const params = raw?.value || raw
+
+  if (!Array.isArray(params)) return raw
+
+  const normalized = params.map(normalizeV4Parameter)
+
+  // Flatten group parameters: extract nested parameters and add them to top level
+  const flattened: any[] = []
+  for (const param of normalized) {
+    // Always add the parameter itself (groups will be filtered later by ALWAYS_SKIPPED_TYPES)
+    flattened.push(param)
+
+    // If it's a group with nested parameters, add those too
+    if (param.type === "GROUP" && Array.isArray(param.parameters)) {
+      flattened.push(...param.parameters)
+    }
+  }
+
+  return flattened
+}
 
 /* Response interpreters för esriRequest */
 
@@ -835,8 +1164,8 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
 }
 
 // Skapar interceptor som injicerar FME-token i requests
-const FME_ENDPOINT_PATTERN =
-  /\/(?:fmerest|fmedatadownload|fmedataupload|fmejobsubmitter)\b/i
+// Matches v4 data streaming endpoints
+const FME_ENDPOINT_PATTERN = /\/(?:fmedatadownload|fmedataupload|fmeapiv4)\b/i
 
 const isAllowedFmePath = (rawUrl: unknown): boolean => {
   if (typeof rawUrl === "string") {
@@ -1036,13 +1365,13 @@ const handleAbortError = <T>(): ApiResponse<T> => ({
 /* FmeFlowApiClient – huvudklass för FME Flow API-anrop */
 
 export class FmeFlowApiClient {
-  private readonly config: FmeFlowConfig
+  private readonly config: Readonly<FmeFlowConfig>
   private readonly basePath = FME_FLOW_API.BASE_PATH
   private setupPromise: Promise<void>
   private disposed = false
 
   constructor(config: FmeFlowConfig) {
-    this.config = config
+    this.config = Object.freeze({ ...config })
     this.setupPromise = Promise.resolve()
     this.queueSetup(config)
   }
@@ -1161,15 +1490,6 @@ export class FmeFlowApiClient {
     return repository || this.config.repository
   }
 
-  // Bygger service-URL från repository och workspace
-  private buildServiceUrl(
-    service: string,
-    repository: string,
-    workspace: string
-  ): string {
-    return buildUrl(this.config.serverUrl, service, repository, workspace)
-  }
-
   // Formaterar jobb-parametrar till FME publishedParameters-struktur
   private formatJobParams(parameters: PrimitiveParams = {}): any {
     // Om redan i rätt format, returnera direkt
@@ -1194,19 +1514,21 @@ export class FmeFlowApiClient {
     )
   }
 
-  // Bygger transformation-endpoint (submit/run etc.)
-  private transformEndpoint(
-    action: string,
+  private jobsEndpoint(): string {
+    return buildUrl(this.config.serverUrl, this.basePath.slice(1), "jobs")
+  }
+  private workspaceEndpoint(
     repository: string,
-    workspace: string
+    workspace: string,
+    ...segments: string[]
   ): string {
     return buildUrl(
       this.config.serverUrl,
       this.basePath.slice(1),
-      "transformations",
-      action,
+      "workspaces",
       repository,
-      workspace
+      workspace,
+      ...segments
     )
   }
 
@@ -1220,20 +1542,41 @@ export class FmeFlowApiClient {
     } catch (err) {
       const status = extractHttpStatus(err)
       const retryable = isRetryableError(err)
-      throw new FmeFlowApiError(errorMessage, errorCode, status || 0, retryable)
+      const existing = err instanceof FmeFlowApiError ? err : null
+      const details = existing?.details ?? extractErrorDetails(err)
+      const severity = existing?.severity
+      const httpStatus =
+        typeof status === "number"
+          ? status
+          : typeof existing?.httpStatus === "number"
+            ? existing.httpStatus
+            : 0
+      throw new FmeFlowApiError(
+        errorMessage,
+        errorCode,
+        httpStatus,
+        retryable,
+        severity,
+        details
+      )
     }
   }
 
-  /**
-   * Calls /info on FME server to verify connectivity and get version info.
-   */
-  async testConnection(
-    signal?: AbortSignal
-  ): Promise<ApiResponse<{ build: string; version: string }>> {
-    return this.request<{ build: string; version: string }>("/info", { signal })
+  async testConnection(signal?: AbortSignal): Promise<
+    ApiResponse<{
+      status: string
+      message?: string
+      build?: string
+      version?: string
+    }>
+  > {
+    return this.request<{
+      status: string
+      message?: string
+      build?: string
+      version?: string
+    }>("/healthcheck/liveness", { signal })
   }
-
-  /* Publika API-metoder för FME Flow */
 
   // Validerar att repository existerar
   async validateRepository(
@@ -1259,7 +1602,7 @@ export class FmeFlowApiClient {
         const raw = await this.request<any>(listEndpoint, {
           signal,
           cacheHint: false, // Undvik cache över tokens
-          query: { limit: -1, offset: -1 },
+          query: { limit: 1000, offset: 0 },
         })
 
         const data = raw?.data
@@ -1284,18 +1627,24 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(
+    // V4 API: Use /workspaces/{repo}/{workspace}/parameters/{parameter}
+    const endpoint = this.workspaceEndpoint(
       repo,
-      "items",
       workspace,
       "parameters",
       parameter
     )
-    return this.request<WorkspaceParameter>(endpoint, {
+    const response = await this.request<any>(endpoint, {
       signal,
       cacheHint: false, // Avaktivera cache
       repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
     })
+
+    // Normalize V4 parameter format to internal structure
+    return {
+      ...response,
+      data: normalizeV4Parameter(response.data),
+    }
   }
 
   // Hämtar alla workspace-parametrar från FME Flow
@@ -1305,14 +1654,22 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<WorkspaceParameter[]>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(repo, "items", workspace, "parameters")
+    // V4 API: Use /workspaces/{repo}/{workspace}/parameters
+    const endpoint = this.workspaceEndpoint(repo, workspace, "parameters")
     return this.withApiError(
-      () =>
-        this.request<WorkspaceParameter[]>(endpoint, {
+      async () => {
+        const response = await this.request<any[]>(endpoint, {
           signal,
           cacheHint: false, // Avaktivera cache
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
-        }),
+        })
+
+        // Normalize V4 parameters format to internal structure
+        return {
+          ...response,
+          data: normalizeV4Parameters(response.data),
+        }
+      },
       "WORKSPACE_PARAMETERS_ERROR",
       "WORKSPACE_PARAMETERS_ERROR"
     )
@@ -1361,7 +1718,8 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<any>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.repoEndpoint(repo, "items", workspace)
+    // V4 API: Use /workspaces/{repo}/{workspace}
+    const endpoint = this.workspaceEndpoint(repo, workspace)
     return this.withApiError(
       () =>
         this.request<any>(endpoint, {
@@ -1382,14 +1740,20 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse<JobResult>> {
     const repo = this.resolveRepository(repository)
-    const endpoint = this.transformEndpoint("submit", repo, workspace)
+    const endpoint = this.jobsEndpoint()
     const jobRequest = this.formatJobParams(parameters)
+    const bodyWithWorkspace = {
+      repository: repo,
+      workspace: workspace,
+      ...jobRequest,
+    }
+
     return this.withApiError(
       () =>
         this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(jobRequest),
+          body: JSON.stringify(bodyWithWorkspace),
           signal,
           cacheHint: false,
         }),
@@ -1432,6 +1796,10 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<ApiResponse> {
     try {
+      const webhookOptions = {
+        requireHttps: this.config.requireHttps,
+      }
+
       const {
         baseUrl: webhookUrl,
         params,
@@ -1441,7 +1809,8 @@ export class FmeFlowApiClient {
         repository,
         workspace,
         parameters,
-        this.config.token
+        this.config.token,
+        webhookOptions
       )
 
       // Kontrollera URL-längd mot maxlängd
@@ -1772,12 +2141,16 @@ export class FmeFlowApiClient {
 
       // Hämta användarvänlig translations-nyckel via centraliserad mapping
       const translationKey = mapErrorFromNetwork(err, httpStatus)
+      const details = extractErrorDetails(err)
+      const messageKey = translationKey || errorCode
 
       throw new FmeFlowApiError(
-        translationKey,
+        messageKey,
         errorCode,
         httpStatus,
-        retryable
+        retryable,
+        undefined,
+        details
       )
     }
   }
@@ -1795,6 +2168,7 @@ const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
     "",
   repository: config.repository || "",
   timeout: config.requestTimeout,
+  requireHttps: config.requireHttps,
 })
 
 // Factory-funktion för att skapa FME Flow API-klient

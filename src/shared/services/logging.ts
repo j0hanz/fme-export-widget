@@ -28,6 +28,44 @@ interface NetworkRequest {
 
 const SLOW_REQUEST_THRESHOLD_MS = 1000
 
+/* Module-level flag for conditional logging */
+let isLoggingEnabled = false
+
+/* Sets logging state (called by runtime widget when config changes) */
+export const setLoggingEnabled = (enabled: boolean): void => {
+  isLoggingEnabled = enabled
+}
+
+/* Gets current logging state */
+export const getLoggingEnabled = (): boolean => isLoggingEnabled
+
+/* Conditional logging helpers - respect enableLogging flag */
+export const conditionalLog = (...args: any[]): void => {
+  if (isLoggingEnabled) {
+    console.log(...args)
+  }
+}
+
+export const conditionalTable = (
+  data: any,
+  columns?: readonly string[]
+): void => {
+  if (isLoggingEnabled) {
+    console.table(data, columns as any)
+  }
+}
+
+export const conditionalWarn = (...args: any[]): void => {
+  if (isLoggingEnabled) {
+    console.warn(...args)
+  }
+}
+
+/* Critical errors always log regardless of flag (HTTP errors, auth failures) */
+export const criticalError = (...args: any[]): void => {
+  console.error(...args)
+}
+
 export const DEBUG_STYLES = {
   success: "color: #28a745; font-weight: bold",
   info: "color: #007bff; font-weight: bold",
@@ -41,7 +79,9 @@ const logDebugMessage = (
   style: "success" | "info" | "warn" | "error" | "action" = "info",
   ...args: any[]
 ): void => {
-  console.log(`%c[FME Debug] ${message}`, DEBUG_STYLES[style], ...args)
+  if (isLoggingEnabled) {
+    console.log(`%c[FME Debug] ${message}`, DEBUG_STYLES[style], ...args)
+  }
 }
 
 const getDebugObject = (): FmeDebugObject | null => {
@@ -124,7 +164,7 @@ const copyToClipboard = (text: string): void => {
         },
         (err) => {
           logDebugMessage("Could not copy to clipboard", "error")
-          console.error("Clipboard error:", err)
+          conditionalLog("Clipboard error:", err)
         }
       )
     } else {
@@ -132,7 +172,7 @@ const copyToClipboard = (text: string): void => {
     }
   } catch (err) {
     logDebugMessage("Clipboard API not available or permissions denied", "warn")
-    console.error("Clipboard error:", err)
+    conditionalLog("Clipboard error:", err)
   }
 }
 
@@ -263,7 +303,7 @@ const createStateInspectionHelper = (): (() => void) => {
       return
     }
     logDebugMessage("Widget State:", "success")
-    console.table({
+    conditionalTable({
       viewMode: state.viewMode,
       drawingTool: state.drawingTool,
       hasGeometry: !!state.geometryJson,
@@ -281,7 +321,7 @@ const createQueryInspectionHelper = (): (() => void) => {
     }
     const queries = debugObj.getQueryCache?.() ?? []
     logDebugMessage("Query Cache:", "info")
-    console.table(
+    conditionalTable(
       queries.map((query: any) => ({
         queryKey: JSON.stringify(query.queryKey),
         status: query.state.status,
@@ -353,7 +393,7 @@ const createNetworkInspectionHelper = (): ((filter?: {
     }
 
     logDebugMessage(`Network History (${filtered.length} requests):`, "warn")
-    console.table(filtered.map(formatNetworkRequest))
+    conditionalTable(filtered.map(formatNetworkRequest))
   }
 }
 
@@ -369,7 +409,7 @@ const createFullStateHelper = (): (() => void) => {
       return
     }
     logDebugMessage("Full Widget State:", "success")
-    console.log(state)
+    conditionalLog(state)
   }
 }
 
@@ -386,7 +426,7 @@ const createConfigHelper = (): (() => void) => {
       return
     }
     logDebugMessage("Widget Config:", "success")
-    console.table(safeConfig)
+    conditionalTable(safeConfig)
   }
 }
 
@@ -413,13 +453,16 @@ const createTimelineHelper = (): (() => void) => {
       duration: r.durationMs + "ms",
     }))
 
-    console.table(timeline)
+    conditionalTable(timeline)
 
     if (state) {
-      console.log("Current State:")
-      console.log("  View Mode:", state.viewMode)
-      console.log("  Has Geometry:", !!state.geometryJson)
-      console.log("  Selected Workspace:", state.selectedWorkspace || "[NONE]")
+      conditionalLog("Current State:")
+      conditionalLog("  View Mode:", state.viewMode)
+      conditionalLog("  Has Geometry:", !!state.geometryJson)
+      conditionalLog(
+        "  Selected Workspace:",
+        state.selectedWorkspace || "[NONE]"
+      )
     }
   }
 }
@@ -459,7 +502,7 @@ const createExportDebugInfoHelper = (): (() => string) => {
     const json = JSON.stringify(debugPackage, null, 2)
 
     logDebugMessage("Debug Package:", "success")
-    console.log(json)
+    conditionalLog(json)
     copyToClipboard(json)
 
     return json

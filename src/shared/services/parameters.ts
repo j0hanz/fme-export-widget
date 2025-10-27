@@ -18,6 +18,7 @@ import type {
   FormPrimitive,
   TextOrFileValue,
   MutableNode,
+  ChoiceSetConfig,
 } from "../../config/index"
 import {
   ParameterType,
@@ -43,11 +44,17 @@ import {
   unwrapArray,
   toMetadataRecord,
   normalizeParameterValue,
+  normalizeToggleValue,
+  areToggleValuesEqual,
   buildChoiceSet,
   toNonEmptyTrimmedString,
   isNonEmptyTrimmedString,
 } from "../utils"
-import { isInt, isNum } from "../validations"
+import {
+  isNum,
+  validateParameterType as validateParamType,
+  validateParameterChoices as validateParamChoices,
+} from "../validations"
 
 /* Parameter Service - Formulärgenerering och validering */
 
@@ -61,8 +68,14 @@ export class ParameterFormService {
     if (SKIPPED_PARAMETER_NAMES.has(p.name)) return false
     if (ALWAYS_SKIPPED_TYPES.has(p.type)) return false
     if (LIST_REQUIRED_TYPES.has(p.type)) {
+      const choiceSettings = (p as any).choiceSettings
+      const hasChoices =
+        choiceSettings &&
+        Array.isArray(choiceSettings.choices) &&
+        choiceSettings.choices.length > 0
+
       return (
-        (Array.isArray(p.listOptions) && p.listOptions.length > 0) ||
+        hasChoices ||
         (p.defaultValue !== null &&
           p.defaultValue !== undefined &&
           p.defaultValue !== "")
@@ -79,45 +92,41 @@ export class ParameterFormService {
     return parameters.filter((parameter) => this.isRenderableParam(parameter))
   }
 
-  // Mappar FME listOptions till OptionItem-format
+  // Mappar FME V4 choiceSettings.choices till OptionItem-format
   private mapListOptions(
-    list: WorkspaceParameter["listOptions"]
+    param: WorkspaceParameter
   ): readonly OptionItem[] | undefined {
-    if (!list?.length) return undefined
-    return list.map((o) => {
-      const normalizedValue = normalizeParameterValue(o.value)
-      const label = toNonEmptyTrimmedString(o.caption, String(normalizedValue))
+    const choiceSettings = (param as any).choiceSettings
+    if (!choiceSettings || !Array.isArray(choiceSettings.choices)) {
+      return undefined
+    }
+    const nodeDelimiter = (param as any).nodeDelimiter
+    const isTree = param.type === ParameterType.tree
+
+    return choiceSettings.choices.map((o: any) => {
+      const rawValue = o.value ?? o.id ?? o.code
+      const normalizedValue = normalizeParameterValue(rawValue)
+      const displayValue = o.display ?? o.caption ?? o.label ?? o.name
+      const label = toNonEmptyTrimmedString(
+        displayValue,
+        String(normalizedValue)
+      )
+      const path =
+        isTree && nodeDelimiter && typeof displayValue === "string"
+          ? displayValue
+          : typeof o.path === "string" && o.path
+            ? o.path
+            : undefined
 
       return {
         label,
         value: normalizedValue,
         ...(o.description && { description: o.description }),
-        ...(typeof o.path === "string" && o.path && { path: o.path }),
+        ...(path && { path }),
         ...(o.disabled && { disabled: true }),
         ...(o.metadata && { metadata: o.metadata }),
       }
     })
-  }
-
-  private normalizeToggleValue(value: unknown): string | number | undefined {
-    if (value === undefined || value === null) return undefined
-    if (typeof value === "string") {
-      const trimmed = value.trim()
-      if (!trimmed) return undefined
-      return normalizeParameterValue(trimmed)
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      return normalizeParameterValue(value)
-    }
-    return undefined
-  }
-
-  private areToggleValuesEqual(a: unknown, b: unknown): boolean {
-    const normalizedA = this.normalizeToggleValue(a)
-    if (normalizedA === undefined) return false
-    const normalizedB = this.normalizeToggleValue(b)
-    if (normalizedB === undefined) return false
-    return normalizedA === normalizedB
   }
 
   private extractToggleMetaValue(
@@ -127,7 +136,7 @@ export class ParameterFormService {
     if (!meta) return undefined
     for (const key of keys) {
       if (!(key in meta)) continue
-      const candidate = this.normalizeToggleValue(
+      const candidate = normalizeToggleValue(
         (meta as { readonly [key: string]: unknown })[key]
       )
       if (candidate !== undefined) {
@@ -695,7 +704,10 @@ export class ParameterFormService {
 
     const meta = this.getParameterMetadata(param)
     const options = this.extractScriptedOptions(param, baseOptions)
+    const nodeDelimiter =
+      (param as any).nodeDelimiter || (param as any).delimiter
     const separator =
+      nodeDelimiter ||
       pickString(meta, ["breadcrumbSeparator", "pathSeparator", "delimiter"]) ||
       "/"
     const nodes = this.buildScriptedNodes(options, separator)
@@ -851,6 +863,19 @@ export class ParameterFormService {
     if (!selectableTypes.has(type)) return undefined
 
     const meta = this.getParameterMetadata(param)
+    const isTreeParam = param.type === ParameterType.tree
+    const hasPathsInOptions = Boolean(
+      options?.some(
+        (opt) => opt.path || (opt.children && opt.children.length > 0)
+      )
+    )
+
+    const hierarchical = pickBoolean(
+      meta,
+      ["hierarchical", "tree", "grouped", "nested"],
+      isTreeParam || hasPathsInOptions
+    )
+
     const allowSearch = pickBoolean(
       meta,
       ["allowSearch", "searchable", "enableSearch"],
@@ -868,11 +893,6 @@ export class ParameterFormService {
       "pageLimit",
     ])
     const instructions = pickString(meta, ["instructions", "hint", "helper"])
-    const hierarchical = pickBoolean(
-      meta,
-      ["hierarchical", "tree", "grouped", "nested"],
-      Boolean(options?.some((opt) => opt.children && opt.children.length > 0))
-    )
 
     // Only return config if at least one non-default value exists
     if (
@@ -961,6 +981,51 @@ export class ParameterFormService {
     }
   }
 
+  // ============================================
+  // Choice Set Extraction (Added: Oct 24, 2025)
+  // ============================================
+
+  public extractChoiceSetConfig(
+    param: WorkspaceParameter
+  ): ChoiceSetConfig | undefined {
+    if (!param || !param.choiceSet) return undefined
+
+    const choiceSet = param.choiceSet
+    const type = choiceSet.type
+
+    if (!type) return undefined
+
+    switch (type) {
+      case "attributeNames":
+        // Spread bevarar framtida FME-properties
+        return {
+          type: "attributeNames",
+          ...choiceSet,
+        }
+
+      case "coordinateSystems":
+        // Spread bevarar framtida FME-properties
+        return {
+          type: "coordinateSystems",
+          ...choiceSet,
+        }
+
+      case "dbConnections":
+        // Spread bevarar framtida FME-properties
+        return {
+          type: "dbConnections",
+          ...choiceSet,
+        }
+
+      case "webConnections":
+        // Spread bevarar framtida FME-properties
+        return {
+          type: "webConnections",
+          ...choiceSet,
+        }
+    }
+  }
+
   // Helper: Parse option entries for toggle fields
   private parseToggleOptionEntries(
     options?: readonly OptionItem[]
@@ -969,7 +1034,7 @@ export class ParameterFormService {
 
     return options
       .map((opt) => ({
-        value: this.normalizeToggleValue(opt?.value),
+        value: normalizeToggleValue(opt?.value),
         label: toTrimmedString(opt?.label) ?? undefined,
       }))
       .filter((entry) => entry.value !== undefined || entry.label)
@@ -1008,7 +1073,7 @@ export class ParameterFormService {
       if (normalizedDefault !== undefined && uncheckedValue === undefined) {
         if (
           first.value !== undefined &&
-          this.areToggleValuesEqual(first.value, normalizedDefault)
+          areToggleValuesEqual(first.value, normalizedDefault)
         ) {
           uncheckedValue = first.value
           if (checkedValue === undefined) {
@@ -1016,7 +1081,7 @@ export class ParameterFormService {
           }
         } else if (
           second.value !== undefined &&
-          this.areToggleValuesEqual(second.value, normalizedDefault)
+          areToggleValuesEqual(second.value, normalizedDefault)
         ) {
           uncheckedValue = second.value
           if (checkedValue === undefined) {
@@ -1034,9 +1099,9 @@ export class ParameterFormService {
         if (
           fallback !== undefined &&
           checkedValue !== undefined &&
-          this.areToggleValuesEqual(fallback, checkedValue) &&
+          areToggleValuesEqual(fallback, checkedValue) &&
           first.value !== undefined &&
-          !this.areToggleValuesEqual(first.value, checkedValue)
+          !areToggleValuesEqual(first.value, checkedValue)
         ) {
           uncheckedValue = first.value
         } else {
@@ -1064,11 +1129,11 @@ export class ParameterFormService {
 
     if (defaultBoolean !== undefined) {
       if (finalChecked === undefined && defaultBoolean) {
-        finalChecked = this.normalizeToggleValue(true)
+        finalChecked = normalizeToggleValue(true)
       }
 
       if (finalUnchecked === undefined && !defaultBoolean) {
-        finalUnchecked = this.normalizeToggleValue(false)
+        finalUnchecked = normalizeToggleValue(false)
       }
     }
 
@@ -1080,7 +1145,7 @@ export class ParameterFormService {
     if (
       finalChecked !== undefined &&
       finalUnchecked !== undefined &&
-      this.areToggleValuesEqual(finalChecked, finalUnchecked)
+      areToggleValuesEqual(finalChecked, finalUnchecked)
     ) {
       finalUnchecked = undefined
     }
@@ -1108,7 +1173,7 @@ export class ParameterFormService {
           entry.label &&
           checkedValue !== undefined &&
           entry.value !== undefined &&
-          this.areToggleValuesEqual(entry.value, checkedValue)
+          areToggleValuesEqual(entry.value, checkedValue)
       )?.label
 
     const uncheckedLabel =
@@ -1124,7 +1189,7 @@ export class ParameterFormService {
           entry.label &&
           uncheckedValue !== undefined &&
           entry.value !== undefined &&
-          this.areToggleValuesEqual(entry.value, uncheckedValue)
+          areToggleValuesEqual(entry.value, uncheckedValue)
       )?.label
 
     return { checkedLabel, uncheckedLabel }
@@ -1140,7 +1205,7 @@ export class ParameterFormService {
     }
 
     const meta = this.getParameterMetadata(param)
-    const normalizedDefault = this.normalizeToggleValue(param.defaultValue)
+    const normalizedDefault = normalizeToggleValue(param.defaultValue)
     const defaultBoolean = toBooleanValue(param.defaultValue)
 
     // Step 1: Parse option entries
@@ -1240,7 +1305,7 @@ export class ParameterFormService {
     }
   }
 
-  // Validerar värden mot parameter-definitioner (required/type/choices)
+  // Validering av parameter-värden mot typ och valbara alternativ
   validateParameters(
     data: { [key: string]: unknown },
     parameters: readonly WorkspaceParameter[]
@@ -1260,13 +1325,22 @@ export class ParameterFormService {
       }
 
       if (!isEmpty(value)) {
-        const typeError = this.validateParameterType(param, value)
+        const typeError = validateParamType(param.type, param.name, value)
         if (typeError) {
           errors.push(typeError)
           continue
         }
 
-        const choiceError = this.validateParameterChoices(param, value)
+        // Validering av valbara alternativ (choices)
+        const choiceSettings = (param as any).choiceSettings
+        const choices = choiceSettings?.choices
+        const validChoices = buildChoiceSet(choices)
+        const choiceError = validateParamChoices(
+          param.name,
+          value,
+          validChoices,
+          MULTI_SELECT_TYPES.has(param.type)
+        )
         if (choiceError) {
           errors.push(choiceError)
         }
@@ -1274,41 +1348,6 @@ export class ParameterFormService {
     }
 
     return { isValid: errors.length === 0, errors }
-  }
-
-  // Validerar primitiv typ-matchning för parameter-värde
-  private validateParameterType(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    switch (param.type) {
-      case ParameterType.INTEGER:
-        return isInt(value) ? null : `${param.name}:integer`
-      case ParameterType.FLOAT:
-        return isNum(value) ? null : `${param.name}:number`
-      default:
-        return null
-    }
-  }
-
-  // Validerar att värde matchar tillåtna choices i parameter
-  private validateParameterChoices(
-    param: WorkspaceParameter,
-    value: unknown
-  ): string | null {
-    const validChoices = buildChoiceSet(param.listOptions)
-    if (!validChoices) return null
-
-    if (MULTI_SELECT_TYPES.has(param.type)) {
-      const values = Array.isArray(value) ? value : [value]
-      if (values.some((v) => !validChoices.has(normalizeParameterValue(v)))) {
-        return `${param.name}:choice`
-      }
-    } else if (!validChoices.has(normalizeParameterValue(value))) {
-      return `${param.name}:choice`
-    }
-
-    return null
   }
 
   // Parser för condition clause från raw object
@@ -1327,7 +1366,7 @@ export class ParameterFormService {
       return { then: thenValue }
     }
 
-    // Clause med villkor ($ keys)
+    // Clause med villkor ($ keys) - via unknown för strikt typing
     const clauseWithCondition: { [key: string]: unknown } = {
       then: thenValue,
     }
@@ -1335,7 +1374,7 @@ export class ParameterFormService {
       clauseWithCondition[key] = clauseObj[key]
     }
 
-    return clauseWithCondition as DynamicPropertyClause<VisibilityState>
+    return clauseWithCondition as unknown as DynamicPropertyClause<VisibilityState>
   }
 
   // Bygger visibility expression från clauses och default state
@@ -1396,6 +1435,7 @@ export class ParameterFormService {
   }
 
   // Parser för enskild visibility state från sträng
+  // Accepterar både V3 snake_case och V4 camelCase för bakåtkompabilitet
   private parseVisibilityState(value: unknown): VisibilityState | undefined {
     if (typeof value !== "string") return undefined
 
@@ -1435,7 +1475,7 @@ export class ParameterFormService {
         param.type === ParameterType.RANGE_SLIDER && !sliderUiPreferred
           ? FormFieldType.NUMERIC_INPUT
           : baseType
-      const options = this.mapListOptions(param.listOptions)
+      const options = this.mapListOptions(param)
       const scripted = this.deriveScriptedConfig(param, options)
       const tableConfig = this.deriveTableConfig(param)
       const dateTimeConfig = this.deriveDateTimeConfig(param)
@@ -1444,6 +1484,7 @@ export class ParameterFormService {
       const colorConfig = this.deriveColorConfig(param)
       const toggleConfig = this.deriveToggleConfig(type, param, options)
       const visibility = this.deriveVisibilityConfig(param)
+      const choiceSetConfig = this.extractChoiceSetConfig(param)
       const readOnly = this.isReadOnlyField(type, scripted)
       const helper =
         scripted?.instructions ??
@@ -1470,26 +1511,18 @@ export class ParameterFormService {
           (type === FormFieldType.SWITCH || type === FormFieldType.CHECKBOX) &&
           toggleConfig
         ) {
-          const normalizedDefault = this.normalizeToggleValue(
-            param.defaultValue
-          )
+          const normalizedDefault = normalizeToggleValue(param.defaultValue)
           if (
             normalizedDefault !== undefined &&
             toggleConfig.checkedValue !== undefined &&
-            this.areToggleValuesEqual(
-              normalizedDefault,
-              toggleConfig.checkedValue
-            )
+            areToggleValuesEqual(normalizedDefault, toggleConfig.checkedValue)
           ) {
             return toggleConfig.checkedValue as FormPrimitive
           }
           if (
             normalizedDefault !== undefined &&
             toggleConfig.uncheckedValue !== undefined &&
-            this.areToggleValuesEqual(
-              normalizedDefault,
-              toggleConfig.uncheckedValue
-            )
+            areToggleValuesEqual(normalizedDefault, toggleConfig.uncheckedValue)
           ) {
             return toggleConfig.uncheckedValue as FormPrimitive
           }
@@ -1517,13 +1550,13 @@ export class ParameterFormService {
 
       const field: DynamicFieldConfig = {
         name: param.name,
-        label: param.description || param.name,
+        label: (param as any).prompt || param.description || param.name,
         type,
         required: !param.optional,
         readOnly,
-        description: param.description,
+        description: (param as any).prompt || param.description,
         defaultValue,
-        placeholder: param.description || "",
+        placeholder: (param as any).prompt || param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
         ...((min !== undefined || max !== undefined || step !== undefined) && {
@@ -1554,6 +1587,7 @@ export class ParameterFormService {
         ...(fileConfig && { fileConfig }),
         ...(colorConfig && { colorConfig }),
         ...(toggleConfig && { toggleConfig }),
+        ...(choiceSetConfig && { choiceSetConfig }),
         ...(visibility && { visibility }),
       }
       return field
@@ -1562,14 +1596,48 @@ export class ParameterFormService {
 
   // Mappar parameter-typ till UI-fälttyp
   private getFieldType(param: WorkspaceParameter): FormFieldType {
+    // Direkt hantering av multi-select typer
+    if (MULTI_SELECT_TYPES.has(param.type)) {
+      return FormFieldType.MULTI_SELECT
+    }
+
+    // Hantera valbara alternativ (choices)
+    const choiceSettings = (param as any).choiceSettings
+    const hasOptions =
+      choiceSettings &&
+      Array.isArray(choiceSettings.choices) &&
+      choiceSettings.choices.length > 0
+
+    if (hasOptions) {
+      // Bestäm om multi-select baserat på defaultValue
+      const defaultIsArray = Array.isArray(param.defaultValue)
+      return defaultIsArray ? FormFieldType.MULTI_SELECT : FormFieldType.SELECT
+    }
+
+    // Typ-override via mappning
     const override = PARAMETER_FIELD_TYPE_MAP[param.type]
     if (override) return override
 
-    const hasOptions = param.listOptions?.length > 0
-    if (hasOptions) {
-      return MULTI_SELECT_TYPES.has(param.type)
-        ? FormFieldType.MULTI_SELECT
-        : FormFieldType.SELECT
+    // Specifik hantering för text-typer med editor
+    if (
+      param.type === ParameterType.text ||
+      param.type === ParameterType.TEXT
+    ) {
+      const editor = (param as any).editor
+
+      if (editor === "plaintext") {
+        return FormFieldType.TEXTAREA
+      }
+
+      if (editor === "url") {
+        return FormFieldType.URL
+      }
+
+      // Kontrollera valueType för stringEncoded
+      const valueType = (param as any).valueType
+      if (valueType === "stringEncoded") {
+        return FormFieldType.TEXTAREA
+      }
     }
 
     return FormFieldType.TEXT

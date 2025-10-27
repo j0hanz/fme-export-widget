@@ -14,10 +14,10 @@ import {
   MessageManager,
   DataRecordSetChangeMessage,
 } from "jimu-core"
+import { shallowEqual } from "react-redux"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
-import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
 import { fmeQueryClient } from "../shared/query-client"
 import { Workflow } from "./components/workflow"
 import { StateView, renderSupportHint, useStyles } from "./components/ui"
@@ -68,16 +68,16 @@ import {
   useLatestAbortController,
   toTrimmedString,
   logIfNotAbort,
-  safeAbort,
+  safeAbortController,
   popupSuppressionManager,
   hexToRgbArray,
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
-  isAbortError,
   createFmeDispatcher,
   shouldSuppressError,
   createErrorActions,
+  isAbortError,
 } from "../shared/utils"
 import {
   useEsriModules,
@@ -86,7 +86,9 @@ import {
   safeCancelSketch,
   safeClearLayer,
   usePrefetchWorkspaces,
+  useMinLoadingTime,
 } from "../shared/hooks"
+import { setLoggingEnabled } from "../shared/services/logging"
 
 /* Huvudkomponent för FME Export widget runtime */
 function WidgetContent(
@@ -121,9 +123,15 @@ function WidgetContent(
     selectors.selectSelectedWorkspace
   )
   const orderResult = ReactRedux.useSelector(selectors.selectOrderResult)
-  const loadingState = ReactRedux.useSelector(selectors.selectLoading)
+  const loadingState = ReactRedux.useSelector(
+    selectors.selectLoading,
+    shallowEqual
+  )
   const isSubmitting = ReactRedux.useSelector(
     selectors.selectLoadingFlag("submission")
+  )
+  const isValidatingGeometry = ReactRedux.useSelector(
+    selectors.selectLoadingFlag("geometryValidation")
   )
   const canExport = ReactRedux.useSelector(selectors.selectCanExport)
   const scopedError = ReactRedux.useSelector(selectors.selectPrimaryError)
@@ -182,10 +190,7 @@ function WidgetContent(
     : null
 
   const styles = useStyles()
-  const translateWidget = hooks.useTranslation(
-    defaultMessages,
-    jimuDefaultMessages
-  )
+  const translateWidget = hooks.useTranslation(defaultMessages)
 
   /* Wrapper för översättningsfunktion med stabila callbacks */
   const translate = hooks.useEventCallback((key: string): string => {
@@ -207,10 +212,8 @@ function WidgetContent(
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
   const completionControllerRef = React.useRef<AbortController | null>(null)
-  const popupClientIdRef = React.useRef<symbol>()
-  if (!popupClientIdRef.current) {
-    popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
-  }
+  const [popupClientId] = React.useState(() => Symbol(`fme-popup-${widgetId}`))
+  const popupClientIdRef = React.useRef(popupClientId)
 
   const previousWidgetId = hooks.usePrevious(widgetId)
   hooks.useUpdateEffect(() => {
@@ -219,7 +222,8 @@ function WidgetContent(
       if (oldSymbol) {
         popupSuppressionManager.release(oldSymbol)
       }
-      popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+      const newSymbol = Symbol(`fme-popup-${widgetId}`)
+      popupClientIdRef.current = newSymbol
     }
   }, [widgetId, previousWidgetId])
 
@@ -313,29 +317,38 @@ function WidgetContent(
       }
 
       const params: { [key: string]: unknown } = {}
-      if (typeof info.value === "number") {
-        params.area =
-          currentModules && currentView?.view?.spatialReference
-            ? formatArea(
-                info.value,
-                currentModules,
-                currentView.view.spatialReference
-              )
-            : Math.max(0, Math.round(info.value)).toLocaleString()
-      }
-      if (typeof info.threshold === "number") {
-        params.threshold =
-          currentModules && currentView?.view?.spatialReference
-            ? formatArea(
-                info.threshold,
-                currentModules,
-                currentView.view.spatialReference
-              )
-            : Math.max(0, Math.round(info.threshold)).toLocaleString()
+      let messageKey = "forcedAsyncArea"
+
+      if (info.reason === "url_length") {
+        messageKey = "forcedAsyncUrlLength"
+        if (typeof info.urlLength === "number") {
+          params.urlLength = info.urlLength.toLocaleString()
+        }
+      } else {
+        if (typeof info.value === "number") {
+          params.area =
+            currentModules && currentView?.view?.spatialReference
+              ? formatArea(
+                  info.value,
+                  currentModules,
+                  currentView.view.spatialReference
+                )
+              : Math.max(0, Math.round(info.value)).toLocaleString()
+        }
+        if (typeof info.threshold === "number") {
+          params.threshold =
+            currentModules && currentView?.view?.spatialReference
+              ? formatArea(
+                  info.threshold,
+                  currentModules,
+                  currentView.view.spatialReference
+                )
+              : Math.max(0, Math.round(info.threshold)).toLocaleString()
+        }
       }
 
       setModeNotice({
-        messageKey: "forcedAsyncArea",
+        messageKey,
         severity: "warning",
         params,
       })
@@ -437,12 +450,17 @@ function WidgetContent(
     buildSymbols(hexToRgbArray(currentHex), drawingStyleOptions)
   )
 
+  const currentStyleKey = `${currentHex}-${config?.drawingOutlineWidth}-${config?.drawingFillOpacity}`
+  const previousStyleKey = hooks.usePrevious(currentStyleKey)
+
   hooks.useUpdateEffect(() => {
-    symbolsRef.current = buildSymbols(
-      hexToRgbArray(currentHex),
-      drawingStyleOptions
-    )
-  }, [currentHex, config?.drawingOutlineWidth, config?.drawingFillOpacity])
+    if (currentStyleKey !== previousStyleKey) {
+      symbolsRef.current = buildSymbols(
+        hexToRgbArray(currentHex),
+        drawingStyleOptions
+      )
+    }
+  }, [currentStyleKey, previousStyleKey, currentHex, drawingStyleOptions])
 
   /* Rensar FME-klient och nollställer cache-nyckel */
   const disposeFmeClient = hooks.useEventCallback(() => {
@@ -511,7 +529,7 @@ function WidgetContent(
     disposeFmeClient()
     disablePopupGuard()
     clearWarmupTimer()
-    safeAbort(completionControllerRef.current)
+    safeAbortController(completionControllerRef.current)
     completionControllerRef.current = null
   })
 
@@ -628,10 +646,12 @@ function WidgetContent(
     cleanupResources,
   } = mapResources
 
-  /* Synkar modulers laddningsstatus med Redux */
-  hooks.useEffectWithPreviousValues(() => {
-    fmeDispatchRef.current.setLoadingFlag("modules", Boolean(modulesLoading))
-  }, [modulesLoading])
+  /* Synkar modulers laddningsstatus med Redux med minimum display time */
+  const setLoadingFlag = useMinLoadingTime(dispatch, props.id)
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("modules", Boolean(modulesLoading))
+  }, [modulesLoading, setLoadingFlag])
 
   hooks.useUpdateEffect(() => {
     if (!modulesErrorKey) {
@@ -675,10 +695,10 @@ function WidgetContent(
     if (!geometryJson || !modules?.Polygon) {
       return null
     }
-    const polygonCtor: any = modules.Polygon
+    const polygonCtor = modules.Polygon
     try {
       if (typeof polygonCtor?.fromJSON === "function") {
-        return polygonCtor.fromJSON(geometryJson as any)
+        return polygonCtor.fromJSON(geometryJson)
       }
     } catch {
       return null
@@ -850,6 +870,11 @@ function WidgetContent(
     }
   })
 
+  /* Synkroniserar logging-state när config ändras */
+  hooks.useUpdateEffect(() => {
+    setLoggingEnabled(config?.enableLogging ?? false)
+  }, [config?.enableLogging])
+
   /* Återställer widget-state för ny validering */
   const resetForRevalidation = hooks.useEventCallback(
     (alsoCleanupMapResources = false) => {
@@ -925,14 +950,11 @@ function WidgetContent(
       if (!evt.graphic?.geometry) return
 
       if (isCompletingRef.current) {
-        console.log("Drawing completion already in progress, ignoring")
         return
       }
 
       const previousController = completionControllerRef.current
-      if (previousController && !previousController.signal.aborted) {
-        safeAbort(previousController)
-      }
+      safeAbortController(previousController)
 
       const controller = new AbortController()
       completionControllerRef.current = controller
@@ -941,6 +963,7 @@ function WidgetContent(
       try {
         endSketchSession()
         updateAreaWarning(false)
+        setLoadingFlag("geometryValidation", true)
 
         const result = await processDrawingCompletion({
           geometry: evt.graphic.geometry,
@@ -950,7 +973,10 @@ function WidgetContent(
           signal: controller.signal,
         })
 
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          setLoadingFlag("geometryValidation", false)
+          return
+        }
 
         if (!result.success) {
           try {
@@ -958,6 +984,7 @@ function WidgetContent(
           } catch {}
 
           if (!controller.signal.aborted) {
+            setLoadingFlag("geometryValidation", false)
             teardownDrawingResources()
             fmeDispatch.setGeometry(null, 0)
             updateAreaWarning(false)
@@ -1000,10 +1027,12 @@ function WidgetContent(
             result.area,
             ViewMode.WORKSPACE_SELECTION
           )
+          setLoadingFlag("geometryValidation", false)
         }
       } catch (error) {
         if (!controller.signal.aborted) {
           updateAreaWarning(false)
+          setLoadingFlag("geometryValidation", false)
           dispatchError(
             translate("errDrawComplete"),
             ErrorType.VALIDATION,
@@ -1044,10 +1073,6 @@ function WidgetContent(
         MessageManager.getInstance().publishMessage(message)
       } catch (error) {
         // Ignorera publiceringfel - huvudfunktionalitet påverkas ej
-        console.warn(
-          "FME Export: Failed to publish job completion message",
-          error
-        )
       }
     }
   )
@@ -1077,9 +1102,11 @@ function WidgetContent(
       return
     }
 
-    fmeDispatch.setLoadingFlag("submission", true)
-    setSubmissionPhase("preparing")
-    clearModeNotice()
+    ReactDOM.unstable_batchedUpdates(() => {
+      fmeDispatch.setLoadingFlag("submission", true)
+      setSubmissionPhase("preparing")
+      clearModeNotice()
+    })
 
     try {
       const fmeClient = getOrCreateFmeClient()
@@ -1127,6 +1154,15 @@ function WidgetContent(
 
       if (submissionResult.result) {
         finalizeOrder(submissionResult.result)
+        if (submissionResult.result.success && selectedWorkspace) {
+          try {
+            fmeQueryClient.invalidateQueries({
+              queryKey: ["fme", "workspace-item", selectedWorkspace],
+            })
+          } catch (queryErr) {
+            // Ignorera fel vid cache-invalidering
+          }
+        }
       }
     } catch (error) {
       /* Oväntade fel som inte fångades av executeJobSubmission */
@@ -1550,7 +1586,6 @@ function WidgetContent(
   })
 
   if (!widgetId || typeof widgetId !== "string" || !widgetId.trim()) {
-    console.error("[FME Export] Critical: Widget ID missing or invalid")
     return (
       <div css={styles.parent}>
         <StateView
@@ -1679,6 +1714,7 @@ function WidgetContent(
         canStartDrawing={!!sketchViewModel}
         submissionPhase={submissionPhase}
         modeNotice={modeNotice}
+        jimuMapView={jimuMapView?.view ?? null}
         onFormBack={() => navigateTo(ViewMode.WORKSPACE_SELECTION)}
         onFormSubmit={handleFormSubmit}
         orderResult={orderResult}
@@ -1701,6 +1737,7 @@ function WidgetContent(
         isDrawing={drawingSession.isActive}
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
+        isValidatingGeometry={isValidatingGeometry}
         // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions

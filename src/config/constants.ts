@@ -45,7 +45,7 @@ export const UPLOAD_PARAM_TYPES = Object.freeze([
 ] as const)
 
 export const FME_FLOW_API = Object.freeze({
-  BASE_PATH: "/fmerest/v3",
+  BASE_PATH: "/fmeapiv4",
   MAX_URL_LENGTH: 4000,
   WEBHOOK_EXCLUDE_KEYS: [] as const,
   WEBHOOK_LOG_WHITELIST: Object.freeze([
@@ -107,7 +107,7 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/Graphic",
 ] as const)
 
-export const WORKSPACE_ITEM_TYPE = "WORKSPACE"
+export const WORKSPACE_ITEM_TYPE = "workspace"
 
 export const PREFETCH_CONFIG = Object.freeze({
   DEFAULT_CHUNK_SIZE: 10,
@@ -250,7 +250,6 @@ export const TOKEN_ICON_PRIORITY = Object.freeze([
 ] as const)
 
 export const MIN_TOKEN_LENGTH = 10
-export const FME_REST_PATH = "/fmerest"
 
 export const WKID = Object.freeze({
   WGS84: 4326,
@@ -340,6 +339,9 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
   GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
   URL_TOO_LONG: "urlTooLongMessage",
+  WEBHOOK_URL_TOO_LONG: "urlTooLongMessage",
+  PARAMETER_VALIDATION_ERROR: "errorParameterValidation",
+  WORKSPACE_PARAMETERS_ERROR: "errorWorkspaceParameters",
 }
 
 export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
@@ -362,7 +364,6 @@ export const MESSAGE_PATTERNS = Object.freeze([
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
   require_https: "require_https",
   no_query_or_hash: "invalid_url",
-  disallow_fmerest_for_webhook: "disallow_fmerest_for_webhook",
   invalid_url: "invalid_url",
 }
 
@@ -396,7 +397,11 @@ export const SKIPPED_PARAMETER_NAMES = Object.freeze(
 )
 
 export const ALWAYS_SKIPPED_TYPES = Object.freeze(
-  new Set<ParameterType>([ParameterType.NOVALUE])
+  new Set<ParameterType>([
+    ParameterType.NOVALUE,
+    ParameterType.GROUP,
+    ParameterType.group,
+  ])
 )
 
 export const LIST_REQUIRED_TYPES = Object.freeze(
@@ -415,12 +420,26 @@ export const MULTI_SELECT_TYPES = Object.freeze(
     ParameterType.LISTBOX,
     ParameterType.LOOKUP_LISTBOX,
     ParameterType.ATTRIBUTE_LIST,
+    ParameterType.listbox, // FME V4
   ])
 )
 
 export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [K in ParameterType]?: FormFieldType
 }> = Object.freeze({
+  [ParameterType.text]: FormFieldType.TEXT,
+  [ParameterType.number]: FormFieldType.NUMBER,
+  [ParameterType.checkbox]: FormFieldType.CHECKBOX,
+  [ParameterType.dropdown]: FormFieldType.RADIO,
+  [ParameterType.listbox]: FormFieldType.MULTI_SELECT,
+  [ParameterType.tree]: FormFieldType.SELECT,
+  [ParameterType.password]: FormFieldType.PASSWORD,
+  [ParameterType.datetime]: FormFieldType.DATE_TIME,
+  [ParameterType.message]: FormFieldType.MESSAGE,
+  [ParameterType.group]: FormFieldType.HIDDEN,
+  [ParameterType.file]: FormFieldType.FILE,
+  [ParameterType.color]: FormFieldType.COLOR,
+  [ParameterType.range]: FormFieldType.SLIDER,
   [ParameterType.FLOAT]: FormFieldType.NUMERIC_INPUT,
   [ParameterType.INTEGER]: FormFieldType.NUMBER,
   [ParameterType.TEXT_EDIT]: FormFieldType.TEXTAREA,
@@ -428,6 +447,9 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.BOOLEAN]: FormFieldType.SWITCH,
   [ParameterType.CHECKBOX]: FormFieldType.SWITCH,
   [ParameterType.CHOICE]: FormFieldType.RADIO,
+  [ParameterType.LOOKUP_CHOICE]: FormFieldType.RADIO,
+  [ParameterType.LISTBOX]: FormFieldType.MULTI_SELECT,
+  [ParameterType.LOOKUP_LISTBOX]: FormFieldType.MULTI_SELECT,
   [ParameterType.FILENAME]: FormFieldType.FILE,
   [ParameterType.FILENAME_MUSTEXIST]: FormFieldType.FILE,
   [ParameterType.DIRNAME]: FormFieldType.FILE,

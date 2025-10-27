@@ -7,7 +7,6 @@ import {
   type WorkspaceParameter,
   ParameterType,
   MIN_TOKEN_LENGTH,
-  FME_REST_PATH,
   EMAIL_REGEX,
   HTTP_STATUS_CODES,
   isHttpStatus,
@@ -28,6 +27,7 @@ import {
   toTrimmedStringOrEmpty,
   isFileObject,
   isFiniteNumber,
+  buildValidationErrors,
 } from "./utils"
 
 // URL validation helpers
@@ -195,29 +195,108 @@ export const isNum = (value: unknown): boolean => {
   return num !== null
 }
 
+/** Validates parameter type matches expected type. Returns error key or null. */
+export const validateParameterType = (
+  paramType: string,
+  paramName: string,
+  value: unknown
+): string | null => {
+  // Import ParameterType constants
+  const INTEGER = "integer"
+  const FLOAT = "float"
+
+  switch (paramType) {
+    case INTEGER:
+      return isInt(value) ? null : `${paramName}:integer`
+    case FLOAT:
+      return isNum(value) ? null : `${paramName}:number`
+    default:
+      return null
+  }
+}
+
+/** Validates parameter value is within allowed choices. Returns error key or null. */
+export const validateParameterChoices = (
+  paramName: string,
+  value: unknown,
+  validChoices: Set<string | number> | null,
+  isMultiSelect: boolean
+): string | null => {
+  if (!validChoices) return null
+
+  // Import normalizeParameterValue from utils
+  const normalize = (v: unknown): string | number => {
+    if (typeof v === "number" && Number.isFinite(v)) return v
+    if (typeof v === "string") return v
+    if (typeof v === "boolean") return v ? "true" : "false"
+    return JSON.stringify(v ?? null)
+  }
+
+  if (isMultiSelect) {
+    const values = Array.isArray(value) ? value : [value]
+    if (values.some((v) => !validChoices.has(normalize(v)))) {
+      return `${paramName}:choice`
+    }
+  } else if (!validChoices.has(normalize(value))) {
+    return `${paramName}:choice`
+  }
+
+  return null
+}
+
+/** Checks if required field value is missing. */
+export const isRequiredFieldMissing = (
+  value: unknown,
+  required: boolean
+): boolean => {
+  if (!required) return false
+  if (value === undefined || value === null || value === "") return true
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === "string") return !value.trim()
+  return false
+}
+
 // URL validation helpers
 
-// Kontrollerar om pathname innehåller förbjuden FME REST path
-const hasForbiddenPath = (pathname: string): boolean =>
-  pathname.toLowerCase().includes(FME_REST_PATH)
-
-// Normaliserar bas-URL genom att ta bort fmerest och credentials
+// Normaliserar bas-URL genom att ta bort credentials och query params
 export const normalizeBaseUrl = (rawUrl: string): string => {
   const u = safeParseUrl(rawUrl || "")
   if (!u) return ""
-
-  let path = u.pathname || "/"
-  const idxRest = path.toLowerCase().indexOf(FME_REST_PATH)
-  if (idxRest >= 0) path = path.substring(0, idxRest) || "/"
 
   u.search = ""
   u.hash = ""
   u.username = ""
   u.password = ""
-  u.pathname = path
 
-  const cleanPath = path === "/" ? "" : path.replace(/\/$/, "")
+  const cleanPath = u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "")
   return `${u.origin}${cleanPath}`
+}
+
+// Validerar och normaliserar URL, returnerar ok-flagga och normaliserad URL eller fel-nyckel
+export function validateAndNormalizeUrl(
+  rawUrl: string,
+  options?: {
+    strict?: boolean
+    requireHttps?: boolean
+  }
+): {
+  ok: boolean
+  normalized?: string
+  errorKey?: string
+} {
+  const trimmed = toTrimmedString(rawUrl)
+  if (!trimmed) return { ok: false, errorKey: "invalid_url" }
+
+  const validation = validateServerUrl(trimmed, options)
+  if (!validation.ok) {
+    return {
+      ok: false,
+      errorKey: mapServerUrlReasonToKey((validation as any).reason),
+    }
+  }
+
+  const normalized = normalizeBaseUrl(trimmed)
+  return { ok: true, normalized: normalized || trimmed }
 }
 
 // Validerar server-URL med olika strictness-nivåer och options
@@ -226,7 +305,6 @@ export function validateServerUrl(
   opts?: {
     strict?: boolean
     requireHttps?: boolean
-    disallowRestForWebhook?: boolean
   }
 ): UrlValidation {
   const trimmed = toTrimmedStringOrEmpty(url)
@@ -249,17 +327,6 @@ export function validateServerUrl(
 
     if (parsed.search || parsed.hash) {
       return { ok: false, reason: "no_query_or_hash" }
-    }
-
-    if (
-      opts?.disallowRestForWebhook &&
-      /\/fmerest(?:\/|$)/i.test(parsed.pathname)
-    ) {
-      return { ok: false, reason: "disallow_fmerest_for_webhook" }
-    }
-
-    if (hasForbiddenPath(parsed.pathname)) {
-      return { ok: false, reason: "invalid_url" }
     }
 
     if (parsed.hostname.endsWith(".")) {
@@ -458,9 +525,6 @@ export function validateConnectionInputs(args: {
   errors: { serverUrl?: string; token?: string; repository?: string }
 } {
   const { url, token, repository, availableRepos } = args || ({} as any)
-
-  // Use buildValidationErrors helper from utils/error
-  const { buildValidationErrors } = require("./utils/error")
 
   return buildValidationErrors([
     {

@@ -272,6 +272,9 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         marginBlockStart: "auto",
         alignSelf: "stretch",
       }),
+      infoLine: css({
+        marginBlockEnd: spacing?.(2) ?? 0,
+      }),
     },
   } as const
 }

@@ -3,7 +3,6 @@
 import { React, hooks, ReactRedux, jsx } from "jimu-core"
 import {
   Button,
-  ButtonGroup,
   StateView,
   Form,
   Field,
@@ -13,8 +12,7 @@ import {
   UrlInput,
 } from "./ui"
 import { DynamicField } from "./fields"
-import defaultMessages from "./translations/default"
-import { defaultMessages as jimuDefaultMessages } from "jimu-ui"
+import defaultMessages from "../translations/default"
 import {
   type WorkflowProps,
   type WorkspaceItem,
@@ -25,8 +23,8 @@ import {
   type ExportFormProps,
   type DynamicFieldConfig,
   type LoadingState,
-  type ServiceMode,
   type VisibilityState,
+  type ServiceMode,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -52,24 +50,23 @@ import {
 import {
   resolveMessageOrKey,
   buildSupportHintText,
-  maskEmailForDisplay,
   stripHtmlToText,
   stripErrorLabel,
   initFormValues,
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
-  toTrimmedStringOrEmpty,
-  formatByteSize,
-  isAbortError,
   isNonEmptyTrimmedString,
   createFmeDispatcher,
+  buildOrderResultView,
+  isAbortError,
 } from "../../shared/utils"
 import {
   useFormStateManager,
   useDebounce,
   useWorkspaces,
   useWorkspaceItem,
+  useMinLoadingTime,
 } from "../../shared/hooks"
 import { VisibilityEvaluator } from "../../shared/visibility"
 
@@ -100,6 +97,7 @@ const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   submission: false,
   workspaces: false,
   parameters: false,
+  geometryValidation: false,
 })
 
 // Jämför två laddningsstatus-objekt för likhet
@@ -107,101 +105,18 @@ const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
   a.modules === b.modules &&
   a.submission === b.submission &&
   a.workspaces === b.workspaces &&
-  a.parameters === b.parameters
+  a.parameters === b.parameters &&
+  a.geometryValidation === b.geometryValidation
 
 // Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
-    state.modules || state.submission || state.workspaces || state.parameters
+    state.modules ||
+      state.submission ||
+      state.workspaces ||
+      state.parameters ||
+      state.geometryValidation
   )
-
-// Formaterar ordervärden för visning (stöder olika typer)
-const formatOrderValue = (value: unknown): string | null => {
-  if (value === undefined || value === null) return null
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed || null
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value.toString() : null
-  }
-  if (value instanceof Date) {
-    const time = value.getTime()
-    if (!Number.isFinite(time)) return null
-    try {
-      return value.toISOString()
-    } catch {
-      return null
-    }
-  }
-  if (value instanceof Blob) {
-    return value.type ? value.type : "blob"
-  }
-  if (typeof value === "boolean") {
-    return value ? "true" : "false"
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return null
-  }
-}
-
-/*
- * Hanterar nedladdnings-URL för remote URL eller Blob-objekt.
- * Skapar och städar upp object URLs automatiskt vid komponentlivscykel.
- */
-const useDownloadResource = (
-  remoteUrl?: string | null,
-  blob?: Blob | null
-): string | null => {
-  const [resourceUrl, setResourceUrl] = React.useState<string | null>(null)
-  const objectUrlRef = React.useRef<string | null>(null)
-
-  hooks.useEffectWithPreviousValues(() => {
-    if (objectUrlRef.current) {
-      try {
-        URL.revokeObjectURL(objectUrlRef.current)
-      } catch {
-        /* ignore revoke errors */
-      }
-      objectUrlRef.current = null
-    }
-
-    const trimmedUrl = toTrimmedStringOrEmpty(remoteUrl)
-    if (trimmedUrl) {
-      setResourceUrl(trimmedUrl)
-      return
-    }
-
-    if (blob instanceof Blob) {
-      try {
-        const objectUrl = URL.createObjectURL(blob)
-        objectUrlRef.current = objectUrl
-        setResourceUrl(objectUrl)
-        return
-      } catch {
-        setResourceUrl(null)
-        return
-      }
-    }
-
-    setResourceUrl(null)
-  }, [remoteUrl, blob])
-
-  hooks.useUnmount(() => {
-    if (objectUrlRef.current) {
-      try {
-        URL.revokeObjectURL(objectUrlRef.current)
-      } catch {
-        /* ignore revoke errors */
-      }
-      objectUrlRef.current = null
-    }
-  })
-
-  return resourceUrl
-}
 
 // Serialiserar geometri-objekt till JSON-sträng säkert
 const safeStringifyGeometry = (geometry: unknown): string => {
@@ -285,10 +200,7 @@ const createFormValidator = (
   return { getFormConfig, validateValues, initializeValues }
 }
 
-/*
- * OrderResult: Visar jobbresultat efter FME Flow-inlämning.
- * Hanterar visning av nedladdningslänkar, metadata och felmeddelanden.
- */
+// OrderResult: Visar resultatet av ett inlämnat FME-jobb.
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -298,200 +210,142 @@ const OrderResult: React.FC<OrderResultProps> = ({
   config,
 }) => {
   const styles = useUiStyles()
-  const isCancelled = Boolean(orderResult.cancelled)
-  const isSuccess = !isCancelled && !!orderResult.success
-  const isFailure = !isCancelled && !isSuccess
-  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
-  const serviceMode: ServiceMode =
-    orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-      ? orderResult.serviceMode
-      : fallbackMode
-  const downloadUrl = useDownloadResource(
-    orderResult.downloadUrl,
-    orderResult.blob
+  const [fallbackDownloadUrl, setFallbackDownloadUrl] = React.useState<
+    string | null
+  >(null)
+
+  // Bygger alert-meddelande baserat på orderResult-status
+  let alertNode: React.ReactNode = null
+  if (orderResult) {
+    const isCancelled = Boolean(orderResult.cancelled)
+    const isSuccess = !isCancelled && Boolean(orderResult.success)
+    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+    const serviceMode: ServiceMode =
+      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
+        ? orderResult.serviceMode
+        : fallbackMode
+
+    if (isCancelled) {
+      const failureCode = (orderResult.code || "").toString().toUpperCase()
+      const isTimeout = failureCode.includes("TIMEOUT")
+      const alertKey = isTimeout
+        ? "alertCancelledTimeout"
+        : "alertCancelledUser"
+      alertNode = (
+        <div css={styles.field}>
+          <Alert type="warning" withIcon text={translate(alertKey)} />
+        </div>
+      )
+    } else if (isSuccess) {
+      if (serviceMode === "async") {
+        alertNode = (
+          <div css={styles.field}>
+            <Alert type="info" withIcon text={translate("alertAsyncSuccess")} />
+          </div>
+        )
+      } else {
+        alertNode = (
+          <div css={styles.field}>
+            <Alert
+              type="success"
+              withIcon
+              text={translate("alertSyncSuccess")}
+            />
+          </div>
+        )
+      }
+    } else {
+      // Hanterar felstatus
+      const failureCode = (orderResult.code || "").toString().toUpperCase()
+      const rawMessage = orderResult.message || orderResult.statusMessage || ""
+      const isTransformFailure =
+        failureCode === "FME_JOB_FAILURE" ||
+        /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+      const alertKey = isTransformFailure
+        ? "alertJobFailed"
+        : serviceMode === "async"
+          ? "alertAsyncError"
+          : "alertSyncError"
+      alertNode = (
+        <div css={styles.field}>
+          <Alert type="error" withIcon text={translate(alertKey)} />
+        </div>
+      )
+    }
+  }
+
+  const viewState = buildOrderResultView(
+    orderResult,
+    config,
+    translate,
+    {
+      onReuseGeography,
+      onBack,
+      onReset,
+    },
+    fallbackDownloadUrl
   )
 
-  // Bygger informationsrader för orderresultat-vy
-  const infoRows: React.ReactNode[] = []
-  const addInfoRow = (label?: string, value?: unknown) => {
-    const display = formatOrderValue(value)
-    if (!display) return
+  // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
+  hooks.useEffectOnce(() => {
+    setFallbackDownloadUrl(null)
+    if (!orderResult) return
 
-    const key = label
-      ? `order-row-${label}-${infoRows.length}`
-      : `order-row-${infoRows.length}`
-    const text = label ? `${label}: ${display}` : display
+    const isCancelled = Boolean(orderResult.cancelled)
+    const isSuccess = !isCancelled && Boolean(orderResult.success)
+    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+    const serviceMode: ServiceMode =
+      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
+        ? orderResult.serviceMode
+        : fallbackMode
 
-    infoRows.push(
-      <div css={styles.typo.caption} key={key}>
-        {text}
-      </div>
-    )
-  }
+    if (!isSuccess || serviceMode !== "sync") return
 
-  addInfoRow(translate("lblJobId"), orderResult.jobId)
-  addInfoRow(translate("lblWorkspace"), orderResult.workspaceName)
-
-  const deliveryModeKey =
-    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
-  addInfoRow(translate("lblDelivery"), translate(deliveryModeKey))
-
-  if (orderResult.downloadFilename) {
-    addInfoRow(translate("lblFilename"), orderResult.downloadFilename)
-  }
-
-  const statusValue = toTrimmedString(orderResult.status)
-  if (statusValue) {
-    addInfoRow(translate("lblFmeStatus"), statusValue)
-  }
-
-  const statusMessage = toTrimmedString(orderResult.statusMessage)
-  if (statusMessage && statusMessage !== toTrimmedString(orderResult.message)) {
-    addInfoRow(translate("lblFmeMessage"), statusMessage)
-  }
-
-  const blobType = toTrimmedString(orderResult.blobMetadata?.type)
-  if (blobType) {
-    addInfoRow(translate("lblBlobType"), blobType)
-  }
-
-  const blobSizeFormatted = formatByteSize(orderResult.blobMetadata?.size)
-  if (blobSizeFormatted) {
-    addInfoRow(translate("lblBlobSize"), blobSizeFormatted)
-  }
-
-  if (serviceMode !== "sync") {
-    const emailVal = orderResult.email
-    const masked =
-      config?.maskEmailOnSuccess && isSuccess
-        ? maskEmailForDisplay(emailVal)
-        : emailVal
-    addInfoRow(translate("lblEmail"), masked)
-  }
-
-  // Visar felkod endast vid misslyckad order
-  if (orderResult.code && isFailure) {
-    addInfoRow(translate("lblErrorCode"), orderResult.code)
-  }
-
-  const titleText = isCancelled
-    ? translate("titleOrderCancelled")
-    : isSuccess
-      ? serviceMode === "sync"
-        ? translate("titleOrderComplete")
-        : translate("titleOrderConfirmed")
-      : translate("titleOrderFailed")
-
-  const buttonText = isCancelled
-    ? translate("btnNewOrder")
-    : isSuccess
-      ? translate("btnReuseArea")
-      : translate("btnRetry")
-
-  const primaryTooltip = isCancelled
-    ? translate("tipNewOrder")
-    : isSuccess
-      ? translate("tipReuseArea")
-      : undefined
-
-  const handlePrimary = hooks.useEventCallback(() => {
-    if (isCancelled || isSuccess) {
-      onReuseGeography?.()
-      return
+    let blobUrl: string | null = null
+    if (!orderResult.downloadUrl && orderResult.blob) {
+      blobUrl = URL.createObjectURL(orderResult.blob)
+      setFallbackDownloadUrl(blobUrl)
     }
-    onBack?.()
+    const downloadUrl = orderResult.downloadUrl || blobUrl
+
+    if (!downloadUrl) return
+
+    // Trigga automatisk nedladdning efter kort fördröjning
+    const downloadTimeout = setTimeout(() => {
+      try {
+        const link = document.createElement("a")
+        link.href = downloadUrl
+        link.download = orderResult.downloadFilename || "download"
+        link.style.display = "none"
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      } catch {
+        // Ignorera fel, fallback-knappen finns tillgänglig
+      }
+    }, 100) // AUTO_DOWNLOAD_DELAY_MS
+
+    // Cleanup: återkalla blob-URL och rensa timeout
+    return () => {
+      clearTimeout(downloadTimeout)
+      if (blobUrl) {
+        // Vänta med att rensa blob URL för att ge nedladdningen tid att starta
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(blobUrl)
+          } catch {
+            // Ignorera revoke-fel
+          }
+        }, 60000) // BLOB_URL_CLEANUP_DELAY_MS
+      }
+    }
   })
-
-  const handleEnd = hooks.useEventCallback(() => {
-    if (onReset) {
-      onReset()
-      return
-    }
-    onBack?.()
-  })
-
-  const showDownloadLink = isSuccess && Boolean(downloadUrl)
-
-  // Bygger meddelande baserat på orderstatus och typ
-  let messageText: string | null = null
-  if (isCancelled) {
-    const failureCode = (orderResult.code || "").toString().toUpperCase()
-    const isTimeout = failureCode.includes("TIMEOUT")
-    messageText = isTimeout
-      ? translate("msgOrderTimeout")
-      : translate("msgOrderCancelled")
-  } else if (isSuccess) {
-    if (serviceMode === "async") {
-      messageText = translate("msgEmailSent")
-    }
-  } else {
-    const failureCode = (orderResult.code || "").toString().toUpperCase()
-    const rawMessage =
-      toTrimmedString(orderResult.message) ||
-      toTrimmedString(orderResult.statusMessage) ||
-      ""
-
-    if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
-      messageText = translate("msgJobTimeout")
-    } else if (failureCode === "FME_JOB_CANCELLED") {
-      messageText = translate("msgJobCancelled")
-    } else if (
-      failureCode === "FME_JOB_FAILURE" ||
-      /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
-    ) {
-      messageText = translate("errTransformFailed")
-    } else if (rawMessage) {
-      messageText = rawMessage
-    } else {
-      messageText = translate("msgJobFailed")
-    }
-  }
 
   return (
-    <div css={styles.form.layout}>
-      <div css={styles.form.content}>
-        <div css={styles.form.body}>
-          <div css={styles.typo.title}>{titleText}</div>
-          {infoRows}
-
-          {showDownloadLink && (
-            <div css={styles.typo.caption}>
-              <a
-                href={downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                css={styles.typo.link}
-                download={orderResult.downloadFilename}
-              >
-                {translate("btnDownload")}
-              </a>
-            </div>
-          )}
-          {messageText ? (
-            <div css={styles.typo.caption}>{messageText}</div>
-          ) : null}
-        </div>
-        <div css={styles.form.footer}>
-          <ButtonGroup
-            secondaryButton={{
-              text: translate("btnEnd"),
-              onClick: handleEnd,
-              tooltip: translate("tipCancel"),
-              tooltipPlacement: "bottom",
-              logging: { enabled: true, prefix: "FME-Export" },
-            }}
-            primaryButton={{
-              text: buttonText,
-              onClick: handlePrimary,
-              type: "primary",
-              tooltip: primaryTooltip,
-              tooltipPlacement: "bottom",
-              logging: { enabled: true, prefix: "FME-Export" },
-            }}
-          />
-        </div>
-      </div>
-    </div>
+    <>
+      {alertNode}
+      <StateView state={viewState} />
+    </>
   )
 }
 
@@ -512,6 +366,7 @@ const ExportForm: React.FC<
   widgetId,
   config,
   geometryJson,
+  jimuMapView,
 }) => {
   const reduxDispatch = ReactRedux.useDispatch()
   const fmeDispatchRef = React.useRef(
@@ -839,6 +694,7 @@ const ExportForm: React.FC<
             value={formState.values.__upload_file__}
             onChange={(val) => setField("__upload_file__", val)}
             translate={translate}
+            jimuMapView={jimuMapView}
           />
         </Field>
       )}
@@ -872,6 +728,20 @@ const ExportForm: React.FC<
             field.type === FormFieldType.CHECKBOX
           const disabled = field.visibilityState === "visibleDisabled"
 
+          if (field.type === FormFieldType.MESSAGE) {
+            return (
+              <DynamicField
+                key={field.name}
+                field={field}
+                value={formState.values[field.name]}
+                onChange={(val) => setField(field.name, val)}
+                translate={translate}
+                disabled={disabled}
+                jimuMapView={jimuMapView}
+              />
+            )
+          }
+
           return (
             <Field
               key={field.name}
@@ -887,6 +757,7 @@ const ExportForm: React.FC<
                 onChange={(val) => setField(field.name, val)}
                 translate={translate}
                 disabled={disabled}
+                jimuMapView={jimuMapView}
               />
             </Field>
           )
@@ -924,6 +795,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   isDrawing,
   clickCount,
   isCompleting,
+  isValidatingGeometry = false,
   // Reset
   onReset,
   canReset: canResetProp = true,
@@ -938,6 +810,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   workspacePrefetchProgress,
   workspacePrefetchStatus,
   geometryJson,
+  jimuMapView,
   // Workspace collection now arrives from the parent widget via props
   // Startup validation props
   isStartupValidating: _isStartupValidating,
@@ -947,7 +820,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   submissionPhase = "idle",
   modeNotice,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useUiStyles()
   const reduxDispatch = ReactRedux.useDispatch()
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
@@ -981,7 +854,6 @@ export const Workflow: React.FC<WorkflowProps> = ({
   hooks.useEffectWithPreviousValues(() => {
     const current = latchedLoadingRef.current
     const incoming = incomingLoadingState
-
     if (isLoadingActive(incoming)) {
       releaseLoadingState.cancel()
       if (!loadingStatesEqual(current, incoming)) {
@@ -989,12 +861,10 @@ export const Workflow: React.FC<WorkflowProps> = ({
       }
       return
     }
-
     if (isLoadingActive(current)) {
       releaseLoadingState(incoming)
       return
     }
-
     if (!loadingStatesEqual(current, incoming)) {
       setLatchedLoadingState(incoming)
     }
@@ -1009,6 +879,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   const loadingState = latchedLoadingState
   const isModulesLoading = Boolean(loadingState.modules)
   const isSubmittingOrder = Boolean(loadingState.submission)
+  // Endast workspace-lista-laddning, inte individuella parametrar
   const isWorkspaceLoading = Boolean(loadingState.workspaces)
   const canDraw = canStartDrawing ?? true
 
@@ -1396,25 +1267,20 @@ export const Workflow: React.FC<WorkflowProps> = ({
             workspacesQuery.isFetching)
       )
     : false
-  const previousWorkspaceLoadingActive = hooks.usePrevious(
-    workspaceLoadingActive
-  )
-  React.useEffect(() => {
-    if (previousWorkspaceLoadingActive === workspaceLoadingActive) {
-      return
-    }
-    fmeDispatchRef.current.setLoadingFlag("workspaces", workspaceLoadingActive)
-  }, [workspaceLoadingActive, previousWorkspaceLoadingActive])
 
-  // Synkroniserar parameterhämtningsstatus till Redux
-  const parametersFetching = Boolean(workspaceItemQuery.isFetching)
-  const previousParametersFetching = hooks.usePrevious(parametersFetching)
-  React.useEffect(() => {
-    if (previousParametersFetching === parametersFetching) {
-      return
-    }
-    fmeDispatchRef.current.setLoadingFlag("parameters", parametersFetching)
-  }, [parametersFetching, previousParametersFetching])
+  // Synkroniserar parameter-hämtningsstatus till Redux
+  const parametersFetching = Boolean(workspaceItemQuery.isLoading)
+
+  // Hook för att sätta loading flags med minimum display time
+  const setLoadingFlag = useMinLoadingTime(reduxDispatch, widgetId)
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("workspaces", workspaceLoadingActive)
+  }, [workspaceLoadingActive, setLoadingFlag])
+
+  hooks.useUpdateEffect(() => {
+    setLoadingFlag("parameters", parametersFetching)
+  }, [parametersFetching, setLoadingFlag])
 
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
@@ -1584,7 +1450,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Route guard: Kontrollera om geometry-validering pågår
   const shouldShowGeometryValidation = () =>
-    isCompleting &&
+    isValidatingGeometry &&
     (state === ViewMode.DRAWING ||
       state === ViewMode.EXPORT_OPTIONS ||
       state === ViewMode.WORKSPACE_SELECTION)
@@ -1696,32 +1562,24 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Renderar workspace-val med laddning och fel
   const renderSelection = () => {
+    const isPrefetchLoading = Boolean(
+      isPrefetchingWorkspaces &&
+        workspaceItems.length &&
+        state === ViewMode.WORKSPACE_SELECTION
+    )
+
     const shouldShowLoading = shouldShowWorkspaceLoading(
-      isWorkspaceLoading,
+      isWorkspaceLoading || isPrefetchLoading,
       workspaceItems,
       state,
       Boolean(workspaceError)
     )
+
     if (shouldShowLoading) {
-      const isPrefetchLoading = Boolean(
-        isPrefetchingWorkspaces &&
-          workspaceItems.length &&
-          state === ViewMode.WORKSPACE_SELECTION
-      )
+      const message = translate("statusLoadWorkspaces")
+      const detail = isPrefetchLoading ? "" : translate("statusLoadWorkspaces")
 
-      const message = isPrefetchLoading
-        ? translate("statusLoadWorkspaces")
-        : workspaceItems.length
-          ? translate("statusLoadParams")
-          : translate("statusLoadWorkspaces")
-
-      const detail = isPrefetchLoading
-        ? ""
-        : workspaceItems.length
-          ? translate("msgLoadParams")
-          : translate("msgLoadRepos")
-
-      return renderLoading(message, detail, [translate("tipBackOptions")])
+      return renderLoading(message, detail)
     }
 
     if (workspaceError) {
@@ -1756,11 +1614,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
     }
 
     if (!workspaceParameters || !selectedWorkspace) {
-      return renderLoading(
-        translate("statusLoadParams"),
-        translate("msgLoadParams"),
-        [translate("titleConfigParams")]
-      )
+      return renderLoading(translate("statusLoadWorkspaces"))
     }
 
     return (
@@ -1777,6 +1631,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
           translate={translate}
           config={config}
           geometryJson={geometryJson}
+          jimuMapView={jimuMapView}
         />
       </>
     )

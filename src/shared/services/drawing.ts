@@ -8,6 +8,12 @@ import { LAYER_CONFIG, DrawingTool, ViewMode } from "../../config/index"
 import { logIfNotAbort, normalizeSketchCreateTool } from "../utils"
 import { safeCancelSketch } from "../hooks"
 import { fmeActions } from "../../extensions/store"
+import {
+  validatePolygon,
+  calcArea,
+  evaluateArea,
+  checkMaxArea,
+} from "../utils/geometry"
 
 // Skapar GraphicsLayers för ritning och preview
 export function createLayers(
@@ -152,9 +158,6 @@ export async function processDrawingCompletion(params: {
   if (!geometry) {
     return { success: false, error: { code: "NO_GEOMETRY" } }
   }
-
-  const { validatePolygon, calcArea, evaluateArea, checkMaxArea } =
-    await import("../utils/geometry")
 
   if (signal.aborted) {
     return { success: false, error: { code: "ABORTED" } }

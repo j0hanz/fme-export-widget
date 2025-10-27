@@ -1,19 +1,28 @@
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, jsx } from "jimu-core"
 import type {
-  DetermineServiceModeOptions,
-  FmeExportConfig,
-  ForceAsyncResult,
-  ServiceMode,
-  WorkspaceItem,
-  WorkspaceItemDetail,
-  WorkspaceParameter,
-  EsriModules,
   ExportResult,
   TranslateFn,
-  FmeResponse,
+  ServiceMode,
+  FmeExportConfig,
+  ViewState,
+  ViewAction,
+  WorkspaceItem,
+  WorkspaceParameter,
   NormalizedServiceInfo,
+  WebhookErrorCode,
+} from "../../config/types"
+import { makeErrorView } from "../../config/types"
+import { formatByteSize, maskEmailForDisplay } from "./format"
+import type {
+  DetermineServiceModeOptions,
+  ForceAsyncResult,
+  WorkspaceItemDetail,
+  EsriModules,
+  FmeResponse,
   PrimitiveParams,
   WebhookArtifacts,
-  WebhookErrorCode,
 } from "../../config/index"
 import {
   FME_FLOW_API,
@@ -32,10 +41,245 @@ import {
   toTrimmedString,
   toTrimmedStringOrEmpty,
 } from "./conversion"
-import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
-import { buildUrl, buildParams } from "./network"
+import { validateAndNormalizeUrl } from "../validations"
+import { buildUrl, buildParams, safeParseUrl } from "./network"
+
+// Bygger ViewState för att visa resultatet av ett FME-exportjobb
+export const buildOrderResultView = (
+  result: ExportResult | null | undefined,
+  config: FmeExportConfig | null | undefined,
+  translate: TranslateFn,
+  handlers: {
+    readonly onReuseGeography?: () => void
+    readonly onBack?: () => void
+    readonly onReset?: () => void
+  },
+  alertNode?: React.ReactNode,
+  fallbackDownloadUrl?: string | null
+): ViewState => {
+  if (!result) {
+    return makeErrorView(translate("msgNoResult"), {
+      code: "NO_RESULT",
+      actions: handlers.onBack
+        ? [{ label: translate("btnBack"), onClick: handlers.onBack }]
+        : undefined,
+    })
+  }
+
+  const isCancelled = Boolean(result.cancelled)
+  const isSuccess = !isCancelled && Boolean(result.success)
+  const isFailure = !isCancelled && !isSuccess
+  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+  const serviceMode: ServiceMode =
+    result.serviceMode === "sync" || result.serviceMode === "async"
+      ? result.serviceMode
+      : fallbackMode
+
+  // Build info detail section
+  const infoLines: string[] = []
+  if (result.jobId !== undefined && result.jobId !== null) {
+    infoLines.push(`${translate("lblJobId")}: ${result.jobId}`)
+  }
+  if (result.workspaceName) {
+    infoLines.push(`${translate("lblWorkspace")}: ${result.workspaceName}`)
+  }
+  const deliveryModeKey =
+    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
+  infoLines.push(`${translate("lblDelivery")}: ${translate(deliveryModeKey)}`)
+
+  if (result.downloadFilename) {
+    infoLines.push(`${translate("lblFilename")}: ${result.downloadFilename}`)
+  }
+  if (result.status) {
+    infoLines.push(`${translate("lblFmeStatus")}: ${result.status}`)
+  }
+  if (result.statusMessage && result.statusMessage !== result.message) {
+    infoLines.push(`${translate("lblFmeMessage")}: ${result.statusMessage}`)
+  }
+  if (result.blobMetadata?.type) {
+    infoLines.push(`${translate("lblBlobType")}: ${result.blobMetadata.type}`)
+  }
+  if (result.blobMetadata?.size) {
+    const sizeFormatted = formatByteSize(result.blobMetadata.size)
+    if (sizeFormatted) {
+      infoLines.push(`${translate("lblBlobSize")}: ${sizeFormatted}`)
+    }
+  }
+  if (serviceMode !== "sync" && result.email) {
+    const masked =
+      config?.maskEmailOnSuccess && isSuccess
+        ? maskEmailForDisplay(result.email)
+        : result.email
+    infoLines.push(`${translate("lblEmail")}: ${masked}`)
+  }
+  if (result.code && isFailure) {
+    infoLines.push(`${translate("lblErrorCode")}: ${result.code}`)
+  }
+
+  // Determine message text
+  let messageText: string | null = null
+  if (isCancelled) {
+    const failureCode = (result.code || "").toString().toUpperCase()
+    const isTimeout = failureCode.includes("TIMEOUT")
+    messageText = isTimeout
+      ? translate("msgOrderTimeout")
+      : translate("msgOrderCancelled")
+  } else if (isSuccess) {
+    if (serviceMode === "async") {
+      messageText = translate("msgEmailSent")
+    }
+  } else {
+    const failureCode = (result.code || "").toString().toUpperCase()
+    const rawMessage = result.message || result.statusMessage || ""
+
+    if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
+      messageText = translate("msgJobTimeout")
+    } else if (failureCode === "FME_JOB_CANCELLED") {
+      messageText = translate("msgJobCancelled")
+    } else if (
+      failureCode === "FME_JOB_FAILURE" ||
+      /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+    ) {
+      messageText = translate("errTransformFailed")
+    } else if (rawMessage) {
+      messageText = rawMessage
+    } else {
+      messageText = translate("msgJobFailed")
+    }
+  }
+
+  // Build actions
+  const actions: ViewAction[] = []
+
+  if (isCancelled) {
+    actions.push({
+      label: translate("btnNewOrder"),
+      onClick: () => {
+        handlers.onReuseGeography?.()
+      },
+      type: "primary" as const,
+    })
+  } else if (isSuccess) {
+    actions.push({
+      label: translate("btnReuseArea"),
+      onClick: () => {
+        handlers.onReuseGeography?.()
+      },
+      type: "primary" as const,
+    })
+  } else {
+    // Failure
+    actions.push({
+      label: translate("btnRetry"),
+      onClick: () => {
+        handlers.onBack?.()
+      },
+      type: "primary" as const,
+    })
+  }
+
+  // Secondary "Close" action
+  actions.push({
+    label: translate("btnEnd"),
+    onClick: () => {
+      if (handlers.onReset) {
+        handlers.onReset()
+      } else {
+        handlers.onBack?.()
+      }
+    },
+    type: "default" as const,
+  })
+
+  // Build info detail React node
+  const infoDetail =
+    infoLines.length > 0
+      ? jsx(
+          React.Fragment,
+          null,
+          ...infoLines.map((line, idx) => jsx("div", { key: idx }, line))
+        )
+      : null
+
+  // Hanter nedladdningslänk för synkrona jobb
+  let downloadNode: React.ReactNode = null
+  if (isSuccess && serviceMode === "sync") {
+    const downloadUrl = result.downloadUrl || fallbackDownloadUrl || null
+    if (downloadUrl) {
+      // Fallback download button if auto-download didn't start
+      downloadNode = jsx(
+        "div",
+        { style: { marginBottom: "0.5rem" } },
+        jsx(
+          "a",
+          {
+            href: downloadUrl,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            download: result.downloadFilename || "download",
+          },
+          translate("btnDownloadFallback")
+        )
+      )
+    }
+  }
+
+  // Kombinerar alla detaljdelar
+  const fullDetail =
+    alertNode || infoDetail || downloadNode || messageText
+      ? jsx(
+          React.Fragment,
+          null,
+          alertNode,
+          infoDetail,
+          downloadNode,
+          messageText && jsx("div", null, messageText)
+        )
+      : undefined
+
+  // Return appropriate ViewState
+  if (isFailure) {
+    const titleText = translate("titleOrderFailed")
+    return makeErrorView(titleText, {
+      code: result.code,
+      actions,
+      detail: fullDetail,
+    })
+  }
+
+  // Success or cancelled
+  const titleText = isCancelled
+    ? translate("titleOrderCancelled")
+    : serviceMode === "sync"
+      ? translate("titleOrderComplete")
+      : translate("titleOrderConfirmed")
+
+  return {
+    kind: "success",
+    title: titleText,
+    message: undefined,
+    actions,
+    detail: fullDetail,
+  }
+}
 
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
+
+const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1"
+
+const isLoopbackHostname = (hostname: string): boolean => {
+  if (!hostname) return false
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase()
+  if (normalized === "localhost") return true
+  if (normalized === "::1" || normalized === LOOPBACK_IPV6) return true
+  if (normalized.startsWith("127.")) return true
+  return false
+}
+
+export interface WebhookArtifactOptions {
+  readonly requireHttps?: boolean
+  readonly strict?: boolean
+}
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,
@@ -43,6 +287,8 @@ const shouldForceAsyncMode = (
     workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
     areaWarning?: boolean
     drawnArea?: number
+    formData?: unknown
+    userEmail?: string
   }
 ): ForceAsyncResult | null => {
   if (!options) return null
@@ -62,6 +308,49 @@ const shouldForceAsyncMode = (
         value: options.drawnArea,
         threshold: config.largeArea,
       }
+    }
+  }
+
+  // Check URL length for sync mode
+  if (options.formData && config) {
+    try {
+      const data = (options.formData as any)?.data || {}
+      const mockParams = buildFmeParams(
+        { data },
+        options.userEmail || "",
+        "sync",
+        config
+      )
+
+      const workspaceName = options.workspaceItem?.name
+      if (workspaceName && config.fmeServerUrl && config.repository) {
+        const urlCheck = isWebhookUrlTooLong({
+          serverUrl: config.fmeServerUrl,
+          repository: config.repository,
+          workspace: workspaceName,
+          parameters: mockParams,
+          token: config.fmeServerToken,
+          options: { requireHttps: config.requireHttps },
+        })
+
+        if (urlCheck) {
+          const { fullUrl } = createWebhookArtifacts(
+            config.fmeServerUrl,
+            config.repository,
+            workspaceName,
+            mockParams,
+            config.fmeServerToken,
+            { requireHttps: config.requireHttps }
+          )
+          return {
+            reason: "url_length",
+            urlLength: fullUrl.length,
+            threshold: FME_FLOW_API.MAX_URL_LENGTH,
+          }
+        }
+      }
+    } catch {
+      // Silently ignore URL validation errors - will be caught at submission
     }
   }
 
@@ -116,6 +405,8 @@ export const determineServiceMode = (
     workspaceItem: options?.workspaceItem,
     areaWarning: options?.areaWarning,
     drawnArea: options?.drawnArea,
+    formData,
+    userEmail: (data.opt_requesteremail as string) || "",
   })
 
   if (forceInfo && resolved === "sync") {
@@ -125,6 +416,7 @@ export const determineServiceMode = (
       reason: forceInfo.reason,
       value: forceInfo.value,
       threshold: forceInfo.threshold,
+      urlLength: forceInfo.urlLength,
     })
     return "async"
   }
@@ -378,7 +670,8 @@ export const processFmeResponse = (
     .trim()
     .toUpperCase()
 
-  if (normalizedStatus === "CANCELLED" || normalizedStatus === "CANCELED") {
+  // Kontrollerar om jobbet avbröts
+  if (normalizedStatus === "ABORTED") {
     const statusMessage = serviceInfo.message || ""
     const normalizedMessage = statusMessage.toLowerCase()
     const timeoutIndicators = [
@@ -503,20 +796,29 @@ export const createWebhookArtifacts = (
   repository: string,
   workspace: string,
   parameters: PrimitiveParams = {},
-  token?: string
+  token?: string,
+  options?: WebhookArtifactOptions
 ): WebhookArtifacts => {
   const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
-  const baseUrlValidation = validateServerUrl(baseUrl, {
-    strict: true,
-    requireHttps: true,
-    disallowRestForWebhook: true,
+  const referenceUrl =
+    safeParseUrl(serverUrl) ?? safeParseUrl(baseUrl) ?? undefined
+  const hostname = referenceUrl?.hostname || ""
+
+  const enforceHttps = options?.requireHttps ?? true
+  const enforceStrict =
+    options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
+
+  const result = validateAndNormalizeUrl(baseUrl, {
+    strict: enforceStrict,
+    requireHttps: enforceHttps,
   })
 
-  if (!baseUrlValidation.ok) {
-    const reason = mapServerUrlReasonToKey(
-      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
+  if (!result.ok) {
+    throw makeWebhookError(
+      "WEBHOOK_AUTH_ERROR",
+      0,
+      result.errorKey || "invalid_url"
     )
-    throw makeWebhookError("WEBHOOK_AUTH_ERROR", 0, reason)
   }
 
   const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
@@ -532,20 +834,32 @@ export const createWebhookArtifacts = (
 }
 
 // Kontrollerar om webhook-URL skulle överskrida maxlängd
-export const isWebhookUrlTooLong = (
-  serverUrl: string,
-  repository: string,
-  workspace: string,
-  parameters: PrimitiveParams = {},
-  maxLen: number = FME_FLOW_API.MAX_URL_LENGTH,
+export const isWebhookUrlTooLong = (args: {
+  serverUrl: string
+  repository: string
+  workspace: string
+  parameters?: PrimitiveParams
+  maxLen?: number
   token?: string
-): boolean => {
+  options?: WebhookArtifactOptions
+}): boolean => {
+  const {
+    serverUrl,
+    repository,
+    workspace,
+    parameters = {},
+    maxLen = FME_FLOW_API.MAX_URL_LENGTH,
+    token,
+    options,
+  } = args
+
   const { fullUrl } = createWebhookArtifacts(
     serverUrl,
     repository,
     workspace,
     parameters,
-    token
+    token,
+    options
   )
   return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
 }

@@ -114,6 +114,7 @@ export type MakeCancelableFn = <T>(promise: Promise<T>) => Promise<T>
 export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
+  readonly type?: "primary" | "secondary" | "tertiary" | "default"
   readonly variant?: "contained" | "outlined" | "text"
   readonly disabled?: boolean
 }
@@ -143,6 +144,7 @@ export type ViewState =
       readonly title?: string
       readonly message?: string
       readonly actions?: readonly ViewAction[]
+      readonly detail?: React.ReactNode
     }
   | { readonly kind: "content"; readonly node: React.ReactNode }
 
@@ -242,6 +244,7 @@ export interface LoadingState {
   readonly parameters: boolean
   readonly modules: boolean
   readonly submission: boolean
+  readonly geometryValidation: boolean
 }
 
 export type LoadingFlagKey = keyof LoadingState
@@ -534,6 +537,7 @@ export interface ExportFormProps {
   readonly isSubmitting?: boolean
   readonly translate?: TranslateFn
   readonly config?: FmeExportConfig
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface FormProps extends BaseProps {
@@ -650,7 +654,27 @@ export interface LogicalCondition {
 
 export interface DynamicPropertyClause<T> {
   readonly then: T
-  readonly [operator: string]: unknown
+  readonly $equals?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $lessThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $greaterThan?: {
+    readonly parameter: string
+    readonly value: string | number
+  }
+  readonly $matchesRegex?: {
+    readonly parameter: string
+    readonly regex: string
+  }
+  readonly $isEnabled?: { readonly parameter: string }
+  readonly $isRuntimeValue?: { readonly parameter: string }
+  readonly $allOf?: readonly ConditionExpression[]
+  readonly $anyOf?: readonly ConditionExpression[]
+  readonly $not?: ConditionExpression
 }
 
 export interface DynamicPropertyExpression<T> {
@@ -686,6 +710,7 @@ export interface DynamicFieldConfig {
   readonly tableConfig?: TableFieldConfig
   readonly dateTimeConfig?: DateTimeFieldConfig
   readonly selectConfig?: SelectFieldConfig
+  readonly choiceSetConfig?: ChoiceSetConfig
   readonly fileConfig?: FileFieldConfig
   readonly colorConfig?: ColorFieldConfig
   readonly toggleConfig?: ToggleFieldConfig
@@ -701,6 +726,7 @@ export interface DynamicFieldProps {
   ) => void
   readonly translate: TranslateFn
   readonly disabled?: boolean
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface FmeFlowConfig {
@@ -708,6 +734,7 @@ export interface FmeFlowConfig {
   readonly token: string
   readonly repository: string
   readonly timeout?: number
+  readonly requireHttps?: boolean
 }
 
 export interface FmeExportConfig {
@@ -722,7 +749,6 @@ export interface FmeExportConfig {
   readonly supportEmail?: string
   readonly requireHttps?: boolean
   readonly defaultRequesterEmail?: string
-  readonly disallowRestForWebhook?: boolean
   readonly tm_ttc?: number | string
   readonly tm_ttl?: number | string
   readonly showResult?: boolean
@@ -735,6 +761,7 @@ export interface FmeExportConfig {
   readonly drawingColor?: string
   readonly drawingOutlineWidth?: number
   readonly drawingFillOpacity?: number
+  readonly enableLogging?: boolean
 }
 
 export interface RequestConfig {
@@ -774,12 +801,20 @@ export interface ApiResponse<T = unknown> {
   readonly statusText: string
 }
 
+export interface ErrorDetailMap {
+  readonly [key: string]: string
+}
+export interface ErrorDetailInput {
+  [key: string]: string
+}
+
 export interface FmeError {
   readonly message: string
   readonly severity: ErrorSeverity
   readonly httpStatus?: number
   readonly code?: string
   readonly retryable?: boolean
+  readonly details?: ErrorDetailMap
 }
 
 export class FmeFlowApiError extends Error implements FmeError {
@@ -789,13 +824,15 @@ export class FmeFlowApiError extends Error implements FmeError {
   public readonly severity: ErrorSeverity
   public readonly retryable: boolean
   public readonly isRetryable: boolean
+  public readonly details?: ErrorDetailMap
 
   constructor(
     message: string,
     code: string,
     httpStatus?: number,
     isRetryable?: boolean,
-    severity: ErrorSeverity = ErrorSeverity.ERROR
+    severity: ErrorSeverity = ErrorSeverity.ERROR,
+    details?: ErrorDetailInput | ErrorDetailMap
   ) {
     super(message)
     this.name = "FmeFlowApiError"
@@ -805,6 +842,7 @@ export class FmeFlowApiError extends Error implements FmeError {
     this.retryable = Boolean(isRetryable)
     this.isRetryable = this.retryable
     this.severity = severity
+    this.details = details ? Object.freeze({ ...details }) : undefined
   }
 }
 
@@ -952,6 +990,7 @@ export interface WorkspaceParameter {
   readonly minimumExclusive?: boolean
   readonly maximumExclusive?: boolean
   readonly decimalPrecision?: number
+  readonly parameters?: readonly WorkspaceParameter[]
   readonly attributes?: { readonly [key: string]: unknown }
   readonly control?: { readonly [key: string]: unknown }
   readonly definition?: { readonly [key: string]: unknown }
@@ -959,6 +998,71 @@ export interface WorkspaceParameter {
   readonly schema?: { readonly [key: string]: unknown }
   readonly ui?: { readonly [key: string]: unknown }
   readonly extra?: { readonly [key: string]: unknown }
+  readonly choiceSet?: ChoiceSetConfig
+}
+
+export interface AttributeNamesChoiceSet {
+  readonly type: "attributeNames"
+  readonly includeDestinationFormatAttrs?: boolean
+  readonly includeDestinationUserAttrs?: boolean
+  readonly includeSourceFormatAttrs?: boolean
+  readonly includeSourceUserAttrs?: boolean
+  readonly excludeIncoming?: boolean
+  readonly includeUnexposedAttrs?: boolean
+  readonly listSupport?:
+    | "none"
+    | "full"
+    | "exclusive"
+    | "singleDepthOnly"
+    | "listNamesOnly"
+  readonly sourcePorts?: readonly string[]
+}
+
+export interface CoordinateSystemsChoiceSet {
+  readonly type: "coordinateSystems"
+  readonly reprojectionEngine?: "fme" | "esri" | "csmap" | "proj" | "mapinfo"
+  readonly allowReadCoordSysFromFeature?: boolean
+}
+
+export interface DatabaseConnectionsChoiceSet {
+  readonly type: "dbConnections"
+  readonly allowManualEntry?: boolean
+}
+
+export interface WebConnectionsChoiceSet {
+  readonly type: "webConnections"
+  readonly allowManualEntry?: boolean
+}
+
+export type ChoiceSetConfig =
+  | AttributeNamesChoiceSet
+  | CoordinateSystemsChoiceSet
+  | DatabaseConnectionsChoiceSet
+  | WebConnectionsChoiceSet
+
+export interface LayerAttributeInfo {
+  readonly name: string
+  readonly alias?: string
+  readonly type: string
+  readonly domain?: {
+    readonly type: string
+    readonly codedValues?: ReadonlyArray<{
+      readonly name: string
+      readonly code: unknown
+    }>
+  }
+  readonly nullable?: boolean
+  readonly editable?: boolean
+  readonly layerName?: string
+  readonly layerId?: string
+  readonly geometryType?: string
+}
+
+export interface AttributeCollectionResult {
+  readonly attributes: readonly LayerAttributeInfo[]
+  readonly layerCount: number
+  readonly totalAttributeCount: number
+  readonly hasGeometry: boolean
 }
 
 export interface JobDirectives {
@@ -1233,9 +1337,10 @@ export interface RequestLog {
 export interface ServiceModeOverrideInfo {
   readonly forcedMode: ServiceMode
   readonly previousMode: ServiceMode
-  readonly reason: "area"
+  readonly reason: "area" | "url_length"
   readonly value?: number
   readonly threshold?: number
+  readonly urlLength?: number
 }
 
 export interface DetermineServiceModeOptions {
@@ -1249,6 +1354,7 @@ export interface ForceAsyncResult {
   readonly reason: ServiceModeOverrideInfo["reason"]
   readonly value?: number
   readonly threshold?: number
+  readonly urlLength?: number
 }
 
 export interface ConnectionTestSectionProps {
@@ -1359,6 +1465,7 @@ export interface WorkflowProps extends BaseProps {
   readonly isDrawing?: boolean
   readonly clickCount?: number
   readonly isCompleting?: boolean
+  readonly isValidatingGeometry?: boolean
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
   readonly canReset?: boolean
@@ -1375,6 +1482,7 @@ export interface WorkflowProps extends BaseProps {
   readonly startupValidationStep?: string
   readonly startupValidationError?: SerializableErrorState | null
   readonly onRetryValidation?: () => void
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null
 }
 
 export interface ModeNotice {

@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, type SerializedStyles } from "jimu-core"
+import { React, hooks, jsx, css, type SerializedStyles } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -22,7 +22,6 @@ import {
   SVG,
   Table as JimuTable,
   Alert as JimuAlert,
-  defaultMessages as jimuDefaultMessages,
 } from "jimu-ui"
 import type { SVGProps } from "jimu-ui"
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker"
@@ -55,7 +54,7 @@ import type {
   TranslateFn,
   UiStyles,
 } from "../../config/index"
-import defaultMessages from "./translations/default"
+import defaultMessages from "../translations/default"
 import {
   styleCss,
   getErrorIconSrc,
@@ -555,19 +554,19 @@ export const Radio: React.FC<{
       aria-label={ariaLabel}
     >
       {options.map((option, index) => (
-        <JimuRadio
-          key={`${option.value}-${index}`}
-          value={option.value}
-          {...(isControlled
-            ? { checked: value === option.value }
-            : { defaultChecked: defaultValue === option.value })}
-          disabled={disabled}
-          onChange={(e) => {
-            onChange?.(e.target.value)
-          }}
-        >
+        <Label key={`${option.value}-${index}`} check centric>
+          <JimuRadio
+            value={option.value}
+            {...(isControlled
+              ? { checked: value === option.value }
+              : { defaultChecked: defaultValue === option.value })}
+            disabled={disabled}
+            onChange={(e) => {
+              onChange?.(e.target.value)
+            }}
+          />
           {option.label}
-        </JimuRadio>
+        </Label>
       ))}
     </div>
   )
@@ -723,7 +722,7 @@ export const Select: React.FC<SelectProps> = ({
   allowCustomValues = false,
   hierarchical = false,
 }) => {
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
   const [internalValue, setInternalValue] = useValue(value, defaultValue)
   const [searchTerm, setSearchTerm] = React.useState("")
@@ -930,7 +929,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...jimuProps
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
 
   const handleClick = hooks.useEventCallback(() => {
     if (jimuProps.disabled || loading || !onClick) return
@@ -1200,7 +1199,7 @@ const StateView: React.FC<StateViewProps> = ({
   center,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const { showLoading, snapshot } = useLoadingLatch(state, config.loading.delay)
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0)
@@ -1298,6 +1297,7 @@ const StateView: React.FC<StateViewProps> = ({
       })
 
       if (cycleInterval > 0) {
+        if (cycleTimer) clearInterval(cycleTimer)
         cycleTimer = setInterval(() => {
           setActiveLoadingMessageIndex((prev) => {
             if (messageCount <= 1) {
@@ -1337,6 +1337,7 @@ const StateView: React.FC<StateViewProps> = ({
               key={index}
               onClick={action.onClick}
               disabled={action.disabled}
+              type={action.type}
               variant={action.variant}
               text={action.label}
               block
@@ -1435,19 +1436,39 @@ const StateView: React.FC<StateViewProps> = ({
             })}
           </div>
         )
-      case "success":
+      case "success": {
+        const actions = renderActionsFn({
+          actions: state.actions,
+          ariaLabel: translate("ariaSuccessActions"),
+        })
+
         return (
-          <div role="status" aria-live="polite">
+          <div role="status" aria-live="polite" css={styles.stateView.error}>
             {state.title && <div css={styles.typo.title}>{state.title}</div>}
             {state.message && (
               <div css={styles.typo.caption}>{state.message}</div>
             )}
-            {renderActionsFn({
-              actions: state.actions,
-              ariaLabel: translate("ariaSuccessActions"),
-            })}
+            {state.detail && (
+              <div
+                css={[
+                  styles.typo.caption,
+                  css({ "& > div": styles.stateView.infoLine }),
+                ]}
+              >
+                {typeof state.detail === "string" ? (
+                  <span>{state.detail}</span>
+                ) : (
+                  state.detail
+                )}
+              </div>
+            )}
+
+            {actions ? (
+              <div css={styles.stateView.errorActions}>{actions}</div>
+            ) : null}
           </div>
         )
+      }
       case "content":
         return <>{state.node}</>
       case "loading":
@@ -1491,15 +1512,15 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
         key: index.toString(),
       }))
     : [
+        primaryButton
+          ? { config: primaryButton, role: "primary" as const, key: "primary" }
+          : null,
         secondaryButton
           ? {
               config: secondaryButton,
               role: "secondary" as const,
               key: "secondary",
             }
-          : null,
-        primaryButton
-          ? { config: primaryButton, role: "primary" as const, key: "primary" }
           : null,
       ].filter(
         (
@@ -1545,7 +1566,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
 // Form-komponent
 export const Form: React.FC<FormProps> = (props) => {
   const { variant, className, style, children } = props
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const styles = useStyles()
 
   if (variant === "layout") {
@@ -1577,7 +1598,6 @@ export const Form: React.FC<FormProps> = (props) => {
                       text: translate("btnBack"),
                       onClick: onBack,
                       disabled: loading,
-                      tooltip: translate("tipBackOptions"),
                     }
                   : undefined
               }
@@ -1628,7 +1648,7 @@ export const Field: React.FC<FieldProps> = ({
   children,
 }) => {
   const styles = useStyles()
-  const translate = hooks.useTranslation(defaultMessages, jimuDefaultMessages)
+  const translate = hooks.useTranslation(defaultMessages)
   const autoId = useId()
   const { id: fieldId, child: renderedChild } = withId(
     children,

@@ -12,44 +12,9 @@ import {
   mapDefined,
   toStringValue,
   toTrimmedString,
-  normalizeParameterValue,
   sanitizeParamKey,
 } from "./conversion"
 import { isValidExternalUrlForOptGetUrl } from "../validations"
-
-// Bygger ett Set av normaliserade choice-värden för parameter-validering
-export const buildChoiceSet = (
-  list: WorkspaceParameter["listOptions"]
-): Set<string | number> | null =>
-  list?.length
-    ? new Set(list.map((opt) => normalizeParameterValue(opt.value)))
-    : null
-
-// Skapar placeholder-texter för formulär-fält
-export const makePlaceholders = (
-  translate: TranslateFn,
-  fieldLabel: string
-) => ({
-  enter: translate("phEnter", { field: fieldLabel }),
-  select: translate("phSelect", { field: fieldLabel }),
-})
-
-const PLACEHOLDER_KIND_MAP = Object.freeze({
-  email: "phEmail",
-  phone: "phPhone",
-  search: "phSearch",
-} as const)
-
-export const getTextPlaceholder = (
-  field: { placeholder?: string } | undefined,
-  placeholders: { enter: string },
-  translate: TranslateFn,
-  kind?: "email" | "phone" | "search"
-): string => {
-  if (field?.placeholder) return field.placeholder
-  if (kind) return translate(PLACEHOLDER_KIND_MAP[kind])
-  return placeholders.enter
-}
 
 const normalizeFormEntries = (
   entries: Iterable<[string, unknown]>
@@ -267,7 +232,6 @@ export const shouldShowWorkspaceLoading = (
 
   const needsLoading =
     state === "workspace-selection" || state === "export-options"
-
   return needsLoading && isLoading
 }
 
