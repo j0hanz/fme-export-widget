@@ -278,6 +278,8 @@ function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
   )
 }
 
+export { areLoadingStatesEqual }
+
 // Prioritetsrangordning för felallvarlighet (högre = allvarligare)
 const ERROR_SEVERITY_RANK: {
   readonly [key in ErrorSeverity]: number

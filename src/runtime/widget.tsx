@@ -14,6 +14,7 @@ import {
   MessageManager,
   DataRecordSetChangeMessage,
 } from "jimu-core"
+import { shallowEqual } from "react-redux"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { JimuMapViewComponent, type JimuMapView } from "jimu-arcgis"
@@ -121,7 +122,10 @@ function WidgetContent(
     selectors.selectSelectedWorkspace
   )
   const orderResult = ReactRedux.useSelector(selectors.selectOrderResult)
-  const loadingState = ReactRedux.useSelector(selectors.selectLoading)
+  const loadingState = ReactRedux.useSelector(
+    selectors.selectLoading,
+    shallowEqual
+  )
   const isSubmitting = ReactRedux.useSelector(
     selectors.selectLoadingFlag("submission")
   )

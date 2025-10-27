@@ -1,6 +1,6 @@
 import { React, hooks } from "jimu-core"
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
-import { useSelector } from "react-redux"
+import { useSelector, shallowEqual } from "react-redux"
 import type { JimuMapView } from "jimu-arcgis"
 import type {
   EsriModules,
@@ -491,6 +491,22 @@ export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
     const effectiveState = builderState ?? state
     return selector(effectiveState)
   })
+}
+
+// Hook för selector med shallowEqual optimization
+export const useShallowEqualSelector = <T>(selector: (state: any) => T): T => {
+  return useSelector(selector, shallowEqual)
+}
+
+// Hook för builder-selector med shallowEqual optimization
+export const useBuilderShallowEqualSelector = <T>(
+  selector: (state: any) => T
+): T => {
+  return useSelector((state: any) => {
+    const builderState = state?.appStateInBuilder
+    const effectiveState = builderState ?? state
+    return selector(effectiveState)
+  }, shallowEqual)
 }
 
 // Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
