@@ -97,6 +97,7 @@ const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   submission: false,
   workspaces: false,
   parameters: false,
+  geometryValidation: false,
 })
 
 // Jämför två laddningsstatus-objekt för likhet
@@ -104,12 +105,17 @@ const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
   a.modules === b.modules &&
   a.submission === b.submission &&
   a.workspaces === b.workspaces &&
-  a.parameters === b.parameters
+  a.parameters === b.parameters &&
+  a.geometryValidation === b.geometryValidation
 
 // Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
-    state.modules || state.submission || state.workspaces || state.parameters
+    state.modules ||
+      state.submission ||
+      state.workspaces ||
+      state.parameters ||
+      state.geometryValidation
   )
 
 // Serialiserar geometri-objekt till JSON-sträng säkert
@@ -789,6 +795,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
   isDrawing,
   clickCount,
   isCompleting,
+  isValidatingGeometry = false,
   // Reset
   onReset,
   canReset: canResetProp = true,
@@ -1443,7 +1450,7 @@ export const Workflow: React.FC<WorkflowProps> = ({
 
   // Route guard: Kontrollera om geometry-validering pågår
   const shouldShowGeometryValidation = () =>
-    isCompleting &&
+    isValidatingGeometry &&
     (state === ViewMode.DRAWING ||
       state === ViewMode.EXPORT_OPTIONS ||
       state === ViewMode.WORKSPACE_SELECTION)

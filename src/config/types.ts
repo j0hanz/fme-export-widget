@@ -244,6 +244,7 @@ export interface LoadingState {
   readonly parameters: boolean
   readonly modules: boolean
   readonly submission: boolean
+  readonly geometryValidation: boolean
 }
 
 export type LoadingFlagKey = keyof LoadingState
@@ -1464,6 +1465,7 @@ export interface WorkflowProps extends BaseProps {
   readonly isDrawing?: boolean
   readonly clickCount?: number
   readonly isCompleting?: boolean
+  readonly isValidatingGeometry?: boolean
   readonly showHeaderActions?: boolean
   readonly onReset?: () => void
   readonly canReset?: boolean

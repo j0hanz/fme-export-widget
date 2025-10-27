@@ -260,6 +260,7 @@ function createInitialLoadingState(): LoadingState {
     parameters: false,
     modules: false,
     submission: false,
+    geometryValidation: false,
   }
 }
 
@@ -274,7 +275,8 @@ function areLoadingStatesEqual(a: LoadingState, b: LoadingState): boolean {
     a.workspaces === b.workspaces &&
     a.parameters === b.parameters &&
     a.modules === b.modules &&
-    a.submission === b.submission
+    a.submission === b.submission &&
+    a.geometryValidation === b.geometryValidation
   )
 }
 

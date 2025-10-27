@@ -130,6 +130,9 @@ function WidgetContent(
   const isSubmitting = ReactRedux.useSelector(
     selectors.selectLoadingFlag("submission")
   )
+  const isValidatingGeometry = ReactRedux.useSelector(
+    selectors.selectLoadingFlag("geometryValidation")
+  )
   const canExport = ReactRedux.useSelector(selectors.selectCanExport)
   const scopedError = ReactRedux.useSelector(selectors.selectPrimaryError)
 
@@ -960,6 +963,7 @@ function WidgetContent(
       try {
         endSketchSession()
         updateAreaWarning(false)
+        setLoadingFlag("geometryValidation", true)
 
         const result = await processDrawingCompletion({
           geometry: evt.graphic.geometry,
@@ -969,7 +973,10 @@ function WidgetContent(
           signal: controller.signal,
         })
 
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) {
+          setLoadingFlag("geometryValidation", false)
+          return
+        }
 
         if (!result.success) {
           try {
@@ -977,6 +984,7 @@ function WidgetContent(
           } catch {}
 
           if (!controller.signal.aborted) {
+            setLoadingFlag("geometryValidation", false)
             teardownDrawingResources()
             fmeDispatch.setGeometry(null, 0)
             updateAreaWarning(false)
@@ -1019,10 +1027,12 @@ function WidgetContent(
             result.area,
             ViewMode.WORKSPACE_SELECTION
           )
+          setLoadingFlag("geometryValidation", false)
         }
       } catch (error) {
         if (!controller.signal.aborted) {
           updateAreaWarning(false)
+          setLoadingFlag("geometryValidation", false)
           dispatchError(
             translate("errDrawComplete"),
             ErrorType.VALIDATION,
@@ -1727,6 +1737,7 @@ function WidgetContent(
         isDrawing={drawingSession.isActive}
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
+        isValidatingGeometry={isValidatingGeometry}
         // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
