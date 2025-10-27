@@ -51,6 +51,7 @@ import {
   validateConnectionInputs,
   isValidEmail,
   validateEmailField,
+  validateAndNormalizeUrl,
 } from "../shared/validations"
 import { mapErrorFromNetwork } from "../shared/utils/error"
 import { translateOptional } from "../shared/utils/format"
@@ -746,14 +747,19 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       const token = localToken
       const repository = selectedRepository
 
-      const cleaned = normalizeBaseUrl(rawServerUrl || "")
-      const changed = cleaned !== rawServerUrl
+      const result = validateAndNormalizeUrl(rawServerUrl || "", {
+        requireHttps: localRequireHttps,
+      })
+
+      if (!result.ok) return null
+
+      const serverUrl = result.normalized || ""
+      const changed = serverUrl !== rawServerUrl
+
       /* Om sanering ändrade, uppdatera config */
       if (changed) {
-        updateConfig("fmeServerUrl", cleaned)
+        updateConfig("fmeServerUrl", serverUrl)
       }
-
-      const serverUrl = cleaned
 
       return serverUrl && token ? { serverUrl, token, repository } : null
     }
@@ -1005,7 +1011,10 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const handleServerUrlBlur = hooks.useEventCallback((url: string) => {
     /* Validerar vid blur */
     debouncedServerValidation.cancel()
-    const cleaned = normalizeBaseUrl(url)
+    const result = validateAndNormalizeUrl(url, {
+      requireHttps: localRequireHttps,
+    })
+    const cleaned = result.normalized || ""
     const hasChanged = cleaned !== configServerUrl
     if (cleaned !== localServerUrl) {
       setLocalServerUrl(cleaned)

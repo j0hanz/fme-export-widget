@@ -30,6 +30,8 @@ import {
   createFmeClient,
   buildTokenCacheKey,
   queryKeys,
+  safeAbortController,
+  linkAbortSignal,
 } from "./utils"
 import { healthCheck, validateConnection } from "./services"
 
@@ -703,11 +705,7 @@ export const useLatestAbortController = () => {
   // Avbryter aktuell controller och rensar referens
   const cancel = hooks.useEventCallback(() => {
     const controller = controllerRef.current
-    if (controller) {
-      try {
-        controller.abort()
-      } catch {}
-    }
+    safeAbortController(controller)
     controllerRef.current = null
   })
 
@@ -920,13 +918,7 @@ export function usePrefetchWorkspaces(
 
     const abortAllControllers = (reason?: unknown): void => {
       abortControllers.forEach((controller) => {
-        try {
-          if (!controller.signal.aborted) {
-            controller.abort(reason)
-          }
-        } catch {
-          controller.abort()
-        }
+        safeAbortController(controller, reason)
       })
       abortControllers.clear()
     }
@@ -935,28 +927,7 @@ export function usePrefetchWorkspaces(
       source: AbortSignal | undefined,
       controller: AbortController
     ): (() => void) => {
-      if (!source) {
-        return () => undefined
-      }
-
-      const abortHandler = () => {
-        const reason = (source as { reason?: unknown }).reason
-        try {
-          if (!controller.signal.aborted) {
-            controller.abort(reason)
-          }
-        } catch {
-          controller.abort()
-        }
-      }
-
-      source.addEventListener("abort", abortHandler)
-
-      return () => {
-        try {
-          source.removeEventListener("abort", abortHandler)
-        } catch {}
-      }
+      return linkAbortSignal(source, controller)
     }
 
     const prefetch = async () => {

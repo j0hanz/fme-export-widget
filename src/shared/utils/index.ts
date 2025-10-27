@@ -16,7 +16,20 @@ export * from "./conversion"
 export * from "./format"
 export * from "./geometry"
 export * from "./form"
-export * from "./error"
+export {
+  safeAbort,
+  safeAbortController,
+  linkAbortSignal,
+  logIfNotAbort,
+  shouldSuppressError,
+  createErrorActions,
+  getErrorIconSrc,
+  createGeometryError,
+  mapErrorFromNetwork,
+  mapErrorFromValidation,
+  buildValidationErrors,
+  formatErrorPresentation,
+} from "./error"
 export * from "./fme"
 export * from "./arcgis"
 export * from "./network"

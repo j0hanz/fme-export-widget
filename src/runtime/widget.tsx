@@ -68,7 +68,7 @@ import {
   useLatestAbortController,
   toTrimmedString,
   logIfNotAbort,
-  safeAbort,
+  safeAbortController,
   popupSuppressionManager,
   hexToRgbArray,
   buildSymbols,
@@ -517,7 +517,7 @@ function WidgetContent(
     disposeFmeClient()
     disablePopupGuard()
     clearWarmupTimer()
-    safeAbort(completionControllerRef.current)
+    safeAbortController(completionControllerRef.current)
     completionControllerRef.current = null
   })
 
@@ -938,9 +938,7 @@ function WidgetContent(
       }
 
       const previousController = completionControllerRef.current
-      if (previousController && !previousController.signal.aborted) {
-        safeAbort(previousController)
-      }
+      safeAbortController(previousController)
 
       const controller = new AbortController()
       completionControllerRef.current = controller

@@ -85,6 +85,54 @@ export const safeAbort = (ctrl: AbortController | null) => {
   }
 }
 
+// Säker avbrytning av AbortController med anledning
+export const safeAbortController = (
+  controller: AbortController | null | undefined,
+  reason?: unknown
+): void => {
+  if (!controller) return
+
+  try {
+    if (!controller.signal.aborted) {
+      controller.abort(reason)
+    }
+  } catch {
+    try {
+      controller.abort()
+    } catch {}
+  }
+}
+
+// Koppla en extern AbortSignal till en AbortController
+export const linkAbortSignal = (
+  externalSignal: AbortSignal | null | undefined,
+  controller: AbortController,
+  onAbort?: (reason?: unknown) => void
+): (() => void) => {
+  if (!externalSignal) return () => undefined
+
+  if (externalSignal.aborted) {
+    const reason = (externalSignal as { reason?: unknown }).reason
+    safeAbortController(controller, reason)
+    if (onAbort) onAbort(reason)
+    return () => undefined
+  }
+
+  const handler = () => {
+    const reason = (externalSignal as { reason?: unknown }).reason
+    safeAbortController(controller, reason)
+    if (onAbort) onAbort(reason)
+  }
+
+  externalSignal.addEventListener("abort", handler)
+
+  return () => {
+    try {
+      externalSignal.removeEventListener("abort", handler)
+    } catch {}
+  }
+}
+
 export const logIfNotAbort = (_context: string, _error: unknown): void => {
   void (_context, _error)
 }

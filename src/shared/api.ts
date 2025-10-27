@@ -30,7 +30,7 @@ import {
   validateRequiredConfig,
 } from "./validations"
 import { isSuccessStatus, isRetryableStatus } from "../config/constants"
-import { mapErrorFromNetwork } from "./utils/error"
+import { mapErrorFromNetwork, safeAbortController } from "./utils/error"
 import {
   buildUrl,
   createHostPattern,
@@ -547,17 +547,8 @@ export class AbortControllerManager {
     // Applicerar pending abort om det fanns en i kö
     const pendingReason = this.pendingReasons.get(key)
     if (pendingReason !== undefined) {
-      try {
-        if (!controller.signal.aborted) {
-          controller.abort(pendingReason)
-        }
-      } catch {
-        try {
-          controller.abort()
-        } catch {}
-      } finally {
-        this.pendingReasons.delete(key)
-      }
+      safeAbortController(controller, pendingReason)
+      this.pendingReasons.delete(key)
     }
   }
 
@@ -597,18 +588,8 @@ export class AbortControllerManager {
     }
 
     const abortReason = reason ?? createAbortReason()
-
-    try {
-      if (!controller.signal.aborted) {
-        controller.abort(abortReason)
-      }
-    } catch {
-      try {
-        controller.abort()
-      } catch {}
-    } finally {
-      this.release(key, controller)
-    }
+    safeAbortController(controller, abortReason)
+    this.release(key, controller)
   }
 
   // Länkar extern AbortSignal till intern controller

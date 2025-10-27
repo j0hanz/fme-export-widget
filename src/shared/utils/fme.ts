@@ -41,7 +41,7 @@ import {
   toTrimmedString,
   toTrimmedStringOrEmpty,
 } from "./conversion"
-import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
+import { validateAndNormalizeUrl } from "../validations"
 import { buildUrl, buildParams, safeParseUrl } from "./network"
 
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
@@ -759,16 +759,18 @@ export const createWebhookArtifacts = (
   const enforceHttps = options?.requireHttps ?? true
   const enforceStrict =
     options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
-  const baseUrlValidation = validateServerUrl(baseUrl, {
+
+  const result = validateAndNormalizeUrl(baseUrl, {
     strict: enforceStrict,
     requireHttps: enforceHttps,
   })
 
-  if (!baseUrlValidation.ok) {
-    const reason = mapServerUrlReasonToKey(
-      "reason" in baseUrlValidation ? baseUrlValidation.reason : undefined
+  if (!result.ok) {
+    throw makeWebhookError(
+      "WEBHOOK_AUTH_ERROR",
+      0,
+      result.errorKey || "invalid_url"
     )
-    throw makeWebhookError("WEBHOOK_AUTH_ERROR", 0, reason)
   }
 
   const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)

@@ -27,6 +27,7 @@ import {
   toTrimmedStringOrEmpty,
   isFileObject,
   isFiniteNumber,
+  buildValidationErrors,
 } from "./utils"
 
 // URL validation helpers
@@ -271,6 +272,33 @@ export const normalizeBaseUrl = (rawUrl: string): string => {
   return `${u.origin}${cleanPath}`
 }
 
+// Validerar och normaliserar URL, returnerar ok-flagga och normaliserad URL eller fel-nyckel
+export function validateAndNormalizeUrl(
+  rawUrl: string,
+  options?: {
+    strict?: boolean
+    requireHttps?: boolean
+  }
+): {
+  ok: boolean
+  normalized?: string
+  errorKey?: string
+} {
+  const trimmed = toTrimmedString(rawUrl)
+  if (!trimmed) return { ok: false, errorKey: "invalid_url" }
+
+  const validation = validateServerUrl(trimmed, options)
+  if (!validation.ok) {
+    return {
+      ok: false,
+      errorKey: mapServerUrlReasonToKey((validation as any).reason),
+    }
+  }
+
+  const normalized = normalizeBaseUrl(trimmed)
+  return { ok: true, normalized: normalized || trimmed }
+}
+
 // Validerar server-URL med olika strictness-nivåer och options
 export function validateServerUrl(
   url: string,
@@ -497,9 +525,6 @@ export function validateConnectionInputs(args: {
   errors: { serverUrl?: string; token?: string; repository?: string }
 } {
   const { url, token, repository, availableRepos } = args || ({} as any)
-
-  // Use buildValidationErrors helper from utils/error
-  const { buildValidationErrors } = require("./utils/error")
 
   return buildValidationErrors([
     {

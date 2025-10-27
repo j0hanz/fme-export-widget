@@ -983,55 +983,69 @@ export const calcArea = async (
   return 0
 }
 
-// Simplifierar polygon och validerar att den är simple
+// Försöker förenkla polygon med async/sync simplify + validering
+const trySimplifyWithFallback = async (
+  polygon: __esri.Polygon,
+  engine: GeometryEngineLike | undefined,
+  engineAsync: GeometryEngineLike | undefined
+): Promise<__esri.Polygon | null> => {
+  // Först prova async simplify
+  const simplifyAsync = engineAsync?.simplify
+  if (typeof simplifyAsync === "function") {
+    const asyncResult = await simplifyAsync(polygon)
+    const simplified = await maybeResolvePolygon(asyncResult)
+    if (simplified) {
+      const checkSimple = engineAsync?.isSimple ?? engine?.isSimple
+      if (typeof checkSimple === "function") {
+        const simpleResult = checkSimple(simplified)
+        const isSimple = isPromiseLike(simpleResult)
+          ? await simpleResult
+          : simpleResult
+        if (isSimple) return simplified
+      } else {
+        return simplified
+      }
+    }
+  }
+
+  // Sedan prova sync simplify
+  const simplifySync = engine?.simplify
+  if (typeof simplifySync === "function") {
+    const simplified = await maybeResolvePolygon(simplifySync(polygon))
+    if (simplified) {
+      const isSimpleFn = engine?.isSimple
+      if (typeof isSimpleFn === "function") {
+        const simpleResult = isSimpleFn(simplified)
+        const isSimple = isPromiseLike(simpleResult)
+          ? await simpleResult
+          : simpleResult
+        if (isSimple) return simplified
+      } else {
+        return simplified
+      }
+    }
+  }
+
+  // Slutligen kontrollera om originalet är simple
+  const isSimpleFn = engine?.isSimple
+  if (typeof isSimpleFn === "function") {
+    const simpleResult = isSimpleFn(polygon)
+    const isSimple = isPromiseLike(simpleResult)
+      ? await simpleResult
+      : simpleResult
+    if (isSimple) return polygon
+  }
+
+  return null
+}
+
+// Förenklar polygon med fallback-strategi
 const simplifyPolygon = async (
   poly: __esri.Polygon,
   engine: GeometryEngineLike | undefined,
   engineAsync: GeometryEngineLike | undefined
 ): Promise<__esri.Polygon | null> => {
-  const simplifyAsync = engineAsync?.simplify
-  if (typeof simplifyAsync === "function") {
-    const asyncResult = await simplifyAsync(poly)
-    const simplified = await maybeResolvePolygon(asyncResult)
-    if (!simplified) return null
-
-    const checkSimple = engineAsync?.isSimple ?? engine?.isSimple
-    if (typeof checkSimple === "function") {
-      const simpleResult = checkSimple(simplified)
-      const isSimple = isPromiseLike(simpleResult)
-        ? await simpleResult
-        : simpleResult
-      if (!isSimple) return null
-    }
-
-    return simplified
-  }
-
-  const simplifySync = engine?.simplify
-  if (typeof simplifySync === "function") {
-    const simplified = await maybeResolvePolygon(simplifySync(poly))
-    if (!simplified) return null
-    const isSimpleFn = engine?.isSimple
-    if (typeof isSimpleFn === "function") {
-      const simpleResult = isSimpleFn(simplified)
-      const isSimple = isPromiseLike(simpleResult)
-        ? await simpleResult
-        : simpleResult
-      if (!isSimple) return null
-    }
-    return simplified
-  }
-
-  const isSimpleFn = engine?.isSimple
-  if (typeof isSimpleFn === "function") {
-    const simpleResult = isSimpleFn(poly)
-    const isSimple = isPromiseLike(simpleResult)
-      ? await simpleResult
-      : simpleResult
-    if (!isSimple) return null
-  }
-
-  return poly
+  return trySimplifyWithFallback(poly, engine, engineAsync)
 }
 
 // Kontrollerar att ring är stängd (första=sista punkt)
