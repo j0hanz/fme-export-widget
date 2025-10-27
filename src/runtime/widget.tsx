@@ -683,10 +683,10 @@ function WidgetContent(
     if (!geometryJson || !modules?.Polygon) {
       return null
     }
-    const polygonCtor: any = modules.Polygon
+    const polygonCtor = modules.Polygon
     try {
       if (typeof polygonCtor?.fromJSON === "function") {
-        return polygonCtor.fromJSON(geometryJson as any)
+        return polygonCtor.fromJSON(geometryJson)
       }
     } catch {
       return null
