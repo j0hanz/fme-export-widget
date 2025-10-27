@@ -1444,26 +1444,25 @@ const StateView: React.FC<StateViewProps> = ({
 
         return (
           <div role="status" aria-live="polite" css={styles.stateView.error}>
-            <div css={styles.stateView.errorContent}>
-              {state.title && <div css={styles.typo.title}>{state.title}</div>}
-              {state.message && (
-                <div css={styles.typo.caption}>{state.message}</div>
-              )}
-              {state.detail && (
-                <div
-                  css={[
-                    styles.typo.caption,
-                    css({ "& > div": styles.stateView.infoLine }),
-                  ]}
-                >
-                  {typeof state.detail === "string" ? (
-                    <span>{state.detail}</span>
-                  ) : (
-                    state.detail
-                  )}
-                </div>
-              )}
-            </div>
+            {state.title && <div css={styles.typo.title}>{state.title}</div>}
+            {state.message && (
+              <div css={styles.typo.caption}>{state.message}</div>
+            )}
+            {state.detail && (
+              <div
+                css={[
+                  styles.typo.caption,
+                  css({ "& > div": styles.stateView.infoLine }),
+                ]}
+              >
+                {typeof state.detail === "string" ? (
+                  <span>{state.detail}</span>
+                ) : (
+                  state.detail
+                )}
+              </div>
+            )}
+
             {actions ? (
               <div css={styles.stateView.errorActions}>{actions}</div>
             ) : null}

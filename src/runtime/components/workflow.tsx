@@ -265,17 +265,11 @@ const OrderResult: React.FC<OrderResultProps> = ({
     }
   }
 
-  const viewState = buildOrderResultView(
-    orderResult,
-    config,
-    translate,
-    {
-      onReuseGeography,
-      onBack,
-      onReset,
-    },
-    alertNode
-  )
+  const viewState = buildOrderResultView(orderResult, config, translate, {
+    onReuseGeography,
+    onBack,
+    onReset,
+  })
 
   // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
   hooks.useEffectOnce(() => {
@@ -330,7 +324,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
     }
   })
 
-  return <StateView state={viewState} />
+  return (
+    <>
+      {alertNode}
+      <StateView state={viewState} />
+    </>
+  )
 }
 
 /*
