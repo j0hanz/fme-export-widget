@@ -143,6 +143,7 @@ export type ViewState =
       readonly title?: string
       readonly message?: string
       readonly actions?: readonly ViewAction[]
+      readonly detail?: React.ReactNode
     }
   | { readonly kind: "content"; readonly node: React.ReactNode }
 

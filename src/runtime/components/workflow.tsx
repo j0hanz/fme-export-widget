@@ -3,7 +3,6 @@
 import { React, hooks, ReactRedux, jsx } from "jimu-core"
 import {
   Button,
-  ButtonGroup,
   StateView,
   Form,
   Field,
@@ -24,7 +23,6 @@ import {
   type ExportFormProps,
   type DynamicFieldConfig,
   type LoadingState,
-  type ServiceMode,
   type VisibilityState,
   ViewMode,
   DrawingTool,
@@ -51,18 +49,16 @@ import {
 import {
   resolveMessageOrKey,
   buildSupportHintText,
-  maskEmailForDisplay,
   stripHtmlToText,
   stripErrorLabel,
   initFormValues,
   canResetButton,
   shouldShowWorkspaceLoading,
   toTrimmedString,
-  toTrimmedStringOrEmpty,
-  formatByteSize,
   isAbortError,
   isNonEmptyTrimmedString,
   createFmeDispatcher,
+  buildOrderResultView,
 } from "../../shared/utils"
 import {
   useFormStateManager,
@@ -114,94 +110,6 @@ const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
     state.modules || state.submission || state.workspaces || state.parameters
   )
-
-// Formaterar ordervärden för visning (stöder olika typer)
-const formatOrderValue = (value: unknown): string | null => {
-  if (value === undefined || value === null) return null
-  if (typeof value === "string") {
-    const trimmed = value.trim()
-    return trimmed || null
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value.toString() : null
-  }
-  if (value instanceof Date) {
-    const time = value.getTime()
-    if (!Number.isFinite(time)) return null
-    try {
-      return value.toISOString()
-    } catch {
-      return null
-    }
-  }
-  if (value instanceof Blob) {
-    return value.type ? value.type : "blob"
-  }
-  if (typeof value === "boolean") {
-    return value ? "true" : "false"
-  }
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return null
-  }
-}
-
-/*
- * Hanterar nedladdnings-URL för remote URL eller Blob-objekt.
- * Skapar och städar upp object URLs automatiskt vid komponentlivscykel.
- */
-const useDownloadResource = (
-  remoteUrl?: string | null,
-  blob?: Blob | null
-): string | null => {
-  const [resourceUrl, setResourceUrl] = React.useState<string | null>(null)
-  const objectUrlRef = React.useRef<string | null>(null)
-
-  hooks.useEffectWithPreviousValues(() => {
-    if (objectUrlRef.current) {
-      try {
-        URL.revokeObjectURL(objectUrlRef.current)
-      } catch {
-        /* ignore revoke errors */
-      }
-      objectUrlRef.current = null
-    }
-
-    const trimmedUrl = toTrimmedStringOrEmpty(remoteUrl)
-    if (trimmedUrl) {
-      setResourceUrl(trimmedUrl)
-      return
-    }
-
-    if (blob instanceof Blob) {
-      try {
-        const objectUrl = URL.createObjectURL(blob)
-        objectUrlRef.current = objectUrl
-        setResourceUrl(objectUrl)
-        return
-      } catch {
-        setResourceUrl(null)
-        return
-      }
-    }
-
-    setResourceUrl(null)
-  }, [remoteUrl, blob])
-
-  hooks.useUnmount(() => {
-    if (objectUrlRef.current) {
-      try {
-        URL.revokeObjectURL(objectUrlRef.current)
-      } catch {
-        /* ignore revoke errors */
-      }
-      objectUrlRef.current = null
-    }
-  })
-
-  return resourceUrl
-}
 
 // Serialiserar geometri-objekt till JSON-sträng säkert
 const safeStringifyGeometry = (geometry: unknown): string => {
@@ -285,10 +193,7 @@ const createFormValidator = (
   return { getFormConfig, validateValues, initializeValues }
 }
 
-/*
- * OrderResult: Visar jobbresultat efter FME Flow-inlämning.
- * Hanterar visning av nedladdningslänkar, metadata och felmeddelanden.
- */
+// OrderResult: Visar resultatet av ett inlämnat FME-jobb.
 const OrderResult: React.FC<OrderResultProps> = ({
   orderResult,
   translate,
@@ -297,202 +202,13 @@ const OrderResult: React.FC<OrderResultProps> = ({
   onReset,
   config,
 }) => {
-  const styles = useUiStyles()
-  const isCancelled = Boolean(orderResult.cancelled)
-  const isSuccess = !isCancelled && !!orderResult.success
-  const isFailure = !isCancelled && !isSuccess
-  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
-  const serviceMode: ServiceMode =
-    orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-      ? orderResult.serviceMode
-      : fallbackMode
-  const downloadUrl = useDownloadResource(
-    orderResult.downloadUrl,
-    orderResult.blob
-  )
-
-  // Bygger informationsrader för orderresultat-vy
-  const infoRows: React.ReactNode[] = []
-  const addInfoRow = (label?: string, value?: unknown) => {
-    const display = formatOrderValue(value)
-    if (!display) return
-
-    const key = label
-      ? `order-row-${label}-${infoRows.length}`
-      : `order-row-${infoRows.length}`
-    const text = label ? `${label}: ${display}` : display
-
-    infoRows.push(
-      <div css={styles.typo.caption} key={key}>
-        {text}
-      </div>
-    )
-  }
-
-  addInfoRow(translate("lblJobId"), orderResult.jobId)
-  addInfoRow(translate("lblWorkspace"), orderResult.workspaceName)
-
-  const deliveryModeKey =
-    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
-  addInfoRow(translate("lblDelivery"), translate(deliveryModeKey))
-
-  if (orderResult.downloadFilename) {
-    addInfoRow(translate("lblFilename"), orderResult.downloadFilename)
-  }
-
-  const statusValue = toTrimmedString(orderResult.status)
-  if (statusValue) {
-    addInfoRow(translate("lblFmeStatus"), statusValue)
-  }
-
-  const statusMessage = toTrimmedString(orderResult.statusMessage)
-  if (statusMessage && statusMessage !== toTrimmedString(orderResult.message)) {
-    addInfoRow(translate("lblFmeMessage"), statusMessage)
-  }
-
-  const blobType = toTrimmedString(orderResult.blobMetadata?.type)
-  if (blobType) {
-    addInfoRow(translate("lblBlobType"), blobType)
-  }
-
-  const blobSizeFormatted = formatByteSize(orderResult.blobMetadata?.size)
-  if (blobSizeFormatted) {
-    addInfoRow(translate("lblBlobSize"), blobSizeFormatted)
-  }
-
-  if (serviceMode !== "sync") {
-    const emailVal = orderResult.email
-    const masked =
-      config?.maskEmailOnSuccess && isSuccess
-        ? maskEmailForDisplay(emailVal)
-        : emailVal
-    addInfoRow(translate("lblEmail"), masked)
-  }
-
-  // Visar felkod endast vid misslyckad order
-  if (orderResult.code && isFailure) {
-    addInfoRow(translate("lblErrorCode"), orderResult.code)
-  }
-
-  const titleText = isCancelled
-    ? translate("titleOrderCancelled")
-    : isSuccess
-      ? serviceMode === "sync"
-        ? translate("titleOrderComplete")
-        : translate("titleOrderConfirmed")
-      : translate("titleOrderFailed")
-
-  const buttonText = isCancelled
-    ? translate("btnNewOrder")
-    : isSuccess
-      ? translate("btnReuseArea")
-      : translate("btnRetry")
-
-  const primaryTooltip = isCancelled
-    ? translate("tipNewOrder")
-    : isSuccess
-      ? translate("tipReuseArea")
-      : undefined
-
-  const handlePrimary = hooks.useEventCallback(() => {
-    if (isCancelled || isSuccess) {
-      onReuseGeography?.()
-      return
-    }
-    onBack?.()
+  const viewState = buildOrderResultView(orderResult, config, translate, {
+    onReuseGeography,
+    onBack,
+    onReset,
   })
 
-  const handleEnd = hooks.useEventCallback(() => {
-    if (onReset) {
-      onReset()
-      return
-    }
-    onBack?.()
-  })
-
-  const showDownloadLink = isSuccess && Boolean(downloadUrl)
-
-  // Bygger meddelande baserat på orderstatus och typ
-  let messageText: string | null = null
-  if (isCancelled) {
-    const failureCode = (orderResult.code || "").toString().toUpperCase()
-    const isTimeout = failureCode.includes("TIMEOUT")
-    messageText = isTimeout
-      ? translate("msgOrderTimeout")
-      : translate("msgOrderCancelled")
-  } else if (isSuccess) {
-    if (serviceMode === "async") {
-      messageText = translate("msgEmailSent")
-    }
-  } else {
-    const failureCode = (orderResult.code || "").toString().toUpperCase()
-    const rawMessage =
-      toTrimmedString(orderResult.message) ||
-      toTrimmedString(orderResult.statusMessage) ||
-      ""
-
-    if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
-      messageText = translate("msgJobTimeout")
-    } else if (failureCode === "FME_JOB_CANCELLED") {
-      messageText = translate("msgJobCancelled")
-    } else if (
-      failureCode === "FME_JOB_FAILURE" ||
-      /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
-    ) {
-      messageText = translate("errTransformFailed")
-    } else if (rawMessage) {
-      messageText = rawMessage
-    } else {
-      messageText = translate("msgJobFailed")
-    }
-  }
-
-  return (
-    <div css={styles.form.layout}>
-      <div css={styles.form.content}>
-        <div css={styles.form.body}>
-          <div css={styles.typo.title}>{titleText}</div>
-          {infoRows}
-
-          {showDownloadLink && (
-            <div css={styles.typo.caption}>
-              <a
-                href={downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                css={styles.typo.link}
-                download={orderResult.downloadFilename}
-              >
-                {translate("btnDownload")}
-              </a>
-            </div>
-          )}
-          {messageText ? (
-            <div css={styles.typo.caption}>{messageText}</div>
-          ) : null}
-        </div>
-        <div css={styles.form.footer}>
-          <ButtonGroup
-            secondaryButton={{
-              text: translate("btnEnd"),
-              onClick: handleEnd,
-              tooltip: translate("tipCancel"),
-              tooltipPlacement: "bottom",
-              logging: { enabled: true, prefix: "FME-Export" },
-            }}
-            primaryButton={{
-              text: buttonText,
-              onClick: handlePrimary,
-              type: "primary",
-              tooltip: primaryTooltip,
-              tooltipPlacement: "bottom",
-              logging: { enabled: true, prefix: "FME-Export" },
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  )
+  return <StateView state={viewState} />
 }
 
 /*

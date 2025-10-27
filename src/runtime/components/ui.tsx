@@ -1442,6 +1442,15 @@ const StateView: React.FC<StateViewProps> = ({
             {state.message && (
               <div css={styles.typo.caption}>{state.message}</div>
             )}
+            {state.detail && (
+              <div css={styles.typo.caption}>
+                {typeof state.detail === "string" ? (
+                  <span>{state.detail}</span>
+                ) : (
+                  state.detail
+                )}
+              </div>
+            )}
             {renderActionsFn({
               actions: state.actions,
               ariaLabel: translate("ariaSuccessActions"),

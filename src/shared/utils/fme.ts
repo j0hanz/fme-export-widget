@@ -1,19 +1,28 @@
+/** @jsx jsx */
+/** @jsxFrag React.Fragment */
+import { React, jsx } from "jimu-core"
 import type {
-  DetermineServiceModeOptions,
-  FmeExportConfig,
-  ForceAsyncResult,
-  ServiceMode,
-  WorkspaceItem,
-  WorkspaceItemDetail,
-  WorkspaceParameter,
-  EsriModules,
   ExportResult,
   TranslateFn,
-  FmeResponse,
+  ServiceMode,
+  FmeExportConfig,
+  ViewState,
+  ViewAction,
+  WorkspaceItem,
+  WorkspaceParameter,
   NormalizedServiceInfo,
+  WebhookErrorCode,
+} from "../../config/types"
+import { makeErrorView } from "../../config/types"
+import { formatByteSize, maskEmailForDisplay } from "./format"
+import type {
+  DetermineServiceModeOptions,
+  ForceAsyncResult,
+  WorkspaceItemDetail,
+  EsriModules,
+  FmeResponse,
   PrimitiveParams,
   WebhookArtifacts,
-  WebhookErrorCode,
 } from "../../config/index"
 import {
   FME_FLOW_API,
@@ -34,6 +43,240 @@ import {
 } from "./conversion"
 import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
 import { buildUrl, buildParams, safeParseUrl } from "./network"
+
+// Bygger ViewState för att visa resultatet av ett FME-exportjobb
+export const buildOrderResultView = (
+  result: ExportResult | null | undefined,
+  config: FmeExportConfig | null | undefined,
+  translate: TranslateFn,
+  handlers: {
+    readonly onReuseGeography?: () => void
+    readonly onBack?: () => void
+    readonly onReset?: () => void
+  }
+): ViewState => {
+  if (!result) {
+    return makeErrorView(translate("msgNoResult"), {
+      code: "NO_RESULT",
+      actions: handlers.onBack
+        ? [{ label: translate("btnBack"), onClick: handlers.onBack }]
+        : undefined,
+    })
+  }
+
+  const isCancelled = Boolean(result.cancelled)
+  const isSuccess = !isCancelled && Boolean(result.success)
+  const isFailure = !isCancelled && !isSuccess
+  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+  const serviceMode: ServiceMode =
+    result.serviceMode === "sync" || result.serviceMode === "async"
+      ? result.serviceMode
+      : fallbackMode
+
+  // Build info detail section
+  const infoLines: string[] = []
+  if (result.jobId !== undefined && result.jobId !== null) {
+    infoLines.push(`${translate("lblJobId")}: ${result.jobId}`)
+  }
+  if (result.workspaceName) {
+    infoLines.push(`${translate("lblWorkspace")}: ${result.workspaceName}`)
+  }
+  const deliveryModeKey =
+    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
+  infoLines.push(`${translate("lblDelivery")}: ${translate(deliveryModeKey)}`)
+
+  if (result.downloadFilename) {
+    infoLines.push(`${translate("lblFilename")}: ${result.downloadFilename}`)
+  }
+  if (result.status) {
+    infoLines.push(`${translate("lblFmeStatus")}: ${result.status}`)
+  }
+  if (result.statusMessage && result.statusMessage !== result.message) {
+    infoLines.push(`${translate("lblFmeMessage")}: ${result.statusMessage}`)
+  }
+  if (result.blobMetadata?.type) {
+    infoLines.push(`${translate("lblBlobType")}: ${result.blobMetadata.type}`)
+  }
+  if (result.blobMetadata?.size) {
+    const sizeFormatted = formatByteSize(result.blobMetadata.size)
+    if (sizeFormatted) {
+      infoLines.push(`${translate("lblBlobSize")}: ${sizeFormatted}`)
+    }
+  }
+  if (serviceMode !== "sync" && result.email) {
+    const masked =
+      config?.maskEmailOnSuccess && isSuccess
+        ? maskEmailForDisplay(result.email)
+        : result.email
+    infoLines.push(`${translate("lblEmail")}: ${masked}`)
+  }
+  if (result.code && isFailure) {
+    infoLines.push(`${translate("lblErrorCode")}: ${result.code}`)
+  }
+
+  // Determine message text
+  let messageText: string | null = null
+  if (isCancelled) {
+    const failureCode = (result.code || "").toString().toUpperCase()
+    const isTimeout = failureCode.includes("TIMEOUT")
+    messageText = isTimeout
+      ? translate("msgOrderTimeout")
+      : translate("msgOrderCancelled")
+  } else if (isSuccess) {
+    if (serviceMode === "async") {
+      messageText = translate("msgEmailSent")
+    }
+  } else {
+    const failureCode = (result.code || "").toString().toUpperCase()
+    const rawMessage = result.message || result.statusMessage || ""
+
+    if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
+      messageText = translate("msgJobTimeout")
+    } else if (failureCode === "FME_JOB_CANCELLED") {
+      messageText = translate("msgJobCancelled")
+    } else if (
+      failureCode === "FME_JOB_FAILURE" ||
+      /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+    ) {
+      messageText = translate("errTransformFailed")
+    } else if (rawMessage) {
+      messageText = rawMessage
+    } else {
+      messageText = translate("msgJobFailed")
+    }
+  }
+
+  // Build actions
+  const actions: ViewAction[] = []
+
+  if (isCancelled) {
+    actions.push({
+      label: translate("btnNewOrder"),
+      onClick: () => {
+        handlers.onReuseGeography?.()
+      },
+    })
+  } else if (isSuccess) {
+    actions.push({
+      label: translate("btnReuseArea"),
+      onClick: () => {
+        handlers.onReuseGeography?.()
+      },
+    })
+  } else {
+    // Failure
+    actions.push({
+      label: translate("btnRetry"),
+      onClick: () => {
+        handlers.onBack?.()
+      },
+    })
+  }
+
+  // Secondary "Close" action
+  actions.push({
+    label: translate("btnEnd"),
+    onClick: () => {
+      if (handlers.onReset) {
+        handlers.onReset()
+      } else {
+        handlers.onBack?.()
+      }
+    },
+    variant: "text" as const,
+  })
+
+  // Build info detail React node
+  const infoDetail =
+    infoLines.length > 0
+      ? jsx(
+          "div",
+          { style: { whiteSpace: "pre-line", marginBottom: "0.5rem" } },
+          infoLines.join("\n")
+        )
+      : null
+
+  // Handle download link for sync success with automatic download trigger
+  let downloadNode: React.ReactNode = null
+  if (isSuccess && serviceMode === "sync") {
+    const downloadUrl =
+      result.downloadUrl ||
+      (result.blob ? URL.createObjectURL(result.blob) : null)
+    if (downloadUrl) {
+      // Attempt auto-download after slight delay
+      setTimeout(() => {
+        try {
+          const link = document.createElement("a")
+          link.href = downloadUrl
+          link.download = result.downloadFilename || "download"
+          link.style.display = "none"
+          document.body.appendChild(link)
+          link.click()
+          document.body.removeChild(link)
+        } catch (error) {
+          // Fallback: user can click the button below
+          console.warn(
+            "Auto-download failed, fallback button available:",
+            error
+          )
+        }
+      }, 100)
+
+      // Fallback download button if auto-download didn't start
+      downloadNode = jsx(
+        "div",
+        { style: { marginBottom: "0.5rem" } },
+        jsx(
+          "a",
+          {
+            href: downloadUrl,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            download: result.downloadFilename || "download",
+          },
+          translate("btnDownloadFallback")
+        )
+      )
+    }
+  }
+
+  // Combine detail node
+  const fullDetail =
+    infoDetail || downloadNode || messageText
+      ? jsx(
+          React.Fragment,
+          null,
+          infoDetail,
+          downloadNode,
+          messageText && jsx("div", null, messageText)
+        )
+      : undefined
+
+  // Return appropriate ViewState
+  if (isFailure) {
+    const titleText = translate("titleOrderFailed")
+    return makeErrorView(titleText, {
+      code: result.code,
+      actions,
+      detail: fullDetail,
+    })
+  }
+
+  // Success or cancelled
+  const titleText = isCancelled
+    ? translate("titleOrderCancelled")
+    : serviceMode === "sync"
+      ? translate("titleOrderComplete")
+      : translate("titleOrderConfirmed")
+
+  return {
+    kind: "success",
+    title: titleText,
+    message: undefined,
+    actions,
+    detail: fullDetail,
+  }
+}
 
 const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
 
