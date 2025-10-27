@@ -9,6 +9,7 @@ System.register([], function (e) {
         btnNewOrder: "Ny export",
         btnEnd: "Stäng",
         btnDownload: "Ladda ned",
+        btnDownloadFallback: "Klicka här om nedladdningen inte startade",
         btnAddRow: "Lägg till rad",
         btnDeleteRow: "Ta bort rad",
         btnMoveUp: "Flytta upp",

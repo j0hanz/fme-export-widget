@@ -6,6 +6,7 @@ export default {
   btnNewOrder: "New Export",
   btnEnd: "Close",
   btnDownload: "Download",
+  btnDownloadFallback: "Click here if download didn't start",
   btnAddRow: "Add Row",
   btnDeleteRow: "Delete Row",
   btnMoveUp: "Move Up",
