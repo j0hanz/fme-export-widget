@@ -1435,28 +1435,39 @@ const StateView: React.FC<StateViewProps> = ({
             })}
           </div>
         )
-      case "success":
+      case "success": {
+        const actions = renderActionsFn({
+          actions: state.actions,
+          ariaLabel: translate("ariaSuccessActions"),
+        })
+
         return (
-          <div role="status" aria-live="polite">
-            {state.title && <div css={styles.typo.title}>{state.title}</div>}
-            {state.message && (
-              <div css={styles.typo.caption}>{state.message}</div>
-            )}
-            {state.detail && (
-              <div css={styles.typo.caption}>
-                {typeof state.detail === "string" ? (
-                  <span>{state.detail}</span>
-                ) : (
-                  state.detail
-                )}
-              </div>
-            )}
-            {renderActionsFn({
-              actions: state.actions,
-              ariaLabel: translate("ariaSuccessActions"),
-            })}
+          <div
+            role="status"
+            aria-live="polite"
+            css={styles.stateView.error}
+          >
+            <div css={styles.stateView.errorContent}>
+              {state.title && <div css={styles.typo.title}>{state.title}</div>}
+              {state.message && (
+                <div css={styles.typo.caption}>{state.message}</div>
+              )}
+              {state.detail && (
+                <div css={styles.typo.caption}>
+                  {typeof state.detail === "string" ? (
+                    <span>{state.detail}</span>
+                  ) : (
+                    state.detail
+                  )}
+                </div>
+              )}
+            </div>
+            {actions ? (
+              <div css={styles.stateView.errorActions}>{actions}</div>
+            ) : null}
           </div>
         )
+      }
       case "content":
         return <>{state.node}</>
       case "loading":

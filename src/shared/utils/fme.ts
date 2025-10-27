@@ -165,6 +165,7 @@ export const buildOrderResultView = (
       onClick: () => {
         handlers.onReuseGeography?.()
       },
+      variant: "contained",
     })
   } else {
     // Failure
