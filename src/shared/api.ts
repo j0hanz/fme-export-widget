@@ -30,7 +30,11 @@ import {
   validateRequiredConfig,
 } from "./validations"
 import { isSuccessStatus, isRetryableStatus } from "../config/constants"
-import { mapErrorFromNetwork, safeAbortController } from "./utils/error"
+import {
+  mapErrorFromNetwork,
+  safeAbortController,
+  isAbortError,
+} from "./utils/error"
 import {
   buildUrl,
   createHostPattern,
@@ -41,7 +45,6 @@ import {
   isJson,
   extractHostFromUrl,
   extractErrorMessage,
-  isAbortError,
   extractRepositoryNames,
   loadArcgisModules,
   parseNonNegativeInt,

@@ -23,33 +23,6 @@ export const isNavigatorOffline = (): boolean => {
   }
 }
 
-const ABORT_REGEX = /\baborted?\b/i
-
-// Kontrollerar om ett fel är ett abort/cancel-fel
-export const isAbortError = (error: unknown): boolean => {
-  if (!error) return false
-
-  if (typeof error === "object" && error !== null) {
-    const candidate = error as {
-      name?: unknown
-      code?: unknown
-      message?: unknown
-    }
-    const name = toStr(candidate.name ?? candidate.code)
-    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
-      return true
-    if (!name || name === "Error") {
-      const message = toStr(candidate.message)
-      return ABORT_REGEX.test(message) || message.includes("signal is aborted")
-    }
-    return false
-  }
-  if (typeof error === "string") {
-    return ABORT_REGEX.test(error)
-  }
-  return false
-}
-
 // Maskerar token för säker loggning (visar bara första/sista tecken)
 export const maskToken = (token: string): string => {
   if (!token) return ""

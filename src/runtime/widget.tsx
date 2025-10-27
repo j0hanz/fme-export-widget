@@ -74,10 +74,10 @@ import {
   buildSymbols,
   isNavigatorOffline,
   computeWidgetsToClose,
-  isAbortError,
   createFmeDispatcher,
   shouldSuppressError,
   createErrorActions,
+  isAbortError,
 } from "../shared/utils"
 import {
   useEsriModules,

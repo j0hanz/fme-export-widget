@@ -75,14 +75,45 @@ export const getErrorIconSrc = (code?: string): string => {
   return DEFAULT_ERROR_ICON
 }
 
-export const safeAbort = (ctrl: AbortController | null) => {
-  if (ctrl) {
-    try {
-      ctrl.abort()
-    } catch (err) {
-      console.warn("safeAbort: Unexpected error during abort", err)
+const ABORT_REGEX = /\baborted?\b/i
+
+// Konverterar okänt värde till sträng säkert
+const toSafeString = (value: unknown): string => {
+  if (typeof value === "string") return value
+  if (typeof value === "number") return String(value)
+  if (typeof value === "boolean") return String(value)
+  if (value === null || value === undefined) return ""
+  // För objekt, returnera tom sträng istället för [object Object]
+  return ""
+}
+
+// Kollar om fel är abort/cancel-fel
+export const isAbortError = (error: unknown): boolean => {
+  if (!error) return false
+
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as {
+      name?: unknown
+      code?: unknown
+      message?: unknown
     }
+
+    const name = toSafeString(candidate.name ?? candidate.code)
+    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
+      return true
+
+    if (!name || name === "Error") {
+      const message = toSafeString(candidate.message)
+      return ABORT_REGEX.test(message) || message.includes("signal is aborted")
+    }
+    return false
   }
+
+  if (typeof error === "string") {
+    return ABORT_REGEX.test(error)
+  }
+
+  return false
 }
 
 // Säker avbrytning av AbortController med anledning

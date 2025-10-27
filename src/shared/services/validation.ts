@@ -11,9 +11,9 @@ import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
 import {
   createFmeClient,
   extractErrorMessage,
-  isAbortError,
   getEmail,
   isValidEmail,
+  isAbortError,
 } from "../utils"
 import { extractHttpStatus, validateRequiredFields } from "../validations"
 import { createError, mapErrorFromNetwork } from "../utils/error"

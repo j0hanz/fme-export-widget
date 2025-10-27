@@ -17,7 +17,6 @@ export * from "./format"
 export * from "./geometry"
 export * from "./form"
 export {
-  safeAbort,
   safeAbortController,
   linkAbortSignal,
   logIfNotAbort,
@@ -33,6 +32,7 @@ export {
 export * from "./fme"
 export * from "./arcgis"
 export * from "./network"
+export { isAbortError } from "./error"
 
 export {
   isValidExternalUrlForOptGetUrl,
