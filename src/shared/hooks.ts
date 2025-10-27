@@ -879,7 +879,7 @@ export function usePrefetchWorkspaces(
   const workspacesRef = hooks.useLatest(workspaces)
   const onProgressRef = hooks.useLatest(options?.onProgress)
 
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     const workspacesSnapshot = workspacesRef.current
     if (!enabled || !workspacesSnapshot?.length) {
       setState({
@@ -1046,7 +1046,16 @@ export function usePrefetchWorkspaces(
       cancelled = true
       abortAllControllers()
     }
-  }, [enabled, queryClient, configRef, workspacesRef, onProgressRef, chunkSize])
+  }, [
+    enabled,
+    queryClient,
+    chunkSize,
+    onProgressRef,
+    config?.repository,
+    config?.fmeServerUrl,
+    config?.fmeServerToken,
+    workspaces,
+  ])
 
   return state
 }

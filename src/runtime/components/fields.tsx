@@ -477,7 +477,7 @@ const AttributeNamesField: React.FC<AttributeNamesFieldProps> = ({
   const [error, setError] = React.useState<string | null>(null)
 
   // Dynamically load attributes from map layers
-  React.useEffect(() => {
+  hooks.useEffectWithPreviousValues(() => {
     if (
       !field.choiceSetConfig ||
       field.choiceSetConfig.type !== "attributeNames"
