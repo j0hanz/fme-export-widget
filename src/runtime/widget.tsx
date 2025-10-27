@@ -209,10 +209,8 @@ function WidgetContent(
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false)
   const completionControllerRef = React.useRef<AbortController | null>(null)
-  const popupClientIdRef = React.useRef<symbol>()
-  if (!popupClientIdRef.current) {
-    popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
-  }
+  const [popupClientId] = React.useState(() => Symbol(`fme-popup-${widgetId}`))
+  const popupClientIdRef = React.useRef(popupClientId)
 
   const previousWidgetId = hooks.usePrevious(widgetId)
   hooks.useUpdateEffect(() => {
@@ -221,7 +219,8 @@ function WidgetContent(
       if (oldSymbol) {
         popupSuppressionManager.release(oldSymbol)
       }
-      popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`)
+      const newSymbol = Symbol(`fme-popup-${widgetId}`)
+      popupClientIdRef.current = newSymbol
     }
   }, [widgetId, previousWidgetId])
 
@@ -1093,9 +1092,11 @@ function WidgetContent(
       return
     }
 
-    fmeDispatch.setLoadingFlag("submission", true)
-    setSubmissionPhase("preparing")
-    clearModeNotice()
+    ReactDOM.unstable_batchedUpdates(() => {
+      fmeDispatch.setLoadingFlag("submission", true)
+      setSubmissionPhase("preparing")
+      clearModeNotice()
+    })
 
     try {
       const fmeClient = getOrCreateFmeClient()
