@@ -29,6 +29,7 @@ import {
   logIfNotAbort,
   createFmeClient,
   buildTokenCacheKey,
+  queryKeys,
 } from "./utils"
 import { healthCheck, validateConnection } from "./services"
 
@@ -732,13 +733,11 @@ export function useWorkspaces(
   options?: { enabled?: boolean }
 ) {
   return useQuery<WorkspaceItem[]>({
-    queryKey: [
-      "fme",
-      "workspaces",
+    queryKey: queryKeys.workspaces(
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
-      buildTokenCacheKey(config.fmeServerToken),
-    ],
+      config.fmeServerToken
+    ),
     queryFn: async ({ signal }) => {
       const client = createFmeClient(
         config.fmeServerUrl,
@@ -783,14 +782,12 @@ export function useWorkspaceItem(
     item: WorkspaceItemDetail
     parameters: WorkspaceParameter[]
   }>({
-    queryKey: [
-      "fme",
-      "workspace-item",
+    queryKey: queryKeys.workspaceItem(
       workspace,
       config.repository || DEFAULT_REPOSITORY,
       config.fmeServerUrl,
-      buildTokenCacheKey(config.fmeServerToken),
-    ],
+      config.fmeServerToken
+    ),
     queryFn: async ({ signal }) => {
       if (!workspace) {
         throw new Error("Workspace name required")
@@ -806,15 +803,29 @@ export function useWorkspaceItem(
       }
 
       const repositoryName = config.repository || DEFAULT_REPOSITORY
-      const [itemResp, paramsResp] = await Promise.all([
+
+      // Hämta workspace-item och parametrar parallellt
+      const [itemResult, paramsResult] = await Promise.allSettled([
         client.getWorkspaceItem(workspace, repositoryName, signal),
         client.getWorkspaceParameters(workspace, repositoryName, signal),
       ])
 
-      const parameters = Array.isArray(paramsResp?.data) ? paramsResp.data : []
+      // Kasta fel om item-hämtning misslyckas
+      if (itemResult.status === "rejected") {
+        throw itemResult.reason instanceof Error
+          ? itemResult.reason
+          : new Error(String(itemResult.reason))
+      }
+
+      // Extrahera parametrar om hämtning lyckades
+      const parameters =
+        paramsResult.status === "fulfilled" &&
+        Array.isArray(paramsResult.value?.data)
+          ? paramsResult.value.data
+          : []
 
       return {
-        item: itemResp.data,
+        item: itemResult.value.data,
         parameters,
       }
     },
@@ -976,14 +987,12 @@ export function usePrefetchWorkspaces(
             chunk.map((ws) =>
               withLimit(() =>
                 queryClient.prefetchQuery({
-                  queryKey: [
-                    "fme",
-                    "workspace-item",
+                  queryKey: queryKeys.workspaceItem(
                     ws.name,
                     repository,
                     fmeServerUrl,
-                    buildTokenCacheKey(fmeServerToken),
-                  ],
+                    fmeServerToken
+                  ),
                   queryFn: async ({ signal }) => {
                     const controller = new AbortController()
                     const unregister = registerAbortController(controller)
@@ -1088,7 +1097,7 @@ export function useHealthCheck(
   options?: { enabled?: boolean; refetchOnWindowFocus?: boolean }
 ) {
   return useQuery({
-    queryKey: ["fme", "health", serverUrl, buildTokenCacheKey(token)],
+    queryKey: queryKeys.health(serverUrl, token),
     queryFn: async ({ signal }) => {
       if (!serverUrl || !token) {
         throw new Error("Missing credentials")
@@ -1102,6 +1111,7 @@ export function useHealthCheck(
 
 // Hook för connection-validering med abort-hantering
 export function useValidateConnection() {
+  const queryClient = useQueryClient()
   const controllerRef = React.useRef<AbortController | null>(null)
 
   // Avbryter pågående validering
@@ -1127,6 +1137,14 @@ export function useValidateConnection() {
         repository: variables.repository,
         signal: controllerRef.current?.signal,
       })
+    },
+    onSuccess: (data, variables) => {
+      // Uppdatera health-check cache vid lyckad validering
+      if (data.success) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.health(variables.serverUrl, variables.token),
+        })
+      }
     },
   })
 

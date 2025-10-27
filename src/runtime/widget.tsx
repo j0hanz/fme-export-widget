@@ -1131,6 +1131,15 @@ function WidgetContent(
 
       if (submissionResult.result) {
         finalizeOrder(submissionResult.result)
+        if (submissionResult.result.success && selectedWorkspace) {
+          try {
+            fmeQueryClient.invalidateQueries({
+              queryKey: ["fme", "workspace-item", selectedWorkspace],
+            })
+          } catch (queryErr) {
+            console.warn("Failed to invalidate workspace queries", queryErr)
+          }
+        }
       }
     } catch (error) {
       /* Oväntade fel som inte fångades av executeJobSubmission */

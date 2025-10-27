@@ -278,3 +278,43 @@ export const getEmail = async (config?: FmeExportConfig): Promise<string> => {
   }
   return email
 }
+
+// Definierar unika nycklar för datacaching och hämtning
+export const queryKeys = {
+  fme: ["fme"] as const,
+  workspaces: (
+    repository: string,
+    serverUrl: string | undefined,
+    token: string | undefined
+  ) =>
+    [
+      ...queryKeys.fme,
+      "workspaces",
+      repository || DEFAULT_REPOSITORY,
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  workspaceItem: (
+    workspace: string | undefined,
+    repository: string,
+    serverUrl: string | undefined,
+    token: string | undefined
+  ) =>
+    [
+      ...queryKeys.fme,
+      "workspace-item",
+      workspace,
+      repository || DEFAULT_REPOSITORY,
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  repositories: (serverUrl: string | undefined, token: string | undefined) =>
+    [
+      ...queryKeys.fme,
+      "repositories",
+      serverUrl,
+      buildTokenCacheKey(token),
+    ] as const,
+  health: (serverUrl: string | undefined, token: string | undefined) =>
+    [...queryKeys.fme, "health", serverUrl, buildTokenCacheKey(token)] as const,
+}
