@@ -53,7 +53,8 @@ export const buildOrderResultView = (
     readonly onReuseGeography?: () => void
     readonly onBack?: () => void
     readonly onReset?: () => void
-  }
+  },
+  alertNode?: React.ReactNode
 ): ViewState => {
   if (!result) {
     return makeErrorView(translate("msgNoResult"), {
@@ -223,12 +224,13 @@ export const buildOrderResultView = (
     }
   }
 
-  // Combine detail node
+  // Kombinerar alla detaljdelar
   const fullDetail =
-    infoDetail || downloadNode || messageText
+    alertNode || infoDetail || downloadNode || messageText
       ? jsx(
           React.Fragment,
           null,
+          alertNode,
           infoDetail,
           downloadNode,
           messageText && jsx("div", null, messageText)

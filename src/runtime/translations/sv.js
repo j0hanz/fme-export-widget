@@ -264,6 +264,18 @@ System.register([], function (e) {
         ariaEmptyActions: "Tomma resultat",
         ariaSuccessActions: "Lyckad åtgärd",
         ariaRequired: "Obligatoriskt fält",
+        alertSyncSuccess: "Nedladdningen startade automatiskt",
+        alertSyncFallback:
+          "Om nedladdningen inte startade, använd länken nedan",
+        alertAsyncSuccess:
+          "Du kommer att få ett e-postmeddelande när exporten är klar",
+        alertAsyncQueued: "Exportjobb skickat och köat för bearbetning",
+        alertSyncError: "Exporten misslyckades under bearbetning",
+        alertAsyncError: "Exportjobbet kunde inte slutföras",
+        alertCancelledTimeout: "Exporten avbröts på grund av timeout",
+        alertCancelledUser: "Exporten avbröts",
+        alertJobFailed: "FME Flow-transformationen misslyckades",
+        alertTransformError: "Datatransformationen kunde inte slutföras",
       })
     },
   }

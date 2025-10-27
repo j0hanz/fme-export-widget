@@ -203,11 +203,79 @@ const OrderResult: React.FC<OrderResultProps> = ({
   onReset,
   config,
 }) => {
-  const viewState = buildOrderResultView(orderResult, config, translate, {
-    onReuseGeography,
-    onBack,
-    onReset,
-  })
+  const styles = useUiStyles()
+
+  // Bygger alert-meddelande baserat på orderResult-status
+  let alertNode: React.ReactNode = null
+  if (orderResult) {
+    const isCancelled = Boolean(orderResult.cancelled)
+    const isSuccess = !isCancelled && Boolean(orderResult.success)
+    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+    const serviceMode: ServiceMode =
+      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
+        ? orderResult.serviceMode
+        : fallbackMode
+
+    if (isCancelled) {
+      const failureCode = (orderResult.code || "").toString().toUpperCase()
+      const isTimeout = failureCode.includes("TIMEOUT")
+      const alertKey = isTimeout
+        ? "alertCancelledTimeout"
+        : "alertCancelledUser"
+      alertNode = (
+        <div css={styles.field}>
+          <Alert type="warning" withIcon text={translate(alertKey)} />
+        </div>
+      )
+    } else if (isSuccess) {
+      if (serviceMode === "async") {
+        alertNode = (
+          <div css={styles.field}>
+            <Alert type="info" withIcon text={translate("alertAsyncSuccess")} />
+          </div>
+        )
+      } else {
+        alertNode = (
+          <div css={styles.field}>
+            <Alert
+              type="success"
+              withIcon
+              text={translate("alertSyncSuccess")}
+            />
+          </div>
+        )
+      }
+    } else {
+      // Hanterar felstatus
+      const failureCode = (orderResult.code || "").toString().toUpperCase()
+      const rawMessage = orderResult.message || orderResult.statusMessage || ""
+      const isTransformFailure =
+        failureCode === "FME_JOB_FAILURE" ||
+        /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
+      const alertKey = isTransformFailure
+        ? "alertJobFailed"
+        : serviceMode === "async"
+          ? "alertAsyncError"
+          : "alertSyncError"
+      alertNode = (
+        <div css={styles.field}>
+          <Alert type="error" withIcon text={translate(alertKey)} />
+        </div>
+      )
+    }
+  }
+
+  const viewState = buildOrderResultView(
+    orderResult,
+    config,
+    translate,
+    {
+      onReuseGeography,
+      onBack,
+      onReset,
+    },
+    alertNode
+  )
 
   // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
   hooks.useEffectOnce(() => {
