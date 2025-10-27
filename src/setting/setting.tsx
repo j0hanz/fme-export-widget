@@ -18,7 +18,6 @@ import {
   useBooleanConfigValue,
   useNumberConfigValue,
   useUpdateConfig,
-  useLatestAbortController,
   useDebounce,
   useRepositories,
   useValidateConnection,
@@ -523,9 +522,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   /* Icke-blockerande ledtråd för repository-listfetchfel */
   const [reposHint, setReposHint] = React.useState<string | null>(null)
 
-  /* Spårar inflight cancellation scopes (endast testAbort behövs nu) */
-  const testAbort = useLatestAbortController()
-
   /* Håller senaste värden för asynkrona läsare */
   const translateRef = hooks.useLatest(translate)
   const [isServerValidationPending, setServerValidationPending] =
@@ -620,7 +616,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   })
 
   const resetConnectionProgress = hooks.useEventCallback(() => {
-    testAbort.cancel()
+    validateConnectionMutation.reset()
     setValidationPhase("idle")
     setTestState((prev) => {
       if (
@@ -648,7 +644,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   /* Städar upp vid unmount */
   hooks.useUnmount(() => {
-    testAbort.cancel()
+    validateConnectionMutation.reset()
     debouncedServerValidation.cancel()
     debouncedTokenValidation.cancel()
     /* Query hook hanterar cleanup automatiskt */
@@ -874,8 +870,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
 
   const testConnection = hooks.useEventCallback(async (silent = false) => {
-    // Cancel any in-flight test first
-    testAbort.cancel()
+    // Cancel any in-flight test via mutation's internal abort controller
+    validateConnectionMutation.reset()
 
     const { hasErrors } = validateAllInputs(true)
     const settings = validateConnectionSettings()
@@ -893,7 +889,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
 
     setValidationPhase("checking")
-    const controller = testAbort.abortAndCreate()
 
     // Reset state for new test
     setTestState({
@@ -930,12 +925,22 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         handleTestFailure(validationResult, silent)
       }
     } catch (err) {
+      // Check if error is from abort
+      if (isAbortError(err)) {
+        // Reset to idle on abort without showing error
+        setValidationPhase("idle")
+        setTestState(getInitialTestState())
+        setCheckSteps(getInitialCheckSteps())
+        return
+      }
       handleTestError(err, silent)
     } finally {
-      if (controller.signal.aborted) {
-        setValidationPhase("idle")
-      }
-      testAbort.finalize(controller)
+      // Always ensure state is cleaned up
+      setValidationPhase((prev) => (prev === "checking" ? "idle" : prev))
+      setTestState((prev) => ({
+        ...prev,
+        isTesting: false,
+      }))
     }
   })
 
