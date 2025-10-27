@@ -394,7 +394,8 @@ export const processFmeResponse = (
     .trim()
     .toUpperCase()
 
-  if (normalizedStatus === "CANCELLED" || normalizedStatus === "CANCELED") {
+  // Kontrollerar om jobbet avbröts
+  if (normalizedStatus === "ABORTED") {
     const statusMessage = serviceInfo.message || ""
     const normalizedMessage = statusMessage.toLowerCase()
     const timeoutIndicators = [

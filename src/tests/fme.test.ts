@@ -374,7 +374,7 @@ describe("FME shared logic", () => {
       const response = {
         data: {
           serviceResponse: {
-            status: "CANCELLED",
+            status: "ABORTED",
             message: "Job cancelled after max execution time",
             jobID: 501,
           },
@@ -393,16 +393,16 @@ describe("FME shared logic", () => {
       expect(result.code).toBe("FME_JOB_CANCELLED_TIMEOUT")
       expect(result.message).toBe("Jobbet avbröts på grund av tidsgräns")
       expect(result.jobId).toBe(501)
-      expect(result.status).toBe("CANCELLED")
+      expect(result.status).toBe("ABORTED")
     })
 
-    it("maps generic cancellations to cancelled message", () => {
+    it("handles ABORTED status from FME Flow REST API", () => {
       const response = {
         data: {
           serviceResponse: {
-            status: "CANCELLED",
-            message: "Job cancelled by user",
-            jobID: 777,
+            status: "ABORTED",
+            message: "Job was aborted",
+            jobID: 888,
           },
         },
       }
@@ -414,10 +414,12 @@ describe("FME shared logic", () => {
         translate
       )
 
+      expect(result.success).toBe(false)
+      expect(result.cancelled).toBe(true)
       expect(result.code).toBe("FME_JOB_CANCELLED")
       expect(result.message).toBe("Jobbet avbröts")
-      expect(result.cancelled).toBe(true)
-      expect(result.jobId).toBe(777)
+      expect(result.status).toBe("ABORTED")
+      expect(result.jobId).toBe(888)
     })
 
     it("falls back to failure messaging when status indicates failure", () => {
