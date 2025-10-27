@@ -22,6 +22,7 @@ export default {
   lblOutlineWidth: "Outline Width",
   lblFillOpacity: "Fill Opacity (%)",
   lblSupportEmail: "Support Contact",
+  lblEnableLogging: "Enable Logging",
   errNoServerUrl: "FME Flow server URL is required",
   errNoToken: "API token is required",
   errTokenSpaces: "API token cannot contain spaces",
@@ -29,7 +30,6 @@ export default {
   errInvalidRepository: "The selected repository is not in the list",
   errInvalidUrl: "Invalid URL format",
   errRequireHttps: "Only HTTPS addresses are allowed",
-  errNoFmerest: "Enter base URL without /fmerest for webhook configuration",
   errTokenInvalid: "API token is invalid",
   errLoadRepositories: "Could not fetch repositories from FME Flow",
   errServerUrl: "Invalid URL",
@@ -49,8 +49,6 @@ export default {
   require_https: "Only HTTPS addresses are allowed",
   invalid_url: "Invalid URL format",
   no_query_or_hash: "URL cannot contain query strings or hash",
-  disallow_fmerest_for_webhook:
-    "Enter base URL without /fmerest for webhook configuration",
   missingToken: "API token is required",
   tokenWithWhitespace: "API token cannot contain spaces",
   errorTokenIssue: "API token is missing or invalid",
@@ -111,6 +109,8 @@ export default {
     "Transparency of area fill (0-100%). Higher value gives more opaque fill",
   hintSupportEmail:
     "Displayed in error messages as contact path for users. Leave empty to not show support contact",
+  hintEnableLogging:
+    "Enable detailed logging for troubleshooting and analysis, enable only when needed.",
   hintTestFirst: "Test the connection before continuing configuration",
   tokenSettingsHint: "Verify API token in settings",
   serverUrlSettingsHint: "Check FME Flow server URL in settings",
