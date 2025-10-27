@@ -44,6 +44,9 @@ import {
 import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
 import { buildUrl, buildParams, safeParseUrl } from "./network"
 
+const AUTO_DOWNLOAD_DELAY_MS = 100
+const BLOB_URL_CLEANUP_DELAY_MS = 60000
+
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
 export const buildOrderResultView = (
   result: ExportResult | null | undefined,
@@ -196,14 +199,13 @@ export const buildOrderResultView = (
         )
       : null
 
-  // Handle download link for sync success with automatic download trigger
+  // Hanter nedladdningslänk för synkron framgång med automatisk nedladdningsutlösare
   let downloadNode: React.ReactNode = null
   if (isSuccess && serviceMode === "sync") {
-    const downloadUrl =
-      result.downloadUrl ||
-      (result.blob ? URL.createObjectURL(result.blob) : null)
+    const blobUrl = result.blob ? URL.createObjectURL(result.blob) : null
+    const downloadUrl = result.downloadUrl || blobUrl
     if (downloadUrl) {
-      // Attempt auto-download after slight delay
+      // Försök att automatiskt starta nedladdningen efter en kort fördröjning
       setTimeout(() => {
         try {
           const link = document.createElement("a")
@@ -213,14 +215,17 @@ export const buildOrderResultView = (
           document.body.appendChild(link)
           link.click()
           document.body.removeChild(link)
-        } catch (error) {
-          // Fallback: user can click the button below
-          console.warn(
-            "Auto-download failed, fallback button available:",
-            error
-          )
+        } catch {
+          // Ignorera fel, visa bara fallback-knappen
         }
-      }, 100)
+      }, AUTO_DOWNLOAD_DELAY_MS)
+
+      // Återkalla blob-URL efter säkerhetsfönster för att förhindra minnesläcka
+      if (blobUrl) {
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl)
+        }, BLOB_URL_CLEANUP_DELAY_MS)
+      }
 
       // Fallback download button if auto-download didn't start
       downloadNode = jsx(
