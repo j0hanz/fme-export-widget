@@ -22,6 +22,7 @@ export default {
   lblOutlineWidth: "Outline Width",
   lblFillOpacity: "Fill Opacity (%)",
   lblSupportEmail: "Support Contact",
+  lblEnableLogging: "Enable Logging",
   errNoServerUrl: "FME Flow server URL is required",
   errNoToken: "API token is required",
   errTokenSpaces: "API token cannot contain spaces",
@@ -108,6 +109,8 @@ export default {
     "Transparency of area fill (0-100%). Higher value gives more opaque fill",
   hintSupportEmail:
     "Displayed in error messages as contact path for users. Leave empty to not show support contact",
+  hintEnableLogging:
+    "Enable detailed logging for troubleshooting and analysis, enable only when needed.",
   hintTestFirst: "Test the connection before continuing configuration",
   tokenSettingsHint: "Verify API token in settings",
   serverUrlSettingsHint: "Check FME Flow server URL in settings",

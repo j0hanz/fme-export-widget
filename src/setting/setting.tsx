@@ -257,6 +257,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     drawingColor: "setting-drawing-color",
     drawingOutlineWidth: "setting-drawing-outline-width",
     drawingFillOpacity: "setting-drawing-fill-opacity",
+    enableLogging: "setting-enable-logging",
   } as const
 
   /* Konsoliderat test-state för connection validation */
@@ -477,6 +478,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   )
   const [localFillOpacity, setLocalFillOpacity] = React.useState<number>(
     () => (getNumberConfig("drawingFillOpacity") ?? DEFAULT_FILL_OPACITY) * 100
+  )
+  const [localEnableLogging, setLocalEnableLogging] = React.useState<boolean>(
+    () => getBooleanConfig("enableLogging", false)
   )
 
   const configOutlineWidth = getNumberConfig("drawingOutlineWidth")
@@ -1306,49 +1310,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   />
                 </SettingRow>
               )}
-              <FieldRow
-                id={ID.aoiParamName}
-                label={
-                  <Tooltip content={translate("hintAoiParam")} placement="top">
-                    <span>{translate("lblAoiParam")}</span>
-                  </Tooltip>
-                }
-                value={localAoiParamName}
-                onChange={(val: string) => {
-                  setLocalAoiParamName(val)
-                }}
-                onBlur={(val: string) => {
-                  const trimmed = val.trim()
-                  const finalValue = trimmed || "AreaOfInterest"
-                  updateConfig("aoiParamName", finalValue)
-                  setLocalAoiParamName(finalValue)
-                }}
-                placeholder={translate("phAoiParam")}
-                styles={settingStyles}
-              />
-              <SettingRow
-                flow="no-wrap"
-                label={
-                  <Tooltip
-                    content={translate("hintRequireHttps")}
-                    placement="top"
-                  >
-                    <span>{translate("lblRequireHttps")}</span>
-                  </Tooltip>
-                }
-                level={2}
-              >
-                <Switch
-                  id={ID.requireHttps}
-                  checked={localRequireHttps}
-                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-                    const checked = evt?.target?.checked ?? !localRequireHttps
-                    setLocalRequireHttps(checked)
-                    updateConfig("requireHttps", checked)
-                  }}
-                  aria-label={translate("lblRequireHttps")}
-                />
-              </SettingRow>
               {shouldShowMaskEmailSetting && (
                 <SettingRow
                   flow="no-wrap"
@@ -1532,6 +1493,26 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   </SettingRow>
                 )}
               </SettingRow>
+              <FieldRow
+                id={ID.aoiParamName}
+                label={
+                  <Tooltip content={translate("hintAoiParam")} placement="top">
+                    <span>{translate("lblAoiParam")}</span>
+                  </Tooltip>
+                }
+                value={localAoiParamName}
+                onChange={(val: string) => {
+                  setLocalAoiParamName(val)
+                }}
+                onBlur={(val: string) => {
+                  const trimmed = val.trim()
+                  const finalValue = trimmed || "AreaOfInterest"
+                  updateConfig("aoiParamName", finalValue)
+                  setLocalAoiParamName(finalValue)
+                }}
+                placeholder={translate("phAoiParam")}
+                styles={settingStyles}
+              />
               <JobDirectivesSection
                 localTmTtc={localTmTtc}
                 localTmTtl={localTmTtl}
@@ -1656,6 +1637,52 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 errorText={fieldErrors.supportEmail}
                 styles={settingStyles}
               />
+              <SettingRow
+                flow="no-wrap"
+                label={
+                  <Tooltip
+                    content={translate("hintRequireHttps")}
+                    placement="top"
+                  >
+                    <span>{translate("lblRequireHttps")}</span>
+                  </Tooltip>
+                }
+                level={2}
+              >
+                <Switch
+                  id={ID.requireHttps}
+                  checked={localRequireHttps}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked = evt?.target?.checked ?? !localRequireHttps
+                    setLocalRequireHttps(checked)
+                    updateConfig("requireHttps", checked)
+                  }}
+                  aria-label={translate("lblRequireHttps")}
+                />
+              </SettingRow>
+              <SettingRow
+                flow="no-wrap"
+                label={
+                  <Tooltip
+                    content={translate("hintEnableLogging")}
+                    placement="top"
+                  >
+                    <span>{translate("lblEnableLogging")}</span>
+                  </Tooltip>
+                }
+                level={2}
+              >
+                <Switch
+                  id={ID.enableLogging}
+                  checked={localEnableLogging}
+                  onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
+                    const checked = evt?.target?.checked ?? !localEnableLogging
+                    setLocalEnableLogging(checked)
+                    updateConfig("enableLogging", checked)
+                  }}
+                  aria-label={translate("lblEnableLogging")}
+                />
+              </SettingRow>
             </CollapsablePanel>
           </SettingSection>
           <SettingSection>

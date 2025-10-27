@@ -760,6 +760,7 @@ export interface FmeExportConfig {
   readonly drawingColor?: string
   readonly drawingOutlineWidth?: number
   readonly drawingFillOpacity?: number
+  readonly enableLogging?: boolean
 }
 
 export interface RequestConfig {

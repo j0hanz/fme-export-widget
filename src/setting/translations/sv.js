@@ -25,6 +25,7 @@ System.register([], function (e) {
         lblOutlineWidth: "Konturens tjocklek",
         lblFillOpacity: "Fyllnadstransparens (%)",
         lblSupportEmail: "Supportkontakt",
+        lblEnableLogging: "Aktivera Loggar",
         errNoServerUrl: "FME Flow server-URL krävs",
         errNoToken: "API-token krävs",
         errTokenSpaces: "API-token får inte innehålla mellanslag",
@@ -114,6 +115,8 @@ System.register([], function (e) {
           "Transparens för områdesfyllnad (0-100%). Högre värde ger mer ogenomskinlig fyllnad",
         hintSupportEmail:
           "Visas i felmeddelanden som kontaktväg för användare. Lämna tomt för att inte visa supportkontakt",
+        hintEnableLogging:
+          "Aktivera detaljerad loggning för felsökning och analys, aktivera endast vid behov.",
         hintTestFirst: "Testa anslutningen innan du fortsätter konfigurationen",
         tokenSettingsHint: "Verifiera API-token i inställningarna",
         serverUrlSettingsHint:

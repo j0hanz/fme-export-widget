@@ -88,6 +88,7 @@ import {
   usePrefetchWorkspaces,
   useMinLoadingTime,
 } from "../shared/hooks"
+import { setLoggingEnabled } from "../shared/services/logging"
 
 /* Huvudkomponent för FME Export widget runtime */
 function WidgetContent(
@@ -867,6 +868,11 @@ function WidgetContent(
     }
   })
 
+  /* Synkroniserar logging-state när config ändras */
+  hooks.useUpdateEffect(() => {
+    setLoggingEnabled(config?.enableLogging ?? false)
+  }, [config?.enableLogging])
+
   /* Återställer widget-state för ny validering */
   const resetForRevalidation = hooks.useEventCallback(
     (alsoCleanupMapResources = false) => {
@@ -942,7 +948,6 @@ function WidgetContent(
       if (!evt.graphic?.geometry) return
 
       if (isCompletingRef.current) {
-        console.log("Drawing completion already in progress, ignoring")
         return
       }
 
@@ -1059,10 +1064,6 @@ function WidgetContent(
         MessageManager.getInstance().publishMessage(message)
       } catch (error) {
         // Ignorera publiceringfel - huvudfunktionalitet påverkas ej
-        console.log(
-          "FME Export: Failed to publish job completion message",
-          error
-        )
       }
     }
   )
@@ -1148,7 +1149,7 @@ function WidgetContent(
               queryKey: ["fme", "workspace-item", selectedWorkspace],
             })
           } catch (queryErr) {
-            console.log("Failed to invalidate workspace queries", queryErr)
+            // Ignorera fel vid cache-invalidering
           }
         }
       }
@@ -1574,7 +1575,6 @@ function WidgetContent(
   })
 
   if (!widgetId || typeof widgetId !== "string" || !widgetId.trim()) {
-    console.log("[FME Export] Critical: Widget ID missing or invalid")
     return (
       <div css={styles.parent}>
         <StateView
