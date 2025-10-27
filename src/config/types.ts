@@ -114,6 +114,7 @@ export type MakeCancelableFn = <T>(promise: Promise<T>) => Promise<T>
 export interface ViewAction {
   readonly label: string
   readonly onClick: () => void
+  readonly type?: "primary" | "secondary" | "tertiary" | "default"
   readonly variant?: "contained" | "outlined" | "text"
   readonly disabled?: boolean
 }

@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, type SerializedStyles } from "jimu-core"
+import { React, hooks, jsx, css, type SerializedStyles } from "jimu-core"
 import {
   TextInput,
   Tooltip as JimuTooltip,
@@ -1337,6 +1337,7 @@ const StateView: React.FC<StateViewProps> = ({
               key={index}
               onClick={action.onClick}
               disabled={action.disabled}
+              type={action.type}
               variant={action.variant}
               text={action.label}
               block
@@ -1442,18 +1443,19 @@ const StateView: React.FC<StateViewProps> = ({
         })
 
         return (
-          <div
-            role="status"
-            aria-live="polite"
-            css={styles.stateView.error}
-          >
+          <div role="status" aria-live="polite" css={styles.stateView.error}>
             <div css={styles.stateView.errorContent}>
               {state.title && <div css={styles.typo.title}>{state.title}</div>}
               {state.message && (
                 <div css={styles.typo.caption}>{state.message}</div>
               )}
               {state.detail && (
-                <div css={styles.typo.caption}>
+                <div
+                  css={[
+                    styles.typo.caption,
+                    css({ "& > div": styles.stateView.infoLine }),
+                  ]}
+                >
                   {typeof state.detail === "string" ? (
                     <span>{state.detail}</span>
                   ) : (

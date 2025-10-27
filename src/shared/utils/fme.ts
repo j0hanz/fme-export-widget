@@ -158,6 +158,7 @@ export const buildOrderResultView = (
       onClick: () => {
         handlers.onReuseGeography?.()
       },
+      type: "primary" as const,
     })
   } else if (isSuccess) {
     actions.push({
@@ -165,7 +166,7 @@ export const buildOrderResultView = (
       onClick: () => {
         handlers.onReuseGeography?.()
       },
-      variant: "contained",
+      type: "primary" as const,
     })
   } else {
     // Failure
@@ -174,6 +175,7 @@ export const buildOrderResultView = (
       onClick: () => {
         handlers.onBack?.()
       },
+      type: "primary" as const,
     })
   }
 
@@ -187,16 +189,16 @@ export const buildOrderResultView = (
         handlers.onBack?.()
       }
     },
-    variant: "text" as const,
+    type: "default" as const,
   })
 
   // Build info detail React node
   const infoDetail =
     infoLines.length > 0
       ? jsx(
-          "div",
-          { style: { whiteSpace: "pre-line", marginBottom: "0.5rem" } },
-          infoLines.join("\n")
+          React.Fragment,
+          null,
+          ...infoLines.map((line, idx) => jsx("div", { key: idx }, line))
         )
       : null
 
