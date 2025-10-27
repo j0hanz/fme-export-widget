@@ -90,6 +90,8 @@ System.register([], function (e) {
         msgNoWorkspaces: "Inga workspaces hittades i detta repository",
         msgAsyncForced:
           "Området {area} är stort och kan medföra längre bearbetningstid",
+        forcedAsyncArea: "Området överskrider den tillåtna gränsen",
+        forcedAsyncUrlLength: "Längden på URL:en överskrider gränsen",
         msgNoGeometry: "Inget område har valts. Rita ett område i kartan",
         msgGeomReady:
           "Område definierat ({rings} polygoner, {vertices} hörnpunkter)",

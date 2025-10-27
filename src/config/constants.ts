@@ -339,6 +339,9 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
   GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
   URL_TOO_LONG: "urlTooLongMessage",
+  WEBHOOK_URL_TOO_LONG: "urlTooLongMessage",
+  PARAMETER_VALIDATION_ERROR: "errorParameterValidation",
+  WORKSPACE_PARAMETERS_ERROR: "errorWorkspaceParameters",
 }
 
 export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {

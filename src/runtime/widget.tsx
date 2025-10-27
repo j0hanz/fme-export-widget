@@ -314,29 +314,38 @@ function WidgetContent(
       }
 
       const params: { [key: string]: unknown } = {}
-      if (typeof info.value === "number") {
-        params.area =
-          currentModules && currentView?.view?.spatialReference
-            ? formatArea(
-                info.value,
-                currentModules,
-                currentView.view.spatialReference
-              )
-            : Math.max(0, Math.round(info.value)).toLocaleString()
-      }
-      if (typeof info.threshold === "number") {
-        params.threshold =
-          currentModules && currentView?.view?.spatialReference
-            ? formatArea(
-                info.threshold,
-                currentModules,
-                currentView.view.spatialReference
-              )
-            : Math.max(0, Math.round(info.threshold)).toLocaleString()
+      let messageKey = "forcedAsyncArea"
+
+      if (info.reason === "url_length") {
+        messageKey = "forcedAsyncUrlLength"
+        if (typeof info.urlLength === "number") {
+          params.urlLength = info.urlLength.toLocaleString()
+        }
+      } else {
+        if (typeof info.value === "number") {
+          params.area =
+            currentModules && currentView?.view?.spatialReference
+              ? formatArea(
+                  info.value,
+                  currentModules,
+                  currentView.view.spatialReference
+                )
+              : Math.max(0, Math.round(info.value)).toLocaleString()
+        }
+        if (typeof info.threshold === "number") {
+          params.threshold =
+            currentModules && currentView?.view?.spatialReference
+              ? formatArea(
+                  info.threshold,
+                  currentModules,
+                  currentView.view.spatialReference
+                )
+              : Math.max(0, Math.round(info.threshold)).toLocaleString()
+        }
       }
 
       setModeNotice({
-        messageKey: "forcedAsyncArea",
+        messageKey,
         severity: "warning",
         params,
       })

@@ -1335,9 +1335,10 @@ export interface RequestLog {
 export interface ServiceModeOverrideInfo {
   readonly forcedMode: ServiceMode
   readonly previousMode: ServiceMode
-  readonly reason: "area"
+  readonly reason: "area" | "url_length"
   readonly value?: number
   readonly threshold?: number
+  readonly urlLength?: number
 }
 
 export interface DetermineServiceModeOptions {
@@ -1351,6 +1352,7 @@ export interface ForceAsyncResult {
   readonly reason: ServiceModeOverrideInfo["reason"]
   readonly value?: number
   readonly threshold?: number
+  readonly urlLength?: number
 }
 
 export interface ConnectionTestSectionProps {

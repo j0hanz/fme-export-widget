@@ -287,6 +287,8 @@ const shouldForceAsyncMode = (
     workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
     areaWarning?: boolean
     drawnArea?: number
+    formData?: unknown
+    userEmail?: string
   }
 ): ForceAsyncResult | null => {
   if (!options) return null
@@ -306,6 +308,49 @@ const shouldForceAsyncMode = (
         value: options.drawnArea,
         threshold: config.largeArea,
       }
+    }
+  }
+
+  // Check URL length for sync mode
+  if (options.formData && config) {
+    try {
+      const data = (options.formData as any)?.data || {}
+      const mockParams = buildFmeParams(
+        { data },
+        options.userEmail || "",
+        "sync",
+        config
+      )
+
+      const workspaceName = options.workspaceItem?.name
+      if (workspaceName && config.fmeServerUrl && config.repository) {
+        const urlCheck = isWebhookUrlTooLong({
+          serverUrl: config.fmeServerUrl,
+          repository: config.repository,
+          workspace: workspaceName,
+          parameters: mockParams,
+          token: config.fmeServerToken,
+          options: { requireHttps: config.requireHttps },
+        })
+
+        if (urlCheck) {
+          const { fullUrl } = createWebhookArtifacts(
+            config.fmeServerUrl,
+            config.repository,
+            workspaceName,
+            mockParams,
+            config.fmeServerToken,
+            { requireHttps: config.requireHttps }
+          )
+          return {
+            reason: "url_length",
+            urlLength: fullUrl.length,
+            threshold: FME_FLOW_API.MAX_URL_LENGTH,
+          }
+        }
+      }
+    } catch {
+      // Silently ignore URL validation errors - will be caught at submission
     }
   }
 
@@ -360,6 +405,8 @@ export const determineServiceMode = (
     workspaceItem: options?.workspaceItem,
     areaWarning: options?.areaWarning,
     drawnArea: options?.drawnArea,
+    formData,
+    userEmail: (data.opt_requesteremail as string) || "",
   })
 
   if (forceInfo && resolved === "sync") {
@@ -369,6 +416,7 @@ export const determineServiceMode = (
       reason: forceInfo.reason,
       value: forceInfo.value,
       threshold: forceInfo.threshold,
+      urlLength: forceInfo.urlLength,
     })
     return "async"
   }

@@ -87,6 +87,10 @@ export default {
   msgNoWorkspaces: "No workspaces found in this repository",
   msgAsyncForced:
     "The area {area} is large and may result in longer processing time",
+  forcedAsyncArea:
+    "The area {area} is large and may result in longer processing time",
+  forcedAsyncUrlLength:
+    "URL length ({urlLength} characters) exceeds limit. Automatically switched to email notification mode",
   msgNoGeometry: "No area selected. Draw an area on the map",
   msgGeomReady: "Area defined ({rings} polygons, {vertices} vertices)",
   msgContactSupport: "Please contact support at {email}",
