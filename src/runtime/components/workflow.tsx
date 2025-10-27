@@ -24,6 +24,7 @@ import {
   type DynamicFieldConfig,
   type LoadingState,
   type VisibilityState,
+  type ServiceMode,
   ViewMode,
   DrawingTool,
   FormFieldType,
@@ -206,6 +207,59 @@ const OrderResult: React.FC<OrderResultProps> = ({
     onReuseGeography,
     onBack,
     onReset,
+  })
+
+  // Hanterar automatisk nedladdning för sync-resultat (endast en gång per resultat)
+  hooks.useEffectOnce(() => {
+    if (!orderResult) return
+
+    const isCancelled = Boolean(orderResult.cancelled)
+    const isSuccess = !isCancelled && Boolean(orderResult.success)
+    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+    const serviceMode: ServiceMode =
+      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
+        ? orderResult.serviceMode
+        : fallbackMode
+
+    if (!isSuccess || serviceMode !== "sync") return
+
+    // Skapa blob URL om det finns en blob
+    const blobUrl = orderResult.blob
+      ? URL.createObjectURL(orderResult.blob)
+      : null
+    const downloadUrl = orderResult.downloadUrl || blobUrl
+
+    if (!downloadUrl) return
+
+    // Trigga automatisk nedladdning efter kort fördröjning
+    const downloadTimeout = setTimeout(() => {
+      try {
+        const link = document.createElement("a")
+        link.href = downloadUrl
+        link.download = orderResult.downloadFilename || "download"
+        link.style.display = "none"
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      } catch {
+        // Ignorera fel, fallback-knappen finns tillgänglig
+      }
+    }, 100) // AUTO_DOWNLOAD_DELAY_MS
+
+    // Cleanup: återkalla blob-URL och rensa timeout
+    return () => {
+      clearTimeout(downloadTimeout)
+      if (blobUrl) {
+        // Vänta med att rensa blob URL för att ge nedladdningen tid att starta
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(blobUrl)
+          } catch {
+            // Ignorera revoke-fel
+          }
+        }, 60000) // BLOB_URL_CLEANUP_DELAY_MS
+      }
+    }
   })
 
   return <StateView state={viewState} />

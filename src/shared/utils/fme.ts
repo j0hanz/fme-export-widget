@@ -44,9 +44,6 @@ import {
 import { validateServerUrl, mapServerUrlReasonToKey } from "../validations"
 import { buildUrl, buildParams, safeParseUrl } from "./network"
 
-const AUTO_DOWNLOAD_DELAY_MS = 100
-const BLOB_URL_CLEANUP_DELAY_MS = 60000
-
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
 export const buildOrderResultView = (
   result: ExportResult | null | undefined,
@@ -202,34 +199,12 @@ export const buildOrderResultView = (
         )
       : null
 
-  // Hanter nedladdningslänk för synkron framgång med automatisk nedladdningsutlösare
+  // Hanter nedladdningslänk för synkrona jobb
   let downloadNode: React.ReactNode = null
   if (isSuccess && serviceMode === "sync") {
     const blobUrl = result.blob ? URL.createObjectURL(result.blob) : null
     const downloadUrl = result.downloadUrl || blobUrl
     if (downloadUrl) {
-      // Försök att automatiskt starta nedladdningen efter en kort fördröjning
-      setTimeout(() => {
-        try {
-          const link = document.createElement("a")
-          link.href = downloadUrl
-          link.download = result.downloadFilename || "download"
-          link.style.display = "none"
-          document.body.appendChild(link)
-          link.click()
-          document.body.removeChild(link)
-        } catch {
-          // Ignorera fel, visa bara fallback-knappen
-        }
-      }, AUTO_DOWNLOAD_DELAY_MS)
-
-      // Återkalla blob-URL efter säkerhetsfönster för att förhindra minnesläcka
-      if (blobUrl) {
-        setTimeout(() => {
-          URL.revokeObjectURL(blobUrl)
-        }, BLOB_URL_CLEANUP_DELAY_MS)
-      }
-
       // Fallback download button if auto-download didn't start
       downloadNode = jsx(
         "div",
