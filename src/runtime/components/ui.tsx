@@ -1513,15 +1513,15 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
         key: index.toString(),
       }))
     : [
+        primaryButton
+          ? { config: primaryButton, role: "primary" as const, key: "primary" }
+          : null,
         secondaryButton
           ? {
               config: secondaryButton,
               role: "secondary" as const,
               key: "secondary",
             }
-          : null,
-        primaryButton
-          ? { config: primaryButton, role: "primary" as const, key: "primary" }
           : null,
       ].filter(
         (
