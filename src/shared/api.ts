@@ -425,6 +425,9 @@ interface UnknownValueMap {
   [key: string]: unknown;
 }
 
+const isUnknownValueMap = (value: unknown): value is UnknownValueMap =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 const coerceDetailValue = (value: unknown, depth = 0): string | null => {
   if (value == null) return null;
   if (typeof value === "string") {
@@ -444,10 +447,10 @@ const coerceDetailValue = (value: unknown, depth = 0): string | null => {
     const joined = parts.join(", ");
     return truncate(joined, DETAIL_VALUE_LIMIT);
   }
-  if (typeof value === "object") {
+  if (isUnknownValueMap(value)) {
     if (depth >= 3) return null;
     for (const key of DETAIL_MESSAGE_KEYS) {
-      const nested = coerceDetailValue((value as any)?.[key], depth + 1);
+      const nested = coerceDetailValue(value[key], depth + 1);
       if (nested) return nested;
     }
   }
@@ -464,8 +467,8 @@ const normalizeDetailMap = (
   if (Array.isArray(candidate)) {
     candidate.forEach((entry, index) => {
       if (entry == null) return;
-      if (typeof entry === "object" && !Array.isArray(entry)) {
-        const objectEntry = entry as UnknownValueMap;
+      if (isUnknownValueMap(entry)) {
+        const objectEntry = entry;
         const nameValue =
           typeof objectEntry.name === "string" ? objectEntry.name : undefined;
         const fieldValue =
@@ -492,10 +495,9 @@ const normalizeDetailMap = (
     return Object.keys(result).length ? result : undefined;
   }
 
-  if (typeof candidate === "object" && !Array.isArray(candidate)) {
-    const objectCandidate = candidate as UnknownValueMap;
-    for (const key of Object.keys(objectCandidate)) {
-      const normalized = coerceDetailValue(objectCandidate[key]);
+  if (isUnknownValueMap(candidate)) {
+    for (const key of Object.keys(candidate)) {
+      const normalized = coerceDetailValue(candidate[key]);
       if (normalized) result[key] = truncate(normalized, DETAIL_VALUE_LIMIT);
     }
     return Object.keys(result).length ? result : undefined;
@@ -510,21 +512,33 @@ const normalizeDetailMap = (
   return undefined;
 };
 
+const extractProperty = (source: unknown, path: string[]): unknown => {
+  let current: unknown = source;
+  for (const key of path) {
+    if (!isUnknownValueMap(current)) return undefined;
+    current = current[key];
+  }
+  return current;
+};
+
 const extractErrorDetails = (error: unknown): ErrorDetailInput | undefined => {
   if (!error || typeof error !== "object") return undefined;
 
-  const candidateSources: unknown[] = [
-    (error as any)?.details,
-    (error as any)?.response?.details,
-    (error as any)?.response?.data?.details,
-    (error as any)?.data?.details,
-    (error as any)?.body?.details,
-    (error as any)?.error?.details,
+  const paths: string[][] = [
+    ["details"],
+    ["response", "details"],
+    ["response", "data", "details"],
+    ["data", "details"],
+    ["body", "details"],
+    ["error", "details"],
   ];
 
-  for (const candidate of candidateSources) {
-    const normalized = normalizeDetailMap(candidate);
-    if (normalized) return normalized;
+  for (const path of paths) {
+    const candidate = extractProperty(error, path);
+    if (candidate !== undefined) {
+      const normalized = normalizeDetailMap(candidate);
+      if (normalized) return normalized;
+    }
   }
 
   return undefined;
@@ -887,16 +901,18 @@ const normalizeV4Parameter = (raw: unknown): WorkspaceParameter => {
 };
 
 // Normaliserar array av V4 parametrar och plattar ut grupper
-const normalizeV4Parameters = (raw: any): any => {
+const normalizeV4Parameters = (raw: unknown): WorkspaceParameter[] => {
   // V4 API wraps parameters in { value: [...], Count: n } structure
-  const params = raw?.value || raw;
+  const paramsCandidate =
+    isUnknownValueMap(raw) && Array.isArray(raw.value) ? raw.value : raw;
 
-  if (!Array.isArray(params)) return raw;
+  if (!Array.isArray(paramsCandidate)) return [];
 
-  const normalized = params.map(normalizeV4Parameter);
+  const normalized: WorkspaceParameter[] =
+    paramsCandidate.map(normalizeV4Parameter);
 
   // Flatten group parameters: extract nested parameters and add them to top level
-  const flattened: any[] = [];
+  const flattened: WorkspaceParameter[] = [];
   for (const param of normalized) {
     // Always add the parameter itself (groups will be filtered later by ALWAYS_SKIPPED_TYPES)
     flattened.push(param);
@@ -914,7 +930,34 @@ const normalizeV4Parameters = (raw: any): any => {
 
 // Response interpreters for esriRequest responses
 // Extraherar HTTP-status från esriRequest-svar
-const getEsriResponseStatus = (response: any): number | undefined => {
+interface EsriResponseLike<T = unknown> {
+  readonly data?: T;
+  readonly status?: number;
+  readonly statusText?: string;
+  readonly httpStatus?: number;
+  readonly headers?: { get(name: string): string | null } | null;
+  readonly json?: unknown;
+  readonly text?: unknown;
+}
+
+type EsriRequestResponse<T = unknown> = EsriResponseLike<T> & {
+  readonly data: T;
+};
+
+interface EsriRequestOptions extends Record<string, unknown> {
+  method: string;
+  query?: PrimitiveParams;
+  responseType?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  timeout?: number;
+  cacheHint?: boolean;
+  body?: unknown;
+}
+
+const getEsriResponseStatus = (
+  response: EsriResponseLike
+): number | undefined => {
   const httpStatus = response?.httpStatus;
   const status = response?.status;
   return typeof httpStatus === "number"
@@ -925,14 +968,16 @@ const getEsriResponseStatus = (response: any): number | undefined => {
 };
 
 // Härleder ok-status från esriRequest-svar
-const getEsriResponseOk = (response: any): boolean | undefined => {
+const getEsriResponseOk = (response: EsriResponseLike): boolean | undefined => {
   const status = getEsriResponseStatus(response);
   if (typeof status !== "number") return undefined;
   return isSuccessStatus(status);
 };
 
 // Beräknar storlek av esriRequest-svar (bytes)
-const getEsriResponseSize = (response: any): number | undefined => {
+const getEsriResponseSize = (
+  response: EsriResponseLike
+): number | undefined => {
   try {
     const data = response?.data;
     if (!data) return undefined;
@@ -945,8 +990,15 @@ const getEsriResponseSize = (response: any): number | undefined => {
 };
 
 // Packar upp modul-export (hanterar default-export)
-const unwrapModule = (module: unknown): any =>
-  (module as any)?.default ?? module;
+const unwrapModule = <T>(module: T): T => {
+  if (module && typeof module === "object" && "default" in module) {
+    const candidate = module as { default?: T };
+    if (candidate.default !== undefined) {
+      return candidate.default;
+    }
+  }
+  return module;
+};
 
 /* ArcGIS-modulreferenser och cachning */
 // Globala referenser till laddade ArcGIS-moduler
@@ -978,17 +1030,35 @@ const getEsriMockFallback = (key: EsriMockKey): unknown =>
   ESRI_MOCK_FALLBACKS[key];
 
 // Applicerar globala Esri-mocks från test-miljö
-const applyGlobalEsriMocks = (source: any): void => {
-  const assignments: { [K in EsriMockKey]: (value: any) => void } = {
-    esriRequest: (v) => (_esriRequest = v),
-    esriConfig: (v) => (_esriConfig = v),
-    projection: (v) => (_projection = v),
-    webMercatorUtils: (v) => (_webMercatorUtils = v),
-    SpatialReference: (v) => (_SpatialReference = v),
+type EsriMockAssignments = {
+  [K in EsriMockKey]: (value: unknown) => void;
+};
+
+type EsriMockSource = Record<string, unknown> | null | undefined;
+
+const applyGlobalEsriMocks = (source: EsriMockSource): void => {
+  if (!source) return;
+  const assignments: EsriMockAssignments = {
+    esriRequest: (value) => {
+      _esriRequest = value;
+    },
+    esriConfig: (value) => {
+      _esriConfig = value;
+    },
+    projection: (value) => {
+      _projection = value;
+    },
+    webMercatorUtils: (value) => {
+      _webMercatorUtils = value;
+    },
+    SpatialReference: (value) => {
+      _SpatialReference = value;
+    },
   };
 
   for (const key of ESRI_GLOBAL_MOCK_KEYS) {
-    const value = source?.[key] ?? getEsriMockFallback(key);
+    const candidate = key in source ? source[key] : undefined;
+    const value = candidate ?? getEsriMockFallback(key);
     assignments[key](value);
   }
 };
@@ -1018,11 +1088,13 @@ const areEsriModulesLoaded = (): boolean =>
   );
 
 // Kontrollerar om globala Esri-mocks finns (testläge)
-const hasGlobalEsriMocks = (): boolean => {
-  const globalAny = globalThis as any;
-  return Boolean(
-    globalAny && ESRI_GLOBAL_MOCK_KEYS.some((key) => Boolean(globalAny?.[key]))
-  );
+const getGlobalMockSource = (): Record<string, unknown> | null => {
+  try {
+    const scope = globalThis as Record<string, unknown>;
+    return ESRI_GLOBAL_MOCK_KEYS.some((key) => key in scope) ? scope : null;
+  } catch {
+    return null;
+  }
 };
 
 // Laddar ArcGIS-moduler via jimu-arcgis loader
@@ -1058,9 +1130,9 @@ async function ensureEsri(): Promise<void> {
   if (_loadPromise) return _loadPromise;
 
   const loadPromise = (async () => {
-    if (hasGlobalEsriMocks()) {
-      const globalAny = globalThis as any;
-      applyGlobalEsriMocks(globalAny);
+    const mockSource = getGlobalMockSource();
+    if (mockSource) {
+      applyGlobalEsriMocks(mockSource);
       return;
     }
 
@@ -1087,21 +1159,66 @@ async function getEsriConfig(): Promise<EsriRequestConfig | null> {
 }
 
 // Tar bort matchande interceptors baserat på regex-pattern
+interface EsriInterceptorRequestOptions {
+  headers?: Record<string, string>;
+  query?: PrimitiveParams;
+  [key: string]: unknown;
+}
+
+interface EsriInterceptorParams {
+  url?: unknown;
+  requestOptions?: EsriInterceptorRequestOptions;
+  [key: string]: unknown;
+}
+
+interface EsriRequestInterceptor {
+  urls?: string | RegExp | string[];
+  before?: (params: EsriInterceptorParams) => unknown;
+  error?: (error: unknown) => unknown;
+  _fmeInterceptor?: boolean;
+  [key: string]: unknown;
+}
+
+type EsriInterceptorList = Array<unknown> | undefined;
+
+const isEsriRequestInterceptor = (
+  candidate: unknown
+): candidate is EsriRequestInterceptor => {
+  if (!isUnknownValueMap(candidate)) return false;
+  const record = candidate as Record<string, unknown>;
+
+  const { before, error: errorHandler } = record;
+  if (before !== undefined && typeof before !== "function") return false;
+  if (errorHandler !== undefined && typeof errorHandler !== "function")
+    return false;
+
+  const { urls } = record;
+  if (urls === undefined) return true;
+  if (typeof urls === "string" || urls instanceof RegExp) return true;
+  if (Array.isArray(urls)) return true;
+  return false;
+};
+
 function removeMatchingInterceptors(
-  interceptors: any[] | undefined,
+  interceptors: EsriInterceptorList,
   pattern: RegExp
 ): void {
-  if (!interceptors?.length) return;
+  if (!Array.isArray(interceptors) || !interceptors.length) return;
 
   for (let i = interceptors.length - 1; i >= 0; i--) {
     const candidate = interceptors[i];
-    if (!candidate?._fmeInterceptor) continue;
+    if (!isEsriRequestInterceptor(candidate) || !candidate._fmeInterceptor)
+      continue;
 
     const urls = candidate.urls;
-    const matches =
-      urls instanceof RegExp
-        ? urls.source === pattern.source && urls.flags === pattern.flags
-        : pattern.test(typeof urls === "string" ? urls : String(urls ?? ""));
+    let matches = false;
+    if (urls instanceof RegExp) {
+      matches = urls.source === pattern.source && urls.flags === pattern.flags;
+    } else if (Array.isArray(urls)) {
+      matches = urls.some((url) => pattern.test(String(url ?? "")));
+    } else if (typeof urls === "string") {
+      matches = pattern.test(urls);
+    }
 
     if (matches) {
       interceptors.splice(i, 1);
@@ -1116,24 +1233,34 @@ const isObjectType = (v: unknown): v is object =>
 // Type guard för esriRequest-funktion
 const asEsriRequest = (
   v: unknown
-): ((url: string, options: any) => Promise<any>) | null =>
-  typeof v === "function" ? (v as any) : null;
+):
+  | ((url: string, options: Record<string, unknown>) => Promise<unknown>)
+  | null =>
+  typeof v === "function"
+    ? (v as (url: string, options: Record<string, unknown>) => Promise<unknown>)
+    : null;
 
 // Type guard för esriConfig-objekt
-const asEsriConfig = (
-  v: unknown
-): { request: { maxUrlLength: number; interceptors: any[] } } | null => {
+const asEsriConfig = (v: unknown): EsriRequestConfig | null => {
   if (!isObjectType(v)) return null;
-  return (v as any).request ? (v as any) : null;
+  const candidate = v as {
+    request?: {
+      maxUrlLength?: number | string;
+      interceptors?: unknown;
+    };
+  };
+  if (!candidate.request) return null;
+  if (!Array.isArray(candidate.request.interceptors)) return null;
+  return candidate as unknown as EsriRequestConfig;
 };
 
 const asProjection = (
   v: unknown
 ): {
-  project?: (geometry: any, spatialReference: any) => any;
+  project?: (geometry: unknown, spatialReference: unknown) => unknown;
   load?: () => Promise<void>;
   isLoaded?: () => boolean;
-} | null => (isObjectType(v) ? (v as any) : null);
+} | null => (isObjectType(v) ? (v as { [key: string]: unknown }) : null);
 
 /* Helper-funktioner för FME-token-interceptors */
 
@@ -1214,11 +1341,11 @@ const createTokenInterceptor = (
   pattern: RegExp
 ): {
   urls: RegExp;
-  before: (params: any) => void;
+  before: (params: EsriInterceptorParams) => void;
   _fmeInterceptor: boolean;
 } => ({
   urls: pattern,
-  before(params: any) {
+  before(params: EsriInterceptorParams) {
     if (!isAllowedFmePath(params?.url)) {
       return;
     }
@@ -1227,16 +1354,18 @@ const createTokenInterceptor = (
       params.requestOptions = {};
     }
     const requestOptions = params.requestOptions;
-    requestOptions.headers = requestOptions.headers || {};
-    requestOptions.query = requestOptions.query || {};
+    const headers = requestOptions.headers || {};
+    const query = requestOptions.query || {};
+    requestOptions.headers = headers;
+    requestOptions.query = query;
 
     // Injicerar cachelagrad FME-token i query och headers
     const currentToken = getCachedToken(hostKey);
     if (currentToken) {
-      if (!requestOptions.query.fmetoken) {
-        requestOptions.query.fmetoken = currentToken;
+      if (!query.fmetoken) {
+        query.fmetoken = currentToken;
       }
-      requestOptions.headers.Authorization = `fmetoken token=${currentToken}`;
+      headers.Authorization = `fmetoken token=${currentToken}`;
     }
   },
   _fmeInterceptor: true,
@@ -1341,7 +1470,25 @@ async function setApiSettings(): Promise<void> {
 /* TM/NM directives builders för FME-jobb */
 
 // Bygger Transaction Manager (TM) directives från parametrar
-const buildTMDirectives = (params: any): TMDirectives => {
+interface PublishedParameterEntry {
+  name: string;
+  value: unknown;
+}
+
+interface SubmitParametersPayload {
+  publishedParameters: PublishedParameterEntry[];
+  TMDirectives?: TMDirectives;
+  NMDirectives?: NMDirectives;
+}
+
+const hasPublishedParameters = (
+  value: PrimitiveParams | SubmitParametersPayload
+): value is SubmitParametersPayload => {
+  if (!isUnknownValueMap(value)) return false;
+  return Array.isArray(value.publishedParameters);
+};
+
+const buildTMDirectives = (params: PrimitiveParams): TMDirectives => {
   const ttc = parseNonNegativeInt(params?.tm_ttc);
   const ttl = parseNonNegativeInt(params?.tm_ttl);
   const tag = toTrimmedString(params?.tm_tag);
@@ -1360,21 +1507,13 @@ const buildNMDirectives = (): null => {
 
 // Skapar request-body för FME-jobb-submit (TM/NM + parameters)
 const makeSubmitBody = (
-  publishedParameters: any,
-  params: any
-): {
-  publishedParameters: any;
-  TMDirectives?: TMDirectives;
-  NMDirectives?: NMDirectives;
-} => {
+  publishedParameters: PublishedParameterEntry[],
+  params: PrimitiveParams
+): SubmitParametersPayload => {
   const tmDirectives = buildTMDirectives(params);
   const nmDirectives = buildNMDirectives();
 
-  const body: {
-    publishedParameters: any;
-    TMDirectives?: TMDirectives;
-    NMDirectives?: NMDirectives;
-  } = { publishedParameters };
+  const body: SubmitParametersPayload = { publishedParameters };
 
   // Lägg till TM-directives om ej tomma
   if (Object.keys(tmDirectives).length > 0) {
@@ -1461,7 +1600,8 @@ export class FmeFlowApiClient {
     }
 
     const rawName =
-      toNonEmptyTrimmedString((file as any)?.name) || `upload_${Date.now()}`;
+      toNonEmptyTrimmedString(file instanceof File ? file.name : undefined) ||
+      `upload_${Date.now()}`;
     const safeName =
       rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
       `upload_${Date.now()}`;
@@ -1527,12 +1667,16 @@ export class FmeFlowApiClient {
   }
 
   // Formaterar jobb-parametrar till FME publishedParameters-struktur
-  private formatJobParams(parameters: PrimitiveParams = {}): any {
+  private formatJobParams(
+    parameters: PrimitiveParams | SubmitParametersPayload = {}
+  ): SubmitParametersPayload {
     // Om redan i rätt format, returnera direkt
-    if ((parameters as any).publishedParameters) return parameters;
+    if (hasPublishedParameters(parameters)) return parameters;
 
     // Filtrera bort exkluderade parametrar (opt_, tm_, etc.)
-    const publishedParameters = Object.entries(parameters)
+    const publishedParameters: PublishedParameterEntry[] = Object.entries(
+      parameters
+    )
       .filter(([name]) => !PUBLISHED_PARAM_EXCLUDE_SET.has(name))
       .map(([name, value]) => ({ name, value }));
 
@@ -1635,7 +1779,7 @@ export class FmeFlowApiClient {
           this.basePath.slice(1),
           "repositories"
         );
-        const raw = await this.request<any>(listEndpoint, {
+        const raw = await this.request<unknown>(listEndpoint, {
           signal,
           cacheHint: false, // Undvik cache över tokens
           query: { limit: NETWORK_CONFIG.API_QUERY_LIMIT, offset: 0 },
@@ -1670,7 +1814,7 @@ export class FmeFlowApiClient {
       "parameters",
       parameter
     );
-    const response = await this.request<any>(endpoint, {
+    const response = await this.request<unknown>(endpoint, {
       signal,
       cacheHint: false, // Avaktivera cache
       repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -1694,7 +1838,7 @@ export class FmeFlowApiClient {
     const endpoint = this.workspaceEndpoint(repo, workspace, "parameters");
     return this.withApiError(
       async () => {
-        const response = await this.request<any[]>(endpoint, {
+        const response = await this.request<unknown>(endpoint, {
           signal,
           cacheHint: false, // Avaktivera cache
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -1722,7 +1866,7 @@ export class FmeFlowApiClient {
     signal?: AbortSignal
   ): Promise<
     ApiResponse<{
-      items: any[];
+      items: unknown[];
       totalCount?: number;
       limit?: number;
       offset?: number;
@@ -1752,13 +1896,13 @@ export class FmeFlowApiClient {
     workspace: string,
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<any>> {
+  ): Promise<ApiResponse<unknown>> {
     const repo = this.resolveRepository(repository);
     // V4 API: Use /workspaces/{repo}/{workspace}
     const endpoint = this.workspaceEndpoint(repo, workspace);
     return this.withApiError(
       () =>
-        this.request<any>(endpoint, {
+        this.request<unknown>(endpoint, {
           signal,
           cacheHint: false, // Undvik cross-repo/token-kontaminering
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -1908,7 +2052,7 @@ export class FmeFlowApiClient {
         }
 
         // Instrumenterad GET-request via webhook
-        const response = await instrumentedRequest({
+        const response = await instrumentedRequest<EsriResponseLike>({
           method: "GET",
           url: fullUrl,
           transport: "fme-webhook",
@@ -1920,29 +2064,31 @@ export class FmeFlowApiClient {
             size: getEsriResponseSize,
           },
           execute: () => {
-            const requestOptions: any = {
+            const requestOptions: EsriRequestOptions = {
               method: "get",
               responseType: "json",
               headers: requestHeaders,
               signal: controller.signal,
             };
-            // Only set timeout if explicitly configured and valid
             if (typeof timeoutMs === "number" && timeoutMs > 0) {
               requestOptions.timeout = timeoutMs;
             }
-            return esriRequestFn(fullUrl, requestOptions);
+            return esriRequestFn(
+              fullUrl,
+              requestOptions
+            ) as Promise<EsriResponseLike>;
           },
         });
 
         return this.parseWebhookResponse(response);
-      } catch (e: any) {
+      } catch (error) {
         // Hantera abort-fel, särskilt timeout
-        if (isAbortError(e)) {
+        if (isAbortError(error)) {
           if (didTimeout) {
-            throw makeError("WEBHOOK_TIMEOUT", 408, e);
+            throw makeError("WEBHOOK_TIMEOUT", 408, error);
           }
         }
-        throw e instanceof Error ? e : new Error(String(e));
+        throw error instanceof Error ? error : new Error(String(error));
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
         try {
@@ -1961,73 +2107,105 @@ export class FmeFlowApiClient {
 
   // Parsar webhook-respons och hanterar fel
   private async parseWebhookResponse(
-    response:
-      | Response
-      | {
-          data?: any;
-          headers?: { get: (name: string) => string | null };
-          status?: number;
-          statusText?: string;
-          httpStatus?: number;
-        }
+    response: Response | EsriResponseLike
   ): Promise<ApiResponse> {
-    // Extrahera HTTP-status från respons
-    const rawStatus =
-      typeof (response as any)?.status === "number"
-        ? (response as any).status
-        : typeof (response as any)?.httpStatus === "number"
-          ? (response as any).httpStatus
-          : undefined;
-    const status = typeof rawStatus === "number" ? rawStatus : 0;
+    const resolveStatus = (value: Response | EsriResponseLike): number => {
+      if (typeof value.status === "number") return value.status;
+      if (
+        "httpStatus" in value &&
+        typeof (value as EsriResponseLike).httpStatus === "number"
+      ) {
+        return (value as EsriResponseLike).httpStatus ?? 0;
+      }
+      return 0;
+    };
 
-    // Autentiseringsfel
+    const status = resolveStatus(response);
+
     if (status === 401 || status === 403) {
       throw makeError("WEBHOOK_AUTH_ERROR", status);
     }
 
-    const headers =
-      typeof (response as any)?.headers?.get === "function"
-        ? ((response as any).headers as {
-            get: (name: string) => string | null;
-          })
-        : undefined;
-    const contentType = headers?.get("content-type") || undefined;
+    const headerGetter = (() => {
+      if (response instanceof Response) return response.headers;
+      if (
+        typeof response.headers === "object" &&
+        response.headers &&
+        "get" in response.headers &&
+        typeof response.headers.get === "function"
+      ) {
+        return response.headers as { get(name: string): string | null };
+      }
+      return undefined;
+    })();
 
-    let data: any;
+    const contentType = headerGetter?.get("content-type") || undefined;
 
-    // Försök parsa JSON från respons
-    if (typeof (response as any)?.json === "function") {
+    const parseJsonText = async (textSource: unknown): Promise<unknown> => {
       try {
-        data = await (response as any).json();
+        const text =
+          typeof textSource === "function"
+            ? await (textSource as () => Promise<string>)()
+            : String(textSource ?? "");
+        return text ? JSON.parse(text) : {};
       } catch (error) {
         throw makeError("WEBHOOK_NON_JSON", status, error);
       }
-    } else if ((response as any)?.data !== undefined) {
-      data = (response as any).data;
-    } else if ((response as any)?.json !== undefined) {
-      data = (response as any).json;
-    } else if (typeof (response as any)?.text === "string") {
-      try {
-        data = JSON.parse((response as any).text);
-      } catch (error) {
-        throw makeError("WEBHOOK_NON_JSON", status, error);
-      }
-    }
+    };
 
-    // Validera att data är objekt
+    const parseJsonResponse = async (
+      value: Response | EsriResponseLike
+    ): Promise<unknown> => {
+      if (value instanceof Response) {
+        try {
+          return await value.json();
+        } catch (error) {
+          throw makeError("WEBHOOK_NON_JSON", status, error);
+        }
+      }
+
+      if (typeof value.json === "function") {
+        try {
+          return await value.json();
+        } catch (error) {
+          throw makeError("WEBHOOK_NON_JSON", status, error);
+        }
+      }
+
+      if (value.data !== undefined) {
+        return value.data;
+      }
+
+      if (value.json !== undefined) {
+        return value.json;
+      }
+
+      if (typeof value.text === "function" || typeof value.text === "string") {
+        return parseJsonText(value.text);
+      }
+
+      return undefined;
+    };
+
+    const data = await parseJsonResponse(response);
+
     if (!data || typeof data !== "object") {
       throw makeError("WEBHOOK_NON_JSON", status, response);
     }
 
-    // Kontrollera content-type är JSON
     if (contentType && !isJson(contentType)) {
       throw makeError("WEBHOOK_NON_JSON", status, { contentType });
     }
 
+    const statusText =
+      response instanceof Response
+        ? response.statusText
+        : (response.statusText ?? "");
+
     return {
       data,
       status,
-      statusText: (response as any)?.statusText,
+      statusText,
     };
   }
 
@@ -2068,10 +2246,10 @@ export class FmeFlowApiClient {
         : normalizedEndpoint
           ? buildUrl(this.config.serverUrl, ...baseSegments, normalizedEndpoint)
           : buildUrl(this.config.serverUrl, ...baseSegments);
-    const headers: { [key: string]: string } = {
+    const headers: Record<string, string> = {
       ...(options.headers || {}),
     };
-    const query: any = { ...(options.query || {}) };
+    const query: PrimitiveParams = { ...(options.query || {}) };
 
     // Lägg till stabilt scope-id för GET-request cache-variation
     const isGet = !options.method || options.method === HttpMethod.GET;
@@ -2084,8 +2262,8 @@ export class FmeFlowApiClient {
       if (query.__scope === undefined) query.__scope = scope;
     }
 
-    const requestOptions: any = {
-      method: (options.method?.toLowerCase() as any) || "get",
+    const requestOptions: EsriRequestOptions = {
+      method: (options.method ?? HttpMethod.GET).toLowerCase(),
       query,
       responseType: "json",
       headers,
@@ -2120,8 +2298,9 @@ export class FmeFlowApiClient {
           query.fmetoken = this.config.token;
         }
         // Lägg till Authorization-header med FME Flow-format
-        requestOptions.headers = requestOptions.headers || {};
-        requestOptions.headers.Authorization = `fmetoken token=${this.config.token}`;
+        const authHeaders = requestOptions.headers || {};
+        authHeaders.Authorization = `fmetoken token=${this.config.token}`;
+        requestOptions.headers = authHeaders;
       }
 
       // Använd explicit timeout eller fallback till config
@@ -2145,7 +2324,7 @@ export class FmeFlowApiClient {
 
       // Instrumenterad request med logging och timing
       const correlationId = createCorrelationId("fme");
-      const response = await instrumentedRequest({
+      const response = await instrumentedRequest<EsriRequestResponse<T>>({
         method:
           typeof requestOptions.method === "string"
             ? requestOptions.method.toUpperCase()
@@ -2160,13 +2339,14 @@ export class FmeFlowApiClient {
           ok: getEsriResponseOk,
           size: getEsriResponseSize,
         },
-        execute: () => esriRequestFn(url, requestOptions),
+        execute: () =>
+          esriRequestFn(url, requestOptions) as Promise<EsriRequestResponse<T>>,
       });
 
       return {
         data: response.data,
-        status: response.httpStatus || response.status || 200,
-        statusText: response.statusText,
+        status: response.httpStatus ?? response.status ?? 200,
+        statusText: response.statusText ?? "",
       };
     } catch (err) {
       // Hantera abort-fel tyst (returnera tomt svar)
@@ -2211,11 +2391,18 @@ export class FmeFlowApiClient {
 
 // Normaliserar FmeExportConfig till intern FmeFlowConfig
 const normalizeConfigParams = (config: FmeExportConfig): FmeFlowConfig => ({
-  serverUrl: config.fmeServerUrl || (config as any).fme_server_url || "",
+  serverUrl:
+    toNonEmptyTrimmedString(config.fmeServerUrl) ||
+    toNonEmptyTrimmedString(Reflect.get(config, "fme_server_url") as unknown) ||
+    "",
   token:
-    config.fmeServerToken ||
-    (config as any).fme_server_token ||
-    (config as any).fmw_server_token ||
+    toNonEmptyTrimmedString(config.fmeServerToken) ||
+    toNonEmptyTrimmedString(
+      Reflect.get(config, "fme_server_token") as unknown
+    ) ||
+    toNonEmptyTrimmedString(
+      Reflect.get(config, "fmw_server_token") as unknown
+    ) ||
     "",
   repository: config.repository || "",
   timeout: config.requestTimeout,
