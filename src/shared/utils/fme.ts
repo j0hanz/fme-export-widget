@@ -1,48 +1,48 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, jsx } from "jimu-core"
-import type {
-  ExportResult,
-  TranslateFn,
-  ServiceMode,
-  FmeExportConfig,
-  ViewState,
-  ViewAction,
-  WorkspaceItem,
-  WorkspaceParameter,
-  NormalizedServiceInfo,
-  WebhookErrorCode,
-} from "../../config/types"
-import { makeErrorView } from "../../config/types"
-import { formatByteSize, maskEmailForDisplay } from "./format"
+import { jsx, React } from "jimu-core";
 import type {
   DetermineServiceModeOptions,
-  ForceAsyncResult,
-  WorkspaceItemDetail,
   EsriModules,
   FmeResponse,
+  ForceAsyncResult,
   PrimitiveParams,
   WebhookArtifacts,
-} from "../../config/index"
+  WorkspaceItemDetail,
+} from "../../config/index";
 import {
   FME_FLOW_API,
   TM_NUMERIC_PARAM_KEYS,
   WEBHOOK_EXCLUDE_PARAMS,
-} from "../../config/index"
-import { collectGeometryParamNames, attachAoi } from "./geometry"
-import {
-  collectStringsFromProp,
-  uniqueStrings,
-  sanitizeOptGetUrlParam,
-} from "./form"
+} from "../../config/index";
+import type {
+  ExportResult,
+  FmeExportConfig,
+  NormalizedServiceInfo,
+  ServiceMode,
+  TranslateFn,
+  ViewAction,
+  ViewState,
+  WebhookErrorCode,
+  WorkspaceItem,
+  WorkspaceParameter,
+} from "../../config/types";
+import { makeErrorView } from "../../config/types";
+import { validateAndNormalizeUrl } from "../validations";
 import {
   toBooleanValue,
   toNonEmptyTrimmedString,
   toTrimmedString,
   toTrimmedStringOrEmpty,
-} from "./conversion"
-import { validateAndNormalizeUrl } from "../validations"
-import { buildUrl, buildParams, safeParseUrl } from "./network"
+} from "./conversion";
+import {
+  collectStringsFromProp,
+  sanitizeOptGetUrlParam,
+  uniqueStrings,
+} from "./form";
+import { formatByteSize, maskEmailForDisplay } from "./format";
+import { attachAoi, collectGeometryParamNames } from "./geometry";
+import { buildParams, buildUrl, safeParseUrl } from "./network";
 
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
 export const buildOrderResultView = (
@@ -50,9 +50,9 @@ export const buildOrderResultView = (
   config: FmeExportConfig | null | undefined,
   translate: TranslateFn,
   handlers: {
-    readonly onReuseGeography?: () => void
-    readonly onBack?: () => void
-    readonly onReset?: () => void
+    readonly onReuseGeography?: () => void;
+    readonly onBack?: () => void;
+    readonly onReset?: () => void;
   },
   alertNode?: React.ReactNode,
   fallbackDownloadUrl?: string | null
@@ -63,119 +63,119 @@ export const buildOrderResultView = (
       actions: handlers.onBack
         ? [{ label: translate("btnBack"), onClick: handlers.onBack }]
         : undefined,
-    })
+    });
   }
 
-  const isCancelled = Boolean(result.cancelled)
-  const isSuccess = !isCancelled && Boolean(result.success)
-  const isFailure = !isCancelled && !isSuccess
-  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async"
+  const isCancelled = Boolean(result.cancelled);
+  const isSuccess = !isCancelled && Boolean(result.success);
+  const isFailure = !isCancelled && !isSuccess;
+  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async";
   const serviceMode: ServiceMode =
     result.serviceMode === "sync" || result.serviceMode === "async"
       ? result.serviceMode
-      : fallbackMode
+      : fallbackMode;
 
   // Build info detail section
-  const infoLines: string[] = []
+  const infoLines: string[] = [];
   if (result.jobId !== undefined && result.jobId !== null) {
-    infoLines.push(`${translate("lblJobId")}: ${result.jobId}`)
+    infoLines.push(`${translate("lblJobId")}: ${result.jobId}`);
   }
   if (result.workspaceName) {
-    infoLines.push(`${translate("lblWorkspace")}: ${result.workspaceName}`)
+    infoLines.push(`${translate("lblWorkspace")}: ${result.workspaceName}`);
   }
   const deliveryModeKey =
-    serviceMode === "async" ? "optAsyncMode" : "optSyncMode"
-  infoLines.push(`${translate("lblDelivery")}: ${translate(deliveryModeKey)}`)
+    serviceMode === "async" ? "optAsyncMode" : "optSyncMode";
+  infoLines.push(`${translate("lblDelivery")}: ${translate(deliveryModeKey)}`);
 
   if (result.downloadFilename) {
-    infoLines.push(`${translate("lblFilename")}: ${result.downloadFilename}`)
+    infoLines.push(`${translate("lblFilename")}: ${result.downloadFilename}`);
   }
   if (result.status) {
-    infoLines.push(`${translate("lblFmeStatus")}: ${result.status}`)
+    infoLines.push(`${translate("lblFmeStatus")}: ${result.status}`);
   }
   if (result.statusMessage && result.statusMessage !== result.message) {
-    infoLines.push(`${translate("lblFmeMessage")}: ${result.statusMessage}`)
+    infoLines.push(`${translate("lblFmeMessage")}: ${result.statusMessage}`);
   }
   if (result.blobMetadata?.type) {
-    infoLines.push(`${translate("lblBlobType")}: ${result.blobMetadata.type}`)
+    infoLines.push(`${translate("lblBlobType")}: ${result.blobMetadata.type}`);
   }
   if (result.blobMetadata?.size) {
-    const sizeFormatted = formatByteSize(result.blobMetadata.size)
+    const sizeFormatted = formatByteSize(result.blobMetadata.size);
     if (sizeFormatted) {
-      infoLines.push(`${translate("lblBlobSize")}: ${sizeFormatted}`)
+      infoLines.push(`${translate("lblBlobSize")}: ${sizeFormatted}`);
     }
   }
   if (serviceMode !== "sync" && result.email) {
     const masked =
       config?.maskEmailOnSuccess && isSuccess
         ? maskEmailForDisplay(result.email)
-        : result.email
-    infoLines.push(`${translate("lblEmail")}: ${masked}`)
+        : result.email;
+    infoLines.push(`${translate("lblEmail")}: ${masked}`);
   }
   if (result.code && isFailure) {
-    infoLines.push(`${translate("lblErrorCode")}: ${result.code}`)
+    infoLines.push(`${translate("lblErrorCode")}: ${result.code}`);
   }
 
   // Determine message text
-  let messageText: string | null = null
+  let messageText: string | null = null;
   if (isCancelled) {
-    const failureCode = (result.code || "").toString().toUpperCase()
-    const isTimeout = failureCode.includes("TIMEOUT")
+    const failureCode = (result.code || "").toString().toUpperCase();
+    const isTimeout = failureCode.includes("TIMEOUT");
     messageText = isTimeout
       ? translate("msgOrderTimeout")
-      : translate("msgOrderCancelled")
+      : translate("msgOrderCancelled");
   } else if (isSuccess) {
     if (serviceMode === "async") {
-      messageText = translate("msgEmailSent")
+      messageText = translate("msgEmailSent");
     }
   } else {
-    const failureCode = (result.code || "").toString().toUpperCase()
-    const rawMessage = result.message || result.statusMessage || ""
+    const failureCode = (result.code || "").toString().toUpperCase();
+    const rawMessage = result.message || result.statusMessage || "";
 
     if (failureCode === "FME_JOB_CANCELLED_TIMEOUT") {
-      messageText = translate("msgJobTimeout")
+      messageText = translate("msgJobTimeout");
     } else if (failureCode === "FME_JOB_CANCELLED") {
-      messageText = translate("msgJobCancelled")
+      messageText = translate("msgJobCancelled");
     } else if (
       failureCode === "FME_JOB_FAILURE" ||
       /FME\s*Flow\s*transformation\s*failed/i.test(rawMessage)
     ) {
-      messageText = translate("errTransformFailed")
+      messageText = translate("errTransformFailed");
     } else if (rawMessage) {
-      messageText = rawMessage
+      messageText = rawMessage;
     } else {
-      messageText = translate("msgJobFailed")
+      messageText = translate("msgJobFailed");
     }
   }
 
   // Build actions
-  const actions: ViewAction[] = []
+  const actions: ViewAction[] = [];
 
   if (isCancelled) {
     actions.push({
       label: translate("btnNewOrder"),
       onClick: () => {
-        handlers.onReuseGeography?.()
+        handlers.onReuseGeography?.();
       },
       type: "primary" as const,
-    })
+    });
   } else if (isSuccess) {
     actions.push({
       label: translate("btnReuseArea"),
       onClick: () => {
-        handlers.onReuseGeography?.()
+        handlers.onReuseGeography?.();
       },
       type: "primary" as const,
-    })
+    });
   } else {
     // Failure
     actions.push({
       label: translate("btnRetry"),
       onClick: () => {
-        handlers.onBack?.()
+        handlers.onBack?.();
       },
       type: "primary" as const,
-    })
+    });
   }
 
   // Secondary "Close" action
@@ -183,13 +183,13 @@ export const buildOrderResultView = (
     label: translate("btnEnd"),
     onClick: () => {
       if (handlers.onReset) {
-        handlers.onReset()
+        handlers.onReset();
       } else {
-        handlers.onBack?.()
+        handlers.onBack?.();
       }
     },
     type: "default" as const,
-  })
+  });
 
   // Build info detail React node
   const infoDetail =
@@ -199,12 +199,12 @@ export const buildOrderResultView = (
           null,
           ...infoLines.map((line, idx) => jsx("div", { key: idx }, line))
         )
-      : null
+      : null;
 
   // Hanter nedladdningslänk för synkrona jobb
-  let downloadNode: React.ReactNode = null
+  let downloadNode: React.ReactNode = null;
   if (isSuccess && serviceMode === "sync") {
-    const downloadUrl = result.downloadUrl || fallbackDownloadUrl || null
+    const downloadUrl = result.downloadUrl || fallbackDownloadUrl || null;
     if (downloadUrl) {
       // Fallback download button if auto-download didn't start
       downloadNode = jsx(
@@ -220,7 +220,7 @@ export const buildOrderResultView = (
           },
           translate("btnDownloadFallback")
         )
-      )
+      );
     }
   }
 
@@ -235,16 +235,16 @@ export const buildOrderResultView = (
           downloadNode,
           messageText && jsx("div", null, messageText)
         )
-      : undefined
+      : undefined;
 
   // Return appropriate ViewState
   if (isFailure) {
-    const titleText = translate("titleOrderFailed")
+    const titleText = translate("titleOrderFailed");
     return makeErrorView(titleText, {
       code: result.code,
       actions,
       detail: fullDetail,
-    })
+    });
   }
 
   // Success or cancelled
@@ -252,7 +252,7 @@ export const buildOrderResultView = (
     ? translate("titleOrderCancelled")
     : serviceMode === "sync"
       ? translate("titleOrderComplete")
-      : translate("titleOrderConfirmed")
+      : translate("titleOrderConfirmed");
 
   return {
     kind: "success",
@@ -260,45 +260,48 @@ export const buildOrderResultView = (
     message: undefined,
     actions,
     detail: fullDetail,
-  }
-}
+  };
+};
 
-const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = ["sync", "async"] as const
+const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
+  "sync",
+  "async",
+] as const;
 
-const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1"
+const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1";
 
 const isLoopbackHostname = (hostname: string): boolean => {
-  if (!hostname) return false
-  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase()
-  if (normalized === "localhost") return true
-  if (normalized === "::1" || normalized === LOOPBACK_IPV6) return true
-  if (normalized.startsWith("127.")) return true
-  return false
-}
+  if (!hostname) return false;
+  const normalized = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (normalized === "localhost") return true;
+  if (normalized === "::1" || normalized === LOOPBACK_IPV6) return true;
+  if (normalized.startsWith("127.")) return true;
+  return false;
+};
 
 export interface WebhookArtifactOptions {
-  readonly requireHttps?: boolean
-  readonly strict?: boolean
+  readonly requireHttps?: boolean;
+  readonly strict?: boolean;
 }
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,
   options?: {
-    workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null
-    areaWarning?: boolean
-    drawnArea?: number
-    formData?: unknown
-    userEmail?: string
+    workspaceItem?: WorkspaceItem | WorkspaceItemDetail | null;
+    areaWarning?: boolean;
+    drawnArea?: number;
+    formData?: unknown;
+    userEmail?: string;
   }
 ): ForceAsyncResult | null => {
-  if (!options) return null
+  if (!options) return null;
 
   if (options.areaWarning) {
     return {
       reason: "area",
       value: options.drawnArea,
       threshold: config?.largeArea,
-    }
+    };
   }
 
   if (typeof config?.largeArea === "number" && options.drawnArea != null) {
@@ -307,22 +310,22 @@ const shouldForceAsyncMode = (
         reason: "area",
         value: options.drawnArea,
         threshold: config.largeArea,
-      }
+      };
     }
   }
 
   // Check URL length for sync mode
   if (options.formData && config) {
     try {
-      const data = (options.formData as any)?.data || {}
+      const data = (options.formData as any)?.data || {};
       const mockParams = buildFmeParams(
         { data },
         options.userEmail || "",
         "sync",
         config
-      )
+      );
 
-      const workspaceName = options.workspaceItem?.name
+      const workspaceName = options.workspaceItem?.name;
       if (workspaceName && config.fmeServerUrl && config.repository) {
         const urlCheck = isWebhookUrlTooLong({
           serverUrl: config.fmeServerUrl,
@@ -331,7 +334,7 @@ const shouldForceAsyncMode = (
           parameters: mockParams,
           token: config.fmeServerToken,
           options: { requireHttps: config.requireHttps },
-        })
+        });
 
         if (urlCheck) {
           const { fullUrl } = createWebhookArtifacts(
@@ -341,12 +344,12 @@ const shouldForceAsyncMode = (
             mockParams,
             config.fmeServerToken,
             { requireHttps: config.requireHttps }
-          )
+          );
           return {
             reason: "url_length",
             urlLength: fullUrl.length,
             threshold: FME_FLOW_API.MAX_URL_LENGTH,
-          }
+          };
         }
       }
     } catch {
@@ -354,51 +357,51 @@ const shouldForceAsyncMode = (
     }
   }
 
-  return null
-}
+  return null;
+};
 
 export const normalizeServiceModeConfig = (
   config: FmeExportConfig | null | undefined
 ): FmeExportConfig | undefined => {
-  if (!config) return config ?? undefined
+  if (!config) return config ?? undefined;
 
-  const rawValue = config.syncMode
+  const rawValue = config.syncMode;
   let normalized =
-    typeof rawValue === "boolean" ? rawValue : toBooleanValue(rawValue)
+    typeof rawValue === "boolean" ? rawValue : toBooleanValue(rawValue);
 
   if (normalized === undefined) {
-    normalized = Boolean(rawValue)
+    normalized = Boolean(rawValue);
   }
 
   if (typeof rawValue === "boolean" && rawValue === normalized) {
-    return config
+    return config;
   }
 
-  const cloned = { ...config, syncMode: normalized }
+  const cloned = { ...config, syncMode: normalized };
   if (typeof (config as any).set === "function") {
     Object.defineProperty(cloned, "set", {
       value: (config as any).set,
       writable: true,
       configurable: true,
-    })
+    });
   }
-  return cloned
-}
+  return cloned;
+};
 
 export const determineServiceMode = (
   formData: unknown,
   config?: FmeExportConfig,
   options?: DetermineServiceModeOptions
 ): ServiceMode => {
-  const data = (formData as any)?.data || {}
+  const data = (formData as any)?.data || {};
 
-  const override = toNonEmptyTrimmedString(data._serviceMode).toLowerCase()
+  const override = toNonEmptyTrimmedString(data._serviceMode).toLowerCase();
 
-  let resolved: ServiceMode
+  let resolved: ServiceMode;
   if (override === "sync" || override === "async") {
-    resolved = override as ServiceMode
+    resolved = override as ServiceMode;
   } else {
-    resolved = config?.syncMode ? "sync" : "async"
+    resolved = config?.syncMode ? "sync" : "async";
   }
 
   const forceInfo = shouldForceAsyncMode(config, {
@@ -407,7 +410,7 @@ export const determineServiceMode = (
     drawnArea: options?.drawnArea,
     formData,
     userEmail: (data.opt_requesteremail as string) || "",
-  })
+  });
 
   if (forceInfo && resolved === "sync") {
     options?.onModeOverride?.({
@@ -417,12 +420,12 @@ export const determineServiceMode = (
       value: forceInfo.value,
       threshold: forceInfo.threshold,
       urlLength: forceInfo.urlLength,
-    })
-    return "async"
+    });
+    return "async";
   }
 
-  return resolved
-}
+  return resolved;
+};
 
 export const buildFmeParams = (
   formData: unknown,
@@ -430,92 +433,92 @@ export const buildFmeParams = (
   serviceMode: ServiceMode = "async",
   config?: FmeExportConfig | null
 ): { [key: string]: unknown } => {
-  const data = (formData as { data?: { [key: string]: unknown } })?.data || {}
+  const data = (formData as { data?: { [key: string]: unknown } })?.data || {};
   const mode = ALLOWED_SERVICE_MODES.includes(serviceMode)
     ? serviceMode
-    : "async"
-  const includeResult = config?.showResult ?? true
+    : "async";
+  const includeResult = config?.showResult ?? true;
 
   const base: { [key: string]: unknown } = {
     ...data,
     opt_servicemode: mode,
     opt_responseformat: "json",
     opt_showresult: includeResult ? "true" : "false",
-  }
+  };
 
-  const trimmedEmail = toNonEmptyTrimmedString(userEmail)
+  const trimmedEmail = toNonEmptyTrimmedString(userEmail);
   if (mode === "async" && trimmedEmail) {
-    base.opt_requesteremail = trimmedEmail
+    base.opt_requesteremail = trimmedEmail;
   }
 
-  return base
-}
+  return base;
+};
 
 export const applyDirectiveDefaults = (
   params: { [key: string]: unknown },
   config?: FmeExportConfig
 ): { [key: string]: unknown } => {
-  if (!config) return params
+  if (!config) return params;
 
-  const out: { [key: string]: unknown } = { ...params }
+  const out: { [key: string]: unknown } = { ...params };
   const toPosInt = (v: unknown): number | undefined => {
-    const parsed = parseNonNegativeInt(v)
-    if (parsed === undefined || parsed <= 0) return undefined
-    return parsed
-  }
+    const parsed = parseNonNegativeInt(v);
+    if (parsed === undefined || parsed <= 0) return undefined;
+    return parsed;
+  };
 
   const rawMode = (() => {
-    const candidate = (params as { opt_servicemode?: unknown }).opt_servicemode
-    if (typeof candidate === "string") return candidate
-    const cloned = out.opt_servicemode
-    return typeof cloned === "string" ? cloned : ""
-  })()
+    const candidate = (params as { opt_servicemode?: unknown }).opt_servicemode;
+    if (typeof candidate === "string") return candidate;
+    const cloned = out.opt_servicemode;
+    return typeof cloned === "string" ? cloned : "";
+  })();
 
-  const normalizedMode = toNonEmptyTrimmedString(rawMode).toLowerCase()
+  const normalizedMode = toNonEmptyTrimmedString(rawMode).toLowerCase();
 
   const allowTmTtc =
-    normalizedMode === "sync" || (!normalizedMode && Boolean(config?.syncMode))
+    normalizedMode === "sync" || (!normalizedMode && Boolean(config?.syncMode));
 
   if (!allowTmTtc && typeof out.tm_ttc !== "undefined") {
-    delete out.tm_ttc
+    delete out.tm_ttc;
   } else if (allowTmTtc && !("tm_ttc" in out)) {
-    const v = toPosInt(config?.tm_ttc)
-    if (v !== undefined) out.tm_ttc = v
+    const v = toPosInt(config?.tm_ttc);
+    if (v !== undefined) out.tm_ttc = v;
   }
   if (!("tm_ttl" in out)) {
-    const v = toPosInt(config?.tm_ttl)
-    if (v !== undefined) out.tm_ttl = v
+    const v = toPosInt(config?.tm_ttl);
+    if (v !== undefined) out.tm_ttl = v;
   }
 
-  return out
-}
+  return out;
+};
 
 export const parseNonNegativeInt = (val: unknown): number | undefined => {
   if (typeof val === "number" && Number.isFinite(val)) {
-    if (val < 0) return undefined
-    return Math.floor(val)
+    if (val < 0) return undefined;
+    return Math.floor(val);
   }
 
-  const trimmed = toTrimmedString(val)
-  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined
+  const trimmed = toTrimmedString(val);
+  if (!trimmed || !/^\d+$/.test(trimmed)) return undefined;
 
-  const n = Number(trimmed)
-  if (!Number.isFinite(n) || n < 0) return undefined
-  return Math.floor(n)
-}
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.floor(n);
+};
 
 export const parseIntSafe = (val: unknown, radix = 10): number | undefined => {
   if (typeof val === "number" && Number.isFinite(val)) {
-    const truncated = Math.trunc(val)
-    return Number.isFinite(truncated) ? truncated : undefined
+    const truncated = Math.trunc(val);
+    return Number.isFinite(truncated) ? truncated : undefined;
   }
 
-  const str = toTrimmedStringOrEmpty(val)
-  if (!str || !/^[+-]?\d+$/.test(str)) return undefined
+  const str = toTrimmedStringOrEmpty(val);
+  if (!str || !/^[+-]?\d+$/.test(str)) return undefined;
 
-  const parsed = parseInt(str, radix)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
+  const parsed = parseInt(str, radix);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
 
 export const prepFmeParams = (
   formData: unknown,
@@ -524,11 +527,11 @@ export const prepFmeParams = (
   currentGeometry: __esri.Geometry | undefined,
   modules: EsriModules | null | undefined,
   options?: {
-    config?: FmeExportConfig
-    workspaceParameters?: readonly WorkspaceParameter[] | null
-    workspaceItem?: WorkspaceItemDetail | null
-    areaWarning?: boolean
-    drawnArea?: number
+    config?: FmeExportConfig;
+    workspaceParameters?: readonly WorkspaceParameter[] | null;
+    workspaceItem?: WorkspaceItemDetail | null;
+    areaWarning?: boolean;
+    drawnArea?: number;
   }
 ): { [key: string]: unknown } => {
   const {
@@ -537,30 +540,30 @@ export const prepFmeParams = (
     workspaceItem,
     areaWarning,
     drawnArea,
-  } = options || {}
-  const normalizedConfig = normalizeServiceModeConfig(rawConfig)
+  } = options || {};
+  const normalizedConfig = normalizeServiceModeConfig(rawConfig);
   const original = ((formData as any)?.data || {}) as {
-    [key: string]: unknown
-  }
+    [key: string]: unknown;
+  };
   const chosen = determineServiceMode({ data: original }, normalizedConfig, {
     workspaceItem,
     areaWarning,
     drawnArea,
-  })
+  });
   const {
     _serviceMode: _ignoredServiceMode,
     __upload_file__: _ignoredUpload,
     __remote_dataset_url__: _ignoredRemote,
     ...publicFields
-  } = original
+  } = original;
 
   const base = buildFmeParams(
     { data: publicFields },
     userEmail,
     chosen,
     normalizedConfig
-  )
-  const geometryParamNames = collectGeometryParamNames(workspaceParameters)
+  );
+  const geometryParamNames = collectGeometryParamNames(workspaceParameters);
   const withAoi = attachAoi(
     base,
     geometryJson,
@@ -568,26 +571,26 @@ export const prepFmeParams = (
     modules,
     normalizedConfig,
     geometryParamNames
-  )
-  const withDirectives = applyDirectiveDefaults(withAoi, normalizedConfig)
-  sanitizeOptGetUrlParam(withDirectives, normalizedConfig)
-  return withDirectives
-}
+  );
+  const withDirectives = applyDirectiveDefaults(withAoi, normalizedConfig);
+  sanitizeOptGetUrlParam(withDirectives, normalizedConfig);
+  return withDirectives;
+};
 
 export const extractRepositoryNames = (source: unknown): string[] => {
   if (Array.isArray(source)) {
-    return uniqueStrings(collectStringsFromProp(source, "name"))
+    return uniqueStrings(collectStringsFromProp(source, "name"));
   }
 
-  const record = typeof source === "object" && source !== null ? source : null
-  const items = (record as any)?.items
+  const record = typeof source === "object" && source !== null ? source : null;
+  const items = (record as any)?.items;
 
   if (Array.isArray(items)) {
-    return uniqueStrings(collectStringsFromProp(items, "name"))
+    return uniqueStrings(collectStringsFromProp(items, "name"));
   }
 
-  return []
-}
+  return [];
+};
 
 // Factory för att skapa FME response objekt
 const createFmeResponse = {
@@ -636,11 +639,11 @@ const createFmeResponse = {
     ...(serviceInfo?.status && { status: serviceInfo.status }),
     ...(serviceInfo?.message && { statusMessage: serviceInfo.message }),
   }),
-}
+};
 
 // Validerar att url är en giltig http/https URL
 const isValidDownloadUrl = (url: unknown): boolean =>
-  typeof url === "string" && /^https?:\/\//.test(url)
+  typeof url === "string" && /^https?:\/\//.test(url);
 
 // Processerar FME response och returnerar ExportResult
 export const processFmeResponse = (
@@ -649,31 +652,31 @@ export const processFmeResponse = (
   userEmail: string,
   translateFn: TranslateFn
 ): ExportResult => {
-  const response = fmeResponse as any
-  const data = response?.data
+  const response = fmeResponse as any;
+  const data = response?.data;
 
   if (!data) {
     return {
       success: false,
       message: translateFn("noDataInResponse"),
       code: "NO_DATA",
-    }
+    };
   }
 
   if (data.blob instanceof Blob) {
-    return createFmeResponse.blob(data.blob, workspace, userEmail)
+    return createFmeResponse.blob(data.blob, workspace, userEmail);
   }
 
-  const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse)
+  const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse);
   const normalizedStatus = (serviceInfo.status || "")
     .toString()
     .trim()
-    .toUpperCase()
+    .toUpperCase();
 
   // Kontrollerar om jobbet avbröts
   if (normalizedStatus === "ABORTED") {
-    const statusMessage = serviceInfo.message || ""
-    const normalizedMessage = statusMessage.toLowerCase()
+    const statusMessage = serviceInfo.message || "";
+    const normalizedMessage = statusMessage.toLowerCase();
     const timeoutIndicators = [
       "timeout",
       "time limit",
@@ -683,11 +686,11 @@ export const processFmeResponse = (
       "max runtime",
       "maximum runtime",
       "max run time",
-    ]
+    ];
     const isTimeout = timeoutIndicators.some((indicator) =>
       normalizedMessage.includes(indicator)
-    )
-    const translationKey = isTimeout ? "jobCancelledTimeout" : "jobCancelled"
+    );
+    const translationKey = isTimeout ? "jobCancelledTimeout" : "jobCancelled";
     return {
       success: false,
       cancelled: true,
@@ -697,7 +700,7 @@ export const processFmeResponse = (
       statusMessage,
       jobId:
         typeof serviceInfo.jobId === "number" ? serviceInfo.jobId : undefined,
-    }
+    };
   }
 
   const failureStatuses = new Set([
@@ -705,43 +708,43 @@ export const processFmeResponse = (
     "FAILED",
     "JOB_FAILURE",
     "FME_FAILURE",
-  ])
+  ]);
 
   if (failureStatuses.has(normalizedStatus)) {
     const failureMessage =
-      toTrimmedString(serviceInfo.message) || translateFn("jobFailed")
+      toTrimmedString(serviceInfo.message) || translateFn("jobFailed");
     return createFmeResponse.failure(
       failureMessage,
       serviceInfo,
       "FME_JOB_FAILURE"
-    )
+    );
   }
 
   const hasValidResult =
     normalizedStatus === "SUCCESS" ||
     isValidDownloadUrl(serviceInfo.url) ||
-    (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0)
+    (typeof serviceInfo.jobId === "number" && serviceInfo.jobId > 0);
 
   if (hasValidResult) {
-    return createFmeResponse.success(serviceInfo, workspace, userEmail)
+    return createFmeResponse.success(serviceInfo, workspace, userEmail);
   }
 
   return createFmeResponse.failure(
     serviceInfo.message || translateFn("errorJobSubmission"),
     serviceInfo
-  )
-}
+  );
+};
 
 // Normaliserar FME service response till NormalizedServiceInfo
 export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
-  const r: any = resp || {}
-  const raw = r?.data?.serviceResponse || r?.data || r
-  const status = raw?.statusInfo?.status || raw?.status
-  const message = raw?.statusInfo?.message || raw?.message
-  const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id
-  const url = raw?.url
-  return { status, message, jobId, url }
-}
+  const r: any = resp || {};
+  const raw = r?.data?.serviceResponse || r?.data || r;
+  const status = raw?.statusInfo?.status || raw?.status;
+  const message = raw?.statusInfo?.message || raw?.message;
+  const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id;
+  const url = raw?.url;
+  return { status, message, jobId, url };
+};
 
 // Skapar typat fel med kod, status och orsak
 const makeWebhookError = (
@@ -750,29 +753,29 @@ const makeWebhookError = (
   cause?: unknown
 ): Error & { code: WebhookErrorCode; status?: number; cause?: unknown } => {
   const error = new Error(code) as Error & {
-    code: WebhookErrorCode
-    status?: number
-    cause?: unknown
-  }
-  error.code = code
-  if (status != null) error.status = status
-  if (cause !== undefined) error.cause = cause
-  return error
-}
+    code: WebhookErrorCode;
+    status?: number;
+    cause?: unknown;
+  };
+  error.code = code;
+  if (status != null) error.status = status;
+  if (cause !== undefined) error.cause = cause;
+  return error;
+};
 
 // Normaliserar och trunkerar text till maxlängd
 const normalizeText = (value: unknown, limit: number): string | undefined => {
-  const trimmed = toTrimmedString(value)
-  return trimmed ? trimmed.slice(0, limit) : undefined
-}
+  const trimmed = toTrimmedString(value);
+  return trimmed ? trimmed.slice(0, limit) : undefined;
+};
 
 // Serialiserar URL search parameters
 const serializeParams = (params: URLSearchParams): string => {
-  const entries = Array.from(params.entries())
+  const entries = Array.from(params.entries());
   return entries
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&")
-}
+    .join("&");
+};
 
 // Lägger till Transaction Manager (TM) numeriska parametrar
 const appendWebhookTmParams = (
@@ -781,14 +784,14 @@ const appendWebhookTmParams = (
 ): void => {
   // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
   for (const key of TM_NUMERIC_PARAM_KEYS) {
-    const value = parseNonNegativeInt((source as any)[key])
-    if (value !== undefined) params.set(key, String(value))
+    const value = parseNonNegativeInt((source as any)[key]);
+    if (value !== undefined) params.set(key, String(value));
   }
 
   // Lägg till tm_tag om definierad
-  const tag = normalizeText((source as any).tm_tag, 128)
-  if (tag) params.set("tm_tag", tag)
-}
+  const tag = normalizeText((source as any).tm_tag, 128);
+  if (tag) params.set("tm_tag", tag);
+};
 
 // Skapar webhook-URL med query-parametrar för FME-jobb
 export const createWebhookArtifacts = (
@@ -799,49 +802,49 @@ export const createWebhookArtifacts = (
   token?: string,
   options?: WebhookArtifactOptions
 ): WebhookArtifacts => {
-  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace)
+  const baseUrl = buildUrl(serverUrl, "fmedatadownload", repository, workspace);
   const referenceUrl =
-    safeParseUrl(serverUrl) ?? safeParseUrl(baseUrl) ?? undefined
-  const hostname = referenceUrl?.hostname || ""
+    safeParseUrl(serverUrl) ?? safeParseUrl(baseUrl) ?? undefined;
+  const hostname = referenceUrl?.hostname || "";
 
-  const enforceHttps = options?.requireHttps ?? true
+  const enforceHttps = options?.requireHttps ?? true;
   const enforceStrict =
-    options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps)
+    options?.strict ?? (!isLoopbackHostname(hostname) && enforceHttps);
 
   const result = validateAndNormalizeUrl(baseUrl, {
     strict: enforceStrict,
     requireHttps: enforceHttps,
-  })
+  });
 
   if (!result.ok) {
     throw makeWebhookError(
       "WEBHOOK_AUTH_ERROR",
       0,
       result.errorKey || "invalid_url"
-    )
+    );
   }
 
-  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true)
+  const params = buildParams(parameters, [...WEBHOOK_EXCLUDE_PARAMS], true);
   if (token) {
-    params.set("token", token)
+    params.set("token", token);
   }
-  appendWebhookTmParams(params, parameters)
+  appendWebhookTmParams(params, parameters);
   return {
     baseUrl,
     params,
     fullUrl: `${baseUrl}?${serializeParams(params)}`,
-  }
-}
+  };
+};
 
 // Kontrollerar om webhook-URL skulle överskrida maxlängd
 export const isWebhookUrlTooLong = (args: {
-  serverUrl: string
-  repository: string
-  workspace: string
-  parameters?: PrimitiveParams
-  maxLen?: number
-  token?: string
-  options?: WebhookArtifactOptions
+  serverUrl: string;
+  repository: string;
+  workspace: string;
+  parameters?: PrimitiveParams;
+  maxLen?: number;
+  token?: string;
+  options?: WebhookArtifactOptions;
 }): boolean => {
   const {
     serverUrl,
@@ -851,7 +854,7 @@ export const isWebhookUrlTooLong = (args: {
     maxLen = FME_FLOW_API.MAX_URL_LENGTH,
     token,
     options,
-  } = args
+  } = args;
 
   const { fullUrl } = createWebhookArtifacts(
     serverUrl,
@@ -860,6 +863,6 @@ export const isWebhookUrlTooLong = (args: {
     parameters,
     token,
     options
-  )
-  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen
-}
+  );
+  return typeof maxLen === "number" && maxLen > 0 && fullUrl.length > maxLen;
+};

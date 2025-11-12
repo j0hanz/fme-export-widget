@@ -1,0 +1,41 @@
+import type * as LoggingExports from "../services/logging";
+
+type LoggingModule = typeof LoggingExports;
+
+let cachedLoggingModule: LoggingModule | null = null;
+let loggingModulePromise: Promise<LoggingModule> | null = null;
+
+const loadLoggingModule = (): Promise<LoggingModule> => {
+  if (cachedLoggingModule) {
+    return Promise.resolve(cachedLoggingModule);
+  }
+  if (!loggingModulePromise) {
+    loggingModulePromise = import("../services/logging").then((mod) => {
+      cachedLoggingModule = mod;
+      return mod;
+    });
+  }
+  return loggingModulePromise;
+};
+
+const invokeConditional = (
+  accessor: (mod: LoggingModule) => ((...args: any[]) => void) | undefined,
+  args: readonly any[]
+): void => {
+  void loadLoggingModule()
+    .then((mod) => {
+      const fn = accessor(mod);
+      if (typeof fn === "function") {
+        fn(...args);
+      }
+    })
+    .catch(() => undefined);
+};
+
+export const logDebug = (...args: any[]): void => {
+  invokeConditional((mod) => mod.conditionalLog, args);
+};
+
+export const logWarn = (...args: any[]): void => {
+  invokeConditional((mod) => mod.conditionalWarn, args);
+};

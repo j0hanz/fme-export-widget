@@ -278,7 +278,7 @@ System.register([], function (e) {
         alertCancelledUser: "Exporten avbröts",
         alertJobFailed: "FME Flow-transformationen misslyckades",
         alertTransformError: "Datatransformationen kunde inte slutföras",
-      })
+      });
     },
-  }
-})
+  };
+});

@@ -1,39 +1,39 @@
-import { React, hooks } from "jimu-core"
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query"
-import { useSelector, shallowEqual } from "react-redux"
-import type { JimuMapView } from "jimu-arcgis"
+import { hooks, React } from "jimu-core";
+import type { JimuMapView } from "jimu-arcgis";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { shallowEqual, useSelector } from "react-redux";
 import type {
-  EsriModules,
-  SerializableErrorState,
+  ConnectionValidationResult,
   ErrorType,
-  WorkspaceParameter,
-  WorkspaceItemDetail,
-  WorkspaceItem,
+  EsriModules,
   FormPrimitive,
   FormValues,
   LoadingSnapshot,
-  ConnectionValidationResult,
-  ValidateConnectionVariables,
+  SerializableErrorState,
   UseDebounceOptions,
-} from "../config/index"
+  ValidateConnectionVariables,
+  WorkspaceItem,
+  WorkspaceItemDetail,
+  WorkspaceParameter,
+} from "../config/index";
 import {
+  DEFAULT_REPOSITORY,
   ErrorSeverity,
   ESRI_MODULES_TO_LOAD,
-  WORKSPACE_ITEM_TYPE,
-  DEFAULT_REPOSITORY,
   TIME_CONSTANTS,
-} from "../config/index"
-import { fmeActions } from "../extensions/store"
+  WORKSPACE_ITEM_TYPE,
+} from "../config/index";
+import { fmeActions } from "../extensions/store";
+import { healthCheck, validateConnection } from "./services";
 import {
+  buildTokenCacheKey,
+  createFmeClient,
+  linkAbortSignal,
   loadArcgisModules,
   logIfNotAbort,
-  createFmeClient,
-  buildTokenCacheKey,
   queryKeys,
   safeAbortController,
-  linkAbortSignal,
-} from "./utils"
-import { healthCheck, validateConnection } from "./services"
+} from "./utils";
 
 /* ArcGIS Resource Utilities */
 
@@ -42,50 +42,50 @@ const executeSafely = <T>(
   resource: T | null | undefined,
   operation: (value: T) => void
 ): void => {
-  if (!resource) return
+  if (!resource) return;
   try {
-    operation(resource)
+    operation(resource);
   } catch {}
-}
+};
 
 // Avbryter aktiv sketch-operation säkert
 export const safeCancelSketch = (vm?: __esri.SketchViewModel | null): void => {
   executeSafely(vm, (model) => {
-    model.cancel()
-  })
-}
+    model.cancel();
+  });
+};
 
 // Rensar alla grafik från layer säkert
 export const safeClearLayer = (layer?: __esri.GraphicsLayer | null): void => {
   executeSafely(layer, (graphics) => {
-    graphics.removeAll()
-  })
-}
+    graphics.removeAll();
+  });
+};
 
 // Förstör GraphicsLayer-objekt säkert
 export const destroyGraphicsLayer = (
   layer?: __esri.GraphicsLayer | null
 ): void => {
   executeSafely(layer, (graphics) => {
-    const destroyFn = (graphics as { destroy?: () => void }).destroy
+    const destroyFn = (graphics as { destroy?: () => void }).destroy;
     if (typeof destroyFn === "function") {
-      destroyFn.call(graphics)
+      destroyFn.call(graphics);
     }
-  })
-}
+  });
+};
 
 // Tar bort GraphicsLayer från karta säkert
 export const removeLayerFromMap = (
   jmv?: JimuMapView | null,
   layer?: __esri.GraphicsLayer | null
 ): void => {
-  if (!jmv?.view?.map) return
+  if (!jmv?.view?.map) return;
   executeSafely(layer, (graphicsLayer) => {
     if (graphicsLayer.parent) {
-      jmv.view.map.remove(graphicsLayer)
+      jmv.view.map.remove(graphicsLayer);
     }
-  })
-}
+  });
+};
 
 /* Debounce Hook */
 
@@ -93,10 +93,10 @@ export const removeLayerFromMap = (
 type DebouncedFn<T extends (...args: any[]) => void> = ((
   ...args: Parameters<T>
 ) => void) & {
-  cancel: () => void
-  flush: () => void
-  isPending: () => boolean
-}
+  cancel: () => void;
+  flush: () => void;
+  isPending: () => boolean;
+};
 
 // Hook för debounced callback med delay och optional pending-notifiering
 export const useDebounce = <T extends (...args: any[]) => void>(
@@ -104,95 +104,95 @@ export const useDebounce = <T extends (...args: any[]) => void>(
   delay: number,
   options?: UseDebounceOptions
 ): DebouncedFn<T> => {
-  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0
-  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingRef = React.useRef(false)
-  const lastArgsRef = React.useRef<Parameters<T> | null>(null)
-  const callbackRef = hooks.useLatest(callback)
-  const optionsRef = hooks.useLatest(options)
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
+  const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = React.useRef(false);
+  const lastArgsRef = React.useRef<Parameters<T> | null>(null);
+  const callbackRef = hooks.useLatest(callback);
+  const optionsRef = hooks.useLatest(options);
 
   // Notifierar pending-state-förändring via callback
   const notifyPending = hooks.useEventCallback((next: boolean) => {
     if (pendingRef.current === next) {
-      return
+      return;
     }
-    pendingRef.current = next
-    const handler = optionsRef.current?.onPendingChange
+    pendingRef.current = next;
+    const handler = optionsRef.current?.onPendingChange;
     if (typeof handler === "function") {
       try {
-        handler(next)
+        handler(next);
       } catch {}
     }
-  })
+  });
 
   // Avbryter pending debounce och rensar state
   const cancel = hooks.useEventCallback(() => {
     if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
     }
-    lastArgsRef.current = null
+    lastArgsRef.current = null;
     if (pendingRef.current) {
-      notifyPending(false)
+      notifyPending(false);
     }
-  })
+  });
 
   // Kör callback efter delay, notifierar pending under väntan
   const run = hooks.useEventCallback((...args: Parameters<T>) => {
-    lastArgsRef.current = args
+    lastArgsRef.current = args;
     if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
+      clearTimeout(timeoutRef.current);
     }
-    notifyPending(true)
+    notifyPending(true);
     timeoutRef.current = setTimeout(() => {
-      timeoutRef.current = null
-      lastArgsRef.current = null
+      timeoutRef.current = null;
+      lastArgsRef.current = null;
       try {
-        callbackRef.current(...args)
+        callbackRef.current(...args);
       } finally {
-        notifyPending(false)
+        notifyPending(false);
       }
-    }, safeDelay)
-  })
+    }, safeDelay);
+  });
 
   // Kör callback omedelbart med senaste args (avbryter debounce)
   const flush = hooks.useEventCallback(() => {
     if (!lastArgsRef.current) {
-      return
+      return;
     }
-    const args = lastArgsRef.current
-    cancel()
-    callbackRef.current(...args)
-  })
+    const args = lastArgsRef.current;
+    cancel();
+    callbackRef.current(...args);
+  });
 
-  const debouncedRef = React.useRef<DebouncedFn<T> | null>(null)
-  const runRef = hooks.useLatest(run)
-  const cancelRef = hooks.useLatest(cancel)
-  const flushRef = hooks.useLatest(flush)
+  const debouncedRef = React.useRef<DebouncedFn<T> | null>(null);
+  const runRef = hooks.useLatest(run);
+  const cancelRef = hooks.useLatest(cancel);
+  const flushRef = hooks.useLatest(flush);
 
   // Skapar stabil debounced-funktion med cancel/flush/isPending
   if (!debouncedRef.current) {
     const runner = ((...args: Parameters<T>) => {
-      runRef.current(...args)
-    }) as DebouncedFn<T>
-    runner.cancel = () => cancelRef.current()
-    runner.flush = () => flushRef.current()
-    runner.isPending = () => pendingRef.current
-    debouncedRef.current = runner
+      runRef.current(...args);
+    }) as DebouncedFn<T>;
+    runner.cancel = () => cancelRef.current();
+    runner.flush = () => flushRef.current();
+    runner.isPending = () => pendingRef.current;
+    debouncedRef.current = runner;
   }
 
   hooks.useEffectOnce(() => {
     return () => {
-      cancelRef.current()
-    }
-  })
+      cancelRef.current();
+    };
+  });
 
-  const debounced = debouncedRef.current
+  const debounced = debouncedRef.current;
   if (!debounced) {
-    throw new Error("debounceUnavailable")
+    throw new Error("debounceUnavailable");
   }
-  return debounced
-}
+  return debounced;
+};
 
 /* ArcGIS Modules Loader Hook */
 
@@ -200,30 +200,30 @@ export const useDebounce = <T extends (...args: any[]) => void>(
 export const useEsriModules = (
   reloadSignal: number
 ): {
-  modules: EsriModules | null
-  loading: boolean
-  errorKey: string | null
+  modules: EsriModules | null;
+  loading: boolean;
+  errorKey: string | null;
 } => {
   const [state, setState] = React.useState<{
-    modules: EsriModules | null
-    loading: boolean
-    errorKey: string | null
-  }>({ modules: null, loading: true, errorKey: null })
+    modules: EsriModules | null;
+    loading: boolean;
+    errorKey: string | null;
+  }>({ modules: null, loading: true, errorKey: null });
 
   hooks.useEffectWithPreviousValues(() => {
-    let cancelled = false
+    let cancelled = false;
 
     // Behåll moduler om reloadSignal är 0, annars rensa och ladda om
     setState((prev) => ({
       modules: reloadSignal === 0 ? prev.modules : null,
       loading: true,
       errorKey: null,
-    }))
+    }));
 
     const loadModules = async () => {
       try {
-        const loaded = await loadArcgisModules(ESRI_MODULES_TO_LOAD)
-        if (cancelled) return
+        const loaded = await loadArcgisModules(ESRI_MODULES_TO_LOAD);
+        if (cancelled) return;
 
         const [
           SketchViewModel,
@@ -237,13 +237,13 @@ export const useEsriModules = (
           Polyline,
           Polygon,
           Graphic,
-        ] = loaded
+        ] = loaded;
 
         // Ladda projection-modul om det har load-metod
         try {
-          const proj = projection as any
+          const proj = projection as any;
           if (proj?.load && typeof proj.load === "function") {
-            await proj.load()
+            await proj.load();
           }
         } catch (error) {
           /* Non-critical projection module warmup failure */
@@ -253,7 +253,7 @@ export const useEsriModules = (
         const geometryOperators =
           (geometryEngineAsync as any)?.operators ??
           (geometryEngine as any)?.operators ??
-          null
+          null;
 
         setState({
           modules: {
@@ -272,38 +272,38 @@ export const useEsriModules = (
           } as EsriModules,
           loading: false,
           errorKey: null,
-        })
+        });
       } catch (error) {
         if (!cancelled) {
-          setState({ modules: null, loading: false, errorKey: "errorMapInit" })
+          setState({ modules: null, loading: false, errorKey: "errorMapInit" });
         }
       }
-    }
+    };
 
-    void loadModules()
+    void loadModules();
     return () => {
-      cancelled = true
-    }
-  }, [reloadSignal])
+      cancelled = true;
+    };
+  }, [reloadSignal]);
 
-  return state
-}
+  return state;
+};
 
 /* Map Resources Management Hook */
 
 // Hook för att hantera kartresurser (JimuMapView, SketchViewModel, layers)
 export const useMapResources = () => {
   const [state, setState] = React.useState<{
-    jimuMapView: JimuMapView | null
-    sketchViewModel: __esri.SketchViewModel | null
-    graphicsLayer: __esri.GraphicsLayer | null
-    cleanupHandles: (() => void) | null
+    jimuMapView: JimuMapView | null;
+    sketchViewModel: __esri.SketchViewModel | null;
+    graphicsLayer: __esri.GraphicsLayer | null;
+    cleanupHandles: (() => void) | null;
   }>({
     jimuMapView: null,
     sketchViewModel: null,
     graphicsLayer: null,
     cleanupHandles: null,
-  })
+  });
 
   // Uppdaterar enskild resurs och kör cleanup om nödvändigt
   const updateResource = hooks.useEventCallback(
@@ -316,9 +316,9 @@ export const useMapResources = () => {
           prev.sketchViewModel !== value
         ) {
           try {
-            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__
+            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__;
             if (typeof cleaner === "function") {
-              cleaner()
+              cleaner();
             }
           } catch {}
         }
@@ -330,37 +330,37 @@ export const useMapResources = () => {
           prev.cleanupHandles !== value
         ) {
           try {
-            prev.cleanupHandles()
+            prev.cleanupHandles();
           } catch {}
         }
 
-        return { ...prev, [key]: value }
-      })
+        return { ...prev, [key]: value };
+      });
     }
-  )
+  );
 
   // Frigör drawing-resurser (VM, layer, handles) med optional MapView-reset
   const releaseDrawingResources = hooks.useEventCallback(
     (resetMapView: boolean) => {
       const { sketchViewModel, graphicsLayer, jimuMapView, cleanupHandles } =
-        state
+        state;
 
       if (cleanupHandles) {
         try {
-          cleanupHandles()
+          cleanupHandles();
         } catch {}
       }
 
-      safeCancelSketch(sketchViewModel)
+      safeCancelSketch(sketchViewModel);
       executeSafely(sketchViewModel, (model) => {
         if (typeof model.destroy === "function") {
-          model.destroy()
+          model.destroy();
         }
-      })
+      });
 
-      removeLayerFromMap(jimuMapView, graphicsLayer)
-      safeClearLayer(graphicsLayer)
-      destroyGraphicsLayer(graphicsLayer)
+      removeLayerFromMap(jimuMapView, graphicsLayer);
+      safeClearLayer(graphicsLayer);
+      destroyGraphicsLayer(graphicsLayer);
 
       setState((prev) => ({
         ...prev,
@@ -368,19 +368,19 @@ export const useMapResources = () => {
         sketchViewModel: null,
         graphicsLayer: null,
         cleanupHandles: null,
-      }))
+      }));
     }
-  )
+  );
 
   // Tar ner drawing-resurser utan att rensa JimuMapView
   const teardownDrawingResources = hooks.useEventCallback(() => {
-    releaseDrawingResources(false)
-  })
+    releaseDrawingResources(false);
+  });
 
   // Rensar alla resurser inklusive JimuMapView
   const cleanupResources = hooks.useEventCallback(() => {
-    releaseDrawingResources(true)
-  })
+    releaseDrawingResources(true);
+  });
 
   return {
     ...state,
@@ -394,8 +394,8 @@ export const useMapResources = () => {
       updateResource("cleanupHandles", cleanup),
     teardownDrawingResources,
     cleanupResources,
-  }
-}
+  };
+};
 
 /* Error Handling Hooks */
 
@@ -415,56 +415,56 @@ export const useErrorDispatcher = (
       kind: "serializable",
       userFriendlyMessage: "",
       suggestion: "",
-    }
-    dispatch(fmeActions.setError("general", error, widgetId))
-  })
+    };
+    dispatch(fmeActions.setError("general", error, widgetId));
+  });
 
 // Hook för formulärhantering med validering och onChange-notifiering
 export const useFormStateManager = (
   validator: {
-    initializeValues: () => FormValues
+    initializeValues: () => FormValues;
     validateValues: (values: FormValues) => {
-      isValid: boolean
-      errors: { [key: string]: string }
-    }
+      isValid: boolean;
+      errors: { [key: string]: string };
+    };
   },
   onValuesChange?: (values: FormValues) => void
 ) => {
   const [values, setValues] = React.useState<FormValues>(() =>
     validator.initializeValues()
-  )
-  const [isValid, setIsValid] = React.useState(true)
-  const [errors, setErrors] = React.useState<{ [key: string]: string }>({})
+  );
+  const [isValid, setIsValid] = React.useState(true);
+  const [errors, setErrors] = React.useState<{ [key: string]: string }>({});
 
   // Synkar värden och notifierar onChange-callback
   const syncValues = hooks.useEventCallback((next: FormValues) => {
-    setValues(next)
-    onValuesChange?.(next)
-  })
+    setValues(next);
+    onValuesChange?.(next);
+  });
 
   // Uppdaterar enskilt fält och synkar
   const updateField = hooks.useEventCallback(
     (field: string, value: FormPrimitive) => {
-      const updated = { ...values, [field]: value }
-      syncValues(updated)
+      const updated = { ...values, [field]: value };
+      syncValues(updated);
     }
-  )
+  );
 
   // Validerar formulär och uppdaterar isValid/errors
   const validateForm = hooks.useEventCallback(() => {
-    const validation = validator.validateValues(values)
-    setIsValid(validation.isValid)
-    setErrors(validation.errors)
-    return validation
-  })
+    const validation = validator.validateValues(values);
+    setIsValid(validation.isValid);
+    setErrors(validation.errors);
+    return validation;
+  });
 
   // Återställer formulär till initialvärden
   const resetForm = hooks.useEventCallback(() => {
-    const nextValues = validator.initializeValues()
-    setErrors({})
-    setIsValid(true)
-    syncValues(nextValues)
-  })
+    const nextValues = validator.initializeValues();
+    setErrors({});
+    setIsValid(true);
+    syncValues(nextValues);
+  });
 
   return {
     values,
@@ -476,35 +476,35 @@ export const useFormStateManager = (
     setValues: syncValues,
     setIsValid,
     setErrors,
-  }
-}
+  };
+};
 
 /* Settings Panel Hooks */
 
 // Selector för builder-state (fallback till runtime state)
 export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
   return useSelector((state: any) => {
-    const builderState = state?.appStateInBuilder
-    const effectiveState = builderState ?? state
-    return selector(effectiveState)
-  })
-}
+    const builderState = state?.appStateInBuilder;
+    const effectiveState = builderState ?? state;
+    return selector(effectiveState);
+  });
+};
 
 // Hook för selector med shallowEqual optimization
 export const useShallowEqualSelector = <T>(selector: (state: any) => T): T => {
-  return useSelector(selector, shallowEqual)
-}
+  return useSelector(selector, shallowEqual);
+};
 
 // Hook för builder-selector med shallowEqual optimization
 export const useBuilderShallowEqualSelector = <T>(
   selector: (state: any) => T
 ): T => {
   return useSelector((state: any) => {
-    const builderState = state?.appStateInBuilder
-    const effectiveState = builderState ?? state
-    return selector(effectiveState)
-  }, shallowEqual)
-}
+    const builderState = state?.appStateInBuilder;
+    const effectiveState = builderState ?? state;
+    return selector(effectiveState);
+  }, shallowEqual);
+};
 
 // Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
 export const useUpdateConfig = (
@@ -516,67 +516,141 @@ export const useUpdateConfig = (
     onSettingChange({
       id,
       config: config.set ? config.set(key, value) : config,
-    })
-  })
-}
+    });
+  });
+};
 
 // Config-value getters för type-safe access med defaults
 
 // Hämtar string-värde från config med fallback
 export const useStringConfigValue = (config: { [key: string]: any }) => {
-  const configRef = hooks.useLatest(config)
+  const configRef = hooks.useLatest(config);
   return hooks.useEventCallback((key: string, defaultValue = ""): string => {
-    const v = configRef.current?.[key]
-    return typeof v === "string" ? v : defaultValue
-  })
-}
+    const v = configRef.current?.[key];
+    return typeof v === "string" ? v : defaultValue;
+  });
+};
 
 // Hämtar boolean-värde från config med fallback
 export const useBooleanConfigValue = (config: { [key: string]: any }) => {
-  const configRef = hooks.useLatest(config)
+  const configRef = hooks.useLatest(config);
   return hooks.useEventCallback(
     (key: string, defaultValue = false): boolean => {
-      const v = configRef.current?.[key]
-      return typeof v === "boolean" ? v : defaultValue
+      const v = configRef.current?.[key];
+      return typeof v === "boolean" ? v : defaultValue;
     }
-  )
-}
+  );
+};
 
 // Hämtar number-värde från config med fallback
 export const useNumberConfigValue = (config: { [key: string]: any }) => {
-  const configRef = hooks.useLatest(config)
+  const configRef = hooks.useLatest(config);
   return hooks.useEventCallback(
     (key: string, defaultValue?: number): number | undefined => {
-      const v = configRef.current?.[key]
-      if (typeof v === "number" && Number.isFinite(v)) return v
-      return defaultValue
+      const v = configRef.current?.[key];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      return defaultValue;
     }
-  )
-}
+  );
+};
+
+type UseThemeHook = () => unknown;
+
+const useFallbackTheme: UseThemeHook = () => {
+  const [theme] = React.useState<Record<string, unknown>>(() => ({}));
+  return theme;
+};
+
+let resolvedUseTheme: UseThemeHook | null = null;
+let loadThemeHookPromise: Promise<UseThemeHook> | null = null;
+
+const getGlobalUseTheme = (): UseThemeHook | null => {
+  try {
+    const candidate = (globalThis as any)?.jimuTheme?.useTheme;
+    return typeof candidate === "function" ? candidate : null;
+  } catch {
+    return null;
+  }
+};
+
+const resolveUseThemeHook = (): UseThemeHook => {
+  if (resolvedUseTheme) {
+    return resolvedUseTheme;
+  }
+
+  const globalHook = getGlobalUseTheme();
+  if (globalHook) {
+    resolvedUseTheme = globalHook;
+    return resolvedUseTheme;
+  }
+
+  resolvedUseTheme = useFallbackTheme;
+  return resolvedUseTheme;
+};
+
+const loadUseThemeHook = (): Promise<UseThemeHook> => {
+  if (loadThemeHookPromise) {
+    return loadThemeHookPromise;
+  }
+
+  loadThemeHookPromise = import("jimu-theme")
+    .then((mod) => {
+      const hook =
+        mod && typeof mod.useTheme === "function"
+          ? (mod.useTheme as UseThemeHook)
+          : (getGlobalUseTheme() ?? useFallbackTheme);
+      resolvedUseTheme = hook;
+      return hook;
+    })
+    .catch(() => {
+      resolvedUseTheme = getGlobalUseTheme() ?? useFallbackTheme;
+      return resolvedUseTheme;
+    });
+
+  return loadThemeHookPromise;
+};
 
 // Hook för att skapa styled-components från jimu-theme
 export const useSettingStyles = (createStylesFn: (theme: any) => any) => {
-  const jimuTheme = require("jimu-theme")
-  const theme = jimuTheme.useTheme()
-  return createStylesFn(theme)
-}
+  const [, forceRender] = React.useReducer((count) => count + 1, 0);
+  const themeHookRef = React.useRef<UseThemeHook | null>(null);
+
+  if (themeHookRef.current === null) {
+    themeHookRef.current = resolveUseThemeHook();
+  }
+
+  React.useEffect(() => {
+    if (themeHookRef.current === useFallbackTheme) {
+      loadUseThemeHook().then((hook) => {
+        if (hook !== themeHookRef.current) {
+          themeHookRef.current = hook;
+          forceRender();
+        }
+      });
+    }
+  }, []);
+
+  const activeHook = themeHookRef.current ?? useFallbackTheme;
+  const theme = activeHook();
+  return createStylesFn(theme);
+};
 
 /* UI Component Hooks */
 
-let idSeq = 0
+let idSeq = 0;
 
 // Genererar unikt ID för UI-komponenter (persistent över renders)
 export const useUniqueId = (): string => {
-  const idRef = React.useRef<string>()
+  const idRef = React.useRef<string>();
   if (!idRef.current) {
     if (idSeq >= Number.MAX_SAFE_INTEGER) {
-      idSeq = 0
+      idSeq = 0;
     }
-    idSeq += 1
-    idRef.current = `fme-${idSeq}`
+    idSeq += 1;
+    idRef.current = `fme-${idSeq}`;
   }
-  return idRef.current
-}
+  return idRef.current;
+};
 
 // Hook för controlled value med onChange-callback (via useControlled)
 export const useControlledValue = <T = unknown>(
@@ -587,15 +661,15 @@ export const useControlledValue = <T = unknown>(
   const [value, setValue] = hooks.useControlled({
     controlled,
     default: defaultValue,
-  })
+  });
 
   const handleChange = hooks.useEventCallback((newValue: T) => {
-    setValue(newValue)
-    onChange?.(newValue)
-  })
+    setValue(newValue);
+    onChange?.(newValue);
+  });
 
-  return [value, handleChange] as const
-}
+  return [value, handleChange] as const;
+};
 
 /* Loading Latch Hook */
 
@@ -604,140 +678,141 @@ export const useLoadingLatch = (
   state: { kind: string; [key: string]: any },
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
-  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0
+  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
   // Skapar snapshot av loading-meddelanden
   const createSnapshot = (
     source:
       | {
-          [key: string]: any
+          [key: string]: any;
         }
       | null
       | undefined
   ): LoadingSnapshot => {
-    if (!source) return null
-    const message = source.message as React.ReactNode | undefined
-    const detail = source.detail as React.ReactNode | undefined
+    if (!source) return null;
+    const message = source.message as React.ReactNode | undefined;
+    const detail = source.detail as React.ReactNode | undefined;
     const rawMessages = source.messages as
       | readonly React.ReactNode[]
-      | undefined
+      | undefined;
     const messages = Array.isArray(rawMessages)
       ? (rawMessages.filter(
           (entry) => entry !== null && entry !== undefined
         ) as readonly React.ReactNode[])
-      : undefined
+      : undefined;
 
     if (
       message == null &&
       detail == null &&
       (!messages || messages.length === 0)
     ) {
-      return null
+      return null;
     }
 
-    return { message, detail, messages }
-  }
+    return { message, detail, messages };
+  };
 
-  const [latched, setLatched] = React.useState(state.kind === "loading")
+  const [latched, setLatched] = React.useState(state.kind === "loading");
   const startRef = React.useRef<number | null>(
     state.kind === "loading" ? Date.now() : null
-  )
+  );
   const snapshotRef = React.useRef<LoadingSnapshot>(
     state.kind === "loading" ? createSnapshot(state) : null
-  )
+  );
 
   hooks.useEffectWithPreviousValues(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (state.kind === "loading") {
       // Uppdatera snapshot och starta latch
-      snapshotRef.current = createSnapshot(state)
+      snapshotRef.current = createSnapshot(state);
       if (startRef.current == null) {
-        startRef.current = Date.now()
+        startRef.current = Date.now();
       }
-      setLatched(true)
+      setLatched(true);
     } else if (startRef.current != null) {
       // Håll latch tills delay löpt ut
-      const elapsed = Date.now() - startRef.current
-      const safeElapsed = Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0
-      const remaining = Math.max(0, safeDelay - safeElapsed)
+      const elapsed = Date.now() - startRef.current;
+      const safeElapsed =
+        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0;
+      const remaining = Math.max(0, safeDelay - safeElapsed);
 
       if (remaining > 0) {
         timer = setTimeout(() => {
-          setLatched(false)
-          startRef.current = null
-          snapshotRef.current = null
-        }, remaining)
+          setLatched(false);
+          startRef.current = null;
+          snapshotRef.current = null;
+        }, remaining);
       } else {
-        setLatched(false)
-        startRef.current = null
-        snapshotRef.current = null
+        setLatched(false);
+        startRef.current = null;
+        snapshotRef.current = null;
       }
     } else {
-      setLatched(false)
-      snapshotRef.current = null
+      setLatched(false);
+      snapshotRef.current = null;
     }
 
     return () => {
-      if (timer) clearTimeout(timer)
-    }
-  }, [state, safeDelay])
+      if (timer) clearTimeout(timer);
+    };
+  }, [state, safeDelay]);
 
-  const isLoading = state.kind === "loading"
-  const snapshot = isLoading ? createSnapshot(state) : snapshotRef.current
+  const isLoading = state.kind === "loading";
+  const snapshot = isLoading ? createSnapshot(state) : snapshotRef.current;
 
   return {
     showLoading: isLoading || latched,
     snapshot,
-  }
-}
+  };
+};
 
 /* Abort Controller Hooks */
 
 // Hook för att hantera senaste AbortController med cancel/create
 export const useLatestAbortController = () => {
-  const controllerRef = React.useRef<AbortController | null>(null)
+  const controllerRef = React.useRef<AbortController | null>(null);
 
   // Avbryter aktuell controller och rensar referens
   const cancel = hooks.useEventCallback(() => {
-    const controller = controllerRef.current
-    safeAbortController(controller)
-    controllerRef.current = null
-  })
+    const controller = controllerRef.current;
+    safeAbortController(controller);
+    controllerRef.current = null;
+  });
 
   // Avbryter befintlig och skapar ny AbortController
   const abortAndCreate = hooks.useEventCallback(() => {
-    cancel()
-    const controller = new AbortController()
-    controllerRef.current = controller
-    return controller
-  })
+    cancel();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    return controller;
+  });
 
   // Rensar controller-referens om den matchar given controller
   const finalize = hooks.useEventCallback(
     (controller?: AbortController | null) => {
-      if (!controller) return
+      if (!controller) return;
       if (controllerRef.current === controller) {
-        controllerRef.current = null
+        controllerRef.current = null;
       }
     }
-  )
+  );
 
   return {
     controllerRef,
     abortAndCreate,
     cancel,
     finalize,
-  }
-}
+  };
+};
 
 /* Query System Domain Hooks (React Query) */
 
 // Hook för att hämta workspaces från repository
 export function useWorkspaces(
   config: {
-    repository?: string
-    fmeServerUrl?: string
-    fmeServerToken?: string
+    repository?: string;
+    fmeServerUrl?: string;
+    fmeServerToken?: string;
   },
   options?: { enabled?: boolean }
 ) {
@@ -752,44 +827,44 @@ export function useWorkspaces(
         config.fmeServerUrl,
         config.fmeServerToken,
         config.repository
-      )
+      );
       if (!client) {
-        throw new Error("FME client not initialized")
+        throw new Error("FME client not initialized");
       }
 
-      const repositoryName = config.repository || DEFAULT_REPOSITORY
+      const repositoryName = config.repository || DEFAULT_REPOSITORY;
       const response = await client.getRepositoryItems(
         repositoryName,
         WORKSPACE_ITEM_TYPE,
         undefined,
         undefined,
         signal
-      )
+      );
 
       const items = Array.isArray(response?.data?.items)
         ? (response.data.items as WorkspaceItem[])
-        : []
-      return items
+        : [];
+      return items;
     },
     enabled:
       (options?.enabled ?? true) &&
       Boolean(config.fmeServerUrl && config.fmeServerToken),
-  })
+  });
 }
 
 // Hook för att hämta workspace-item med parametrar
 export function useWorkspaceItem(
   workspace: string | undefined,
   config: {
-    repository?: string
-    fmeServerUrl?: string
-    fmeServerToken?: string
+    repository?: string;
+    fmeServerUrl?: string;
+    fmeServerToken?: string;
   },
   options?: { enabled?: boolean }
 ) {
   return useQuery<{
-    item: WorkspaceItemDetail
-    parameters: WorkspaceParameter[]
+    item: WorkspaceItemDetail;
+    parameters: WorkspaceParameter[];
   }>({
     queryKey: queryKeys.workspaceItem(
       workspace,
@@ -799,31 +874,31 @@ export function useWorkspaceItem(
     ),
     queryFn: async ({ signal }) => {
       if (!workspace) {
-        throw new Error("Workspace name required")
+        throw new Error("Workspace name required");
       }
 
       const client = createFmeClient(
         config.fmeServerUrl,
         config.fmeServerToken,
         config.repository
-      )
+      );
       if (!client) {
-        throw new Error("FME client not initialized")
+        throw new Error("FME client not initialized");
       }
 
-      const repositoryName = config.repository || DEFAULT_REPOSITORY
+      const repositoryName = config.repository || DEFAULT_REPOSITORY;
 
       // Hämta workspace-item och parametrar parallellt
       const [itemResult, paramsResult] = await Promise.allSettled([
         client.getWorkspaceItem(workspace, repositoryName, signal),
         client.getWorkspaceParameters(workspace, repositoryName, signal),
-      ])
+      ]);
 
       // Kasta fel om item-hämtning misslyckas
       if (itemResult.status === "rejected") {
         throw itemResult.reason instanceof Error
           ? itemResult.reason
-          : new Error(String(itemResult.reason))
+          : new Error(String(itemResult.reason));
       }
 
       // Extrahera parametrar om hämtning lyckades
@@ -831,138 +906,148 @@ export function useWorkspaceItem(
         paramsResult.status === "fulfilled" &&
         Array.isArray(paramsResult.value?.data)
           ? paramsResult.value.data
-          : []
+          : [];
 
       return {
         item: itemResult.value.data,
         parameters,
-      }
+      };
     },
     enabled:
       (options?.enabled ?? true) &&
       Boolean(workspace && config.fmeServerUrl && config.fmeServerToken),
     staleTime: TIME_CONSTANTS.TEN_MINUTES,
     refetchOnMount: false,
-  })
+  });
 }
 
 // Hook för att prefetcha workspaces i chunks med progress-callback
 export function usePrefetchWorkspaces(
   workspaces: readonly WorkspaceItem[] | undefined,
   config: {
-    repository?: string
-    fmeServerUrl?: string
-    fmeServerToken?: string
+    repository?: string;
+    fmeServerUrl?: string;
+    fmeServerToken?: string;
   },
   options?: {
-    enabled?: boolean
-    chunkSize?: number
-    onProgress?: (loaded: number, total: number) => void
+    enabled?: boolean;
+    chunkSize?: number;
+    onProgress?: (loaded: number, total: number) => void;
   }
 ) {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
 
   const [state, setState] = React.useState<{
-    isPrefetching: boolean
-    progress: { loaded: number; total: number } | null
-    prefetchStatus: "idle" | "loading" | "success" | "error"
+    isPrefetching: boolean;
+    progress: { loaded: number; total: number } | null;
+    prefetchStatus: "idle" | "loading" | "success" | "error";
   }>(() => ({
     isPrefetching: false,
     progress: null,
     prefetchStatus: "idle",
-  }))
+  }));
 
-  const enabled = options?.enabled ?? true
-  const chunkSize = options?.chunkSize ?? 10
+  const enabled = options?.enabled ?? true;
+  const chunkSize = options?.chunkSize ?? 10;
 
-  const configRef = hooks.useLatest(config)
-  const workspacesRef = hooks.useLatest(workspaces)
-  const onProgressRef = hooks.useLatest(options?.onProgress)
+  const configRef = hooks.useLatest(config);
+  const workspacesRef = hooks.useLatest(workspaces);
+  const onProgressRef = hooks.useLatest(options?.onProgress);
 
   hooks.useEffectWithPreviousValues(() => {
-    const workspacesSnapshot = workspacesRef.current
+    const workspacesSnapshot = workspacesRef.current;
+
+    let cancelled = false;
+    const abortControllers = new Set<AbortController>();
+
+    const abortAllControllers = (reason?: unknown): void => {
+      abortControllers.forEach((controller) => {
+        safeAbortController(controller, reason);
+      });
+      abortControllers.clear();
+    };
+
+    const cleanup = () => {
+      cancelled = true;
+      abortAllControllers();
+    };
+
     if (!enabled || !workspacesSnapshot?.length) {
       setState({
         isPrefetching: false,
         progress: null,
         prefetchStatus: "idle",
-      })
-      return
+      });
+      return cleanup;
     }
 
-    const configSnapshot = configRef.current ?? {}
-    const repository = configSnapshot.repository || DEFAULT_REPOSITORY
-    const fmeServerUrl = configSnapshot.fmeServerUrl
-    const fmeServerToken = configSnapshot.fmeServerToken
-    if (!fmeServerUrl || !fmeServerToken) return
+    const configSnapshot = configRef.current ?? {};
+    const repository = configSnapshot.repository || DEFAULT_REPOSITORY;
+    const fmeServerUrl = configSnapshot.fmeServerUrl;
+    const fmeServerToken = configSnapshot.fmeServerToken;
+    if (!fmeServerUrl || !fmeServerToken) {
+      return cleanup;
+    }
 
-    const client = createFmeClient(fmeServerUrl, fmeServerToken, repository)
-    if (!client) return
-
-    let cancelled = false
-    const abortControllers = new Set<AbortController>()
+    const client = createFmeClient(fmeServerUrl, fmeServerToken, repository);
+    if (!client) {
+      return cleanup;
+    }
 
     const registerAbortController = (
       controller: AbortController
     ): (() => void) => {
-      abortControllers.add(controller)
+      abortControllers.add(controller);
       return () => {
-        abortControllers.delete(controller)
-      }
-    }
-
-    const abortAllControllers = (reason?: unknown): void => {
-      abortControllers.forEach((controller) => {
-        safeAbortController(controller, reason)
-      })
-      abortControllers.clear()
-    }
+        abortControllers.delete(controller);
+      };
+    };
 
     const linkSignals = (
       source: AbortSignal | undefined,
       controller: AbortController
     ): (() => void) => {
-      return linkAbortSignal(source, controller)
-    }
+      return linkAbortSignal(source, controller);
+    };
 
     const prefetch = async () => {
       setState({
         isPrefetching: true,
         progress: { loaded: 0, total: workspacesSnapshot.length },
         prefetchStatus: "loading",
-      })
+      });
 
       // Dela workspaces i chunks för batch-prefetch
-      const chunks: WorkspaceItem[][] = []
+      const chunks: WorkspaceItem[][] = [];
       for (let i = 0; i < workspacesSnapshot.length; i += chunkSize) {
-        chunks.push(workspacesSnapshot.slice(i, i + chunkSize))
+        chunks.push(workspacesSnapshot.slice(i, i + chunkSize));
       }
 
-      let loaded = 0
+      let loaded = 0;
 
       try {
         for (const chunk of chunks) {
-          if (cancelled) break
+          if (cancelled) break;
 
           // Prefetcha chunk med max 5 samtidiga requests för att inte överbelasta browser/nätverk
-          const MAX_CONCURRENT = 5
-          const semaphore = { active: 0, queue: [] as Array<() => void> }
+          const MAX_CONCURRENT = 5;
+          const semaphore = { active: 0, queue: [] as Array<() => void> };
 
           const withLimit = async <T>(fn: () => Promise<T>): Promise<T> => {
             while (semaphore.active >= MAX_CONCURRENT) {
               await new Promise<void>((resolve) =>
                 semaphore.queue.push(resolve)
-              )
+              );
             }
-            semaphore.active++
+            semaphore.active++;
             try {
-              return await fn()
+              return await fn();
             } finally {
-              semaphore.active--
-              const next = semaphore.queue.shift()
-              if (next) next()
+              semaphore.active--;
+              const next = semaphore.queue.shift();
+              if (next) next();
             }
-          }
+          };
 
           // Prefetcha alla workspaces i chunk parallellt med begränsning
           await Promise.allSettled(
@@ -976,11 +1061,11 @@ export function usePrefetchWorkspaces(
                     fmeServerToken
                   ),
                   queryFn: async ({ signal }) => {
-                    const controller = new AbortController()
-                    const unregister = registerAbortController(controller)
-                    const unlink = linkSignals(signal, controller)
+                    const controller = new AbortController();
+                    const unregister = registerAbortController(controller);
+                    const unlink = linkSignals(signal, controller);
                     try {
-                      const effectiveSignal = controller.signal
+                      const effectiveSignal = controller.signal;
                       const [itemResp, paramsResp] = await Promise.all([
                         client.getWorkspaceItem(
                           ws.name,
@@ -992,31 +1077,31 @@ export function usePrefetchWorkspaces(
                           repository,
                           effectiveSignal
                         ),
-                      ])
+                      ]);
                       return {
                         item: itemResp.data,
                         parameters: Array.isArray(paramsResp?.data)
                           ? paramsResp.data
                           : [],
-                      }
+                      };
                     } finally {
-                      unlink()
-                      unregister()
+                      unlink();
+                      unregister();
                     }
                   },
                   staleTime: TIME_CONSTANTS.TEN_MINUTES,
                 })
               )
             )
-          )
+          );
 
           // Uppdatera progress efter varje chunk
-          loaded += chunk.length
+          loaded += chunk.length;
           setState((prev) => ({
             ...prev,
             progress: { loaded, total: workspacesSnapshot.length },
-          }))
-          onProgressRef.current?.(loaded, workspacesSnapshot.length)
+          }));
+          onProgressRef.current?.(loaded, workspacesSnapshot.length);
         }
 
         if (!cancelled) {
@@ -1024,28 +1109,25 @@ export function usePrefetchWorkspaces(
             isPrefetching: false,
             progress: null,
             prefetchStatus: "success",
-          })
+          });
         }
       } catch (error) {
         if (!cancelled) {
-          logIfNotAbort("Workspace prefetch error", error)
+          logIfNotAbort("Workspace prefetch error", error);
           setState({
             isPrefetching: false,
             progress: null,
             prefetchStatus: "error",
-          })
+          });
         }
       } finally {
-        abortAllControllers()
+        abortAllControllers();
       }
-    }
+    };
 
-    void prefetch()
+    void prefetch();
 
-    return () => {
-      cancelled = true
-      abortAllControllers()
-    }
+    return cleanup;
   }, [
     enabled,
     queryClient,
@@ -1055,9 +1137,9 @@ export function usePrefetchWorkspaces(
     config?.fmeServerUrl,
     config?.fmeServerToken,
     workspaces,
-  ])
+  ]);
 
-  return state
+  return state;
 }
 
 // Hook för att hämta repositories från FME Flow
@@ -1069,16 +1151,16 @@ export function useRepositories(
   return useQuery<Array<{ name: string }>>({
     queryKey: ["fme", "repositories", serverUrl, buildTokenCacheKey(token)],
     queryFn: async ({ signal }) => {
-      const client = createFmeClient(serverUrl, token, DEFAULT_REPOSITORY)
+      const client = createFmeClient(serverUrl, token, DEFAULT_REPOSITORY);
       if (!client) {
-        throw new Error("FME client not initialized")
+        throw new Error("FME client not initialized");
       }
 
-      const response = await client.getRepositories(signal)
-      return response.data ?? []
+      const response = await client.getRepositories(signal);
+      return response.data ?? [];
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
-  })
+  });
 }
 
 // Hook för health-check mot FME Flow
@@ -1091,30 +1173,30 @@ export function useHealthCheck(
     queryKey: queryKeys.health(serverUrl, token),
     queryFn: async ({ signal }) => {
       if (!serverUrl || !token) {
-        throw new Error("Missing credentials")
+        throw new Error("Missing credentials");
       }
-      return await healthCheck(serverUrl, token, signal)
+      return await healthCheck(serverUrl, token, signal);
     },
     enabled: (options?.enabled ?? true) && Boolean(serverUrl && token),
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? true,
-  })
+  });
 }
 
 // Hook för connection-validering med abort-hantering
 export function useValidateConnection() {
-  const queryClient = useQueryClient()
-  const controllerRef = React.useRef<AbortController | null>(null)
+  const queryClient = useQueryClient();
+  const controllerRef = React.useRef<AbortController | null>(null);
 
   // Avbryter pågående validering
   const cancel = hooks.useEventCallback(() => {
-    const controller = controllerRef.current
+    const controller = controllerRef.current;
     if (controller && !controller.signal.aborted) {
       try {
-        controller.abort()
+        controller.abort();
       } catch {}
     }
-    controllerRef.current = null
-  })
+    controllerRef.current = null;
+  });
 
   const mutation = useMutation<
     ConnectionValidationResult,
@@ -1127,51 +1209,51 @@ export function useValidateConnection() {
         token: variables.token,
         repository: variables.repository,
         signal: controllerRef.current?.signal,
-      })
+      });
     },
     onSuccess: (data, variables) => {
       // Uppdatera health-check cache vid lyckad validering
       if (data.success) {
         queryClient.invalidateQueries({
           queryKey: queryKeys.health(variables.serverUrl, variables.token),
-        })
+        });
       }
     },
-  })
+  });
 
   // Avbryter befintlig och kör ny validering
   const mutateAsync = hooks.useEventCallback(
     async (variables: ValidateConnectionVariables) => {
-      cancel()
-      const controller = new AbortController()
-      controllerRef.current = controller
+      cancel();
+      const controller = new AbortController();
+      controllerRef.current = controller;
       try {
-        return await mutation.mutateAsync(variables)
+        return await mutation.mutateAsync(variables);
       } finally {
         if (controllerRef.current === controller) {
-          controllerRef.current = null
+          controllerRef.current = null;
         }
       }
     }
-  )
+  );
 
   // Fire-and-forget variant av mutateAsync
   const mutate = hooks.useEventCallback(
     (variables: ValidateConnectionVariables) => {
-      void mutateAsync(variables)
+      void mutateAsync(variables);
     }
-  )
+  );
 
   // Avbryt pågående validering vid unmount
   hooks.useUnmount(() => {
-    cancel()
-  })
+    cancel();
+  });
 
   return {
     ...mutation,
     mutate,
     mutateAsync,
-  }
+  };
 }
 
 // Hook för att hantera loading-flags med minimum display time
@@ -1180,36 +1262,38 @@ export function useMinLoadingTime(
   widgetId: string,
   minimumMs = 500
 ) {
-  const startTimesRef = React.useRef<{ [key: string]: number }>({})
+  const startTimesRef = React.useRef<{ [key: string]: number }>({});
 
   const setFlag = hooks.useEventCallback((flag: string, value: boolean) => {
     if (value) {
       // Loading startar - sätt omedelbart och spara starttid
-      startTimesRef.current[flag] = Date.now()
-      reduxDispatch(fmeActions.setLoadingFlag(flag as any, true, widgetId))
+      startTimesRef.current[flag] = Date.now();
+      reduxDispatch(fmeActions.setLoadingFlag(flag as any, true, widgetId));
     } else {
       // Loading slutar - säkerställ minimum display time
-      const startTime = startTimesRef.current[flag]
+      const startTime = startTimesRef.current[flag];
       if (startTime) {
-        const elapsed = Date.now() - startTime
-        const remaining = Math.max(0, minimumMs - elapsed)
+        const elapsed = Date.now() - startTime;
+        const remaining = Math.max(0, minimumMs - elapsed);
 
         if (remaining > 0) {
           setTimeout(() => {
             reduxDispatch(
               fmeActions.setLoadingFlag(flag as any, false, widgetId)
-            )
-            delete startTimesRef.current[flag]
-          }, remaining)
+            );
+            delete startTimesRef.current[flag];
+          }, remaining);
         } else {
-          reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
-          delete startTimesRef.current[flag]
+          reduxDispatch(
+            fmeActions.setLoadingFlag(flag as any, false, widgetId)
+          );
+          delete startTimesRef.current[flag];
         }
       } else {
-        reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId))
+        reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId));
       }
     }
-  })
+  });
 
-  return setFlag
+  return setFlag;
 }

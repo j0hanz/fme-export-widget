@@ -1,7 +1,7 @@
-import { css, type IMThemeVariables, type ImmutableObject } from "jimu-core"
-import { useTheme } from "jimu-theme"
-import type { TypographyStyle } from "jimu-theme"
-import type { BtnContentProps } from "./types"
+import { css, type ImmutableObject, type IMThemeVariables } from "jimu-core";
+import { useTheme } from "jimu-theme";
+import type { TypographyStyle } from "jimu-theme";
+import type { BtnContentProps } from "./types";
 
 // UI component configuration constants
 export const config = {
@@ -30,7 +30,7 @@ export const config = {
     cycleInterval: 5200,
   },
   required: "*",
-} as const
+} as const;
 
 // Internal helpers
 const typo = (variant: ImmutableObject<TypographyStyle>) => ({
@@ -40,7 +40,7 @@ const typo = (variant: ImmutableObject<TypographyStyle>) => ({
   fontStyle: variant?.fontStyle,
   lineHeight: variant?.lineHeight,
   color: variant?.color,
-})
+});
 
 const flex = (
   dir: "row" | "column" | "inline",
@@ -55,15 +55,15 @@ const flex = (
           ? "row wrap"
           : undefined,
     ...styles,
-  })
+  });
 
 // Runtime UI styles factory
 export const createUiStyles = (theme: IMThemeVariables) => {
-  const spacing = theme.sys.spacing
-  const colors = theme.sys.color
-  const typography = theme.sys.typography
-  const gap = spacing?.(2)
-  const auto = "1 1 auto"
+  const spacing = theme.sys.spacing;
+  const colors = theme.sys.color;
+  const typography = theme.sys.typography;
+  const gap = spacing?.(2);
+  const auto = "1 1 auto";
 
   return {
     // Layout
@@ -276,21 +276,21 @@ export const createUiStyles = (theme: IMThemeVariables) => {
         marginBlockEnd: spacing?.(2) ?? 0,
       }),
     },
-  } as const
-}
+  } as const;
+};
 
-export type UiStyles = ReturnType<typeof createUiStyles>
+export type UiStyles = ReturnType<typeof createUiStyles>;
 
 export const useUiStyles = (): UiStyles => {
-  const theme = useTheme()
-  return createUiStyles(theme)
-}
+  const theme = useTheme();
+  return createUiStyles(theme);
+};
 
 // Settings panel styles factory
 export const createSettingStyles = (theme: IMThemeVariables) => {
-  const spacing = theme?.sys?.spacing
-  const color = theme?.sys?.color
-  const typography = theme?.sys?.typography
+  const spacing = theme?.sys?.spacing;
+  const color = theme?.sys?.color;
+  const typography = theme?.sys?.typography;
 
   return {
     row: css({ width: "100%" }),
@@ -337,12 +337,12 @@ export const createSettingStyles = (theme: IMThemeVariables) => {
         pending: css({ color: color?.info?.main }),
       },
     },
-  } as const
-}
+  } as const;
+};
 
-export type SettingStyles = ReturnType<typeof createSettingStyles>
+export type SettingStyles = ReturnType<typeof createSettingStyles>;
 
 export const useSettingStyles = (): SettingStyles => {
-  const theme = useTheme()
-  return createSettingStyles(theme)
-}
+  const theme = useTheme();
+  return createSettingStyles(theme);
+};

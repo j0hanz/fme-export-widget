@@ -129,4 +129,4 @@ export default {
   ariaEmptyActions: "Empty Results",
   ariaSuccessActions: "Successful Action",
   ariaRequired: "Required Field",
-}
+};

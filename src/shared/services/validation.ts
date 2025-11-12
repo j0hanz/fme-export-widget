@@ -1,43 +1,49 @@
 import type {
+  CheckSteps,
   ConnectionValidationOptions,
   ConnectionValidationResult,
-  CheckSteps,
-  StartupValidationOptions,
-  StartupValidationResult,
   StartupValidationFlowOptions,
   StartupValidationFlowResult,
-} from "../../config/index"
-import { ErrorType, HTTP_STATUS_CODES } from "../../config/index"
+  StartupValidationOptions,
+  StartupValidationResult,
+} from "../../config/index";
+import {
+  ErrorType,
+  HTTP_STATUS_CODES,
+  ValidationStepStatus,
+} from "../../config/index";
 import {
   createFmeClient,
   extractErrorMessage,
   getEmail,
-  isValidEmail,
   isAbortError,
-} from "../utils"
-import { extractHttpStatus, validateRequiredFields } from "../validations"
-import { createError, mapErrorFromNetwork } from "../utils/error"
-import { inFlight } from "./inflight"
-import { healthCheck, extractFmeVersion, hasProxyError } from "./network"
+  isValidEmail,
+} from "../utils";
+import { createError, mapErrorFromNetwork } from "../utils/error";
+import { extractHttpStatus, validateRequiredFields } from "../validations";
+import { inFlight } from "./inflight";
+import { extractFmeVersion, hasProxyError, healthCheck } from "./network";
 
 // Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
   options: ConnectionValidationOptions
 ): Promise<ConnectionValidationResult> {
-  const { serverUrl, token, repository, signal } = options
-  const key = `${serverUrl}|${token}|${repository || "_"}`
+  const { serverUrl, token, repository, signal } = options;
+  const key = `${serverUrl}|${token}|${repository || "_"}`;
   const steps: CheckSteps = {
-    serverUrl: "pending",
-    token: "pending",
-    repository: repository ? "pending" : "skip",
+    serverUrl: ValidationStepStatus.PENDING,
+    token: ValidationStepStatus.PENDING,
+    repository: repository
+      ? ValidationStepStatus.PENDING
+      : ValidationStepStatus.SKIP,
     version: "",
-  }
+  };
 
   return await inFlight.validateConnection.execute(
     key,
     async (): Promise<ConnectionValidationResult> => {
       try {
-        const client = createFmeClient(serverUrl, token, repository)
+        const client = createFmeClient(serverUrl, token, repository);
 
         if (!client) {
           return {
@@ -48,16 +54,16 @@ export async function validateConnection(
               type: "server",
               status: 0,
             },
-          }
+          };
         }
 
         // Steg 1: Testar anslutning och hämtar serverinfo
-        let serverInfo: any
+        let serverInfo: any;
         try {
-          serverInfo = await client.testConnection(signal)
-          steps.serverUrl = "ok"
-          steps.token = "ok"
-          steps.version = extractFmeVersion(serverInfo)
+          serverInfo = await client.testConnection(signal);
+          steps.serverUrl = ValidationStepStatus.OK;
+          steps.token = ValidationStepStatus.OK;
+          steps.version = extractFmeVersion(serverInfo);
         } catch (error) {
           if (isAbortError(error)) {
             return {
@@ -68,13 +74,13 @@ export async function validateConnection(
                 type: "generic",
                 status: 0,
               },
-            }
+            };
           }
-          const status = extractHttpStatus(error)
+          const status = extractHttpStatus(error);
 
           if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
-            steps.serverUrl = "ok"
-            steps.token = "fail"
+            steps.serverUrl = ValidationStepStatus.OK;
+            steps.token = ValidationStepStatus.FAIL;
             return {
               success: false,
               steps,
@@ -83,12 +89,12 @@ export async function validateConnection(
                 type: "token",
                 status,
               },
-            }
+            };
           } else if (status === HTTP_STATUS_CODES.FORBIDDEN) {
-            const rawMessage = extractErrorMessage(error)
+            const rawMessage = extractErrorMessage(error);
             if (hasProxyError(rawMessage)) {
-              steps.serverUrl = "fail"
-              steps.token = "skip"
+              steps.serverUrl = ValidationStepStatus.FAIL;
+              steps.token = ValidationStepStatus.SKIP;
               return {
                 success: false,
                 steps,
@@ -97,10 +103,10 @@ export async function validateConnection(
                   type: "server",
                   status,
                 },
-              }
+              };
             }
             try {
-              const healthResult = await healthCheck(serverUrl, token, signal)
+              const healthResult = await healthCheck(serverUrl, token, signal);
 
               if (signal?.aborted) {
                 return {
@@ -111,12 +117,12 @@ export async function validateConnection(
                     type: "generic",
                     status: 0,
                   },
-                }
+                };
               }
 
               if (healthResult && healthResult && healthResult.reachable) {
-                steps.serverUrl = "ok"
-                steps.token = "fail"
+                steps.serverUrl = ValidationStepStatus.OK;
+                steps.token = ValidationStepStatus.FAIL;
                 return {
                   success: false,
                   steps,
@@ -125,10 +131,10 @@ export async function validateConnection(
                     type: "token",
                     status,
                   },
-                }
+                };
               } else {
-                steps.serverUrl = "fail"
-                steps.token = "skip"
+                steps.serverUrl = ValidationStepStatus.FAIL;
+                steps.token = ValidationStepStatus.SKIP;
                 return {
                   success: false,
                   steps,
@@ -137,11 +143,11 @@ export async function validateConnection(
                     type: "server",
                     status,
                   },
-                }
+                };
               }
             } catch {
-              steps.serverUrl = "fail"
-              steps.token = "skip"
+              steps.serverUrl = ValidationStepStatus.FAIL;
+              steps.token = ValidationStepStatus.SKIP;
               return {
                 success: false,
                 steps,
@@ -150,11 +156,11 @@ export async function validateConnection(
                   type: "server",
                   status,
                 },
-              }
+              };
             }
           } else {
-            steps.serverUrl = "fail"
-            steps.token = "skip"
+            steps.serverUrl = ValidationStepStatus.FAIL;
+            steps.token = ValidationStepStatus.SKIP;
             return {
               success: false,
               steps,
@@ -163,27 +169,27 @@ export async function validateConnection(
                 type: status === 0 ? "network" : "server",
                 status,
               },
-            }
+            };
           }
         }
 
-        const warnings: string[] = []
+        const warnings: string[] = [];
 
         // Steg 3: Validerar specifik repository om angiven
         if (repository) {
           try {
-            await client.validateRepository(repository, signal)
-            steps.repository = "ok"
+            await client.validateRepository(repository, signal);
+            steps.repository = ValidationStepStatus.OK;
           } catch (error) {
-            const status = extractHttpStatus(error)
+            const status = extractHttpStatus(error);
             if (
               status === HTTP_STATUS_CODES.UNAUTHORIZED ||
               status === HTTP_STATUS_CODES.FORBIDDEN
             ) {
-              steps.repository = "skip"
-              warnings.push("repositoryNotAccessible")
+              steps.repository = ValidationStepStatus.SKIP;
+              warnings.push("repositoryNotAccessible");
             } else {
-              steps.repository = "fail"
+              steps.repository = ValidationStepStatus.FAIL;
               return {
                 success: false,
                 steps,
@@ -192,7 +198,7 @@ export async function validateConnection(
                   type: "repository",
                   status,
                 },
-              }
+              };
             }
           }
         }
@@ -202,7 +208,7 @@ export async function validateConnection(
           version: typeof steps.version === "string" ? steps.version : "",
           steps,
           warnings: warnings.length ? warnings : undefined,
-        }
+        };
       } catch (error) {
         if (isAbortError(error)) {
           return {
@@ -213,10 +219,10 @@ export async function validateConnection(
               type: "generic",
               status: 0,
             },
-          }
+          };
         }
 
-        const status = extractHttpStatus(error)
+        const status = extractHttpStatus(error);
         return {
           success: false,
           steps,
@@ -225,17 +231,17 @@ export async function validateConnection(
             type: "generic",
             status,
           },
-        }
+        };
       }
     }
-  )
+  );
 }
 
 // Validerar widget-uppstart: config, required fields, FME-anslutning
 export async function validateWidgetStartup(
   options: StartupValidationOptions
 ): Promise<StartupValidationResult> {
-  const { config, translate, signal, mapConfigured } = options
+  const { config, translate, signal, mapConfigured } = options;
 
   // Steg 1: Kontrollerar om config finns
   if (!config) {
@@ -249,13 +255,13 @@ export async function validateWidgetStartup(
         suggestion: translate("actionOpenSettings"),
         userFriendlyMessage: translate("hintSetupWidget"),
       }),
-    }
+    };
   }
 
   // Steg 2: Validerar obligatoriska config-fält
   const requiredFieldsResult = validateRequiredFields(config, translate, {
     mapConfigured: mapConfigured ?? true,
-  })
+  });
   if (!requiredFieldsResult.isValid) {
     return {
       isValid: false,
@@ -265,7 +271,7 @@ export async function validateWidgetStartup(
         type: ErrorType.CONFIG,
         code: "CONFIG_INCOMPLETE",
       }),
-    }
+    };
   }
 
   // Steg 3: Testar FME Flow-anslutning
@@ -275,12 +281,12 @@ export async function validateWidgetStartup(
       token: config.fmeServerToken,
       repository: config.repository,
       signal,
-    })
+    });
 
     if (!connectionResult.success) {
       const errorMessage =
-        connectionResult.error?.message || "errorValidationFailed"
-      const errorType = connectionResult.error?.type || "server"
+        connectionResult.error?.message || "errorValidationFailed";
+      const errorType = connectionResult.error?.type || "server";
 
       return {
         isValid: false,
@@ -299,7 +305,7 @@ export async function validateWidgetStartup(
                   ? translate("repositorySettingsHint")
                   : translate("connectionSettingsHint"),
         }),
-      }
+      };
     }
 
     // All validering lyckades
@@ -307,7 +313,7 @@ export async function validateWidgetStartup(
       isValid: true,
       canProceed: true,
       requiresSettings: false,
-    }
+    };
   } catch (error) {
     if (isAbortError(error)) {
       // Behandla inte abort som ett fel - returnera neutralt tillstånd
@@ -315,7 +321,7 @@ export async function validateWidgetStartup(
         isValid: false,
         canProceed: false,
         requiresSettings: false,
-      }
+      };
     }
 
     return {
@@ -327,67 +333,67 @@ export async function validateWidgetStartup(
         code: "STARTUP_NETWORK_ERROR",
         suggestion: translate("networkConnectionHint"),
       }),
-    }
+    };
   }
 }
 
 export async function runStartupValidationFlow(
   options: StartupValidationFlowOptions
 ): Promise<StartupValidationFlowResult> {
-  const { config, useMapWidgetIds, translate, signal, onProgress } = options
+  const { config, useMapWidgetIds, translate, signal, onProgress } = options;
 
-  onProgress(translate("validatingStartup"))
+  onProgress(translate("validatingStartup"));
 
   // Step 1: validate map configuration
-  onProgress(translate("statusValidatingMap"))
+  onProgress(translate("statusValidatingMap"));
   const hasMapConfigured =
-    Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0
+    Array.isArray(useMapWidgetIds) && useMapWidgetIds.length > 0;
 
   // Step 2: validate widget config and FME connection
-  onProgress(translate("statusValidatingConnection"))
+  onProgress(translate("statusValidatingConnection"));
   const validationResult = await validateWidgetStartup({
     config,
     translate,
     signal,
     mapConfigured: hasMapConfigured,
-  })
+  });
 
   if (!validationResult.isValid) {
     if (validationResult.error) {
-      throw new Error(JSON.stringify(validationResult.error))
+      throw new Error(JSON.stringify(validationResult.error));
     } else if (validationResult.requiresSettings) {
       const err = createError("configurationInvalid", {
         type: ErrorType.CONFIG,
         code: "VALIDATION_FAILED",
-      })
-      throw new Error(JSON.stringify(err))
+      });
+      throw new Error(JSON.stringify(err));
     }
-    return { success: false }
+    return { success: false };
   }
 
   // Step 3: validate user email for async mode
   if (!config?.syncMode) {
-    onProgress(translate("statusValidatingEmail"))
+    onProgress(translate("statusValidatingEmail"));
     try {
-      const email = await getEmail(config)
+      const email = await getEmail(config);
       if (!isValidEmail(email)) {
         const err = createError("userEmailMissingError", {
           type: ErrorType.CONFIG,
           code: "UserEmailMissing",
-        })
-        throw new Error(JSON.stringify(err))
+        });
+        throw new Error(JSON.stringify(err));
       }
     } catch (emailErr) {
       if (isAbortError(emailErr)) {
-        return { success: false }
+        return { success: false };
       }
       const err = createError("userEmailMissingError", {
         type: ErrorType.CONFIG,
         code: "UserEmailMissing",
-      })
-      throw new Error(JSON.stringify(err))
+      });
+      throw new Error(JSON.stringify(err));
     }
   }
 
-  return { success: true }
+  return { success: true };
 }

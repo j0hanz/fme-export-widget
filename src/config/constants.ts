@@ -1,6 +1,5 @@
-import type { ServiceMode, UnitConversion } from "./types"
-
-import { FormFieldType, FmeActionType, ParameterType, ViewMode } from "./enums"
+import { FmeActionType, FormFieldType, ParameterType, ViewMode } from "./enums";
+import type { ServiceMode, UnitConversion } from "./types";
 
 export const FME_ACTION_TYPES = Object.freeze([
   FmeActionType.SET_VIEW_MODE,
@@ -22,17 +21,17 @@ export const FME_ACTION_TYPES = Object.freeze([
   FmeActionType.REMOVE_WIDGET_STATE,
   FmeActionType.SET_LOADING_FLAG,
   FmeActionType.APPLY_WORKSPACE_DATA,
-] as const)
+] as const);
 
 export const LAYER_CONFIG = Object.freeze({
   title: "",
   listMode: "hide",
   elevationInfo: { mode: "on-the-ground" },
-})
+});
 
-export const DEFAULT_DRAWING_HEX = "#0079C1"
-export const DEFAULT_OUTLINE_WIDTH = 2
-export const DEFAULT_FILL_OPACITY = 0.2
+export const DEFAULT_DRAWING_HEX = "#0079C1";
+export const DEFAULT_OUTLINE_WIDTH = 2;
+export const DEFAULT_FILL_OPACITY = 0.2;
 
 export const UPLOAD_PARAM_TYPES = Object.freeze([
   "FILENAME",
@@ -42,7 +41,7 @@ export const UPLOAD_PARAM_TYPES = Object.freeze([
   "DIRNAME_SRC",
   "LOOKUP_FILE",
   "REPROJECTION_FILE",
-] as const)
+] as const);
 
 export const FME_FLOW_API = Object.freeze({
   BASE_PATH: "/fmeapiv4",
@@ -53,9 +52,9 @@ export const FME_FLOW_API = Object.freeze({
     "opt_showresult",
     "opt_servicemode",
   ] as const),
-})
+});
 
-export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160
+export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160;
 
 export const SETTING_CONSTANTS = Object.freeze({
   VALIDATION: {
@@ -76,9 +75,9 @@ export const SETTING_CONSTANTS = Object.freeze({
   TEXT: {
     LARGE_AREA_MESSAGE_MAX: LARGE_AREA_MESSAGE_CHAR_LIMIT,
   },
-})
+});
 
-export const FAST_TM_TAG = "fast"
+export const FAST_TM_TAG = "fast";
 
 export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
   [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
@@ -88,10 +87,10 @@ export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
   [ViewMode.ORDER_RESULT]: ViewMode.INITIAL,
   [ViewMode.DRAWING]: ViewMode.INITIAL,
   [ViewMode.INITIAL]: ViewMode.INITIAL,
-}
+};
 
-export const LOADING_TIMEOUT_MS = 30000
-export const MS_LOADING = 500
+export const LOADING_TIMEOUT_MS = 30000;
+export const MS_LOADING = 500;
 
 export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/widgets/Sketch/SketchViewModel",
@@ -105,24 +104,24 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/geometry/Polyline",
   "esri/geometry/Polygon",
   "esri/Graphic",
-] as const)
+] as const);
 
-export const WORKSPACE_ITEM_TYPE = "workspace"
+export const WORKSPACE_ITEM_TYPE = "workspace";
 
 export const PREFETCH_CONFIG = Object.freeze({
   DEFAULT_CHUNK_SIZE: 10,
   MIN_CHUNK_SIZE: 1,
   MAX_CHUNK_SIZE: 25,
-} as const)
+} as const);
 
 export const ERROR_NAMES = Object.freeze({
   CANCELLED_PROMISE: "CancelledPromiseError",
   ABORT: "AbortError",
-})
+});
 
-export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/
-export const NO_REPLY_REGEX = /no-?reply/i
-export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i
+export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
+export const NO_REPLY_REGEX = /no-?reply/i;
+export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i;
 
 export const FORBIDDEN_HOSTNAME_SUFFIXES = Object.freeze([
   "localhost",
@@ -133,7 +132,7 @@ export const FORBIDDEN_HOSTNAME_SUFFIXES = Object.freeze([
   ".home",
   ".lan",
   ".localdomain",
-] as const)
+] as const);
 
 export const PRIVATE_IPV4_RANGES = Object.freeze([
   { start: [10, 0, 0, 0], end: [10, 255, 255, 255] },
@@ -143,52 +142,52 @@ export const PRIVATE_IPV4_RANGES = Object.freeze([
   { start: [172, 16, 0, 0], end: [172, 31, 255, 255] },
   { start: [192, 168, 0, 0], end: [192, 168, 255, 255] },
   { start: [0, 0, 0, 0], end: [0, 255, 255, 255] },
-] as const)
+] as const);
 
-export const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)(\?.*)?$/i
-export const MAX_URL_LENGTH = 4000
+export const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)(\?.*)?$/i;
+export const MAX_URL_LENGTH = 4000;
 
-export const ABORT_REGEX = /abort/i
+export const ABORT_REGEX = /abort/i;
 
 export const TM_PARAM_KEYS = Object.freeze([
   "tm_ttc",
   "tm_ttl",
   "tm_tag",
-] as const)
+] as const);
 
 export const TM_NUMERIC_PARAM_KEYS = Object.freeze([
   "tm_ttc",
   "tm_ttl",
-] as const)
+] as const);
 
 export const OPTIONAL_OPT_KEYS = Object.freeze([
   "opt_servicemode",
   "opt_responseformat",
   "opt_showresult",
   "opt_requesteremail",
-] as const)
+] as const);
 
 export const WEBHOOK_EXCLUDE_PARAMS = Object.freeze([
   ...FME_FLOW_API.WEBHOOK_EXCLUDE_KEYS,
   ...TM_PARAM_KEYS,
-] as const)
+] as const);
 
 export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([
   ...TM_PARAM_KEYS,
   ...OPTIONAL_OPT_KEYS,
-])
+]);
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",
   "async",
-] as const)
+] as const);
 
 export const GEOMETRY_CONSTS = Object.freeze({
   M2_PER_KM2: 1_000_000,
   AREA_DECIMALS: 2,
   METERS_PER_KILOMETER: 1_000,
   SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
-})
+});
 
 export const UNIT_CONVERSIONS: readonly UnitConversion[] = Object.freeze([
   {
@@ -214,17 +213,17 @@ export const UNIT_CONVERSIONS: readonly UnitConversion[] = Object.freeze([
   { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
   { factor: 1852, label: "nm²", keywords: ["nautical"] },
   { factor: 1, label: "m²", keywords: ["meter"] },
-] as const)
+] as const);
 
-export const DEFAULT_ERROR_ICON = "error"
+export const DEFAULT_ERROR_ICON = "error";
 
 export const ICON_BY_EXACT_CODE = Object.freeze<{
-  readonly [code: string]: string
+  readonly [code: string]: string;
 }>({
   GEOMETRY_SERIALIZATION_FAILED: "polygon",
   MAP_MODULES_LOAD_FAILED: "map",
   FORM_INVALID: "warning",
-})
+});
 
 export const TOKEN_ICON_PRIORITY = Object.freeze([
   { token: "GEOMETRY", icon: "polygon" },
@@ -247,18 +246,18 @@ export const TOKEN_ICON_PRIORITY = Object.freeze([
   { token: "TIMEOUT", icon: "time" },
   { token: "CONFIG", icon: "setting" },
   { token: "EMAIL", icon: "email" },
-] as const)
+] as const);
 
-export const MIN_TOKEN_LENGTH = 10
+export const MIN_TOKEN_LENGTH = 10;
 
 export const WKID = Object.freeze({
   WGS84: 4326,
   WEB_MERCATOR: 3857,
-})
+});
 
-export const GEODESIC_SEGMENT_LENGTH_METERS = 50
-export const MIN_PLANAR_SEGMENT_DEGREES = 1e-6
-export const DEGREES_PER_METER = 1 / 111319.49079327358
+export const GEODESIC_SEGMENT_LENGTH_METERS = 50;
+export const MIN_PLANAR_SEGMENT_DEGREES = 1e-6;
+export const DEGREES_PER_METER = 1 / 111319.49079327358;
 
 export const HTTP_STATUS_CODES = Object.freeze({
   UNAUTHORIZED: 401,
@@ -273,7 +272,7 @@ export const HTTP_STATUS_CODES = Object.freeze({
   NETWORK_ERROR: 0,
   SERVER_ERROR_MIN: 500,
   SERVER_ERROR_MAX: 599,
-})
+});
 
 // HTTP Status Ranges
 export const HTTP_STATUS_RANGES = Object.freeze({
@@ -285,35 +284,35 @@ export const HTTP_STATUS_RANGES = Object.freeze({
   SERVER_ERROR_MAX: 599,
   MIN_VALID: 100,
   MAX_VALID: 599,
-})
+});
 
 // HTTP Status Classification Helpers
 export const isSuccessStatus = (status?: number): boolean =>
   typeof status === "number" &&
   status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
-  status <= HTTP_STATUS_RANGES.SUCCESS_MAX
+  status <= HTTP_STATUS_RANGES.SUCCESS_MAX;
 
 export const isServerError = (status?: number): boolean =>
-  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN
+  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN;
 
 export const isClientError = (status?: number): boolean =>
   typeof status === "number" &&
   status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
-  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX
+  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX;
 
 export const isHttpStatus = (n: unknown): n is number =>
   typeof n === "number" &&
   n >= HTTP_STATUS_RANGES.MIN_VALID &&
-  n <= HTTP_STATUS_RANGES.MAX_VALID
+  n <= HTTP_STATUS_RANGES.MAX_VALID;
 
 export const isRetryableStatus = (status?: number): boolean => {
-  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true
-  if (isServerError(status)) return true
+  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true;
+  if (isServerError(status)) return true;
   return (
     status === HTTP_STATUS_CODES.TIMEOUT ||
     status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS
-  )
-}
+  );
+};
 
 // Time Constants (milliseconds)
 export const TIME_CONSTANTS = Object.freeze({
@@ -323,7 +322,7 @@ export const TIME_CONSTANTS = Object.freeze({
   TEN_MINUTES: 10 * 60 * 1000,
   MAX_RESPONSE_TIME: 300000, // 5 minutes
   SLOW_REQUEST_THRESHOLD: 1000, // 1 second
-})
+});
 
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   INVALID_RESPONSE_FORMAT: "errorTokenIssue",
@@ -335,6 +334,8 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   INVALID_CONFIG: "errorSetupRequired",
   CONFIG_INCOMPLETE: "errorSetupRequired",
   configMissing: "errorSetupRequired",
+  HTTPS_REQUIRED: "require_https",
+  INVALID_REQUEST_URL: "invalid_url",
   GEOMETRY_MISSING: "geometryMissingCode",
   GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
   GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
@@ -342,14 +343,14 @@ export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
   WEBHOOK_URL_TOO_LONG: "urlTooLongMessage",
   PARAMETER_VALIDATION_ERROR: "errorParameterValidation",
   WORKSPACE_PARAMETERS_ERROR: "errorWorkspaceParameters",
-}
+};
 
 export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
   401: "errorTokenIssue",
   408: "requestTimedOut",
   429: "rateLimitExceeded",
   431: "headersTooLargeMessage",
-}
+};
 
 export const MESSAGE_PATTERNS = Object.freeze([
   { pattern: /timeout/i, key: "requestTimedOut" },
@@ -359,27 +360,27 @@ export const MESSAGE_PATTERNS = Object.freeze([
     pattern: /remote_dataset_workspace_required/i,
     key: "REMOTE_DATASET_WORKSPACE_REQUIRED",
   },
-] as const)
+] as const);
 
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
   require_https: "require_https",
   no_query_or_hash: "invalid_url",
   invalid_url: "invalid_url",
-}
+};
 
 export const REQUIRED_CONFIG_FIELDS = Object.freeze([
   "fmeServerUrl",
   "fmeServerToken",
   "repository",
-] as const)
+] as const);
 
 export const STATUS_PROPERTIES = Object.freeze([
   "status",
   "statusCode",
   "httpStatus",
-] as const)
+] as const);
 
-export const DEFAULT_REPOSITORY = "_"
+export const DEFAULT_REPOSITORY = "_";
 
 export const SKIPPED_PARAMETER_NAMES = Object.freeze(
   new Set([
@@ -394,7 +395,7 @@ export const SKIPPED_PARAMETER_NAMES = Object.freeze(
     "tm_ttl",
     "tm_tag",
   ])
-)
+);
 
 export const ALWAYS_SKIPPED_TYPES = Object.freeze(
   new Set<ParameterType>([
@@ -402,7 +403,7 @@ export const ALWAYS_SKIPPED_TYPES = Object.freeze(
     ParameterType.GROUP,
     ParameterType.group,
   ])
-)
+);
 
 export const LIST_REQUIRED_TYPES = Object.freeze(
   new Set<ParameterType>([
@@ -413,7 +414,7 @@ export const LIST_REQUIRED_TYPES = Object.freeze(
     ParameterType.COORDSYS,
     ParameterType.REPROJECTION_FILE,
   ])
-)
+);
 
 export const MULTI_SELECT_TYPES = Object.freeze(
   new Set<ParameterType>([
@@ -422,10 +423,10 @@ export const MULTI_SELECT_TYPES = Object.freeze(
     ParameterType.ATTRIBUTE_LIST,
     ParameterType.listbox, // FME V4
   ])
-)
+);
 
 export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
-  [K in ParameterType]?: FormFieldType
+  [K in ParameterType]?: FormFieldType;
 }> = Object.freeze({
   [ParameterType.text]: FormFieldType.TEXT,
   [ParameterType.number]: FormFieldType.NUMBER,
@@ -476,7 +477,7 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.DB_CONNECTION]: FormFieldType.DB_CONNECTION,
   [ParameterType.WEB_CONNECTION]: FormFieldType.WEB_CONNECTION,
   [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
-})
+});
 
 export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
   "esriRequest",
@@ -484,7 +485,7 @@ export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
   "projection",
   "webMercatorUtils",
   "SpatialReference",
-] as const)
+] as const);
 
 export const FILE_UPLOAD = Object.freeze({
   DEFAULT_MAX_SIZE_MB: 150,
@@ -526,7 +527,7 @@ export const FILE_UPLOAD = Object.freeze({
     "url",
     "name",
   ] as const),
-})
+});
 
 export const NETWORK_INDICATORS = Object.freeze([
   "failed to fetch",
@@ -541,10 +542,10 @@ export const NETWORK_INDICATORS = Object.freeze([
   "unable to load",
   "/sharing/proxy",
   "proxy",
-] as const)
+] as const);
 
 export const PROXY_INDICATORS = Object.freeze([
   "unable to load",
   "/sharing/proxy",
   "proxy",
-] as const)
+] as const);

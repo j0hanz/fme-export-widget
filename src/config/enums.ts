@@ -65,6 +65,14 @@ export const enum ErrorType {
   GEOMETRY = "geometry",
 }
 
+export const enum ValidationStepStatus {
+  IDLE = "idle",
+  PENDING = "pending",
+  OK = "ok",
+  FAIL = "fail",
+  SKIP = "skip",
+}
+
 export const enum HttpMethod {
   GET = "GET",
   POST = "POST",

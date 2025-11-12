@@ -1,8 +1,17 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { React, hooks, jsx, css } from "jimu-core"
-import { SettingRow } from "jimu-ui/advanced/setting-components"
-import { Loading, LoadingType, Switch } from "jimu-ui"
+import { css, hooks, jsx, React } from "jimu-core";
+import { SettingRow } from "jimu-ui/advanced/setting-components";
+import { Loading, LoadingType, Switch } from "jimu-ui";
+import type {
+  CheckStepValue,
+  ConnectionTestSectionProps,
+  JobDirectivesSectionProps,
+  RepositorySelectorProps,
+  SettingStyles,
+  TranslateFn,
+} from "../../config/index";
+import { ValidationStepStatus } from "../../config/index";
 import {
   Alert,
   Button,
@@ -11,36 +20,28 @@ import {
   NumericInput,
   Select,
   Tooltip,
-} from "../../runtime/components/ui"
-import resetIcon from "../../assets/icons/refresh.svg"
+} from "../../runtime/components/ui";
 import {
+  collectTrimmedStrings,
   parseNonNegativeInt,
   toTrimmedString,
-  collectTrimmedStrings,
   uniqueStrings,
-} from "../../shared/utils"
-import type {
-  ConnectionTestSectionProps,
-  RepositorySelectorProps,
-  JobDirectivesSectionProps,
-  StepStatus,
-  SettingStyles,
-  TranslateFn,
-} from "../../config/index"
+} from "../../shared/utils";
+import resetIcon from "../../assets/icons/refresh.svg";
 
 /* Helper: Konverterar sträng till numeriskt värde eller undefined */
 export const toNumericValue = (value: string): number | undefined => {
-  const trimmed = (value ?? "").trim()
-  if (trimmed === "") return undefined
-  return parseNonNegativeInt(trimmed)
-}
+  const trimmed = (value ?? "").trim();
+  if (trimmed === "") return undefined;
+  return parseNonNegativeInt(trimmed);
+};
 
 /* Återanvändbar obligatorisk etikett med tooltip */
 export const RequiredLabel: React.FC<{
-  text: string
-  translate: TranslateFn
-  requiredStyle: any
-  requiredSymbol: string
+  text: string;
+  translate: TranslateFn;
+  requiredStyle: any;
+  requiredSymbol: string;
 }> = ({ text, translate, requiredStyle, requiredSymbol }) => (
   <>
     {text}
@@ -55,44 +56,44 @@ export const RequiredLabel: React.FC<{
       </span>
     </Tooltip>
   </>
-)
+);
 
 /* Återanvändbar Switch-rad för konsekvent markup */
 export const SwitchRow: React.FC<{
-  id: string
-  label: React.ReactNode
-  checked: boolean
-  onChange: (checked: boolean) => void
-  ariaLabel: string
-  level?: 1 | 2
+  id: string;
+  label: React.ReactNode;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  ariaLabel: string;
+  level?: 1 | 2;
 }> = ({ id, label, checked, onChange, ariaLabel, level = 2 }) => (
   <SettingRow flow="no-wrap" label={label} level={level}>
     <Switch
       id={id}
       checked={checked}
       onChange={(evt: React.ChangeEvent<HTMLInputElement>) => {
-        const newChecked = evt?.target?.checked ?? !checked
-        onChange(newChecked)
+        const newChecked = evt?.target?.checked ?? !checked;
+        onChange(newChecked);
       }}
       aria-label={ariaLabel}
     />
   </SettingRow>
-)
+);
 
 /* Återanvändbar NumericInput-rad med validering och felhantering */
 export const NumericInputRow: React.FC<{
-  id: string
-  label: React.ReactNode
-  value: string
-  onChange: (val: number | undefined) => void
-  onBlur: (val: string) => void
-  placeholder?: string
-  errorText?: string
-  min?: number
-  step?: number
-  precision?: number
-  ariaLabel?: string
-  styles: SettingStyles
+  id: string;
+  label: React.ReactNode;
+  value: string;
+  onChange: (val: number | undefined) => void;
+  onBlur: (val: string) => void;
+  placeholder?: string;
+  errorText?: string;
+  min?: number;
+  step?: number;
+  precision?: number;
+  ariaLabel?: string;
+  styles: SettingStyles;
 }> = ({
   id,
   label,
@@ -120,8 +121,8 @@ export const NumericInputRow: React.FC<{
       aria-label={ariaLabel}
       onChange={onChange}
       onBlur={(evt) => {
-        const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
-        onBlur(raw)
+        const raw = (evt?.target as HTMLInputElement | null)?.value ?? "";
+        onBlur(raw);
       }}
     />
     {errorText && (
@@ -137,7 +138,7 @@ export const NumericInputRow: React.FC<{
       </SettingRow>
     )}
   </SettingRow>
-)
+);
 
 /* UI-sektion för anslutningstest med steg-för-steg-status */
 export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
@@ -149,67 +150,57 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
   styles,
   validationPhase,
 }) => {
-  /* Type guard för att identifiera StepStatus-objekt */
-  const isStepStatus = (v: unknown): v is StepStatus =>
-    typeof v === "object" &&
-    v !== null &&
-    Object.prototype.hasOwnProperty.call(v, "completed")
   /* Stabila hjälpfunktioner för färg och text baserat på status */
   const getStatusStyle = hooks.useEventCallback(
-    (s: StepStatus | string): any => {
-      switch (s) {
-        case "ok":
-          return styles.status.color.ok
-        case "fail":
-          return styles.status.color.fail
-        case "skip":
-          return styles.status.color.skip
-        case "pending":
-        case "idle":
-          return styles.status.color.pending
-        default:
-          if (isStepStatus(s)) {
-            return s.completed
-              ? styles.status.color.ok
-              : styles.status.color.fail
-          }
-          return styles.status.color.pending
+    (status: CheckStepValue): any => {
+      if (typeof status === "string") {
+        if (status === ValidationStepStatus.OK) return styles.status.color.ok;
+        if (status === ValidationStepStatus.FAIL)
+          return styles.status.color.fail;
+        if (status === ValidationStepStatus.SKIP)
+          return styles.status.color.skip;
+        return styles.status.color.pending;
       }
+      return status.completed
+        ? styles.status.color.ok
+        : styles.status.color.fail;
     }
-  )
+  );
 
   /* Returnerar översatt statustext för varje validerings-steg */
   const getStatusText = hooks.useEventCallback(
-    (status: StepStatus | string): string => {
+    (status: CheckStepValue): string => {
       if (typeof status === "string") {
-        if (status === "ok") return translate("statusOk")
-        if (status === "fail") return translate("statusFailed")
-        if (status === "skip") return translate("statusSkipped")
-        return translate("statusChecking")
+        if (status === ValidationStepStatus.OK) return translate("statusOk");
+        if (status === ValidationStepStatus.FAIL)
+          return translate("statusFailed");
+        if (status === ValidationStepStatus.SKIP)
+          return translate("statusSkipped");
+        return translate("statusChecking");
       }
-      if (isStepStatus(status) && status.completed) return translate("statusOk")
-      if (isStepStatus(status) && status.error) return translate("statusFailed")
-      return translate("statusChecking")
+      if (status.completed) return translate("statusOk");
+      if (status.error) return translate("statusFailed");
+      return translate("statusChecking");
     }
-  )
+  );
 
   /* Renderar anslutningsstatus med alla validerings-steg */
   const renderConnectionStatus = (): React.ReactNode => {
-    const rowsAll: Array<{ label: string; status: StepStatus | string }> = [
+    const rowsAll: Array<{ label: string; status: CheckStepValue }> = [
       { label: translate("lblServerUrl"), status: checkSteps.serverUrl },
       { label: translate("lblApiToken"), status: checkSteps.token },
       { label: translate("lblRepository"), status: checkSteps.repository },
-    ]
-    const rows = rowsAll.filter((r) => r.status !== "idle")
+    ];
+    const rows = rowsAll.filter((r) => r.status !== ValidationStepStatus.IDLE);
 
     const StatusRow = ({
       label,
       status,
     }: {
-      label: string
-      status: StepStatus | string
+      label: string;
+      status: CheckStepValue;
     }) => {
-      const color = getStatusStyle(status)
+      const color = getStatusStyle(status);
       return (
         <div css={css(styles.status.row)}>
           <div css={css(styles.status.labelGroup)}>
@@ -220,18 +211,18 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           </div>
           <div css={css(color)}>{getStatusText(status)}</div>
         </div>
-      )
-    }
+      );
+    };
     /* Extraherar versions-sträng om tillgänglig */
     const versionText =
-      typeof checkSteps.version === "string" ? checkSteps.version : ""
-    const hasVersion: boolean = versionText.length > 0
+      typeof checkSteps.version === "string" ? checkSteps.version : "";
+    const hasVersion: boolean = versionText.length > 0;
 
     const phaseKey = (() => {
-      if (validationPhase === "checking") return "testingConnection"
-      if (validationPhase === "fetchingRepos") return "loadingRepositories"
-      return null
-    })()
+      if (validationPhase === "checking") return "testingConnection";
+      if (validationPhase === "fetchingRepos") return "loadingRepositories";
+      return null;
+    })();
 
     return (
       <div
@@ -276,8 +267,8 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
           )}
         </div>
       </div>
-    )
-  }
+    );
+  };
 
   return (
     <>
@@ -301,8 +292,8 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
         </SettingRow>
       )}
     </>
-  )
-}
+  );
+};
 
 /* Repository-väljare med auto-refresh och fallback till manuell input */
 export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
@@ -323,47 +314,47 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
   isBusy,
 }) => {
   /* Validerar server och token för att avgöra om refresh är tillåten */
-  const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true })
-  const tokenCheck = validateToken(localToken)
-  const hasValidServer = !!localServerUrl && serverCheck.ok
-  const hasValidToken = tokenCheck.ok
-  const canRefresh = hasValidServer && hasValidToken && !isBusy
+  const serverCheck = validateServerUrl(localServerUrl, { requireHttps: true });
+  const tokenCheck = validateToken(localToken);
+  const hasValidServer = !!localServerUrl && serverCheck.ok;
+  const hasValidToken = tokenCheck.ok;
+  const canRefresh = hasValidServer && hasValidToken && !isBusy;
 
   /* Bygger options-lista från tillgängliga repos och lokalt val */
   const buildRepoOptions = hooks.useEventCallback(
     (): Array<{ label: string; value: string }> => {
-      if (!hasValidServer || !hasValidToken) return []
-      if (availableRepos === null) return []
+      if (!hasValidServer || !hasValidToken) return [];
+      if (availableRepos === null) return [];
 
       const available = Array.isArray(availableRepos)
         ? collectTrimmedStrings(availableRepos)
-        : []
+        : [];
 
-      const local = toTrimmedString(localRepository)
-      const names = uniqueStrings([...(local ? [local] : []), ...available])
+      const local = toTrimmedString(localRepository);
+      const names = uniqueStrings([...(local ? [local] : []), ...available]);
 
-      return names.map((name) => ({ label: name, value: name }))
+      return names.map((name) => ({ label: name, value: name }));
     }
-  )
+  );
 
   const isSelectDisabled =
-    !hasValidServer || !hasValidToken || availableRepos === null || isBusy
+    !hasValidServer || !hasValidToken || availableRepos === null || isBusy;
   /* Bestämmer placeholder-text baserat på validerings-status */
   const repositoryPlaceholder = (() => {
     if (!hasValidServer || !hasValidToken) {
-      return translate("hintTestFirst")
+      return translate("hintTestFirst");
     }
 
     if (availableRepos === null) {
-      return translate("statusLoadRepos")
+      return translate("statusLoadRepos");
     }
 
     if (Array.isArray(availableRepos) && availableRepos.length === 0) {
-      return translate("msgNoRepositories")
+      return translate("msgNoRepositories");
     }
 
-    return translate("phRepository")
-  })()
+    return translate("phRepository");
+  })();
 
   return (
     <SettingRow
@@ -393,7 +384,7 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           id={ID.repository}
           value={localRepository}
           onChange={(val: string) => {
-            onRepositoryChange(val)
+            onRepositoryChange(val);
           }}
           placeholder={translate("phRepository")}
           aria-describedby={
@@ -409,8 +400,8 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
             const next =
               typeof val === "string" || typeof val === "number"
                 ? String(val)
-                : ""
-            onRepositoryChange(next)
+                : "";
+            onRepositoryChange(next);
           }}
           disabled={isSelectDisabled}
           aria-describedby={
@@ -444,24 +435,24 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
         </SettingRow>
       )}
     </SettingRow>
-  )
-}
+  );
+};
 
 /* Återanvändbar fält-rad för konsekvent markup och felrendering */
 export const FieldRow: React.FC<{
-  id: string
-  label: React.ReactNode
-  value: string
-  onChange: (val: string) => void
-  onBlur?: (val: string) => void
-  placeholder?: string
-  type?: "text" | "email" | "password"
-  required?: boolean
-  errorText?: string
-  maxLength?: number
-  disabled?: boolean
-  isPending?: boolean
-  styles: SettingStyles
+  id: string;
+  label: React.ReactNode;
+  value: string;
+  onChange: (val: string) => void;
+  onBlur?: (val: string) => void;
+  placeholder?: string;
+  type?: "text" | "email" | "password";
+  required?: boolean;
+  errorText?: string;
+  maxLength?: number;
+  disabled?: boolean;
+  isPending?: boolean;
+  styles: SettingStyles;
 }> = ({
   id,
   label,
@@ -525,7 +516,7 @@ export const FieldRow: React.FC<{
       </SettingRow>
     )}
   </SettingRow>
-)
+);
 
 /* Sektion för FME job directives (tm_ttc, tm_ttl) */
 export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
@@ -567,11 +558,11 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
               fieldErrors.tm_ttc ? `${ID.tm_ttc}-error` : undefined
             }
             onChange={(value) => {
-              onTmTtcChange(value === undefined ? "" : String(value))
+              onTmTtcChange(value === undefined ? "" : String(value));
             }}
             onBlur={(evt) => {
-              const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
-              onTmTtcBlur(raw)
+              const raw = (evt?.target as HTMLInputElement | null)?.value ?? "";
+              onTmTtcBlur(raw);
             }}
           />
           {fieldErrors.tm_ttc && (
@@ -610,11 +601,11 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
             fieldErrors.tm_ttl ? `${ID.tm_ttl}-error` : undefined
           }
           onChange={(value) => {
-            onTmTtlChange(value === undefined ? "" : String(value))
+            onTmTtlChange(value === undefined ? "" : String(value));
           }}
           onBlur={(evt) => {
-            const raw = (evt?.target as HTMLInputElement | null)?.value ?? ""
-            onTmTtlBlur(raw)
+            const raw = (evt?.target as HTMLInputElement | null)?.value ?? "";
+            onTmTtlBlur(raw);
           }}
         />
         {fieldErrors.tm_ttl && (
@@ -631,5 +622,5 @@ export const JobDirectivesSection: React.FC<JobDirectivesSectionProps> = ({
         )}
       </SettingRow>
     </>
-  )
-}
+  );
+};

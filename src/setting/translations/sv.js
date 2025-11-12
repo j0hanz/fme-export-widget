@@ -146,7 +146,7 @@ System.register([], function (e) {
         panelSettings: "Inställningar",
         panelAdvancedSettings: "Avancerade inställningar",
         panelDrawingSettings: "Ritinställningar",
-      })
+      });
     },
-  }
-})
+  };
+});
