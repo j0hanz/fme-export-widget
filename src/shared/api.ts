@@ -1,4 +1,9 @@
-import { isRetryableStatus, isSuccessStatus } from "../config/constants";
+import {
+  isRetryableStatus,
+  isSuccessStatus,
+  NETWORK_CONFIG,
+  TIME_CONSTANTS,
+} from "../config/constants";
 import type {
   AbortListenerRecord,
   ApiResponse,
@@ -60,14 +65,14 @@ const DEFAULT_CONFIG: NetworkConfig = {
   enabled: true,
   logLevel: "debug",
   bodyPreviewLimit: 1024,
-  warnSlowMs: 1000,
+  warnSlowMs: TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD,
 };
 
 const config: NetworkConfig = { ...DEFAULT_CONFIG };
 
 // Network history buffer för debugging
 const networkHistory: RequestLog[] = [];
-const MAX_NETWORK_HISTORY = 50;
+const MAX_NETWORK_HISTORY = NETWORK_CONFIG.MAX_HISTORY_SIZE;
 
 function addToNetworkHistory(log: RequestLog): void {
   networkHistory.push(log);
@@ -742,131 +747,143 @@ const normalizeParameterType = (rawType: unknown): string => {
 
 // Normaliserar V4 parameter-format till intern struktur
 // V4 API changes: listOptions -> choiceSettings.choices, caption -> display, lowercase types
-const normalizeV4Parameter = (raw: any): any => {
-  if (!raw || typeof raw !== "object") return raw;
+const normalizeV4Parameter = (raw: unknown): WorkspaceParameter => {
+  if (!raw || typeof raw !== "object") return {} as WorkspaceParameter;
 
-  const normalized: any = { ...raw };
+  // Type the raw parameter for property access
+  const rawParam = raw as { [key: string]: unknown };
+  const normalized: { [key: string]: unknown } = { ...rawParam };
 
   // Normalize parameter type (lowercase -> uppercase)
-  if (raw.type) {
-    normalized.type = normalizeParameterType(raw.type);
+  if (rawParam.type) {
+    normalized.type = normalizeParameterType(rawParam.type);
   }
 
   // Handle V4 number type with showSlider flag
-  if (raw.type === "number" && raw.showSlider === true) {
+  if (rawParam.type === "number" && rawParam.showSlider === true) {
     normalized.type = "RANGE_SLIDER";
   }
 
   // Handle V4 datetime with date-only format
-  if (raw.type === "datetime" && raw.format === "date") {
+  if (rawParam.type === "datetime" && rawParam.format === "date") {
     normalized.type = "DATE";
   }
 
   // Handle V4 file type variations (itemsToSelect)
-  if (raw.type === "file" && raw.itemsToSelect) {
-    const itemType = raw.itemsToSelect.toLowerCase();
+  if (rawParam.type === "file" && rawParam.itemsToSelect) {
+    const itemType =
+      typeof rawParam.itemsToSelect === "string"
+        ? rawParam.itemsToSelect.toLowerCase()
+        : "";
     if (itemType === "folders" || itemType === "directories") {
-      normalized.type = raw.validateExistence ? "DIRNAME_MUSTEXIST" : "DIRNAME";
+      normalized.type = rawParam.validateExistence
+        ? "DIRNAME_MUSTEXIST"
+        : "DIRNAME";
     } else if (itemType === "files") {
-      normalized.type = raw.validateExistence
+      normalized.type = rawParam.validateExistence
         ? "FILENAME_MUSTEXIST"
         : "FILENAME";
     }
   }
 
   // Handle V4 text type with url editor
-  if (raw.type === "text" && raw.editor === "url") {
+  if (rawParam.type === "text" && rawParam.editor === "url") {
     normalized.type = "URL";
   }
 
   // Convert V4 choiceSettings.choices to listOptions format
-  if (raw.choiceSettings?.choices && !raw.listOptions) {
-    const choices = Array.isArray(raw.choiceSettings.choices)
-      ? raw.choiceSettings.choices
+  const choiceSettings = rawParam.choiceSettings as
+    | { choices?: unknown[] }
+    | undefined;
+  if (choiceSettings?.choices && !rawParam.listOptions) {
+    const choices = Array.isArray(choiceSettings.choices)
+      ? choiceSettings.choices
       : [];
 
-    normalized.listOptions = choices.map((choice: any) => {
+    normalized.listOptions = choices.map((choice: unknown) => {
+      const choiceObj = choice as { [key: string]: unknown };
       // V4 uses 'display' for label and 'value' for actual value
-      const choiceValue = choice.value ?? choice.caption;
-      const choiceCaption = choice.display ?? choice.caption ?? choiceValue;
+      const choiceValue = choiceObj.value ?? choiceObj.caption;
+      const choiceCaption =
+        choiceObj.display ?? choiceObj.caption ?? choiceValue;
 
       return {
         caption: choiceCaption,
         value: choiceValue,
-        ...(choice.description && { description: choice.description }),
-        ...(choice.path && { path: choice.path }),
-        ...(choice.disabled && { disabled: choice.disabled }),
-        ...(choice.metadata && { metadata: choice.metadata }),
+        ...(choiceObj.description && { description: choiceObj.description }),
+        ...(choiceObj.path && { path: choiceObj.path }),
+        ...(choiceObj.disabled && { disabled: choiceObj.disabled }),
+        ...(choiceObj.metadata && { metadata: choiceObj.metadata }),
       };
     });
 
     // If type is 'text' but has choiceSettings, it should be a CHOICE/dropdown
-    if (raw.type === "text" && normalized.type !== "URL") {
+    if (rawParam.type === "text" && normalized.type !== "URL") {
       normalized.type = "CHOICE";
     }
   }
 
   // Handle V4 tree type with nodeDelimiter for path/breadcrumb separators
-  if (raw.type === "tree" && raw.nodeDelimiter) {
+  if (rawParam.type === "tree" && rawParam.nodeDelimiter) {
     normalized.metadata = {
-      ...(normalized.metadata || {}),
-      breadcrumbSeparator: raw.nodeDelimiter,
-      pathSeparator: raw.nodeDelimiter,
+      ...((normalized.metadata as { [key: string]: unknown }) || {}),
+      breadcrumbSeparator: rawParam.nodeDelimiter,
+      pathSeparator: rawParam.nodeDelimiter,
     };
   }
 
   // Map V4 'prompt' to 'description' if description is missing
-  if (raw.prompt && !raw.description) {
-    normalized.description = raw.prompt;
+  if (rawParam.prompt && !rawParam.description) {
+    normalized.description = rawParam.prompt;
   }
 
   // Map V4 'required' to 'optional' (inverted)
   // V4 defaults to required=true if not specified
-  if ("required" in raw) {
-    normalized.optional = !raw.required;
-  } else if (!("optional" in raw)) {
+  if ("required" in rawParam) {
+    normalized.optional = !rawParam.required;
+  } else if (!("optional" in rawParam)) {
     // If neither field exists, default to optional=false (required)
     normalized.optional = false;
   }
 
   // Handle V4 number constraints
-  if (raw.type === "number" || normalized.type === "RANGE_SLIDER") {
-    if (typeof raw.minimum === "number") {
-      normalized.minimum = raw.minimum;
+  if (rawParam.type === "number" || normalized.type === "RANGE_SLIDER") {
+    if (typeof rawParam.minimum === "number") {
+      normalized.minimum = rawParam.minimum;
     }
-    if (typeof raw.maximum === "number") {
-      normalized.maximum = raw.maximum;
+    if (typeof rawParam.maximum === "number") {
+      normalized.maximum = rawParam.maximum;
     }
-    if (typeof raw.minimumExclusive === "boolean") {
-      normalized.minimumExclusive = raw.minimumExclusive;
+    if (typeof rawParam.minimumExclusive === "boolean") {
+      normalized.minimumExclusive = rawParam.minimumExclusive;
     }
-    if (typeof raw.maximumExclusive === "boolean") {
-      normalized.maximumExclusive = raw.maximumExclusive;
+    if (typeof rawParam.maximumExclusive === "boolean") {
+      normalized.maximumExclusive = rawParam.maximumExclusive;
     }
-    if (typeof raw.multipleOf === "number") {
-      normalized.decimalPrecision = raw.multipleOf === 1 ? 0 : undefined;
+    if (typeof rawParam.multipleOf === "number") {
+      normalized.decimalPrecision = rawParam.multipleOf === 1 ? 0 : undefined;
     }
   }
 
   // Handle V4 color with colorSpace
-  if (raw.type === "color" && raw.colorSpace) {
+  if (rawParam.type === "color" && rawParam.colorSpace) {
     normalized.metadata = {
-      ...(normalized.metadata || {}),
-      colorSpace: raw.colorSpace,
+      ...((normalized.metadata as { [key: string]: unknown }) || {}),
+      colorSpace: rawParam.colorSpace,
     };
   }
 
   // Handle V4 visibility conditions
-  if (raw.visibility) {
-    normalized.visibility = raw.visibility;
+  if (rawParam.visibility) {
+    normalized.visibility = rawParam.visibility;
   }
 
   // Handle V4 nested group parameters
-  if (raw.type === "group" && Array.isArray(raw.parameters)) {
-    normalized.parameters = raw.parameters.map(normalizeV4Parameter);
+  if (rawParam.type === "group" && Array.isArray(rawParam.parameters)) {
+    normalized.parameters = rawParam.parameters.map(normalizeV4Parameter);
   }
 
-  return normalized;
+  return normalized as unknown as WorkspaceParameter;
 };
 
 // Normaliserar array av V4 parametrar och plattar ut grupper
@@ -1209,17 +1226,17 @@ const createTokenInterceptor = (
     if (!params?.requestOptions) {
       params.requestOptions = {};
     }
-    const ro: any = params.requestOptions;
-    ro.headers = ro.headers || {};
-    ro.query = ro.query || {};
+    const requestOptions = params.requestOptions;
+    requestOptions.headers = requestOptions.headers || {};
+    requestOptions.query = requestOptions.query || {};
 
     // Injicerar cachelagrad FME-token i query och headers
     const currentToken = getCachedToken(hostKey);
     if (currentToken) {
-      if (!ro.query.fmetoken) {
-        ro.query.fmetoken = currentToken;
+      if (!requestOptions.query.fmetoken) {
+        requestOptions.query.fmetoken = currentToken;
       }
-      ro.headers.Authorization = `fmetoken token=${currentToken}`;
+      requestOptions.headers.Authorization = `fmetoken token=${currentToken}`;
     }
   },
   _fmeInterceptor: true,
@@ -1270,13 +1287,23 @@ async function addFmeInterceptor(
 
 let _cachedMaxUrlLength: number | null = null;
 
+interface WindowWithEsriConfig extends Window {
+  esriConfig?: {
+    request?: {
+      maxUrlLength?: number | string;
+    };
+  };
+}
+
 // Hämtar maximal URL-längd från Esri config eller default (1900)
 const getMaxUrlLength = (): number => {
   // Försök hämta från window.esriConfig först
   const windowLength = (() => {
     if (typeof window === "undefined") return undefined;
-    const raw = (window as any)?.esriConfig?.request?.maxUrlLength;
-    const numeric = typeof raw === "number" ? raw : Number(raw);
+    const rawMaxLength = (window as WindowWithEsriConfig)?.esriConfig?.request
+      ?.maxUrlLength;
+    const numeric =
+      typeof rawMaxLength === "number" ? rawMaxLength : Number(rawMaxLength);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
   })();
 
@@ -1286,9 +1313,12 @@ const getMaxUrlLength = (): number => {
   if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength;
 
   // Hämta från laddad Esri-modul och cachea
-  const cfg = asEsriConfig(_esriConfig);
-  const raw = cfg?.request?.maxUrlLength;
-  const numeric = typeof raw === "number" ? raw : Number(raw);
+  const esriConfigModule = asEsriConfig(_esriConfig);
+  const configuredMaxLength = esriConfigModule?.request?.maxUrlLength;
+  const numeric =
+    typeof configuredMaxLength === "number"
+      ? configuredMaxLength
+      : Number(configuredMaxLength);
   _cachedMaxUrlLength =
     Number.isFinite(numeric) && numeric > 0 ? numeric : 1900;
   return _cachedMaxUrlLength;
@@ -1608,7 +1638,7 @@ export class FmeFlowApiClient {
         const raw = await this.request<any>(listEndpoint, {
           signal,
           cacheHint: false, // Undvik cache över tokens
-          query: { limit: 1000, offset: 0 },
+          query: { limit: NETWORK_CONFIG.API_QUERY_LIMIT, offset: 0 },
         });
 
         const data = raw?.data;

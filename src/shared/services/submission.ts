@@ -112,7 +112,7 @@ export function buildSubmissionSuccessResult(
   fmeResponse: unknown,
   workspace: string,
   userEmail: string,
-  translate: (id: string, data?: any) => string,
+  translate: (id: string, data?: { [key: string]: string | number }) => string,
   serviceMode?: ServiceMode | null
 ): ExportResult {
   const baseResult = processFmeResponse(
@@ -131,7 +131,7 @@ export function buildSubmissionSuccessResult(
 // Bygger ExportResult från submission-fel
 export function buildSubmissionErrorResult(
   error: unknown,
-  translate: (id: string, data?: any) => string,
+  translate: (id: string, data?: { [key: string]: string | number }) => string,
   supportEmail: string | null | undefined,
   serviceMode?: ServiceMode | null
 ): ExportResult | null {
@@ -191,7 +191,8 @@ export async function executeJobSubmission(
   let serviceMode: ServiceMode | null = null;
 
   try {
-    const rawDataEarly = ((formData as any)?.data || {}) as {
+    const rawDataEarly = ((formData as { [key: string]: unknown })?.data ||
+      {}) as {
       [key: string]: unknown;
     };
 

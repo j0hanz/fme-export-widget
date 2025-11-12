@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { hooks, jsx, React } from "jimu-core";
+import { type css, hooks, jsx, React } from "jimu-core";
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker";
 import { TagInput as JimuTagInput, MultiSelect, RichDisplayer } from "jimu-ui";
 import {
@@ -17,6 +17,7 @@ import {
   type TextOrFileMode,
   type ToggleFieldConfig,
   type TranslateFn,
+  UI_CONFIG,
   type UiStyles,
 } from "../../config/index";
 import { useUiStyles as useConfigStyles } from "../../config/style";
@@ -162,16 +163,16 @@ const renderTextInput = (
 ): JSX.Element => {
   const { readOnly, maxLength, overrides } = options;
   // Hanterar numerisk input med komma-till-punkt-konvertering
-  const handleChange = (val: string) => {
+  const handleChange = (inputValue: string) => {
     if (inputType === "number") {
-      if (val === "") {
+      if (inputValue === "") {
         onChange(null);
         return;
       }
-      const num = Number(val.replace(/,/g, "."));
-      onChange(Number.isFinite(num) ? num : null);
+      const numericValue = Number(inputValue.replace(/,/g, "."));
+      onChange(Number.isFinite(numericValue) ? numericValue : null);
     } else {
-      onChange(val);
+      onChange(inputValue);
     }
   };
 
@@ -210,8 +211,8 @@ const renderDateTimeInput = (
     type={inputType}
     value={toDisplayString(value)}
     placeholder={placeholder}
-    onChange={(val) => {
-      onChange(val as FormPrimitive);
+    onChange={(newValue) => {
+      onChange(newValue);
     }}
     disabled={disabled}
   />
@@ -228,21 +229,24 @@ const normalizeTextOrFileValue = (
     !Array.isArray(rawValue) &&
     "mode" in rawValue
   ) {
-    const obj = rawValue as { [key: string]: unknown };
-    if (obj.mode === TEXT_OR_FILE_MODES.FILE && isFileObject(obj.file)) {
+    const textOrFileObject = rawValue as { [key: string]: unknown };
+    if (
+      textOrFileObject.mode === TEXT_OR_FILE_MODES.FILE &&
+      isFileObject(textOrFileObject.file)
+    ) {
       return {
         mode: TEXT_OR_FILE_MODES.FILE,
-        file: obj.file,
+        file: textOrFileObject.file,
         fileName:
-          typeof obj.fileName === "string"
-            ? obj.fileName
-            : getFileDisplayName(obj.file, translate),
+          typeof textOrFileObject.fileName === "string"
+            ? textOrFileObject.fileName
+            : getFileDisplayName(textOrFileObject.file, translate),
       };
     }
-    if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
+    if (textOrFileObject.mode === TEXT_OR_FILE_MODES.TEXT) {
       return {
         mode: TEXT_OR_FILE_MODES.TEXT,
-        text: toDisplayString(obj.text),
+        text: toDisplayString(textOrFileObject.text),
       };
     }
   }
@@ -611,8 +615,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type);
   // TEXT_OR_FILE kräver särskild hantering utan normalisering
   const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE;
-  const fieldValue = bypassNormalization
-    ? value
+  const fieldValue: FormPrimitive = bypassNormalization
+    ? (value ?? null)
     : normalizeFormValue(value, isMulti);
   const placeholders = makePlaceholders(translate, field.label);
 
@@ -697,29 +701,17 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         ? getTextPlaceholder(field, placeholders, translate)
         : getTextPlaceholder(field, placeholders, translate, placeholderType);
 
-    return renderTextInput(
-      inputType,
-      fieldValue as FormPrimitive,
-      placeholder,
-      onChange,
-      {
-        readOnly: isDisabled,
-        maxLength: field.maxLength,
-      }
-    );
+    return renderTextInput(inputType, fieldValue, placeholder, onChange, {
+      readOnly: isDisabled,
+      maxLength: field.maxLength,
+    });
   };
 
   const renderNumberField = (): JSX.Element => {
     // Renderar numeriskt inmatningsfält
-    return renderTextInput(
-      "number",
-      fieldValue as FormPrimitive,
-      placeholders.enter,
-      onChange,
-      {
-        readOnly: isDisabled,
-      }
-    );
+    return renderTextInput("number", fieldValue, placeholders.enter, onChange, {
+      readOnly: isDisabled,
+    });
   };
 
   const renderTextareaField = (): JSX.Element => {
@@ -729,7 +721,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         value={toDisplayString(fieldValue)}
         placeholder={placeholders.enter}
         onChange={(val) => {
-          onChange(val as FormPrimitive);
+          onChange(val);
         }}
         disabled={isDisabled}
         rows={field.rows}
@@ -1101,15 +1093,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 
     // Fallback till textinput om inga alternativ finns
     if (options.length === 0) {
-      return renderTextInput(
-        "text",
-        fieldValue as FormPrimitive,
-        placeholders.enter,
-        onChange,
-        {
-          readOnly: isDisabled,
-        }
-      );
+      return renderTextInput("text", fieldValue, placeholders.enter, onChange, {
+        readOnly: isDisabled,
+      });
     }
 
     // Renderar read-only textfält när endast ett alternativ finns
@@ -1478,10 +1464,19 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     // Renderar radioknappsgrupp med coerce-stöd
     const options = field.options || [];
     const coerce = computeSelectCoerce(true, options);
-    const stringValue =
-      fieldValue === null || fieldValue === undefined
-        ? undefined
-        : String(fieldValue);
+
+    let stringValue: string | undefined;
+    if (fieldValue === null || fieldValue === undefined) {
+      stringValue = undefined;
+    } else if (typeof fieldValue === "string") {
+      stringValue = fieldValue;
+    } else if (typeof fieldValue === "number") {
+      stringValue = String(fieldValue);
+    } else if (typeof fieldValue === "boolean") {
+      stringValue = String(fieldValue);
+    } else {
+      stringValue = undefined;
+    }
 
     const handleChange = (raw: string) => {
       if (coerce === "number") {
@@ -1588,7 +1583,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       <Slider
         value={safeValue}
         min={field.min ?? 0}
-        max={field.max ?? 100}
+        max={field.max ?? UI_CONFIG.PERCENT_SLIDER_MAX}
         step={field.step ?? 1}
         decimalPrecision={precision}
         onChange={(value) => {
@@ -1757,7 +1752,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     const inputType = field.type === FormFieldType.MONTH ? "month" : "week";
     return renderDateTimeInput(
       inputType,
-      fieldValue as FormPrimitive,
+      fieldValue,
       getTextPlaceholder(field, placeholders, translate),
       onChange,
       isDisabled
@@ -1859,8 +1854,10 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
 const useStyles = (): UiStyles => useConfigStyles();
 const useValue = useControlledValue;
 
-const applyComponentStyles = (base: any[], customStyle?: React.CSSProperties) =>
-  [...base, styleCss(customStyle)].filter(Boolean);
+const applyComponentStyles = (
+  base: Array<ReturnType<typeof css> | undefined | false>,
+  customStyle?: React.CSSProperties
+) => [...base, styleCss(customStyle)].filter(Boolean);
 
 const applyFullWidthStyles = (
   styles: UiStyles,
@@ -1936,7 +1933,7 @@ export const DateTimePickerWrapper: React.FC<{
     fallbackDate;
 
   const handleChange = hooks.useEventCallback(
-    (rawValue: any, _label: string) => {
+    (rawValue: unknown, _label: string) => {
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
         const next = new Date(rawValue);
         if (mode === "date") next.setHours(0, 0, 0, 0);

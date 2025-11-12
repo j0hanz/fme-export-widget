@@ -58,7 +58,7 @@ export async function validateConnection(
         }
 
         // Steg 1: Testar anslutning och hämtar serverinfo
-        let serverInfo: any;
+        let serverInfo: unknown;
         try {
           serverInfo = await client.testConnection(signal);
           steps.serverUrl = ValidationStepStatus.OK;

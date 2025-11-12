@@ -154,7 +154,7 @@ export const buildParams = (
       if (existing !== null) {
         return existing;
       }
-      const raw = (params as any)?.[key];
+      const raw = params[key];
       return typeof raw === "string" ? raw : "";
     };
 
@@ -189,20 +189,25 @@ export const createHostPattern = (host: string): RegExp => {
 };
 
 export const interceptorExists = (
-  interceptors: any[],
+  interceptors: unknown[],
   pattern: RegExp
 ): boolean => {
-  return (
-    interceptors?.some((it: any) => {
-      if (!it || !it._fmeInterceptor) return false;
-      const rx: any = it.urls;
-      if (rx instanceof RegExp) {
-        return rx.source === pattern.source && rx.flags === pattern.flags;
-      }
-      const s = typeof rx === "string" ? rx : String(rx || "");
-      return pattern.test(s);
-    }) ?? false
-  );
+  if (!Array.isArray(interceptors)) return false;
+
+  return interceptors.some((it: unknown) => {
+    if (!it || typeof it !== "object") return false;
+    const interceptor = it as { _fmeInterceptor?: unknown; urls?: unknown };
+    if (!interceptor._fmeInterceptor) return false;
+
+    const rx = interceptor.urls;
+    if (rx instanceof RegExp) {
+      return rx.source === pattern.source && rx.flags === pattern.flags;
+    }
+    if (typeof rx === "string") {
+      return pattern.test(rx);
+    }
+    return false;
+  });
 };
 
 export function makeScopeId(

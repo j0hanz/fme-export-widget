@@ -317,7 +317,7 @@ const shouldForceAsyncMode = (
   // Check URL length for sync mode
   if (options.formData && config) {
     try {
-      const data = (options.formData as any)?.data || {};
+      const data = (options.formData as { [key: string]: unknown })?.data || {};
       const mockParams = buildFmeParams(
         { data },
         options.userEmail || "",
@@ -378,9 +378,11 @@ export const normalizeServiceModeConfig = (
   }
 
   const cloned = { ...config, syncMode: normalized };
-  if (typeof (config as any).set === "function") {
+  if (
+    typeof (config as unknown as { [key: string]: unknown }).set === "function"
+  ) {
     Object.defineProperty(cloned, "set", {
-      value: (config as any).set,
+      value: (config as unknown as { [key: string]: unknown }).set,
       writable: true,
       configurable: true,
     });
@@ -542,7 +544,7 @@ export const prepFmeParams = (
     drawnArea,
   } = options || {};
   const normalizedConfig = normalizeServiceModeConfig(rawConfig);
-  const original = ((formData as any)?.data || {}) as {
+  const original = ((formData as { [key: string]: unknown })?.data || {}) as {
     [key: string]: unknown;
   };
   const chosen = determineServiceMode({ data: original }, normalizedConfig, {
@@ -583,7 +585,7 @@ export const extractRepositoryNames = (source: unknown): string[] => {
   }
 
   const record = typeof source === "object" && source !== null ? source : null;
-  const items = (record as any)?.items;
+  const items = (record as { [key: string]: unknown } | null)?.items;
 
   if (Array.isArray(items)) {
     return uniqueStrings(collectStringsFromProp(items, "name"));
@@ -652,7 +654,7 @@ export const processFmeResponse = (
   userEmail: string,
   translateFn: TranslateFn
 ): ExportResult => {
-  const response = fmeResponse as any;
+  const response = fmeResponse as { [key: string]: unknown };
   const data = response?.data;
 
   if (!data) {
@@ -663,8 +665,8 @@ export const processFmeResponse = (
     };
   }
 
-  if (data.blob instanceof Blob) {
-    return createFmeResponse.blob(data.blob, workspace, userEmail);
+  if ((data as any).blob instanceof Blob) {
+    return createFmeResponse.blob((data as any).blob, workspace, userEmail);
   }
 
   const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse);
@@ -736,14 +738,28 @@ export const processFmeResponse = (
 };
 
 // Normaliserar FME service response till NormalizedServiceInfo
-export const normalizeFmeServiceInfo = (resp: any): NormalizedServiceInfo => {
-  const r: any = resp || {};
-  const raw = r?.data?.serviceResponse || r?.data || r;
-  const status = raw?.statusInfo?.status || raw?.status;
-  const message = raw?.statusInfo?.message || raw?.message;
-  const jobId = typeof raw?.jobID === "number" ? raw.jobID : raw?.id;
-  const url = raw?.url;
-  return { status, message, jobId, url };
+export const normalizeFmeServiceInfo = (
+  resp: unknown
+): NormalizedServiceInfo => {
+  const r = (resp || {}) as { [key: string]: unknown };
+  const raw =
+    (r?.data as { [key: string]: unknown })?.serviceResponse || r?.data || r;
+  const rawRecord = raw as { [key: string]: unknown };
+  const status =
+    (rawRecord?.statusInfo as { [key: string]: unknown })?.status ||
+    rawRecord?.status;
+  const message =
+    (rawRecord?.statusInfo as { [key: string]: unknown })?.message ||
+    rawRecord?.message;
+  const jobId =
+    typeof rawRecord?.jobID === "number" ? rawRecord.jobID : rawRecord?.id;
+  const url = rawRecord?.url;
+  return {
+    status: status as string,
+    message: message as string,
+    jobId: jobId as number,
+    url: url as string,
+  };
 };
 
 // Skapar typat fel med kod, status och orsak
@@ -784,12 +800,14 @@ const appendWebhookTmParams = (
 ): void => {
   // Lägg till numeriska TM-parametrar (timeout, pri, tag osv.)
   for (const key of TM_NUMERIC_PARAM_KEYS) {
-    const value = parseNonNegativeInt((source as any)[key]);
+    const value = parseNonNegativeInt(
+      (source as { [key: string]: unknown })[key]
+    );
     if (value !== undefined) params.set(key, String(value));
   }
 
   // Lägg till tm_tag om definierad
-  const tag = normalizeText((source as any).tm_tag, 128);
+  const tag = normalizeText((source as { [key: string]: unknown }).tm_tag, 128);
   if (tag) params.set("tm_tag", tag);
 };
 

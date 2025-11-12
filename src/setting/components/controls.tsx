@@ -40,14 +40,14 @@ export const toNumericValue = (value: string): number | undefined => {
 export const RequiredLabel: React.FC<{
   text: string;
   translate: TranslateFn;
-  requiredStyle: any;
+  requiredStyle: React.CSSProperties;
   requiredSymbol: string;
 }> = ({ text, translate, requiredStyle, requiredSymbol }) => (
   <>
     {text}
     <Tooltip content={translate("valRequiredField")} placement="top">
       <span
-        css={requiredStyle}
+        css={requiredStyle as any}
         aria-label={translate("ariaRequired")}
         role="img"
         aria-hidden={false}
@@ -152,7 +152,7 @@ export const ConnectionTestSection: React.FC<ConnectionTestSectionProps> = ({
 }) => {
   /* Stabila hjälpfunktioner för färg och text baserat på status */
   const getStatusStyle = hooks.useEventCallback(
-    (status: CheckStepValue): any => {
+    (status: CheckStepValue): React.CSSProperties => {
       if (typeof status === "string") {
         if (status === ValidationStepStatus.OK) return styles.status.color.ok;
         if (status === ValidationStepStatus.FAIL)

@@ -68,7 +68,7 @@ export const createFmeDispatcher = (
     dispatch(fmeActions.setGeometry(geometryJson, area, widgetId));
   },
   setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
-    dispatch(fmeActions.setWorkspaceItems(items as WorkspaceItem[], widgetId));
+    dispatch(fmeActions.setWorkspaceItems(items, widgetId));
   },
   applyWorkspaceData: (payload: {
     readonly workspaceName: string;

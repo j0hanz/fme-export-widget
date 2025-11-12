@@ -229,9 +229,9 @@ export const initialFmeState: FmeWidgetState = {
 };
 
 // Immutable wrapper
-const Immutable = ((SeamlessImmutable as any).default ?? SeamlessImmutable) as (
-  input: any
-) => any;
+const Immutable =
+  (SeamlessImmutable as { default?: (input: unknown) => unknown }).default ??
+  SeamlessImmutable;
 
 const createImmutableState = (): ImmutableObject<FmeWidgetState> =>
   Immutable(initialFmeState) as ImmutableObject<FmeWidgetState>;
@@ -246,7 +246,8 @@ const serializeGeometry = (
   geometry: __esri.Geometry | null | undefined
 ): unknown => {
   if (!geometry) return null;
-  const serializer = (geometry as any)?.toJSON;
+  if (typeof geometry !== "object") return null;
+  const serializer = Reflect.get(geometry, "toJSON");
   if (typeof serializer !== "function") return null;
   try {
     return serializer.call(geometry);
@@ -364,9 +365,9 @@ function applyErrorPatch(
 
   const nextMap = Object.entries({ ...currentMap, ...changes }).reduce<
     Partial<{ [scope in ErrorScope]: SerializableErrorState }>
-  >((acc, [key, val]) => {
-    if (val !== null) acc[key as ErrorScope] = val;
-    return acc;
+  >((accumulator, [errorScope, errorState]) => {
+    if (errorState !== null) accumulator[errorScope] = errorState;
+    return accumulator;
   }, {});
 
   const readonlyMap = nextMap as ErrorMap;
@@ -715,18 +716,21 @@ const ensureSubState = (
   global: IMFmeGlobalState,
   widgetId: string
 ): ImmutableObject<FmeWidgetState> => {
-  const current = (global as any).byId?.[widgetId] as
+  const globalWithById = global as { byId?: { [key: string]: unknown } };
+  const current = globalWithById.byId?.[widgetId] as
     | ImmutableObject<FmeWidgetState>
     | undefined;
-  let hydrated = (current ??
-    (createImmutableState() as unknown)) as ImmutableObject<FmeWidgetState>;
+  let hydrated: ImmutableObject<FmeWidgetState> =
+    current ?? createImmutableState();
 
   // Bakåtkompatibilitet: lägg till saknade fält
-  if (!(hydrated as any).loading) {
+  const loadingField = Reflect.get(hydrated, "loading");
+  if (!loadingField || typeof loadingField !== "object") {
     hydrated = hydrated.set("loading", createInitialLoadingState());
   }
 
-  if (!(hydrated as any).errors) {
+  const errorsField = Reflect.get(hydrated, "errors");
+  if (!errorsField || typeof errorsField !== "object") {
     hydrated = hydrated.set("errors", createInitialErrorMap());
   }
 
@@ -739,16 +743,22 @@ const setSubState = (
   widgetId: string,
   next: ImmutableObject<FmeWidgetState>
 ): IMFmeGlobalState => {
-  const byId = { ...((global as any).byId || {}) };
+  const globalWithById = global as {
+    byId?: { [key: string]: ImmutableObject<FmeWidgetState> };
+  };
+  const byId = { ...(globalWithById.byId || {}) };
   byId[widgetId] = next;
-  return Immutable({ byId }) as unknown as IMFmeGlobalState;
+  return Immutable({ byId }) as IMFmeGlobalState;
 };
 
 export const selectFmeSlice = (
   state: IMStateWithFmeExport,
   widgetId: string
 ): ImmutableObject<FmeWidgetState> | null => {
-  const slice = (state as any)?.["fme-state"]?.byId?.[widgetId] as
+  const stateWithFme = state as {
+    "fme-state"?: { byId?: { [key: string]: unknown } };
+  };
+  const slice = stateWithFme?.["fme-state"]?.byId?.[widgetId] as
     | ImmutableObject<FmeWidgetState>
     | undefined;
   return slice ?? null;
@@ -864,7 +874,7 @@ export const createFmeSelectors = (widgetId: string) => {
 // Root reducer that delegates to per-widget reducer
 const initialGlobalState = Immutable({
   byId: {},
-}) as unknown as IMFmeGlobalState;
+}) as IMFmeGlobalState;
 
 // Type guard: kontrollerar om action är en giltig FME-action
 const isFmeAction = (candidate: unknown): candidate is FmeAction => {
@@ -885,12 +895,15 @@ const fmeReducer = (
   }
   // Hanterar intern action för att ta bort widget-state
   if (action?.type === FmeActionType.REMOVE_WIDGET_STATE && action?.widgetId) {
-    const byId = { ...((state as any)?.byId || {}) };
+    const stateWithById = state as {
+      byId?: { [key: string]: ImmutableObject<FmeWidgetState> };
+    };
+    const byId = { ...(stateWithById?.byId || {}) };
     if (!(action.widgetId in byId)) {
       return state;
     }
     delete byId[action.widgetId];
-    return Immutable({ byId }) as unknown as IMFmeGlobalState;
+    return Immutable({ byId }) as IMFmeGlobalState;
   }
 
   const widgetId: string | undefined = action?.widgetId;

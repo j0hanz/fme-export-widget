@@ -12,6 +12,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { useDispatch } from "react-redux";
 import type {
   CheckSteps,
+  ConnectionValidationResult,
   FieldErrors,
   FmeExportConfig,
   FmeFlowConfig,
@@ -26,6 +27,8 @@ import {
   DEFAULT_FILL_OPACITY,
   DEFAULT_OUTLINE_WIDTH,
   SETTING_CONSTANTS,
+  TIME_CONSTANTS,
+  UI_CONFIG,
   useSettingStyles,
   ValidationStepStatus,
 } from "../config/index";
@@ -86,7 +89,7 @@ import defaultMessages from "./translations/default";
 const CONSTANTS = SETTING_CONSTANTS;
 
 const OUTLINE_WIDTH_SLIDER_MIN = 0;
-const OUTLINE_WIDTH_SLIDER_MAX = 10;
+const OUTLINE_WIDTH_SLIDER_MAX = UI_CONFIG.OUTLINE_WIDTH_SLIDER_MAX;
 const MIN_OUTLINE_WIDTH = 0.1;
 const MAX_OUTLINE_WIDTH = 5;
 const OUTLINE_WIDTH_INCREMENT = 0.5;
@@ -113,12 +116,17 @@ const sliderValueToOutlineWidth = (value: number): number => {
   if (width >= MAX_OUTLINE_WIDTH) {
     return MAX_OUTLINE_WIDTH;
   }
-  return Math.round(width * 10) / 10;
+  return (
+    Math.round(width * UI_CONFIG.OUTLINE_WIDTH_PRECISION) /
+    UI_CONFIG.OUTLINE_WIDTH_PRECISION
+  );
 };
 
 const formatOutlineWidthLabel = (value: number): string => {
   const width = sliderValueToOutlineWidth(value);
-  const normalized = Math.round(width * 10) / 10;
+  const normalized =
+    Math.round(width * UI_CONFIG.OUTLINE_WIDTH_PRECISION) /
+    UI_CONFIG.OUTLINE_WIDTH_PRECISION;
   const label =
     normalized % 1 === 0 ? normalized.toFixed(0) : normalized.toFixed(1);
   return label;
@@ -207,7 +215,7 @@ const handleValidationFailure = (
  */
 function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const { onSettingChange, useMapWidgetIds, id, config } = props;
-  const translate = hooks.useTranslation(defaultMessages as any);
+  const translate = hooks.useTranslation(defaultMessages);
   const styles = useStyles();
   const settingStyles = useSettingStyles();
   const dispatch = useDispatch();
@@ -379,7 +387,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const parsed = parseNonNegativeInt(trimmed);
 
     if (parsed === undefined || parsed === 0) {
-      updateConfig("largeArea", undefined as any);
+      updateConfig("largeArea", undefined);
       setLocalLargeAreaM2("");
       setFieldErrors((prev) => ({ ...prev, largeArea: undefined }));
       return;
@@ -395,7 +403,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return;
     }
 
-    updateConfig("largeArea", parsed as any);
+    updateConfig("largeArea", parsed);
     setLocalLargeAreaM2(String(parsed));
     setFieldErrors((prev) => ({ ...prev, largeArea: undefined }));
   });
@@ -405,7 +413,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     const parsed = parseNonNegativeInt(trimmed);
 
     if (parsed === undefined || parsed === 0) {
-      updateConfig("maxArea", undefined as any);
+      updateConfig("maxArea", undefined);
       setLocalMaxAreaM2("");
       setFieldErrors((prev) => ({ ...prev, maxArea: undefined }));
       return;
@@ -421,7 +429,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       return;
     }
 
-    updateConfig("maxArea", parsed as any);
+    updateConfig("maxArea", parsed);
     setLocalMaxAreaM2(String(parsed));
     setFieldErrors((prev) => ({ ...prev, maxArea: undefined }));
   });
@@ -431,7 +439,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     /* Mask email: rensa om inte längre synlig */
     if (!shouldShowMaskEmailSetting && localMaskEmailOnSuccess) {
       setLocalMaskEmailOnSuccess(false);
-      updateConfig("maskEmailOnSuccess", false as any);
+      updateConfig("maskEmailOnSuccess", false);
     }
 
     /* Remote dataset: rensa beroende inställningar när avstängt */
@@ -439,12 +447,12 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       /* Stäng av URL-dataset om remote dataset är avstängt */
       if (localAllowRemoteUrlDataset) {
         setLocalAllowRemoteUrlDataset(false);
-        updateConfig("allowRemoteUrlDataset", false as any);
+        updateConfig("allowRemoteUrlDataset", false);
       }
       /* Rensa upload target-param när dataset-stöd är avstängt */
       if (localUploadTargetParamName) {
         setLocalUploadTargetParamName("");
-        updateConfig("uploadTargetParamName", undefined as any);
+        updateConfig("uploadTargetParamName", undefined);
         setFieldErrors((prev) => ({
           ...prev,
           uploadTargetParamName: undefined,
@@ -463,7 +471,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   hooks.useEffectWithPreviousValues(() => {
     if (!shouldShowTmTtc && toTrimmedString(localTmTtc)) {
       setLocalTmTtc("");
-      updateConfig("tm_ttc", undefined as any);
+      updateConfig("tm_ttc", undefined);
       setFieldErrors((prev) => ({ ...prev, tm_ttc: undefined }));
     }
   }, [shouldShowTmTtc, localTmTtc, updateConfig, setFieldErrors]);
@@ -483,7 +491,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   );
   const [localFillOpacity, setLocalFillOpacity] = React.useState<number>(
-    () => (getNumberConfig("drawingFillOpacity") ?? DEFAULT_FILL_OPACITY) * 100
+    () =>
+      (getNumberConfig("drawingFillOpacity") ?? DEFAULT_FILL_OPACITY) *
+      UI_CONFIG.OPACITY_SCALE_FACTOR
   );
   const [localEnableLogging, setLocalEnableLogging] = React.useState<boolean>(
     () => getBooleanConfig("enableLogging", false)
@@ -507,7 +517,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
       typeof configFillOpacity === "number"
         ? configFillOpacity
         : DEFAULT_FILL_OPACITY;
-    const percentValue = Math.round(opacityFromConfig * 100);
+    const percentValue = Math.round(
+      opacityFromConfig * UI_CONFIG.OPACITY_SCALE_FACTOR
+    );
     if (percentValue !== localFillOpacity) {
       setLocalFillOpacity(percentValue);
     }
@@ -577,16 +589,24 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   });
 
   /* Debounced validering för att undvika validering vid varje tangenttryck */
-  const debouncedServerValidation = useDebounce(runServerValidation, 800, {
-    onPendingChange: (pending) => {
-      setServerValidationPending(pending);
-    },
-  });
-  const debouncedTokenValidation = useDebounce(runTokenValidation, 800, {
-    onPendingChange: (pending) => {
-      setTokenValidationPending(pending);
-    },
-  });
+  const debouncedServerValidation = useDebounce(
+    runServerValidation,
+    TIME_CONSTANTS.DEBOUNCE_VALIDATION_MS,
+    {
+      onPendingChange: (pending) => {
+        setServerValidationPending(pending);
+      },
+    }
+  );
+  const debouncedTokenValidation = useDebounce(
+    runTokenValidation,
+    TIME_CONSTANTS.DEBOUNCE_VALIDATION_MS,
+    {
+      onPendingChange: (pending) => {
+        setTokenValidationPending(pending);
+      },
+    }
+  );
 
   /* Extraherar repository-namn från query data */
   const availableReposRef = React.useRef<string[] | null>(null);
@@ -782,7 +802,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
   /* Connection test-sub-funktioner för bättre organisation */
   const handleTestSuccess = hooks.useEventCallback(
-    (validationResult: any, settings: FmeFlowConfig, silent: boolean) => {
+    (
+      validationResult: ConnectionValidationResult,
+      settings: FmeFlowConfig,
+      silent: boolean
+    ) => {
       setValidationPhase("complete");
       setCheckSteps({
         serverUrl: validationResult.steps.serverUrl,
@@ -820,7 +844,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   );
 
   const handleTestFailure = hooks.useEventCallback(
-    (validationResult: any, silent: boolean) => {
+    (validationResult: ConnectionValidationResult, silent: boolean) => {
       setValidationPhase("complete");
       const error = validationResult.error;
       const failureType = (error?.type || "server") as
@@ -1119,11 +1143,11 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         const coerced = parseNonNegativeInt(trimmed);
 
         if (coerced === undefined || coerced === 0) {
-          updateConfig(configKey, undefined as any);
+          updateConfig(configKey, undefined);
           setter("");
         } else {
           const final = maxValue ? Math.min(coerced, maxValue) : coerced;
-          updateConfig(configKey, final as any);
+          updateConfig(configKey, final);
           setter(String(final));
         }
       };
@@ -1423,7 +1447,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                       ...prev,
                       supportEmail: undefined,
                     }));
-                    updateConfig("supportEmail", undefined as any);
+                    updateConfig("supportEmail", undefined);
                     setLocalSupportEmail("");
                     return;
                   }
@@ -1470,7 +1494,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   id={ID.maxArea}
                   value={toNumericValue(localMaxAreaM2)}
                   min={0}
-                  step={10000}
+                  step={UI_CONFIG.AREA_INPUT_STEP}
                   precision={0}
                   placeholder={translate("phMaxArea")}
                   aria-invalid={fieldErrors.maxArea ? true : undefined}
@@ -1523,7 +1547,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   id={ID.largeArea}
                   value={toNumericValue(localLargeAreaM2)}
                   min={0}
-                  step={10000}
+                  step={UI_CONFIG.AREA_INPUT_STEP}
                   precision={0}
                   placeholder={translate("phLargeArea")}
                   aria-invalid={fieldErrors.largeArea ? true : undefined}
@@ -1586,33 +1610,33 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 onTmTtcBlur={(val: string) => {
                   const trimmed = (val ?? "").trim();
                   if (trimmed === "") {
-                    updateConfig("tm_ttc", undefined as any);
+                    updateConfig("tm_ttc", undefined);
                     setLocalTmTtc("");
                     return;
                   }
                   const coerced = parseNonNegativeInt(trimmed);
                   if (coerced === undefined) {
-                    updateConfig("tm_ttc", undefined as any);
+                    updateConfig("tm_ttc", undefined);
                     setLocalTmTtc("");
                     return;
                   }
-                  updateConfig("tm_ttc", coerced as any);
+                  updateConfig("tm_ttc", coerced);
                   setLocalTmTtc(String(coerced));
                 }}
                 onTmTtlBlur={(val: string) => {
                   const trimmed = (val ?? "").trim();
                   if (trimmed === "") {
-                    updateConfig("tm_ttl", undefined as any);
+                    updateConfig("tm_ttl", undefined);
                     setLocalTmTtl("");
                     return;
                   }
                   const coerced = parseNonNegativeInt(trimmed);
                   if (coerced === undefined) {
-                    updateConfig("tm_ttl", undefined as any);
+                    updateConfig("tm_ttl", undefined);
                     setLocalTmTtl("");
                     return;
                   }
-                  updateConfig("tm_ttl", coerced as any);
+                  updateConfig("tm_ttl", coerced);
                   setLocalTmTtl(String(coerced));
                 }}
                 fieldErrors={fieldErrors}
@@ -1638,7 +1662,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   id={ID.requestTimeout}
                   value={toNumericValue(localRequestTimeout)}
                   min={0}
-                  step={10000}
+                  step={UI_CONFIG.AREA_INPUT_STEP}
                   precision={0}
                   placeholder={translate("phRequestTimeout")}
                   aria-label={translate("lblRequestTimeout")}
@@ -1775,14 +1799,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 <Slider
                   value={localFillOpacity}
                   min={0}
-                  max={100}
+                  max={UI_CONFIG.PERCENT_SLIDER_MAX}
                   step={5}
                   aria-label={translate("lblFillOpacity")}
                   decimalPrecision={0}
                   showValue={true}
                   onChange={(value: number) => {
                     setLocalFillOpacity(value);
-                    const opacityValue = value / 100;
+                    const opacityValue = value / UI_CONFIG.OPACITY_SCALE_FACTOR;
                     updateConfig("drawingFillOpacity", opacityValue as any);
                   }}
                 />

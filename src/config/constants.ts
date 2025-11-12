@@ -322,6 +322,25 @@ export const TIME_CONSTANTS = Object.freeze({
   TEN_MINUTES: 10 * 60 * 1000,
   MAX_RESPONSE_TIME: 300000, // 5 minutes
   SLOW_REQUEST_THRESHOLD: 1000, // 1 second
+  DEBOUNCE_VALIDATION_MS: 800, // Validation debounce delay
+  AUTO_DOWNLOAD_DELAY_MS: 100, // Delay before auto-download
+  POPUP_CLOSE_DELAY_MS: 50, // Delay before closing popups
+});
+
+// Network Configuration
+export const NETWORK_CONFIG = Object.freeze({
+  MAX_HISTORY_SIZE: 50, // Maximum network request logs to keep
+  API_QUERY_LIMIT: 1000, // Default limit for API queries
+  RANDOM_ID_LENGTH: 8, // Length of random ID strings (slice produces 8 chars from position 2)
+});
+
+// UI Configuration
+export const UI_CONFIG = Object.freeze({
+  OPACITY_SCALE_FACTOR: 100, // Convert 0-1 opacity to 0-100%
+  OUTLINE_WIDTH_SLIDER_MAX: 10, // Maximum outline width in pixels
+  OUTLINE_WIDTH_PRECISION: 10, // Decimal precision for outline width (tenths)
+  AREA_INPUT_STEP: 10000, // Step size for area input fields
+  PERCENT_SLIDER_MAX: 100, // Maximum value for percentage sliders
 });
 
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {

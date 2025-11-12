@@ -40,6 +40,7 @@ import {
   ErrorSeverity,
   ErrorType,
   makeErrorView,
+  TIME_CONSTANTS,
   VIEW_ROUTES,
   ViewMode,
 } from "../config/index";
@@ -377,7 +378,7 @@ function WidgetContent(
     (view: JimuMapView | null | undefined) => {
       if (!view?.view) return;
       const mapView = view.view;
-      const popup = (mapView as any)?.popup as __esri.Popup | undefined;
+      const popup = mapView.popup;
       if (popup) {
         popupSuppressionManager.acquire(
           popupClientIdRef.current,
@@ -441,7 +442,7 @@ function WidgetContent(
   });
 
   /* Bygger symboler från konfigurerad drawingColor (config är källa) */
-  const currentHex = (config as any)?.drawingColor || DEFAULT_DRAWING_HEX;
+  const currentHex = config?.drawingColor || DEFAULT_DRAWING_HEX;
   const drawingStyleOptions = {
     outlineWidth: config?.drawingOutlineWidth,
     fillOpacity: config?.drawingFillOpacity,
@@ -483,19 +484,32 @@ function WidgetContent(
     }
 
     const keyParts = [
-      latestConfig.fmeServerUrl ?? (latestConfig as any).fme_server_url ?? "",
+      latestConfig.fmeServerUrl ??
+        (latestConfig as unknown as { [key: string]: unknown })
+          .fme_server_url ??
+        "",
       latestConfig.fmeServerToken ??
-        (latestConfig as any).fme_server_token ??
-        (latestConfig as any).fmw_server_token ??
+        (latestConfig as unknown as { [key: string]: unknown })
+          .fme_server_token ??
+        (latestConfig as unknown as { [key: string]: unknown })
+          .fmw_server_token ??
         "",
       latestConfig.repository ?? "",
       latestConfig.requestTimeout ?? "",
-    ].map((part) => ((part ?? part === 0) ? String(part) : ""));
-    const key = keyParts.join("|");
+    ];
+
+    const key = keyParts
+      .map((part) => {
+        if (part === null || part === undefined) return "";
+        if (typeof part === "number") return String(part);
+        if (typeof part === "string") return part;
+        return "";
+      })
+      .join("|");
 
     if (!fmeClientRef.current || fmeClientKeyRef.current !== key) {
       disposeFmeClient();
-      fmeClientRef.current = createFmeFlowClient(latestConfig as any);
+      fmeClientRef.current = createFmeFlowClient(latestConfig);
       fmeClientKeyRef.current = key;
     }
 
@@ -598,7 +612,9 @@ function WidgetContent(
           onReload: isNavigatorOffline()
             ? () => {
                 try {
-                  (globalThis as any).location?.reload();
+                  (
+                    globalThis as { location?: { reload: () => void } }
+                  ).location?.reload();
                 } catch {}
               }
             : undefined,
@@ -834,7 +850,7 @@ function WidgetContent(
         return;
       }
 
-      let parsedError: any = null;
+      let parsedError: unknown = null;
       try {
         if (err instanceof Error && err.message) {
           parsedError = JSON.parse(err.message);
@@ -843,13 +859,14 @@ function WidgetContent(
 
       const errorToUse = parsedError || err;
       const errorKey =
-        parsedError?.message ||
+        (parsedError as { [key: string]: unknown })?.message ||
         mapErrorFromNetwork(errorToUse, extractHttpStatus(errorToUse));
       const errorCode =
         typeof errorToUse === "object" &&
         errorToUse !== null &&
-        "code" in errorToUse
-          ? String(errorToUse.code)
+        "code" in errorToUse &&
+        typeof errorToUse.code === "string"
+          ? errorToUse.code
           : "STARTUP_VALIDATION_FAILED";
       setValidationError(createStartupError(errorKey, errorCode));
     } finally {
@@ -925,7 +942,7 @@ function WidgetContent(
           /* Fördröjer validering något för att låta ev. UI-övergångar slutföras */
           timerId = window.setTimeout(() => {
             runStartupValidation();
-          }, 50);
+          }, TIME_CONSTANTS.POPUP_CLOSE_DELAY_MS);
         }
       } catch {}
 
@@ -977,7 +994,10 @@ function WidgetContent(
           geometry: evt.graphic.geometry,
           modules,
           graphicsLayer,
-          config,
+          config: {
+            areaThreshold: config.maxArea,
+            largeAreaThreshold: config.largeArea,
+          },
           signal: controller.signal,
         });
 
@@ -988,7 +1008,7 @@ function WidgetContent(
 
         if (!result.success) {
           try {
-            graphicsLayer?.remove(evt.graphic as any);
+            graphicsLayer?.remove(evt.graphic);
           } catch {}
 
           if (!controller.signal.aborted) {
@@ -1012,7 +1032,11 @@ function WidgetContent(
                   result.error.code
                 );
               } else {
-                fmeDispatch.setError("general", result.error);
+                dispatchError(
+                  "GEOMETRY_ERROR",
+                  ErrorType.GEOMETRY,
+                  result.error.code
+                );
               }
             }
           }
@@ -1025,7 +1049,7 @@ function WidgetContent(
           evt.graphic.geometry = result.geometry;
           const highlightSymbol = symbolsRef.current?.HIGHLIGHT_SYMBOL;
           if (highlightSymbol) {
-            evt.graphic.symbol = highlightSymbol as any;
+            evt.graphic.symbol = highlightSymbol;
           }
         }
 
@@ -1074,7 +1098,7 @@ function WidgetContent(
         // Bygger och publicerar meddelandet
         const message = new DataRecordSetChangeMessage(
           widgetId,
-          [jobRecord] as any,
+          [jobRecord] as any, // Complex type, requires cast for jobRecord
           []
         );
 
@@ -1118,7 +1142,8 @@ function WidgetContent(
 
     try {
       const fmeClient = getOrCreateFmeClient();
-      const rawDataEarly = ((formData as any)?.data || {}) as {
+      const rawDataEarly = ((formData as { [key: string]: unknown })?.data ||
+        {}) as {
         [key: string]: unknown;
       };
 
@@ -1152,10 +1177,13 @@ function WidgetContent(
 
       if (!submissionResult.success && submissionResult.error) {
         /* Kolla om det är ett AOI-fel från prepareSubmissionParams */
-        const errorObj = submissionResult.error as any;
+        const errorObj = submissionResult.error as { [key: string]: unknown };
         if (errorObj && typeof errorObj === "object" && "kind" in errorObj) {
           setSubmissionPhase("idle");
-          fmeDispatch.setError("general", errorObj);
+          fmeDispatch.setError(
+            "general",
+            errorObj as unknown as SerializableErrorState
+          );
           return;
         }
       }

@@ -784,9 +784,9 @@ export function formatArea(
   const display = resolveAreaForSpatialReference(safeArea, spatialReference);
 
   const formatNumber = (value: number, decimals: number): string => {
-    const intlModule = (modules as any)?.intl;
-    if (intlModule && typeof intlModule.formatNumber === "function") {
-      const result = intlModule.formatNumber(value, {
+    const intlModule = (modules as unknown as { [key: string]: unknown })?.intl;
+    if (intlModule && typeof (intlModule as any).formatNumber === "function") {
+      const result = (intlModule as any).formatNumber(value, {
         style: "decimal",
         minimumFractionDigits: 0,
         maximumFractionDigits: decimals,

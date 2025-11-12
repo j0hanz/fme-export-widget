@@ -1,13 +1,16 @@
 import { hooks, React } from "jimu-core";
+import type { IMState, IMThemeVariables } from "jimu-core";
 import type { JimuMapView } from "jimu-arcgis";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shallowEqual, useSelector } from "react-redux";
+import type { Dispatch } from "redux";
 import type {
   ConnectionValidationResult,
   ErrorType,
   EsriModules,
   FormPrimitive,
   FormValues,
+  LoadingFlagKey,
   LoadingSnapshot,
   SerializableErrorState,
   UseDebounceOptions,
@@ -34,6 +37,26 @@ import {
   queryKeys,
   safeAbortController,
 } from "./utils";
+
+const hasLoadFunction = (
+  candidate: unknown
+): candidate is { load: () => Promise<void> } => {
+  if (typeof candidate !== "object" || candidate === null) return false;
+  return typeof Reflect.get(candidate, "load") === "function";
+};
+
+const isGeometryOperatorContainer = (
+  value: unknown
+): value is EsriModules["geometryOperators"] =>
+  typeof value === "object" && value !== null;
+
+const extractGeometryOperators = (
+  candidate: unknown
+): EsriModules["geometryOperators"] | null => {
+  if (typeof candidate !== "object" || candidate === null) return null;
+  const operators = Reflect.get(candidate, "operators");
+  return isGeometryOperatorContainer(operators) ? operators : null;
+};
 
 /* ArcGIS Resource Utilities */
 
@@ -90,7 +113,7 @@ export const removeLayerFromMap = (
 /* Debounce Hook */
 
 // Debounced-funktion med cancel/flush/isPending-metoder
-type DebouncedFn<T extends (...args: any[]) => void> = ((
+type DebouncedFn<T extends (...args: unknown[]) => void> = ((
   ...args: Parameters<T>
 ) => void) & {
   cancel: () => void;
@@ -99,7 +122,7 @@ type DebouncedFn<T extends (...args: any[]) => void> = ((
 };
 
 // Hook för debounced callback med delay och optional pending-notifiering
-export const useDebounce = <T extends (...args: any[]) => void>(
+export const useDebounce = <T extends (...args: unknown[]) => void>(
   callback: T,
   delay: number,
   options?: UseDebounceOptions
@@ -241,9 +264,8 @@ export const useEsriModules = (
 
         // Ladda projection-modul om det har load-metod
         try {
-          const proj = projection as any;
-          if (proj?.load && typeof proj.load === "function") {
-            await proj.load();
+          if (hasLoadFunction(projection)) {
+            await projection.load();
           }
         } catch (error) {
           /* Non-critical projection module warmup failure */
@@ -251,25 +273,27 @@ export const useEsriModules = (
 
         // Extrahera geometry operators från async eller sync engine
         const geometryOperators =
-          (geometryEngineAsync as any)?.operators ??
-          (geometryEngine as any)?.operators ??
+          extractGeometryOperators(geometryEngineAsync) ??
+          extractGeometryOperators(geometryEngine) ??
           null;
 
+        const modules: EsriModules = {
+          SketchViewModel,
+          GraphicsLayer,
+          geometryEngine,
+          geometryEngineAsync,
+          webMercatorUtils,
+          projection,
+          SpatialReference,
+          normalizeUtils,
+          Polyline,
+          Polygon,
+          Graphic,
+          geometryOperators,
+        };
+
         setState({
-          modules: {
-            SketchViewModel,
-            GraphicsLayer,
-            geometryEngine,
-            geometryEngineAsync,
-            webMercatorUtils,
-            projection,
-            SpatialReference,
-            normalizeUtils,
-            Polyline,
-            Polygon,
-            Graphic,
-            geometryOperators,
-          } as EsriModules,
+          modules,
           loading: false,
           errorKey: null,
         });
@@ -316,7 +340,9 @@ export const useMapResources = () => {
           prev.sketchViewModel !== value
         ) {
           try {
-            const cleaner = (prev.sketchViewModel as any)?.__fmeCleanup__;
+            const cleaner = (
+              prev.sketchViewModel as unknown as { __fmeCleanup__?: () => void }
+            )?.__fmeCleanup__;
             if (typeof cleaner === "function") {
               cleaner();
             }
@@ -482,8 +508,8 @@ export const useFormStateManager = (
 /* Settings Panel Hooks */
 
 // Selector för builder-state (fallback till runtime state)
-export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
-  return useSelector((state: any) => {
+export const useBuilderSelector = <T>(selector: (state: IMState) => T): T => {
+  return useSelector((state: IMState) => {
     const builderState = state?.appStateInBuilder;
     const effectiveState = builderState ?? state;
     return selector(effectiveState);
@@ -491,31 +517,39 @@ export const useBuilderSelector = <T>(selector: (state: any) => T): T => {
 };
 
 // Hook för selector med shallowEqual optimization
-export const useShallowEqualSelector = <T>(selector: (state: any) => T): T => {
+export const useShallowEqualSelector = <T>(
+  selector: (state: IMState) => T
+): T => {
   return useSelector(selector, shallowEqual);
 };
 
 // Hook för builder-selector med shallowEqual optimization
 export const useBuilderShallowEqualSelector = <T>(
-  selector: (state: any) => T
+  selector: (state: IMState) => T
 ): T => {
-  return useSelector((state: any) => {
+  return useSelector((state: IMState) => {
     const builderState = state?.appStateInBuilder;
     const effectiveState = builderState ?? state;
     return selector(effectiveState);
   }, shallowEqual);
 };
 
+interface ConfigWithImmutable {
+  [key: string]: unknown;
+  set?: (key: string, value: unknown) => unknown;
+}
+
 // Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
 export const useUpdateConfig = (
   id: string,
-  config: { [key: string]: any; set?: (key: string, value: any) => any },
-  onSettingChange: (update: { id: string; config: any }) => void
+  config: unknown,
+  onSettingChange: (update: { id: string; config: unknown }) => void
 ) => {
-  return hooks.useEventCallback((key: string, value: any) => {
+  return hooks.useEventCallback((key: string, value: unknown) => {
+    const configWithSet = config as ConfigWithImmutable;
     onSettingChange({
       id,
-      config: config.set ? config.set(key, value) : config,
+      config: configWithSet.set ? configWithSet.set(key, value) : config,
     });
   });
 };
@@ -523,7 +557,7 @@ export const useUpdateConfig = (
 // Config-value getters för type-safe access med defaults
 
 // Hämtar string-värde från config med fallback
-export const useStringConfigValue = (config: { [key: string]: any }) => {
+export const useStringConfigValue = (config: unknown) => {
   const configRef = hooks.useLatest(config);
   return hooks.useEventCallback((key: string, defaultValue = ""): string => {
     const v = configRef.current?.[key];
@@ -532,7 +566,7 @@ export const useStringConfigValue = (config: { [key: string]: any }) => {
 };
 
 // Hämtar boolean-värde från config med fallback
-export const useBooleanConfigValue = (config: { [key: string]: any }) => {
+export const useBooleanConfigValue = (config: unknown) => {
   const configRef = hooks.useLatest(config);
   return hooks.useEventCallback(
     (key: string, defaultValue = false): boolean => {
@@ -543,7 +577,7 @@ export const useBooleanConfigValue = (config: { [key: string]: any }) => {
 };
 
 // Hämtar number-värde från config med fallback
-export const useNumberConfigValue = (config: { [key: string]: any }) => {
+export const useNumberConfigValue = (config: unknown) => {
   const configRef = hooks.useLatest(config);
   return hooks.useEventCallback(
     (key: string, defaultValue?: number): number | undefined => {
@@ -557,7 +591,7 @@ export const useNumberConfigValue = (config: { [key: string]: any }) => {
 type UseThemeHook = () => unknown;
 
 const useFallbackTheme: UseThemeHook = () => {
-  const [theme] = React.useState<Record<string, unknown>>(() => ({}));
+  const [theme] = React.useState<{ [key: string]: unknown }>(() => ({}));
   return theme;
 };
 
@@ -566,7 +600,9 @@ let loadThemeHookPromise: Promise<UseThemeHook> | null = null;
 
 const getGlobalUseTheme = (): UseThemeHook | null => {
   try {
-    const candidate = (globalThis as any)?.jimuTheme?.useTheme;
+    const candidate = (
+      globalThis as unknown as { jimuTheme?: { useTheme?: UseThemeHook } }
+    )?.jimuTheme?.useTheme;
     return typeof candidate === "function" ? candidate : null;
   } catch {
     return null;
@@ -611,7 +647,9 @@ const loadUseThemeHook = (): Promise<UseThemeHook> => {
 };
 
 // Hook för att skapa styled-components från jimu-theme
-export const useSettingStyles = (createStylesFn: (theme: any) => any) => {
+export const useSettingStyles = <TStyles>(
+  createStylesFn: (theme: IMThemeVariables) => TStyles
+): TStyles => {
   const [, forceRender] = React.useReducer((count) => count + 1, 0);
   const themeHookRef = React.useRef<UseThemeHook | null>(null);
 
@@ -632,7 +670,7 @@ export const useSettingStyles = (createStylesFn: (theme: any) => any) => {
 
   const activeHook = themeHookRef.current ?? useFallbackTheme;
   const theme = activeHook();
-  return createStylesFn(theme);
+  return createStylesFn(theme as IMThemeVariables);
 };
 
 /* UI Component Hooks */
@@ -673,27 +711,28 @@ export const useControlledValue = <T = unknown>(
 
 /* Loading Latch Hook */
 
+interface LoadableState {
+  readonly kind: string;
+  readonly message?: React.ReactNode;
+  readonly detail?: React.ReactNode;
+  readonly messages?: readonly React.ReactNode[];
+  [key: string]: unknown;
+}
+
 // Hook för att låsa loading-state i minsta tid (undviker flicker)
 export const useLoadingLatch = (
-  state: { kind: string; [key: string]: any },
+  state: LoadableState,
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
   const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
   // Skapar snapshot av loading-meddelanden
   const createSnapshot = (
-    source:
-      | {
-          [key: string]: any;
-        }
-      | null
-      | undefined
+    source: LoadableState | null | undefined
   ): LoadingSnapshot => {
     if (!source) return null;
-    const message = source.message as React.ReactNode | undefined;
-    const detail = source.detail as React.ReactNode | undefined;
-    const rawMessages = source.messages as
-      | readonly React.ReactNode[]
-      | undefined;
+    const message = source.message;
+    const detail = source.detail;
+    const rawMessages = source.messages;
     const messages = Array.isArray(rawMessages)
       ? (rawMessages.filter(
           (entry) => entry !== null && entry !== undefined
@@ -1258,7 +1297,7 @@ export function useValidateConnection() {
 
 // Hook för att hantera loading-flags med minimum display time
 export function useMinLoadingTime(
-  reduxDispatch: any,
+  reduxDispatch: Dispatch,
   widgetId: string,
   minimumMs = 500
 ) {
@@ -1268,7 +1307,9 @@ export function useMinLoadingTime(
     if (value) {
       // Loading startar - sätt omedelbart och spara starttid
       startTimesRef.current[flag] = Date.now();
-      reduxDispatch(fmeActions.setLoadingFlag(flag as any, true, widgetId));
+      reduxDispatch(
+        fmeActions.setLoadingFlag(flag as LoadingFlagKey, true, widgetId)
+      );
     } else {
       // Loading slutar - säkerställ minimum display time
       const startTime = startTimesRef.current[flag];
@@ -1279,18 +1320,20 @@ export function useMinLoadingTime(
         if (remaining > 0) {
           setTimeout(() => {
             reduxDispatch(
-              fmeActions.setLoadingFlag(flag as any, false, widgetId)
+              fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
             );
             delete startTimesRef.current[flag];
           }, remaining);
         } else {
           reduxDispatch(
-            fmeActions.setLoadingFlag(flag as any, false, widgetId)
+            fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
           );
           delete startTimesRef.current[flag];
         }
       } else {
-        reduxDispatch(fmeActions.setLoadingFlag(flag as any, false, widgetId));
+        reduxDispatch(
+          fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
+        );
       }
     }
   });

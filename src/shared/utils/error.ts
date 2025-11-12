@@ -206,7 +206,9 @@ export const createErrorActions = (
 };
 
 // Validation helper functions (refactoring #2)
-export const buildValidationErrors = <T extends { [key: string]: any }>(
+export const buildValidationErrors = <
+  T extends { [key: string]: string | undefined },
+>(
   validations: Array<{
     field: keyof T;
     validator: () => { ok: boolean; key?: string; reason?: string };
@@ -219,7 +221,7 @@ export const buildValidationErrors = <T extends { [key: string]: any }>(
     if (!result.ok) {
       const errorKey = result.key || result.reason;
       if (errorKey) {
-        errors[field] = errorKey as any;
+        errors[field] = errorKey as T[keyof T];
       }
     }
   }
@@ -242,8 +244,10 @@ const classifyError = (err: unknown, status?: number): ClassifiedError => {
   let message: string | undefined;
 
   if (err && typeof err === "object") {
-    errorCode = (err as any).code;
-    message = (err as Error)?.message;
+    const errorObj = err as { code?: unknown; message?: unknown };
+    errorCode = typeof errorObj.code === "string" ? errorObj.code : undefined;
+    message =
+      typeof errorObj.message === "string" ? errorObj.message : undefined;
   }
 
   return {

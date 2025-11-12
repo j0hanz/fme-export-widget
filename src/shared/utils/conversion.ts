@@ -268,12 +268,17 @@ export const sanitizeParamKey = (name: unknown, fallback: string): string => {
 };
 
 // Normaliserar formulärvärde baserat på om det är multiselect
-export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
+export const normalizeFormValue = (
+  value: unknown,
+  isMultiSelect: boolean
+): string | number | boolean | Array<string | number> => {
   if (value === undefined || value === null) {
     return isMultiSelect ? [] : "";
   }
   if (isMultiSelect) {
-    return Array.isArray(value) ? value : [value];
+    return Array.isArray(value)
+      ? (value as Array<string | number>)
+      : [value as string | number];
   }
   if (typeof value === "string" || typeof value === "number") return value;
   if (typeof value === "boolean") return value;
@@ -281,22 +286,31 @@ export const normalizeFormValue = (value: any, isMultiSelect: boolean): any => {
 };
 
 // Konverterar felobjekt till serialiserbart format för Redux
-export const toSerializable = (error: any): any => {
-  if (!error) return null;
+export const toSerializable = (
+  error: unknown
+): { [key: string]: unknown } | null => {
+  if (!error || typeof error !== "object") return null;
+  const errorObj = error as {
+    timestampMs?: unknown;
+    timestamp?: unknown;
+    retry?: unknown;
+    [key: string]: unknown;
+  };
   const ts =
-    typeof error.timestampMs === "number"
-      ? error.timestampMs
-      : error.timestamp instanceof Date
-        ? error.timestamp.getTime()
+    typeof errorObj.timestampMs === "number"
+      ? errorObj.timestampMs
+      : errorObj.timestamp instanceof Date
+        ? errorObj.timestamp.getTime()
         : 0;
-  const { retry, timestamp, ...rest } = error;
+  const { retry, timestamp, ...rest } = errorObj;
   return { ...rest, timestampMs: ts, kind: "serializable" as const };
 };
 
 /** Utility ensuring iteration only happens on supported values. */
 const isIterable = (value: unknown): value is Iterable<unknown> =>
   typeof value !== "string" &&
-  typeof (value as any)?.[Symbol.iterator] === "function";
+  typeof (value as { [Symbol.iterator]?: unknown })?.[Symbol.iterator] ===
+    "function";
 
 /** Maps values while filtering nullish mapper results. */
 export const mapDefined = <T, R>(

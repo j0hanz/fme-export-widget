@@ -64,7 +64,7 @@ export const normalizeSketchCreateTool = (
 };
 
 const unwrapDynamicModule = (module: unknown) =>
-  (module as any)?.default ?? module;
+  (module as { default?: unknown })?.default ?? module;
 
 export async function loadArcgisModules(
   modules: readonly string[]
@@ -73,14 +73,16 @@ export async function loadArcgisModules(
     return [];
   }
 
-  const stub = (globalThis as any)?.__ESRI_TEST_STUB__;
+  const stub = (globalThis as { __ESRI_TEST_STUB__?: unknown })
+    ?.__ESRI_TEST_STUB__;
   if (typeof stub === "function") {
     return stub(modules);
   }
 
   try {
     const mod = await import("jimu-arcgis");
-    const loader = (mod as any)?.loadArcGISJSAPIModules;
+    const loader = (mod as { loadArcGISJSAPIModules?: unknown })
+      ?.loadArcGISJSAPIModules;
     if (typeof loader !== "function") {
       throw new Error("ARCGIS_MODULE_ERROR");
     }
@@ -309,24 +311,35 @@ export function collectLayerAttributes(
       return { attributes, layerCount, totalAttributeCount: 0, hasGeometry };
     }
 
-    allLayers.forEach((layer: any) => {
-      if (!layer || !layer.type) return;
+    allLayers.forEach((layer: unknown) => {
+      if (!layer || typeof layer !== "object") return;
+
+      const typedLayer = layer as {
+        type?: string;
+        fields?: __esri.Field[] | null;
+        title?: string;
+        name?: string;
+        id?: string;
+        geometryType?: string;
+      };
+
+      if (!typedLayer.type) return;
 
       // Include feature layers, graphics layers with schema
-      const isFeatureLayer = layer.type === "feature";
-      const isGraphicsLayer = layer.type === "graphics";
+      const isFeatureLayer = typedLayer.type === "feature";
+      const isGraphicsLayer = typedLayer.type === "graphics";
 
       if (!isFeatureLayer && !isGraphicsLayer) return;
 
-      const fields = layer.fields as __esri.Field[] | null | undefined;
+      const fields = typedLayer.fields;
       if (!fields || !Array.isArray(fields) || fields.length === 0) return;
 
       layerCount++;
 
       const layerName =
-        layer.title || layer.name || layer.id || "Unknown Layer";
-      const layerId = layer.id;
-      const geometryType = layer.geometryType;
+        typedLayer.title || typedLayer.name || typedLayer.id || "Unknown Layer";
+      const layerId = typedLayer.id;
+      const geometryType = typedLayer.geometryType;
 
       if (geometryType) {
         hasGeometry = true;

@@ -145,7 +145,7 @@ export const getFileDisplayName = (
   file: File,
   translate?: TranslateFn
 ): string => {
-  const name = toTrimmedString((file as any)?.name);
+  const name = toTrimmedString(file.name);
   if (name) return name;
   return translate ? translate("lblUnnamedFile") : "unnamed-file";
 };
@@ -195,11 +195,14 @@ export const coerceFormValueForSubmission = (value: unknown): unknown => {
 };
 
 export const initFormValues = (
-  formConfig: readonly any[]
-): { [key: string]: any } => {
-  const result: { [key: string]: any } = {};
+  formConfig: ReadonlyArray<{
+    readonly name?: string;
+    readonly defaultValue?: unknown;
+  }>
+): { [key: string]: unknown } => {
+  const result: { [key: string]: unknown } = {};
   for (const field of formConfig) {
-    if (field?.name) {
+    if (field?.name && typeof field.name === "string") {
       result[field.name] = field.defaultValue ?? "";
     }
   }
@@ -222,7 +225,7 @@ export const canResetButton = (
 
 export const shouldShowWorkspaceLoading = (
   isLoading: boolean,
-  _workspaces: readonly any[],
+  _workspaces: readonly unknown[],
   state: string,
   hasError?: boolean
 ): boolean => {
@@ -235,22 +238,22 @@ export const shouldShowWorkspaceLoading = (
   return needsLoading && isLoading;
 };
 
-export const setError = <T extends { [k: string]: any }>(
+export const setError = <T extends { [key: string]: unknown }>(
   set: Dispatch<SetStateAction<T>>,
   key: keyof T,
   value?: T[keyof T]
 ) => {
-  set((prev) => ({ ...prev, [key]: value as any }));
+  set((prev) => ({ ...prev, [key]: value }));
 };
 
-export const clearErrors = <T extends { [k: string]: any }>(
+export const clearErrors = <T extends { [key: string]: unknown }>(
   set: Dispatch<SetStateAction<T>>,
   keys: Array<keyof T>
 ) => {
   set((prev) => {
-    const next: any = { ...prev };
-    for (const k of keys) next[k as string] = undefined;
-    return next;
+    const next: Partial<T> = { ...prev };
+    for (const k of keys) next[k] = undefined;
+    return next as T;
   });
 };
 

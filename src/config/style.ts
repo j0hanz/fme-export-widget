@@ -44,7 +44,7 @@ const typo = (variant: ImmutableObject<TypographyStyle>) => ({
 
 const flex = (
   dir: "row" | "column" | "inline",
-  styles: { [key: string]: any } = {}
+  styles: { [key: string]: unknown } = {}
 ) =>
   css({
     display: dir === "inline" ? "inline-flex" : "flex",
@@ -191,7 +191,14 @@ export const createUiStyles = (theme: IMThemeVariables) => {
       text: (align: BtnContentProps["alignText"]) =>
         css({
           flex: auto,
-          textAlign: (align || "start") as any,
+          textAlign: (align || "start") as
+            | "start"
+            | "end"
+            | "left"
+            | "right"
+            | "center"
+            | "justify"
+            | "match-parent",
           paddingInlineEnd: config.button.textPadding,
         }),
       icon: css({

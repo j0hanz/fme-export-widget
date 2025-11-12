@@ -1,5 +1,6 @@
 import { getAppStore } from "jimu-core";
 import type {
+  EsriModules,
   FmeDebugObject,
   FmeExportConfig,
   FmeWidgetState,
@@ -40,29 +41,29 @@ export const setLoggingEnabled = (enabled: boolean): void => {
 export const getLoggingEnabled = (): boolean => isLoggingEnabled;
 
 /* Conditional logging helpers - respect enableLogging flag */
-export const conditionalLog = (...args: any[]): void => {
+export const conditionalLog = (...args: unknown[]): void => {
   if (isLoggingEnabled) {
     console.log(...args);
   }
 };
 
 export const conditionalTable = (
-  data: any,
+  data: unknown,
   columns?: readonly string[]
 ): void => {
   if (isLoggingEnabled) {
-    console.table(data, columns as any);
+    console.table(data, columns as string[] | undefined);
   }
 };
 
-export const conditionalWarn = (...args: any[]): void => {
+export const conditionalWarn = (...args: unknown[]): void => {
   if (isLoggingEnabled) {
     console.warn(...args);
   }
 };
 
 /* Critical errors always log regardless of flag (HTTP errors, auth failures) */
-export const criticalError = (...args: any[]): void => {
+export const criticalError = (...args: unknown[]): void => {
   console.error(...args);
 };
 
@@ -77,7 +78,7 @@ export const DEBUG_STYLES = {
 const logDebugMessage = (
   message: string,
   style: "success" | "info" | "warn" | "error" | "action" = "info",
-  ...args: any[]
+  ...args: unknown[]
 ): void => {
   if (isLoggingEnabled) {
     console.log(`%c[FME Debug] ${message}`, DEBUG_STYLES[style], ...args);
@@ -88,7 +89,10 @@ const getDebugObject = (): FmeDebugObject | null => {
   if (typeof window === "undefined") {
     return null;
   }
-  return (window as any).__FME_DEBUG__ ?? null;
+  return (
+    (window as unknown as { __FME_DEBUG__?: FmeDebugObject }).__FME_DEBUG__ ??
+    null
+  );
 };
 
 const buildSafeConfig = (config: FmeExportConfig | null) => {
@@ -249,7 +253,8 @@ const safeAssignDebugObject = (
   } catch {
     // defineProperty not supported, fall back to direct assignment
     try {
-      (target as any).__FME_DEBUG__ = debugObj;
+      (target as unknown as { __FME_DEBUG__?: FmeDebugObject }).__FME_DEBUG__ =
+        debugObj;
     } catch {
       // Assignment failed, ignore
     }
@@ -258,7 +263,10 @@ const safeAssignDebugObject = (
 
 const safeGetDebugObject = (target: Window): FmeDebugObject | null => {
   try {
-    return (target as any).__FME_DEBUG__ ?? null;
+    return (
+      (target as unknown as { __FME_DEBUG__?: FmeDebugObject }).__FME_DEBUG__ ??
+      null
+    );
   } catch {
     return null;
   }
@@ -325,11 +333,16 @@ const createQueryInspectionHelper = (): (() => void) => {
     const queries = debugObj.getQueryCache?.() ?? [];
     logDebugMessage("Query Cache:", "info");
     conditionalTable(
-      queries.map((query: any) => ({
-        queryKey: JSON.stringify(query.queryKey),
-        status: query.state.status,
-        hasData: !!query.state.data,
-      }))
+      queries.map(
+        (query: {
+          queryKey: unknown;
+          state: { status: unknown; data: unknown };
+        }) => ({
+          queryKey: JSON.stringify(query.queryKey),
+          status: query.state.status,
+          hasData: !!query.state.data,
+        })
+      )
     );
   };
 };
@@ -538,7 +551,7 @@ const createDebugObject = (context: {
     fmeQueryClient.clear();
     logDebugMessage("Query cache cleared", "warn");
   },
-  invalidateQueries: (filters?: any) => {
+  invalidateQueries: (filters?: { queryKey?: unknown[] }) => {
     fmeQueryClient.invalidateQueries(filters);
     logDebugMessage("Queries invalidated", "warn", filters);
   },
@@ -546,7 +559,7 @@ const createDebugObject = (context: {
     const store = getAppStore();
     return store.getState();
   },
-  dispatch: (action: any) => {
+  dispatch: (action: { type: string; [key: string]: unknown }) => {
     const store = getAppStore();
     logDebugMessage("Dispatching action:", "action", action);
     store.dispatch(action);
@@ -560,8 +573,12 @@ const createDebugObject = (context: {
   utils: {
     maskToken: (token: string) => maskToken(token),
     formatArea: (area: number, spatialReference?: __esri.SpatialReference) =>
-      formatArea(area, createMockIntlModules() as any, spatialReference),
-    safeLogParams: (params: { [key: string]: any }) => params,
+      formatArea(
+        area,
+        createMockIntlModules() as unknown as EsriModules,
+        spatialReference
+      ),
+    safeLogParams: (params: { [key: string]: unknown }) => params,
   },
   helpers: {
     inspectState: createStateInspectionHelper(),

@@ -105,7 +105,7 @@ export type TMDirectives = Partial<{
 export type NMDirectives = Partial<{
   directives: Array<{
     name: string;
-    [key: string]: any;
+    [key: string]: unknown;
   }>;
 }>;
 
@@ -192,7 +192,8 @@ export interface DrawingSessionState {
   readonly clickCount: number;
 }
 
-export interface MutableParams extends Record<string, unknown> {
+export interface MutableParams {
+  [key: string]: unknown;
   opt_geturl?: unknown;
   __aoi_error__?: ErrorState | null;
 }
@@ -1671,7 +1672,7 @@ export interface AreaEvaluation {
  * Must be JSON-serializable for stable cache keys
  */
 export type QueryKey = ReadonlyArray<
-  string | number | boolean | null | { readonly [key: string]: any }
+  string | number | boolean | null | { readonly [key: string]: unknown }
 >;
 
 /**
@@ -1829,7 +1830,7 @@ export interface SubmissionOrchestrationOptions {
     finalize: (controller: AbortController | null) => void;
   };
   widgetId: string;
-  translate: (id: string, data?: any) => string;
+  translate: (id: string, data?: { [key: string]: string | number }) => string;
   makeCancelable: <T>(promise: Promise<T>) => Promise<T>;
   onStatusChange?: (phase: string) => void;
   getActiveGeometry: () => __esri.Geometry | null;
@@ -1843,7 +1844,7 @@ export interface SubmissionOrchestrationResult {
 }
 
 export interface StartupValidationFlowOptions {
-  config: any;
+  config: FmeExportConfig;
   useMapWidgetIds: string[];
   translate: (key: string) => string;
   signal: AbortSignal;
@@ -1852,14 +1853,14 @@ export interface StartupValidationFlowOptions {
 
 export interface StartupValidationFlowResult {
   success: boolean;
-  error?: any;
+  error?: SerializableErrorState;
 }
 
 export interface DrawingCompletionResult {
   success: boolean;
   geometry?: __esri.Polygon;
   area?: number;
-  error?: any;
+  error?: { code: string; message?: string };
   shouldWarn?: boolean;
 }
 
@@ -1893,17 +1894,17 @@ export interface FmeDebugObject {
   getState: () => FmeWidgetState | null;
   getQueryCache: () => ReadonlyArray<{
     queryKey: unknown;
-    state: any;
+    state: { status: unknown; data: unknown; error?: unknown };
     queryHash: string;
   }>;
   getMutationCache: () => ReadonlyArray<{
     mutationId: number;
-    state: any;
+    state: { status: unknown; data?: unknown; error?: unknown };
   }>;
   clearQueryCache: () => void;
-  invalidateQueries: (filters?: any) => void;
+  invalidateQueries: (filters?: { queryKey?: unknown[] }) => void;
   getAppState: () => IMState;
-  dispatch: (action: any) => void;
+  dispatch: (action: { type: string; [key: string]: unknown }) => void;
   readonly actions: typeof fmeActions;
   getNetworkHistory: () => readonly RequestLog[];
   clearNetworkHistory: () => void;
@@ -1913,7 +1914,9 @@ export interface FmeDebugObject {
       area: number,
       spatialReference?: __esri.SpatialReference
     ) => string;
-    safeLogParams: (params: { [key: string]: any }) => { [key: string]: any };
+    safeLogParams: (params: { [key: string]: unknown }) => {
+      [key: string]: unknown;
+    };
   };
   readonly helpers: {
     inspectState: () => void;

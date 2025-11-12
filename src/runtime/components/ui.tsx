@@ -175,9 +175,9 @@ const wrapWithTooltip = (
   element: React.ReactElement,
   opts: {
     tooltip?: React.ReactNode;
-    placement?: any;
+    placement?: TooltipProps["placement"];
     block?: boolean;
-    jimuCss?: any;
+    jimuCss?: ReturnType<typeof css>;
     jimuStyle?: React.CSSProperties;
     styles: UiStyles;
   }
@@ -200,16 +200,16 @@ const wrapWithTooltip = (
   );
 };
 
-// Sanerar tooltip-placering (ersätter auto med top)
+// Sanerar tooltip-placering
 const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
-  (placement as any) === "auto" ? config.tooltip.position.top : placement;
+  placement;
 
 // Skapar tooltip-ankare med stöd för disabled element
 const createTooltipAnchor = (
   child: React.ReactElement,
   tooltipContent: React.ReactNode
 ) => {
-  const childProps = (child as any)?.props || {};
+  const childProps = child.props || {};
   const isDisabled = childProps.disabled || childProps["aria-disabled"];
 
   if (!isDisabled) return child;
@@ -227,7 +227,7 @@ const createTooltipAnchor = (
 
 // Returnerar required-markering med tooltip
 const getRequiredMark = (
-  translate: (k: string, vars?: any) => string,
+  translate: (k: string, vars?: { [key: string]: string | number }) => string,
   styles: UiStyles
 ) => (
   <Tooltip content={translate("valRequiredField")} placement="bottom">
@@ -317,7 +317,7 @@ export const Icon: React.FC<SVGProps> = ({
       role={role}
       aria-label={ariaLabel}
       aria-hidden={computedHidden}
-      css={applyComponentStyles([], style as any)}
+      css={applyComponentStyles([], style)}
     />
   );
 };
@@ -340,9 +340,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
   return (
     <JimuTooltip
-      title={tooltipContent as any}
+      title={tooltipContent}
       showArrow={showArrow}
-      placement={placementProp as any}
+      placement={placementProp}
       {...otherProps}
     >
       {anchor}
@@ -426,19 +426,54 @@ export const Input: React.FC<InputProps> = ({
   }
 
   // För andra inmatningstyper, använd TextInput med kontrollerat state
+  const validTextInputType = (
+    [
+      "text",
+      "email",
+      "select",
+      "file",
+      "date",
+      "datetime-local",
+      "month",
+      "search",
+      "tel",
+      "week",
+      "password",
+      "datetime",
+      "time",
+    ] as const
+  ).includes(type as any)
+    ? type
+    : "text";
+
   return (
     <TextInput
       {...props}
-      type={type as any}
+      type={
+        validTextInputType as
+          | "text"
+          | "email"
+          | "select"
+          | "file"
+          | "date"
+          | "datetime-local"
+          | "month"
+          | "search"
+          | "tel"
+          | "week"
+          | "password"
+          | "datetime"
+          | "time"
+      }
       value={value as string | number}
-      step={step as any}
+      step={step}
       onChange={handleChange}
       onBlur={handleBlur}
       required={required}
       maxLength={maxLength}
       title={errorText}
       {...aria}
-      css={applyFullWidthStyles(styles, (props as any).style)}
+      css={applyFullWidthStyles(styles, props.style)}
     />
   );
 };
@@ -469,27 +504,24 @@ export const TextArea: React.FC<TextAreaProps> = ({
     }
   );
 
-  const validationMessage = (props as any).validationMessage || props.errorText;
+  const validationMessage = props.errorText;
 
   const aria = getFormAria({
-    id: (props as any).id,
-    required: (props as any).required,
+    id: props.id,
+    required: props.required,
     errorText: validationMessage,
     errorSuffix: "error",
   });
 
-  const { rows: _rows, ...restProps } = props as any;
-
   return (
     <JimuTextArea
-      {...restProps}
+      {...props}
       value={value}
       onChange={handleChange}
-      rows={rows}
       onBlur={handleBlur}
       css={applyComponentStyles(
         [styles.fullWidth, styles.textareaResize],
-        props.style as any
+        props.style
       )}
       {...aria}
     />
@@ -741,7 +773,7 @@ export const Select: React.FC<SelectProps> = ({
       const rawValue =
         selectedValue !== undefined
           ? selectedValue
-          : (evt as any)?.target?.value;
+          : (evt as { target?: { value?: string | number } })?.target?.value;
       const newValue = coerceValue(rawValue);
       setInternalValue(newValue);
       onChange?.(newValue);
@@ -946,16 +978,40 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButton")
   );
 
-  // Absorberar stil/css från inkommande props så inga inline-attribut vidare
-  const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps as any;
+  // Absorberar stil från inkommande props
+  const { style: jimuStyle, ...restJimuProps } = jimuProps;
 
   const hasTooltip = !!tooltip && !tooltipDisabled;
+
+  // Map widget's color/type values to jimu-ui Button colors
+  const jimuColor:
+    | "primary"
+    | "secondary"
+    | "error"
+    | "warning"
+    | "info"
+    | "success"
+    | "default"
+    | "inherit" =
+    color === "danger" || type === "danger"
+      ? "error"
+      : color === "link"
+        ? "default"
+        : (color as
+            | "primary"
+            | "secondary"
+            | "error"
+            | "warning"
+            | "info"
+            | "success"
+            | "default"
+            | "inherit") || "default";
 
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
-      type={type as any}
-      color={color}
+      type={type}
+      color={jimuColor}
       variant={variant}
       size={size}
       htmlType={htmlType}
@@ -969,7 +1025,6 @@ export const Button: React.FC<ButtonProps> = ({
       css={[
         styles.relative,
         // När tooltip inte används, använd anroparens stilar direkt på knappen
-        !hasTooltip && jimuCss,
         !hasTooltip && styleCss(jimuStyle),
       ]}
       block={block}
@@ -990,7 +1045,7 @@ export const Button: React.FC<ButtonProps> = ({
         tooltip,
         placement: tooltipPlacement,
         block,
-        jimuCss,
+        jimuCss: undefined,
         jimuStyle,
         styles,
       })
@@ -1031,7 +1086,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
   const resolvedVariant: AlertDisplayVariant =
     variant === "icon" && !iconKey ? "default" : variant;
 
-  const { css: jimuCss, ...restAlertProps } = rest as any;
+  const restAlertProps = rest;
 
   if (resolvedVariant === "icon") {
     const tooltipContent =
@@ -1056,7 +1111,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         variant={jimuVariant}
         className={className}
         css={applyComponentStyles(
-          [styles.alert, shouldWrapWithTooltip ? undefined : jimuCss],
+          [styles.alert, shouldWrapWithTooltip ? undefined : undefined],
           style as any
         )}
       >
@@ -1076,7 +1131,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       tooltip: tooltipContent,
       placement: sanitizeTooltipPlacement(tooltipPlacement),
       block: true,
-      jimuCss,
+      jimuCss: undefined,
       jimuStyle: style,
       styles,
     });
@@ -1090,7 +1145,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alert, jimuCss], style as any)}
+        css={applyComponentStyles([styles.alert, undefined], style)}
       />
     );
   }
@@ -1102,7 +1157,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       withIcon={false}
       variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alert, jimuCss], style as any)}
+      css={applyComponentStyles([styles.alert, undefined], style)}
     >
       <div css={styles.alertContent}>
         {iconKey ? (
@@ -1143,10 +1198,10 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
         ? Number(newValue)
         : newValue;
     if (!isControlled) {
-      setUncontrolledValue(final as any);
+      setUncontrolledValue(final);
     }
-    onChange?.(final as any);
-    onTabChange?.(final as any);
+    onChange?.(final);
+    onTabChange?.(final);
   });
 
   return (
@@ -1415,7 +1470,7 @@ const StateView: React.FC<StateViewProps> = ({
             <div css={styles.stateView.errorContent}>
               <div css={[styles.row, styles.rowAlignCenter]}>
                 <Icon
-                  src={getErrorIconSrc((state as any).code)}
+                  src={getErrorIconSrc(state.code)}
                   size={config.icon.large}
                 />
                 <div css={styles.typo.title}>{state.message}</div>
@@ -1497,7 +1552,7 @@ const StateView: React.FC<StateViewProps> = ({
       className={className}
       css={applyComponentStyles(
         [styles.stateView.frame, shouldCenter ? styles.centered : undefined],
-        style as any
+        style
       )}
     >
       {content}
@@ -1547,7 +1602,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = (props) => {
 
   return (
     <div
-      css={applyComponentStyles([styles.btn.group], style as any)}
+      css={applyComponentStyles([styles.btn.group], style)}
       className={className}
     >
       {resolvedButtons.map(({ config, role, key }) => {

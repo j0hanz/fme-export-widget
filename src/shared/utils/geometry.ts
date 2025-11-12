@@ -121,16 +121,31 @@ export const isPolygonGeometry = (
   return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing);
 };
 
+type Ring = number[][];
+
+interface PolygonLike {
+  rings?: Ring[];
+  geometry?: {
+    rings?: Ring[];
+  };
+  toJSON?: () => { rings?: Ring[] };
+}
+
+interface GeoJsonPolygon {
+  readonly type: "Polygon";
+  readonly coordinates: Ring[];
+}
+
 // Extraherar rings från polygon-objekt (hanterar olika format)
-const extractRings = (poly: any): any[] => {
-  if (!poly || typeof poly !== "object") return [];
+const extractRings = (polygon: PolygonLike | null | undefined): Ring[] => {
+  if (!polygon || typeof polygon !== "object") return [];
 
-  if (Array.isArray(poly.rings)) return poly.rings;
-  if (Array.isArray(poly.geometry?.rings)) return poly.geometry.rings;
+  if (Array.isArray(polygon.rings)) return polygon.rings;
+  if (Array.isArray(polygon.geometry?.rings)) return polygon.geometry.rings;
 
-  if (typeof poly.toJSON === "function") {
+  if (typeof polygon.toJSON === "function") {
     try {
-      const json = poly.toJSON();
+      const json = polygon.toJSON();
       if (json && Array.isArray(json.rings)) return json.rings;
     } catch (error) {
       logWarn(
@@ -144,19 +159,24 @@ const extractRings = (poly: any): any[] => {
 };
 
 // Konverterar Esri polygon JSON till GeoJSON-format
-export const polygonJsonToGeoJson = (poly: any): any => {
-  if (!poly) return null;
+export const polygonJsonToGeoJson = (
+  polygon: PolygonLike | null | undefined
+): GeoJsonPolygon | null => {
+  if (!polygon) return null;
   try {
-    const rings = extractRings(poly);
+    const rings = extractRings(polygon);
     if (!rings.length) {
-      logWarn("polygonJsonToGeoJson: No rings found in polygon", poly);
+      logWarn("polygonJsonToGeoJson: No rings found in polygon", polygon);
       return null;
     }
     const normalized = rings
       .map(normalizeRing)
       .filter((ring) => ring.length >= 4);
     if (!normalized.length) {
-      logWarn("polygonJsonToGeoJson: No valid rings after normalization", poly);
+      logWarn(
+        "polygonJsonToGeoJson: No valid rings after normalization",
+        polygon
+      );
       return null;
     }
     return {
@@ -165,15 +185,16 @@ export const polygonJsonToGeoJson = (poly: any): any => {
     };
   } catch (err) {
     const isEmptyInput =
-      !poly || (typeof poly === "object" && !poly.rings && !poly.geometry);
+      !polygon ||
+      (typeof polygon === "object" && !polygon.rings && !polygon.geometry);
     if (isEmptyInput) {
-      logWarn("polygonJsonToGeoJson: Empty/invalid input", poly);
+      logWarn("polygonJsonToGeoJson: Empty/invalid input", polygon);
       return null;
     }
     logWarn(
       "polygonJsonToGeoJson: Unexpected serialization exception",
       err,
-      poly
+      polygon
     );
     return null;
   }
@@ -209,8 +230,10 @@ const serializeRing = (ring: unknown): string[] => {
   return parts;
 };
 
-export const polygonJsonToWkt = (poly: any): string => {
-  const geojson = polygonJsonToGeoJson(poly);
+export const polygonJsonToWkt = (
+  polygon: PolygonLike | null | undefined
+): string => {
+  const geojson = polygonJsonToGeoJson(polygon);
   if (!geojson) return "POLYGON EMPTY";
 
   const rings = Array.isArray(geojson?.coordinates)
@@ -304,29 +327,29 @@ const projectToWgs84 = (
 };
 
 export const toWgs84PolygonJson = (
-  polyJson: any,
+  polygonJson: PolygonLike | null | undefined,
   modules: EsriModules | null | undefined
-): any => {
-  if (!modules?.Polygon) return polyJson;
+): PolygonLike | null => {
+  if (!modules?.Polygon) return polygonJson ?? null;
 
   try {
-    const poly = modules.Polygon.fromJSON(polyJson);
-    if (!poly) {
+    const polygon = modules.Polygon.fromJSON(polygonJson);
+    if (!polygon) {
       logWarn("toWgs84PolygonJson: Failed to create Polygon from JSON");
-      return polyJson;
+      return polygonJson ?? null;
     }
 
-    const sr = (poly as any).spatialReference;
-    if (isWgs84Sr(sr)) {
-      return poly.toJSON();
+    const spatialRef = polygon.spatialReference;
+    if (isWgs84Sr(spatialRef)) {
+      return polygon.toJSON();
     }
 
-    const projected = projectToWgs84(poly, modules);
+    const projected = projectToWgs84(polygon, modules);
     if (projected?.toJSON) {
       const result = projected.toJSON();
-      const resultSr = result?.spatialReference;
-      if (isWgs84Sr(resultSr)) {
-        if (!resultSr?.wkid) {
+      const resultSpatialRef = result?.spatialReference;
+      if (isWgs84Sr(resultSpatialRef)) {
+        if (!resultSpatialRef?.wkid) {
           result.spatialReference = { wkid: 4326 };
         }
         return result;
@@ -337,7 +360,7 @@ export const toWgs84PolygonJson = (
     const { webMercatorUtils } = modules;
     if (webMercatorUtils?.webMercatorToGeographic) {
       const geographic = webMercatorUtils.webMercatorToGeographic(
-        poly
+        polygon
       ) as __esri.Polygon;
       if (geographic?.toJSON) {
         return geographic.toJSON();
@@ -347,10 +370,10 @@ export const toWgs84PolygonJson = (
     logWarn(
       "toWgs84PolygonJson: Returning original polygon (projection failed)"
     );
-    return poly.toJSON();
+    return polygon.toJSON();
   } catch (err) {
     logWarn("toWgs84PolygonJson: Error during projection", err);
-    return polyJson;
+    return polygonJson ?? null;
   }
 };
 

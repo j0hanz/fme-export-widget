@@ -11,8 +11,11 @@ export const fmeQueryClient = new QueryClient({
     queries: {
       staleTime: TIME_CONSTANTS.FIVE_MINUTES, // Data betraktas som färsk i 5 min
       gcTime: TIME_CONSTANTS.TEN_MINUTES, // Garbage collection efter 10 min
-      retry: (failureCount, error: any) => {
-        const status = error?.status || error?.response?.status;
+      retry: (failureCount, error: unknown) => {
+        const status =
+          (error as { status?: number; response?: { status?: number } })
+            ?.status ||
+          (error as { response?: { status?: number } })?.response?.status;
         // Retry inte för autentiseringsfel (401, 403)
         if (
           status === HTTP_STATUS_CODES.UNAUTHORIZED ||

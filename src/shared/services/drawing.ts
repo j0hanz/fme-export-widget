@@ -117,15 +117,17 @@ export function setupSketchEventHandlers({
         evt.state === "complete" &&
         Array.isArray(evt.graphics) &&
         evt.graphics.length > 0 &&
-        (evt.graphics[0] as any)?.geometry
+        evt.graphics[0]?.geometry
       ) {
-        const normalizedTool = normalizeSketchCreateTool((evt as any)?.tool);
+        const normalizedTool = normalizeSketchCreateTool(
+          (evt as unknown as { tool?: string })?.tool
+        );
         try {
           onDrawComplete({
-            graphic: evt.graphics[0] as any,
+            graphic: evt.graphics[0],
             state: "complete",
-            tool: normalizedTool ?? (evt as any).tool,
-          } as any);
+            tool: normalizedTool ?? (evt as unknown as { tool?: string }).tool,
+          } as __esri.SketchCreateEvent);
         } catch (err: unknown) {
           logIfNotAbort("onDrawComplete update error", err);
         }
@@ -150,9 +152,9 @@ export function setupSketchEventHandlers({
 
 export async function processDrawingCompletion(params: {
   geometry: __esri.Geometry | undefined;
-  modules: any;
+  modules: EsriModules;
   graphicsLayer: __esri.GraphicsLayer | undefined;
-  config: any;
+  config: { areaThreshold?: number; largeAreaThreshold?: number };
   signal: AbortSignal;
 }): Promise<DrawingCompletionResult> {
   const { geometry, modules, config, signal } = params;
@@ -191,8 +193,8 @@ export async function processDrawingCompletion(params: {
 
   const normalizedArea = Math.abs(calculatedArea);
   const areaEvaluation = evaluateArea(normalizedArea, {
-    maxArea: config?.maxArea,
-    largeArea: config?.largeArea,
+    maxArea: config?.areaThreshold,
+    largeArea: config?.largeAreaThreshold,
   });
 
   if (signal.aborted) {
@@ -200,7 +202,7 @@ export async function processDrawingCompletion(params: {
   }
 
   if (areaEvaluation.exceedsMaximum) {
-    const maxCheck = checkMaxArea(normalizedArea, config?.maxArea);
+    const maxCheck = checkMaxArea(normalizedArea, config?.areaThreshold);
     return {
       success: false,
       error: {
@@ -237,9 +239,9 @@ export function createSketchVM({
   dispatch: (action: unknown) => void;
   widgetId: string;
   symbols: {
-    polygon: any;
-    polyline: any;
-    point: any;
+    polygon: __esri.SimpleFillSymbol;
+    polyline: __esri.SimpleLineSymbol;
+    point: __esri.SimpleMarkerSymbol;
   };
   onDrawingSessionChange: (updates: Partial<DrawingSessionState>) => void;
   onSketchToolStart: (tool: DrawingTool) => void;
@@ -310,6 +312,8 @@ export function createSketchVM({
     onDrawingSessionChange,
     onSketchToolStart,
   });
-  (sketchViewModel as any).__fmeCleanup__ = cleanup;
+  (
+    sketchViewModel as unknown as { __fmeCleanup__: () => void }
+  ).__fmeCleanup__ = cleanup;
   return { sketchViewModel, cleanup };
 }

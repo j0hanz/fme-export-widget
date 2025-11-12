@@ -19,6 +19,7 @@ import {
   ParameterType,
   type SerializableErrorState,
   type ServiceMode,
+  TIME_CONSTANTS,
   useUiStyles,
   ViewMode,
   type VisibilityState,
@@ -196,7 +197,8 @@ const createFormValidator = (
     };
   };
 
-  const initializeValues = () => initFormValues(getFormConfig());
+  const initializeValues = (): FormValues =>
+    initFormValues(getFormConfig()) as FormValues;
   return { getFormConfig, validateValues, initializeValues };
 };
 
@@ -348,7 +350,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
       } catch {
         // Ignorera fel, fallback-knappen finns tillgänglig
       }
-    }, 100); // AUTO_DOWNLOAD_DELAY_MS
+    }, TIME_CONSTANTS.AUTO_DOWNLOAD_DELAY_MS);
 
     return cleanup;
   });
@@ -891,7 +893,9 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   const canDraw = canStartDrawing ?? true;
 
   // Hämtar ritverk tygsläges-items med översättning - use ref for stable reference
-  const drawingModeItemsRef = React.useRef<any[]>([]);
+  const drawingModeItemsRef = React.useRef<
+    Array<{ value: string; label: string; tooltip: string }>
+  >([]);
 
   const getDrawingModeItems = hooks.useEventCallback(() => {
     return DRAWING_MODE_TABS.map((tab) => ({
