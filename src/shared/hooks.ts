@@ -39,6 +39,8 @@ import {
   logIfNotAbort,
   queryKeys,
   safeAbortController,
+  toBooleanValue,
+  toStringValue,
 } from "./utils";
 
 const hasLoadFunction = (
@@ -586,7 +588,7 @@ export const useStringConfigValue = (config: unknown) => {
   const configRef = hooks.useLatest(config);
   return hooks.useEventCallback((key: string, defaultValue = ""): string => {
     const v = configRef.current?.[key];
-    return typeof v === "string" ? v : defaultValue;
+    return toStringValue(v) ?? defaultValue;
   });
 };
 
@@ -596,7 +598,7 @@ export const useBooleanConfigValue = (config: unknown) => {
   return hooks.useEventCallback(
     (key: string, defaultValue = false): boolean => {
       const v = configRef.current?.[key];
-      return typeof v === "boolean" ? v : defaultValue;
+      return toBooleanValue(v) ?? defaultValue;
     }
   );
 };

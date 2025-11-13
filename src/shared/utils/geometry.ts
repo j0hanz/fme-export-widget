@@ -28,7 +28,12 @@ import {
   ParameterType,
   VALIDATION_LIMITS,
 } from "../../config/index";
-import { sanitizeParamKey, toTrimmedString } from "./conversion";
+import {
+  ensureArray,
+  sanitizeParamKey,
+  toNumberValue,
+  toTrimmedString,
+} from "./conversion";
 import { createGeometryError } from "./error";
 import { loadArcgisModules } from "./index";
 import { logDebug, logWarn } from "./logging";
@@ -215,7 +220,7 @@ const serializeCoordinate = (coords: unknown): string | null => {
   if (!Array.isArray(coords) || coords.length < 2) return null;
   const values: string[] = [];
   for (const raw of coords) {
-    const num = typeof raw === "number" ? raw : Number(raw);
+    const num = toNumberValue(raw) ?? Number(raw);
     if (!Number.isFinite(num)) return null;
     values.push(formatNumberForWkt(num));
   }
@@ -1192,7 +1197,7 @@ export const validatePolygon = async (
     poly = simplified;
 
     const rawRings = (poly as { rings?: unknown }).rings;
-    const rings = Array.isArray(rawRings) ? rawRings : [];
+    const rings = ensureArray<number[][]>(rawRings);
     if (!validateRingStructure(rings)) {
       return makeGeometryError("geometryInvalidCode", "GEOMETRY_INVALID");
     }

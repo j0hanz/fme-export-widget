@@ -59,6 +59,7 @@ import {
   toBooleanValue,
   toMetadataRecord,
   toNonEmptyTrimmedString,
+  toStringValue,
   toTrimmedString,
   unwrapArray,
 } from "../utils";
@@ -1610,21 +1611,13 @@ export class ParameterFormService {
           : undefined;
       const field: DynamicFieldConfig = {
         name: param.name,
-        label:
-          (typeof promptValue === "string" ? promptValue : undefined) ||
-          param.description ||
-          param.name,
+        label: toStringValue(promptValue) || param.description || param.name,
         type,
         required: !param.optional,
         readOnly,
-        description:
-          (typeof promptValue === "string" ? promptValue : undefined) ||
-          param.description,
+        description: toStringValue(promptValue) || param.description,
         defaultValue,
-        placeholder:
-          (typeof promptValue === "string" ? promptValue : undefined) ||
-          param.description ||
-          "",
+        placeholder: toStringValue(promptValue) || param.description || "",
         ...(options?.length && { options: [...options] }),
         ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
         ...((min !== undefined || max !== undefined || step !== undefined) && {
@@ -1699,7 +1692,7 @@ export class ParameterFormService {
         param.attributes && isPlainObject(param.attributes)
           ? (param.attributes as { [key: string]: unknown }).editor
           : undefined;
-      const editor = typeof editorValue === "string" ? editorValue : undefined;
+      const editor = toStringValue(editorValue);
 
       if (editor === "plaintext") {
         return FormFieldType.TEXTAREA;
@@ -1714,8 +1707,7 @@ export class ParameterFormService {
         param.attributes && isPlainObject(param.attributes)
           ? (param.attributes as { [key: string]: unknown }).valueType
           : undefined;
-      const valueType =
-        typeof valueTypeValue === "string" ? valueTypeValue : undefined;
+      const valueType = toStringValue(valueTypeValue);
       if (valueType === "stringEncoded") {
         return FormFieldType.TEXTAREA;
       }

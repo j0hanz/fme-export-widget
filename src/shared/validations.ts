@@ -22,6 +22,7 @@ import {
 } from "../config/index";
 import {
   buildValidationErrors,
+  ensureArray,
   extractErrorMessage,
   isFileObject,
   isFiniteNumber,
@@ -139,7 +140,7 @@ export const parseTableRows = (value: unknown): string[] => {
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed.map(String) : value ? [value] : [];
+      return ensureArray<string>(parsed).map(String).filter(Boolean);
     } catch {
       return value ? [value] : [];
     }

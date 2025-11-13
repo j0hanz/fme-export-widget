@@ -413,7 +413,7 @@ export const determineServiceMode = (
   const data = extractFormData(formData);
   const overrideValue = data._serviceMode;
   const override = toNonEmptyTrimmedString(
-    typeof overrideValue === "string" ? overrideValue : ""
+    toTrimmedStringOrEmpty(overrideValue)
   ).toLowerCase();
 
   let resolved: ServiceMode;
@@ -493,7 +493,7 @@ export const applyDirectiveDefaults = (
     const candidate = params.opt_servicemode;
     if (typeof candidate === "string") return candidate;
     const cloned = out.opt_servicemode;
-    return typeof cloned === "string" ? cloned : "";
+    return toTrimmedStringOrEmpty(cloned);
   })();
 
   const normalizedMode = toNonEmptyTrimmedString(rawMode).toLowerCase();

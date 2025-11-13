@@ -70,10 +70,12 @@ import {
   getErrorIconSrc,
   resolveMessageOrKey,
   styleCss,
+  toBooleanValue,
+  toTrimmedString,
+  toTrimmedStringOrEmpty,
 } from "../../shared/utils";
 import { isStringOrNumber } from "../../shared/utils/conversion";
 import defaultMessages from "../translations/default";
-// Removed schedule validation imports from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg";
 import emailIcon from "../../assets/icons/email.svg";
 import errorIcon from "../../assets/icons/error.svg";
@@ -277,8 +279,7 @@ const createTooltipAnchor = (
 
   if (!isDisabled) return child;
 
-  const ariaLabel =
-    typeof tooltipContent === "string" ? tooltipContent : undefined;
+  const ariaLabel = toTrimmedString(tooltipContent);
 
   // Inaktiverade element ska INTE vara fokusbara enligt WCAG 2.1.1
   return (
@@ -953,7 +954,7 @@ export const Select: React.FC<SelectProps> = ({
           value={searchTerm}
           placeholder={translate("phSearch")}
           onChange={(val) => {
-            setSearchTerm(typeof val === "string" ? val : "");
+            setSearchTerm(toTrimmedStringOrEmpty(val));
           }}
           onKeyDown={(evt: React.KeyboardEvent<HTMLInputElement>) => {
             if (evt.key === "Enter" && allowCustomValues) {
@@ -1589,7 +1590,7 @@ const StateView: React.FC<StateViewProps> = ({
       ? renderLoadingState()
       : renderStateByKind();
 
-  const shouldCenter = typeof center === "boolean" ? center : showLoading;
+  const shouldCenter = toBooleanValue(center) ?? showLoading;
 
   return (
     <div

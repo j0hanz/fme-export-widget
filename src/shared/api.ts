@@ -48,6 +48,7 @@ import {
   safeLogParams,
   safeParseUrl,
   toNonEmptyTrimmedString,
+  toNumberValue,
   toTrimmedString,
 } from "./utils";
 import {
@@ -1442,8 +1443,7 @@ const getMaxUrlLength = (): number => {
     if (typeof window === "undefined") return undefined;
     const rawMaxLength = (window as WindowWithEsriConfig)?.esriConfig?.request
       ?.maxUrlLength;
-    const numeric =
-      typeof rawMaxLength === "number" ? rawMaxLength : Number(rawMaxLength);
+    const numeric = toNumberValue(rawMaxLength) ?? Number(rawMaxLength);
     return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
   })();
 

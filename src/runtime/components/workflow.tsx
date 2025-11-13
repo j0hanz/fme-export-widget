@@ -55,6 +55,7 @@ import {
   stripErrorLabel,
   stripHtmlToText,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
 } from "../../shared/utils";
 import {
   getSupportEmail,
@@ -763,7 +764,7 @@ const ExportForm: React.FC<
 
     const shouldUpdate = geometryFieldNames.some((name) => {
       const current = currentValues?.[name];
-      const currentStr = typeof current === "string" ? current : "";
+      const currentStr = toTrimmedStringOrEmpty(current);
       return currentStr !== nextValue;
     });
 

@@ -13,6 +13,7 @@ import {
   toNonEmptyTrimmedString,
   toStr,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
 } from "./conversion";
 import { coerceFormValueForSubmission, getFileDisplayName } from "./form";
 
@@ -160,7 +161,7 @@ export const buildParams = (
         return existing;
       }
       const raw = params[key];
-      return typeof raw === "string" ? raw : "";
+      return toTrimmedStringOrEmpty(raw);
     };
 
     const formatRaw = normalizeToLowerCase(getRaw("opt_responseformat"));

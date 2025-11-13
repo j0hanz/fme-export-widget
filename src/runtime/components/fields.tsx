@@ -24,9 +24,6 @@ import {
   UI_CONFIG,
   type UiStyles,
 } from "../../config/index";
-// ============================================
-// Attribute Names Field (Added: Oct 24, 2025)
-// ============================================
 import { useUiStyles as useConfigStyles } from "../../config/style";
 import { useControlledValue } from "../../shared/hooks";
 import {
@@ -47,6 +44,7 @@ import {
   inputToFmeTime,
   isFileObject,
   isNonEmptyTrimmedString,
+  isPlainObject,
   makePlaceholders,
   normalizedRgbToHex,
   normalizeFormValue,
@@ -57,6 +55,7 @@ import {
   toBooleanValue,
   toStringValue,
   toTrimmedString,
+  toTrimmedStringOrEmpty,
 } from "../../shared/utils";
 import defaultMessages from "../translations/default";
 import {
@@ -243,10 +242,6 @@ const normalizeTextOrFileValue = (
     text: toDisplayString(rawValue),
   };
 };
-
-// Kontrollerar om värde är ett vanligt objekt (ej array/null)
-const isPlainObject = (value: unknown): value is { [key: string]: unknown } =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 // Normaliserar tabellrader från olika inputformat till enhetlig struktur
 const normalizeTableRows = (
@@ -750,7 +745,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         value={r}
                         placeholder={field.placeholder || placeholders.enter}
                         onChange={(val) => {
-                          const s = typeof val === "string" ? val : "";
+                          const s = toTrimmedStringOrEmpty(val);
                           updateRow(i, s);
                         }}
                         disabled={isDisabled}
@@ -1706,7 +1701,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         mode="date"
         value={isoValue}
         onChange={(dateTime) => {
-          const raw = typeof dateTime === "string" ? dateTime : "";
+          const raw = toTrimmedStringOrEmpty(dateTime);
           const datePart = raw.split("T")[0] || "";
           const out = inputToFmeDate(datePart);
           onChange(out as FormPrimitive);
@@ -2068,7 +2063,7 @@ export const MultiSelectControl: React.FC<{
           value={searchTerm}
           placeholder={translate("phSearch")}
           onChange={(val) => {
-            setSearchTerm(typeof val === "string" ? val : "");
+            setSearchTerm(toTrimmedStringOrEmpty(val));
           }}
           disabled={disabled}
         />
