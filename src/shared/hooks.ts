@@ -308,7 +308,7 @@ export const useEsriModules = (
         }
 
         // Extrahera geometry operators från async eller sync engine
-        const geometryOperators =
+        const fallbackOperators =
           extractGeometryOperators(geometryEngineAsync) ??
           extractGeometryOperators(geometryEngine) ??
           null;
@@ -325,7 +325,7 @@ export const useEsriModules = (
           Polyline,
           Polygon,
           Graphic,
-          geometryOperators,
+          geometryOperators: fallbackOperators,
         };
 
         setState({
@@ -333,6 +333,34 @@ export const useEsriModules = (
           loading: false,
           errorKey: null,
         });
+
+        void (async () => {
+          try {
+            const [operatorsModule] = await loadArcgisModules([
+              "esri/geometry/operators",
+            ]);
+            if (cancelled) return;
+            if (!isGeometryOperatorContainer(operatorsModule)) return;
+            const optionalOperators = operatorsModule;
+            if (!optionalOperators) return;
+
+            setState((prev) => {
+              if (!prev.modules) return prev;
+              if (prev.modules.geometryOperators === optionalOperators) {
+                return prev;
+              }
+              return {
+                ...prev,
+                modules: {
+                  ...prev.modules,
+                  geometryOperators: optionalOperators,
+                },
+              };
+            });
+          } catch {
+            /* Optional geometry operators module unavailable */
+          }
+        })();
       } catch (error) {
         if (!cancelled) {
           setState({ modules: null, loading: false, errorKey: "errorMapInit" });
