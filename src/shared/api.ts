@@ -72,6 +72,11 @@ const DEFAULT_CONFIG: NetworkConfig = {
 
 const config: NetworkConfig = { ...DEFAULT_CONFIG };
 
+// Cached regex patterns for performance
+const SENSITIVE_KEY_PATTERNS = ["token", "auth", "secret", "key", "password"];
+const REDACT_AUTH_REGEX = /authorization="?[^"]+"?/gi;
+const REDACT_TOKEN_REGEX = /(token|fmetoken)=([^&\s]+)/gi;
+
 // Network history buffer för debugging
 const networkHistory: RequestLog[] = [];
 const MAX_NETWORK_HISTORY = NETWORK_CONFIG.MAX_HISTORY_SIZE;
@@ -287,24 +292,15 @@ function serializeParams(params: URLSearchParams): string {
 
 // Kontrollerar om parameter-nyckel är känslig (innehåller token/auth/etc.)
 function isSensitiveKey(key: string): boolean {
-  return (
-    key.includes("token") ||
-    key.includes("auth") ||
-    key.includes("secret") ||
-    key.includes("key") ||
-    key.includes("password")
-  );
+  const lowerKey = key.toLowerCase();
+  return SENSITIVE_KEY_PATTERNS.some((pattern) => lowerKey.includes(pattern));
 }
 
 // Maskerar känsliga värden i fritext (auth-headers, tokens i URL)
 function redactSensitiveText(text: string): string {
-  let result = text;
-  result = result.replace(
-    /authorization="?[^"]+"?/gi,
-    'authorization="[TOKEN]"'
-  );
-  result = result.replace(/(token|fmetoken)=([^&\s]+)/gi, "$1=[TOKEN]");
-  return result;
+  return text
+    .replace(REDACT_AUTH_REGEX, 'authorization="[TOKEN]"')
+    .replace(REDACT_TOKEN_REGEX, "$1=[TOKEN]");
 }
 
 /* Body-hantering för logging */
@@ -315,30 +311,35 @@ function describeBody(body: unknown): string {
   if (body == null) return "";
 
   if (typeof body === "string") {
-    const sanitized = redactSensitiveText(body);
-    return truncate(sanitized, config.bodyPreviewLimit);
+    return truncate(redactSensitiveText(body), config.bodyPreviewLimit);
   }
 
-  if (typeof body === "object") {
-    if (typeof FormData !== "undefined" && body instanceof FormData) {
-      return "[FormData]";
+  if (typeof body !== "object") {
+    try {
+      const serialized = JSON.stringify(body);
+      return truncate(redactSensitiveText(serialized), config.bodyPreviewLimit);
+    } catch {
+      return "[Object]";
     }
-    if (typeof Blob !== "undefined" && body instanceof Blob) {
-      return `[Blob:${body.size}]`;
-    }
-    if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer) {
-      const size =
-        body instanceof ArrayBuffer
-          ? body.byteLength
-          : body.buffer?.byteLength || 0;
-      return `[Binary:${size}]`;
-    }
+  }
+
+  // Object type checks
+  if (typeof FormData !== "undefined" && body instanceof FormData)
+    return "[FormData]";
+  if (typeof Blob !== "undefined" && body instanceof Blob)
+    return `[Blob:${body.size}]`;
+
+  if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer) {
+    const size =
+      body instanceof ArrayBuffer
+        ? body.byteLength
+        : body.buffer?.byteLength || 0;
+    return `[Binary:${size}]`;
   }
 
   try {
     const serialized = JSON.stringify(body);
-    const sanitized = redactSensitiveText(serialized);
-    return truncate(sanitized, config.bodyPreviewLimit);
+    return truncate(redactSensitiveText(serialized), config.bodyPreviewLimit);
   } catch {
     return "[Object]";
   }
@@ -599,11 +600,11 @@ export class AbortControllerManager {
     const records = this.listeners.get(key);
     if (!records?.size) return;
 
-    records.forEach((record) => {
+    for (const record of records) {
       try {
         record.signal.removeEventListener("abort", record.handler);
       } catch {}
-    });
+    }
     this.listeners.delete(key);
   }
 

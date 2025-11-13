@@ -40,7 +40,9 @@ const createAoiSerializationError = (): ErrorState => ({
 
 // Jämför två koordinater med numerisk tolerans
 export const coordinatesEqual = (a: unknown, b: unknown): boolean => {
-  if (!Array.isArray(a) || !Array.isArray(b)) return false;
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length < 2 || b.length < 2)
+    return false;
+
   const len = Math.min(a.length, b.length, 2);
   for (let i = 0; i < len; i++) {
     const av = a[i];
@@ -54,14 +56,24 @@ export const coordinatesEqual = (a: unknown, b: unknown): boolean => {
 
 const normalizeCoordinate = (vertex: unknown): number[] | null => {
   if (!Array.isArray(vertex) || vertex.length < 2) return null;
-  const [x, y, z, m] = vertex.map((part) =>
-    typeof part === "string" ? Number(part) : (part as number)
-  );
+
+  const x = typeof vertex[0] === "string" ? Number(vertex[0]) : vertex[0];
+  const y = typeof vertex[1] === "string" ? Number(vertex[1]) : vertex[1];
+
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
   const result: number[] = [x, y];
-  if (Number.isFinite(z)) result.push(z);
-  if (Number.isFinite(m)) result.push(m);
+
+  if (vertex.length > 2) {
+    const z = typeof vertex[2] === "string" ? Number(vertex[2]) : vertex[2];
+    if (Number.isFinite(z)) result.push(z);
+  }
+
+  if (vertex.length > 3) {
+    const m = typeof vertex[3] === "string" ? Number(vertex[3]) : vertex[3];
+    if (Number.isFinite(m)) result.push(m);
+  }
+
   return result;
 };
 

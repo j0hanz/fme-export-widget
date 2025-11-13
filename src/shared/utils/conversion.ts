@@ -51,9 +51,9 @@ export const isNullish = (value: unknown): value is null | undefined =>
 
 /** Checks if value is empty (null, undefined, empty string, or empty array). */
 export const isEmpty = (value: unknown): boolean => {
-  if (isNullish(value) || value === "") return true;
+  if (value == null || value === "") return true;
   if (Array.isArray(value)) return value.length === 0;
-  if (isString(value)) return !isNonEmptyTrimmedString(value);
+  if (isString(value)) return value.trim().length === 0;
   return false;
 };
 
@@ -445,10 +445,10 @@ export const safeJsonParse = <T = unknown>(
   }
 };
 
-/** Deep clone via JSON serialization (loses functions, symbols, undefined). */
+/** Deep clone using modern structuredClone API (preserves more types than JSON). */
 export const deepCloneJson = <T>(value: T): T => {
   try {
-    return JSON.parse(JSON.stringify(value)) as T;
+    return structuredClone(value);
   } catch {
     return value;
   }

@@ -100,6 +100,7 @@ interface ToggleValuePair {
 
 const MAX_SEPARATOR_LENGTH = 64;
 const DEFAULT_SEPARATOR_REGEX = /\|/;
+const NO_SLIDER_KEYWORDS = ["no slider", "noslider", "without slider"];
 
 // Service för att konvertera FME-parametrar till dynamiska formulärfält
 export class ParameterFormService {
@@ -274,26 +275,17 @@ export class ParameterFormService {
   // Avgör om RANGE_SLIDER ska använda slider-UI eller numeriskt fält
   private shouldUseRangeSliderUi(param: WorkspaceParameter): boolean {
     if (param.type !== ParameterType.RANGE_SLIDER) return false;
+
     if (param.control && typeof param.control === "object") {
       const controlRecord = param.control as { [key: string]: unknown };
-      if (typeof controlRecord.useRangeSlider === "boolean") {
+      if (typeof controlRecord.useRangeSlider === "boolean")
         return controlRecord.useRangeSlider;
-      }
-      if (typeof controlRecord.useSlider === "boolean") {
+      if (typeof controlRecord.useSlider === "boolean")
         return controlRecord.useSlider;
-      }
-    }
-    const description = (param.description || "").toLowerCase();
-    if (
-      description.includes("no slider") ||
-      description.includes("noslider") ||
-      description.includes("without slider")
-    ) {
-      return false;
     }
 
-    // Standard för RANGE_SLIDER är att visa slider-UI
-    return true;
+    const description = (param.description || "").toLowerCase();
+    return !NO_SLIDER_KEYWORDS.some((keyword) => description.includes(keyword));
   }
 
   // Samlar metadata från olika källor (metadata, attributes, definition etc.)

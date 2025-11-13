@@ -975,14 +975,13 @@ function WidgetContent(
       }
       const nextConfig = config;
 
-      const serverChanged =
-        prevConfig?.fmeServerUrl !== nextConfig?.fmeServerUrl;
-      const tokenChanged =
-        prevConfig?.fmeServerToken !== nextConfig?.fmeServerToken;
-      const repoChanged = prevConfig?.repository !== nextConfig?.repository;
+      const hasConnectionChange =
+        prevConfig?.fmeServerUrl !== nextConfig?.fmeServerUrl ||
+        prevConfig?.fmeServerToken !== nextConfig?.fmeServerToken ||
+        prevConfig?.repository !== nextConfig?.repository;
 
       try {
-        if (serverChanged || tokenChanged || repoChanged) {
+        if (hasConnectionChange) {
           /* Full omvalidering krävs vid byte av anslutning eller repository */
           resetForRevalidation(false);
           /* Fördröjer validering något för att låta ev. UI-övergångar slutföras */
