@@ -22,6 +22,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { shallowEqual } from "react-redux";
 import type {
   DrawingSessionState,
+  DrawingSymbolSet,
   ErrorState,
   EsriModules,
   ExportResult,
@@ -30,6 +31,7 @@ import type {
   ModeNotice,
   SerializableErrorState,
   ServiceModeOverrideInfo,
+  SketchViewModelInternals,
   SubmissionPhase,
   SubmissionPreparationStatus,
   WorkspaceItemDetail,
@@ -44,10 +46,6 @@ import {
   TIME_CONSTANTS,
   VIEW_ROUTES,
   ViewMode,
-} from "../config/index";
-import type {
-  DrawingSymbolSet,
-  SketchViewModelInternals,
 } from "../config/index";
 import { createFmeSelectors, initialFmeState } from "../extensions/store";
 import { createFmeFlowClient } from "../shared/api";

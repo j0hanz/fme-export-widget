@@ -20,7 +20,6 @@ import type {
   TestState,
   TranslateFn,
   ValidationPhase,
-  ValidationResult,
 } from "../config/index";
 import {
   DEFAULT_DRAWING_HEX,
@@ -71,8 +70,6 @@ import {
   mapServerUrlReasonToKey,
   normalizeBaseUrl,
   validateAndNormalizeUrl,
-  validateConnectionInputs,
-  validateEmailField,
   validateServerUrl,
   validateToken,
 } from "../shared/validations";
@@ -81,6 +78,7 @@ import {
   FieldRow,
   JobDirectivesSection,
   RepositorySelector,
+  RequiredLabel,
   toNumericValue,
 } from "./components/controls";
 import defaultMessages from "./translations/default";
@@ -368,6 +366,57 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     hasMapSelection && hasServerInputs && hasRepositorySelection;
   const shouldShowRemoteDatasetSettings = localAllowRemoteDataset;
 
+  /* Återanvändbar blur-hanterare för valfria numeriska fält med validering */
+  const createNumericBlurHandler = hooks.useEventCallback(
+    (
+      configKey: keyof FmeExportConfig,
+      localSetter: (val: string) => void,
+      fieldKey: keyof FieldErrors,
+      validationOptions?: {
+        maxValue?: number;
+        errorMsgKey?: string;
+        errorMsgParams?: { [key: string]: string | number };
+      }
+    ) => {
+      return (val: string | number | undefined) => {
+        const stringVal = typeof val === "number" ? String(val) : (val ?? "");
+        const trimmed = stringVal.trim();
+        const parsed = parseNonNegativeInt(trimmed);
+
+        // Clear field if empty or invalid
+        if (parsed === undefined || parsed === 0) {
+          updateConfig(configKey, undefined);
+          localSetter("");
+          setFieldErrors((prev) => ({ ...prev, [fieldKey]: undefined }));
+          return;
+        }
+
+        // Validate max value if provided
+        if (
+          validationOptions?.maxValue &&
+          parsed > validationOptions.maxValue
+        ) {
+          const errorMsg = validationOptions.errorMsgKey
+            ? translate(
+                validationOptions.errorMsgKey,
+                validationOptions.errorMsgParams
+              )
+            : "Invalid value";
+          setFieldErrors((prev) => ({ ...prev, [fieldKey]: errorMsg }));
+          return;
+        }
+
+        // Update config and local state on success
+        const finalValue = validationOptions?.maxValue
+          ? Math.min(parsed, validationOptions.maxValue)
+          : parsed;
+        updateConfig(configKey, finalValue);
+        localSetter(String(finalValue));
+        setFieldErrors((prev) => ({ ...prev, [fieldKey]: undefined }));
+      };
+    }
+  );
+
   const handleLargeAreaChange = hooks.useEventCallback(
     (val: number | undefined) => {
       setFieldErrors((prev) => ({ ...prev, largeArea: undefined }));
@@ -379,57 +428,27 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   );
 
-  const handleLargeAreaBlur = hooks.useEventCallback((val: string) => {
-    const trimmed = (val ?? "").trim();
-    const parsed = parseNonNegativeInt(trimmed);
-
-    if (parsed === undefined || parsed === 0) {
-      updateConfig("largeArea", undefined);
-      setLocalLargeAreaM2("");
-      setFieldErrors((prev) => ({ ...prev, largeArea: undefined }));
-      return;
+  const handleLargeAreaBlur = createNumericBlurHandler(
+    "largeArea",
+    setLocalLargeAreaM2,
+    "largeArea",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_M2_CAP,
+      errorMsgKey: "errorMaxAreaTooLarge",
+      errorMsgParams: { maxM2: CONSTANTS.LIMITS.MAX_M2_CAP },
     }
+  );
 
-    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        largeArea: translate("errorMaxAreaTooLarge", {
-          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-        }),
-      }));
-      return;
+  const handleMaxAreaBlur = createNumericBlurHandler(
+    "maxArea",
+    setLocalMaxAreaM2,
+    "maxArea",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_M2_CAP,
+      errorMsgKey: "errorMaxAreaTooLarge",
+      errorMsgParams: { maxM2: CONSTANTS.LIMITS.MAX_M2_CAP },
     }
-
-    updateConfig("largeArea", parsed);
-    setLocalLargeAreaM2(String(parsed));
-    setFieldErrors((prev) => ({ ...prev, largeArea: undefined }));
-  });
-
-  const handleMaxAreaBlur = hooks.useEventCallback((val: string) => {
-    const trimmed = (val ?? "").trim();
-    const parsed = parseNonNegativeInt(trimmed);
-
-    if (parsed === undefined || parsed === 0) {
-      updateConfig("maxArea", undefined);
-      setLocalMaxAreaM2("");
-      setFieldErrors((prev) => ({ ...prev, maxArea: undefined }));
-      return;
-    }
-
-    if (parsed > CONSTANTS.LIMITS.MAX_M2_CAP) {
-      setFieldErrors((prev) => ({
-        ...prev,
-        maxArea: translate("errorMaxAreaTooLarge", {
-          maxM2: CONSTANTS.LIMITS.MAX_M2_CAP,
-        }),
-      }));
-      return;
-    }
-
-    updateConfig("maxArea", parsed);
-    setLocalMaxAreaM2(String(parsed));
-    setFieldErrors((prev) => ({ ...prev, maxArea: undefined }));
-  });
+  );
 
   /* Konsoliderad effekt: återställ beroende alternativ när dolda */
   hooks.useEffectWithPreviousValues(() => {
@@ -681,119 +700,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     });
   };
 
-  /* Renderar obligatorisk etikett med tooltip */
-  const RequiredLabel: React.FC<{ text: string }> = ({ text }) => (
-    <>
-      {text}
-      <Tooltip content={translate("valRequiredField")} placement="top">
-        <span
-          css={styles.typo.required}
-          aria-label={translate("ariaRequired")}
-          role="img"
-          aria-hidden={false}
-        >
-          {uiConfig.required}
-        </span>
-      </Tooltip>
-    </>
-  );
-
-  /* Unified input-validering */
-  const validateAllInputs = hooks.useEventCallback(
-    (skipRepoCheck = false): ValidationResult => {
-      const composite = validateConnectionInputs({
-        url: localServerUrl,
-        token: localToken,
-        repository: selectedRepository,
-        availableRepos: skipRepoCheck ? null : availableRepos,
-      });
-
-      const messages: Partial<FieldErrors> = {};
-      if (!composite.ok) {
-        if (composite.errors.serverUrl)
-          messages.serverUrl = translateOptional(
-            translate,
-            composite.errors.serverUrl
-          );
-        if (composite.errors.token)
-          messages.token = translateOptional(translate, composite.errors.token);
-        if (!skipRepoCheck && composite.errors.repository)
-          messages.repository = translateOptional(
-            translate,
-            composite.errors.repository
-          );
-      }
-
-      /* Support-email är valfri men måste vara giltig om angiven */
-      const emailValidation = validateEmailField(localSupportEmail);
-      if (!emailValidation.ok && emailValidation.errorKey) {
-        messages.supportEmail = translateOptional(
-          translate,
-          emailValidation.errorKey
-        );
-      }
-
-      if (localAllowRemoteDataset) {
-        const sanitizedTarget = sanitizeParamKey(
-          localUploadTargetParamName,
-          ""
-        );
-        if (!sanitizedTarget) {
-          messages.uploadTargetParamName = translate(
-            "uploadTargetParamNameRequired"
-          );
-        }
-      }
-
-      setFieldErrors((prev) => ({
-        ...prev,
-        serverUrl: messages.serverUrl,
-        token: messages.token,
-        repository: messages.repository,
-        supportEmail: messages.supportEmail,
-        uploadTargetParamName: messages.uploadTargetParamName,
-      }));
-
-      return {
-        messages,
-        hasErrors: !!(
-          messages.serverUrl ||
-          messages.token ||
-          (!skipRepoCheck && messages.repository) ||
-          (!skipRepoCheck && messages.supportEmail) ||
-          messages.uploadTargetParamName
-        ),
-      };
-    }
-  );
-
-  /* Validerar connection settings */
-  const validateConnectionSettings = hooks.useEventCallback(
-    (): FmeFlowConfig | null => {
-      const rawServerUrl = localServerUrl;
-      const token = localToken;
-      const repository = selectedRepository;
-
-      const result = validateAndNormalizeUrl(rawServerUrl || "", {
-        requireHttps: localRequireHttps,
-      });
-
-      if (!result.ok) return null;
-
-      const serverUrl = result.normalized || "";
-      const changed = serverUrl !== rawServerUrl;
-
-      /* Om sanering ändrade, uppdatera config */
-      if (changed) {
-        updateConfig("fmeServerUrl", serverUrl);
-      }
-
-      return serverUrl && token ? { serverUrl, token, repository } : null;
-    }
-  );
   const canRunConnectionTest = serverValidation.ok && tokenValidation.ok;
-
-  /* Hanterar "Test Connection"-knapp - inaktiverad när widget är busy */
   const isTestDisabled =
     !!testState.isTesting || !canRunConnectionTest || isBusy;
 
@@ -904,9 +811,28 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     // Cancel any in-flight test via mutation's internal abort controller
     validateConnectionMutation.reset();
 
-    const { hasErrors } = validateAllInputs(true);
-    const settings = validateConnectionSettings();
-    if (hasErrors || !settings) {
+    const settings = (() => {
+      const rawServerUrl = localServerUrl;
+      const token = localToken;
+      const repository = selectedRepository;
+
+      const result = validateAndNormalizeUrl(rawServerUrl || "", {
+        requireHttps: localRequireHttps,
+      });
+
+      if (!result.ok) return null;
+
+      const serverUrl = result.normalized || "";
+      const changed = serverUrl !== rawServerUrl;
+
+      if (changed) {
+        updateConfig("fmeServerUrl", serverUrl);
+      }
+
+      return serverUrl && token ? { serverUrl, token, repository } : null;
+    })();
+
+    if (!settings) {
       setValidationPhase("idle");
       if (!silent) {
         setTestState({
@@ -1126,35 +1052,13 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     }
   );
 
-  /* Återanvändbar blur-hanterare för valfria numeriska fält */
-  const createNumericBlurHandler = hooks.useEventCallback(
-    (
-      configKey: keyof FmeExportConfig,
-      setter: (val: string) => void,
-      maxValue?: number
-    ) => {
-      return (val: string | number | undefined) => {
-        /* Normalisera till sträng för konsekvent hantering */
-        const stringVal = typeof val === "number" ? String(val) : (val ?? "");
-        const trimmed = stringVal.trim();
-        const coerced = parseNonNegativeInt(trimmed);
-
-        if (coerced === undefined || coerced === 0) {
-          updateConfig(configKey, undefined);
-          setter("");
-        } else {
-          const final = maxValue ? Math.min(coerced, maxValue) : coerced;
-          updateConfig(configKey, final);
-          setter(String(final));
-        }
-      };
-    }
-  );
-
   const handleRequestTimeoutBlur = createNumericBlurHandler(
     "requestTimeout",
     setLocalRequestTimeout,
-    CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS
+    "requestTimeout",
+    {
+      maxValue: CONSTANTS.LIMITS.MAX_REQUEST_TIMEOUT_MS,
+    }
   );
 
   return (
@@ -1164,7 +1068,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
         <SettingRow
           flow="wrap"
           level={2}
-          label={<RequiredLabel text={translate("titleMapConfig")} />}
+          label={
+            <RequiredLabel
+              text={translate("titleMapConfig")}
+              translate={translate}
+              requiredStyle={styles.typo.required}
+              requiredSymbol={uiConfig.required}
+            />
+          }
         >
           <MapWidgetSelector
             useMapWidgetIds={useMapWidgetIds}
@@ -1178,7 +1089,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             {/* FME Server connection-fält */}
             <FieldRow
               id={ID.serverUrl}
-              label={<RequiredLabel text={translate("lblServerUrl")} />}
+              label={
+                <RequiredLabel
+                  text={translate("lblServerUrl")}
+                  translate={translate}
+                  requiredStyle={styles.typo.required}
+                  requiredSymbol={uiConfig.required}
+                />
+              }
               value={localServerUrl}
               onChange={handleServerUrlChange}
               onBlur={handleServerUrlBlur}
@@ -1190,7 +1108,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
             />
             <FieldRow
               id={ID.token}
-              label={<RequiredLabel text={translate("lblApiToken")} />}
+              label={
+                <RequiredLabel
+                  text={translate("lblApiToken")}
+                  translate={translate}
+                  requiredStyle={styles.typo.required}
+                  requiredSymbol={uiConfig.required}
+                />
+              }
               value={localToken}
               onChange={handleTokenChange}
               onBlur={handleTokenBlur}
@@ -1216,7 +1141,14 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                 localToken={localToken}
                 localRepository={selectedRepository}
                 availableRepos={availableRepos}
-                label={<RequiredLabel text={translate("lblRepositories")} />}
+                label={
+                  <RequiredLabel
+                    text={translate("lblRepositories")}
+                    translate={translate}
+                    requiredStyle={styles.typo.required}
+                    requiredSymbol={uiConfig.required}
+                  />
+                }
                 fieldErrors={fieldErrors}
                 validateServerUrl={validateServerUrl}
                 validateToken={validateToken}

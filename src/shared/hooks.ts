@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { shallowEqual, useSelector } from "react-redux";
 import type { Dispatch } from "redux";
 import type {
+  ConfigWithImmutable,
   ConnectionValidationResult,
   ErrorType,
   EsriModules,
@@ -26,7 +27,6 @@ import {
   TIME_CONSTANTS,
   WORKSPACE_ITEM_TYPE,
 } from "../config/index";
-import type { ConfigWithImmutable } from "../config/index";
 import { fmeActions } from "../extensions/store";
 import { healthCheck, validateConnection } from "./services";
 import {

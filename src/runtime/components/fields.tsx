@@ -4,32 +4,29 @@ import { type css, hooks, jsx, React } from "jimu-core";
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker";
 import { TagInput as JimuTagInput, MultiSelect, RichDisplayer } from "jimu-ui";
 import {
+  type AttributeNamesFieldProps,
   type DynamicFieldProps,
   FILE_UPLOAD,
   type FileFieldConfig,
   type FileValidationResult,
   FormFieldType,
   type FormPrimitive,
+  MULTI_VALUE_FIELD_TYPES,
   type NormalizedTextOrFile,
   type OptionItem,
+  SELECT_FIELD_TYPES,
   type SelectValue,
   type TableColumnConfig,
+  TEXT_OR_FILE_MODES,
   type TextOrFileMode,
   type ToggleFieldConfig,
   type TranslateFn,
   UI_CONFIG,
   type UiStyles,
 } from "../../config/index";
-import {
-  MULTI_VALUE_FIELD_TYPES,
-  SELECT_FIELD_TYPES,
-  TEXT_OR_FILE_MODES,
-} from "../../config/index";
 // ============================================
 // Attribute Names Field (Added: Oct 24, 2025)
 // ============================================
-
-import type { AttributeNamesFieldProps } from "../../config/index";
 import { useUiStyles as useConfigStyles } from "../../config/style";
 import { useControlledValue } from "../../shared/hooks";
 import {

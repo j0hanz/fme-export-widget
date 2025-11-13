@@ -4,8 +4,10 @@ import type {
   IMThemeVariables,
   React,
 } from "jimu-core";
+import type { Alert as JimuAlert } from "jimu-ui";
 import type { fmeActions } from "../extensions/store";
 import type FmeFlowApiClient from "../shared/api";
+import type { buildSymbols } from "../shared/utils/arcgis";
 import type {
   DrawingTool,
   ErrorType,
@@ -2087,12 +2089,12 @@ export interface ToggleValuePair {
 
 // From: extensions/store.ts
 export type FmeAction = ReturnType<
-  (typeof import("../extensions/store").fmeActions)[keyof typeof import("../extensions/store").fmeActions]
+  (typeof fmeActions)[keyof typeof fmeActions]
 >;
 
 // From: runtime/components/ui.tsx
 export type AlertVariant = NonNullable<
-  React.ComponentProps<typeof import("jimu-ui").Alert>["type"]
+  React.ComponentProps<typeof JimuAlert>["type"]
 >;
 
 export interface FormAriaOptions {
@@ -2113,7 +2115,7 @@ export type EvaluationResult = boolean | "unknown";
 
 // From: runtime/widget.tsx
 export type DrawingSymbolSet = ReturnType<
-  typeof import("../shared/utils/arcgis").buildSymbols
+  typeof buildSymbols
 >["DRAWING_SYMBOLS"];
 
 export type SketchViewModelInternals = __esri.SketchViewModel & {

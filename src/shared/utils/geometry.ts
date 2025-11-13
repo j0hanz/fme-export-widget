@@ -7,11 +7,14 @@ import type {
   EsriConfigLike,
   EsriModules,
   FmeExportConfig,
+  GeoJsonPolygon,
   GeometryEngineLike,
   GeometryServiceModule,
   MutableParams,
   NormalizeUtilsModule,
+  PolygonLike,
   PolygonMaybe,
+  Ring,
   SerializableErrorState,
   WorkspaceParameter,
 } from "../../config/index";
@@ -24,7 +27,6 @@ import {
   ParameterType,
   VALIDATION_LIMITS,
 } from "../../config/index";
-import type { GeoJsonPolygon, PolygonLike, Ring } from "../../config/index";
 import { sanitizeParamKey, toTrimmedString } from "./conversion";
 import { createGeometryError } from "./error";
 import { loadArcgisModules } from "./index";
