@@ -46,16 +46,17 @@ import {
   buildOrderResultView,
   buildSupportHintText,
   canResetButton,
-  createFmeDispatcher,
   initFormValues,
   isAbortError,
   isNonEmptyTrimmedString,
   resolveMessageOrKey,
+  safeStringifyGeometry,
   shouldShowWorkspaceLoading,
   stripErrorLabel,
   stripHtmlToText,
   toTrimmedString,
   toTrimmedStringOrEmpty,
+  useFmeDispatch,
 } from "../../shared/utils";
 import {
   getSupportEmail,
@@ -85,16 +86,6 @@ const isLoadingActive = (state: LoadingState): boolean =>
       state.parameters ||
       state.geometryValidation
   );
-
-// Serialiserar geometri-objekt till JSON-sträng säkert
-const safeStringifyGeometry = (geometry: unknown): string => {
-  if (!geometry) return "";
-  try {
-    return JSON.stringify(geometry);
-  } catch {
-    return "";
-  }
-};
 
 // Extraherar unika geometrifältnamn från workspace-parametrar
 const extractGeometryFieldNames = (
@@ -525,14 +516,7 @@ const ExportForm: React.FC<
   geometryJson,
   jimuMapView,
 }) => {
-  const reduxDispatch = ReactRedux.useDispatch();
-  const fmeDispatchRef = React.useRef(
-    createFmeDispatcher(reduxDispatch, widgetId)
-  );
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(reduxDispatch, widgetId);
-  }, [reduxDispatch, widgetId]);
-  const fmeDispatch = fmeDispatchRef.current;
+  const fmeDispatch = useFmeDispatch(widgetId);
   const [parameterService] = React.useState(() => new ParameterFormService());
   const [evaluatedFields, setEvaluatedFields] = React.useState<
     readonly DynamicFieldConfig[]
@@ -971,10 +955,13 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     onRetryValidation,
     submissionPhase = "idle",
     modeNotice,
+    // Close confirmation props
+    showCloseConfirmation = false,
+    onCloseConfirmNo,
+    onCloseConfirmYes,
   } = props;
   const translate = hooks.useTranslation(defaultMessages);
   const styles = useUiStyles();
-  const reduxDispatch = ReactRedux.useDispatch();
   // Säkerställer icke-tomt widgetId för Redux-interaktioner
   const effectiveWidgetIdRef = React.useRef<string>();
   if (!effectiveWidgetIdRef.current) {
@@ -984,15 +971,8 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
         : `__local_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
   const effectiveWidgetId = effectiveWidgetIdRef.current;
-  const fmeDispatchRef = React.useRef(
-    createFmeDispatcher(reduxDispatch, effectiveWidgetId)
-  );
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(
-      reduxDispatch,
-      effectiveWidgetId
-    );
-  }, [reduxDispatch, effectiveWidgetId]);
+  const fmeDispatch = useFmeDispatch(effectiveWidgetId);
+  const reduxDispatch = ReactRedux.useDispatch();
 
   const incomingLoadingState = loadingStateProp ?? DEFAULT_LOADING_STATE;
   // Latchar laddningsstatus med fördröjning för smidigare UI
@@ -1282,7 +1262,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
         workspaceItems
       )
     ) {
-      fmeDispatchRef.current.setWorkspaceItems(sanitizedWorkspaces);
+      fmeDispatch.setWorkspaceItems(sanitizedWorkspaces);
     }
   }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces]);
 
@@ -1293,7 +1273,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     }
 
     if (workspaceItems.length) {
-      fmeDispatchRef.current.clearWorkspaceState();
+      fmeDispatch.clearWorkspaceState();
     }
 
     if (pendingWorkspace) {
@@ -1308,7 +1288,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     }
 
     setPendingWorkspace(null);
-    fmeDispatchRef.current.clearWorkspaceState();
+    fmeDispatch.clearWorkspaceState();
 
     if (!configuredRepository || !canFetchWorkspaces) {
       return;
@@ -1342,7 +1322,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     if (onWorkspaceSelected) {
       onWorkspaceSelected(workspaceName, payload.parameters, payload.item);
     } else {
-      fmeDispatchRef.current.applyWorkspaceData({
+      fmeDispatch.applyWorkspaceData({
         workspaceName,
         parameters: payload.parameters,
         item: payload.item,
@@ -1411,7 +1391,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     setPendingWorkspace(null);
 
     if (!canFetchWorkspaces) {
-      fmeDispatchRef.current.clearWorkspaceState();
+      fmeDispatch.clearWorkspaceState();
       return;
     }
 
@@ -1523,6 +1503,40 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
         aria-atomic={true}
       >
         {instructionText}
+      </div>
+    </div>
+  );
+
+  // Renderar bekräftelsedialog för stängning under kritisk operation
+  const renderCloseConfirmation = () => (
+    <div css={styles.centered}>
+      <div
+        role="alertdialog"
+        aria-live="assertive"
+        aria-atomic={true}
+        aria-labelledby="close-confirm-message"
+      >
+        <div css={styles.typo.instruction}>
+          {translate("msgCloseConfirmDetail")}
+        </div>
+      </div>
+      <div css={styles.btn.group}>
+        <Button
+          text={translate("btnContinue")}
+          onClick={onCloseConfirmNo}
+          variant="contained"
+          color="primary"
+          block
+          aria-label={translate("btnContinue")}
+        />
+        <Button
+          text={translate("btnAbortAndClose")}
+          onClick={onCloseConfirmYes}
+          variant="outlined"
+          type="danger"
+          block
+          aria-label={translate("btnAbortAndClose")}
+        />
       </div>
     </div>
   );
@@ -1732,6 +1746,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
 
   // Renderar aktuell vy baserat på state (förenklad med route guards)
   const renderCurrent = () => {
+    if (showCloseConfirmation) return renderCloseConfirmation();
     if (shouldShowStartupValidation()) return renderStartupValidation();
     if (shouldShowOrderResult()) return renderOrderResult();
     if (shouldShowSubmissionProgress()) return renderSubmissionProgress();

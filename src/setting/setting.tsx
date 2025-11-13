@@ -9,7 +9,6 @@ import {
 import { CollapsablePanel, Switch } from "jimu-ui";
 import type { AllWidgetSettingProps } from "jimu-for-builder";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useDispatch } from "react-redux";
 import type {
   CheckSteps,
   ConnectionValidationResult,
@@ -55,11 +54,11 @@ import {
 import { fmeQueryClient } from "../shared/query-client";
 import {
   clearErrors,
-  createFmeDispatcher,
   isAbortError,
   sanitizeParamKey,
   setError,
   toTrimmedString,
+  useFmeDispatch,
 } from "../shared/utils";
 import { mapErrorFromNetwork } from "../shared/utils/error";
 import { parseNonNegativeInt } from "../shared/utils/fme";
@@ -213,11 +212,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const translate = hooks.useTranslation(defaultMessages);
   const styles = useStyles();
   const settingStyles = useSettingStyles();
-  const dispatch = useDispatch();
-  const fmeDispatchRef = React.useRef(createFmeDispatcher(dispatch, id));
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(dispatch, id);
-  }, [dispatch, id]);
+  const fmeDispatch = useFmeDispatch(id);
 
   /* Builder-medvetna Redux-selektorer med caching per widget-ID */
   const fmeSelectorsRef = React.useRef<{
@@ -1044,7 +1039,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       /* Rensar workspace-relaterad state vid repository-byte för isolering */
       if (previousRepository !== newRepository) {
-        fmeDispatchRef.current.clearWorkspaceState();
+        fmeDispatch.clearWorkspaceState();
       }
 
       /* Rensar repository-felfält */

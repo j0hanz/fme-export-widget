@@ -1,4 +1,4 @@
-import { hooks, React } from "jimu-core";
+import { hooks, React, ReactRedux } from "jimu-core";
 import type { IMState, IMThemeVariables } from "jimu-core";
 import type { JimuMapView } from "jimu-arcgis";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,8 +7,11 @@ import type { Dispatch } from "redux";
 import type {
   ConfigWithImmutable,
   ConnectionValidationResult,
+  DrawingTool,
+  ErrorScope,
   ErrorType,
   EsriModules,
+  ExportResult,
   FormPrimitive,
   FormValues,
   LoadingFlagKey,
@@ -16,6 +19,7 @@ import type {
   SerializableErrorState,
   UseDebounceOptions,
   ValidateConnectionVariables,
+  ViewMode,
   WorkspaceItem,
   WorkspaceItemDetail,
   WorkspaceParameter,
@@ -1382,4 +1386,136 @@ export function useMinLoadingTime(
   });
 
   return setFlag;
+}
+
+// Hook för att skapa och hantera FME Redux dispatcher med automatisk widgetId-hantering
+export function useFmeDispatch(widgetId: string) {
+  const reduxDispatch = ReactRedux.useDispatch();
+
+  const fmeDispatchRef = React.useRef({
+    setDrawingTool: (tool: DrawingTool) => {
+      reduxDispatch(fmeActions.setDrawingTool(tool, widgetId));
+    },
+    setViewMode: (mode: ViewMode) => {
+      reduxDispatch(fmeActions.setViewMode(mode, widgetId));
+    },
+    setError: (scope: ErrorScope, error: SerializableErrorState | null) => {
+      reduxDispatch(fmeActions.setError(scope, error, widgetId));
+    },
+    clearError: (scope: ErrorScope | "all") => {
+      reduxDispatch(fmeActions.clearError(scope, widgetId));
+    },
+    setGeometry: (
+      geometry: __esri.Geometry | null,
+      area: number | undefined
+    ) => {
+      reduxDispatch(fmeActions.setGeometry(geometry, area, widgetId));
+    },
+    setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
+      reduxDispatch(fmeActions.setWorkspaceItems(items, widgetId));
+    },
+    applyWorkspaceData: (payload: {
+      readonly workspaceName: string;
+      readonly parameters: readonly WorkspaceParameter[];
+      readonly item: WorkspaceItemDetail;
+    }) => {
+      reduxDispatch(fmeActions.applyWorkspaceData(payload, widgetId));
+    },
+    completeDrawing: (
+      geometry: __esri.Geometry,
+      area: number,
+      nextView: ViewMode
+    ) => {
+      reduxDispatch(
+        fmeActions.completeDrawing(geometry, area, nextView, widgetId)
+      );
+    },
+    clearWorkspaceState: () => {
+      reduxDispatch(fmeActions.clearWorkspaceState(widgetId));
+    },
+    resetState: () => {
+      reduxDispatch(fmeActions.resetState(widgetId));
+    },
+    resetToDrawing: () => {
+      reduxDispatch(fmeActions.resetToDrawing(widgetId));
+    },
+    setLoadingFlag: (flag: LoadingFlagKey, loading: boolean) => {
+      reduxDispatch(fmeActions.setLoadingFlag(flag, loading, widgetId));
+    },
+    setOrderResult: (result: ExportResult | null) => {
+      reduxDispatch(fmeActions.setOrderResult(result, widgetId));
+    },
+    completeStartup: () => {
+      reduxDispatch(fmeActions.completeStartup(widgetId));
+    },
+    removeWidgetState: () => {
+      reduxDispatch(fmeActions.removeWidgetState(widgetId));
+    },
+  });
+
+  // Uppdatera dispatch-referens om widgetId eller reduxDispatch ändras
+  hooks.useUpdateEffect(() => {
+    fmeDispatchRef.current = {
+      setDrawingTool: (tool: DrawingTool) => {
+        reduxDispatch(fmeActions.setDrawingTool(tool, widgetId));
+      },
+      setViewMode: (mode: ViewMode) => {
+        reduxDispatch(fmeActions.setViewMode(mode, widgetId));
+      },
+      setError: (scope: ErrorScope, error: SerializableErrorState | null) => {
+        reduxDispatch(fmeActions.setError(scope, error, widgetId));
+      },
+      clearError: (scope: ErrorScope | "all") => {
+        reduxDispatch(fmeActions.clearError(scope, widgetId));
+      },
+      setGeometry: (
+        geometry: __esri.Geometry | null,
+        area: number | undefined
+      ) => {
+        reduxDispatch(fmeActions.setGeometry(geometry, area, widgetId));
+      },
+      setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
+        reduxDispatch(fmeActions.setWorkspaceItems(items, widgetId));
+      },
+      applyWorkspaceData: (payload: {
+        readonly workspaceName: string;
+        readonly parameters: readonly WorkspaceParameter[];
+        readonly item: WorkspaceItemDetail;
+      }) => {
+        reduxDispatch(fmeActions.applyWorkspaceData(payload, widgetId));
+      },
+      completeDrawing: (
+        geometry: __esri.Geometry,
+        area: number,
+        nextView: ViewMode
+      ) => {
+        reduxDispatch(
+          fmeActions.completeDrawing(geometry, area, nextView, widgetId)
+        );
+      },
+      clearWorkspaceState: () => {
+        reduxDispatch(fmeActions.clearWorkspaceState(widgetId));
+      },
+      resetState: () => {
+        reduxDispatch(fmeActions.resetState(widgetId));
+      },
+      resetToDrawing: () => {
+        reduxDispatch(fmeActions.resetToDrawing(widgetId));
+      },
+      setLoadingFlag: (flag: LoadingFlagKey, loading: boolean) => {
+        reduxDispatch(fmeActions.setLoadingFlag(flag, loading, widgetId));
+      },
+      setOrderResult: (result: ExportResult | null) => {
+        reduxDispatch(fmeActions.setOrderResult(result, widgetId));
+      },
+      completeStartup: () => {
+        reduxDispatch(fmeActions.completeStartup(widgetId));
+      },
+      removeWidgetState: () => {
+        reduxDispatch(fmeActions.removeWidgetState(widgetId));
+      },
+    };
+  }, [reduxDispatch, widgetId]);
+
+  return fmeDispatchRef.current;
 }

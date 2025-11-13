@@ -47,9 +47,34 @@ export {
   getSupportEmail,
 } from "../validations";
 
-export { useLatestAbortController } from "../hooks";
+export { useLatestAbortController, useFmeDispatch } from "../hooks";
 
-// Skapar Redux dispatcher med widgetId
+// Normalizes widgetId from props (supports both id and widgetId properties)
+export const normalizeWidgetId = (
+  propsLike: Partial<{ id?: unknown; widgetId?: unknown }>
+): string => {
+  const idCandidate = propsLike.id;
+  if (typeof idCandidate === "string" && idCandidate) {
+    return idCandidate;
+  }
+  const widgetIdCandidate = propsLike.widgetId;
+  if (typeof widgetIdCandidate === "string" && widgetIdCandidate) {
+    return widgetIdCandidate;
+  }
+  return "";
+};
+
+// Serializes geometry object to JSON string safely
+export const safeStringifyGeometry = (geometry: unknown): string => {
+  if (!geometry) return "";
+  try {
+    return JSON.stringify(geometry);
+  } catch {
+    return "";
+  }
+};
+
+// Legacy dispatcher creator (deprecated - use useFmeDispatch hook instead)
 export const createFmeDispatcher = (
   dispatch: Dispatch<unknown>,
   widgetId: string

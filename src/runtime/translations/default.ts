@@ -268,4 +268,8 @@ export default {
   alertCancelledUser: "Export was cancelled",
   alertJobFailed: "FME Flow transformation failed",
   alertTransformError: "Data transformation could not be completed",
+  msgCloseConfirmDetail:
+    "Are you sure you want to abort and close the widget? Current work will be cancelled.",
+  btnContinue: "Continue",
+  btnAbortAndClose: "Abort and Close",
 };

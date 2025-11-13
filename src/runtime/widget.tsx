@@ -14,7 +14,7 @@ import {
   ReactDOM,
   ReactRedux,
   RecordSetChangeType,
-  WidgetState,
+  type WidgetState,
 } from "jimu-core";
 import { type JimuMapView, JimuMapViewComponent } from "jimu-arcgis";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -73,7 +73,6 @@ import {
   buildSymbols,
   computeWidgetsToClose,
   createErrorActions,
-  createFmeDispatcher,
   createStateTransitionDetector,
   determineServiceMode,
   formatArea,
@@ -82,11 +81,13 @@ import {
   isAbortError,
   isNavigatorOffline,
   logIfNotAbort,
+  normalizeWidgetId,
   popupSuppressionManager,
   safeAbortController,
   shouldSuppressError,
   STATE_TRANSITIONS,
   toTrimmedString,
+  useFmeDispatch,
   useLatestAbortController,
 } from "../shared/utils";
 import { mapErrorFromNetwork } from "../shared/utils/error";
@@ -102,20 +103,6 @@ const isPromiseLike = (value: unknown): value is Promise<unknown> => {
     value !== null &&
     typeof (value as { then?: unknown }).then === "function"
   );
-};
-
-const normalizeWidgetId = (
-  propsLike: Partial<{ id?: unknown; widgetId?: unknown }>
-): string => {
-  const idCandidate = propsLike.id;
-  if (typeof idCandidate === "string" && idCandidate) {
-    return idCandidate;
-  }
-  const widgetIdCandidate = propsLike.widgetId;
-  if (typeof widgetIdCandidate === "string" && widgetIdCandidate) {
-    return widgetIdCandidate;
-  }
-  return "";
 };
 
 const toFillSymbol = (
@@ -243,6 +230,10 @@ function WidgetContent(
   const drawingToolRef = hooks.useLatest(drawingTool);
   /* Flagga för auto-start av ritning efter initialisering */
   const [shouldAutoStart, setShouldAutoStart] = React.useState(false);
+  /* Close confirmation state */
+  const [showCloseConfirmation, setShowCloseConfirmation] =
+    React.useState(false);
+  const closeBlockedRef = React.useRef(false);
   /* FME Flow API-klient med cache för att undvika onödiga recreates */
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
@@ -270,11 +261,7 @@ function WidgetContent(
   const warmupTimerRef = React.useRef<number | null>(null);
 
   /* Ger enkel åtkomst till Redux-dispatch med widgetId */
-  const fmeDispatchRef = React.useRef(createFmeDispatcher(dispatch, widgetId));
-  hooks.useUpdateEffect(() => {
-    fmeDispatchRef.current = createFmeDispatcher(dispatch, widgetId);
-  }, [dispatch, widgetId]);
-  const fmeDispatch = fmeDispatchRef.current;
+  const fmeDispatch = useFmeDispatch(widgetId);
 
   /* Spårar aktiv ritningssession och antal klick */
   const [drawingSession, setDrawingSession] =
@@ -341,6 +328,11 @@ function WidgetContent(
 
   const clearModeNotice = hooks.useEventCallback(() => {
     setModeNotice(null);
+  });
+
+  /* Kontrollerar om widget är i kritisk operation (submission eller geometry validation) */
+  const isInCriticalOperation = hooks.useEventCallback((): boolean => {
+    return isSubmitting || isValidatingGeometry;
   });
 
   /* Hanterar övergång vid tvingad async-läge */
@@ -727,7 +719,7 @@ function WidgetContent(
       modules &&
       generalError?.code === "MAP_MODULES_LOAD_FAILED"
     ) {
-      fmeDispatchRef.current.clearError("general");
+      fmeDispatch.clearError("general");
     }
   }, [modulesLoading, modules, generalError?.code]);
 
@@ -1627,6 +1619,30 @@ function WidgetContent(
     stateDetector,
   ]);
 
+  /* Hanterar "Nej" - döljer bekräftelse och fortsätter operation */
+  const handleCloseConfirmNo = hooks.useEventCallback(() => {
+    setShowCloseConfirmation(false);
+    closeBlockedRef.current = false;
+  });
+
+  /* Hanterar "Ja" - avbryter operation och stänger widget */
+  const handleCloseConfirmYes = hooks.useEventCallback(() => {
+    setShowCloseConfirmation(false);
+    closeBlockedRef.current = false;
+
+    /* Avbryter pågående operationer */
+    submissionAbort.cancel();
+
+    /* Rensar kritiska laddningsflaggor */
+    ReactDOM.unstable_batchedUpdates(() => {
+      fmeDispatch.setLoadingFlag("submission", false);
+      fmeDispatch.setLoadingFlag("geometryValidation", false);
+    });
+
+    /* Fortsätt med normal stängning */
+    handleReset();
+  });
+
   /* Återställer widget vid stängning */
   const handleReset = hooks.useEventCallback(() => {
     submissionAbort.cancel();
@@ -1658,9 +1674,28 @@ function WidgetContent(
         STATE_TRANSITIONS.TO_CLOSED
       )
     ) {
+      /* Förhindra multipla close-triggers */
+      if (closeBlockedRef.current) {
+        return;
+      }
+
+      /* Kontrollera om kritisk operation pågår */
+      if (isInCriticalOperation()) {
+        closeBlockedRef.current = true;
+        setShowCloseConfirmation(true);
+        return;
+      }
+
+      /* Normal stängning */
       handleReset();
     }
-  }, [runtimeState, prevRuntimeState, handleReset, stateDetector]);
+  }, [
+    runtimeState,
+    prevRuntimeState,
+    handleReset,
+    stateDetector,
+    isInCriticalOperation,
+  ]);
 
   /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
@@ -1760,7 +1795,7 @@ function WidgetContent(
       parameters: readonly WorkspaceParameter[],
       workspaceItem: WorkspaceItemDetail
     ) => {
-      fmeDispatchRef.current.applyWorkspaceData({
+      fmeDispatch.applyWorkspaceData({
         workspaceName,
         parameters,
         item: workspaceItem,
@@ -1927,7 +1962,7 @@ function WidgetContent(
         }
         drawingMode={drawingTool}
         onDrawingModeChange={(tool) => {
-          fmeDispatchRef.current.setDrawingTool(tool);
+          fmeDispatch.setDrawingTool(tool);
           if (sketchViewModel) {
             safeCancelSketch(sketchViewModel);
             updateDrawingSession({ isActive: false, clickCount: 0 });
@@ -1938,6 +1973,10 @@ function WidgetContent(
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
         isValidatingGeometry={isValidatingGeometry}
+        // Close confirmation props
+        showCloseConfirmation={showCloseConfirmation}
+        onCloseConfirmNo={handleCloseConfirmNo}
+        onCloseConfirmYes={handleCloseConfirmYes}
         // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
