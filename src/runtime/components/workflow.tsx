@@ -20,7 +20,6 @@ import {
   type OrderResultProps,
   ParameterType,
   type SerializableErrorState,
-  type ServiceMode,
   TIME_CONSTANTS,
   type TranslateFn,
   useUiStyles,
@@ -46,6 +45,7 @@ import {
   buildOrderResultView,
   buildSupportHintText,
   canResetButton,
+  deriveOrderResultStatus,
   initFormValues,
   isAbortError,
   isNonEmptyTrimmedString,
@@ -349,18 +349,12 @@ const OrderResult: React.FC<OrderResultProps> = ({
   const [fallbackDownloadUrl, setFallbackDownloadUrl] = React.useState<
     string | null
   >(null);
+  const resultStatus = deriveOrderResultStatus(orderResult, config);
+  const { hasResult, isCancelled, isSuccess, serviceMode } = resultStatus;
 
   // Bygger alert-meddelande baserat på orderResult-status
   let alertNode: React.ReactNode = null;
-  if (orderResult) {
-    const isCancelled = Boolean(orderResult.cancelled);
-    const isSuccess = !isCancelled && Boolean(orderResult.success);
-    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async";
-    const serviceMode: ServiceMode =
-      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-        ? orderResult.serviceMode
-        : fallbackMode;
-
+  if (hasResult && orderResult) {
     if (isCancelled) {
       const failureCode = (orderResult.code || "").toString().toUpperCase();
       const isTimeout = failureCode.includes("TIMEOUT");
@@ -449,14 +443,6 @@ const OrderResult: React.FC<OrderResultProps> = ({
     if (!orderResult) {
       return cleanup;
     }
-
-    const isCancelled = Boolean(orderResult.cancelled);
-    const isSuccess = !isCancelled && Boolean(orderResult.success);
-    const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async";
-    const serviceMode: ServiceMode =
-      orderResult.serviceMode === "sync" || orderResult.serviceMode === "async"
-        ? orderResult.serviceMode
-        : fallbackMode;
 
     if (!isSuccess || serviceMode !== "sync") {
       return cleanup;

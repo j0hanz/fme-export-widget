@@ -69,6 +69,27 @@ const hasImmutableSet = (
   typeof (candidate as { set?: unknown }).set === "function";
 
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
+export const deriveOrderResultStatus = (
+  result: ExportResult | null | undefined,
+  config: FmeExportConfig | null | undefined
+): {
+  readonly hasResult: boolean;
+  readonly isCancelled: boolean;
+  readonly isSuccess: boolean;
+  readonly serviceMode: ServiceMode;
+} => {
+  const hasResult = Boolean(result);
+  const isCancelled = Boolean(result?.cancelled);
+  const isSuccess = hasResult && !isCancelled && Boolean(result?.success);
+  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async";
+  const serviceMode: ServiceMode =
+    result?.serviceMode === "sync" || result?.serviceMode === "async"
+      ? result.serviceMode
+      : fallbackMode;
+
+  return { hasResult, isCancelled, isSuccess, serviceMode };
+};
+
 export const buildOrderResultView = (
   result: ExportResult | null | undefined,
   config: FmeExportConfig | null | undefined,
@@ -90,14 +111,11 @@ export const buildOrderResultView = (
     });
   }
 
-  const isCancelled = Boolean(result.cancelled);
-  const isSuccess = !isCancelled && Boolean(result.success);
+  const { isCancelled, isSuccess, serviceMode } = deriveOrderResultStatus(
+    result,
+    config
+  );
   const isFailure = !isCancelled && !isSuccess;
-  const fallbackMode: ServiceMode = config?.syncMode ? "sync" : "async";
-  const serviceMode: ServiceMode =
-    result.serviceMode === "sync" || result.serviceMode === "async"
-      ? result.serviceMode
-      : fallbackMode;
 
   // Build info detail section
   const infoLines: string[] = [];
