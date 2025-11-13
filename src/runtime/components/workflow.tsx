@@ -56,6 +56,7 @@ import {
   validateDateTimeFormat,
 } from "../../shared/validations";
 import { VisibilityEvaluator } from "../../shared/visibility";
+import { areLoadingStatesEqual } from "../../extensions/store";
 import defaultMessages from "../translations/default";
 import { DynamicField } from "./fields";
 import {
@@ -107,14 +108,6 @@ const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
   geometryValidation: false,
 });
 
-// Jämför två laddningsstatus-objekt för likhet
-const loadingStatesEqual = (a: LoadingState, b: LoadingState): boolean =>
-  a.modules === b.modules &&
-  a.submission === b.submission &&
-  a.workspaces === b.workspaces &&
-  a.parameters === b.parameters &&
-  a.geometryValidation === b.geometryValidation;
-
 // Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
   Boolean(
@@ -156,6 +149,97 @@ const extractGeometryFieldNames = (
   }
 
   return names;
+};
+
+// Filtrerar, scope:ar och sorterar workspace-listor baserat på repository-konfiguration
+const sanitizeWorkspaceList = (
+  items: readonly WorkspaceItem[] | undefined,
+  configuredRepository: string | null
+): readonly WorkspaceItem[] => {
+  if (!Array.isArray(items) || items.length === 0) {
+    return EMPTY_WORKSPACES;
+  }
+
+  const normalizedRepository =
+    toTrimmedString(configuredRepository ?? undefined) ?? "";
+  const filtered: WorkspaceItem[] = [];
+
+  for (const item of items) {
+    if (!item || item.type !== WORKSPACE_ITEM_TYPE) {
+      continue;
+    }
+
+    if (!normalizedRepository) {
+      filtered.push(item);
+      continue;
+    }
+
+    const repoName = toTrimmedString(
+      (item as { repository?: string })?.repository
+    );
+
+    if (!repoName || repoName === normalizedRepository) {
+      filtered.push(item);
+    }
+  }
+
+  if (filtered.length === 0) {
+    return EMPTY_WORKSPACES;
+  }
+
+  if (filtered.length === 1) {
+    return filtered;
+  }
+
+  return filtered.slice().sort((a, b) =>
+    (a.title || a.name).localeCompare(b.title || b.name, undefined, {
+      sensitivity: "base",
+    })
+  );
+};
+
+// Jämför två workspace-listor för att undvika onödiga uppdateringar
+const workspaceListsAreEqual = (
+  nextItems: readonly WorkspaceItem[],
+  currentItems: readonly WorkspaceItem[]
+): boolean => {
+  if (nextItems === currentItems) {
+    return true;
+  }
+
+  if (nextItems.length !== currentItems.length) {
+    return false;
+  }
+
+  for (let index = 0; index < nextItems.length; index += 1) {
+    const next = nextItems[index];
+    const current = currentItems[index];
+
+    if (!next || !current) {
+      return false;
+    }
+
+    if (next.name !== current.name) {
+      return false;
+    }
+
+    if ((next.title || "") !== (current.title || "")) {
+      return false;
+    }
+
+    const nextRepo = toTrimmedString(
+      (next as { repository?: string })?.repository
+    );
+    const currentRepo = toTrimmedString(
+      (current as { repository?: string })?.repository
+    );
+
+    if (nextRepo !== currentRepo) {
+      return false;
+    }
+  }
+
+  return true;
 };
 
 /*
@@ -869,25 +953,31 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   hooks.useEffectWithPreviousValues(() => {
     const current = latchedLoadingRef.current;
     const incoming = incomingLoadingState;
-    if (isLoadingActive(incoming)) {
-      releaseLoadingState.cancel();
-      if (!loadingStatesEqual(current, incoming)) {
-        setLatchedLoadingState(incoming);
+    if (areLoadingStatesEqual(current, incoming)) {
+      if (!isLoadingActive(incoming)) {
+        releaseLoadingState.cancel();
       }
       return;
     }
+
+    if (isLoadingActive(incoming)) {
+      releaseLoadingState.cancel();
+      setLatchedLoadingState(incoming);
+      return;
+    }
+
     if (isLoadingActive(current)) {
       releaseLoadingState(incoming);
       return;
     }
-    if (!loadingStatesEqual(current, incoming)) {
-      setLatchedLoadingState(incoming);
-    }
+
+    setLatchedLoadingState(incoming);
   }, [
     incomingLoadingState.modules,
     incomingLoadingState.parameters,
     incomingLoadingState.workspaces,
     incomingLoadingState.submission,
+    incomingLoadingState.geometryValidation,
     releaseLoadingState,
   ]);
 
@@ -1123,61 +1213,10 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     ? (workspacesQuery.data as readonly WorkspaceItem[])
     : EMPTY_WORKSPACES;
 
-  const filteredWorkspaces = rawWorkspaceItems.filter(
-    (item) => item?.type === WORKSPACE_ITEM_TYPE
+  const sanitizedWorkspaces = sanitizeWorkspaceList(
+    rawWorkspaceItems,
+    currentRepository
   );
-
-  const scopedWorkspaces = filteredWorkspaces.filter((item) => {
-    const repoName = toTrimmedString(
-      (item as { repository?: string })?.repository
-    );
-    if (!repoName || !configuredRepository) {
-      return true;
-    }
-    return repoName === configuredRepository;
-  });
-
-  const sanitizedWorkspaces =
-    scopedWorkspaces.length === 0
-      ? EMPTY_WORKSPACES
-      : scopedWorkspaces.slice().sort((a, b) =>
-          (a.title || a.name).localeCompare(b.title || b.name, undefined, {
-            sensitivity: "base",
-          })
-        );
-
-  // Jämför workspace-listor för uppdateringsdetektering
-  const workspaceListsEqual = (
-    nextItems: readonly WorkspaceItem[],
-    currentItems: readonly WorkspaceItem[]
-  ): boolean => {
-    if (nextItems.length !== currentItems.length) {
-      return false;
-    }
-    for (let index = 0; index < nextItems.length; index += 1) {
-      const next = nextItems[index];
-      const current = currentItems[index];
-      if (!next || !current) {
-        return false;
-      }
-      if (next.name !== current.name) {
-        return false;
-      }
-      if ((next.title || "") !== (current.title || "")) {
-        return false;
-      }
-      const nextRepo = toTrimmedString(
-        (next as { repository?: string })?.repository
-      );
-      const currentRepo = toTrimmedString(
-        (current as { repository?: string })?.repository
-      );
-      if (nextRepo !== currentRepo) {
-        return false;
-      }
-    }
-    return true;
-  };
 
   // Synkroniserar workspace-listor till Redux
   hooks.useEffectWithPreviousValues(() => {
@@ -1195,7 +1234,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
       return;
     }
 
-    if (workspaceListsEqual(nextItems, workspaceItems)) {
+    if (workspaceListsAreEqual(nextItems, workspaceItems)) {
       return;
     }
 
