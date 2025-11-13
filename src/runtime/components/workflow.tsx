@@ -29,6 +29,7 @@ import {
   type WorkspaceItemDetail,
   type WorkspaceParameter,
 } from "../../config/index";
+import { areLoadingStatesEqual } from "../../extensions/store";
 import {
   useDebounce,
   useFormStateManager,
@@ -56,7 +57,6 @@ import {
   validateDateTimeFormat,
 } from "../../shared/validations";
 import { VisibilityEvaluator } from "../../shared/visibility";
-import { areLoadingStatesEqual } from "../../extensions/store";
 import defaultMessages from "../translations/default";
 import { DynamicField } from "./fields";
 import {

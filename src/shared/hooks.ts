@@ -747,84 +747,87 @@ interface LoadableState {
   [key: string]: unknown;
 }
 
+const createLoadingSnapshot = (
+  source: LoadableState | null | undefined
+): LoadingSnapshot => {
+  if (!source) return null;
+  const message = source.message;
+  const detail = source.detail;
+  const rawMessages = source.messages;
+  const messages = Array.isArray(rawMessages)
+    ? (rawMessages.filter(
+        (entry) => entry !== null && entry !== undefined
+      ) as readonly React.ReactNode[])
+    : undefined;
+
+  if (
+    message == null &&
+    detail == null &&
+    (!messages || messages.length === 0)
+  ) {
+    return null;
+  }
+
+  return { message, detail, messages };
+};
+
 // Hook för att låsa loading-state i minsta tid (undviker flicker)
 export const useLoadingLatch = (
   state: LoadableState,
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
   const safeDelay = isNonNegativeNumber(delay) ? delay : 0;
-  // Skapar snapshot av loading-meddelanden
-  const createSnapshot = (
-    source: LoadableState | null | undefined
-  ): LoadingSnapshot => {
-    if (!source) return null;
-    const message = source.message;
-    const detail = source.detail;
-    const rawMessages = source.messages;
-    const messages = Array.isArray(rawMessages)
-      ? (rawMessages.filter(
-          (entry) => entry !== null && entry !== undefined
-        ) as readonly React.ReactNode[])
-      : undefined;
-
-    if (
-      message == null &&
-      detail == null &&
-      (!messages || messages.length === 0)
-    ) {
-      return null;
-    }
-
-    return { message, detail, messages };
-  };
-
   const [latched, setLatched] = React.useState(state.kind === "loading");
   const startRef = React.useRef<number | null>(
     state.kind === "loading" ? Date.now() : null
   );
   const snapshotRef = React.useRef<LoadingSnapshot>(
-    state.kind === "loading" ? createSnapshot(state) : null
+    state.kind === "loading" ? createLoadingSnapshot(state) : null
   );
 
-  hooks.useEffectWithPreviousValues(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+  const resetLatch = hooks.useEventCallback(() => {
+    setLatched(false);
+    startRef.current = null;
+    snapshotRef.current = null;
+  });
 
+  hooks.useEffectWithPreviousValues(() => {
     if (state.kind === "loading") {
-      // Uppdatera snapshot och starta latch
-      snapshotRef.current = createSnapshot(state);
+      snapshotRef.current = createLoadingSnapshot(state);
       if (startRef.current == null) {
         startRef.current = Date.now();
       }
       setLatched(true);
-    } else if (startRef.current != null) {
-      // Håll latch tills delay löpt ut
-      const elapsed = Date.now() - startRef.current;
-      const safeElapsed = isNonNegativeNumber(elapsed) ? elapsed : 0;
-      const remaining = Math.max(0, safeDelay - safeElapsed);
-
-      if (remaining > 0) {
-        timer = setTimeout(() => {
-          setLatched(false);
-          startRef.current = null;
-          snapshotRef.current = null;
-        }, remaining);
-      } else {
-        setLatched(false);
-        startRef.current = null;
-        snapshotRef.current = null;
-      }
-    } else {
-      setLatched(false);
-      snapshotRef.current = null;
+      return undefined;
     }
 
+    if (startRef.current == null) {
+      resetLatch();
+      return undefined;
+    }
+
+    const elapsed = Date.now() - startRef.current;
+    const safeElapsed = isNonNegativeNumber(elapsed) ? elapsed : 0;
+    const remaining = Math.max(0, safeDelay - safeElapsed);
+
+    if (remaining === 0) {
+      resetLatch();
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      resetLatch();
+    }, remaining);
+
     return () => {
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
     };
-  }, [state, safeDelay]);
+  }, [state, safeDelay, resetLatch]);
 
   const isLoading = state.kind === "loading";
-  const snapshot = isLoading ? createSnapshot(state) : snapshotRef.current;
+  const snapshot = isLoading
+    ? createLoadingSnapshot(state)
+    : snapshotRef.current;
 
   return {
     showLoading: isLoading || latched,

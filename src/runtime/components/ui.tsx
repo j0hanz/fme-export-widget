@@ -166,6 +166,57 @@ const applyFullWidthStyles = (
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle);
 
+type LoadingEntry = React.ReactNode | null | undefined;
+
+const collectLoadingMessages = (
+  primary: readonly LoadingEntry[],
+  extras?: readonly React.ReactNode[]
+): {
+  readonly messages: readonly React.ReactNode[];
+  readonly signature: string;
+} => {
+  const seenStrings = new Set<string>();
+  const collected: React.ReactNode[] = [];
+
+  const pushEntry = (entry: React.ReactNode | null | undefined) => {
+    if (entry === null || entry === undefined) {
+      return;
+    }
+
+    if (typeof entry === "string") {
+      const trimmed = entry.trim();
+      if (!trimmed || seenStrings.has(trimmed)) {
+        return;
+      }
+      seenStrings.add(trimmed);
+      collected.push(trimmed);
+      return;
+    }
+
+    collected.push(entry);
+  };
+
+  primary.forEach(pushEntry);
+
+  if (extras) {
+    extras.forEach(pushEntry);
+  }
+
+  const signature = collected
+    .map((value, index) => {
+      if (typeof value === "string") {
+        return value;
+      }
+      if (React.isValidElement(value) && value.key != null) {
+        return String(value.key);
+      }
+      return `node-${index}`;
+    })
+    .join("|");
+
+  return { messages: collected, signature };
+};
+
 // Bygger vanliga ARIA-attribut för formulärinmatningar
 const getFormAria = (opts: {
   id?: string;
@@ -1287,29 +1338,6 @@ const StateView: React.FC<StateViewProps> = ({
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0);
 
-  // Samlar unika laddningsmeddelanden
-  const seenStrings = new Set<string>();
-  const loadingMessages: React.ReactNode[] = [];
-  const appendLoadingMessage = (
-    value: React.ReactNode | null | undefined
-  ): void => {
-    if (value === null || value === undefined) {
-      return;
-    }
-
-    if (typeof value === "string") {
-      const trimmed = value.trim();
-      if (!trimmed || seenStrings.has(trimmed)) {
-        return;
-      }
-      seenStrings.add(trimmed);
-      loadingMessages.push(trimmed);
-      return;
-    }
-
-    loadingMessages.push(value);
-  };
-
   const loadingMessageFromState =
     state.kind === "loading" ? state.message : undefined;
   const loadingDetailFromState =
@@ -1319,28 +1347,21 @@ const StateView: React.FC<StateViewProps> = ({
       ? state.messages
       : undefined;
 
-  appendLoadingMessage(snapshot?.message ?? loadingMessageFromState);
-  appendLoadingMessage(snapshot?.detail ?? loadingDetailFromState);
-
-  const extraMessages =
-    (snapshot?.messages && Array.isArray(snapshot.messages)
+  const snapshotMessages =
+    snapshot && Array.isArray(snapshot.messages)
       ? snapshot.messages
-      : loadingExtrasFromState) ?? [];
+      : undefined;
 
-  for (const message of extraMessages) {
-    appendLoadingMessage(message);
-  }
+  const { messages: loadingMessages, signature: messageSignature } =
+    collectLoadingMessages(
+      [
+        snapshot?.message ?? loadingMessageFromState,
+        snapshot?.detail ?? loadingDetailFromState,
+      ],
+      snapshotMessages ?? loadingExtrasFromState
+    );
 
   const messageCount = loadingMessages.length;
-  const messageSignature = loadingMessages
-    .map((value, index) => {
-      if (typeof value === "string") return value;
-      if (React.isValidElement(value) && value.key != null) {
-        return String(value.key);
-      }
-      return `node-${index}`;
-    })
-    .join("|");
 
   // Återställer meddelandeindex vid ändring
   hooks.useEffectWithPreviousValues(() => {
