@@ -770,7 +770,8 @@ export interface FmeExportConfig {
 
   readonly allowRemoteDataset?: boolean;
   readonly allowRemoteUrlDataset?: boolean;
-  readonly autoCloseOtherWidgets?: boolean;
+  readonly autoCloseOtherWidgets?: boolean | "map-tools-only" | "all";
+  readonly widgetCloseExceptions?: readonly string[];
   readonly drawingColor?: string;
   readonly drawingOutlineWidth?: number;
   readonly drawingFillOpacity?: number;

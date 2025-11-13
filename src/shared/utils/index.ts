@@ -33,6 +33,7 @@ export * from "./fme";
 export { parseNonNegativeInt, parseIntSafe } from "./fme";
 export * from "./arcgis";
 export * from "./network";
+export * from "./widget-state";
 export { isAbortError } from "./error";
 
 export {

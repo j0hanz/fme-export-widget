@@ -291,14 +291,17 @@ export const computeWidgetsToClose = (
     | { [id: string]: { state?: WidgetState | string } | undefined }
     | null
     | undefined,
-  widgetId: string
+  widgetId: string,
+  exceptions?: readonly string[]
 ): string[] => {
   if (!runtimeInfo) return [];
 
   const ids: string[] = [];
+  const exceptionSet = new Set(exceptions || []);
 
   for (const [id, info] of Object.entries(runtimeInfo)) {
     if (id === widgetId || !info) continue;
+    if (exceptionSet.has(id)) continue;
     const stateRaw = info.state;
     if (!stateRaw) continue;
     const normalized = String(stateRaw).toUpperCase();

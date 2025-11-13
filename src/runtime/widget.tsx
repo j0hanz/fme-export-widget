@@ -74,6 +74,7 @@ import {
   computeWidgetsToClose,
   createErrorActions,
   createFmeDispatcher,
+  createStateTransitionDetector,
   determineServiceMode,
   formatArea,
   formatErrorPresentation,
@@ -84,6 +85,7 @@ import {
   popupSuppressionManager,
   safeAbortController,
   shouldSuppressError,
+  STATE_TRANSITIONS,
   toTrimmedString,
   useLatestAbortController,
 } from "../shared/utils";
@@ -451,7 +453,8 @@ function WidgetContent(
               | undefined;
           }
         | undefined;
-      const targets = computeWidgetsToClose(runtimeInfo, widgetId);
+      const exceptions = configRef.current?.widgetCloseExceptions;
+      const targets = computeWidgetsToClose(runtimeInfo, widgetId, exceptions);
       if (targets.length) {
         /* Filter to only widgets with loaded classes to prevent race conditions */
         const safeTargets = targets.filter((targetId) => {
@@ -798,6 +801,15 @@ function WidgetContent(
 
   /* Aktivitetsstatus för widgeten från Redux */
   const isActive = hooks.useWidgetActived(widgetId);
+
+  /* Skapar state transition detector för denna widget */
+  const stateDetectorRef = React.useRef(
+    createStateTransitionDetector(widgetId)
+  );
+  hooks.useUpdateEffect(() => {
+    stateDetectorRef.current = createStateTransitionDetector(widgetId);
+  }, [widgetId]);
+  const stateDetector = stateDetectorRef.current;
 
   const endSketchSession = hooks.useEventCallback(
     (options?: { clearLocalGeometry?: boolean }) => {
@@ -1152,8 +1164,7 @@ function WidgetContent(
 
   // Slutför orderprocessen genom att spara resultat i Redux och navigera
   const finalizeOrder = hooks.useEventCallback((result: ExportResult) => {
-    const currentRuntimeState = runtimeState;
-    if (currentRuntimeState === WidgetState.Closed) {
+    if (stateDetector.isInactive(runtimeState)) {
       return;
     }
 
@@ -1167,6 +1178,16 @@ function WidgetContent(
   /* Hanterar formulär-submission: validerar, förbereder, kör workspace */
   const handleFormSubmit = hooks.useEventCallback(async (formData: unknown) => {
     if (isSubmitting || !canExport) return;
+
+    /* Race condition guard: ensure widget is still open before starting */
+    if (!stateDetector.isActive(runtimeState)) {
+      if (config?.enableLogging) {
+        console.log(
+          `[FME Widget ${widgetId}] Submission aborted: widget not active`
+        );
+      }
+      return;
+    }
 
     const maxCheck = checkMaxArea(drawnArea, config?.maxArea);
     if (!maxCheck.ok && maxCheck.message) {
@@ -1182,6 +1203,18 @@ function WidgetContent(
     });
 
     try {
+      /* Check again before expensive operations */
+      if (stateDetector.isInactive(runtimeState)) {
+        if (config?.enableLogging) {
+          console.log(
+            `[FME Widget ${widgetId}] Submission aborted during prep: widget inactive`
+          );
+        }
+        setSubmissionPhase("idle");
+        fmeDispatch.setLoadingFlag("submission", false);
+        return;
+      }
+
       const fmeClient = getOrCreateFmeClient();
       const rawDataEarly = ((formData as { [key: string]: unknown })?.data ||
         {}) as {
@@ -1215,6 +1248,16 @@ function WidgetContent(
         onStatusChange: handlePreparationStatus,
         getActiveGeometry,
       });
+
+      /* Final check before finalizing order */
+      if (stateDetector.isInactive(runtimeState)) {
+        if (config?.enableLogging) {
+          console.log(
+            `[FME Widget ${widgetId}] Submission completed but widget inactive, skipping finalize`
+          );
+        }
+        return;
+      }
 
       if (!submissionResult.success && submissionResult.error) {
         /* Kolla om det är ett AOI-fel från prepareSubmissionParams */
@@ -1514,6 +1557,47 @@ function WidgetContent(
   /* Tidigare runtime-state och repository för jämförelse */
   const prevRuntimeState = hooks.usePrevious(runtimeState);
   const prevRepository = hooks.usePrevious(configuredRepository);
+  const prevIsActive = hooks.usePrevious(isActive);
+
+  /* Log state transitions when logging is enabled */
+  hooks.useUpdateEffect(() => {
+    if (config?.enableLogging && prevRuntimeState !== runtimeState) {
+      stateDetector.log(prevRuntimeState, runtimeState, {
+        viewMode,
+        isActive,
+        hasCriticalError: hasCriticalGeneralError,
+      });
+    }
+  }, [
+    runtimeState,
+    prevRuntimeState,
+    viewMode,
+    isActive,
+    hasCriticalGeneralError,
+    config?.enableLogging,
+    stateDetector,
+  ]);
+
+  /* Track widget activation changes separately from runtime state */
+  hooks.useUpdateEffect(() => {
+    if (isActive && !prevIsActive) {
+      /* Widget just became active (user focused on it) */
+      closeOtherWidgets();
+      if (jimuMapView) {
+        enablePopupGuard(jimuMapView);
+      }
+    } else if (!isActive && prevIsActive) {
+      /* Widget just became inactive (user focused elsewhere) */
+      endSketchSession({ clearLocalGeometry: false });
+    }
+  }, [
+    isActive,
+    prevIsActive,
+    closeOtherWidgets,
+    jimuMapView,
+    enablePopupGuard,
+    endSketchSession,
+  ]);
 
   /* Auto-start ritning när i DRAWING-läge */
   const canAutoStartDrawing =
@@ -1526,8 +1610,8 @@ function WidgetContent(
     !hasCriticalGeneralError;
 
   hooks.useUpdateEffect(() => {
-    /* Auto-startar endast om inte redan startat och widget ej stängd */
-    if (canAutoStartDrawing && runtimeState !== WidgetState.Closed) {
+    /* Auto-startar endast om inte redan startat och widget är aktivt */
+    if (canAutoStartDrawing && stateDetector.isActive(runtimeState)) {
       handleStartDrawing(drawingTool);
     }
   }, [
@@ -1540,6 +1624,7 @@ function WidgetContent(
     handleStartDrawing,
     runtimeState,
     hasCriticalGeneralError,
+    stateDetector,
   ]);
 
   /* Återställer widget vid stängning */
@@ -1563,27 +1648,29 @@ function WidgetContent(
       enablePopupGuard(jimuMapView);
     }
   });
+
   hooks.useUpdateEffect(() => {
-    /* Återställer vid stängning av widget */
+    /* Återställer endast vid stängning av widget (inte vid minimering) */
     if (
-      runtimeState === WidgetState.Closed &&
-      prevRuntimeState !== WidgetState.Closed
+      stateDetector.isTransition(
+        prevRuntimeState,
+        runtimeState,
+        STATE_TRANSITIONS.TO_CLOSED
+      )
     ) {
       handleReset();
     }
-  }, [runtimeState, prevRuntimeState, handleReset]);
+  }, [runtimeState, prevRuntimeState, handleReset, stateDetector]);
 
   /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
-    const isShowing =
-      runtimeState === WidgetState.Opened ||
-      runtimeState === WidgetState.Active;
-    const wasClosed =
-      prevRuntimeState === WidgetState.Closed ||
-      prevRuntimeState === WidgetState.Hidden ||
-      typeof prevRuntimeState === "undefined";
-
-    if (isShowing && wasClosed) {
+    if (
+      stateDetector.isTransition(
+        prevRuntimeState,
+        runtimeState,
+        STATE_TRANSITIONS.FROM_CLOSED
+      )
+    ) {
       closeOtherWidgets();
       if (jimuMapView) {
         enablePopupGuard(jimuMapView);
@@ -1607,6 +1694,8 @@ function WidgetContent(
     closeOtherWidgets,
     enablePopupGuard,
     resetReduxToInitialDrawing,
+    stateDetector,
+    runStartupValidation,
   ]);
 
   /* Rensar ritresurser vid kritiska fel */
@@ -1650,15 +1739,12 @@ function WidgetContent(
     }
   }, [configuredRepository, prevRepository, areaWarning, updateAreaWarning]);
 
-  /* Inaktiverar popup-guard när widget stängs eller döljs */
+  /* Inaktiverar popup-guard när widget stängs eller minimeras */
   hooks.useUpdateEffect(() => {
-    if (
-      runtimeState === WidgetState.Closed ||
-      runtimeState === WidgetState.Hidden
-    ) {
+    if (stateDetector.isInactive(runtimeState)) {
       disablePopupGuard();
     }
-  }, [runtimeState, disablePopupGuard]);
+  }, [runtimeState, disablePopupGuard, stateDetector]);
 
   /* Inaktiverar popup-guard när kartvy tas bort */
   hooks.useUpdateEffect(() => {
