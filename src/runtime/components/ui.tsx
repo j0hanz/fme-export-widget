@@ -71,6 +71,7 @@ import {
   resolveMessageOrKey,
   styleCss,
 } from "../../shared/utils";
+import { isStringOrNumber } from "../../shared/utils/conversion";
 import defaultMessages from "../translations/default";
 // Removed schedule validation imports from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg";
@@ -530,8 +531,7 @@ export const Input: React.FC<InputProps> = (props) => {
     ? type
     : "text";
 
-  const textInputValue =
-    typeof value === "string" || typeof value === "number" ? value : "";
+  const textInputValue = isStringOrNumber(value) ? value : "";
 
   return (
     <TextInput
@@ -939,8 +939,7 @@ export const Select: React.FC<SelectProps> = ({
   }
 
   const stringValue =
-    internalValue != null &&
-    (typeof internalValue === "string" || typeof internalValue === "number")
+    internalValue != null && isStringOrNumber(internalValue)
       ? String(internalValue)
       : undefined;
 

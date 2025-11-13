@@ -5,6 +5,22 @@ import type {
   PopupSuppressionRecord,
 } from "../../config/index";
 
+/** Internal Popup API for autoOpenEnabled property */
+interface PopupInternal {
+  autoOpenEnabled?: boolean;
+  close?: () => void;
+  watch?: (
+    prop: string,
+    callback: (value: boolean) => void
+  ) => __esri.WatchHandle;
+}
+
+const isPopupInternal = (popup: unknown): popup is PopupInternal => {
+  return popup != null && typeof popup === "object";
+};
+
+const modulePromiseCache = new Map<string, Promise<unknown[]>>();
+
 export const buildSymbols = (
   rgb: readonly [number, number, number],
   options?: {
@@ -79,27 +95,54 @@ export async function loadArcgisModules(
     return stub(modules);
   }
 
-  try {
-    const mod = await import("jimu-arcgis");
-    const loader = (mod as { loadArcGISJSAPIModules?: unknown })
-      ?.loadArcGISJSAPIModules;
-    if (typeof loader !== "function") {
+  const normalizedModules = modules.filter(
+    (module): module is string =>
+      typeof module === "string" && module.length > 0
+  );
+  if (!normalizedModules.length) {
+    return [];
+  }
+
+  const cacheKey = JSON.stringify(normalizedModules);
+  const cached = modulePromiseCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const loaderPromise = (async () => {
+    try {
+      const mod = await import("jimu-arcgis");
+      const loader = (mod as { loadArcGISJSAPIModules?: unknown })
+        ?.loadArcGISJSAPIModules;
+      if (typeof loader !== "function") {
+        throw new Error("ARCGIS_MODULE_ERROR");
+      }
+      const loaded = await loader(normalizedModules);
+      return (loaded || []).map(unwrapDynamicModule);
+    } catch (error) {
+      modulePromiseCache.delete(cacheKey);
+      console.log("Critical: Failed to load jimu-arcgis module", error);
       throw new Error("ARCGIS_MODULE_ERROR");
     }
-    const loaded = await loader(modules as string[]);
-    return (loaded || []).map(unwrapDynamicModule);
-  } catch (error) {
-    console.log("Critical: Failed to load jimu-arcgis module", error);
-    throw new Error("ARCGIS_MODULE_ERROR");
-  }
+  })();
+
+  modulePromiseCache.set(cacheKey, loaderPromise);
+  return loaderPromise;
 }
 
+export const clearCachedArcgisModules = (): void => {
+  modulePromiseCache.clear();
+};
+
 const restorePopupAutoOpen = (record: PopupSuppressionRecord): void => {
-  const popupAny = record.popup as unknown as { autoOpenEnabled?: boolean };
+  const popup = record.popup;
+  if (!isPopupInternal(popup)) return;
+
+  const popupInternal = popup as PopupInternal;
   try {
     const restore =
       typeof record.prevAutoOpen === "boolean" ? record.prevAutoOpen : true;
-    popupAny.autoOpenEnabled = restore;
+    popupInternal.autoOpenEnabled = restore;
   } catch {}
 };
 
@@ -108,12 +151,9 @@ const closePopupSafely = (
   popup: __esri.Popup | null | undefined
 ): void => {
   try {
-    if (popup) {
-      const popupAny = popup as { close?: () => void };
-      if (typeof popupAny.close === "function") {
-        popupAny.close();
-        return;
-      }
+    if (popup && isPopupInternal(popup) && typeof popup.close === "function") {
+      popup.close();
+      return;
     }
     if (view && typeof view.closePopup === "function") {
       view.closePopup();
@@ -125,24 +165,24 @@ export const createPopupSuppressionRecord = (
   popup: __esri.Popup | null | undefined,
   view: __esri.MapView | __esri.SceneView | null | undefined
 ): PopupSuppressionRecord | null => {
-  if (!popup) return null;
+  if (!popup || !isPopupInternal(popup)) return null;
 
-  const popupAny = popup as unknown as { autoOpenEnabled?: boolean };
+  const popupInternal = popup as PopupInternal;
   const previousAutoOpen =
-    typeof popupAny.autoOpenEnabled === "boolean"
-      ? popupAny.autoOpenEnabled
+    typeof popupInternal.autoOpenEnabled === "boolean"
+      ? popupInternal.autoOpenEnabled
       : undefined;
 
   closePopupSafely(view, popup);
 
   try {
-    popupAny.autoOpenEnabled = false;
+    popupInternal.autoOpenEnabled = false;
   } catch {}
 
   let handle: __esri.WatchHandle | null = null;
-  if (typeof popup.watch === "function") {
+  if (typeof popupInternal.watch === "function") {
     try {
-      handle = popup.watch("visible", (value: boolean) => {
+      handle = popupInternal.watch("visible", (value: boolean) => {
         if (value) {
           closePopupSafely(view, popup);
         }

@@ -30,6 +30,7 @@ export {
   formatErrorPresentation,
 } from "./error";
 export * from "./fme";
+export { parseNonNegativeInt, parseIntSafe } from "./fme";
 export * from "./arcgis";
 export * from "./network";
 export { isAbortError } from "./error";

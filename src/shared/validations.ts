@@ -17,6 +17,7 @@ import {
   STATUS_PROPERTIES,
   type TranslateFn,
   type UrlValidation,
+  VALIDATION_LIMITS,
   type WorkspaceParameter,
 } from "../config/index";
 import {
@@ -42,7 +43,10 @@ const parseIpv4 = (hostname: string): readonly number[] | null => {
   const octets = parts.map((part) => {
     if (!/^\d+$/.test(part)) return NaN;
     const value = Number(part);
-    return value >= 0 && value <= 255 ? value : NaN;
+    return value >= VALIDATION_LIMITS.IPV4_OCTET_MIN &&
+      value <= VALIDATION_LIMITS.IPV4_OCTET_MAX
+      ? value
+      : NaN;
   });
 
   return octets.every(Number.isInteger) ? Object.freeze(octets) : null;
@@ -496,6 +500,27 @@ export const validateConfigFields = (
   };
 };
 
+// Helper: Maps validation result to standardized { ok, key } shape
+const toValidationResult = (
+  result:
+    | { ok: boolean; key?: string }
+    | { ok: true }
+    | { ok: false; reason?: string },
+  fallbackKey: string
+): { ok: true } | { ok: false; key: string } => {
+  if (result.ok) return { ok: true };
+
+  if ("key" in result && result.key) {
+    return { ok: false, key: result.key };
+  }
+
+  if ("reason" in result && result.reason) {
+    return { ok: false, key: mapServerUrlReasonToKey(result.reason) };
+  }
+
+  return { ok: false, key: fallbackKey };
+};
+
 // Kontrollerar om status code indikerar autentiseringsfel
 export const isAuthError = (status: number): boolean => {
   return (
@@ -519,35 +544,21 @@ export function validateConnectionInputs(args: {
   return buildValidationErrors([
     {
       field: "serverUrl",
-      validator: () => {
-        const result = validateServerUrl(url);
-        if (result.ok) {
-          return { ok: true };
-        }
-        const reason = "reason" in result ? result.reason : undefined;
-        return { ok: false, key: mapServerUrlReasonToKey(reason) };
-      },
+      validator: () =>
+        toValidationResult(validateServerUrl(url), "invalid_url"),
     },
     {
       field: "token",
-      validator: () => {
-        const result = validateToken(token);
-        return result.ok
-          ? { ok: true }
-          : { ok: false, key: result.key || "errorTokenIssue" };
-      },
+      validator: () =>
+        toValidationResult(validateToken(token), "errorTokenIssue"),
     },
     {
       field: "repository",
-      validator: () => {
-        const result = validateRepository(
-          repository || "",
-          availableRepos === undefined ? [] : availableRepos
-        );
-        return result.ok
-          ? { ok: true }
-          : { ok: false, key: result.key || "invalidRepository" };
-      },
+      validator: () =>
+        toValidationResult(
+          validateRepository(repository || "", availableRepos ?? []),
+          "invalidRepository"
+        ),
     },
   ]);
 }
@@ -585,7 +596,10 @@ export const validateDateTimeFormat = (dateTimeString: string): boolean => {
 };
 
 // Sanitizerar textvärde genom att klippa och ersätta XSS-tecken
-const sanitizeTextValue = (value: unknown, maxLength = 10000): unknown => {
+const sanitizeTextValue = (
+  value: unknown,
+  maxLength = VALIDATION_LIMITS.MAX_TEXT_LENGTH
+): unknown => {
   if (typeof value !== "string") {
     return value;
   }

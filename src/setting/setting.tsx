@@ -58,12 +58,12 @@ import {
   clearErrors,
   createFmeDispatcher,
   isAbortError,
-  parseNonNegativeInt,
   sanitizeParamKey,
   setError,
   toTrimmedString,
 } from "../shared/utils";
 import { mapErrorFromNetwork } from "../shared/utils/error";
+import { parseNonNegativeInt } from "../shared/utils/fme";
 import { translateOptional } from "../shared/utils/format";
 import {
   extractHttpStatus,

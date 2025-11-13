@@ -43,7 +43,6 @@ import {
   loadArcgisModules,
   makeScopeId,
   normalizeToLowerCase,
-  parseNonNegativeInt,
   safeLogParams,
   safeParseUrl,
   toNonEmptyTrimmedString,
@@ -54,7 +53,7 @@ import {
   mapErrorFromNetwork,
   safeAbortController,
 } from "./utils/error";
-import { createWebhookArtifacts } from "./utils/fme";
+import { createWebhookArtifacts, parseNonNegativeInt } from "./utils/fme";
 import {
   extractHttpStatus,
   isRetryableError,

@@ -53,6 +53,15 @@ const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
 const normalizeCodeForMatching = (raw: string): string =>
   raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
 
+const findIconByToken = (normalizedCode: string): string | undefined => {
+  for (const { token, icon } of TOKEN_ICON_PRIORITY) {
+    if (normalizedCode.includes(token)) {
+      return icon;
+    }
+  }
+  return undefined;
+};
+
 export const getErrorIconSrc = (code?: string): string => {
   if (typeof code !== "string" || !code.trim()) return DEFAULT_ERROR_ICON;
 
@@ -61,16 +70,14 @@ export const getErrorIconSrc = (code?: string): string => {
   const exact = ICON_BY_EXACT_CODE.get(normalized);
   if (exact) return exact;
 
-  for (const { token, icon } of TOKEN_ICON_PRIORITY) {
-    if (normalized.includes(token)) {
-      return icon;
-    }
-  }
+  const tokenMatch = findIconByToken(normalized);
+  if (tokenMatch) return tokenMatch;
 
   return DEFAULT_ERROR_ICON;
 };
 
 const ABORT_REGEX = /\baborted?\b/i;
+const ABORT_ERROR_NAMES = new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"]);
 
 // Kollar om fel är abort/cancel-fel
 export const isAbortError = (error: unknown): boolean => {
@@ -84,8 +91,7 @@ export const isAbortError = (error: unknown): boolean => {
     };
 
     const name = toStr(candidate.name ?? candidate.code);
-    if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
-      return true;
+    if (ABORT_ERROR_NAMES.has(name)) return true;
 
     if (!name || name === "Error") {
       const message = toStr(candidate.message);

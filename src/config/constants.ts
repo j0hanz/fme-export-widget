@@ -56,6 +56,16 @@ export const FME_FLOW_API = Object.freeze({
 
 export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160;
 
+export const VALIDATION_LIMITS = Object.freeze({
+  MAX_TEXT_LENGTH: 10000,
+  IPV4_OCTET_MAX: 255,
+  IPV4_OCTET_MIN: 0,
+  MAX_GEOMETRY_VERTICES: 10000,
+  SLIDER_DEFAULT_MAX: 100,
+  RGB_MAX: 255,
+  RGB_MIN: 0,
+} as const);
+
 export const SETTING_CONSTANTS = Object.freeze({
   VALIDATION: {
     DEFAULT_TTL_VALUE: "",
@@ -325,6 +335,7 @@ export const TIME_CONSTANTS = Object.freeze({
   DEBOUNCE_VALIDATION_MS: 800, // Validation debounce delay
   AUTO_DOWNLOAD_DELAY_MS: 100, // Delay before auto-download
   POPUP_CLOSE_DELAY_MS: 50, // Delay before closing popups
+  BLOB_URL_CLEANUP_DELAY_MS: 60000, // 1 minute delay before revoking blob URLs
 });
 
 // Network Configuration

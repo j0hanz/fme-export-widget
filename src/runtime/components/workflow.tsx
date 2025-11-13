@@ -20,6 +20,7 @@ import {
   type SerializableErrorState,
   type ServiceMode,
   TIME_CONSTANTS,
+  type TranslateFn,
   useUiStyles,
   ViewMode,
   type VisibilityState,
@@ -242,6 +243,97 @@ const workspaceListsAreEqual = (
   return true;
 };
 
+interface WorkspaceListCacheRecord {
+  readonly raw: readonly WorkspaceItem[] | undefined;
+  readonly repository: string | null;
+  readonly result: readonly WorkspaceItem[];
+}
+
+const safeResolveMessage = (
+  value: unknown,
+  translate: TranslateFn,
+  fallback?: () => string
+): string => {
+  const directMessage =
+    typeof value === "string"
+      ? value
+      : (toTrimmedString(value) ??
+        (value && typeof value === "object" && "message" in value
+          ? toTrimmedString((value as { readonly message?: unknown }).message)
+          : undefined) ??
+        "");
+
+  if (!directMessage) {
+    return fallback ? fallback() : "";
+  }
+
+  try {
+    const resolved = resolveMessageOrKey(directMessage, translate);
+    if (resolved) {
+      return resolved;
+    }
+  } catch {
+    // Intentionally swallow translation errors – fall back below
+  }
+
+  return fallback ? fallback() : directMessage;
+};
+
+const getSanitizedWorkspaces = (
+  cacheRef: React.MutableRefObject<WorkspaceListCacheRecord | null>,
+  rawItems: readonly WorkspaceItem[] | undefined,
+  repository: string | null
+): readonly WorkspaceItem[] => {
+  const cache = cacheRef.current;
+
+  if (cache && cache.repository === repository && cache.raw === rawItems) {
+    return cache.result;
+  }
+
+  const sanitized = sanitizeWorkspaceList(rawItems, repository);
+
+  if (
+    cache &&
+    cache.repository === repository &&
+    workspaceListsAreEqual(sanitized, cache.result)
+  ) {
+    cacheRef.current = {
+      raw: rawItems,
+      repository,
+      result: cache.result,
+    };
+    return cache.result;
+  }
+
+  cacheRef.current = {
+    raw: rawItems,
+    repository,
+    result: sanitized,
+  };
+
+  return sanitized;
+};
+
+const shouldUpdateWorkspaceItems = (
+  canFetch: boolean,
+  nextItems: readonly WorkspaceItem[],
+  currentItems: readonly WorkspaceItem[]
+): boolean => {
+  if (!canFetch) {
+    return false;
+  }
+
+  if (nextItems === EMPTY_WORKSPACES && currentItems.length === 0) {
+    return false;
+  }
+
+  if (nextItems === currentItems) {
+    return false;
+  }
+
+  return !workspaceListsAreEqual(nextItems, currentItems);
+};
+
 /*
  * Skapar formvalidering för workspace-parametrar och schemafält.
  * Returnerar validator-objekt med metoder för konfiguration och validering.
@@ -397,7 +489,7 @@ const OrderResult: React.FC<OrderResultProps> = ({
           } catch {
             // Ignorera revoke-fel
           }
-        }, 60000); // BLOB_URL_CLEANUP_DELAY_MS
+        }, TIME_CONSTANTS.BLOB_URL_CLEANUP_DELAY_MS);
       }
     };
 
@@ -1136,12 +1228,11 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
       const rawEmail = getSupportEmail(config?.supportEmail);
       const hintText = buildSupportHintText(translate, rawEmail, supportText);
 
-      let localizedMessage = message;
-      try {
-        localizedMessage = resolveMessageOrKey(String(message), translate);
-      } catch {
-        /* swallow translation errors and keep raw message */
-      }
+      const localizedMessage = safeResolveMessage(
+        message,
+        translate,
+        () => message
+      );
 
       const supportDetail = !hintText
         ? undefined
@@ -1202,6 +1293,8 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   );
 
   const workspacesRefetchRef = hooks.useLatest(workspacesQuery.refetch);
+  const sanitizedWorkspacesCacheRef =
+    React.useRef<WorkspaceListCacheRecord | null>(null);
 
   const workspaceItems = Array.isArray(workspaceItemsProp)
     ? workspaceItemsProp
@@ -1213,44 +1306,39 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     ? (workspacesQuery.data as readonly WorkspaceItem[])
     : EMPTY_WORKSPACES;
 
-  const sanitizedWorkspaces = sanitizeWorkspaceList(
+  const sanitizedWorkspaces = getSanitizedWorkspaces(
+    sanitizedWorkspacesCacheRef,
     rawWorkspaceItems,
     currentRepository
   );
 
   // Synkroniserar workspace-listor till Redux
   hooks.useEffectWithPreviousValues(() => {
-    if (!canFetchWorkspaces) {
-      return;
+    if (
+      shouldUpdateWorkspaceItems(
+        canFetchWorkspaces,
+        sanitizedWorkspaces,
+        workspaceItems
+      )
+    ) {
+      fmeDispatchRef.current.setWorkspaceItems(sanitizedWorkspaces);
     }
-
-    const nextItems = sanitizedWorkspaces;
-    if (nextItems === EMPTY_WORKSPACES && workspaceItems.length === 0) {
-      return;
-    }
-
-    // Early return if lists are referentially equal
-    if (nextItems === workspaceItems) {
-      return;
-    }
-
-    if (workspaceListsAreEqual(nextItems, workspaceItems)) {
-      return;
-    }
-
-    fmeDispatchRef.current.setWorkspaceItems(nextItems);
   }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces]);
 
-  // Rensar workspace-state när hämtning ej längre möjlig
+  // Rensar workspace-state och pending workspace när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
     if (canFetchWorkspaces) {
       return;
     }
-    if (!workspaceItems.length) {
-      return;
+
+    if (workspaceItems.length) {
+      fmeDispatchRef.current.clearWorkspaceState();
     }
-    fmeDispatchRef.current.clearWorkspaceState();
-  }, [canFetchWorkspaces, workspaceItems.length]);
+
+    if (pendingWorkspace) {
+      setPendingWorkspace(null);
+    }
+  }, [canFetchWorkspaces, workspaceItems.length, pendingWorkspace]);
 
   // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
@@ -1272,16 +1360,6 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   }, [configuredRepository, previousConfiguredRepository, canFetchWorkspaces]);
 
   // Rensar pending workspace om hämtning ej längre möjlig
-  hooks.useUpdateEffect(() => {
-    if (canFetchWorkspaces) {
-      return;
-    }
-    if (!pendingWorkspace) {
-      return;
-    }
-    setPendingWorkspace(null);
-  }, [canFetchWorkspaces, pendingWorkspace]);
-
   // Processar workspace-val när metadata hämtats
   hooks.useUpdateEffect(() => {
     if (!pendingWorkspace) {
@@ -1343,17 +1421,13 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   // Översätter workspace-fel (ignorerar abort-fel)
   const translateWorkspaceError = hooks.useEventCallback(
     (errorValue: unknown, messageKey: string): string | null => {
-      if (!errorValue) {
+      if (!errorValue || isAbortError(errorValue)) {
         return null;
       }
-      if (isAbortError(errorValue)) {
-        return null;
-      }
-      try {
-        return resolveMessageOrKey(messageKey, translate);
-      } catch {
-        return translate(messageKey);
-      }
+
+      return safeResolveMessage(messageKey, translate, () =>
+        translate(messageKey)
+      );
     }
   );
 

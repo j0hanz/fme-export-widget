@@ -23,6 +23,7 @@ import {
 } from "../../runtime/components/ui";
 import {
   collectTrimmedStrings,
+  isStringOrNumber,
   parseNonNegativeInt,
   toTrimmedString,
   uniqueStrings,
@@ -397,10 +398,7 @@ export const RepositorySelector: React.FC<RepositorySelectorProps> = ({
           options={buildRepoOptions()}
           value={localRepository || undefined}
           onChange={(val) => {
-            const next =
-              typeof val === "string" || typeof val === "number"
-                ? String(val)
-                : "";
+            const next = isStringOrNumber(val) ? String(val) : "";
             onRepositoryChange(next);
           }}
           disabled={isSelectDisabled}

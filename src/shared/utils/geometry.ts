@@ -22,6 +22,7 @@ import {
   GEODESIC_SEGMENT_LENGTH_METERS,
   MIN_PLANAR_SEGMENT_DEGREES,
   ParameterType,
+  VALIDATION_LIMITS,
 } from "../../config/index";
 import { sanitizeParamKey, toTrimmedString } from "./conversion";
 import { createGeometryError } from "./error";
@@ -982,7 +983,7 @@ export const calcArea = async (
       0
     ) ?? 0;
 
-  if (totalVertices > 10000) {
+  if (totalVertices > VALIDATION_LIMITS.MAX_GEOMETRY_VERTICES) {
     logDebug("[Geometry] Processing complex polygon", {
       vertices: totalVertices,
       rings: polygon.rings?.length ?? 0,

@@ -40,6 +40,7 @@ import {
   isNonNegativeNumber,
   isNumericString,
   isPlainObject,
+  isStringOrNumber,
   mergeMetadata,
   normalizeParameterValue,
   normalizeToggleValue,
@@ -311,7 +312,7 @@ export class ParameterFormService {
   private normalizeOptionItem(item: unknown, index: number): OptionItem | null {
     if (item == null) return null;
 
-    if (typeof item === "string" || typeof item === "number") {
+    if (isStringOrNumber(item)) {
       const normalized = normalizeParameterValue(item);
       return {
         label: String(normalized),

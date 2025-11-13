@@ -38,6 +38,10 @@ export const isNumber = (value: unknown): value is number =>
 export const isBoolean = (value: unknown): value is boolean =>
   typeof value === "boolean";
 
+/** Type guard for string or number primitives. */
+export const isStringOrNumber = (value: unknown): value is string | number =>
+  typeof value === "string" || typeof value === "number";
+
 /** Type guard for null. */
 export const isNull = (value: unknown): value is null => value === null;
 
