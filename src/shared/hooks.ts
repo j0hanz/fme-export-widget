@@ -31,6 +31,7 @@ import { healthCheck, validateConnection } from "./services";
 import {
   buildTokenCacheKey,
   createFmeClient,
+  isNonNegativeNumber,
   linkAbortSignal,
   loadArcgisModules,
   logIfNotAbort,
@@ -140,7 +141,7 @@ export const useDebounce = <T extends (...args: unknown[]) => void>(
   delay: number,
   options?: UseDebounceOptions
 ): DebouncedFn<T> => {
-  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
+  const safeDelay = isNonNegativeNumber(delay) ? delay : 0;
   const timeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = React.useRef(false);
   const lastArgsRef = React.useRef<Parameters<T> | null>(null);
@@ -749,7 +750,7 @@ export const useLoadingLatch = (
   state: LoadableState,
   delay: number
 ): { showLoading: boolean; snapshot: LoadingSnapshot } => {
-  const safeDelay = Number.isFinite(delay) && delay >= 0 ? delay : 0;
+  const safeDelay = isNonNegativeNumber(delay) ? delay : 0;
   // Skapar snapshot av loading-meddelanden
   const createSnapshot = (
     source: LoadableState | null | undefined
@@ -796,8 +797,7 @@ export const useLoadingLatch = (
     } else if (startRef.current != null) {
       // Håll latch tills delay löpt ut
       const elapsed = Date.now() - startRef.current;
-      const safeElapsed =
-        Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0;
+      const safeElapsed = isNonNegativeNumber(elapsed) ? elapsed : 0;
       const remaining = Math.max(0, safeDelay - safeElapsed);
 
       if (remaining > 0) {

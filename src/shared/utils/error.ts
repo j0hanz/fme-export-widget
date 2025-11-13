@@ -15,6 +15,7 @@ import {
   STATUS_TO_KEY_MAP,
 } from "../../config/index";
 import { extractHttpStatus } from "../validations";
+import { toStr } from "./conversion";
 import { buildSupportHintText, resolveMessageOrKey } from "./format";
 
 const DEFAULT_ERROR_ICON = "error";
@@ -77,16 +78,6 @@ export const getErrorIconSrc = (code?: string): string => {
 
 const ABORT_REGEX = /\baborted?\b/i;
 
-// Konverterar okänt värde till sträng säkert
-const toSafeString = (value: unknown): string => {
-  if (typeof value === "string") return value;
-  if (typeof value === "number") return String(value);
-  if (typeof value === "boolean") return String(value);
-  if (value === null || value === undefined) return "";
-  // För objekt, returnera tom sträng istället för [object Object]
-  return "";
-};
-
 // Kollar om fel är abort/cancel-fel
 export const isAbortError = (error: unknown): boolean => {
   if (!error) return false;
@@ -98,12 +89,12 @@ export const isAbortError = (error: unknown): boolean => {
       message?: unknown;
     };
 
-    const name = toSafeString(candidate.name ?? candidate.code);
+    const name = toStr(candidate.name ?? candidate.code);
     if (name === "AbortError" || name === "ABORT_ERR" || name === "ERR_ABORTED")
       return true;
 
     if (!name || name === "Error") {
-      const message = toSafeString(candidate.message);
+      const message = toStr(candidate.message);
       return ABORT_REGEX.test(message) || message.includes("signal is aborted");
     }
     return false;

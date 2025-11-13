@@ -13,6 +13,7 @@ import { isValidEmail } from "../validations";
 import {
   isFiniteNumber,
   isNonEmptyTrimmedString,
+  isNonNegativeNumber,
   toNonEmptyTrimmedString,
   toTrimmedString,
 } from "./conversion";
@@ -324,7 +325,7 @@ export const extractTemporalParts = (
 const safePad2 = (part?: string): string | null => {
   if (!part) return null;
   const n = Number(part);
-  return Number.isFinite(n) && n >= 0 && n <= 99 ? pad2(n) : null;
+  return isNonNegativeNumber(n) && n <= 99 ? pad2(n) : null;
 };
 
 export const fmeDateToInput = (v: string): string => {

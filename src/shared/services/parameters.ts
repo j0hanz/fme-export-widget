@@ -36,10 +36,12 @@ import {
   isEmpty,
   isFileObject,
   isNonEmptyTrimmedString,
+  isNonNegativeNumber,
   isPlainObject,
   mergeMetadata,
   normalizeParameterValue,
   normalizeToggleValue,
+  normalizeToLowerCase,
   pickBoolean,
   pickNumber,
   pickString,
@@ -664,11 +666,11 @@ export class ParameterFormService {
     maxRows: number | undefined
   ): { minRows?: number; maxRows?: number } {
     const resolvedMin =
-      typeof minRows === "number" && Number.isFinite(minRows) && minRows >= 0
+      typeof minRows === "number" && isNonNegativeNumber(minRows)
         ? Math.floor(minRows)
         : undefined;
     let resolvedMax =
-      typeof maxRows === "number" && Number.isFinite(maxRows) && maxRows >= 0
+      typeof maxRows === "number" && isNonNegativeNumber(maxRows)
         ? Math.floor(maxRows)
         : undefined;
 
@@ -1348,7 +1350,9 @@ export class ParameterFormService {
       "colorModel",
       "colourModel",
     ]);
-    const normalizedSpace = spaceRaw?.trim().toLowerCase();
+    const normalizedSpace = spaceRaw
+      ? normalizeToLowerCase(spaceRaw)
+      : undefined;
     let space: ColorFieldConfig["space"];
 
     if (normalizedSpace === "cmyk") {
@@ -1529,7 +1533,7 @@ export class ParameterFormService {
   private parseVisibilityState(value: unknown): VisibilityState | undefined {
     if (typeof value !== "string") return undefined;
 
-    const normalized = value.trim().toLowerCase();
+    const normalized = normalizeToLowerCase(value);
     switch (normalized) {
       case "visibleenabled":
       case "visible_enabled":

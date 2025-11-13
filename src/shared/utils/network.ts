@@ -5,6 +5,7 @@ import type FmeFlowApiClient from "../api";
 import { createFmeFlowClient } from "../api";
 import {
   isFileObject,
+  normalizeToLowerCase,
   toNonEmptyTrimmedString,
   toStr,
   toTrimmedString,
@@ -158,15 +159,15 @@ export const buildParams = (
       return typeof raw === "string" ? raw : "";
     };
 
-    const formatRaw = getRaw("opt_responseformat").trim().toLowerCase();
+    const formatRaw = normalizeToLowerCase(getRaw("opt_responseformat"));
     const normalizedFormat = formatRaw === "xml" ? "xml" : "json";
     urlParams.set("opt_responseformat", normalizedFormat);
 
-    const showRaw = getRaw("opt_showresult").trim().toLowerCase();
+    const showRaw = normalizeToLowerCase(getRaw("opt_showresult"));
     const normalizedShow = showRaw === "false" ? "false" : "true";
     urlParams.set("opt_showresult", normalizedShow);
 
-    const modeRaw = getRaw("opt_servicemode").trim().toLowerCase();
+    const modeRaw = normalizeToLowerCase(getRaw("opt_servicemode"));
     const normalizedMode = modeRaw === "sync" ? "sync" : "async";
     urlParams.set("opt_servicemode", normalizedMode);
   }

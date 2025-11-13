@@ -24,6 +24,31 @@ const normalizeString = (
   return options?.nullable ? null : undefined;
 };
 
+/* Type Guards - Common type checking patterns */
+
+/** Type guard for strings. */
+export const isString = (value: unknown): value is string =>
+  typeof value === "string";
+
+/** Type guard for numbers (includes NaN and Infinity). */
+export const isNumber = (value: unknown): value is number =>
+  typeof value === "number";
+
+/** Type guard for booleans. */
+export const isBoolean = (value: unknown): value is boolean =>
+  typeof value === "boolean";
+
+/** Type guard for null. */
+export const isNull = (value: unknown): value is null => value === null;
+
+/** Type guard for undefined. */
+export const isUndefined = (value: unknown): value is undefined =>
+  value === undefined;
+
+/** Type guard for nullish values (null or undefined). */
+export const isNullish = (value: unknown): value is null | undefined =>
+  value == null;
+
 // Kontrollerar om värdet är "tomt"
 export const isEmpty = (v: unknown): boolean => {
   if (v === undefined || v === null || v === "") return true;
@@ -32,9 +57,15 @@ export const isEmpty = (v: unknown): boolean => {
   return false;
 };
 
-// Type guard för non-empty trimmed string
+/** Type guard for non-empty trimmed string. */
 export const isNonEmptyTrimmedString = (value: unknown): value is string =>
-  typeof value === "string" && value.trim().length > 0;
+  isString(value) && value.trim().length > 0;
+
+/** Normalizes string to lowercase trimmed form (common for case-insensitive comparisons). */
+export const normalizeToLowerCase = (value: unknown): string => {
+  if (!isString(value)) return "";
+  return value.trim().toLowerCase();
+};
 
 // Returnerar trimmed string eller tom sträng
 export const toTrimmedStringOrEmpty = (value: unknown): string => {
@@ -63,12 +94,20 @@ export const toStringValue = (value: unknown): string | undefined =>
 export const isPlainObject = (
   value: unknown
 ): value is { readonly [key: string]: unknown } => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === "object" && !isNull(value) && !Array.isArray(value);
 };
 
 /** Type guard for finite numbers. */
 export const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
+  isNumber(value) && Number.isFinite(value);
+
+/** Type guard for non-negative finite numbers. */
+export const isNonNegativeNumber = (value: unknown): value is number =>
+  isFiniteNumber(value) && value >= 0;
+
+/** Type guard for positive finite numbers (> 0). */
+export const isPositiveNumber = (value: unknown): value is number =>
+  isFiniteNumber(value) && value > 0;
 
 export const isValidNumber = (
   value: unknown,
@@ -97,8 +136,8 @@ export const isFileObject = (value: unknown): value is File =>
 
 /** Coerces unknown values into booleans when the intent is clear. */
 export const toBooleanValue = (value: unknown): boolean | undefined => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") {
+  if (isBoolean(value)) return value;
+  if (isNumber(value)) {
     if (!Number.isFinite(value)) return undefined;
     return value !== 0;
   }
@@ -139,6 +178,10 @@ export const clampNumber = (
 /** Wraps non-array values into an array, filtering nullish values. */
 export const toArray = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : value == null ? [] : [value];
+
+/** Ensures value is an array, returns empty array if not. */
+export const ensureArray = <T>(value: unknown): T[] =>
+  Array.isArray(value) ? (value as T[]) : [];
 
 /** Generic helper for fetching the first converted value by key lookup. */
 export const pickFromObject = <T>(
@@ -214,8 +257,8 @@ export const toMetadataRecord = (
 /** Normalizes parameter values for safe FME submission. */
 export const normalizeParameterValue = (value: unknown): string | number => {
   if (isFiniteNumber(value)) return value;
-  if (typeof value === "string") return value;
-  if (typeof value === "boolean") return value ? "true" : "false";
+  if (isString(value)) return value;
+  if (isBoolean(value)) return value ? "true" : "false";
   return JSON.stringify(value ?? null);
 };
 
@@ -223,13 +266,13 @@ export const normalizeParameterValue = (value: unknown): string | number => {
 export const normalizeToggleValue = (
   value: unknown
 ): string | number | undefined => {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") {
+  if (isNullish(value)) return undefined;
+  if (isString(value)) {
     const trimmed = value.trim();
     if (!trimmed) return undefined;
     return normalizeParameterValue(trimmed);
   }
-  if (typeof value === "number" || typeof value === "boolean") {
+  if (isNumber(value) || isBoolean(value)) {
     return normalizeParameterValue(value);
   }
   return undefined;
@@ -246,10 +289,10 @@ export const areToggleValuesEqual = (a: unknown, b: unknown): boolean => {
 
 /** Returns a string suitable for debug logging. */
 export const toStr = (val: unknown): string => {
-  if (typeof val === "string") return val;
-  if (typeof val === "number" || typeof val === "boolean") return String(val);
-  if (val === undefined) return "undefined";
-  if (val === null) return "null";
+  if (isString(val)) return val;
+  if (isNumber(val) || isBoolean(val)) return String(val);
+  if (isUndefined(val)) return "undefined";
+  if (isNull(val)) return "null";
   if (typeof val === "object") {
     try {
       return JSON.stringify(val);
@@ -272,7 +315,7 @@ export const normalizeFormValue = (
   value: unknown,
   isMultiSelect: boolean
 ): string | number | boolean | Array<string | number> => {
-  if (value === undefined || value === null) {
+  if (isNullish(value)) {
     return isMultiSelect ? [] : "";
   }
   if (isMultiSelect) {
@@ -280,8 +323,8 @@ export const normalizeFormValue = (
       ? (value as Array<string | number>)
       : [value as string | number];
   }
-  if (typeof value === "string" || typeof value === "number") return value;
-  if (typeof value === "boolean") return value;
+  if (isString(value) || isNumber(value)) return value;
+  if (isBoolean(value)) return value;
   return "";
 };
 
@@ -308,7 +351,7 @@ export const toSerializable = (
 
 /** Utility ensuring iteration only happens on supported values. */
 const isIterable = (value: unknown): value is Iterable<unknown> =>
-  typeof value !== "string" &&
+  !isString(value) &&
   typeof (value as { [Symbol.iterator]?: unknown })?.[Symbol.iterator] ===
     "function";
 
@@ -363,4 +406,36 @@ export const getTextPlaceholder = (
   if (field?.placeholder) return field.placeholder;
   if (kind) return translate(PLACEHOLDER_KIND_MAP[kind]);
   return placeholders.enter;
+};
+
+/** Type guard for objects with a specific property. */
+export const hasProperty = <K extends PropertyKey>(
+  value: unknown,
+  key: K
+): value is { [P in K]: unknown } => {
+  return typeof value === "object" && !isNull(value) && key in value;
+};
+
+/** Safe JSON parser with fallback for invalid JSON. */
+export const safeJsonParse = <T = unknown>(
+  value: string,
+  fallback?: T
+): T | undefined => {
+  if (!isString(value) || !value.trim()) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+};
+
+/** Deep clone via JSON serialization (loses functions, symbols, undefined). */
+export const deepCloneJson = <T>(value: T): T => {
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
 };

@@ -39,8 +39,10 @@ import {
   extractRepositoryNames,
   interceptorExists,
   isJson,
+  isNonNegativeNumber,
   loadArcgisModules,
   makeScopeId,
+  normalizeToLowerCase,
   parseNonNegativeInt,
   safeLogParams,
   safeParseUrl,
@@ -103,8 +105,7 @@ export async function instrumentedRequest<T>(
     const response = await options.execute();
 
     const durationMs = Date.now() - startMs;
-    const safeDuration =
-      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0;
+    const safeDuration = isNonNegativeNumber(durationMs) ? durationMs : 0;
     // Extraherar status och ok-flagga från svar via interpreter
     const status = options.responseInterpreter?.status?.(response);
     const ok = options.responseInterpreter?.ok?.(response) ?? inferOk(status);
@@ -131,8 +132,7 @@ export async function instrumentedRequest<T>(
     return response;
   } catch (error) {
     const durationMs = Date.now() - startMs;
-    const safeDuration =
-      Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : 0;
+    const safeDuration = isNonNegativeNumber(durationMs) ? durationMs : 0;
     const status = extractHttpStatus(error);
     // Kontrollerar om förfrågan avbröts av användare
     const isAbort = isAbortError(error);
@@ -750,7 +750,7 @@ const V4_TYPE_MAP: { [key: string]: string } = {
 const normalizeParameterType = (rawType: unknown): string => {
   if (typeof rawType !== "string") return "TEXT";
 
-  const normalized = rawType.trim().toLowerCase();
+  const normalized = normalizeToLowerCase(rawType);
   const mapped = V4_TYPE_MAP[normalized];
 
   if (mapped) return mapped;
