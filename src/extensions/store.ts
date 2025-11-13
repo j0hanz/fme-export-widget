@@ -75,36 +75,47 @@ export const fmeActions = {
   // Uppdaterar listan över tillgängliga workspaces
   setWorkspaceItems: (
     workspaceItems: readonly WorkspaceItem[],
+    repository: string | undefined,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEMS,
     workspaceItems,
+    repository,
     widgetId,
   }),
   // Lagrar parametrar för valt workspace
   setWorkspaceParameters: (
     workspaceParameters: readonly WorkspaceParameter[],
     workspaceName: string,
+    repository: string | undefined,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_PARAMETERS,
     workspaceParameters,
     workspaceName,
+    repository,
     widgetId,
   }),
   // Väljer aktivt workspace efter namn
-  setSelectedWorkspace: (workspaceName: string | null, widgetId: string) => ({
+  setSelectedWorkspace: (
+    workspaceName: string | null,
+    repository: string | undefined,
+    widgetId: string
+  ) => ({
     type: FmeActionType.SET_SELECTED_WORKSPACE,
     workspaceName,
+    repository,
     widgetId,
   }),
   // Lagrar detaljerad workspace-metadata
   setWorkspaceItem: (
     workspaceItem: WorkspaceItemDetail | null,
+    repository: string | undefined,
     widgetId: string
   ) => ({
     type: FmeActionType.SET_WORKSPACE_ITEM,
     workspaceItem,
+    repository,
     widgetId,
   }),
   // Sätter enskilt fel för specifik scope (general/import/export)
@@ -151,8 +162,12 @@ export const fmeActions = {
     widgetId,
   }),
   // Rensar workspace-relaterad state (items, parameters, etc.)
-  clearWorkspaceState: (widgetId: string) => ({
+  clearWorkspaceState: (
+    newRepository: string | undefined,
+    widgetId: string
+  ) => ({
     type: FmeActionType.CLEAR_WORKSPACE_STATE,
+    newRepository,
     widgetId,
   }),
   // Återgår till ritläge, rensar geometri och workspace-data
@@ -220,6 +235,7 @@ export const initialFmeState: FmeWidgetState = {
   selectedWorkspace: null,
   workspaceParameters: [],
   workspaceItem: null,
+  currentRepository: null,
 
   // Loading
   loading: createInitialLoadingState(),
@@ -453,14 +469,65 @@ const reduceOne = (
 
     case FmeActionType.SET_WORKSPACE_ITEMS: {
       const act = action as ActionFrom<"setWorkspaceItems">;
-      if (state.workspaceItems === act.workspaceItems) {
+      const incomingRepo = toTrimmedString(act.repository) ?? null;
+
+      // Kontrollera om repository har ändrats
+      const repoChanged = state.currentRepository !== incomingRepo;
+
+      let nextState = state;
+
+      // Om repository ändrats, rensa workspace-relaterad state
+      if (repoChanged) {
+        if (state.selectedWorkspace !== null) {
+          nextState = nextState.set("selectedWorkspace", null);
+        }
+        if (state.workspaceParameters.length) {
+          nextState = nextState.set("workspaceParameters", []);
+        }
+        if (state.workspaceItem !== null) {
+          nextState = nextState.set("workspaceItem", null);
+        }
+        if (state.orderResult !== null) {
+          nextState = nextState.set("orderResult", null);
+        }
+      }
+
+      // Uppdatera repository och workspace items
+      if (state.currentRepository !== incomingRepo) {
+        nextState = nextState.set("currentRepository", incomingRepo);
+      }
+
+      if (state.workspaceItems !== act.workspaceItems) {
+        nextState = nextState.set("workspaceItems", act.workspaceItems);
+      }
+
+      return nextState;
+    }
+
+    case FmeActionType.SET_WORKSPACE_ITEM: {
+      const act = action as ActionFrom<"setWorkspaceItem">;
+      const actRepo = toTrimmedString(act.repository) ?? null;
+
+      // Ignorera om repository inte matchar
+      if (actRepo !== state.currentRepository) {
         return state;
       }
-      return state.set("workspaceItems", act.workspaceItems);
+
+      if (state.workspaceItem === act.workspaceItem) {
+        return state;
+      }
+      return state.set("workspaceItem", act.workspaceItem);
     }
 
     case FmeActionType.SET_WORKSPACE_PARAMETERS: {
       const act = action as ActionFrom<"setWorkspaceParameters">;
+      const actRepo = toTrimmedString(act.repository) ?? null;
+
+      // Ignorera om repository inte matchar
+      if (actRepo !== state.currentRepository) {
+        return state;
+      }
+
       const requested = normalizeWorkspaceName(act.workspaceName);
       const currentSelection = normalizeWorkspaceName(state.selectedWorkspace);
 
@@ -500,6 +567,13 @@ const reduceOne = (
 
     case FmeActionType.SET_SELECTED_WORKSPACE: {
       const act = action as ActionFrom<"setSelectedWorkspace">;
+      const actRepo = toTrimmedString(act.repository) ?? null;
+
+      // Ignorera om repository inte matchar
+      if (actRepo !== state.currentRepository) {
+        return state;
+      }
+
       const desired = normalizeWorkspaceName(act.workspaceName);
       const current = normalizeWorkspaceName(state.selectedWorkspace);
       // Ingen ändring om samma workspace redan valt
@@ -529,27 +603,18 @@ const reduceOne = (
       return nextState;
     }
 
-    case FmeActionType.SET_WORKSPACE_ITEM: {
-      const act = action as ActionFrom<"setWorkspaceItem">;
-      const current = normalizeWorkspaceName(state.selectedWorkspace);
-      const itemName = normalizeWorkspaceName(act.workspaceItem?.name);
-
-      // Ignorerar item om namnet inte matchar valt workspace
-      if (act.workspaceItem && current && itemName && itemName !== current) {
-        return state;
-      }
-
-      if (state.workspaceItem === act.workspaceItem) {
-        return state;
-      }
-
-      return state.set("workspaceItem", act.workspaceItem);
-    }
-
     case FmeActionType.CLEAR_WORKSPACE_STATE: {
+      const act = action as ActionFrom<"clearWorkspaceState">;
+      const newRepo = toTrimmedString(act.newRepository) ?? null;
+
       // Rensar all workspace-relaterad data och laddningsflaggor
       const clearedLoading = createInitialLoadingState();
       let nextState = state;
+
+      // Uppdatera repository om angivet
+      if (state.currentRepository !== newRepo) {
+        nextState = nextState.set("currentRepository", newRepo);
+      }
 
       if (state.workspaceItems.length) {
         nextState = nextState.set("workspaceItems", []);

@@ -1411,8 +1411,11 @@ export function useFmeDispatch(widgetId: string) {
     ) => {
       reduxDispatch(fmeActions.setGeometry(geometry, area, widgetId));
     },
-    setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
-      reduxDispatch(fmeActions.setWorkspaceItems(items, widgetId));
+    setWorkspaceItems: (
+      items: readonly WorkspaceItem[],
+      repository: string | undefined
+    ) => {
+      reduxDispatch(fmeActions.setWorkspaceItems(items, repository, widgetId));
     },
     applyWorkspaceData: (payload: {
       readonly workspaceName: string;
@@ -1430,8 +1433,8 @@ export function useFmeDispatch(widgetId: string) {
         fmeActions.completeDrawing(geometry, area, nextView, widgetId)
       );
     },
-    clearWorkspaceState: () => {
-      reduxDispatch(fmeActions.clearWorkspaceState(widgetId));
+    clearWorkspaceState: (repository: string | undefined) => {
+      reduxDispatch(fmeActions.clearWorkspaceState(repository, widgetId));
     },
     resetState: () => {
       reduxDispatch(fmeActions.resetState(widgetId));
@@ -1474,8 +1477,13 @@ export function useFmeDispatch(widgetId: string) {
       ) => {
         reduxDispatch(fmeActions.setGeometry(geometry, area, widgetId));
       },
-      setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
-        reduxDispatch(fmeActions.setWorkspaceItems(items, widgetId));
+      setWorkspaceItems: (
+        items: readonly WorkspaceItem[],
+        repository: string | undefined
+      ) => {
+        reduxDispatch(
+          fmeActions.setWorkspaceItems(items, repository, widgetId)
+        );
       },
       applyWorkspaceData: (payload: {
         readonly workspaceName: string;
@@ -1493,8 +1501,8 @@ export function useFmeDispatch(widgetId: string) {
           fmeActions.completeDrawing(geometry, area, nextView, widgetId)
         );
       },
-      clearWorkspaceState: () => {
-        reduxDispatch(fmeActions.clearWorkspaceState(widgetId));
+      clearWorkspaceState: (repository: string | undefined) => {
+        reduxDispatch(fmeActions.clearWorkspaceState(repository, widgetId));
       },
       resetState: () => {
         reduxDispatch(fmeActions.resetState(widgetId));

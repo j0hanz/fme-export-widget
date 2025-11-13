@@ -94,8 +94,11 @@ export const createFmeDispatcher = (
   setGeometry: (geometry: __esri.Geometry | null, area: number | undefined) => {
     dispatch(fmeActions.setGeometry(geometry, area, widgetId));
   },
-  setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
-    dispatch(fmeActions.setWorkspaceItems(items, widgetId));
+  setWorkspaceItems: (
+    items: readonly WorkspaceItem[],
+    repository: string | undefined
+  ) => {
+    dispatch(fmeActions.setWorkspaceItems(items, repository, widgetId));
   },
   applyWorkspaceData: (payload: {
     readonly workspaceName: string;
@@ -111,8 +114,8 @@ export const createFmeDispatcher = (
   ) => {
     dispatch(fmeActions.completeDrawing(geometry, area, nextView, widgetId));
   },
-  clearWorkspaceState: () => {
-    dispatch(fmeActions.clearWorkspaceState(widgetId));
+  clearWorkspaceState: (repository: string | undefined) => {
+    dispatch(fmeActions.clearWorkspaceState(repository, widgetId));
   },
   resetState: () => {
     dispatch(fmeActions.resetState(widgetId));

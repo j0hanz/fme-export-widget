@@ -1262,9 +1262,14 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
         workspaceItems
       )
     ) {
-      fmeDispatch.setWorkspaceItems(sanitizedWorkspaces);
+      fmeDispatch.setWorkspaceItems(sanitizedWorkspaces, config?.repository);
     }
-  }, [sanitizedWorkspaces, workspaceItems, canFetchWorkspaces]);
+  }, [
+    sanitizedWorkspaces,
+    workspaceItems,
+    canFetchWorkspaces,
+    config?.repository,
+  ]);
 
   // Rensar workspace-state och pending workspace när hämtning ej längre möjlig
   hooks.useUpdateEffect(() => {
@@ -1273,13 +1278,18 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     }
 
     if (workspaceItems.length) {
-      fmeDispatch.clearWorkspaceState();
+      fmeDispatch.clearWorkspaceState(config?.repository);
     }
 
     if (pendingWorkspace) {
       setPendingWorkspace(null);
     }
-  }, [canFetchWorkspaces, workspaceItems.length, pendingWorkspace]);
+  }, [
+    canFetchWorkspaces,
+    workspaceItems.length,
+    pendingWorkspace,
+    config?.repository,
+  ]);
 
   // Hämtar om workspaces vid repository-byte
   hooks.useUpdateEffect(() => {
@@ -1288,7 +1298,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     }
 
     setPendingWorkspace(null);
-    fmeDispatch.clearWorkspaceState();
+    fmeDispatch.clearWorkspaceState(configuredRepository);
 
     if (!configuredRepository || !canFetchWorkspaces) {
       return;
@@ -1391,7 +1401,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     setPendingWorkspace(null);
 
     if (!canFetchWorkspaces) {
-      fmeDispatch.clearWorkspaceState();
+      fmeDispatch.clearWorkspaceState(config?.repository);
       return;
     }
 

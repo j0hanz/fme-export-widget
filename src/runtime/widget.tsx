@@ -585,7 +585,7 @@ function WidgetContent(
     fmeDispatch.resetState();
     updateAreaWarning(false);
 
-    fmeDispatch.clearWorkspaceState();
+    fmeDispatch.clearWorkspaceState(config?.repository);
 
     if (activeTool) {
       fmeDispatch.setDrawingTool(activeTool);
@@ -1683,6 +1683,16 @@ function WidgetContent(
       if (isInCriticalOperation()) {
         closeBlockedRef.current = true;
         setShowCloseConfirmation(true);
+
+        /* Re-öppna widget för att blockera stängning och visa bekräftelse */
+        try {
+          dispatch(appActions.openWidget(widgetId));
+        } catch (error) {
+          logIfNotAbort(
+            "Failed to re-open widget for close confirmation",
+            error
+          );
+        }
         return;
       }
 
@@ -1695,6 +1705,8 @@ function WidgetContent(
     handleReset,
     stateDetector,
     isInCriticalOperation,
+    dispatch,
+    widgetId,
   ]);
 
   /* Stänger popups när widget öppnas */

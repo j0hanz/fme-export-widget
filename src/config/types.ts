@@ -1286,6 +1286,7 @@ export interface FmeWidgetState {
   readonly selectedWorkspace: string | null;
   readonly workspaceParameters: readonly WorkspaceParameter[];
   readonly workspaceItem: WorkspaceItemDetail | null;
+  readonly currentRepository: string | null;
   readonly loading: LoadingState;
   readonly errors: ErrorMap;
 }
