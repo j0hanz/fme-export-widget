@@ -12,6 +12,7 @@ import {
   REDACT_AUTH_REGEX,
   REDACT_TOKEN_REGEX,
   SENSITIVE_KEY_PATTERNS,
+  V4_PARAMETER_TYPE_MAP,
 } from "../config/constants";
 import type {
   AbortListenerRecord,
@@ -687,71 +688,13 @@ const isStatusRetryable = (status?: number): boolean => {
 const makeFlowError = (code: string, status?: number) =>
   new FmeFlowApiError(code, code, status, isStatusRetryable(status));
 
-const V4_TYPE_MAP: { [key: string]: string } = {
-  text: "TEXT",
-  string: "STRING",
-  text_edit: "TEXT_EDIT",
-  textedit: "TEXT_EDIT",
-  textarea: "TEXT_EDIT",
-  password: "PASSWORD",
-  url: "URL",
-  integer: "INTEGER",
-  int: "INTEGER",
-  float: "FLOAT",
-  number: "FLOAT",
-  decimal: "FLOAT",
-  boolean: "BOOLEAN",
-  bool: "BOOLEAN",
-  checkbox: "CHECKBOX",
-  choice: "CHOICE",
-  dropdown: "CHOICE",
-  select: "CHOICE",
-  listbox: "LISTBOX",
-  lookup_choice: "LOOKUP_CHOICE",
-  lookup_listbox: "LOOKUP_LISTBOX",
-  tree: "SCRIPTED",
-  range: "RANGE_SLIDER",
-  filename: "FILENAME",
-  file: "FILENAME",
-  filename_mustexist: "FILENAME_MUSTEXIST",
-  dirname: "DIRNAME",
-  directory: "DIRNAME",
-  dirname_mustexist: "DIRNAME_MUSTEXIST",
-  dirname_src: "DIRNAME_SRC",
-  lookup_file: "LOOKUP_FILE",
-  date: "DATE",
-  time: "TIME",
-  datetime: "DATETIME",
-  date_time: "DATE_TIME",
-  month: "MONTH",
-  week: "WEEK",
-  color: "COLOR",
-  colour: "COLOR",
-  color_pick: "COLOR_PICK",
-  colorpick: "COLOR_PICK",
-  coordsys: "COORDSYS",
-  coordinate_system: "COORDSYS",
-  geometry: "GEOMETRY",
-  message: "MESSAGE",
-  range_slider: "RANGE_SLIDER",
-  slider: "RANGE_SLIDER",
-  text_or_file: "TEXT_OR_FILE",
-  attribute_name: "ATTRIBUTE_NAME",
-  attribute_list: "ATTRIBUTE_LIST",
-  db_connection: "DB_CONNECTION",
-  web_connection: "WEB_CONNECTION",
-  reprojection_file: "REPROJECTION_FILE",
-  scripted: "SCRIPTED",
-  group: "GROUP",
-};
-
 // Normalizes V4 parameter type to internal format
 // V4 API returns lowercase types (e.g., "text", "integer") that we map to uppercase internal format
 const normalizeParameterType = (rawType: unknown): string => {
   if (typeof rawType !== "string") return "TEXT";
 
   const normalized = normalizeToLowerCase(rawType);
-  const mapped = V4_TYPE_MAP[normalized];
+  const mapped = V4_PARAMETER_TYPE_MAP[normalized];
 
   if (mapped) return mapped;
 

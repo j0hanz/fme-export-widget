@@ -1,3 +1,4 @@
+import { WidgetState } from "jimu-core";
 import {
   DrawingTool,
   FmeActionType,
@@ -5,7 +6,14 @@ import {
   ParameterType,
   ViewMode,
 } from "./enums";
-import type { EsriMockKey, ServiceMode, UnitConversion } from "./types";
+import type {
+  ErrorMappingRules,
+  EsriMockKey,
+  ServiceMode,
+  StateTransitionConfig,
+  TextInputTypeName,
+  UnitConversion,
+} from "./types";
 
 // =============================================================================
 // REDUX ACTIONS
@@ -199,6 +207,66 @@ export const TM_NUMERIC_PARAM_KEYS = Object.freeze([
   "tm_ttc",
   "tm_ttl",
 ] as const);
+
+export const V4_PARAMETER_TYPE_MAP: Readonly<{
+  readonly [key: string]: string;
+}> = Object.freeze({
+  text: "TEXT",
+  string: "STRING",
+  text_edit: "TEXT_EDIT",
+  textedit: "TEXT_EDIT",
+  textarea: "TEXT_EDIT",
+  password: "PASSWORD",
+  url: "URL",
+  integer: "INTEGER",
+  int: "INTEGER",
+  float: "FLOAT",
+  number: "FLOAT",
+  decimal: "FLOAT",
+  boolean: "BOOLEAN",
+  bool: "BOOLEAN",
+  checkbox: "CHECKBOX",
+  choice: "CHOICE",
+  dropdown: "CHOICE",
+  select: "CHOICE",
+  listbox: "LISTBOX",
+  lookup_choice: "LOOKUP_CHOICE",
+  lookup_listbox: "LOOKUP_LISTBOX",
+  tree: "SCRIPTED",
+  range: "RANGE_SLIDER",
+  filename: "FILENAME",
+  file: "FILENAME",
+  filename_mustexist: "FILENAME_MUSTEXIST",
+  dirname: "DIRNAME",
+  directory: "DIRNAME",
+  dirname_mustexist: "DIRNAME_MUSTEXIST",
+  dirname_src: "DIRNAME_SRC",
+  lookup_file: "LOOKUP_FILE",
+  date: "DATE",
+  time: "TIME",
+  datetime: "DATETIME",
+  date_time: "DATE_TIME",
+  month: "MONTH",
+  week: "WEEK",
+  color: "COLOR",
+  colour: "COLOR",
+  color_pick: "COLOR_PICK",
+  colorpick: "COLOR_PICK",
+  coordsys: "COORDSYS",
+  coordinate_system: "COORDSYS",
+  geometry: "GEOMETRY",
+  message: "MESSAGE",
+  range_slider: "RANGE_SLIDER",
+  slider: "RANGE_SLIDER",
+  text_or_file: "TEXT_OR_FILE",
+  attribute_name: "ATTRIBUTE_NAME",
+  attribute_list: "ATTRIBUTE_LIST",
+  db_connection: "DB_CONNECTION",
+  web_connection: "WEB_CONNECTION",
+  reprojection_file: "REPROJECTION_FILE",
+  scripted: "SCRIPTED",
+  group: "GROUP",
+});
 
 export const OPTIONAL_OPT_KEYS = Object.freeze([
   "opt_servicemode",
@@ -427,7 +495,7 @@ export const TEXT_OR_FILE_MODES = Object.freeze({
   FILE: "file" as const,
 });
 
-export const TEXT_INPUT_TYPES = Object.freeze([
+export const TEXT_INPUT_TYPES: readonly TextInputTypeName[] = Object.freeze([
   "text",
   "email",
   "tel",
@@ -698,6 +766,31 @@ export const LOADING_UI_CONFIG = Object.freeze({
 });
 
 // =============================================================================
+// WIDGET STATE TRANSITIONS
+// =============================================================================
+
+export const STATE_TRANSITIONS: Readonly<{
+  readonly [key: string]: StateTransitionConfig;
+}> = Object.freeze({
+  TO_ACTIVE: {
+    fromStates: [WidgetState.Closed, WidgetState.Hidden],
+    toStates: [WidgetState.Opened, WidgetState.Active],
+  },
+  TO_INACTIVE: {
+    fromStates: [WidgetState.Opened, WidgetState.Active],
+    toStates: [WidgetState.Closed, WidgetState.Hidden],
+  },
+  TO_CLOSED: {
+    fromStates: [WidgetState.Opened, WidgetState.Active],
+    toStates: [WidgetState.Closed],
+  },
+  FROM_CLOSED: {
+    fromStates: [WidgetState.Closed],
+    toStates: [WidgetState.Opened, WidgetState.Active],
+  },
+});
+
+// =============================================================================
 // ICONS & VISUAL ELEMENTS
 // =============================================================================
 
@@ -806,6 +899,12 @@ export const MESSAGE_PATTERNS = Object.freeze([
     key: "REMOTE_DATASET_WORKSPACE_REQUIRED",
   },
 ] as const);
+
+export const ERROR_MAPPING_RULES: ErrorMappingRules = Object.freeze({
+  codeToKey: ERROR_CODE_TO_KEY,
+  statusToKey: STATUS_TO_KEY_MAP,
+  messagePatterns: MESSAGE_PATTERNS,
+});
 
 export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
   require_https: "require_https",

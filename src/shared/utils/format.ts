@@ -8,7 +8,20 @@ import type {
   TranslateFn,
   UnitConversion,
 } from "../../config/index";
-import { DEFAULT_DRAWING_HEX, EMAIL_PLACEHOLDER } from "../../config/index";
+import {
+  DEFAULT_DRAWING_HEX,
+  EMAIL_PLACEHOLDER,
+  ERROR_LABEL_PATTERN,
+  FRACTION_SUFFIX_RE,
+  GEOMETRY_CONSTS,
+  HTML_ENTITY_MAP,
+  HTML_ENTITY_REGEX,
+  ISO_LOCAL_DATE,
+  ISO_LOCAL_TIME,
+  MAX_HTML_CODE_POINT,
+  OFFSET_SUFFIX_RE,
+  UNIT_CONVERSIONS,
+} from "../../config/index";
 import { isValidEmail } from "../validations";
 import {
   isFiniteNumber,
@@ -96,17 +109,6 @@ export const buildSupportHintText = (
   return template.replace(EMAIL_PLACEHOLDER, email);
 };
 
-const HTML_ENTITY_MAP = Object.freeze({
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-});
-
-const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g;
-const MAX_HTML_CODE_POINT = 0x10ffff;
-
 const decodeHtmlNumericEntity = (value: string, base: number): string => {
   if (value.length > 6) return "";
   if (!/^[0-9a-f]+$/i.test(value)) return "";
@@ -167,9 +169,6 @@ export const stripHtmlToText = (input?: string): string => {
   return decoded.replace(/\s+/g, " ").trim();
 };
 
-const ERROR_LABEL_PATTERN =
-  /^(?:error|fel|warning|varning|info)\s*[:\-–—]?\s*/i;
-
 export const stripErrorLabel = (input?: string): string => {
   const trimmed = toTrimmedString(input);
   if (!trimmed) return "";
@@ -182,10 +181,6 @@ export const styleCss = (style?: React.CSSProperties) =>
   style ? css(style as CSSObject) : undefined;
 
 export const pad2 = (n: number): string => String(n).padStart(2, "0");
-
-// Regex för ISO lokal datum och tid
-export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
-export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/;
 
 // Parsar ISO lokal datum-tid-sträng till Date-objekt
 export const parseIsoLocalDateTime = (value?: string): Date | null => {
@@ -288,9 +283,6 @@ export const flattenHierarchicalOptions = <
   }
   return acc;
 };
-
-const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i;
-const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/;
 
 const parseTemporalComponents = (
   input: string
@@ -563,39 +555,6 @@ export const hexToNormalizedRgb = (
 
   return [r, g, b].map(formatRgbFraction).join(",");
 };
-
-const GEOMETRY_CONSTS = {
-  M2_PER_KM2: 1_000_000,
-  AREA_DECIMALS: 2,
-  METERS_PER_KILOMETER: 1_000,
-  SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
-} as const;
-
-const UNIT_CONVERSIONS: readonly UnitConversion[] = [
-  {
-    factor: 0.3048,
-    label: "ft²",
-    keywords: ["foot", "feet"],
-    largeUnit: {
-      threshold: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
-      factor: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
-      label: "mi²",
-    },
-  },
-  { factor: 0.3048006096, label: "ft²", keywords: [] },
-  { factor: 1609.344, label: "mi²", keywords: ["mile"] },
-  {
-    factor: GEOMETRY_CONSTS.METERS_PER_KILOMETER,
-    label: "km²",
-    keywords: ["kilometer"],
-  },
-  { factor: 0.9144, label: "yd²", keywords: ["yard"] },
-  { factor: 0.0254, label: "in²", keywords: ["inch"] },
-  { factor: 0.01, label: "cm²", keywords: ["centimeter"] },
-  { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
-  { factor: 1852, label: "nm²", keywords: ["nautical"] },
-  { factor: 1, label: "m²", keywords: ["meter"] },
-] as const;
 
 const approxLengthUnit = (
   value: number | undefined,

@@ -26,6 +26,154 @@ import { processFmeResponse } from "../utils/fme";
 import { getSupportEmail } from "../validations";
 import { resolveRemoteDataset } from "./dataset";
 
+interface RawFormData {
+  [key: string]: unknown;
+}
+
+interface SubmissionContext {
+  workspace: string;
+  serviceMode: ServiceMode | null;
+  userEmail: string;
+  rawFormData: RawFormData;
+}
+
+type SubmissionContextResult =
+  | { status: "success"; context: SubmissionContext }
+  | { status: "error"; result: SubmissionOrchestrationResult };
+
+type ParamsPreparationOutcome =
+  | { status: "success"; params: MutableParams | null }
+  | { status: "error"; result: SubmissionOrchestrationResult };
+
+const isFailedContextResult = (
+  result: SubmissionContextResult
+): result is { status: "error"; result: SubmissionOrchestrationResult } =>
+  result.status === "error";
+
+const isFailedParamsOutcome = (
+  outcome: ParamsPreparationOutcome
+): outcome is { status: "error"; result: SubmissionOrchestrationResult } =>
+  outcome.status === "error";
+
+const extractRawFormData = (
+  formData: SubmissionOrchestrationOptions["formData"]
+): RawFormData => {
+  const data = (formData as { data?: unknown })?.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    return data as RawFormData;
+  }
+  return {};
+};
+
+const determineSubmissionContext = async (options: {
+  formData: SubmissionOrchestrationOptions["formData"];
+  config: SubmissionOrchestrationOptions["config"];
+  workspaceItem: SubmissionOrchestrationOptions["workspaceItem"];
+  areaWarning: SubmissionOrchestrationOptions["areaWarning"];
+  drawnArea: SubmissionOrchestrationOptions["drawnArea"];
+  selectedWorkspace: SubmissionOrchestrationOptions["selectedWorkspace"];
+}): Promise<SubmissionContextResult> => {
+  const rawFormData = extractRawFormData(options.formData);
+  const determinedMode = determineServiceMode(
+    { data: rawFormData },
+    options.config,
+    {
+      workspaceItem: options.workspaceItem,
+      areaWarning: options.areaWarning,
+      drawnArea: options.drawnArea,
+      onModeOverride: () => {
+        // Mode override handled upstream
+      },
+    }
+  );
+
+  const serviceMode =
+    determinedMode === "sync" || determinedMode === "async"
+      ? determinedMode
+      : null;
+
+  const userEmail =
+    serviceMode === "async" ? await getEmail(options.config) : "";
+  const workspace = options.selectedWorkspace;
+
+  if (!workspace) {
+    return {
+      status: "error",
+      result: {
+        success: false,
+        error: new Error("No workspace selected"),
+        serviceMode,
+      },
+    };
+  }
+
+  return {
+    status: "success",
+    context: {
+      workspace,
+      serviceMode,
+      userEmail,
+      rawFormData,
+    },
+  };
+};
+
+interface ParamsPreparationOptions {
+  rawFormData: RawFormData;
+  userEmail: string;
+  geometryJson: SubmissionPreparationOptions["geometryJson"];
+  geometry: SubmissionPreparationOptions["geometry"];
+  modules: SubmissionPreparationOptions["modules"];
+  config: SubmissionPreparationOptions["config"];
+  workspaceParameters: SubmissionPreparationOptions["workspaceParameters"];
+  workspaceItem: SubmissionPreparationOptions["workspaceItem"];
+  selectedWorkspaceName: string;
+  areaWarning: SubmissionPreparationOptions["areaWarning"];
+  drawnArea: SubmissionPreparationOptions["drawnArea"];
+  makeCancelable: SubmissionPreparationOptions["makeCancelable"];
+  fmeClient: SubmissionPreparationOptions["fmeClient"];
+  signal: AbortSignal;
+  remoteDatasetSubfolder: string;
+  onStatusChange?: SubmissionPreparationOptions["onStatusChange"];
+  serviceMode: ServiceMode | null;
+}
+
+const prepareParamsOrReturnFailure = async (
+  options: ParamsPreparationOptions
+): Promise<ParamsPreparationOutcome> => {
+  const preparation = await prepareSubmissionParams({
+    rawFormData: options.rawFormData,
+    userEmail: options.userEmail,
+    geometryJson: options.geometryJson,
+    geometry: options.geometry,
+    modules: options.modules,
+    config: options.config,
+    workspaceParameters: options.workspaceParameters,
+    workspaceItem: options.workspaceItem,
+    selectedWorkspaceName: options.selectedWorkspaceName,
+    areaWarning: options.areaWarning,
+    drawnArea: options.drawnArea,
+    makeCancelable: options.makeCancelable,
+    fmeClient: options.fmeClient,
+    signal: options.signal,
+    remoteDatasetSubfolder: options.remoteDatasetSubfolder,
+    onStatusChange: options.onStatusChange,
+  });
+
+  if (preparation.aoiError) {
+    return {
+      status: "error",
+      result: {
+        success: false,
+        error: preparation.aoiError,
+        serviceMode: options.serviceMode,
+      },
+    };
+  }
+
+  return { status: "success", params: preparation.params ?? null };
+};
+
 // Förbereder submission-parametrar med AOI och remote dataset-upplösning
 export async function prepareSubmissionParams({
   rawFormData,
@@ -190,45 +338,36 @@ export async function executeJobSubmission(
   let controller: AbortController | null = null;
   let serviceMode: ServiceMode | null = null;
 
+  let userEmail = "";
+  let workspace = "";
+  let rawFormData: RawFormData = {};
+
   try {
-    const rawDataEarly = ((formData as { [key: string]: unknown })?.data ||
-      {}) as {
-      [key: string]: unknown;
-    };
-
-    const determinedMode = determineServiceMode(
-      { data: rawDataEarly },
+    const contextResult = await determineSubmissionContext({
+      formData,
       config,
-      {
-        workspaceItem,
-        areaWarning,
-        drawnArea,
-        onModeOverride: () => {
-          // Mode override handled by caller's side-effect
-        },
-      }
-    );
-    serviceMode =
-      determinedMode === "sync" || determinedMode === "async"
-        ? determinedMode
-        : null;
+      workspaceItem,
+      areaWarning,
+      drawnArea,
+      selectedWorkspace,
+    });
 
-    const userEmail = serviceMode === "async" ? await getEmail(config) : "";
-    const workspace = selectedWorkspace;
-
-    if (!workspace) {
-      return {
-        success: false,
-        error: new Error("No workspace selected"),
-        serviceMode,
-      };
+    if (isFailedContextResult(contextResult)) {
+      const failure = contextResult.result;
+      serviceMode = failure.serviceMode ?? serviceMode;
+      return failure;
     }
+
+    serviceMode = contextResult.context.serviceMode;
+    userEmail = contextResult.context.userEmail;
+    workspace = contextResult.context.workspace;
+    rawFormData = contextResult.context.rawFormData;
 
     controller = submissionAbort.abortAndCreate();
     const subfolder = `widget_${widgetId || "fme"}`;
 
-    const preparation = await prepareSubmissionParams({
-      rawFormData: rawDataEarly,
+    const paramsOutcome = await prepareParamsOrReturnFailure({
+      rawFormData,
       userEmail,
       geometryJson,
       geometry: getActiveGeometry() || undefined,
@@ -244,17 +383,14 @@ export async function executeJobSubmission(
       signal: controller.signal,
       remoteDatasetSubfolder: subfolder,
       onStatusChange,
+      serviceMode,
     });
 
-    if (preparation.aoiError) {
-      return {
-        success: false,
-        error: preparation.aoiError,
-        serviceMode,
-      };
+    if (isFailedParamsOutcome(paramsOutcome)) {
+      return paramsOutcome.result;
     }
 
-    const finalParams = preparation.params;
+    const finalParams = paramsOutcome.params;
     if (!finalParams) {
       throw new Error("Submission parameter preparation failed");
     }

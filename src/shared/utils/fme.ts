@@ -13,7 +13,9 @@ import type {
   WorkspaceItemDetail,
 } from "../../config/index";
 import {
+  ALLOWED_SERVICE_MODES,
   FME_FLOW_API,
+  LOOPBACK_IPV6,
   TM_NUMERIC_PARAM_KEYS,
   WEBHOOK_EXCLUDE_PARAMS,
 } from "../../config/index";
@@ -284,13 +286,6 @@ export const buildOrderResultView = (
     detail: fullDetail,
   };
 };
-
-const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = [
-  "sync",
-  "async",
-] as const;
-
-const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1";
 
 const isLoopbackHostname = (hostname: string): boolean => {
   if (!hostname) return false;

@@ -3,8 +3,12 @@ import type {
   IMState,
   IMThemeVariables,
   React,
+  WidgetState,
 } from "jimu-core";
-import type { Alert as JimuAlert } from "jimu-ui";
+import type {
+  Alert as JimuAlert,
+  NumericInput as JimuNumericInput,
+} from "jimu-ui";
 import type { fmeActions } from "../extensions/store";
 import type FmeFlowApiClient from "../shared/api";
 import type { buildSymbols } from "../shared/utils/arcgis";
@@ -193,6 +197,8 @@ export type LoadingSnapshot = {
   readonly messages?: readonly React.ReactNode[];
 } | null;
 
+export type LoadingEntry = React.ReactNode | null | undefined;
+
 export interface DrawingSessionState {
   readonly isActive: boolean;
   readonly clickCount: number;
@@ -272,19 +278,7 @@ export interface InputProps extends BaseProps {
   readonly readOnly?: boolean;
   readonly required?: boolean;
   readonly step?: number | string;
-  readonly type?:
-    | "text"
-    | "password"
-    | "number"
-    | "file"
-    | "email"
-    | "date"
-    | "datetime-local"
-    | "month"
-    | "week"
-    | "time"
-    | "search"
-    | "tel";
+  readonly type?: TextInputTypeName;
   readonly maxLength?: number;
   readonly accept?: string;
   readonly onFileChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -295,6 +289,20 @@ export interface InputProps extends BaseProps {
   readonly id?: string;
   readonly rows?: number;
 }
+
+export type TextInputTypeName =
+  | "text"
+  | "password"
+  | "number"
+  | "file"
+  | "email"
+  | "date"
+  | "datetime-local"
+  | "month"
+  | "week"
+  | "time"
+  | "search"
+  | "tel";
 
 export interface ButtonProps extends BaseProps {
   readonly text?: React.ReactNode;
@@ -459,6 +467,14 @@ export interface TooltipProps {
   readonly showArrow?: boolean;
   readonly id?: string;
 }
+
+export type NumericInputProps = Omit<
+  React.ComponentProps<typeof JimuNumericInput>,
+  "css" | "onChange" | "style"
+> & {
+  readonly style?: React.CSSProperties;
+  readonly onChange?: (value: number | undefined) => void;
+};
 
 export type GroupButtonConfig = Omit<ButtonProps, "block">;
 
@@ -1233,8 +1249,53 @@ export interface RemoteDatasetOptions {
   readonly workspaceName?: string | null;
 }
 
+export interface RawFormData {
+  readonly [key: string]: unknown;
+}
+
+export interface SubmissionContext {
+  readonly workspace: string;
+  readonly serviceMode: ServiceMode | null;
+  readonly userEmail: string;
+  readonly rawFormData: RawFormData;
+}
+
+export type SubmissionContextResult =
+  | { readonly status: "success"; readonly context: SubmissionContext }
+  | {
+      readonly status: "error";
+      readonly result: SubmissionOrchestrationResult;
+    };
+
+export interface ParamsPreparationOptions {
+  readonly rawFormData: RawFormData;
+  readonly userEmail: string;
+  readonly geometryJson: SubmissionPreparationOptions["geometryJson"];
+  readonly geometry: SubmissionPreparationOptions["geometry"];
+  readonly modules: SubmissionPreparationOptions["modules"];
+  readonly config: SubmissionPreparationOptions["config"];
+  readonly workspaceParameters: SubmissionPreparationOptions["workspaceParameters"];
+  readonly workspaceItem: SubmissionPreparationOptions["workspaceItem"];
+  readonly selectedWorkspaceName: string;
+  readonly areaWarning: SubmissionPreparationOptions["areaWarning"];
+  readonly drawnArea: SubmissionPreparationOptions["drawnArea"];
+  readonly makeCancelable: SubmissionPreparationOptions["makeCancelable"];
+  readonly fmeClient: SubmissionPreparationOptions["fmeClient"];
+  readonly signal: AbortSignal;
+  readonly remoteDatasetSubfolder: string;
+  readonly onStatusChange?: SubmissionPreparationOptions["onStatusChange"];
+  readonly serviceMode: ServiceMode | null;
+}
+
+export type ParamsPreparationOutcome =
+  | { readonly status: "success"; readonly params: MutableParams | null }
+  | {
+      readonly status: "error";
+      readonly result: SubmissionOrchestrationResult;
+    };
+
 export interface SubmissionPreparationOptions {
-  readonly rawFormData: { readonly [key: string]: unknown };
+  readonly rawFormData: RawFormData;
   readonly userEmail: string;
   readonly geometryJson: unknown;
   readonly geometry: __esri.Geometry | null | undefined;
@@ -1512,6 +1573,11 @@ export interface ModeNotice {
   readonly params?: { readonly [key: string]: unknown };
 }
 
+export interface StateTransitionConfig {
+  readonly fromStates: readonly WidgetState[];
+  readonly toStates: readonly WidgetState[];
+}
+
 export type IMWidgetConfig = ImmutableObject<FmeExportConfig>;
 
 export interface ValidationResult {
@@ -1544,6 +1610,11 @@ export interface ConnectionValidationResult {
   };
   readonly steps: CheckSteps;
   readonly warnings?: readonly string[];
+}
+
+export interface RepositoryValidationOutcome {
+  readonly warnings: readonly string[];
+  readonly failure?: ConnectionValidationResult;
 }
 
 export interface StartupValidationResult {
@@ -2187,6 +2258,20 @@ export type FmeAction = ReturnType<
 export type AlertVariant = NonNullable<
   React.ComponentProps<typeof JimuAlert>["type"]
 >;
+
+export type AlertDisplayVariant = "default" | "icon";
+
+export type AlertComponentBaseProps = React.ComponentProps<typeof JimuAlert>;
+
+export type AlertComponentProps = Omit<
+  AlertComponentBaseProps,
+  "variant" | "withIcon"
+> & {
+  readonly variant?: AlertDisplayVariant;
+  readonly jimuVariant?: AlertComponentBaseProps["variant"];
+  readonly tooltipPlacement?: TooltipProps["placement"];
+  readonly withIcon?: AlertComponentBaseProps["withIcon"];
+};
 
 export interface FormAriaOptions {
   readonly id?: string;

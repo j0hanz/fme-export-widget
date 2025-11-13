@@ -1,54 +1,24 @@
 import type {
   ClassifiedError,
   ErrorFactoryOptions,
-  ErrorMappingRules,
   ErrorSeverity,
   ErrorState,
   SerializableErrorState,
   TranslateFn,
 } from "../../config/index";
 import {
-  ERROR_CODE_TO_KEY,
+  ABORT_ERROR_NAMES,
+  ABORT_REGEX,
+  DEFAULT_ERROR_ICON,
+  ERROR_MAPPING_RULES,
   ErrorSeverity as ErrorSeverityEnum,
   ErrorType as ErrorTypeEnum,
-  MESSAGE_PATTERNS,
-  STATUS_TO_KEY_MAP,
+  ICON_BY_EXACT_CODE,
+  TOKEN_ICON_PRIORITY,
 } from "../../config/index";
 import { extractHttpStatus } from "../validations";
 import { toStr } from "./conversion";
 import { buildSupportHintText, resolveMessageOrKey } from "./format";
-
-const DEFAULT_ERROR_ICON = "error";
-
-const ICON_BY_EXACT_CODE = new Map<string, string>([
-  ["GEOMETRY_SERIALIZATION_FAILED", "polygon"],
-  ["MAP_MODULES_LOAD_FAILED", "map"],
-  ["FORM_INVALID", "warning"],
-]);
-
-const TOKEN_ICON_PRIORITY: ReadonlyArray<{ token: string; icon: string }> =
-  Object.freeze([
-    { token: "GEOMETRY", icon: "polygon" },
-    { token: "AREA", icon: "polygon" },
-    { token: "MAP", icon: "map" },
-    { token: "MODULE", icon: "map" },
-    { token: "FORM", icon: "warning" },
-    { token: "TOKEN", icon: "person-lock" },
-    { token: "AUTH", icon: "person-lock" },
-    { token: "REPOSITORY", icon: "folder" },
-    { token: "REPO", icon: "folder" },
-    { token: "DATA", icon: "data" },
-    { token: "NETWORK", icon: "shared-no" },
-    { token: "OFFLINE", icon: "shared-no" },
-    { token: "CONNECTION", icon: "shared-no" },
-    { token: "REQUEST", icon: "shared-no" },
-    { token: "SERVER", icon: "feature-service" },
-    { token: "GATEWAY", icon: "feature-service" },
-    { token: "URL", icon: "link-tilted" },
-    { token: "TIMEOUT", icon: "time" },
-    { token: "CONFIG", icon: "setting" },
-    { token: "EMAIL", icon: "email" },
-  ]);
 
 const normalizeCodeForMatching = (raw: string): string =>
   raw.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase();
@@ -67,7 +37,8 @@ export const getErrorIconSrc = (code?: string): string => {
 
   const normalized = normalizeCodeForMatching(code.trim());
 
-  const exact = ICON_BY_EXACT_CODE.get(normalized);
+  const exact =
+    ICON_BY_EXACT_CODE[normalized as keyof typeof ICON_BY_EXACT_CODE];
   if (exact) return exact;
 
   const tokenMatch = findIconByToken(normalized);
@@ -75,9 +46,6 @@ export const getErrorIconSrc = (code?: string): string => {
 
   return DEFAULT_ERROR_ICON;
 };
-
-const ABORT_REGEX = /\baborted?\b/i;
-const ABORT_ERROR_NAMES = new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"]);
 
 // Kollar om fel är abort/cancel-fel
 export const isAbortError = (error: unknown): boolean => {
@@ -221,12 +189,6 @@ export const buildValidationErrors = <
 };
 
 /* ErrorMapper - Centralized error mapping to translation keys */
-
-const ERROR_MAPPING_RULES: ErrorMappingRules = {
-  codeToKey: ERROR_CODE_TO_KEY,
-  statusToKey: STATUS_TO_KEY_MAP,
-  messagePatterns: MESSAGE_PATTERNS,
-};
 
 /** Extracts error properties into ClassifiedError structure. */
 const classifyError = (err: unknown, status?: number): ClassifiedError => {

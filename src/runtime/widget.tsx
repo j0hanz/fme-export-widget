@@ -872,7 +872,7 @@ function WidgetContent(
     fmeDispatch.clearError("general");
 
     try {
-      await runStartupValidationFlow({
+      const result = await runStartupValidationFlow({
         config,
         useMapWidgetIds: (useMapWidgetIds
           ? [...useMapWidgetIds]
@@ -881,7 +881,9 @@ function WidgetContent(
         signal: controller.signal,
         onProgress: setValidationStep,
       });
-      setValidationSuccess();
+      if (result?.success) {
+        setValidationSuccess();
+      }
     } catch (err: unknown) {
       if (isAbortError(err)) {
         return;
@@ -1954,6 +1956,8 @@ export default function Widget(
       widgetId: props.widgetId,
     });
 
+  const showDevtools = process.env.NODE_ENV !== "production";
+
   hooks.useEffectOnce(() => {
     setupFmeDebugTools({
       widgetId: resolveWidgetId(),
@@ -1972,7 +1976,7 @@ export default function Widget(
   return (
     <QueryClientProvider client={fmeQueryClient}>
       <WidgetContent {...props} />
-      <ReactQueryDevtools initialIsOpen={false} />
+      {showDevtools ? <ReactQueryDevtools initialIsOpen={false} /> : null}
     </QueryClientProvider>
   );
 }

@@ -94,6 +94,163 @@ const checkAbortSignal = (
   return null;
 };
 
+const createNetworkOrServerErrorResult = (
+  error: unknown,
+  steps: CheckSteps,
+  status: number
+): ConnectionValidationResult => {
+  const type = status === 0 ? ("network" as const) : ("server" as const);
+  return {
+    success: false,
+    steps,
+    error: {
+      message: mapErrorFromNetwork(error, status),
+      type,
+      status,
+    },
+  };
+};
+
+const handleForbiddenError = async (
+  options: {
+    steps: CheckSteps;
+    status: number;
+    serverUrl: string;
+    token?: string | null;
+    signal?: AbortSignal;
+  },
+  proxyDetected: boolean
+): Promise<ConnectionValidationResult> => {
+  const { steps, status, serverUrl, token, signal } = options;
+
+  if (proxyDetected) {
+    steps.serverUrl = ValidationStepStatus.FAIL;
+    steps.token = ValidationStepStatus.SKIP;
+    return createServerUnreachableResult(steps, status);
+  }
+
+  try {
+    const healthResult = await healthCheck(serverUrl, token, signal);
+    const abortCheck = checkAbortSignal(signal, steps);
+    if (abortCheck) return abortCheck;
+
+    if (healthResult?.reachable) {
+      steps.serverUrl = ValidationStepStatus.OK;
+      steps.token = ValidationStepStatus.FAIL;
+      return createTokenErrorResult(steps, status);
+    }
+
+    steps.serverUrl = ValidationStepStatus.FAIL;
+    steps.token = ValidationStepStatus.SKIP;
+    return createServerUnreachableResult(steps, status);
+  } catch (healthError) {
+    logIfNotAbort("Health check during 403 handling failed", healthError);
+    steps.serverUrl = ValidationStepStatus.FAIL;
+    steps.token = ValidationStepStatus.SKIP;
+    return createServerUnreachableResult(steps, status);
+  }
+};
+
+const handleServerHandshakeError = async (params: {
+  error: unknown;
+  steps: CheckSteps;
+  serverUrl: string;
+  token?: string | null;
+  signal?: AbortSignal;
+}): Promise<ConnectionValidationResult> => {
+  const { error, steps, serverUrl, token, signal } = params;
+
+  if (isAbortError(error)) {
+    return createAbortedResult(steps, (error as Error).message);
+  }
+
+  const status = extractHttpStatus(error);
+
+  if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
+    steps.serverUrl = ValidationStepStatus.OK;
+    steps.token = ValidationStepStatus.FAIL;
+    return createTokenErrorResult(steps, status);
+  }
+
+  if (status === HTTP_STATUS_CODES.FORBIDDEN) {
+    const rawMessage = extractErrorMessage(error);
+    const proxyDetected = hasProxyError(rawMessage);
+    return handleForbiddenError(
+      { steps, status, serverUrl, token, signal },
+      proxyDetected
+    );
+  }
+
+  steps.serverUrl = ValidationStepStatus.FAIL;
+  steps.token = ValidationStepStatus.SKIP;
+  return createNetworkOrServerErrorResult(error, steps, status);
+};
+
+const performServerHandshake = async (params: {
+  client: NonNullable<ReturnType<typeof createFmeClient>>;
+  steps: CheckSteps;
+  serverUrl: string;
+  token?: string | null;
+  signal?: AbortSignal;
+}): Promise<ConnectionValidationResult | null> => {
+  try {
+    const serverInfo = await params.client.testConnection(params.signal);
+    params.steps.serverUrl = ValidationStepStatus.OK;
+    params.steps.token = ValidationStepStatus.OK;
+    params.steps.version = extractFmeVersion(serverInfo);
+    return null;
+  } catch (error) {
+    return handleServerHandshakeError({
+      error,
+      steps: params.steps,
+      serverUrl: params.serverUrl,
+      token: params.token,
+      signal: params.signal,
+    });
+  }
+};
+
+interface RepositoryValidationOutcome {
+  warnings: string[];
+  failure?: ConnectionValidationResult;
+}
+
+const validateRepositoryStep = async (params: {
+  client: NonNullable<ReturnType<typeof createFmeClient>>;
+  repository?: string | null;
+  signal?: AbortSignal;
+  steps: CheckSteps;
+}): Promise<RepositoryValidationOutcome> => {
+  const warnings: string[] = [];
+
+  if (!params.repository) {
+    return { warnings };
+  }
+
+  try {
+    await params.client.validateRepository(params.repository, params.signal);
+    params.steps.repository = ValidationStepStatus.OK;
+    return { warnings };
+  } catch (error) {
+    const status = extractHttpStatus(error);
+    const isAuthError =
+      status === HTTP_STATUS_CODES.UNAUTHORIZED ||
+      status === HTTP_STATUS_CODES.FORBIDDEN;
+
+    if (isAuthError) {
+      params.steps.repository = ValidationStepStatus.SKIP;
+      warnings.push("repositoryNotAccessible");
+      return { warnings };
+    }
+
+    params.steps.repository = ValidationStepStatus.FAIL;
+    return {
+      warnings,
+      failure: createRepositoryErrorResult(params.steps, status),
+    };
+  }
+};
+
 // Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
   options: ConnectionValidationOptions
@@ -127,97 +284,27 @@ export async function validateConnection(
           };
         }
 
-        // Step 1: Test connection and fetch server info
-        let serverInfo: unknown;
-        try {
-          serverInfo = await client.testConnection(signal);
-          steps.serverUrl = ValidationStepStatus.OK;
-          steps.token = ValidationStepStatus.OK;
-          steps.version = extractFmeVersion(serverInfo);
-        } catch (error) {
-          if (isAbortError(error)) {
-            return createAbortedResult(steps, (error as Error).message);
-          }
+        const handshakeFailure = await performServerHandshake({
+          client,
+          steps,
+          serverUrl,
+          token,
+          signal,
+        });
 
-          const status = extractHttpStatus(error);
-
-          // Handle authentication errors
-          if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
-            steps.serverUrl = ValidationStepStatus.OK;
-            steps.token = ValidationStepStatus.FAIL;
-            return createTokenErrorResult(steps, status);
-          }
-
-          // Handle forbidden errors (proxy or token)
-          if (status === HTTP_STATUS_CODES.FORBIDDEN) {
-            const rawMessage = extractErrorMessage(error);
-            if (hasProxyError(rawMessage)) {
-              steps.serverUrl = ValidationStepStatus.FAIL;
-              steps.token = ValidationStepStatus.SKIP;
-              return createServerUnreachableResult(steps, status);
-            }
-
-            // Perform health check to determine if issue is server or token
-            try {
-              const healthResult = await healthCheck(serverUrl, token, signal);
-              const abortCheck = checkAbortSignal(signal, steps);
-              if (abortCheck) return abortCheck;
-
-              if (healthResult?.reachable) {
-                steps.serverUrl = ValidationStepStatus.OK;
-                steps.token = ValidationStepStatus.FAIL;
-                return createTokenErrorResult(steps, status);
-              }
-
-              steps.serverUrl = ValidationStepStatus.FAIL;
-              steps.token = ValidationStepStatus.SKIP;
-              return createServerUnreachableResult(steps, status);
-            } catch (healthError) {
-              logIfNotAbort(
-                "Health check during 403 handling failed",
-                healthError
-              );
-              steps.serverUrl = ValidationStepStatus.FAIL;
-              steps.token = ValidationStepStatus.SKIP;
-              return createServerUnreachableResult(steps, status);
-            }
-          }
-
-          // Handle other errors (network, server)
-          steps.serverUrl = ValidationStepStatus.FAIL;
-          steps.token = ValidationStepStatus.SKIP;
-          return {
-            success: false,
-            steps,
-            error: {
-              message: mapErrorFromNetwork(error, status),
-              type: status === 0 ? ("network" as const) : ("server" as const),
-              status,
-            },
-          };
+        if (handshakeFailure) {
+          return handshakeFailure;
         }
 
-        const warnings: string[] = [];
+        const { warnings, failure } = await validateRepositoryStep({
+          client,
+          repository,
+          signal,
+          steps,
+        });
 
-        // Step 2: Validate specific repository if provided
-        if (repository) {
-          try {
-            await client.validateRepository(repository, signal);
-            steps.repository = ValidationStepStatus.OK;
-          } catch (error) {
-            const status = extractHttpStatus(error);
-            const isAuthError =
-              status === HTTP_STATUS_CODES.UNAUTHORIZED ||
-              status === HTTP_STATUS_CODES.FORBIDDEN;
-
-            if (isAuthError) {
-              steps.repository = ValidationStepStatus.SKIP;
-              warnings.push("repositoryNotAccessible");
-            } else {
-              steps.repository = ValidationStepStatus.FAIL;
-              return createRepositoryErrorResult(steps, status);
-            }
-          }
+        if (failure) {
+          return failure;
         }
 
         return {

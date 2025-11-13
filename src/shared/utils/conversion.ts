@@ -1,3 +1,5 @@
+import { PLACEHOLDER_KIND_MAP } from "../../config/constants";
+
 /** Normalizes unknown input into a trimmed string. */
 const normalizeString = (
   value: unknown,
@@ -407,12 +409,6 @@ export const makePlaceholders = (
   enter: translate("phEnter", { field: fieldLabel }),
   select: translate("phSelect", { field: fieldLabel }),
 });
-
-const PLACEHOLDER_KIND_MAP = Object.freeze({
-  email: "phEmail",
-  phone: "phPhone",
-  search: "phSearch",
-} as const);
 
 /** Gets text placeholder based on field configuration and kind. */
 export const getTextPlaceholder = (
