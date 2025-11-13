@@ -1,5 +1,5 @@
 import { FmeActionType, FormFieldType, ParameterType, ViewMode } from "./enums";
-import type { ServiceMode, UnitConversion } from "./types";
+import type { EsriMockKey, ServiceMode, UnitConversion } from "./types";
 
 // =============================================================================
 // REDUX ACTIONS
@@ -75,13 +75,14 @@ export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
   "SpatialReference",
 ] as const);
 
-export const ESRI_MOCK_FALLBACKS = Object.freeze({
-  esriRequest: null,
-  esriConfig: {},
-  projection: null,
-  webMercatorUtils: null,
-  SpatialReference: null,
-} as const);
+export const ESRI_MOCK_FALLBACKS: Readonly<{ [K in EsriMockKey]: unknown }> =
+  Object.freeze({
+    esriRequest: () => Promise.resolve({ data: null }),
+    esriConfig: { request: { maxUrlLength: 4000, interceptors: [] } },
+    projection: {},
+    webMercatorUtils: {},
+    SpatialReference: () => ({}),
+  });
 
 export const LAYER_CONFIG = Object.freeze({
   title: "",
@@ -173,7 +174,7 @@ export const FME_FLOW_API = Object.freeze({
 });
 
 export const FME_ENDPOINT_PATTERN =
-  /\/fmeapiv[34]\/repositories\/[^/]+\/items\/[^/]+\/run/i;
+  /\/(?:fmedatadownload|fmedataupload|fmeapiv4)\b/i;
 
 export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
   "sync",
@@ -486,15 +487,15 @@ export const DEFAULT_MAX_PATTERN_LENGTH = 512;
 // =============================================================================
 
 export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
-export const NO_REPLY_REGEX = /no-?reply/i;
+export const NO_REPLY_REGEX = /^no[-_]?reply@/i;
 export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i;
 
 export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
 export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/;
-export const OFFSET_SUFFIX_RE = /[+-]\d{2}:\d{2}$/;
-export const FRACTION_SUFFIX_RE = /\.\d{1,3}$/;
+export const OFFSET_SUFFIX_RE = /(Z|[+-]\d{2}(?::?\d{2})?)$/i;
+export const FRACTION_SUFFIX_RE = /\.(\d{1,9})$/;
 
-export const ABORT_REGEX = /abort/i;
+export const ABORT_REGEX = /\baborted?\b/i;
 export const ABORT_ERROR_NAMES = Object.freeze(
   new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"])
 );
@@ -619,7 +620,7 @@ export const PRIVATE_IPV4_RANGES = Object.freeze([
   { start: [0, 0, 0, 0], end: [0, 255, 255, 255] },
 ] as const);
 
-export const LOOPBACK_IPV6 = "::1";
+export const LOOPBACK_IPV6 = "0:0:0:0:0:0:0:1";
 
 // =============================================================================
 // SECURITY & PRIVACY
@@ -838,11 +839,14 @@ export const HTML_ENTITY_MAP = Object.freeze({
 export const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g;
 export const MAX_HTML_CODE_POINT = 0x10ffff;
 
-export const DETAIL_VALUE_LIMIT = 256;
+export const DETAIL_VALUE_LIMIT = 320;
 export const DETAIL_MESSAGE_KEYS = Object.freeze([
   "message",
+  "error",
   "detail",
-  "statusText",
+  "description",
+  "reason",
+  "text",
 ] as const);
 
 // =============================================================================
@@ -850,13 +854,11 @@ export const DETAIL_MESSAGE_KEYS = Object.freeze([
 // =============================================================================
 
 export const DEBUG_STYLES = Object.freeze({
-  section: "font-weight: bold; color: #0066cc; font-size: 1.2em",
-  subsection: "font-weight: bold; color: #0088cc",
-  success: "color: #00cc00",
-  warning: "color: #ff9900",
-  error: "color: #cc0000",
-  info: "color: #666666",
-  dim: "color: #999999",
+  success: "color: #28a745; font-weight: bold",
+  info: "color: #007bff; font-weight: bold",
+  warn: "color: #ffc107; font-weight: bold",
+  error: "color: #dc3545; font-weight: bold",
+  action: "color: #0078d4; font-weight: bold",
 } as const);
 
 // =============================================================================

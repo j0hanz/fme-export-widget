@@ -137,4 +137,4 @@ export default {
   panelSettings: "Settings",
   panelAdvancedSettings: "Advanced Settings",
   panelDrawingSettings: "Drawing Settings",
-}
+};

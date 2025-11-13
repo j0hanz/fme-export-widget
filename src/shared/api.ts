@@ -1,28 +1,47 @@
 import {
+  DEFAULT_NETWORK_CONFIG,
+  DETAIL_MESSAGE_KEYS,
+  DETAIL_VALUE_LIMIT,
+  ESRI_MOCK_FALLBACKS,
   FILE_UPLOAD,
+  FME_ENDPOINT_PATTERN,
   HTTP_STATUS_CODES,
   isRetryableStatus,
   isSuccessStatus,
   NETWORK_CONFIG,
-  TIME_CONSTANTS,
+  REDACT_AUTH_REGEX,
+  REDACT_TOKEN_REGEX,
+  SENSITIVE_KEY_PATTERNS,
 } from "../config/constants";
 import type {
   AbortListenerRecord,
   ApiResponse,
   ErrorDetailInput,
+  EsriInterceptorList,
+  EsriInterceptorParams,
+  EsriInterceptorRequestOptions,
+  EsriMockAssignments,
   EsriMockKey,
+  EsriMockSource,
   EsriRequestConfig,
+  EsriRequestInterceptor,
+  EsriRequestOptions,
+  EsriRequestResponse,
+  EsriResponseLike,
   FmeExportConfig,
   FmeFlowConfig,
   InstrumentedRequestOptions,
   JobResult,
   NetworkConfig,
-  NMDirectives,
   PrimitiveParams,
+  PublishedParameterEntry,
   RequestConfig,
   RequestLog,
+  SubmitParametersPayload,
   TMDirectives,
+  UnknownValueMap,
   WebhookErrorCode,
+  WindowWithEsriConfig,
   WorkspaceParameter,
 } from "../config/index";
 import {
@@ -65,27 +84,14 @@ import {
 
 // Configuration
 /* Standardkonfiguration för nätverksinstrumentering */
-const DEFAULT_CONFIG: NetworkConfig = {
-  enabled: true,
-  logLevel: "debug",
-  bodyPreviewLimit: 1024,
-  warnSlowMs: TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD,
-};
-
-const config: NetworkConfig = { ...DEFAULT_CONFIG };
-
-// Cached regex patterns for performance
-const SENSITIVE_KEY_PATTERNS = ["token", "auth", "secret", "key", "password"];
-const REDACT_AUTH_REGEX = /authorization="?[^"]+"?/gi;
-const REDACT_TOKEN_REGEX = /(token|fmetoken)=([^&\s]+)/gi;
+const config: NetworkConfig = { ...DEFAULT_NETWORK_CONFIG };
 
 // Network history buffer för debugging
 const networkHistory: RequestLog[] = [];
-const MAX_NETWORK_HISTORY = NETWORK_CONFIG.MAX_HISTORY_SIZE;
 
 function addToNetworkHistory(log: RequestLog): void {
   networkHistory.push(log);
-  while (networkHistory.length > MAX_NETWORK_HISTORY) {
+  while (networkHistory.length > NETWORK_CONFIG.MAX_HISTORY_SIZE) {
     networkHistory.shift();
   }
 }
@@ -417,20 +423,6 @@ function logRequest(
 function inferOk(status?: number): boolean | undefined {
   if (typeof status !== "number") return undefined;
   return isSuccessStatus(status);
-}
-
-const DETAIL_VALUE_LIMIT = 320;
-const DETAIL_MESSAGE_KEYS = [
-  "message",
-  "error",
-  "detail",
-  "description",
-  "reason",
-  "text",
-];
-
-interface UnknownValueMap {
-  [key: string]: unknown;
 }
 
 const isUnknownValueMap = (value: unknown): value is UnknownValueMap =>
@@ -937,33 +929,6 @@ const normalizeV4Parameters = (raw: unknown): WorkspaceParameter[] => {
 /* Response interpreters för esriRequest */
 
 // Response interpreters for esriRequest responses
-// Extraherar HTTP-status från esriRequest-svar
-interface EsriResponseLike<T = unknown> {
-  readonly data?: T;
-  readonly status?: number;
-  readonly statusText?: string;
-  readonly httpStatus?: number;
-  readonly headers?: { readonly get: (name: string) => string | null } | null;
-  readonly json?: unknown;
-  readonly text?: unknown;
-}
-
-type EsriRequestResponse<T = unknown> = EsriResponseLike<T> & {
-  readonly data: T;
-};
-
-interface EsriRequestOptions {
-  [key: string]: unknown;
-  method: string;
-  query?: PrimitiveParams;
-  responseType?: string;
-  headers?: { [key: string]: string };
-  signal?: AbortSignal;
-  timeout?: number;
-  cacheHint?: boolean;
-  body?: unknown;
-}
-
 const getEsriResponseStatus = (
   response: EsriResponseLike
 ): number | undefined => {
@@ -1021,30 +986,11 @@ let _loadPromise: Promise<void> | null = null;
 // Keep latest FME tokens per-host so the interceptor always uses fresh values
 const _fmeTokensByHost: { [host: string]: string } = Object.create(null);
 
-// Fallback-mocks för ArcGIS-moduler i testmiljö
-const ESRI_MOCK_FALLBACKS: { [K in EsriMockKey]: unknown } = {
-  esriRequest: () => Promise.resolve({ data: null }),
-  esriConfig: {
-    request: { maxUrlLength: 4000, interceptors: [] },
-  },
-  projection: {},
-  webMercatorUtils: {},
-  SpatialReference: function spatialReferenceMock() {
-    return {};
-  },
-};
-
 // Hämtar fallback-mock för given nyckel
 const getEsriMockFallback = (key: EsriMockKey): unknown =>
   ESRI_MOCK_FALLBACKS[key];
 
 // Applicerar globala Esri-mocks från test-miljö
-type EsriMockAssignments = {
-  [K in EsriMockKey]: (value: unknown) => void;
-};
-
-type EsriMockSource = { [key: string]: unknown } | null | undefined;
-
 const applyGlobalEsriMocks = (source: EsriMockSource): void => {
   if (!source) return;
   const assignments: EsriMockAssignments = {
@@ -1166,29 +1112,6 @@ async function getEsriConfig(): Promise<EsriRequestConfig | null> {
   await ensureEsri();
   return asEsriConfig(_esriConfig);
 }
-
-// Tar bort matchande interceptors baserat på regex-pattern
-interface EsriInterceptorRequestOptions {
-  headers?: { [key: string]: string };
-  query?: PrimitiveParams;
-  [key: string]: unknown;
-}
-
-interface EsriInterceptorParams {
-  url?: unknown;
-  requestOptions?: EsriInterceptorRequestOptions;
-  [key: string]: unknown;
-}
-
-interface EsriRequestInterceptor {
-  urls?: string | RegExp | string[];
-  before?: (params: EsriInterceptorParams) => unknown;
-  error?: (error: unknown) => unknown;
-  _fmeInterceptor?: boolean;
-  [key: string]: unknown;
-}
-
-type EsriInterceptorList = unknown[] | undefined;
 
 const isEsriRequestInterceptor = (
   candidate: unknown
@@ -1322,10 +1245,6 @@ const removeTokenInterceptor = async (pattern: RegExp): Promise<void> => {
   removeMatchingInterceptors(esriConfig?.request?.interceptors, pattern);
 };
 
-// Skapar interceptor som injicerar FME-token i requests
-// Matches v4 data streaming endpoints
-const FME_ENDPOINT_PATTERN = /\/(?:fmedatadownload|fmedataupload|fmeapiv4)\b/i;
-
 const isAllowedFmePath = (rawUrl: unknown): boolean => {
   if (typeof rawUrl === "string") {
     return FME_ENDPOINT_PATTERN.test(rawUrl);
@@ -1365,9 +1284,9 @@ const createTokenInterceptor = (
     if (!params?.requestOptions) {
       params.requestOptions = {};
     }
-    const requestOptions = params.requestOptions;
-    const headers = requestOptions.headers || {};
-    const query = requestOptions.query || {};
+    const requestOptions: EsriInterceptorRequestOptions = params.requestOptions;
+    const headers = (requestOptions.headers ?? {}) as { [key: string]: string };
+    const query = requestOptions.query ?? {};
     requestOptions.headers = headers;
     requestOptions.query = query;
 
@@ -1428,14 +1347,6 @@ async function addFmeInterceptor(
 
 let _cachedMaxUrlLength: number | null = null;
 
-interface WindowWithEsriConfig extends Window {
-  esriConfig?: {
-    request?: {
-      maxUrlLength?: number | string;
-    };
-  };
-}
-
 // Hämtar maximal URL-längd från Esri config eller default (1900)
 const getMaxUrlLength = (): number => {
   // Försök hämta från window.esriConfig först
@@ -1476,20 +1387,6 @@ async function setApiSettings(): Promise<void> {
     Number(esriConfig.request.maxUrlLength) || 0,
     FME_FLOW_API.MAX_URL_LENGTH
   );
-}
-
-/* TM/NM directives builders för FME-jobb */
-
-// Bygger Transaction Manager (TM) directives från parametrar
-interface PublishedParameterEntry {
-  name: string;
-  value: unknown;
-}
-
-interface SubmitParametersPayload {
-  publishedParameters: PublishedParameterEntry[];
-  TMDirectives?: TMDirectives;
-  NMDirectives?: NMDirectives;
 }
 
 const hasPublishedParameters = (
@@ -2321,7 +2218,9 @@ export class FmeFlowApiClient {
           query.fmetoken = this.config.token;
         }
         // Lägg till Authorization-header med FME Flow-format
-        const authHeaders = requestOptions.headers || {};
+        const authHeaders = {
+          ...(requestOptions.headers ?? {}),
+        } as { [key: string]: string };
         authHeaders.Authorization = `fmetoken token=${this.config.token}`;
         requestOptions.headers = authHeaders;
       }

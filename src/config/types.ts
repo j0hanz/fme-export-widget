@@ -2029,6 +2029,14 @@ export interface LoadableState<T = unknown> {
   readonly data: T | null;
 }
 
+export interface LoadingLatchState {
+  readonly kind: string;
+  readonly message?: React.ReactNode;
+  readonly detail?: React.ReactNode;
+  readonly messages?: readonly React.ReactNode[];
+  readonly [key: string]: unknown;
+}
+
 export type UseThemeHook = () => IMThemeVariables;
 
 // From: shared/services/logging.ts
@@ -2053,6 +2061,87 @@ export interface NetworkRequest {
 // From: shared/utils/network.ts
 export interface JsonRecord {
   [key: string]: unknown;
+}
+
+// From: shared/api.ts
+export interface UnknownValueMap {
+  readonly [key: string]: unknown;
+}
+
+export interface EsriResponseLike<T = unknown> {
+  readonly data?: T;
+  readonly status?: number;
+  readonly statusText?: string;
+  readonly httpStatus?: number;
+  readonly headers?: { readonly get: (name: string) => string | null } | null;
+  readonly json?: unknown;
+  readonly text?: unknown;
+}
+
+export type EsriRequestResponse<T = unknown> = EsriResponseLike<T> & {
+  readonly data: T;
+};
+
+export interface EsriRequestOptions {
+  [key: string]: unknown;
+  method: string;
+  query?: PrimitiveParams;
+  responseType?: string;
+  headers?: { [key: string]: string };
+  signal?: AbortSignal;
+  timeout?: number;
+  cacheHint?: boolean;
+  body?: unknown;
+}
+
+export interface EsriInterceptorRequestOptions {
+  headers?: { [key: string]: string };
+  query?: PrimitiveParams;
+  [key: string]: unknown;
+}
+
+export interface EsriInterceptorParams {
+  url?: unknown;
+  requestOptions?: EsriInterceptorRequestOptions;
+  [key: string]: unknown;
+}
+
+export interface EsriRequestInterceptor {
+  urls?: string | RegExp | readonly string[];
+  before?: (params: EsriInterceptorParams) => unknown;
+  error?: (error: unknown) => unknown;
+  _fmeInterceptor?: boolean;
+  [key: string]: unknown;
+}
+
+export type EsriInterceptorList = unknown[] | undefined;
+
+export interface WindowWithEsriConfig extends Window {
+  readonly esriConfig?: {
+    readonly request?: {
+      maxUrlLength?: number | string;
+    };
+  };
+}
+
+export type EsriMockAssignments = {
+  readonly [K in EsriMockKey]: (value: unknown) => void;
+};
+
+export type EsriMockSource =
+  | { readonly [key: string]: unknown }
+  | null
+  | undefined;
+
+export interface PublishedParameterEntry {
+  readonly name: string;
+  readonly value: unknown;
+}
+
+export interface SubmitParametersPayload {
+  publishedParameters: readonly PublishedParameterEntry[];
+  TMDirectives?: TMDirectives;
+  NMDirectives?: NMDirectives;
 }
 
 // From: shared/services/parameters.ts
