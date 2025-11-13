@@ -2,18 +2,9 @@ import { WidgetState } from "jimu-core";
 import type {
   AttributeCollectionResult,
   LayerAttributeInfo,
+  PopupInternal,
   PopupSuppressionRecord,
 } from "../../config/index";
-
-/** Internal Popup API for autoOpenEnabled property */
-interface PopupInternal {
-  autoOpenEnabled?: boolean;
-  close?: () => void;
-  watch?: (
-    prop: string,
-    callback: (value: boolean) => void
-  ) => __esri.WatchHandle;
-}
 
 const isPopupInternal = (popup: unknown): popup is PopupInternal => {
   return popup != null && typeof popup === "object";

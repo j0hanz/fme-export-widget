@@ -16,15 +16,22 @@ import type {
   TableFieldConfig,
   TextOrFileValue,
   ToggleFieldConfig,
+  ToggleOptionEntry,
+  ToggleValue,
+  ToggleValuePair,
   VisibilityExpression,
   VisibilityState,
   WorkspaceParameter,
+  WorkspaceParameterWithChoices,
 } from "../../config/index";
 import {
   ALWAYS_SKIPPED_TYPES,
+  DEFAULT_SEPARATOR_REGEX,
   FormFieldType,
   LIST_REQUIRED_TYPES,
+  MAX_SEPARATOR_LENGTH,
   MULTI_SELECT_TYPES,
+  NO_SLIDER_KEYWORDS,
   PARAMETER_FIELD_TYPE_MAP,
   ParameterType,
   SKIPPED_PARAMETER_NAMES,
@@ -62,46 +69,7 @@ import {
   validateParameterType as validateParamType,
 } from "../validations";
 
-interface FmeChoiceOption {
-  readonly value?: string | number;
-  readonly id?: string;
-  readonly code?: string;
-  readonly display?: string;
-  readonly caption?: string;
-  readonly label?: string;
-  readonly name?: string;
-  readonly description?: string;
-  readonly path?: string;
-  readonly disabled?: boolean;
-  readonly metadata?: { [key: string]: unknown };
-}
-
-interface FmeChoiceSettings {
-  readonly choices?: readonly FmeChoiceOption[];
-}
-
-interface WorkspaceParameterWithChoices extends WorkspaceParameter {
-  readonly choiceSettings?: FmeChoiceSettings;
-  readonly nodeDelimiter?: string;
-}
-
-type ToggleValue = string | number | boolean;
-
-interface ToggleOptionEntry {
-  readonly value: ToggleValue | undefined;
-  readonly label?: string;
-}
-
-interface ToggleValuePair {
-  readonly checkedValue: string | number | boolean | undefined;
-  readonly uncheckedValue: string | number | boolean | undefined;
-}
-
 /* Parameter Service - Formulärgenerering och validering */
-
-const MAX_SEPARATOR_LENGTH = 64;
-const DEFAULT_SEPARATOR_REGEX = /\|/;
-const NO_SLIDER_KEYWORDS = ["no slider", "noslider", "without slider"];
 
 // Service för att konvertera FME-parametrar till dynamiska formulärfält
 export class ParameterFormService {

@@ -20,6 +20,16 @@ import {
   UI_CONFIG,
   type UiStyles,
 } from "../../config/index";
+import {
+  MULTI_VALUE_FIELD_TYPES,
+  SELECT_FIELD_TYPES,
+  TEXT_OR_FILE_MODES,
+} from "../../config/index";
+// ============================================
+// Attribute Names Field (Added: Oct 24, 2025)
+// ============================================
+
+import type { AttributeNamesFieldProps } from "../../config/index";
 import { useUiStyles as useConfigStyles } from "../../config/style";
 import { useControlledValue } from "../../shared/hooks";
 import {
@@ -69,28 +79,6 @@ import {
   UrlInput,
   useStyles as useUiStyles,
 } from "./ui";
-
-// Fälttyper som använder select/dropdown-komponenter
-const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
-  FormFieldType.SELECT,
-  FormFieldType.COORDSYS,
-  FormFieldType.ATTRIBUTE_NAME,
-  FormFieldType.DB_CONNECTION,
-  FormFieldType.WEB_CONNECTION,
-  FormFieldType.REPROJECTION_FILE,
-]);
-
-// Fälttyper som stödjer flera värden (array)
-const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
-  FormFieldType.MULTI_SELECT,
-  FormFieldType.ATTRIBUTE_LIST,
-]);
-
-// Lägen för TEXT_OR_FILE-fält (text vs filuppladdning)
-const TEXT_OR_FILE_MODES = {
-  TEXT: "text" as const,
-  FILE: "file" as const,
-};
 
 const toDisplayString = (value: unknown): string => toStringValue(value) ?? "";
 
@@ -446,19 +434,6 @@ const resolveFileDisplayValue = (
   }
   return undefined;
 };
-
-// ============================================
-// Attribute Names Field (Added: Oct 24, 2025)
-// ============================================
-
-interface AttributeNamesFieldProps {
-  readonly value: FormPrimitive;
-  readonly onChange: (value: FormPrimitive) => void;
-  readonly field: DynamicFieldProps["field"];
-  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null;
-  readonly disabled?: boolean;
-  readonly placeholder?: string;
-}
 
 const AttributeNamesField: React.FC<AttributeNamesFieldProps> = ({
   value,
@@ -1143,6 +1118,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     // Use AttributeNamesField for runtime attribute discovery
     return (
       <AttributeNamesField
+        name={field.name}
+        label={field.label}
         value={fieldValue}
         onChange={onChange}
         field={field}

@@ -1,10 +1,12 @@
 import type {
   DynamicFieldConfig,
   DynamicPropertyClause,
+  EvaluationResult,
   FormValues,
   VisibilityExpression,
   VisibilityState,
 } from "../config/index";
+import { MAX_VISIBILITY_REGEX_LENGTH } from "../config/index";
 import {
   isEmpty,
   isPlainObject,
@@ -13,11 +15,6 @@ import {
 } from "./utils";
 import { logWarn } from "./utils/logging";
 import { createSafeRegExp } from "./utils/regex";
-
-const MAX_VISIBILITY_REGEX_LENGTH = 512;
-
-/** Result type when evaluating condition expressions. */
-type EvaluationResult = boolean | "unknown";
 
 /**
  * Evaluates FME JSON GUI dynamic visibility expressions.

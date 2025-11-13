@@ -45,6 +45,10 @@ import {
   VIEW_ROUTES,
   ViewMode,
 } from "../config/index";
+import type {
+  DrawingSymbolSet,
+  SketchViewModelInternals,
+} from "../config/index";
 import { createFmeSelectors, initialFmeState } from "../extensions/store";
 import { createFmeFlowClient } from "../shared/api";
 import {
@@ -91,18 +95,6 @@ import { extractHttpStatus, getSupportEmail } from "../shared/validations";
 import { renderSupportHint, StateView, useStyles } from "./components/ui";
 import { Workflow } from "./components/workflow";
 import defaultMessages from "./translations/default";
-
-type DrawingSymbolSet = ReturnType<typeof buildSymbols>["DRAWING_SYMBOLS"];
-
-type SketchViewModelInternals = __esri.SketchViewModel & {
-  viewModel?: {
-    graphic?: __esri.Graphic | null;
-    previewGraphic?: __esri.Graphic | null;
-    sketchGraphicsLayer?: __esri.GraphicsLayer | null;
-  };
-  _creating?: boolean;
-  state?: string;
-};
 
 const isPromiseLike = (value: unknown): value is Promise<unknown> => {
   return (

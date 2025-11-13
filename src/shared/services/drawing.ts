@@ -3,6 +3,7 @@ import type {
   DrawingCompletionResult,
   DrawingSessionState,
   EsriModules,
+  SketchViewModelWithCleanup,
 } from "../../config/index";
 import { DrawingTool, LAYER_CONFIG, ViewMode } from "../../config/index";
 import { fmeActions } from "../../extensions/store";
@@ -14,10 +15,6 @@ import {
   evaluateArea,
   validatePolygon,
 } from "../utils/geometry";
-
-type SketchViewModelWithCleanup = __esri.SketchViewModel & {
-  __fmeCleanup__?: () => void;
-};
 
 // Skapar GraphicsLayers för ritning och preview
 export function createLayers(

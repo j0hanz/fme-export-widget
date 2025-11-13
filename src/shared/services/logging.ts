@@ -1,33 +1,23 @@
 import { getAppStore } from "jimu-core";
 import type {
   EsriModules,
+  FmeDebugContext,
   FmeDebugObject,
   FmeExportConfig,
   FmeWidgetState,
   IMStateWithFmeExport,
+  NetworkRequest,
 } from "../../config/index";
-import { ErrorSeverity, ErrorType } from "../../config/index";
+import {
+  ErrorSeverity,
+  ErrorType,
+  SLOW_REQUEST_THRESHOLD_MS,
+} from "../../config/index";
 import { fmeActions } from "../../extensions/store";
 import { clearNetworkHistory, getNetworkHistory } from "../api";
 import { fmeQueryClient } from "../query-client";
 import { formatArea } from "../utils/format";
 import { maskToken } from "../utils/network";
-
-export interface FmeDebugContext {
-  readonly widgetId: string | null | undefined;
-  readonly config: FmeExportConfig | null | undefined;
-}
-
-interface NetworkRequest {
-  method: string;
-  path: string;
-  status?: number;
-  ok?: boolean;
-  durationMs: number;
-  timestamp: number;
-}
-
-const SLOW_REQUEST_THRESHOLD_MS = 1000;
 
 /* Module-Level Logging State */
 let isLoggingEnabled = false;

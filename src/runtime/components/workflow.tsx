@@ -2,8 +2,11 @@
 /** @jsxFrag React.Fragment */
 import { hooks, jsx, React, ReactRedux } from "jimu-core";
 import {
+  DEFAULT_LOADING_STATE,
+  DRAWING_MODE_TABS,
   DrawingTool,
   type DynamicFieldConfig,
+  EMPTY_WORKSPACES,
   ErrorSeverity,
   ErrorType,
   type ExportFormProps,
@@ -27,7 +30,8 @@ import {
   type WorkflowProps,
   WORKSPACE_ITEM_TYPE,
   type WorkspaceItem,
-  type WorkspaceItemDetail,
+  type WorkspaceItemQueryResult,
+  type WorkspaceListCacheRecord,
   type WorkspaceParameter,
 } from "../../config/index";
 import { areLoadingStatesEqual } from "../../extensions/store";
@@ -71,43 +75,6 @@ import {
   UrlInput,
 } from "./ui";
 import itemIcon from "../../assets/icons/item.svg";
-import polygonIcon from "../../assets/icons/polygon.svg";
-import rectangleIcon from "../../assets/icons/rectangle.svg";
-
-// Tillgängliga ritverktyg för AOI-ritning (polygon och rektangel)
-const DRAWING_MODE_TABS = [
-  {
-    value: DrawingTool.POLYGON,
-    label: "optPolygon",
-    icon: polygonIcon,
-    tooltip: "tipDrawPolygon",
-    hideLabel: true,
-  },
-  {
-    value: DrawingTool.RECTANGLE,
-    label: "optRectangle",
-    icon: rectangleIcon,
-    tooltip: "tipDrawRectangle",
-    hideLabel: true,
-  },
-] as const;
-
-// Tom konstant för workspace-listor
-const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([]);
-
-interface WorkspaceItemQueryResult {
-  readonly item: WorkspaceItemDetail;
-  readonly parameters: WorkspaceParameter[];
-}
-
-// Standardvärden för laddningsstatus
-const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
-  modules: false,
-  submission: false,
-  workspaces: false,
-  parameters: false,
-  geometryValidation: false,
-});
 
 // Kontrollerar om någon laddningsflagg är aktiv
 const isLoadingActive = (state: LoadingState): boolean =>
@@ -242,12 +209,6 @@ const workspaceListsAreEqual = (
 
   return true;
 };
-
-interface WorkspaceListCacheRecord {
-  readonly raw: readonly WorkspaceItem[] | undefined;
-  readonly repository: string | null;
-  readonly result: readonly WorkspaceItem[];
-}
 
 const safeResolveMessage = (
   value: unknown,

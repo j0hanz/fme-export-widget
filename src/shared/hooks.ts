@@ -26,6 +26,7 @@ import {
   TIME_CONSTANTS,
   WORKSPACE_ITEM_TYPE,
 } from "../config/index";
+import type { ConfigWithImmutable } from "../config/index";
 import { fmeActions } from "../extensions/store";
 import { healthCheck, validateConnection } from "./services";
 import {
@@ -561,11 +562,6 @@ export const useBuilderShallowEqualSelector = <T>(
     return selector(effectiveState);
   }, shallowEqual);
 };
-
-interface ConfigWithImmutable {
-  [key: string]: unknown;
-  set?: (key: string, value: unknown) => unknown;
-}
 
 // Hook för config-uppdateringar (använder Immutable.set om tillgänglig)
 export const useUpdateConfig = (

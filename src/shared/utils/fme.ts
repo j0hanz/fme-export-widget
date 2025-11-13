@@ -3,9 +3,12 @@
 import { jsx, React } from "jimu-core";
 import type {
   DetermineServiceModeOptions,
+  Dictionary,
   EsriModules,
   ForceAsyncResult,
+  ImmutableLikeConfig,
   PrimitiveParams,
+  WebhookArtifactOptions,
   WebhookArtifacts,
   WorkspaceItemDetail,
 } from "../../config/index";
@@ -42,14 +45,6 @@ import {
 import { formatByteSize, maskEmailForDisplay } from "./format";
 import { attachAoi, collectGeometryParamNames } from "./geometry";
 import { buildParams, buildUrl, safeParseUrl } from "./network";
-
-interface Dictionary {
-  [key: string]: unknown;
-}
-
-interface ImmutableLikeConfig extends Dictionary {
-  set: (key: string, value: unknown) => unknown;
-}
 
 const toDictionary = (value: unknown): Dictionary | null => {
   if (typeof value !== "object" || value === null) return null;
@@ -305,11 +300,6 @@ const isLoopbackHostname = (hostname: string): boolean => {
   if (normalized.startsWith("127.")) return true;
   return false;
 };
-
-export interface WebhookArtifactOptions {
-  readonly requireHttps?: boolean;
-  readonly strict?: boolean;
-}
 
 const shouldForceAsyncMode = (
   config: FmeExportConfig | undefined,

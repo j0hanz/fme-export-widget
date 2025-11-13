@@ -579,3 +579,231 @@ export const PROXY_INDICATORS = Object.freeze([
   "/sharing/proxy",
   "proxy",
 ] as const);
+
+// =============================================================================
+// SCATTERED CONSTANTS CONSOLIDATED FROM CODEBASE
+// =============================================================================
+
+// From: shared/api.ts
+export const DEFAULT_NETWORK_CONFIG = Object.freeze({
+  enabled: true,
+  logLevel: "debug" as const,
+  bodyPreviewLimit: 1024,
+  warnSlowMs: TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD,
+});
+
+export const SENSITIVE_KEY_PATTERNS = Object.freeze([
+  "token",
+  "auth",
+  "secret",
+  "key",
+  "password",
+] as const);
+
+export const REDACT_AUTH_REGEX = /authorization="?[^"]+"?/gi;
+export const REDACT_TOKEN_REGEX = /(token|fmetoken)=([^&\s]+)/gi;
+
+export const DETAIL_VALUE_LIMIT = 256;
+export const DETAIL_MESSAGE_KEYS = Object.freeze([
+  "message",
+  "detail",
+  "statusText",
+] as const);
+
+export const V4_TYPE_MAP = Object.freeze({
+  FLOAT: "number",
+  INTEGER: "number",
+  BOOLEAN: "boolean",
+  STRING: "text",
+  TEXT: "text",
+} as const);
+
+export const ESRI_MOCK_FALLBACKS = Object.freeze({
+  esriRequest: null,
+  esriConfig: {},
+  projection: null,
+  webMercatorUtils: null,
+  SpatialReference: null,
+} as const);
+
+export const FME_ENDPOINT_PATTERN =
+  /\/fmeapiv[34]\/repositories\/[^/]+\/items\/[^/]+\/run/i;
+
+// From: shared/utils/conversion.ts
+export const PLACEHOLDER_KIND_MAP = Object.freeze({
+  email: "phEmail",
+  phone: "phPhone",
+  search: "phSearch",
+} as const);
+
+// From: shared/utils/error.ts (duplicates removed - already in main constants)
+// DEFAULT_ERROR_ICON, ICON_BY_EXACT_CODE, TOKEN_ICON_PRIORITY, ABORT_REGEX are already in constants.ts
+
+export const ABORT_ERROR_NAMES = Object.freeze(
+  new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"])
+);
+
+// From: runtime/components/fields.tsx
+export const SELECT_FIELD_TYPES: ReadonlySet<import("./enums").FormFieldType> =
+  new Set([
+    "SELECT" as import("./enums").FormFieldType,
+    "COORDSYS" as import("./enums").FormFieldType,
+    "ATTRIBUTE_NAME" as import("./enums").FormFieldType,
+    "DB_CONNECTION" as import("./enums").FormFieldType,
+    "WEB_CONNECTION" as import("./enums").FormFieldType,
+    "REPROJECTION_FILE" as import("./enums").FormFieldType,
+  ]);
+
+export const MULTI_VALUE_FIELD_TYPES: ReadonlySet<
+  import("./enums").FormFieldType
+> = new Set([
+  "MULTI_SELECT" as import("./enums").FormFieldType,
+  "ATTRIBUTE_LIST" as import("./enums").FormFieldType,
+]);
+
+export const TEXT_OR_FILE_MODES = Object.freeze({
+  TEXT: "text" as const,
+  FILE: "file" as const,
+});
+
+// From: shared/utils/fme.ts
+// ALLOWED_SERVICE_MODES already defined in main constants, moved to avoid duplication
+
+export const LOOPBACK_IPV6 = "::1";
+
+// From: shared/utils/format.ts
+export const HTML_ENTITY_MAP = Object.freeze({
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+} as const);
+
+export const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g;
+export const MAX_HTML_CODE_POINT = 0x10ffff;
+
+export const ERROR_LABEL_PATTERN =
+  /^(?:error|fel|warning|varning|info)\s*[:\-–—]?\s*/i;
+
+export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/;
+
+export const OFFSET_SUFFIX_RE = /[+-]\d{2}:\d{2}$/;
+export const FRACTION_SUFFIX_RE = /\.\d{1,3}$/;
+
+// GEOMETRY_CONSTS and UNIT_CONVERSIONS already defined in main constants
+
+// From: shared/services/logging.ts
+export const SLOW_REQUEST_THRESHOLD_MS = 1000;
+
+export const DEBUG_STYLES = Object.freeze({
+  section: "font-weight: bold; color: #0066cc; font-size: 1.2em",
+  subsection: "font-weight: bold; color: #0088cc",
+  success: "color: #00cc00",
+  warning: "color: #ff9900",
+  error: "color: #cc0000",
+  info: "color: #666666",
+  dim: "color: #999999",
+} as const);
+
+// From: shared/services/parameters.ts
+export const MAX_SEPARATOR_LENGTH = 64;
+export const DEFAULT_SEPARATOR_REGEX = /\|/;
+export const NO_SLIDER_KEYWORDS = Object.freeze([
+  "no slider",
+  "noslider",
+  "without slider",
+] as const);
+
+// From: shared/utils/regex.ts
+export const DEFAULT_MAX_PATTERN_LENGTH = 512;
+
+// From: setting/setting.tsx
+export const OUTLINE_WIDTH_SLIDER_MIN = 0;
+export const OUTLINE_WIDTH_SLIDER_MAX = 10;
+export const MIN_OUTLINE_WIDTH = 0.1;
+export const MAX_OUTLINE_WIDTH = 5;
+export const OUTLINE_WIDTH_INCREMENT = 0.5;
+
+// From: extensions/store.ts
+export const ERROR_SEVERITY_RANK = Object.freeze({
+  ERROR: 3,
+  WARNING: 2,
+  INFO: 1,
+} as const);
+
+export const ERROR_SCOPE_PRIORITY = Object.freeze({
+  general: 0,
+  export: 1,
+  import: 2,
+} as const);
+
+// From: runtime/components/ui.tsx
+export const LOCAL_ICON_SOURCES = Object.freeze({
+  error: "error.svg",
+  map: "map.svg",
+  polygon: "polygon.svg",
+  warning: "warning.svg",
+  "person-lock": "person-lock.svg",
+  folder: "folder.svg",
+  data: "data.svg",
+  "shared-no": "shared-no.svg",
+  "feature-service": "feature-service.svg",
+  "link-tilted": "link-tilted.svg",
+  time: "time.svg",
+  setting: "setting.svg",
+  email: "email.svg",
+  info: "info.svg",
+  success: "success.svg",
+} as const);
+
+export const ALERT_ICON_MAP = Object.freeze({
+  warning: "warning",
+  error: "error",
+  info: "info",
+  success: "success",
+} as const);
+
+export const TEXT_INPUT_TYPES = Object.freeze([
+  "text",
+  "email",
+  "tel",
+  "search",
+  "password",
+  "number",
+] as const);
+
+// From: shared/validations.ts (NO_REPLY_REGEX moved here for centralization)
+// Already present as NO_REPLY_REGEX in main constants
+
+// From: shared/visibility.ts
+export const MAX_VISIBILITY_REGEX_LENGTH = 512;
+
+// From: runtime/components/workflow.tsx
+export const DRAWING_MODE_TABS = Object.freeze([
+  {
+    value: "POLYGON" as const,
+    label: "optPolygon",
+    icon: "polygon.svg",
+    tooltip: "tipDrawPolygon",
+    hideLabel: true,
+  },
+  {
+    value: "RECTANGLE" as const,
+    label: "optRectangle",
+    icon: "rectangle.svg",
+    tooltip: "tipDrawRectangle",
+    hideLabel: true,
+  },
+] as const);
+
+export const EMPTY_WORKSPACES = Object.freeze([]);
+
+export const DEFAULT_LOADING_STATE = Object.freeze({
+  modules: false,
+  submission: false,
+  workspaces: false,
+  parameters: false,
+  geometryValidation: false,
+} as const);

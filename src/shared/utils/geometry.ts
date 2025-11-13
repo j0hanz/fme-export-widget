@@ -24,6 +24,7 @@ import {
   ParameterType,
   VALIDATION_LIMITS,
 } from "../../config/index";
+import type { GeoJsonPolygon, PolygonLike, Ring } from "../../config/index";
 import { sanitizeParamKey, toTrimmedString } from "./conversion";
 import { createGeometryError } from "./error";
 import { loadArcgisModules } from "./index";
@@ -133,21 +134,6 @@ export const isPolygonGeometry = (
 
   return Array.isArray(rings) && rings.length > 0 && rings.every(isValidRing);
 };
-
-type Ring = number[][];
-
-interface PolygonLike {
-  rings?: Ring[];
-  geometry?: {
-    rings?: Ring[];
-  };
-  toJSON?: () => { rings?: Ring[] };
-}
-
-interface GeoJsonPolygon {
-  readonly type: "Polygon";
-  readonly coordinates: Ring[];
-}
 
 // Extraherar rings från polygon-objekt (hanterar olika format)
 const extractRings = (polygon: PolygonLike | null | undefined): Ring[] => {

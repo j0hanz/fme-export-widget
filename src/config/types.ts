@@ -1,4 +1,9 @@
-import type { ImmutableObject, IMState, React } from "jimu-core";
+import type {
+  ImmutableObject,
+  IMState,
+  IMThemeVariables,
+  React,
+} from "jimu-core";
 import type { fmeActions } from "../extensions/store";
 import type FmeFlowApiClient from "../shared/api";
 import type {
@@ -1934,4 +1939,201 @@ declare global {
   interface Window {
     __FME_DEBUG__?: FmeDebugObject;
   }
+}
+
+// =============================================================================
+// SCATTERED TYPES CONSOLIDATED FROM CODEBASE
+// =============================================================================
+
+// From: shared/utils/arcgis.ts
+/** Internal Popup API for autoOpenEnabled property */
+export interface PopupInternal {
+  autoOpenEnabled?: boolean;
+  close?: () => void;
+  watch?: (
+    prop: string,
+    callback: (value: boolean) => void
+  ) => __esri.WatchHandle;
+}
+
+// From: shared/services/drawing.ts
+export type SketchViewModelWithCleanup = __esri.SketchViewModel & {
+  __fmeCleanup__?: () => void;
+};
+
+// From: runtime/components/fields.tsx
+export interface AttributeNamesFieldProps {
+  readonly name: string;
+  readonly label: string;
+  readonly value: FormPrimitive;
+  readonly onChange: (value: FormPrimitive) => void;
+  readonly field: DynamicFieldConfig;
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null;
+  readonly disabled?: boolean;
+  readonly readOnly?: boolean;
+  readonly required?: boolean;
+  readonly errorText?: string;
+  readonly placeholder?: string;
+  readonly layers?: readonly __esri.Layer[];
+}
+
+// From: shared/utils/fme.ts
+export interface Dictionary {
+  [key: string]: unknown;
+}
+
+export interface ImmutableLikeConfig extends Dictionary {
+  set: (key: string, value: unknown) => unknown;
+}
+
+export interface WebhookArtifactOptions {
+  readonly url?: string;
+  readonly params?: PrimitiveParams;
+  readonly jobId?: string;
+  readonly webhookAuth?: string;
+  readonly requireHttps?: boolean;
+  readonly strict?: boolean;
+}
+
+// From: shared/utils/geometry.ts
+export type Ring = number[][];
+
+export interface PolygonLike {
+  rings?: Ring[];
+  geometry?: {
+    rings?: Ring[];
+  };
+  toJSON?: () => { rings?: Ring[] };
+}
+
+export interface GeoJsonPolygon {
+  readonly type: "Polygon";
+  readonly coordinates: Ring[];
+}
+
+// From: shared/hooks.ts
+export interface ConfigWithImmutable {
+  [key: string]: unknown;
+  set?: (key: string, value: unknown) => unknown;
+}
+
+export interface LoadableState<T = unknown> {
+  readonly isLoading: boolean;
+  readonly error: Error | null;
+  readonly data: T | null;
+}
+
+export type UseThemeHook = () => IMThemeVariables;
+
+// From: shared/services/logging.ts
+export type LoggingModule = Console | { log: (...args: unknown[]) => void };
+
+export type LoggingFunction = (...args: unknown[]) => void;
+
+export interface FmeDebugContext {
+  readonly widgetId: string | null | undefined;
+  readonly config: FmeExportConfig | null | undefined;
+}
+
+export interface NetworkRequest {
+  method: string;
+  path: string;
+  status?: number;
+  ok?: boolean;
+  durationMs: number;
+  timestamp: number;
+}
+
+// From: shared/utils/network.ts
+export interface JsonRecord {
+  [key: string]: unknown;
+}
+
+// From: shared/services/parameters.ts
+export interface FmeChoiceOption {
+  readonly value?: string | number;
+  readonly id?: string;
+  readonly code?: string;
+  readonly display?: string;
+  readonly caption?: string;
+  readonly label?: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly path?: string;
+  readonly disabled?: boolean;
+  readonly metadata?: { [key: string]: unknown };
+}
+
+export interface FmeChoiceSettings {
+  readonly choices?: readonly FmeChoiceOption[];
+}
+
+export interface WorkspaceParameterWithChoices extends WorkspaceParameter {
+  readonly choiceSettings?: FmeChoiceSettings;
+  readonly nodeDelimiter?: string;
+}
+
+export type ToggleValue = string | number | boolean;
+
+export interface ToggleOptionEntry {
+  readonly value: ToggleValue | undefined;
+  readonly label?: string;
+}
+
+export interface ToggleValuePair {
+  readonly checkedValue: string | number | boolean | undefined;
+  readonly uncheckedValue: string | number | boolean | undefined;
+}
+
+// From: extensions/store.ts
+export type FmeAction = ReturnType<
+  (typeof import("../extensions/store").fmeActions)[keyof typeof import("../extensions/store").fmeActions]
+>;
+
+// From: runtime/components/ui.tsx
+export type AlertVariant = NonNullable<
+  React.ComponentProps<typeof import("jimu-ui").Alert>["type"]
+>;
+
+export interface FormAriaOptions {
+  readonly id?: string;
+  readonly required?: boolean;
+  readonly errorText?: string | boolean;
+  readonly helperText?: string;
+  readonly describedBy?: string;
+}
+
+export interface LoadingMessageCollection {
+  readonly messages: readonly React.ReactNode[];
+  readonly signature: string;
+}
+
+// From: shared/visibility.ts
+export type EvaluationResult = boolean | "unknown";
+
+// From: runtime/widget.tsx
+export type DrawingSymbolSet = ReturnType<
+  typeof import("../shared/utils/arcgis").buildSymbols
+>["DRAWING_SYMBOLS"];
+
+export type SketchViewModelInternals = __esri.SketchViewModel & {
+  viewModel?: {
+    graphic?: __esri.Graphic | null;
+    previewGraphic?: __esri.Graphic | null;
+    sketchGraphicsLayer?: __esri.GraphicsLayer | null;
+  };
+  _creating?: boolean;
+  state?: string;
+};
+
+// From: runtime/components/workflow.tsx
+export interface WorkspaceItemQueryResult {
+  readonly item: WorkspaceItemDetail;
+  readonly parameters: WorkspaceParameter[];
+}
+
+export interface WorkspaceListCacheRecord {
+  readonly raw: readonly WorkspaceItem[] | undefined;
+  readonly repository: string | null;
+  readonly result: readonly WorkspaceItem[];
 }
