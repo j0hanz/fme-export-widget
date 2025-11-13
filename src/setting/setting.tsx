@@ -88,33 +88,30 @@ import defaultMessages from "./translations/default";
 /* Hämtar settings-konstanter */
 const CONSTANTS = SETTING_CONSTANTS;
 
-const OUTLINE_WIDTH_SLIDER_MIN = 0;
-const OUTLINE_WIDTH_SLIDER_MAX = UI_CONFIG.OUTLINE_WIDTH_SLIDER_MAX;
-const MIN_OUTLINE_WIDTH = 0.1;
-const MAX_OUTLINE_WIDTH = 5;
-const OUTLINE_WIDTH_INCREMENT = 0.5;
-
 const outlineWidthToSliderValue = (
   width: number | undefined | null
 ): number => {
   if (typeof width !== "number" || !Number.isFinite(width)) {
-    return OUTLINE_WIDTH_SLIDER_MIN;
+    return UI_CONFIG.OUTLINE_WIDTH_SLIDER_MIN;
   }
-  if (width <= MIN_OUTLINE_WIDTH) {
-    return OUTLINE_WIDTH_SLIDER_MIN;
+  if (width <= UI_CONFIG.OUTLINE_WIDTH_MIN) {
+    return UI_CONFIG.OUTLINE_WIDTH_SLIDER_MIN;
   }
-  const increments = Math.round(width / OUTLINE_WIDTH_INCREMENT);
-  const clamped = Math.min(OUTLINE_WIDTH_SLIDER_MAX, Math.max(1, increments));
+  const increments = Math.round(width / UI_CONFIG.OUTLINE_WIDTH_INCREMENT);
+  const clamped = Math.min(
+    UI_CONFIG.OUTLINE_WIDTH_SLIDER_MAX,
+    Math.max(1, increments)
+  );
   return clamped;
 };
 
 const sliderValueToOutlineWidth = (value: number): number => {
-  if (!Number.isFinite(value) || value <= OUTLINE_WIDTH_SLIDER_MIN) {
-    return MIN_OUTLINE_WIDTH;
+  if (!Number.isFinite(value) || value <= UI_CONFIG.OUTLINE_WIDTH_SLIDER_MIN) {
+    return UI_CONFIG.OUTLINE_WIDTH_MIN;
   }
-  const width = value * OUTLINE_WIDTH_INCREMENT;
-  if (width >= MAX_OUTLINE_WIDTH) {
-    return MAX_OUTLINE_WIDTH;
+  const width = value * UI_CONFIG.OUTLINE_WIDTH_INCREMENT;
+  if (width >= UI_CONFIG.OUTLINE_WIDTH_MAX) {
+    return UI_CONFIG.OUTLINE_WIDTH_MAX;
   }
   return (
     Math.round(width * UI_CONFIG.OUTLINE_WIDTH_PRECISION) /
@@ -1770,8 +1767,8 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
               >
                 <Slider
                   value={localOutlineWidth}
-                  min={OUTLINE_WIDTH_SLIDER_MIN}
-                  max={OUTLINE_WIDTH_SLIDER_MAX}
+                  min={UI_CONFIG.OUTLINE_WIDTH_SLIDER_MIN}
+                  max={UI_CONFIG.OUTLINE_WIDTH_SLIDER_MAX}
                   step={1}
                   aria-label={translate("lblOutlineWidth")}
                   decimalPrecision={0}

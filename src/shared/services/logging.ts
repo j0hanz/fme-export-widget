@@ -8,11 +8,7 @@ import type {
   IMStateWithFmeExport,
   NetworkRequest,
 } from "../../config/index";
-import {
-  ErrorSeverity,
-  ErrorType,
-  SLOW_REQUEST_THRESHOLD_MS,
-} from "../../config/index";
+import { ErrorSeverity, ErrorType, TIME_CONSTANTS } from "../../config/index";
 import { fmeActions } from "../../extensions/store";
 import { clearNetworkHistory, getNetworkHistory } from "../api";
 import { fmeQueryClient } from "../query-client";
@@ -118,7 +114,9 @@ const buildSafeState = (state: FmeWidgetState | null) => {
 /** Calculates aggregated network statistics from request history. */
 const calculateNetworkStats = (history: readonly NetworkRequest[]) => {
   const failed = history.filter((r) => r.ok !== undefined && !r.ok);
-  const slow = history.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS);
+  const slow = history.filter(
+    (r) => r.durationMs > TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD
+  );
   const avgDuration =
     history.length > 0
       ? Math.round(
@@ -143,7 +141,9 @@ const filterNetworkHistory = (
     filtered = filtered.filter((r) => r.ok !== undefined && !r.ok);
   }
   if (filter?.slow) {
-    filtered = filtered.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS);
+    filtered = filtered.filter(
+      (r) => r.durationMs > TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD
+    );
   }
   return filtered;
 };

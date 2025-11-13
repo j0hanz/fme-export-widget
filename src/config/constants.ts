@@ -99,9 +99,6 @@ export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
   [ViewMode.INITIAL]: ViewMode.INITIAL,
 };
 
-export const LOADING_TIMEOUT_MS = 30000;
-export const MS_LOADING = 500;
-
 export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/widgets/Sketch/SketchViewModel",
   "esri/layers/GraphicsLayer",
@@ -324,6 +321,9 @@ export const isRetryableStatus = (status?: number): boolean => {
   );
 };
 
+// =============================================================================
+// TIME CONSTANTS
+// =============================================================================
 // Time Constants (milliseconds)
 export const TIME_CONSTANTS = Object.freeze({
   SECOND: 1000,
@@ -336,6 +336,8 @@ export const TIME_CONSTANTS = Object.freeze({
   AUTO_DOWNLOAD_DELAY_MS: 100, // Delay before auto-download
   POPUP_CLOSE_DELAY_MS: 50, // Delay before closing popups
   BLOB_URL_CLEANUP_DELAY_MS: 60000, // 1 minute delay before revoking blob URLs
+  STARTUP_TIMEOUT_MS: 30000, // 30 seconds for startup validation
+  MIN_LOADING_DELAY_MS: 500, // Minimum delay to show loading state (prevents flashing)
 });
 
 // Network Configuration
@@ -348,7 +350,11 @@ export const NETWORK_CONFIG = Object.freeze({
 // UI Configuration
 export const UI_CONFIG = Object.freeze({
   OPACITY_SCALE_FACTOR: 100, // Convert 0-1 opacity to 0-100%
-  OUTLINE_WIDTH_SLIDER_MAX: 10, // Maximum outline width in pixels
+  OUTLINE_WIDTH_SLIDER_MIN: 0, // Minimum outline width slider value
+  OUTLINE_WIDTH_SLIDER_MAX: 10, // Maximum outline width slider value
+  OUTLINE_WIDTH_MIN: 0.1, // Minimum actual outline width in pixels
+  OUTLINE_WIDTH_MAX: 5, // Maximum actual outline width in pixels
+  OUTLINE_WIDTH_INCREMENT: 0.5, // Outline width step increment
   OUTLINE_WIDTH_PRECISION: 10, // Decimal precision for outline width (tenths)
   AREA_INPUT_STEP: 10000, // Step size for area input fields
   PERCENT_SLIDER_MAX: 100, // Maximum value for percentage sliders
@@ -644,21 +650,18 @@ export const ABORT_ERROR_NAMES = Object.freeze(
 );
 
 // From: runtime/components/fields.tsx
-export const SELECT_FIELD_TYPES: ReadonlySet<import("./enums").FormFieldType> =
-  new Set([
-    "SELECT" as import("./enums").FormFieldType,
-    "COORDSYS" as import("./enums").FormFieldType,
-    "ATTRIBUTE_NAME" as import("./enums").FormFieldType,
-    "DB_CONNECTION" as import("./enums").FormFieldType,
-    "WEB_CONNECTION" as import("./enums").FormFieldType,
-    "REPROJECTION_FILE" as import("./enums").FormFieldType,
-  ]);
+export const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  "SELECT" as FormFieldType,
+  "COORDSYS" as FormFieldType,
+  "ATTRIBUTE_NAME" as FormFieldType,
+  "DB_CONNECTION" as FormFieldType,
+  "WEB_CONNECTION" as FormFieldType,
+  "REPROJECTION_FILE" as FormFieldType,
+]);
 
-export const MULTI_VALUE_FIELD_TYPES: ReadonlySet<
-  import("./enums").FormFieldType
-> = new Set([
-  "MULTI_SELECT" as import("./enums").FormFieldType,
-  "ATTRIBUTE_LIST" as import("./enums").FormFieldType,
+export const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  "MULTI_SELECT" as FormFieldType,
+  "ATTRIBUTE_LIST" as FormFieldType,
 ]);
 
 export const TEXT_OR_FILE_MODES = Object.freeze({
@@ -695,8 +698,6 @@ export const FRACTION_SUFFIX_RE = /\.\d{1,3}$/;
 // GEOMETRY_CONSTS and UNIT_CONVERSIONS already defined in main constants
 
 // From: shared/services/logging.ts
-export const SLOW_REQUEST_THRESHOLD_MS = 1000;
-
 export const DEBUG_STYLES = Object.freeze({
   section: "font-weight: bold; color: #0066cc; font-size: 1.2em",
   subsection: "font-weight: bold; color: #0088cc",
@@ -718,13 +719,6 @@ export const NO_SLIDER_KEYWORDS = Object.freeze([
 
 // From: shared/utils/regex.ts
 export const DEFAULT_MAX_PATTERN_LENGTH = 512;
-
-// From: setting/setting.tsx
-export const OUTLINE_WIDTH_SLIDER_MIN = 0;
-export const OUTLINE_WIDTH_SLIDER_MAX = 10;
-export const MIN_OUTLINE_WIDTH = 0.1;
-export const MAX_OUTLINE_WIDTH = 5;
-export const OUTLINE_WIDTH_INCREMENT = 0.5;
 
 // From: extensions/store.ts
 export const ERROR_SEVERITY_RANK = Object.freeze({

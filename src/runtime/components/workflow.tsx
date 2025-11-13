@@ -17,7 +17,6 @@ import {
   makeEmptyView,
   makeErrorView,
   makeLoadingView,
-  MS_LOADING,
   type OrderResultProps,
   ParameterType,
   type SerializableErrorState,
@@ -1001,7 +1000,7 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
   const latchedLoadingRef = hooks.useLatest(latchedLoadingState);
   const releaseLoadingState = useDebounce((next: LoadingState) => {
     setLatchedLoadingState(next);
-  }, MS_LOADING);
+  }, TIME_CONSTANTS.MIN_LOADING_DELAY_MS);
 
   hooks.useEffectWithPreviousValues(() => {
     const current = latchedLoadingRef.current;
