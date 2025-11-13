@@ -658,16 +658,22 @@ function WidgetContent(
           onReload: isNavigatorOffline()
             ? () => {
                 try {
-                  (
-                    globalThis as { location?: { reload: () => void } }
-                  ).location?.reload();
+                  const loc = (
+                    globalThis as { location?: { reload?: () => void } }
+                  ).location;
+                  if (loc && typeof loc.reload === "function") {
+                    loc.reload();
+                  } else {
+                    console.warn(
+                      "Page reload not available in current environment"
+                    );
+                  }
                 } catch {}
               }
             : undefined,
         },
         translate
       );
-
       const hintText = toTrimmedString(context.hint);
       const supportDetail = !hintText
         ? undefined
@@ -1327,6 +1333,13 @@ function WidgetContent(
         const createResult = boundCreate(arg);
         if (isPromiseLike(createResult)) {
           createResult.catch((err: unknown) => {
+            if (!isAbortError(err)) {
+              dispatchError(
+                "errorStartDrawing",
+                ErrorType.MODULE,
+                "SKETCH_CREATE_FAILED"
+              );
+            }
             logIfNotAbort("Sketch create promise error", err);
           });
         }

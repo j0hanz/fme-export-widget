@@ -218,9 +218,11 @@ export const useDebounce = <T extends (...args: unknown[]) => void>(
     debouncedRef.current = runner;
   }
 
+  // Use latest cancel ref to ensure cleanup always uses current cancel logic
+  const cancelLatest = hooks.useLatest(cancel);
   hooks.useEffectOnce(() => {
     return () => {
-      cancelRef.current();
+      cancelLatest.current();
     };
   });
 
@@ -960,9 +962,14 @@ export function useWorkspaceItem(
 
       // Kasta fel om item-hämtning misslyckas
       if (itemResult.status === "rejected") {
-        throw itemResult.reason instanceof Error
-          ? itemResult.reason
-          : new Error(String(itemResult.reason));
+        const error = itemResult.reason;
+        throw error instanceof Error
+          ? error
+          : new Error(
+              typeof error === "string" && error.trim()
+                ? error
+                : "Failed to fetch workspace item"
+            );
       }
 
       let parameters: WorkspaceParameter[] = [];
@@ -1164,6 +1171,9 @@ export function usePrefetchWorkspaces(
               )
             )
           );
+
+          // Check if cancelled before updating state
+          if (cancelled) break;
 
           // Uppdatera progress efter varje chunk
           loaded += chunk.length;

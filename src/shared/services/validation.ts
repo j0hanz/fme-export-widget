@@ -18,6 +18,7 @@ import {
   getEmail,
   isAbortError,
   isValidEmail,
+  logIfNotAbort,
 } from "../utils";
 import { createError, mapErrorFromNetwork } from "../utils/error";
 import { extractHttpStatus, validateRequiredFields } from "../validations";
@@ -171,7 +172,11 @@ export async function validateConnection(
               steps.serverUrl = ValidationStepStatus.FAIL;
               steps.token = ValidationStepStatus.SKIP;
               return createServerUnreachableResult(steps, status);
-            } catch {
+            } catch (healthError) {
+              logIfNotAbort(
+                "Health check during 403 handling failed",
+                healthError
+              );
               steps.serverUrl = ValidationStepStatus.FAIL;
               steps.token = ValidationStepStatus.SKIP;
               return createServerUnreachableResult(steps, status);

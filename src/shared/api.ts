@@ -1566,11 +1566,12 @@ export class FmeFlowApiClient {
     this.setupPromise = (this.setupPromise || Promise.resolve())
       .catch(() => undefined)
       .then(async () => {
-        await setApiSettings();
-        await addFmeInterceptor(config.serverUrl, config.token);
-      })
-      .catch((error) => {
-        throw error instanceof Error ? error : new Error(String(error));
+        try {
+          await setApiSettings();
+          await addFmeInterceptor(config.serverUrl, config.token);
+        } catch (error) {
+          throw error instanceof Error ? error : new Error(String(error));
+        }
       });
   }
 
