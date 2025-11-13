@@ -1,13 +1,23 @@
 import { css, type ImmutableObject, type IMThemeVariables } from "jimu-core";
 import { useTheme } from "jimu-theme";
 import type { TypographyStyle } from "jimu-theme";
+import { LOADING_UI_CONFIG, TOOLTIP_CONFIG, UI_CONFIG } from "./constants";
 import type { BtnContentProps } from "./types";
 
 // UI component configuration constants
 export const config = {
-  icon: { small: 16, medium: 18, large: 24 },
+  icon: {
+    small: UI_CONFIG.ICON_SIZE_SMALL,
+    medium: UI_CONFIG.ICON_SIZE_MEDIUM,
+    large: UI_CONFIG.ICON_SIZE_LARGE,
+  },
   tooltip: {
-    delay: { enter: 100, next: 0, leave: 0, touch: 700 },
+    delay: {
+      enter: TOOLTIP_CONFIG.DELAY_ENTER_MS,
+      next: TOOLTIP_CONFIG.DELAY_NEXT_MS,
+      leave: TOOLTIP_CONFIG.DELAY_LEAVE_MS,
+      touch: TOOLTIP_CONFIG.DELAY_TOUCH_MS,
+    },
     position: {
       top: "top" as const,
       bottom: "bottom" as const,
@@ -23,11 +33,11 @@ export const config = {
   },
   zIndex: { selectMenu: 1005, overlay: 1000 },
   loading: {
-    width: 32,
-    height: 32,
-    delay: 1000,
-    detailDelay: 1600,
-    cycleInterval: 5200,
+    width: UI_CONFIG.LOADING_SPINNER_SIZE,
+    height: UI_CONFIG.LOADING_SPINNER_SIZE,
+    delay: LOADING_UI_CONFIG.DELAY_MS,
+    detailDelay: LOADING_UI_CONFIG.DETAIL_DELAY_MS,
+    cycleInterval: LOADING_UI_CONFIG.CYCLE_INTERVAL_MS,
   },
   required: "*",
 } as const;

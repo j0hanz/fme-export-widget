@@ -1,6 +1,10 @@
 import { SessionManager } from "jimu-core";
 import type { FmeExportConfig, PrimitiveParams } from "../../config/index";
-import { DEFAULT_REPOSITORY, EMAIL_REGEX } from "../../config/index";
+import {
+  DEFAULT_REPOSITORY,
+  EMAIL_REGEX,
+  HASH_CONFIG,
+} from "../../config/index";
 import type FmeFlowApiClient from "../api";
 import { createFmeFlowClient } from "../api";
 import {
@@ -217,7 +221,7 @@ export function makeScopeId(
   repository?: string
 ): string {
   const s = `${serverUrl}::${token || ""}::${repository || ""}`;
-  let h = 5381;
+  let h: number = HASH_CONFIG.DJB2_INITIAL;
   for (let i = 0; i < s.length; i++) {
     h = ((h << 5) + h) ^ s.charCodeAt(i);
   }

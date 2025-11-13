@@ -30,8 +30,8 @@ export const LAYER_CONFIG = Object.freeze({
 });
 
 export const DEFAULT_DRAWING_HEX = "#0079C1";
-export const DEFAULT_OUTLINE_WIDTH = 2;
-export const DEFAULT_FILL_OPACITY = 0.2;
+export const DEFAULT_OUTLINE_WIDTH = 2; // Slightly thicker for better visibility on maps
+export const DEFAULT_FILL_OPACITY = 0.25; // Increased from 0.2 (20%) to 0.25 (25%) for better area distinction
 
 export const UPLOAD_PARAM_TYPES = Object.freeze([
   "FILENAME",
@@ -54,13 +54,13 @@ export const FME_FLOW_API = Object.freeze({
   ] as const),
 });
 
-export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 160;
+export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 200; // Increased from 160 - allows more descriptive messages
 
 export const VALIDATION_LIMITS = Object.freeze({
-  MAX_TEXT_LENGTH: 10000,
+  MAX_TEXT_LENGTH: 5000, // Reduced from 10000 - reasonable limit, prevents performance issues
   IPV4_OCTET_MAX: 255,
   IPV4_OCTET_MIN: 0,
-  MAX_GEOMETRY_VERTICES: 10000,
+  MAX_GEOMETRY_VERTICES: 5000, // Reduced from 10000 - improves rendering performance on complex polygons
   SLIDER_DEFAULT_MAX: 100,
   RGB_MAX: 255,
   RGB_MIN: 0,
@@ -116,9 +116,9 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
 export const WORKSPACE_ITEM_TYPE = "workspace";
 
 export const PREFETCH_CONFIG = Object.freeze({
-  DEFAULT_CHUNK_SIZE: 10,
+  DEFAULT_CHUNK_SIZE: 5, // Reduced from 10 - faster initial response, better perceived performance
   MIN_CHUNK_SIZE: 1,
-  MAX_CHUNK_SIZE: 25,
+  MAX_CHUNK_SIZE: 15, // Reduced from 25 - prevents overwhelming the browser/network
 } as const);
 
 export const ERROR_NAMES = Object.freeze({
@@ -194,6 +194,7 @@ export const GEOMETRY_CONSTS = Object.freeze({
   AREA_DECIMALS: 2,
   METERS_PER_KILOMETER: 1_000,
   SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
+  VERTICES_PER_MS_ESTIMATE: 100, // Estimated vertices processed per millisecond for logging
 });
 
 export const UNIT_CONVERSIONS: readonly UnitConversion[] = Object.freeze([
@@ -267,6 +268,7 @@ export const MIN_PLANAR_SEGMENT_DEGREES = 1e-6;
 export const DEGREES_PER_METER = 1 / 111319.49079327358;
 
 export const HTTP_STATUS_CODES = Object.freeze({
+  OK: 200,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
@@ -331,20 +333,39 @@ export const TIME_CONSTANTS = Object.freeze({
   FIVE_MINUTES: 5 * 60 * 1000,
   TEN_MINUTES: 10 * 60 * 1000,
   MAX_RESPONSE_TIME: 300000, // 5 minutes
-  SLOW_REQUEST_THRESHOLD: 1000, // 1 second
-  DEBOUNCE_VALIDATION_MS: 800, // Validation debounce delay
-  AUTO_DOWNLOAD_DELAY_MS: 100, // Delay before auto-download
-  POPUP_CLOSE_DELAY_MS: 50, // Delay before closing popups
-  BLOB_URL_CLEANUP_DELAY_MS: 60000, // 1 minute delay before revoking blob URLs
-  STARTUP_TIMEOUT_MS: 30000, // 30 seconds for startup validation
-  MIN_LOADING_DELAY_MS: 500, // Minimum delay to show loading state (prevents flashing)
+  SLOW_REQUEST_THRESHOLD: 1000, // 1 second - standard performance monitoring threshold
+  DEBOUNCE_VALIDATION_MS: 300, // Input validation debounce - balances responsiveness with request reduction
+  AUTO_DOWNLOAD_DELAY_MS: 150, // Delay before auto-download - allows result screen to render
+  POPUP_CLOSE_DELAY_MS: 100, // Delay for UI transitions - ensures popup animations complete
+  BLOB_URL_CLEANUP_DELAY_MS: 120000, // 2 minutes - safety margin for slow connections and large file downloads
+  STARTUP_TIMEOUT_MS: 15000, // 15 seconds - maximum wait time for startup validation if implemented
+  MIN_LOADING_DELAY_MS: 400, // Minimum loading indicator display - prevents flicker while maintaining responsiveness
 });
 
 // Network Configuration
 export const NETWORK_CONFIG = Object.freeze({
-  MAX_HISTORY_SIZE: 50, // Maximum network request logs to keep
-  API_QUERY_LIMIT: 1000, // Default limit for API queries
+  MAX_HISTORY_SIZE: 100, // Increased from 50 - better debugging capability without significant memory impact
+  API_QUERY_LIMIT: 500, // Reduced from 1000 - faster API responses, better pagination UX
   RANDOM_ID_LENGTH: 8, // Length of random ID strings (slice produces 8 chars from position 2)
+  MAX_RETRY_ATTEMPTS: 3, // Maximum number of retry attempts for failed requests
+  MAX_CONCURRENT_PREFETCH: 6, // Increased from 5 - modern browsers handle 6 well, faster prefetching
+});
+
+// Version Detection Configuration
+export const VERSION_DETECTION_CONFIG = Object.freeze({
+  MIN_YEAR: 2020, // Minimum valid year for FME version detection
+  MAX_YEAR: 2100, // Maximum valid year for FME version detection
+  MAX_MINOR_VERSION: 100, // Maximum minor version number (0-99)
+});
+
+// Hash Algorithm Configuration
+export const HASH_CONFIG = Object.freeze({
+  DJB2_INITIAL: 5381, // Initial hash value for DJB2 algorithm (Dan Bernstein)
+});
+
+// Safety Limits Configuration
+export const SAFETY_LIMITS = Object.freeze({
+  MAX_WINDOW_HIERARCHY_ITERATIONS: 100, // Maximum iterations when traversing window hierarchy
 });
 
 // UI Configuration
@@ -356,8 +377,27 @@ export const UI_CONFIG = Object.freeze({
   OUTLINE_WIDTH_MAX: 5, // Maximum actual outline width in pixels
   OUTLINE_WIDTH_INCREMENT: 0.5, // Outline width step increment
   OUTLINE_WIDTH_PRECISION: 10, // Decimal precision for outline width (tenths)
-  AREA_INPUT_STEP: 10000, // Step size for area input fields
+  AREA_INPUT_STEP: 1000, // Reduced from 10000 - finer control for area inputs, better UX
   PERCENT_SLIDER_MAX: 100, // Maximum value for percentage sliders
+  ICON_SIZE_SMALL: 16, // Small icon size in pixels
+  ICON_SIZE_MEDIUM: 18, // Medium icon size in pixels
+  ICON_SIZE_LARGE: 24, // Large icon size in pixels
+  LOADING_SPINNER_SIZE: 32, // Loading spinner width/height in pixels
+});
+
+// Tooltip Configuration
+export const TOOLTIP_CONFIG = Object.freeze({
+  DELAY_ENTER_MS: 500, // Delay before tooltip appears - industry standard prevents accidental triggers
+  DELAY_NEXT_MS: 300, // No delay for sequential tooltips - improves discoverability
+  DELAY_LEAVE_MS: 300, // Brief delay before hiding - allows users to move cursor back without tooltip disappearing
+  DELAY_TOUCH_MS: 700, // Long-press threshold for touch devices - standard to prevent accidental activation
+});
+
+// Loading State UI Configuration
+export const LOADING_UI_CONFIG = Object.freeze({
+  DELAY_MS: 1000, // Initial delay before showing loading state - prevents spinner for quick operations
+  DETAIL_DELAY_MS: 2000, // Delay before showing detailed loading info - indicates longer operation in progress
+  CYCLE_INTERVAL_MS: 4000, // Interval for rotating loading messages - maintains engagement without distraction
 });
 
 export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
@@ -527,6 +567,8 @@ export const FILE_UPLOAD = Object.freeze({
   DEFAULT_MAX_SIZE_MB: 150,
   ONE_MB_IN_BYTES: 1024 * 1024,
   GEOMETRY_PREVIEW_MAX_LENGTH: 1500,
+  MAX_FILENAME_LENGTH: 128, // Maximum length for uploaded file names
+  MAX_NAMESPACE_LENGTH: 64, // Maximum length for upload namespace/subfolder
   DEFAULT_ALLOWED_EXTENSIONS: Object.freeze([
     ".zip",
     ".kmz",

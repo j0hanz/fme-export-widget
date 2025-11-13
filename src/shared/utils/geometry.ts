@@ -23,6 +23,7 @@ import {
   ErrorSeverity,
   ErrorType,
   GEODESIC_SEGMENT_LENGTH_METERS,
+  GEOMETRY_CONSTS,
   MIN_PLANAR_SEGMENT_DEGREES,
   ParameterType,
   VALIDATION_LIMITS,
@@ -975,7 +976,9 @@ export const calcArea = async (
     logDebug("[Geometry] Processing complex polygon", {
       vertices: totalVertices,
       rings: polygon.rings?.length ?? 0,
-      estimatedProcessingTime: `${Math.round(totalVertices / 100)}ms`,
+      estimatedProcessingTime: `${Math.round(
+        totalVertices / GEOMETRY_CONSTS.VERTICES_PER_MS_ESTIMATE
+      )}ms`,
     });
   }
 

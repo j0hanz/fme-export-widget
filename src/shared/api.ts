@@ -1,4 +1,6 @@
 import {
+  FILE_UPLOAD,
+  HTTP_STATUS_CODES,
   isRetryableStatus,
   isSuccessStatus,
   NETWORK_CONFIG,
@@ -1613,13 +1615,14 @@ export class FmeFlowApiClient {
       toNonEmptyTrimmedString(file instanceof File ? file.name : undefined) ||
       `upload_${Date.now()}`;
     const safeName =
-      rawName.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128) ||
-      `upload_${Date.now()}`;
+      rawName
+        .replace(/[^A-Za-z0-9._-]/g, "_")
+        .slice(0, FILE_UPLOAD.MAX_FILENAME_LENGTH) || `upload_${Date.now()}`;
 
     const rawNamespace = toNonEmptyTrimmedString(options?.subfolder);
     const sanitizedNamespace = rawNamespace
       .replace(/[^A-Za-z0-9_-]/g, "-")
-      .slice(0, 64);
+      .slice(0, FILE_UPLOAD.MAX_NAMESPACE_LENGTH);
     const namespace = sanitizedNamespace || createCorrelationId("upload");
 
     const endpoint = buildUrl(
@@ -2365,7 +2368,7 @@ export class FmeFlowApiClient {
 
       return {
         data: response.data,
-        status: response.httpStatus ?? response.status ?? 200,
+        status: response.httpStatus ?? response.status ?? HTTP_STATUS_CODES.OK,
         statusText: response.statusText ?? "",
       };
     } catch (err) {

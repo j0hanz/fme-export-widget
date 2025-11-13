@@ -8,7 +8,12 @@ import type {
   IMStateWithFmeExport,
   NetworkRequest,
 } from "../../config/index";
-import { ErrorSeverity, ErrorType, TIME_CONSTANTS } from "../../config/index";
+import {
+  ErrorSeverity,
+  ErrorType,
+  SAFETY_LIMITS,
+  TIME_CONSTANTS,
+} from "../../config/index";
 import { fmeActions } from "../../extensions/store";
 import { clearNetworkHistory, getNetworkHistory } from "../api";
 import { fmeQueryClient } from "../query-client";
@@ -203,7 +208,7 @@ const collectDebugTargets = (): Window[] => {
   // Walk up the window hierarchy
   let current: Window | null = window;
   let iterations = 0;
-  const MAX_ITERATIONS = 100;
+  const MAX_ITERATIONS = SAFETY_LIMITS.MAX_WINDOW_HIERARCHY_ITERATIONS;
 
   while (current && iterations < MAX_ITERATIONS) {
     addTarget(current);

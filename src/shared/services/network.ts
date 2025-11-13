@@ -3,6 +3,7 @@ import {
   NETWORK_INDICATORS,
   PROXY_INDICATORS,
   TIME_CONSTANTS,
+  VERSION_DETECTION_CONFIG,
 } from "../../config/constants";
 import { createFmeClient, extractErrorMessage } from "../utils";
 import { extractHttpStatus, validateServerUrl } from "../validations";
@@ -119,8 +120,13 @@ export function extractFmeVersion(info: unknown): string {
       if (match) return match[1];
     }
     if (typeof value === "number" && Number.isFinite(value)) {
-      if (value >= 2020 && value < 2100) return String(value);
-      if (value > 0 && value < 100) return String(value);
+      if (
+        value >= VERSION_DETECTION_CONFIG.MIN_YEAR &&
+        value < VERSION_DETECTION_CONFIG.MAX_YEAR
+      )
+        return String(value);
+      if (value > 0 && value < VERSION_DETECTION_CONFIG.MAX_MINOR_VERSION)
+        return String(value);
     }
   }
 

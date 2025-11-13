@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   HTTP_STATUS_CODES,
   HTTP_STATUS_RANGES,
+  NETWORK_CONFIG,
   TIME_CONSTANTS,
 } from "../config/constants";
 
@@ -29,8 +30,8 @@ export const fmeQueryClient = new QueryClient({
           status < HTTP_STATUS_RANGES.SERVER_ERROR_MIN
         )
           return false;
-        // Retry serverfel (500+) och nätverksfel upp till 3 gånger
-        return failureCount < 3;
+        // Retry serverfel (500+) och nätverksfel upp till max antal försök
+        return failureCount < NETWORK_CONFIG.MAX_RETRY_ATTEMPTS;
       },
       refetchOnWindowFocus: false, // Ingen auto-refetch vid window focus
       refetchOnReconnect: false, // Ingen auto-refetch vid reconnect

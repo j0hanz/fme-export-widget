@@ -24,6 +24,7 @@ import {
   DEFAULT_REPOSITORY,
   ErrorSeverity,
   ESRI_MODULES_TO_LOAD,
+  NETWORK_CONFIG,
   TIME_CONSTANTS,
   WORKSPACE_ITEM_TYPE,
 } from "../config/index";
@@ -1105,8 +1106,8 @@ export function usePrefetchWorkspaces(
         for (const chunk of chunks) {
           if (cancelled) break;
 
-          // Prefetcha chunk med max 5 samtidiga requests för att inte överbelasta browser/nätverk
-          const MAX_CONCURRENT = 5;
+          // Prefetcha chunk med max samtidiga requests för att inte överbelasta browser/nätverk
+          const MAX_CONCURRENT = NETWORK_CONFIG.MAX_CONCURRENT_PREFETCH;
           const semaphore = { active: 0, queue: [] as Array<() => void> };
 
           const withLimit = async <T>(fn: () => Promise<T>): Promise<T> => {
@@ -1339,7 +1340,7 @@ export function useValidateConnection() {
 export function useMinLoadingTime(
   reduxDispatch: Dispatch,
   widgetId: string,
-  minimumMs = 500
+  minimumMs = TIME_CONSTANTS.MIN_LOADING_DELAY_MS
 ) {
   const startTimesRef = React.useRef<{ [key: string]: number }>({});
 
