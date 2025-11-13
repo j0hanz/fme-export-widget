@@ -1504,9 +1504,6 @@ export interface WorkflowProps extends BaseProps {
   readonly startupValidationError?: SerializableErrorState | null;
   readonly onRetryValidation?: () => void;
   readonly jimuMapView?: __esri.MapView | __esri.SceneView | null;
-  readonly showCloseConfirmation?: boolean;
-  readonly onCloseConfirmNo?: () => void;
-  readonly onCloseConfirmYes?: () => void;
 }
 
 export interface ModeNotice {

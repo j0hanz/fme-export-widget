@@ -1426,9 +1426,26 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   };
 
   const renderRadioField = (): JSX.Element => {
-    // Renderar radioknappsgrupp med enkel strängbaserad matchning
+    // Renderar radioknappsgrupp med coerce-stöd för numeriska alternativ
     const options = field.options || [];
-    const val = toStringValue(fieldValue);
+    const coerce = computeSelectCoerce(true, options);
+    const stringValue = toStringValue(fieldValue) ?? undefined;
+
+    const handleChange = hooks.useEventCallback((raw: string) => {
+      if (coerce === "number") {
+        const nextNumber = Number(raw);
+        if (Number.isFinite(nextNumber)) {
+          onChange(nextNumber as FormPrimitive);
+          return;
+        }
+
+        const matchingOption = options.find((opt) => String(opt.value) === raw);
+        onChange((matchingOption?.value ?? raw) as FormPrimitive);
+        return;
+      }
+
+      onChange(raw as FormPrimitive);
+    });
 
     return (
       <Radio
@@ -1436,10 +1453,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
           label: opt.label,
           value: String(opt.value),
         }))}
-        value={val}
-        onChange={(value) => {
-          onChange(value);
-        }}
+        value={stringValue}
+        onChange={handleChange}
         disabled={isDisabled}
         aria-label={field.label}
       />

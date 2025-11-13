@@ -278,10 +278,6 @@ System.register([], function (e) {
         alertCancelledUser: "Exporten avbröts",
         alertJobFailed: "FME Flow-transformationen misslyckades",
         alertTransformError: "Datatransformationen kunde inte slutföras",
-        msgCloseConfirmDetail:
-          "Är du säker på att du vill avbryta och stänga widgeten? Nuvarande arbete kommer att avbrytas.",
-        btnContinue: "Fortsätt",
-        btnAbortAndClose: "Avbryt och stäng",
       });
     },
   };

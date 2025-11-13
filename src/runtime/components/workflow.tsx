@@ -955,10 +955,6 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     onRetryValidation,
     submissionPhase = "idle",
     modeNotice,
-    // Close confirmation props
-    showCloseConfirmation = false,
-    onCloseConfirmNo,
-    onCloseConfirmYes,
   } = props;
   const translate = hooks.useTranslation(defaultMessages);
   const styles = useUiStyles();
@@ -1517,40 +1513,6 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
     </div>
   );
 
-  // Renderar bekräftelsedialog för stängning under kritisk operation
-  const renderCloseConfirmation = () => (
-    <div css={styles.centered}>
-      <div
-        role="alertdialog"
-        aria-live="assertive"
-        aria-atomic={true}
-        aria-labelledby="close-confirm-message"
-      >
-        <div css={styles.typo.instruction}>
-          {translate("msgCloseConfirmDetail")}
-        </div>
-      </div>
-      <div css={styles.btn.group}>
-        <Button
-          text={translate("btnContinue")}
-          onClick={onCloseConfirmNo}
-          variant="contained"
-          color="primary"
-          block
-          aria-label={translate("btnContinue")}
-        />
-        <Button
-          text={translate("btnAbortAndClose")}
-          onClick={onCloseConfirmYes}
-          variant="outlined"
-          type="danger"
-          block
-          aria-label={translate("btnAbortAndClose")}
-        />
-      </div>
-    </div>
-  );
-
   // Route guard: Kontrollera om startup-validering ska visas
   const shouldShowStartupValidation = () =>
     state === ViewMode.STARTUP_VALIDATION;
@@ -1756,7 +1718,6 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
 
   // Renderar aktuell vy baserat på state (förenklad med route guards)
   const renderCurrent = () => {
-    if (showCloseConfirmation) return renderCloseConfirmation();
     if (shouldShowStartupValidation()) return renderStartupValidation();
     if (shouldShowOrderResult()) return renderOrderResult();
     if (shouldShowSubmissionProgress()) return renderSubmissionProgress();

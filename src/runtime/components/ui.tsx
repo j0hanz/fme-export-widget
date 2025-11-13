@@ -86,6 +86,7 @@ import linkTiltedIcon from "../../assets/icons/link-tilted.svg";
 import mapIcon from "../../assets/icons/map.svg";
 import personLockIcon from "../../assets/icons/person-lock.svg";
 import polygonIcon from "../../assets/icons/polygon.svg";
+import rectangleIcon from "../../assets/icons/rectangle.svg";
 import settingIcon from "../../assets/icons/setting.svg";
 import sharedNoIcon from "../../assets/icons/shared-no.svg";
 import successIcon from "../../assets/icons/success.svg";
@@ -112,6 +113,7 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   email: emailIcon,
   info: infoIcon,
   success: successIcon,
+  rectangle: rectangleIcon,
 };
 
 type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>;
@@ -1054,7 +1056,21 @@ export const Button: React.FC<ButtonProps> = ({
   );
 
   // Absorberar stil från inkommande props
-  const { style: jimuStyle, ...restJimuProps } = jimuProps;
+  const {
+    style: jimuStyle,
+    css: jimuCss,
+    ...restJimuProps
+  } = jimuProps as {
+    style?: React.CSSProperties;
+    css?: SerializedStyles | SerializedStyles[];
+  };
+
+  const normalizedJimuCss: SerializedStyles[] = Array.isArray(jimuCss)
+    ? jimuCss.filter(Boolean)
+    : jimuCss
+      ? [jimuCss]
+      : [];
+  const tooltipCss = normalizedJimuCss[0];
 
   const hasTooltip = !!tooltip && !tooltipDisabled;
 
@@ -1099,9 +1115,9 @@ export const Button: React.FC<ButtonProps> = ({
       title={tooltip ? undefined : jimuProps.title}
       css={[
         styles.relative,
-        // När tooltip inte används, använd anroparens stilar direkt på knappen
-        !hasTooltip && styleCss(jimuStyle),
-      ]}
+        ...(!hasTooltip ? normalizedJimuCss : []),
+        !hasTooltip ? styleCss(jimuStyle) : undefined,
+      ].filter((value): value is SerializedStyles => Boolean(value))}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1120,7 +1136,7 @@ export const Button: React.FC<ButtonProps> = ({
         tooltip,
         placement: tooltipPlacement,
         block,
-        jimuCss: undefined,
+        jimuCss: tooltipCss,
         jimuStyle,
         styles,
       })
@@ -1160,8 +1176,15 @@ export const Alert: React.FC<AlertComponentProps> = ({
     children ?? (text != null ? <span>{text}</span> : null);
   const resolvedVariant: AlertDisplayVariant =
     variant === "icon" && !iconKey ? "default" : variant;
-
-  const restAlertProps = rest;
+  const { css: jimuCss, ...restAlertProps } = rest as {
+    css?: SerializedStyles | SerializedStyles[];
+  } & AlertComponentBaseProps;
+  const normalizedAlertCss: SerializedStyles[] = Array.isArray(jimuCss)
+    ? jimuCss.filter(Boolean)
+    : jimuCss
+      ? [jimuCss]
+      : [];
+  const tooltipCss = normalizedAlertCss[0];
 
   if (resolvedVariant === "icon") {
     const tooltipContent =
@@ -1186,7 +1209,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         variant={jimuVariant}
         className={className}
         css={applyComponentStyles(
-          [styles.alert, shouldWrapWithTooltip ? undefined : undefined],
+          [styles.alert, ...(shouldWrapWithTooltip ? [] : normalizedAlertCss)],
           style
         )}
       >
@@ -1206,7 +1229,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       tooltip: tooltipContent,
       placement: sanitizeTooltipPlacement(tooltipPlacement),
       block: true,
-      jimuCss: undefined,
+      jimuCss: tooltipCss,
       jimuStyle: style,
       styles,
     });
@@ -1220,7 +1243,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alert, undefined], style)}
+        css={applyComponentStyles([styles.alert, ...normalizedAlertCss], style)}
       />
     );
   }
@@ -1232,7 +1255,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       withIcon={false}
       variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alert, undefined], style)}
+      css={applyComponentStyles([styles.alert, ...normalizedAlertCss], style)}
     >
       <div css={styles.alertContent}>
         {iconKey ? (

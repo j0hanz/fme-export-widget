@@ -1039,7 +1039,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
 
       /* Rensar workspace-relaterad state vid repository-byte för isolering */
       if (previousRepository !== newRepository) {
-        fmeDispatch.clearWorkspaceState();
+        fmeDispatch.clearWorkspaceState(previousRepository);
       }
 
       /* Rensar repository-felfält */

@@ -1,4 +1,10 @@
-import { FmeActionType, FormFieldType, ParameterType, ViewMode } from "./enums";
+import {
+  DrawingTool,
+  FmeActionType,
+  FormFieldType,
+  ParameterType,
+  ViewMode,
+} from "./enums";
 import type { EsriMockKey, ServiceMode, UnitConversion } from "./types";
 
 // =============================================================================
@@ -100,16 +106,16 @@ export const DEFAULT_FILL_OPACITY = 0.25;
 
 export const DRAWING_MODE_TABS = Object.freeze([
   {
-    value: "POLYGON" as const,
+    value: DrawingTool.POLYGON,
     label: "optPolygon",
-    icon: "polygon.svg",
+    icon: "polygon",
     tooltip: "tipDrawPolygon",
     hideLabel: true,
   },
   {
-    value: "RECTANGLE" as const,
+    value: DrawingTool.RECTANGLE,
     label: "optRectangle",
-    icon: "rectangle.svg",
+    icon: "rectangle",
     tooltip: "tipDrawRectangle",
     hideLabel: true,
   },
@@ -699,6 +705,7 @@ export const LOCAL_ICON_SOURCES = Object.freeze({
   error: "error.svg",
   map: "map.svg",
   polygon: "polygon.svg",
+  rectangle: "rectangle.svg",
   warning: "warning.svg",
   "person-lock": "person-lock.svg",
   folder: "folder.svg",

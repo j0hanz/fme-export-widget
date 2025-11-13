@@ -230,10 +230,6 @@ function WidgetContent(
   const drawingToolRef = hooks.useLatest(drawingTool);
   /* Flagga för auto-start av ritning efter initialisering */
   const [shouldAutoStart, setShouldAutoStart] = React.useState(false);
-  /* Close confirmation state */
-  const [showCloseConfirmation, setShowCloseConfirmation] =
-    React.useState(false);
-  const closeBlockedRef = React.useRef(false);
   /* FME Flow API-klient med cache för att undvika onödiga recreates */
   const fmeClientRef = React.useRef<ReturnType<
     typeof createFmeFlowClient
@@ -328,11 +324,6 @@ function WidgetContent(
 
   const clearModeNotice = hooks.useEventCallback(() => {
     setModeNotice(null);
-  });
-
-  /* Kontrollerar om widget är i kritisk operation (submission eller geometry validation) */
-  const isInCriticalOperation = hooks.useEventCallback((): boolean => {
-    return isSubmitting || isValidatingGeometry;
   });
 
   /* Hanterar övergång vid tvingad async-läge */
@@ -1619,34 +1610,12 @@ function WidgetContent(
     stateDetector,
   ]);
 
-  /* Hanterar "Nej" - döljer bekräftelse och fortsätter operation */
-  const handleCloseConfirmNo = hooks.useEventCallback(() => {
-    setShowCloseConfirmation(false);
-    closeBlockedRef.current = false;
-  });
-
-  /* Hanterar "Ja" - avbryter operation och stänger widget */
-  const handleCloseConfirmYes = hooks.useEventCallback(() => {
-    setShowCloseConfirmation(false);
-    closeBlockedRef.current = false;
-
-    /* Avbryter pågående operationer */
-    submissionAbort.cancel();
-
-    /* Rensar kritiska laddningsflaggor */
-    ReactDOM.unstable_batchedUpdates(() => {
-      fmeDispatch.setLoadingFlag("submission", false);
-      fmeDispatch.setLoadingFlag("geometryValidation", false);
-    });
-
-    /* Fortsätt med normal stängning */
-    handleReset();
-  });
-
   /* Återställer widget vid stängning */
   const handleReset = hooks.useEventCallback(() => {
     submissionAbort.cancel();
     setSubmissionPhase("idle");
+    fmeDispatch.setLoadingFlag("submission", false);
+    fmeDispatch.setLoadingFlag("geometryValidation", false);
     /* Rensar grafik och mätningar men behåller kartresurser */
     resetGraphicsAndMeasurements();
 
@@ -1674,40 +1643,9 @@ function WidgetContent(
         STATE_TRANSITIONS.TO_CLOSED
       )
     ) {
-      /* Förhindra multipla close-triggers */
-      if (closeBlockedRef.current) {
-        return;
-      }
-
-      /* Kontrollera om kritisk operation pågår */
-      if (isInCriticalOperation()) {
-        closeBlockedRef.current = true;
-        setShowCloseConfirmation(true);
-
-        /* Re-öppna widget för att blockera stängning och visa bekräftelse */
-        try {
-          dispatch(appActions.openWidget(widgetId));
-        } catch (error) {
-          logIfNotAbort(
-            "Failed to re-open widget for close confirmation",
-            error
-          );
-        }
-        return;
-      }
-
-      /* Normal stängning */
       handleReset();
     }
-  }, [
-    runtimeState,
-    prevRuntimeState,
-    handleReset,
-    stateDetector,
-    isInCriticalOperation,
-    dispatch,
-    widgetId,
-  ]);
+  }, [runtimeState, prevRuntimeState, handleReset, stateDetector]);
 
   /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
@@ -1985,10 +1923,6 @@ function WidgetContent(
         clickCount={drawingSession.clickCount}
         isCompleting={isCompletingRef.current}
         isValidatingGeometry={isValidatingGeometry}
-        // Close confirmation props
-        showCloseConfirmation={showCloseConfirmation}
-        onCloseConfirmNo={handleCloseConfirmNo}
-        onCloseConfirmYes={handleCloseConfirmYes}
         // Header-props
         showHeaderActions={
           viewMode !== ViewMode.STARTUP_VALIDATION && showHeaderActions
