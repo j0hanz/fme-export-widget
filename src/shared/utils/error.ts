@@ -228,23 +228,23 @@ const ERROR_MAPPING_RULES: ErrorMappingRules = {
   messagePatterns: MESSAGE_PATTERNS,
 };
 
+/** Extracts error properties into ClassifiedError structure. */
 const classifyError = (err: unknown, status?: number): ClassifiedError => {
   const resolvedStatus = status ?? extractHttpStatus(err);
+  const errorObj =
+    err && typeof err === "object"
+      ? (err as { code?: unknown; message?: unknown })
+      : null;
 
-  let errorCode: string | undefined;
-  let message: string | undefined;
-
-  if (err && typeof err === "object") {
-    const errorObj = err as { code?: unknown; message?: unknown };
-    errorCode = typeof errorObj.code === "string" ? errorObj.code : undefined;
-    message =
-      typeof errorObj.message === "string" ? errorObj.message : undefined;
-  }
+  const errorCode =
+    typeof errorObj?.code === "string" ? errorObj.code : undefined;
+  const message =
+    typeof errorObj?.message === "string" ? errorObj.message : undefined;
 
   return {
     status: resolvedStatus,
-    code: typeof errorCode === "string" ? errorCode : undefined,
-    message: typeof message === "string" ? message : undefined,
+    code: errorCode,
+    message,
     isRequestFailed: errorCode === "REQUEST_FAILED",
   };
 };

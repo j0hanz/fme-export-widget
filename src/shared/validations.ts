@@ -30,8 +30,10 @@ import {
   toTrimmedStringOrEmpty,
 } from "./utils";
 
-// URL validation helpers
-const parseIpv4 = (hostname: string): number[] | null => {
+/* URL Validation Helpers */
+
+/** Parses IPv4 hostname into octets, returns null if invalid. */
+const parseIpv4 = (hostname: string): readonly number[] | null => {
   const parts = hostname.split(".");
   if (parts.length !== 4) return null;
 
@@ -41,18 +43,16 @@ const parseIpv4 = (hostname: string): number[] | null => {
     return value >= 0 && value <= 255 ? value : NaN;
   });
 
-  return octets.every(Number.isInteger) ? octets : null;
+  return octets.every(Number.isInteger) ? Object.freeze(octets) : null;
 };
 
-const isPrivateIpv4 = (octets: number[]): boolean => {
-  return PRIVATE_IPV4_RANGES.some(({ start, end }) => {
-    for (let i = 0; i < 4; i++) {
-      if (octets[i] < start[i] || octets[i] > end[i]) return false;
-    }
-    return true;
-  });
-};
+/** Checks if IPv4 octets fall within private IP ranges. */
+const isPrivateIpv4 = (octets: readonly number[]): boolean =>
+  PRIVATE_IPV4_RANGES.some(({ start, end }) =>
+    octets.every((octet, i) => octet >= start[i] && octet <= end[i])
+  );
 
+/** Checks if hostname is a private IPv6 address. */
 const isPrivateIpv6 = (hostname: string): boolean => {
   const lower = hostname.toLowerCase();
   return (
@@ -173,24 +173,28 @@ export const shouldUploadRemoteDataset = (
   return isFileObject(uploadFile);
 };
 
-// Parsar värde till nummer eller null vid invalid input
+/* Number Validation Helpers */
+
+/** Parses value to finite number, returns null if invalid. */
 const parseAsNumber = (value: unknown): number | null => {
-  if (typeof value === "number") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
-    const num = Number(value.trim());
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const num = Number(trimmed);
     return Number.isFinite(num) ? num : null;
   }
   return null;
 };
 
-// Kontrollerar om värde är heltal
-export const isInt = (value: unknown): boolean => {
+/** Type guard for integer values (including numeric strings). */
+export const isInt = (value: unknown): value is number => {
   const num = parseAsNumber(value);
   return num !== null && Number.isInteger(num);
 };
 
-// Kontrollerar om värde är finit nummer
-export const isNum = (value: unknown): boolean => {
+/** Type guard for finite numbers (including numeric strings). */
+export const isNum = (value: unknown): value is number => {
   const num = parseAsNumber(value);
   return num !== null;
 };
@@ -258,21 +262,21 @@ export const isRequiredFieldMissing = (
 
 // URL validation helpers
 
-// Normaliserar bas-URL genom att ta bort credentials och query params
+/** Normalizes base URL by removing credentials, query params, and trailing slash. */
 export const normalizeBaseUrl = (rawUrl: string): string => {
-  const u = safeParseUrl(rawUrl || "");
-  if (!u) return "";
+  const url = safeParseUrl(rawUrl || "");
+  if (!url) return "";
 
-  u.search = "";
-  u.hash = "";
-  u.username = "";
-  u.password = "";
+  url.search = "";
+  url.hash = "";
+  url.username = "";
+  url.password = "";
 
-  const cleanPath = u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "");
-  return `${u.origin}${cleanPath}`;
+  const cleanPath = url.pathname === "/" ? "" : url.pathname.replace(/\/$/, "");
+  return `${url.origin}${cleanPath}`;
 };
 
-// Validerar och normaliserar URL, returnerar ok-flagga och normaliserad URL eller fel-nyckel
+/** Validates and normalizes URL, returning ok flag with normalized URL or error key. */
 export function validateAndNormalizeUrl(
   rawUrl: string,
   options?: {
@@ -388,7 +392,9 @@ export const getSupportEmail = (
   return cfg && isValidEmail(cfg) ? cfg : undefined;
 };
 
-// Kontrollerar om token innehåller control characters
+/* Token Validation Helpers */
+
+/** Checks if token contains control characters (ASCII < 32 or DEL). */
 const hasControlCharacters = (token: string): boolean => {
   for (let i = 0; i < token.length; i++) {
     const code = token.charCodeAt(i);
@@ -397,11 +403,11 @@ const hasControlCharacters = (token: string): boolean => {
   return false;
 };
 
-// Kontrollerar om token har farliga tecken (whitespace, XSS, control)
+/** Checks if token has dangerous characters (whitespace, XSS vectors, control chars). */
 const hasDangerousCharacters = (token: string): boolean =>
   /\s/.test(token) || /[<>"'`]/.test(token) || hasControlCharacters(token);
 
-// Validerar FME token (längd och tecken-säkerhet)
+/** Validates FME token for length and character safety. */
 export const validateToken = (token: string): { ok: boolean; key?: string } => {
   if (!token) return { ok: false, key: "missingToken" };
 
@@ -410,22 +416,24 @@ export const validateToken = (token: string): { ok: boolean; key?: string } => {
   const invalidChars = hasDangerousCharacters(token);
 
   if (tooShort || invalidChars) {
-    if (hasWhitespace) return { ok: false, key: "tokenWithWhitespace" };
-    return { ok: false, key: "errorTokenIssue" };
+    return {
+      ok: false,
+      key: hasWhitespace ? "tokenWithWhitespace" : "errorTokenIssue",
+    };
   }
 
   return { ok: true };
 };
 
-// Validerar repository-namn mot lista av tillgängliga repositories
+/** Validates repository name against list of available repositories. */
 export const validateRepository = (
   repository: string,
-  available: string[] | null
+  available: readonly string[] | null
 ): { ok: boolean; key?: string } => {
   if (available === null) return { ok: true };
-  if (available.length > 0 && !repository)
-    return { ok: false, key: "missingRepository" };
-  if (available.length > 0 && repository && !available.includes(repository)) {
+  if (available.length === 0) return { ok: true };
+  if (!repository) return { ok: false, key: "missingRepository" };
+  if (!available.includes(repository)) {
     return { ok: false, key: "invalidRepository" };
   }
   return { ok: true };

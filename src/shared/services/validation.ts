@@ -24,6 +24,75 @@ import { extractHttpStatus, validateRequiredFields } from "../validations";
 import { inFlight } from "./inflight";
 import { extractFmeVersion, hasProxyError, healthCheck } from "./network";
 
+/* Validation Result Helpers */
+
+/** Creates validation failure result for aborted requests. */
+const createAbortedResult = (
+  steps: CheckSteps,
+  message = "aborted"
+): ConnectionValidationResult => ({
+  success: false,
+  steps,
+  error: {
+    message,
+    type: "generic" as const,
+    status: 0,
+  },
+});
+
+/** Creates validation failure result for server unreachable errors. */
+const createServerUnreachableResult = (
+  steps: CheckSteps,
+  status?: number
+): ConnectionValidationResult => ({
+  success: false,
+  steps,
+  error: {
+    message: "errorServerUnreachable",
+    type: "server" as const,
+    status,
+  },
+});
+
+/** Creates validation failure result for token errors. */
+const createTokenErrorResult = (
+  steps: CheckSteps,
+  status?: number
+): ConnectionValidationResult => ({
+  success: false,
+  steps,
+  error: {
+    message: "errorTokenIssue",
+    type: "token" as const,
+    status,
+  },
+});
+
+/** Creates validation failure result for repository errors. */
+const createRepositoryErrorResult = (
+  steps: CheckSteps,
+  status?: number
+): ConnectionValidationResult => ({
+  success: false,
+  steps,
+  error: {
+    message: "errorRepositoryIssue",
+    type: "repository" as const,
+    status,
+  },
+});
+
+/** Checks if signal is aborted and returns appropriate result. */
+const checkAbortSignal = (
+  signal: AbortSignal | undefined,
+  steps: CheckSteps
+): ConnectionValidationResult | null => {
+  if (signal?.aborted) {
+    return createAbortedResult(steps);
+  }
+  return null;
+};
+
 // Validerar FME Flow-anslutning steg-för-steg (URL, token, repository)
 export async function validateConnection(
   options: ConnectionValidationOptions
@@ -57,7 +126,7 @@ export async function validateConnection(
           };
         }
 
-        // Steg 1: Testar anslutning och hämtar serverinfo
+        // Step 1: Test connection and fetch server info
         let serverInfo: unknown;
         try {
           serverInfo = await client.testConnection(signal);
@@ -66,139 +135,82 @@ export async function validateConnection(
           steps.version = extractFmeVersion(serverInfo);
         } catch (error) {
           if (isAbortError(error)) {
-            return {
-              success: false,
-              steps,
-              error: {
-                message: (error as Error).message || "aborted",
-                type: "generic",
-                status: 0,
-              },
-            };
+            return createAbortedResult(steps, (error as Error).message);
           }
+
           const status = extractHttpStatus(error);
 
+          // Handle authentication errors
           if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
             steps.serverUrl = ValidationStepStatus.OK;
             steps.token = ValidationStepStatus.FAIL;
-            return {
-              success: false,
-              steps,
-              error: {
-                message: "errorTokenIssue",
-                type: "token",
-                status,
-              },
-            };
-          } else if (status === HTTP_STATUS_CODES.FORBIDDEN) {
+            return createTokenErrorResult(steps, status);
+          }
+
+          // Handle forbidden errors (proxy or token)
+          if (status === HTTP_STATUS_CODES.FORBIDDEN) {
             const rawMessage = extractErrorMessage(error);
             if (hasProxyError(rawMessage)) {
               steps.serverUrl = ValidationStepStatus.FAIL;
               steps.token = ValidationStepStatus.SKIP;
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: "errorServerUnreachable",
-                  type: "server",
-                  status,
-                },
-              };
+              return createServerUnreachableResult(steps, status);
             }
+
+            // Perform health check to determine if issue is server or token
             try {
               const healthResult = await healthCheck(serverUrl, token, signal);
+              const abortCheck = checkAbortSignal(signal, steps);
+              if (abortCheck) return abortCheck;
 
-              if (signal?.aborted) {
-                return {
-                  success: false,
-                  steps,
-                  error: {
-                    message: "aborted",
-                    type: "generic",
-                    status: 0,
-                  },
-                };
-              }
-
-              if (healthResult && healthResult && healthResult.reachable) {
+              if (healthResult?.reachable) {
                 steps.serverUrl = ValidationStepStatus.OK;
                 steps.token = ValidationStepStatus.FAIL;
-                return {
-                  success: false,
-                  steps,
-                  error: {
-                    message: "errorTokenIssue",
-                    type: "token",
-                    status,
-                  },
-                };
-              } else {
-                steps.serverUrl = ValidationStepStatus.FAIL;
-                steps.token = ValidationStepStatus.SKIP;
-                return {
-                  success: false,
-                  steps,
-                  error: {
-                    message: "errorServerUnreachable",
-                    type: "server",
-                    status,
-                  },
-                };
+                return createTokenErrorResult(steps, status);
               }
+
+              steps.serverUrl = ValidationStepStatus.FAIL;
+              steps.token = ValidationStepStatus.SKIP;
+              return createServerUnreachableResult(steps, status);
             } catch {
               steps.serverUrl = ValidationStepStatus.FAIL;
               steps.token = ValidationStepStatus.SKIP;
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: "errorServerUnreachable",
-                  type: "server",
-                  status,
-                },
-              };
+              return createServerUnreachableResult(steps, status);
             }
-          } else {
-            steps.serverUrl = ValidationStepStatus.FAIL;
-            steps.token = ValidationStepStatus.SKIP;
-            return {
-              success: false,
-              steps,
-              error: {
-                message: mapErrorFromNetwork(error, status),
-                type: status === 0 ? "network" : "server",
-                status,
-              },
-            };
           }
+
+          // Handle other errors (network, server)
+          steps.serverUrl = ValidationStepStatus.FAIL;
+          steps.token = ValidationStepStatus.SKIP;
+          return {
+            success: false,
+            steps,
+            error: {
+              message: mapErrorFromNetwork(error, status),
+              type: status === 0 ? ("network" as const) : ("server" as const),
+              status,
+            },
+          };
         }
 
         const warnings: string[] = [];
 
-        // Steg 3: Validerar specifik repository om angiven
+        // Step 2: Validate specific repository if provided
         if (repository) {
           try {
             await client.validateRepository(repository, signal);
             steps.repository = ValidationStepStatus.OK;
           } catch (error) {
             const status = extractHttpStatus(error);
-            if (
+            const isAuthError =
               status === HTTP_STATUS_CODES.UNAUTHORIZED ||
-              status === HTTP_STATUS_CODES.FORBIDDEN
-            ) {
+              status === HTTP_STATUS_CODES.FORBIDDEN;
+
+            if (isAuthError) {
               steps.repository = ValidationStepStatus.SKIP;
               warnings.push("repositoryNotAccessible");
             } else {
               steps.repository = ValidationStepStatus.FAIL;
-              return {
-                success: false,
-                steps,
-                error: {
-                  message: mapErrorFromNetwork(error, status),
-                  type: "repository",
-                  status,
-                },
-              };
+              return createRepositoryErrorResult(steps, status);
             }
           }
         }
@@ -211,15 +223,7 @@ export async function validateConnection(
         };
       } catch (error) {
         if (isAbortError(error)) {
-          return {
-            success: false,
-            steps,
-            error: {
-              message: (error as Error).message || "aborted",
-              type: "generic",
-              status: 0,
-            },
-          };
+          return createAbortedResult(steps, (error as Error).message);
         }
 
         const status = extractHttpStatus(error);
@@ -228,7 +232,7 @@ export async function validateConnection(
           steps,
           error: {
             message: mapErrorFromNetwork(error, status),
-            type: "generic",
+            type: "generic" as const,
             status,
           },
         };

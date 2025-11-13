@@ -49,11 +49,11 @@ export const isUndefined = (value: unknown): value is undefined =>
 export const isNullish = (value: unknown): value is null | undefined =>
   value == null;
 
-// Kontrollerar om värdet är "tomt"
-export const isEmpty = (v: unknown): boolean => {
-  if (v === undefined || v === null || v === "") return true;
-  if (Array.isArray(v)) return v.length === 0;
-  if (typeof v === "string") return !isNonEmptyTrimmedString(v);
+/** Checks if value is empty (null, undefined, empty string, or empty array). */
+export const isEmpty = (value: unknown): boolean => {
+  if (isNullish(value) || value === "") return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (isString(value)) return !isNonEmptyTrimmedString(value);
   return false;
 };
 
@@ -158,11 +158,12 @@ export const toNumberValue = (value: unknown): number | undefined => {
   return Number.isFinite(numeric) ? numeric : undefined;
 };
 
+/** Coerces value to valid number with fallback and optional constraints. */
 export const toValidNumber = (
   value: unknown,
   fallback: number,
-  options?: Parameters<typeof isValidNumber>[1]
-): number => (isValidNumber(value, options) ? value : fallback);
+  constraints?: Parameters<typeof isValidNumber>[1]
+): number => (isValidNumber(value, constraints) ? value : fallback);
 
 export const clampNumber = (
   value: number,

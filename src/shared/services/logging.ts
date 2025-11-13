@@ -29,18 +29,19 @@ interface NetworkRequest {
 
 const SLOW_REQUEST_THRESHOLD_MS = 1000;
 
-/* Module-level flag for conditional logging */
+/* Module-Level Logging State */
 let isLoggingEnabled = false;
 
-/* Sets logging state (called by runtime widget when config changes) */
+/** Enables or disables conditional logging. Called by runtime widget when config changes. */
 export const setLoggingEnabled = (enabled: boolean): void => {
   isLoggingEnabled = enabled;
 };
 
-/* Gets current logging state */
+/** Returns current logging state. */
 export const getLoggingEnabled = (): boolean => isLoggingEnabled;
 
-/* Conditional logging helpers - respect enableLogging flag */
+/* Conditional Logging Helpers - Respect enableLogging Flag */
+
 export const conditionalLog = (...args: unknown[]): void => {
   if (isLoggingEnabled) {
     console.log(...args);
@@ -62,7 +63,7 @@ export const conditionalWarn = (...args: unknown[]): void => {
   }
 };
 
-/* Critical errors always log regardless of flag (HTTP errors, auth failures) */
+/** Critical errors always log regardless of flag (HTTP errors, auth failures). */
 export const criticalError = (...args: unknown[]): void => {
   console.error(...args);
 };
@@ -85,20 +86,20 @@ const logDebugMessage = (
   }
 };
 
+/* Debug Object Access Helpers */
+
+/** Safely retrieves global debug object from window. */
 const getDebugObject = (): FmeDebugObject | null => {
-  if (typeof window === "undefined") {
-    return null;
-  }
+  if (typeof window === "undefined") return null;
   return (
     (window as unknown as { __FME_DEBUG__?: FmeDebugObject }).__FME_DEBUG__ ??
     null
   );
 };
 
+/** Creates safe config snapshot with masked token. */
 const buildSafeConfig = (config: FmeExportConfig | null) => {
-  if (!config) {
-    return null;
-  }
+  if (!config) return null;
   return {
     serverUrl: config.fmeServerUrl || "[NONE]",
     repository: config.repository || "[NONE]",
@@ -109,10 +110,9 @@ const buildSafeConfig = (config: FmeExportConfig | null) => {
   };
 };
 
+/** Creates safe state snapshot with essential properties. */
 const buildSafeState = (state: FmeWidgetState | null) => {
-  if (!state) {
-    return null;
-  }
+  if (!state) return null;
   return {
     viewMode: state.viewMode,
     drawingTool: state.drawingTool,
@@ -123,18 +123,26 @@ const buildSafeState = (state: FmeWidgetState | null) => {
   };
 };
 
-const calculateNetworkStats = (history: readonly NetworkRequest[]) => ({
-  total: history.length,
-  failed: history.filter((r) => r.ok !== undefined && !r.ok).length,
-  avgDurationMs:
+/* Network History Helpers */
+
+/** Calculates aggregated network statistics from request history. */
+const calculateNetworkStats = (history: readonly NetworkRequest[]) => {
+  const failed = history.filter((r) => r.ok !== undefined && !r.ok);
+  const slow = history.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS);
+  const avgDuration =
     history.length > 0
       ? Math.round(
           history.reduce((sum, r) => sum + r.durationMs, 0) / history.length
         )
-      : 0,
-  slowRequests: history.filter((r) => r.durationMs > SLOW_REQUEST_THRESHOLD_MS)
-    .length,
-});
+      : 0;
+
+  return {
+    total: history.length,
+    failed: failed.length,
+    avgDurationMs: avgDuration,
+    slowRequests: slow.length,
+  };
+};
 
 const filterNetworkHistory = (
   history: readonly NetworkRequest[],
@@ -159,28 +167,23 @@ const formatNetworkRequest = (request: NetworkRequest) => ({
   time: new Date(request.timestamp).toLocaleTimeString(),
 });
 
+/** Copies text to clipboard with fallback for unsupported browsers. */
 const copyToClipboard = (text: string): void => {
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(
-        () => {
-          logDebugMessage("Copied to clipboard", "success");
-        },
-        (err) => {
-          logDebugMessage("Could not copy to clipboard", "error");
-          conditionalLog("Clipboard error:", err);
-        }
-      );
-    } else {
-      logDebugMessage("Clipboard API not available", "warn");
-    }
-  } catch (err) {
-    logDebugMessage(
-      "Clipboard API not available or permissions denied",
-      "warn"
-    );
-    conditionalLog("Clipboard error:", err);
+  const clipboardApi = navigator.clipboard;
+  if (!clipboardApi || !clipboardApi.writeText) {
+    logDebugMessage("Clipboard API not available", "warn");
+    return;
   }
+
+  clipboardApi.writeText(text).then(
+    () => {
+      logDebugMessage("Copied to clipboard", "success");
+    },
+    (err) => {
+      logDebugMessage("Could not copy to clipboard", "error");
+      conditionalLog("Clipboard error:", err);
+    }
+  );
 };
 
 const createMockIntlModules = () => ({
@@ -194,42 +197,40 @@ const createMockIntlModules = () => ({
   },
 });
 
+/** Collects all accessible window targets (current + parents) for debug object assignment. */
 const collectDebugTargets = (): Window[] => {
-  if (typeof window === "undefined") {
-    return [];
-  }
+  if (typeof window === "undefined") return [];
 
   const targets: Window[] = [];
   const seen = new Set<Window>();
 
   const addTarget = (candidate: Window | null | undefined) => {
-    if (!candidate || seen.has(candidate)) {
-      return;
-    }
+    if (!candidate || seen.has(candidate)) return;
     seen.add(candidate);
     targets.push(candidate);
   };
 
+  // Walk up the window hierarchy
   let current: Window | null = window;
   let iterations = 0;
-  const MAX_ITERATIONS = 100; // Safety limit
+  const MAX_ITERATIONS = 100;
 
   while (current && iterations < MAX_ITERATIONS) {
     addTarget(current);
-    let next: Window | null = null;
+
     try {
-      next = current.parent;
+      const parent = current.parent;
+      if (!parent || parent === current || seen.has(parent)) break;
+      current = parent;
     } catch {
       // Cross-origin frame access blocked
       break;
     }
-    if (!next || next === current || seen.has(next)) {
-      break;
-    }
-    current = next;
+
     iterations++;
   }
 
+  // Try to add opener window
   try {
     addTarget(window.opener as Window);
   } catch {
@@ -601,18 +602,15 @@ const normalizeWidgetId = (raw: string | null | undefined): string | null => {
   return trimmed.length ? trimmed : null;
 };
 
+/** Validates and normalizes debug context before setup. */
 const validateDebugContext = (
   context: FmeDebugContext
 ): { widgetId: string; config: FmeExportConfig; targets: Window[] } | null => {
   const widgetId = normalizeWidgetId(context.widgetId);
-  if (!widgetId || !context.config) {
-    return null;
-  }
+  if (!widgetId || !context.config) return null;
 
   const targets = collectDebugTargets();
-  if (targets.length === 0) {
-    return null;
-  }
+  if (targets.length === 0) return null;
 
   return { widgetId, config: context.config, targets };
 };
