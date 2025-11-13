@@ -74,6 +74,94 @@ import {
 
 // Service för att konvertera FME-parametrar till dynamiska formulärfält
 export class ParameterFormService {
+  // Cache heavy derived structures per parameter to avoid repeated work
+  private readonly metadataCache = new WeakMap<
+    WorkspaceParameter,
+    { readonly [key: string]: unknown }
+  >();
+
+  private readonly optionsCache = new WeakMap<
+    WorkspaceParameter,
+    readonly OptionItem[] | undefined
+  >();
+
+  private readonly fieldCache = new WeakMap<
+    WorkspaceParameter,
+    DynamicFieldConfig
+  >();
+
+  private readonly scriptedNodesCache = new WeakMap<
+    readonly OptionItem[],
+    Map<string, readonly ScriptedOptionNode[] | undefined>
+  >();
+
+  private readonly separatorRegexCache = new Map<string, RegExp>();
+
+  private deepFreeze<T>(value: T): T {
+    if (Array.isArray(value)) {
+      value.forEach((item) => this.deepFreeze(item));
+      Object.freeze(value);
+      return value;
+    }
+
+    if (value && typeof value === "object" && isPlainObject(value)) {
+      const obj = value as { [key: string]: unknown };
+      Object.keys(obj).forEach((key) => {
+        this.deepFreeze(obj[key]);
+      });
+      Object.freeze(obj);
+      return value;
+    }
+
+    return value;
+  }
+
+  private getSeparatorRegex(separator: string): {
+    regex: RegExp;
+    usedFallback: boolean;
+    key: string;
+  } {
+    const trimmed = separator ? separator.slice(0, MAX_SEPARATOR_LENGTH) : "|";
+    const cacheKey = trimmed || "|";
+    const existing = this.separatorRegexCache.get(cacheKey);
+    if (existing) {
+      return {
+        regex: existing,
+        usedFallback: existing === DEFAULT_SEPARATOR_REGEX && cacheKey !== "|",
+        key: cacheKey,
+      };
+    }
+
+    const escaped = escapeForCharacterClass(cacheKey);
+    const pattern = `[${escaped}]`;
+    const regex =
+      createSafeRegExp(pattern, "", {
+        maxLength: pattern.length + 2,
+      }) || DEFAULT_SEPARATOR_REGEX;
+
+    this.separatorRegexCache.set(cacheKey, regex);
+
+    return {
+      regex,
+      usedFallback: regex === DEFAULT_SEPARATOR_REGEX && cacheKey !== "|",
+      key: cacheKey,
+    };
+  }
+
+  private getOptionsForParameter(
+    param: WorkspaceParameter
+  ): readonly OptionItem[] | undefined {
+    const cached = this.optionsCache.get(param);
+    if (cached) {
+      return cached;
+    }
+
+    const mapped = this.mapListOptions(param);
+    const frozen = mapped ? this.deepFreeze(mapped) : undefined;
+    this.optionsCache.set(param, frozen);
+    return frozen;
+  }
+
   // Kontrollerar om parameter ska renderas som formulärfält
   private isRenderableParam(
     p: WorkspaceParameter | null | undefined
@@ -262,19 +350,27 @@ export class ParameterFormService {
   private getParameterMetadata(param: WorkspaceParameter): {
     readonly [key: string]: unknown;
   } {
+    const cached = this.metadataCache.get(param);
+    if (cached) {
+      return cached;
+    }
     const defaultValueMeta = isPlainObject(param.defaultValue)
       ? (param.defaultValue as { readonly [key: string]: unknown })
       : undefined;
-    return mergeMetadata([
-      param.metadata,
-      param.attributes,
-      param.definition,
-      param.control,
-      param.schema,
-      param.ui,
-      param.extra,
-      defaultValueMeta,
-    ]);
+    const merged =
+      mergeMetadata([
+        param.metadata,
+        param.attributes,
+        param.definition,
+        param.control,
+        param.schema,
+        param.ui,
+        param.extra,
+        defaultValueMeta,
+      ]) || {};
+    const frozen = this.deepFreeze(merged);
+    this.metadataCache.set(param, frozen);
+    return frozen;
   }
 
   // Normaliserar enskilt option-item till enhetligt format
@@ -393,6 +489,26 @@ export class ParameterFormService {
   ): readonly ScriptedOptionNode[] | undefined {
     if (!options?.length) return undefined;
 
+    const normalizedSeparator = separator || "/";
+    let cacheBySeparator = this.scriptedNodesCache.get(options);
+    if (!cacheBySeparator) {
+      cacheBySeparator = new Map();
+      this.scriptedNodesCache.set(options, cacheBySeparator);
+    }
+
+    if (cacheBySeparator.has(normalizedSeparator)) {
+      return cacheBySeparator.get(normalizedSeparator);
+    }
+
+    const nodes = this.buildScriptedNodeTree(options, normalizedSeparator);
+    cacheBySeparator.set(normalizedSeparator, nodes);
+    return nodes;
+  }
+
+  private buildScriptedNodeTree(
+    options: readonly OptionItem[],
+    separator: string
+  ): readonly ScriptedOptionNode[] | undefined {
     const hasHierarchy = options.some(
       (opt) => opt.children && opt.children.length > 0
     );
@@ -451,23 +567,15 @@ export class ParameterFormService {
     options: readonly OptionItem[],
     separator: string
   ): ScriptedOptionNode[] {
-    const trimmedSeparator =
-      typeof separator === "string" && separator
-        ? separator.slice(0, MAX_SEPARATOR_LENGTH)
-        : "|";
-    const escapedSeparator = escapeForCharacterClass(trimmedSeparator);
-    const separatorPattern = `[${escapedSeparator}]`;
-    const separatorRegex =
-      createSafeRegExp(separatorPattern, "", {
-        maxLength: separatorPattern.length + 2,
-      }) || DEFAULT_SEPARATOR_REGEX;
+    const {
+      regex: separatorRegex,
+      usedFallback,
+      key,
+    } = this.getSeparatorRegex(separator);
 
-    if (
-      separatorRegex === DEFAULT_SEPARATOR_REGEX &&
-      trimmedSeparator !== "|"
-    ) {
+    if (usedFallback) {
       logWarn("ParameterFormService: Using fallback path separator", {
-        separatorLength: trimmedSeparator.length,
+        separatorLength: key.length,
       });
     }
     const roots: MutableNode[] = [];
@@ -1521,138 +1629,161 @@ export class ParameterFormService {
   ): readonly DynamicFieldConfig[] {
     if (!parameters?.length) return [];
 
-    return this.getRenderableParameters(parameters).map((param) => {
-      const baseType = this.getFieldType(param);
-      const decimalPrecision = this.getDecimalPrecision(param);
-      const sliderUiPreferred =
-        param.type === ParameterType.RANGE_SLIDER
-          ? this.shouldUseRangeSliderUi(param)
-          : false;
-      const type =
-        param.type === ParameterType.RANGE_SLIDER && !sliderUiPreferred
-          ? FormFieldType.NUMERIC_INPUT
-          : baseType;
-      const options = this.mapListOptions(param);
-      const scripted = this.deriveScriptedConfig(param, options);
-      const tableConfig = this.deriveTableConfig(param);
-      const dateTimeConfig = this.deriveDateTimeConfig(param);
-      const selectConfig = this.deriveSelectConfig(type, param, options);
-      const fileConfig = this.deriveFileConfig(type, param);
-      const colorConfig = this.deriveColorConfig(param);
-      const toggleConfig = this.deriveToggleConfig(type, param, options);
-      const visibility = this.deriveVisibilityConfig(param);
-      const choiceSetConfig = this.extractChoiceSetConfig(param);
-      const readOnly = this.isReadOnlyField(type, scripted);
-      const helper =
-        scripted?.instructions ??
-        tableConfig?.helperText ??
-        dateTimeConfig?.helperText ??
-        fileConfig?.helperText ??
-        selectConfig?.instructions;
-      const { min, max, step, minExclusive, maxExclusive } = this.getSliderMeta(
-        param,
-        decimalPrecision,
-        sliderUiPreferred
-      );
-      const defaultValue = (() => {
-        if (type === FormFieldType.PASSWORD) {
-          return "" as FormPrimitive;
-        }
-        if (param.type === ParameterType.GEOMETRY) {
-          return "" as FormPrimitive;
-        }
-        if (type === FormFieldType.MULTI_SELECT) {
-          return toArray(param.defaultValue) as FormPrimitive;
+    const renderable = this.getRenderableParameters(parameters);
+    if (!renderable.length) {
+      return [];
+    }
+
+    const fields = new Array<DynamicFieldConfig>(renderable.length);
+    for (let i = 0; i < renderable.length; i++) {
+      fields[i] = this.getFieldConfig(renderable[i]);
+    }
+    return fields as readonly DynamicFieldConfig[];
+  }
+
+  private getFieldConfig(param: WorkspaceParameter): DynamicFieldConfig {
+    const cached = this.fieldCache.get(param);
+    if (cached) {
+      return cached;
+    }
+
+    const field = this.buildFieldConfig(param);
+    const frozen = this.deepFreeze(field);
+    this.fieldCache.set(param, frozen);
+    return frozen;
+  }
+
+  private buildFieldConfig(param: WorkspaceParameter): DynamicFieldConfig {
+    const baseType = this.getFieldType(param);
+    const decimalPrecision = this.getDecimalPrecision(param);
+    const sliderUiPreferred =
+      param.type === ParameterType.RANGE_SLIDER
+        ? this.shouldUseRangeSliderUi(param)
+        : false;
+    const type =
+      param.type === ParameterType.RANGE_SLIDER && !sliderUiPreferred
+        ? FormFieldType.NUMERIC_INPUT
+        : baseType;
+    const options = this.getOptionsForParameter(param);
+    const scripted = this.deriveScriptedConfig(param, options);
+    const tableConfig = this.deriveTableConfig(param);
+    const dateTimeConfig = this.deriveDateTimeConfig(param);
+    const selectConfig = this.deriveSelectConfig(type, param, options);
+    const fileConfig = this.deriveFileConfig(type, param);
+    const colorConfig = this.deriveColorConfig(param);
+    const toggleConfig = this.deriveToggleConfig(type, param, options);
+    const visibility = this.deriveVisibilityConfig(param);
+    const choiceSetConfig = this.extractChoiceSetConfig(param);
+    const readOnly = this.isReadOnlyField(type, scripted);
+    const helper =
+      scripted?.instructions ??
+      tableConfig?.helperText ??
+      dateTimeConfig?.helperText ??
+      fileConfig?.helperText ??
+      selectConfig?.instructions;
+    const { min, max, step, minExclusive, maxExclusive } = this.getSliderMeta(
+      param,
+      decimalPrecision,
+      sliderUiPreferred
+    );
+    const defaultValue = (() => {
+      if (type === FormFieldType.PASSWORD) {
+        return "" as FormPrimitive;
+      }
+      if (param.type === ParameterType.GEOMETRY) {
+        return "" as FormPrimitive;
+      }
+      if (type === FormFieldType.MULTI_SELECT) {
+        return toArray(param.defaultValue) as FormPrimitive;
+      }
+      if (
+        (type === FormFieldType.SWITCH || type === FormFieldType.CHECKBOX) &&
+        toggleConfig
+      ) {
+        const normalizedDefault = normalizeToggleValue(param.defaultValue);
+        if (
+          normalizedDefault !== undefined &&
+          toggleConfig.checkedValue !== undefined &&
+          areToggleValuesEqual(normalizedDefault, toggleConfig.checkedValue)
+        ) {
+          return toggleConfig.checkedValue as FormPrimitive;
         }
         if (
-          (type === FormFieldType.SWITCH || type === FormFieldType.CHECKBOX) &&
-          toggleConfig
+          normalizedDefault !== undefined &&
+          toggleConfig.uncheckedValue !== undefined &&
+          areToggleValuesEqual(normalizedDefault, toggleConfig.uncheckedValue)
         ) {
-          const normalizedDefault = normalizeToggleValue(param.defaultValue);
-          if (
-            normalizedDefault !== undefined &&
-            toggleConfig.checkedValue !== undefined &&
-            areToggleValuesEqual(normalizedDefault, toggleConfig.checkedValue)
-          ) {
+          return toggleConfig.uncheckedValue as FormPrimitive;
+        }
+        const booleanDefault = toBooleanValue(param.defaultValue);
+        if (booleanDefault !== undefined) {
+          if (booleanDefault && toggleConfig.checkedValue !== undefined) {
             return toggleConfig.checkedValue as FormPrimitive;
           }
-          if (
-            normalizedDefault !== undefined &&
-            toggleConfig.uncheckedValue !== undefined &&
-            areToggleValuesEqual(normalizedDefault, toggleConfig.uncheckedValue)
-          ) {
+          if (!booleanDefault && toggleConfig.uncheckedValue !== undefined) {
             return toggleConfig.uncheckedValue as FormPrimitive;
-          }
-          const booleanDefault = toBooleanValue(param.defaultValue);
-          if (booleanDefault !== undefined) {
-            if (booleanDefault && toggleConfig.checkedValue !== undefined) {
-              return toggleConfig.checkedValue as FormPrimitive;
-            }
-            if (!booleanDefault && toggleConfig.uncheckedValue !== undefined) {
-              return toggleConfig.uncheckedValue as FormPrimitive;
-            }
-          }
-          if (normalizedDefault !== undefined) {
-            return normalizedDefault as FormPrimitive;
-          }
-          if (toggleConfig.uncheckedValue !== undefined) {
-            return toggleConfig.uncheckedValue as FormPrimitive;
-          }
-          if (toggleConfig.checkedValue !== undefined) {
-            return toggleConfig.checkedValue as FormPrimitive;
           }
         }
-        return param.defaultValue as FormPrimitive;
-      })();
+        if (normalizedDefault !== undefined) {
+          return normalizedDefault as FormPrimitive;
+        }
+        if (toggleConfig.uncheckedValue !== undefined) {
+          return toggleConfig.uncheckedValue as FormPrimitive;
+        }
+        if (toggleConfig.checkedValue !== undefined) {
+          return toggleConfig.checkedValue as FormPrimitive;
+        }
+      }
+      return param.defaultValue as FormPrimitive;
+    })();
 
-      const promptValue =
-        param.attributes && isPlainObject(param.attributes)
-          ? (param.attributes as { [key: string]: unknown }).prompt
-          : undefined;
-      const field: DynamicFieldConfig = {
-        name: param.name,
-        label: toStringValue(promptValue) || param.description || param.name,
-        type,
-        required: !param.optional,
-        readOnly,
-        description: toStringValue(promptValue) || param.description,
-        defaultValue,
-        placeholder: toStringValue(promptValue) || param.description || "",
-        ...(options?.length && { options: [...options] }),
-        ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
-        ...((min !== undefined || max !== undefined || step !== undefined) && {
-          min,
-          max,
-          step,
+    const promptValue =
+      param.attributes && isPlainObject(param.attributes)
+        ? (param.attributes as { [key: string]: unknown }).prompt
+        : undefined;
+
+    return {
+      name: param.name,
+      label: toStringValue(promptValue) || param.description || param.name,
+      type,
+      required: !param.optional,
+      readOnly,
+      description: toStringValue(promptValue) || param.description,
+      defaultValue,
+      placeholder: toStringValue(promptValue) || param.description || "",
+      ...(options?.length && { options }),
+      ...(param.type === ParameterType.TEXT_EDIT && { rows: 3 }),
+      ...((min !== undefined || max !== undefined || step !== undefined) && {
+        min,
+        max,
+        step,
+      }),
+      ...((type === FormFieldType.SLIDER ||
+        type === FormFieldType.NUMERIC_INPUT) &&
+        decimalPrecision !== undefined && {
+          decimalPrecision,
         }),
-        ...((type === FormFieldType.SLIDER ||
-          type === FormFieldType.NUMERIC_INPUT) &&
-          decimalPrecision !== undefined && {
-            decimalPrecision,
-          }),
-        ...((type === FormFieldType.SLIDER ||
-          type === FormFieldType.NUMERIC_INPUT) &&
-          minExclusive !== undefined && {
-            minExclusive,
-          }),
-        ...((type === FormFieldType.SLIDER ||
-          type === FormFieldType.NUMERIC_INPUT) &&
-          maxExclusive !== undefined && {
-            maxExclusive,
-          }),
-        ...(helper && { helper }),
-        ...(scripted && { scripted }),
-        ...(tableConfig && { tableConfig }),
-        ...(dateTimeConfig && { dateTimeConfig }),
-        ...(selectConfig && { selectConfig }),
-        ...(fileConfig && { fileConfig }),
-        ...(colorConfig && { colorConfig }),
-        ...(toggleConfig && { toggleConfig }),
-        ...(choiceSetConfig && { choiceSetConfig }),
-        ...(visibility && { visibility }),
-      };
-      return field;
-    }) as readonly DynamicFieldConfig[];
+      ...((type === FormFieldType.SLIDER ||
+        type === FormFieldType.NUMERIC_INPUT) &&
+        minExclusive !== undefined && {
+          minExclusive,
+        }),
+      ...((type === FormFieldType.SLIDER ||
+        type === FormFieldType.NUMERIC_INPUT) &&
+        maxExclusive !== undefined && {
+          maxExclusive,
+        }),
+      ...(helper && { helper }),
+      ...(scripted && { scripted }),
+      ...(tableConfig && { tableConfig }),
+      ...(dateTimeConfig && { dateTimeConfig }),
+      ...(selectConfig && { selectConfig }),
+      ...(fileConfig && { fileConfig }),
+      ...(colorConfig && { colorConfig }),
+      ...(toggleConfig && { toggleConfig }),
+      ...(choiceSetConfig && { choiceSetConfig }),
+      ...(visibility && { visibility }),
+    };
   }
 
   // Mappar parameter-typ till UI-fälttyp
