@@ -1750,7 +1750,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                         : `#${val}`
                       : DEFAULT_DRAWING_HEX;
                     setLocalDrawingColor(cleaned);
-                    updateConfig("drawingColor", cleaned as any);
+                    updateConfig("drawingColor", cleaned);
                   }}
                   aria-label={translate("lblDrawColor")}
                 />
@@ -1779,7 +1779,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   onChange={(value) => {
                     setLocalOutlineWidth(value);
                     const outlineWidth = sliderValueToOutlineWidth(value);
-                    updateConfig("drawingOutlineWidth", outlineWidth as any);
+                    updateConfig("drawingOutlineWidth", outlineWidth);
                   }}
                 />
               </SettingRow>
@@ -1807,7 +1807,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
                   onChange={(value: number) => {
                     setLocalFillOpacity(value);
                     const opacityValue = value / UI_CONFIG.OPACITY_SCALE_FACTOR;
-                    updateConfig("drawingFillOpacity", opacityValue as any);
+                    updateConfig("drawingFillOpacity", opacityValue);
                   }}
                 />
               </SettingRow>

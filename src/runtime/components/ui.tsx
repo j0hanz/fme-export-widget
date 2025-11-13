@@ -1,6 +1,13 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { css, hooks, jsx, React, type SerializedStyles } from "jimu-core";
+import {
+  css,
+  hooks,
+  jsx,
+  React,
+  type SerializedStyles,
+  type URIScheme,
+} from "jimu-core";
 import { ColorPicker as JimuColorPicker } from "jimu-ui/basic/color-picker";
 import {
   AdvancedButtonGroup,
@@ -36,6 +43,7 @@ import type {
   ButtonProps,
   ButtonTabsProps,
   FieldProps,
+  FormPrimitive,
   FormProps,
   GroupButtonConfig,
   InputProps,
@@ -147,7 +155,10 @@ const withId = (
 const applyComponentStyles = (
   base: Array<SerializedStyles | undefined>,
   customStyle?: React.CSSProperties
-) => [...base, styleCss(customStyle)].filter(Boolean);
+) =>
+  [...base, styleCss(customStyle)].filter((value): value is SerializedStyles =>
+    Boolean(value)
+  );
 
 // Applicerar fullbredd-stil med anpassad stil
 const applyFullWidthStyles = (
@@ -189,10 +200,10 @@ const wrapWithTooltip = (
     jimuCss,
     styleCss(jimuStyle),
     block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
-  ];
+  ].filter((value): value is SerializedStyles => Boolean(value));
 
   return (
-    <span css={wrapperCss as any}>
+    <span css={wrapperCss}>
       <Tooltip content={tooltip} placement={placement}>
         <span css={styles.tooltipWrap.anchor}>{element}</span>
       </Tooltip>
@@ -357,27 +368,63 @@ export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
   props
 ) => <JimuCheckbox {...props} />;
 
+type TextInputTypeName =
+  | "text"
+  | "email"
+  | "select"
+  | "file"
+  | "date"
+  | "datetime-local"
+  | "month"
+  | "search"
+  | "tel"
+  | "week"
+  | "password"
+  | "datetime"
+  | "time";
+
+const TEXT_INPUT_TYPES: readonly TextInputTypeName[] = [
+  "text",
+  "email",
+  "select",
+  "file",
+  "date",
+  "datetime-local",
+  "month",
+  "search",
+  "tel",
+  "week",
+  "password",
+  "datetime",
+  "time",
+] as const;
+
+const isTextInputType = (candidate: string): candidate is TextInputTypeName =>
+  (TEXT_INPUT_TYPES as readonly string[]).includes(candidate);
+
 // Input-komponent
-export const Input: React.FC<InputProps> = ({
-  value: controlled,
-  defaultValue,
-  required = false,
-  maxLength,
-  errorText,
-  type = "text",
-  step,
-  onChange,
-  onBlur,
-  onFileChange,
-  ...props
-}) => {
+export const Input: React.FC<InputProps> = (props) => {
+  const {
+    value: controlled,
+    defaultValue,
+    required = false,
+    maxLength,
+    errorText,
+    type = "text",
+    step,
+    onChange,
+    onBlur,
+    onFileChange,
+    style,
+    id,
+    ...restProps
+  } = props;
   const styles = useStyles();
   const isFileInput = type === "file";
 
-  const [hookValue, hookHandleValueChange] = useValue(
-    controlled,
-    defaultValue || ""
-  );
+  const [hookValue, hookHandleValueChange] = useValue<
+    FormPrimitive | undefined
+  >(controlled as FormPrimitive | undefined, defaultValue ?? "");
   const [value, handleValueChange] = isFileInput
     ? [undefined, undefined]
     : [hookValue, hookHandleValueChange];
@@ -407,65 +454,41 @@ export const Input: React.FC<InputProps> = ({
     }
   );
 
-  const aria = getFormAria({ id: (props as any).id, required, errorText });
+  const aria = getFormAria({ id, required, errorText });
 
   // För filinmatning, använd nativt input-element
   if (isFileInput) {
     return (
       <input
-        {...props}
+        {...restProps}
         type="file"
         onChange={handleChange}
         onBlur={handleBlur}
         required={required}
         title={errorText}
         {...aria}
-        css={applyFullWidthStyles(styles, (props as any).style)}
+        id={id}
+        style={style}
+        css={applyFullWidthStyles(styles, style)}
       />
     );
   }
 
   // För andra inmatningstyper, använd TextInput med kontrollerat state
-  const validTextInputType = (
-    [
-      "text",
-      "email",
-      "select",
-      "file",
-      "date",
-      "datetime-local",
-      "month",
-      "search",
-      "tel",
-      "week",
-      "password",
-      "datetime",
-      "time",
-    ] as const
-  ).includes(type as any)
+  const textInputType: TextInputTypeName = isTextInputType(type)
     ? type
     : "text";
 
+  const textInputValue =
+    typeof value === "string" || typeof value === "number" ? value : "";
+
   return (
     <TextInput
-      {...props}
-      type={
-        validTextInputType as
-          | "text"
-          | "email"
-          | "select"
-          | "file"
-          | "date"
-          | "datetime-local"
-          | "month"
-          | "search"
-          | "tel"
-          | "week"
-          | "password"
-          | "datetime"
-          | "time"
-      }
-      value={value as string | number}
+      {...restProps}
+      id={id}
+      style={style}
+      type={textInputType}
+      value={textInputValue}
       step={step}
       onChange={handleChange}
       onBlur={handleBlur}
@@ -537,12 +560,13 @@ export const UrlInput: React.FC<{
   onChange?: (value: string) => void;
 }> = ({ value, defaultValue, placeholder, style, onChange }) => {
   const styles = useStyles();
+  const schemes: URIScheme[] = ["https"];
   return (
     <JimuUrlInput
       value={value}
       defaultValue={defaultValue}
       placeholder={placeholder}
-      schemes={["https"] as any}
+      schemes={schemes}
       onChange={(res) => {
         const raw = (res?.value || "").trim();
         const sanitized = raw;
@@ -1112,7 +1136,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         className={className}
         css={applyComponentStyles(
           [styles.alert, shouldWrapWithTooltip ? undefined : undefined],
-          style as any
+          style
         )}
       >
         {iconKey ? (

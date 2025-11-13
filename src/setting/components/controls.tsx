@@ -1,6 +1,6 @@
 /** @jsx jsx */
 /** @jsxFrag React.Fragment */
-import { css, hooks, jsx, React } from "jimu-core";
+import { css, hooks, jsx, React, type SerializedStyles } from "jimu-core";
 import { SettingRow } from "jimu-ui/advanced/setting-components";
 import { Loading, LoadingType, Switch } from "jimu-ui";
 import type {
@@ -40,14 +40,14 @@ export const toNumericValue = (value: string): number | undefined => {
 export const RequiredLabel: React.FC<{
   text: string;
   translate: TranslateFn;
-  requiredStyle: React.CSSProperties;
+  requiredStyle: SerializedStyles;
   requiredSymbol: string;
 }> = ({ text, translate, requiredStyle, requiredSymbol }) => (
   <>
     {text}
     <Tooltip content={translate("valRequiredField")} placement="top">
       <span
-        css={requiredStyle as any}
+        css={requiredStyle}
         aria-label={translate("ariaRequired")}
         role="img"
         aria-hidden={false}

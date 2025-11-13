@@ -49,7 +49,7 @@ export { useLatestAbortController } from "../hooks";
 
 // Skapar Redux dispatcher med widgetId
 export const createFmeDispatcher = (
-  dispatch: Dispatch<any>,
+  dispatch: Dispatch<unknown>,
   widgetId: string
 ) => ({
   setDrawingTool: (tool: DrawingTool) => {
@@ -64,8 +64,8 @@ export const createFmeDispatcher = (
   clearError: (scope: ErrorScope | "all") => {
     dispatch(fmeActions.clearError(scope, widgetId));
   },
-  setGeometry: (geometryJson: any, area: number) => {
-    dispatch(fmeActions.setGeometry(geometryJson, area, widgetId));
+  setGeometry: (geometry: __esri.Geometry | null, area: number | undefined) => {
+    dispatch(fmeActions.setGeometry(geometry, area, widgetId));
   },
   setWorkspaceItems: (items: readonly WorkspaceItem[]) => {
     dispatch(fmeActions.setWorkspaceItems(items, widgetId));
@@ -77,10 +77,12 @@ export const createFmeDispatcher = (
   }) => {
     dispatch(fmeActions.applyWorkspaceData(payload, widgetId));
   },
-  completeDrawing: (geometryJson: any, area: number, nextView: ViewMode) => {
-    dispatch(
-      fmeActions.completeDrawing(geometryJson, area, nextView, widgetId)
-    );
+  completeDrawing: (
+    geometry: __esri.Geometry,
+    area: number,
+    nextView: ViewMode
+  ) => {
+    dispatch(fmeActions.completeDrawing(geometry, area, nextView, widgetId));
   },
   clearWorkspaceState: () => {
     dispatch(fmeActions.clearWorkspaceState(widgetId));
@@ -94,7 +96,7 @@ export const createFmeDispatcher = (
   setLoadingFlag: (flag: LoadingFlagKey, loading: boolean) => {
     dispatch(fmeActions.setLoadingFlag(flag, loading, widgetId));
   },
-  setOrderResult: (result: ExportResult) => {
+  setOrderResult: (result: ExportResult | null) => {
     dispatch(fmeActions.setOrderResult(result, widgetId));
   },
   completeStartup: () => {

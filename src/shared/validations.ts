@@ -289,9 +289,10 @@ export function validateAndNormalizeUrl(
 
   const validation = validateServerUrl(trimmed, options);
   if (!validation.ok) {
+    const reason = "reason" in validation ? validation.reason : undefined;
     return {
       ok: false,
-      errorKey: mapServerUrlReasonToKey((validation as any).reason),
+      errorKey: mapServerUrlReasonToKey(reason),
     };
   }
 
@@ -441,9 +442,10 @@ export const extractHttpStatus = (error: unknown): number | undefined => {
     if (isHttpStatus(value)) return value;
   }
 
-  const details = obj.details as any;
+  const details = obj.details;
   if (details && typeof details === "object") {
-    const detailsStatus = details.httpStatus || details.status;
+    const detailsRecord = details as { httpStatus?: unknown; status?: unknown };
+    const detailsStatus = detailsRecord.httpStatus ?? detailsRecord.status;
     if (isHttpStatus(detailsStatus)) return detailsStatus;
   }
 
@@ -524,16 +526,18 @@ export function validateConnectionInputs(args: {
   ok: boolean;
   errors: { serverUrl?: string; token?: string; repository?: string };
 } {
-  const { url, token, repository, availableRepos } = args || ({} as any);
+  const { url, token, repository, availableRepos } = args;
 
   return buildValidationErrors([
     {
       field: "serverUrl",
       validator: () => {
         const result = validateServerUrl(url);
-        return result.ok
-          ? { ok: true }
-          : { ok: false, key: mapServerUrlReasonToKey((result as any).reason) };
+        if (result.ok) {
+          return { ok: true };
+        }
+        const reason = "reason" in result ? result.reason : undefined;
+        return { ok: false, key: mapServerUrlReasonToKey(reason) };
       },
     },
     {

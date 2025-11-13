@@ -3,6 +3,7 @@
 import {
   type AllWidgetProps,
   appActions,
+  type DataRecordSet,
   DataRecordSetChangeMessage,
   getAppStore,
   hooks,
@@ -12,6 +13,7 @@ import {
   React,
   ReactDOM,
   ReactRedux,
+  RecordSetChangeType,
   WidgetState,
 } from "jimu-core";
 import { type JimuMapView, JimuMapViewComponent } from "jimu-arcgis";
@@ -24,7 +26,6 @@ import type {
   EsriModules,
   ExportResult,
   FmeExportConfig,
-  FmeWidgetState,
   IMStateWithFmeExport,
   ModeNotice,
   SerializableErrorState,
@@ -91,6 +92,52 @@ import { renderSupportHint, StateView, useStyles } from "./components/ui";
 import { Workflow } from "./components/workflow";
 import defaultMessages from "./translations/default";
 
+type DrawingSymbolSet = ReturnType<typeof buildSymbols>["DRAWING_SYMBOLS"];
+
+type SketchViewModelInternals = __esri.SketchViewModel & {
+  viewModel?: {
+    graphic?: __esri.Graphic | null;
+    previewGraphic?: __esri.Graphic | null;
+    sketchGraphicsLayer?: __esri.GraphicsLayer | null;
+  };
+  _creating?: boolean;
+  state?: string;
+};
+
+const isPromiseLike = (value: unknown): value is Promise<unknown> => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+};
+
+const normalizeWidgetId = (
+  propsLike: Partial<{ id?: unknown; widgetId?: unknown }>
+): string => {
+  const idCandidate = propsLike.id;
+  if (typeof idCandidate === "string" && idCandidate) {
+    return idCandidate;
+  }
+  const widgetIdCandidate = propsLike.widgetId;
+  if (typeof widgetIdCandidate === "string" && widgetIdCandidate) {
+    return widgetIdCandidate;
+  }
+  return "";
+};
+
+const toFillSymbol = (
+  symbol: DrawingSymbolSet["polygon"]
+): __esri.SimpleFillSymbol => symbol as unknown as __esri.SimpleFillSymbol;
+
+const toLineSymbol = (
+  symbol: DrawingSymbolSet["polyline"]
+): __esri.SimpleLineSymbol => symbol as unknown as __esri.SimpleLineSymbol;
+
+const toPointSymbol = (
+  symbol: DrawingSymbolSet["point"]
+): __esri.SimpleMarkerSymbol => symbol as unknown as __esri.SimpleMarkerSymbol;
+
 /* Huvudkomponent för FME Export widget runtime */
 function WidgetContent(
   props: AllWidgetProps<FmeExportConfig>
@@ -104,8 +151,7 @@ function WidgetContent(
   } = props;
 
   /* Bestämmer unikt widget-ID för Redux state management */
-  const widgetId =
-    (id as unknown as string) ?? (widgetIdProp as unknown as string);
+  const widgetId = normalizeWidgetId({ id, widgetId: widgetIdProp });
 
   /* Skapar Redux-selektorer för detta widget */
   const selectors = createFmeSelectors(widgetId);
@@ -447,7 +493,7 @@ function WidgetContent(
     outlineWidth: config?.drawingOutlineWidth,
     fillOpacity: config?.drawingFillOpacity,
   };
-  const symbolsRef = React.useRef(
+  const symbolsRef = React.useRef<ReturnType<typeof buildSymbols>>(
     buildSymbols(hexToRgbArray(currentHex), drawingStyleOptions)
   );
 
@@ -1098,8 +1144,8 @@ function WidgetContent(
         // Bygger och publicerar meddelandet
         const message = new DataRecordSetChangeMessage(
           widgetId,
-          [jobRecord] as any, // Complex type, requires cast for jobRecord
-          []
+          RecordSetChangeType.CreateUpdate,
+          [jobRecord] as unknown as DataRecordSet[]
         );
 
         MessageManager.getInstance().publishMessage(message);
@@ -1229,9 +1275,9 @@ function WidgetContent(
       const layer = createLayers(jmv, modules, setGraphicsLayer);
       try {
         /* Lokaliserar ritnings-lagrets titel */
-        (layer as unknown as { [key: string]: any }).title =
-          translate("lblDrawLayer");
+        layer.title = translate("lblDrawLayer");
       } catch {}
+      const drawingSymbolParams = symbolsRef.current.DRAWING_SYMBOLS;
       const { sketchViewModel: svm, cleanup } = createSketchVM({
         jmv,
         modules,
@@ -1239,7 +1285,11 @@ function WidgetContent(
         onDrawComplete,
         dispatch,
         widgetId,
-        symbols: (symbolsRef.current as any)?.DRAWING_SYMBOLS,
+        symbols: {
+          polygon: toFillSymbol(drawingSymbolParams.polygon),
+          polyline: toLineSymbol(drawingSymbolParams.polyline),
+          point: toPointSymbol(drawingSymbolParams.point),
+        },
         onDrawingSessionChange: updateDrawingSession,
         onSketchToolStart: handleSketchToolStart,
       });
@@ -1271,58 +1321,71 @@ function WidgetContent(
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon";
 
-    try {
-      const maybePromise = (sketchViewModel as any).create?.(arg);
-      if (maybePromise && typeof maybePromise.catch === "function") {
-        maybePromise.catch((err: any) => {
-          logIfNotAbort("Sketch create promise error", err);
-        });
+    if (typeof sketchViewModel.create === "function") {
+      try {
+        const boundCreate: (mode: "rectangle" | "polygon") => unknown =
+          sketchViewModel.create.bind(sketchViewModel);
+        const createResult = boundCreate(arg);
+        if (isPromiseLike(createResult)) {
+          createResult.catch((err: unknown) => {
+            logIfNotAbort("Sketch create promise error", err);
+          });
+        }
+      } catch (err: unknown) {
+        logIfNotAbort("Sketch auto-start error", err);
       }
-    } catch (err: any) {
-      logIfNotAbort("Sketch auto-start error", err);
     }
   }, [shouldAutoStart, sketchViewModel, drawingTool]);
 
   /* Uppdaterar symboler när ritstil ändras */
   hooks.useUpdateEffect(() => {
-    const syms = (symbolsRef.current as any)?.DRAWING_SYMBOLS;
-    if (syms) {
-      if (sketchViewModel) {
-        try {
-          (sketchViewModel as any).polygonSymbol = syms.polygon;
-          (sketchViewModel as any).polylineSymbol = syms.polyline;
-          (sketchViewModel as any).pointSymbol = syms.point;
+    const drawingSymbols = symbolsRef.current.DRAWING_SYMBOLS;
+    const polygonSymbol = toFillSymbol(drawingSymbols.polygon);
+    const applyPolygonSymbol = (graphic: __esri.Graphic) => {
+      if (graphic.geometry?.type === "polygon") {
+        graphic.symbol = polygonSymbol;
+      }
+    };
 
-          const internalVm = (sketchViewModel as any).viewModel;
-          const updateSymbol = (graphic: any) => {
-            if (graphic && typeof graphic === "object") {
-              graphic.symbol = syms.polygon;
-            }
-          };
-          updateSymbol(internalVm?.graphic);
-          updateSymbol(internalVm?.previewGraphic);
-          const sketchLayer = internalVm?.sketchGraphicsLayer;
-          sketchLayer?.graphics?.forEach?.((graphic: any) => {
-            if (graphic?.geometry?.type === "polygon") {
-              graphic.symbol = syms.polygon;
-            }
+    if (sketchViewModel) {
+      try {
+        const vmInternals = sketchViewModel as SketchViewModelInternals;
+        const polylineSymbol = toLineSymbol(drawingSymbols.polyline);
+        const pointSymbol = toPointSymbol(drawingSymbols.point);
+        vmInternals.polygonSymbol = polygonSymbol;
+        vmInternals.polylineSymbol = polylineSymbol;
+        vmInternals.pointSymbol = pointSymbol;
+
+        const internalVm = vmInternals.viewModel;
+        const activeGraphic = internalVm?.graphic;
+        if (activeGraphic) {
+          applyPolygonSymbol(activeGraphic);
+        }
+        const previewGraphic = internalVm?.previewGraphic;
+        if (previewGraphic) {
+          applyPolygonSymbol(previewGraphic);
+        }
+
+        const sketchLayer = internalVm?.sketchGraphicsLayer;
+        if (sketchLayer?.graphics) {
+          sketchLayer.graphics.forEach((graphic: __esri.Graphic) => {
+            applyPolygonSymbol(graphic);
           });
-        } catch {}
-      }
-      if (graphicsLayer) {
-        try {
-          graphicsLayer.graphics.forEach((g: any) => {
-            if (g?.geometry?.type === "polygon") {
-              g.symbol = syms.polygon;
-            }
-          });
-        } catch {}
-      }
+        }
+      } catch {}
+    }
+
+    if (graphicsLayer?.graphics) {
+      try {
+        graphicsLayer.graphics.forEach((graphic: __esri.Graphic) => {
+          applyPolygonSymbol(graphic);
+        });
+      } catch {}
     }
   }, [
     sketchViewModel,
     graphicsLayer,
-    (config as any)?.drawingColor,
+    config?.drawingColor,
     config?.drawingOutlineWidth,
     config?.drawingFillOpacity,
   ]);
@@ -1406,8 +1469,10 @@ function WidgetContent(
 
     /* Avbryter endast om SketchViewModel är aktivt ritande */
     try {
-      const anyVm = sketchViewModel as any;
-      const isActive = Boolean(anyVm?.state === "active" || anyVm?._creating);
+      const vmInternals = sketchViewModel as SketchViewModelInternals;
+      const isActive = Boolean(
+        vmInternals?.state === "active" || vmInternals?._creating
+      );
 
       if (isActive) {
         safeCancelSketch(sketchViewModel);
@@ -1419,15 +1484,19 @@ function WidgetContent(
     const arg: "rectangle" | "polygon" =
       tool === DrawingTool.RECTANGLE ? "rectangle" : "polygon";
 
-    if (sketchViewModel?.create) {
+    const hasCreateFunction =
+      sketchViewModel && typeof sketchViewModel.create === "function";
+    if (hasCreateFunction) {
       try {
-        const maybePromise = (sketchViewModel as any).create(arg);
-        if (maybePromise && typeof maybePromise.catch === "function") {
-          maybePromise.catch((err: any) => {
+        const boundCreate: (mode: "rectangle" | "polygon") => unknown =
+          sketchViewModel.create.bind(sketchViewModel);
+        const createResult = boundCreate(arg);
+        if (isPromiseLike(createResult)) {
+          createResult.catch((err: unknown) => {
             logIfNotAbort("Sketch create promise error", err);
           });
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         /* Sväljer oskadliga AbortError från racing cancel/create */
 
         logIfNotAbort("Sketch create error", err);
@@ -1699,13 +1768,16 @@ function WidgetContent(
   /* Säkerhetskopierar config utan känsliga fält */
   let workflowConfig = config;
   if (config) {
-    const rest = { ...(config as any) };
-    delete rest.fme_server_token;
-    delete rest.fmw_server_token;
-    workflowConfig = {
-      ...rest,
+    const sanitizedConfig = {
+      ...config,
       fmeServerToken: config.fmeServerToken,
-    } as FmeExportConfig;
+    } as FmeExportConfig & {
+      fme_server_token?: string;
+      fmw_server_token?: string;
+    };
+    delete sanitizedConfig.fme_server_token;
+    delete sanitizedConfig.fmw_server_token;
+    workflowConfig = sanitizedConfig;
   }
 
   return (
@@ -1804,7 +1876,10 @@ export default function Widget(
   props: AllWidgetProps<FmeExportConfig>
 ): React.ReactElement {
   const resolveWidgetId = (): string =>
-    (props.id ?? (props as any).widgetId) as unknown as string;
+    normalizeWidgetId({
+      id: (props as { id?: unknown }).id,
+      widgetId: props.widgetId,
+    });
 
   hooks.useEffectOnce(() => {
     setupFmeDebugTools({
@@ -1830,15 +1905,18 @@ export default function Widget(
 }
 
 Reflect.set(
-  Widget as any,
+  Widget as unknown as object,
   "mapExtraStateProps",
-  (state: IMStateWithFmeExport, ownProps: AllWidgetProps<any>) => {
-    const globalState = state["fme-state"] as any;
-    const wid =
-      (ownProps?.id as unknown as string) || (ownProps as any)?.widgetId;
-    const sub = (globalState?.byId && wid && globalState.byId[wid]) as
-      | FmeWidgetState
-      | undefined;
+  (
+    state: IMStateWithFmeExport,
+    ownProps: Partial<AllWidgetProps<FmeExportConfig>>
+  ) => {
+    const globalState = state["fme-state"];
+    const wid = normalizeWidgetId({
+      id: (ownProps as { id?: unknown })?.id,
+      widgetId: ownProps?.widgetId,
+    });
+    const sub = wid ? globalState?.byId?.[wid] : undefined;
     return { state: sub || initialFmeState };
   }
 );

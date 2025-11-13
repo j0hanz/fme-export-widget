@@ -212,7 +212,7 @@ const renderDateTimeInput = (
     value={toDisplayString(value)}
     placeholder={placeholder}
     onChange={(newValue) => {
-      onChange(newValue);
+      onChange(newValue as FormPrimitive);
     }}
     disabled={disabled}
   />

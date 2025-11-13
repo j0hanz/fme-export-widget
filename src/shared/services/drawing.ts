@@ -15,6 +15,10 @@ import {
   validatePolygon,
 } from "../utils/geometry";
 
+type SketchViewModelWithCleanup = __esri.SketchViewModel & {
+  __fmeCleanup__?: () => void;
+};
+
 // Skapar GraphicsLayers för ritning och preview
 export function createLayers(
   jmv: JimuMapView,
@@ -143,7 +147,8 @@ export function setupSketchEventHandlers({
       updateHandle?.remove();
     } catch {}
     try {
-      (sketchViewModel as any).__fmeCleanup__ = undefined;
+      const cleanupCarrier = sketchViewModel as SketchViewModelWithCleanup;
+      cleanupCarrier.__fmeCleanup__ = undefined;
     } catch {}
   };
 }
@@ -312,8 +317,7 @@ export function createSketchVM({
     onDrawingSessionChange,
     onSketchToolStart,
   });
-  (
-    sketchViewModel as unknown as { __fmeCleanup__: () => void }
-  ).__fmeCleanup__ = cleanup;
+  const sketchWithCleanup = sketchViewModel as SketchViewModelWithCleanup;
+  sketchWithCleanup.__fmeCleanup__ = cleanup;
   return { sketchViewModel, cleanup };
 }

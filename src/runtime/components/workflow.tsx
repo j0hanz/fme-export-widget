@@ -26,6 +26,7 @@ import {
   type WorkflowProps,
   WORKSPACE_ITEM_TYPE,
   type WorkspaceItem,
+  type WorkspaceItemDetail,
   type WorkspaceParameter,
 } from "../../config/index";
 import {
@@ -91,6 +92,11 @@ const DRAWING_MODE_TABS = [
 
 // Tom konstant för workspace-listor
 const EMPTY_WORKSPACES: readonly WorkspaceItem[] = Object.freeze([]);
+
+interface WorkspaceItemQueryResult {
+  readonly item: WorkspaceItemDetail;
+  readonly parameters: WorkspaceParameter[];
+}
 
 // Standardvärden för laddningsstatus
 const DEFAULT_LOADING_STATE: LoadingState = Object.freeze({
@@ -1243,7 +1249,9 @@ export const Workflow: React.FC<WorkflowProps> = (props) => {
       return;
     }
 
-    const payload = workspaceItemQuery.data;
+    const payload = workspaceItemQuery.data as
+      | WorkspaceItemQueryResult
+      | undefined;
     if (!payload) {
       return;
     }

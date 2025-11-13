@@ -16,7 +16,7 @@ export const isNavigatorOffline = (): boolean => {
   if (typeof navigator === "undefined") return false;
 
   try {
-    const nav = (globalThis as any)?.navigator;
+    const nav = (globalThis as { navigator?: Navigator }).navigator;
     return Boolean(nav && !nav.onLine);
   } catch {
     return false;

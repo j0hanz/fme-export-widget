@@ -8,6 +8,47 @@ import { createFmeClient, extractErrorMessage } from "../utils";
 import { extractHttpStatus, validateServerUrl } from "../validations";
 import { inFlight } from "./inflight";
 
+interface JsonRecord {
+  [key: string]: unknown;
+}
+
+const asRecord = (value: unknown): JsonRecord | null => {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    return null;
+  }
+  return value as JsonRecord;
+};
+
+const getNestedValue = (
+  source: JsonRecord | null,
+  path: readonly string[]
+): unknown => {
+  let current: unknown = source;
+  for (const segment of path) {
+    if (typeof current !== "object" || current === null) {
+      return undefined;
+    }
+    current = (current as JsonRecord)[segment];
+  }
+  return current;
+};
+
+const getEnumerableValues = (value: unknown): readonly unknown[] => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value as JsonRecord);
+  }
+  if (typeof value === "string") {
+    return [value];
+  }
+  return [];
+};
+
 /* Network Error Detection */
 
 // Kontrollerar om felmeddelande indikerar nätverksfel
@@ -26,16 +67,22 @@ export const hasProxyError = (message: string): boolean =>
 export function extractFmeVersion(info: unknown): string {
   if (!info) return "";
 
-  const data = (info as { [key: string]: unknown })?.data ?? info;
+  const infoRecord = asRecord(info);
+  const dataCandidate = infoRecord?.data ?? info;
+  const dataRecord = asRecord(dataCandidate);
+
+  const statusValue = dataRecord?.status;
+  const versionValue = dataRecord?.version;
+  const buildValue = dataRecord?.build;
+
+  const hasStatusOk = typeof statusValue === "string" && statusValue === "ok";
+  const hasVersionInfo =
+    versionValue !== undefined && versionValue !== null && versionValue !== "";
+  const hasBuildInfo =
+    buildValue !== undefined && buildValue !== null && buildValue !== "";
 
   // V4 healthcheck doesn't return version info, so we return empty string
-  // Version info might be available in the message field for healthcheck
-  if (
-    (data as any)?.status === "ok" &&
-    !(data as any)?.version &&
-    !(data as any)?.build
-  ) {
-    // V4 healthcheck response - no version available
+  if (hasStatusOk && !hasVersionInfo && !hasBuildInfo) {
     return "";
   }
 
@@ -59,8 +106,10 @@ export function extractFmeVersion(info: unknown): string {
 
   for (const key of directKeys) {
     const value = key.includes(".")
-      ? key.split(".").reduce((obj, k) => obj?.[k], data)
-      : data?.[key];
+      ? getNestedValue(dataRecord, key.split("."))
+      : dataRecord
+        ? dataRecord[key]
+        : undefined;
 
     if (typeof value === "string") {
       const fmeMatch = value.match(fmePattern);
@@ -77,7 +126,7 @@ export function extractFmeVersion(info: unknown): string {
 
   // Fallback: sök alla värden
   try {
-    const allValues = Object.values(data || {});
+    const allValues = getEnumerableValues(dataCandidate);
     for (const val of allValues) {
       if (typeof val === "string") {
         const fmeMatch = val.match(fmePattern);
@@ -86,6 +135,13 @@ export function extractFmeVersion(info: unknown): string {
         const match = val.match(versionPattern);
         if (match) return match[1];
       }
+    }
+    if (typeof dataCandidate === "string") {
+      const fmeMatch = dataCandidate.match(fmePattern);
+      if (fmeMatch) return fmeMatch[1];
+
+      const match = dataCandidate.match(versionPattern);
+      if (match) return match[1];
     }
   } catch {
     // Ignore

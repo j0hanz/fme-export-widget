@@ -4,7 +4,6 @@ import { jsx, React } from "jimu-core";
 import type {
   DetermineServiceModeOptions,
   EsriModules,
-  FmeResponse,
   ForceAsyncResult,
   PrimitiveParams,
   WebhookArtifacts,
@@ -43,6 +42,34 @@ import {
 import { formatByteSize, maskEmailForDisplay } from "./format";
 import { attachAoi, collectGeometryParamNames } from "./geometry";
 import { buildParams, buildUrl, safeParseUrl } from "./network";
+
+interface Dictionary {
+  [key: string]: unknown;
+}
+
+interface ImmutableLikeConfig extends Dictionary {
+  set: (key: string, value: unknown) => unknown;
+}
+
+const toDictionary = (value: unknown): Dictionary | null => {
+  if (typeof value !== "object" || value === null) return null;
+  if (Array.isArray(value)) return null;
+  return value as Dictionary;
+};
+
+const extractFormData = (formData: unknown): Dictionary => {
+  const container = toDictionary(formData);
+  const dataValue = container?.data;
+  return toDictionary(dataValue) ?? {};
+};
+
+const hasImmutableSet = (
+  candidate: unknown
+): candidate is ImmutableLikeConfig =>
+  typeof candidate === "object" &&
+  candidate !== null &&
+  !Array.isArray(candidate) &&
+  typeof (candidate as { set?: unknown }).set === "function";
 
 // Bygger ViewState för att visa resultatet av ett FME-exportjobb
 export const buildOrderResultView = (
@@ -378,11 +405,9 @@ export const normalizeServiceModeConfig = (
   }
 
   const cloned = { ...config, syncMode: normalized };
-  if (
-    typeof (config as unknown as { [key: string]: unknown }).set === "function"
-  ) {
+  if (hasImmutableSet(config)) {
     Object.defineProperty(cloned, "set", {
-      value: (config as unknown as { [key: string]: unknown }).set,
+      value: config.set,
       writable: true,
       configurable: true,
     });
@@ -395,9 +420,11 @@ export const determineServiceMode = (
   config?: FmeExportConfig,
   options?: DetermineServiceModeOptions
 ): ServiceMode => {
-  const data = (formData as any)?.data || {};
-
-  const override = toNonEmptyTrimmedString(data._serviceMode).toLowerCase();
+  const data = extractFormData(formData);
+  const overrideValue = data._serviceMode;
+  const override = toNonEmptyTrimmedString(
+    typeof overrideValue === "string" ? overrideValue : ""
+  ).toLowerCase();
 
   let resolved: ServiceMode;
   if (override === "sync" || override === "async") {
@@ -411,7 +438,10 @@ export const determineServiceMode = (
     areaWarning: options?.areaWarning,
     drawnArea: options?.drawnArea,
     formData,
-    userEmail: (data.opt_requesteremail as string) || "",
+    userEmail:
+      typeof data.opt_requesteremail === "string"
+        ? data.opt_requesteremail
+        : "",
   });
 
   if (forceInfo && resolved === "sync") {
@@ -435,7 +465,7 @@ export const buildFmeParams = (
   serviceMode: ServiceMode = "async",
   config?: FmeExportConfig | null
 ): { [key: string]: unknown } => {
-  const data = (formData as { data?: { [key: string]: unknown } })?.data || {};
+  const data = extractFormData(formData);
   const mode = ALLOWED_SERVICE_MODES.includes(serviceMode)
     ? serviceMode
     : "async";
@@ -470,7 +500,7 @@ export const applyDirectiveDefaults = (
   };
 
   const rawMode = (() => {
-    const candidate = (params as { opt_servicemode?: unknown }).opt_servicemode;
+    const candidate = params.opt_servicemode;
     if (typeof candidate === "string") return candidate;
     const cloned = out.opt_servicemode;
     return typeof cloned === "string" ? cloned : "";
@@ -654,10 +684,10 @@ export const processFmeResponse = (
   userEmail: string,
   translateFn: TranslateFn
 ): ExportResult => {
-  const response = fmeResponse as { [key: string]: unknown };
-  const data = response?.data;
+  const responseRecord = toDictionary(fmeResponse);
+  const dataValue = responseRecord?.data;
 
-  if (!data) {
+  if (!dataValue) {
     return {
       success: false,
       message: translateFn("noDataInResponse"),
@@ -665,11 +695,14 @@ export const processFmeResponse = (
     };
   }
 
-  if ((data as any).blob instanceof Blob) {
-    return createFmeResponse.blob((data as any).blob, workspace, userEmail);
+  const dataRecord = toDictionary(dataValue);
+  const blobCandidate = dataRecord?.blob;
+
+  if (blobCandidate instanceof Blob) {
+    return createFmeResponse.blob(blobCandidate, workspace, userEmail);
   }
 
-  const serviceInfo = normalizeFmeServiceInfo(response as FmeResponse);
+  const serviceInfo = normalizeFmeServiceInfo(fmeResponse);
   const normalizedStatus = (serviceInfo.status || "")
     .toString()
     .trim()

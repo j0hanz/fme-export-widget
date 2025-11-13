@@ -58,6 +58,19 @@ const extractGeometryOperators = (
   return isGeometryOperatorContainer(operators) ? operators : null;
 };
 
+const isWorkspaceItemDetail = (
+  value: unknown
+): value is WorkspaceItemDetail => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  return typeof (value as { name?: unknown }).name === "string";
+};
+
+const isWorkspaceParameterArray = (
+  value: unknown
+): value is WorkspaceParameter[] => Array.isArray(value);
+
 /* ArcGIS Resource Utilities */
 
 // Kör operation säkert på resurs, ignorerar fel
@@ -260,7 +273,19 @@ export const useEsriModules = (
           Polyline,
           Polygon,
           Graphic,
-        ] = loaded;
+        ] = loaded as [
+          EsriModules["SketchViewModel"],
+          EsriModules["GraphicsLayer"],
+          EsriModules["geometryEngine"],
+          EsriModules["geometryEngineAsync"],
+          EsriModules["webMercatorUtils"],
+          EsriModules["projection"],
+          EsriModules["SpatialReference"],
+          EsriModules["normalizeUtils"],
+          EsriModules["Polyline"],
+          EsriModules["Polygon"],
+          EsriModules["Graphic"],
+        ];
 
         // Ladda projection-modul om det har load-metod
         try {
@@ -940,15 +965,21 @@ export function useWorkspaceItem(
           : new Error(String(itemResult.reason));
       }
 
-      // Extrahera parametrar om hämtning lyckades
-      const parameters =
+      let parameters: WorkspaceParameter[] = [];
+      if (
         paramsResult.status === "fulfilled" &&
-        Array.isArray(paramsResult.value?.data)
-          ? paramsResult.value.data
-          : [];
+        isWorkspaceParameterArray(paramsResult.value?.data)
+      ) {
+        parameters = paramsResult.value.data;
+      }
+
+      const itemValue = itemResult.value?.data;
+      if (!isWorkspaceItemDetail(itemValue)) {
+        throw new Error("Workspace item missing data");
+      }
 
       return {
-        item: itemResult.value.data,
+        item: itemValue,
         parameters,
       };
     },

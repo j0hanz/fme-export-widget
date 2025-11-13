@@ -96,7 +96,10 @@ export class VisibilityEvaluator {
   private evaluateClause(
     clause: DynamicPropertyClause<VisibilityState>
   ): EvaluationResult {
-    const conditionKeys = Object.keys(clause).filter((key) =>
+    const clauseRecord = isPlainObject(clause)
+      ? (clause as { [key: string]: unknown })
+      : {};
+    const conditionKeys = Object.keys(clauseRecord).filter((key) =>
       key.startsWith("$")
     );
 
@@ -107,7 +110,7 @@ export class VisibilityEvaluator {
     let hasUnknown = false;
 
     for (const key of conditionKeys) {
-      const outcome = this.evaluateCondition(key, (clause as any)[key]);
+      const outcome = this.evaluateCondition(key, clauseRecord[key]);
       if (outcome === false) {
         return false;
       }
@@ -299,11 +302,14 @@ export class VisibilityEvaluator {
     for (const condition of operand) {
       if (!isPlainObject(condition)) return false;
 
-      const keys = Object.keys(condition).filter((key) => key.startsWith("$"));
+      const conditionRecord = condition as { [key: string]: unknown };
+      const keys = Object.keys(conditionRecord).filter((key) =>
+        key.startsWith("$")
+      );
       if (!keys.length) continue;
 
       for (const key of keys) {
-        const result = this.evaluateCondition(key, (condition as any)[key]);
+        const result = this.evaluateCondition(key, conditionRecord[key]);
         if (result === false) {
           return false;
         }
@@ -327,14 +333,17 @@ export class VisibilityEvaluator {
         continue;
       }
 
-      const keys = Object.keys(condition).filter((key) => key.startsWith("$"));
+      const conditionRecord = condition as { [key: string]: unknown };
+      const keys = Object.keys(conditionRecord).filter((key) =>
+        key.startsWith("$")
+      );
       if (!keys.length) {
         logWarn("Invalid condition in $anyOf (no operators)", condition);
         continue;
       }
 
       for (const key of keys) {
-        const result = this.evaluateCondition(key, (condition as any)[key]);
+        const result = this.evaluateCondition(key, conditionRecord[key]);
         if (result === true) {
           return true;
         }
@@ -350,10 +359,13 @@ export class VisibilityEvaluator {
   private evaluateNot(operand: unknown): EvaluationResult {
     if (!isPlainObject(operand)) return false;
 
-    const keys = Object.keys(operand).filter((key) => key.startsWith("$"));
+    const operandRecord = operand as { [key: string]: unknown };
+    const keys = Object.keys(operandRecord).filter((key) =>
+      key.startsWith("$")
+    );
     if (!keys.length) return false;
 
-    const result = this.evaluateCondition(keys[0], (operand as any)[keys[0]]);
+    const result = this.evaluateCondition(keys[0], operandRecord[keys[0]]);
     if (result === "unknown") {
       return "unknown";
     }

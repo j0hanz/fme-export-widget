@@ -312,12 +312,11 @@ const projectToWgs84 = (
   const { projection, SpatialReference } = modules;
   if (!projection?.project || !SpatialReference) return null;
 
-  const SpatialRefCtor = SpatialReference as any;
   const target =
-    SpatialRefCtor.WGS84 ||
-    (typeof SpatialRefCtor === "function"
-      ? new SpatialRefCtor({ wkid: 4326 })
-      : { wkid: 4326 });
+    SpatialReference.WGS84 ??
+    (typeof SpatialReference.fromJSON === "function"
+      ? SpatialReference.fromJSON({ wkid: 4326 })
+      : new SpatialReference({ wkid: 4326 }));
 
   const projected = projection.project(poly, target);
   if (Array.isArray(projected)) {
@@ -398,8 +397,10 @@ const extractPolygonJson = (
   currentGeometry: __esri.Geometry | undefined
 ): unknown => {
   if (isPolygonGeometry(geometryJson)) {
-    const asAny = geometryJson as any;
-    return "geometry" in asAny ? asAny.geometry : geometryJson;
+    if ("geometry" in geometryJson) {
+      return geometryJson.geometry;
+    }
+    return geometryJson;
   }
 
   const fallback = currentGeometry?.toJSON();
@@ -464,21 +465,26 @@ export const makeGeoJson = (polygon: __esri.Polygon) => {
 
   try {
     const polyJson =
-      typeof (polygon as any)?.toJSON === "function"
-        ? (polygon as any).toJSON()
-        : { rings: (polygon as any)?.rings };
+      typeof polygon.toJSON === "function"
+        ? polygon.toJSON()
+        : {
+            rings: Array.isArray((polygon as { rings?: unknown }).rings)
+              ? (polygon as { rings?: Ring[] }).rings
+              : undefined,
+          };
     const geo = polygonJsonToGeoJson(polyJson);
     if (geo) return geo;
   } catch (error) {
     void error;
   }
 
-  const rings = Array.isArray((polygon as any)?.rings)
-    ? (polygon as any).rings
+  const polygonRings = (polygon as { rings?: unknown }).rings;
+  const rings: readonly unknown[] = Array.isArray(polygonRings)
+    ? polygonRings
     : [];
 
   const normalized: number[][][] = rings
-    .map((ring: any) => normalizeRing(ring))
+    .map((ring) => normalizeRing(ring))
     .filter((ring) => ring.length >= 4);
 
   if (!normalized.length) {
@@ -862,7 +868,12 @@ const coerceAreaOperator = (
 ):
   | ((geometry: __esri.Geometry, unit?: string) => number | Promise<number>)
   | null => {
-  return typeof candidate === "function" ? (candidate as any) : null;
+  return typeof candidate === "function"
+    ? (candidate as (
+        geometry: __esri.Geometry,
+        unit?: string
+      ) => number | Promise<number>)
+    : null;
 };
 
 // Väljer geodesic/planar operator från operators record
@@ -874,7 +885,10 @@ const pickGeometryOperator = (
   | null => {
   if (!operators) return null;
   if (typeof operators === "function") {
-    return operators as any;
+    return operators as (
+      geometry: __esri.Geometry,
+      unit?: string
+    ) => number | Promise<number>;
   }
 
   if (typeof operators !== "object") {
@@ -913,10 +927,10 @@ const createAreaStrategies = (
   if (operatorFn) {
     strategies.push(async () => {
       try {
-        const args =
-          operatorFn.length >= 2 ? [polygon, "square-meters"] : [polygon];
-        const callable = operatorFn as (...fnArgs: any[]) => unknown;
-        const result = callable(...args);
+        const usesUnits = operatorFn.length >= 2;
+        const result = usesUnits
+          ? operatorFn(polygon, "square-meters")
+          : operatorFn(polygon);
         const area = isPromiseLike(result) ? await result : result;
         if (typeof area === "number" && Math.abs(area) > 0) {
           return Math.abs(area);

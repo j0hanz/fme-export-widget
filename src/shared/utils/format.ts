@@ -1,4 +1,6 @@
+import type { ReactNode } from "react";
 import { css } from "jimu-core";
+import type { CSSObject } from "@emotion/react";
 import type {
   AreaDisplay,
   ColorFieldConfig,
@@ -176,7 +178,7 @@ export const stripErrorLabel = (input?: string): string => {
 };
 
 export const styleCss = (style?: React.CSSProperties) =>
-  style ? css(style as any) : undefined;
+  style ? css(style as CSSObject) : undefined;
 
 export const pad2 = (n: number): string => String(n).padStart(2, "0");
 
@@ -784,9 +786,10 @@ export function formatArea(
   const display = resolveAreaForSpatialReference(safeArea, spatialReference);
 
   const formatNumber = (value: number, decimals: number): string => {
-    const intlModule = (modules as unknown as { [key: string]: unknown })?.intl;
-    if (intlModule && typeof (intlModule as any).formatNumber === "function") {
-      const result = (intlModule as any).formatNumber(value, {
+    const intlModule = modules.intl;
+    const formatNumberFn = intlModule?.formatNumber;
+    if (typeof formatNumberFn === "function") {
+      const result = formatNumberFn(value, {
         style: "decimal",
         minimumFractionDigits: 0,
         maximumFractionDigits: decimals,
@@ -828,7 +831,7 @@ export const ariaDesc = (id?: string, suffix = "error"): string | undefined =>
   id ? `${id}-${suffix}` : undefined;
 
 export const getBtnAria = (
-  text?: any,
+  text?: ReactNode,
   icon?: string | boolean,
   jimuAriaLabel?: string,
   tooltip?: string,

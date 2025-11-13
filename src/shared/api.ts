@@ -935,7 +935,7 @@ interface EsriResponseLike<T = unknown> {
   readonly status?: number;
   readonly statusText?: string;
   readonly httpStatus?: number;
-  readonly headers?: { get(name: string): string | null } | null;
+  readonly headers?: { readonly get: (name: string) => string | null } | null;
   readonly json?: unknown;
   readonly text?: unknown;
 }
@@ -944,11 +944,12 @@ type EsriRequestResponse<T = unknown> = EsriResponseLike<T> & {
   readonly data: T;
 };
 
-interface EsriRequestOptions extends Record<string, unknown> {
+interface EsriRequestOptions {
+  [key: string]: unknown;
   method: string;
   query?: PrimitiveParams;
   responseType?: string;
-  headers?: Record<string, string>;
+  headers?: { [key: string]: string };
   signal?: AbortSignal;
   timeout?: number;
   cacheHint?: boolean;
@@ -1034,7 +1035,7 @@ type EsriMockAssignments = {
   [K in EsriMockKey]: (value: unknown) => void;
 };
 
-type EsriMockSource = Record<string, unknown> | null | undefined;
+type EsriMockSource = { [key: string]: unknown } | null | undefined;
 
 const applyGlobalEsriMocks = (source: EsriMockSource): void => {
   if (!source) return;
@@ -1088,9 +1089,9 @@ const areEsriModulesLoaded = (): boolean =>
   );
 
 // Kontrollerar om globala Esri-mocks finns (testläge)
-const getGlobalMockSource = (): Record<string, unknown> | null => {
+const getGlobalMockSource = (): { [key: string]: unknown } | null => {
   try {
-    const scope = globalThis as Record<string, unknown>;
+    const scope = globalThis as { [key: string]: unknown };
     return ESRI_GLOBAL_MOCK_KEYS.some((key) => key in scope) ? scope : null;
   } catch {
     return null;
@@ -1160,7 +1161,7 @@ async function getEsriConfig(): Promise<EsriRequestConfig | null> {
 
 // Tar bort matchande interceptors baserat på regex-pattern
 interface EsriInterceptorRequestOptions {
-  headers?: Record<string, string>;
+  headers?: { [key: string]: string };
   query?: PrimitiveParams;
   [key: string]: unknown;
 }
@@ -1179,13 +1180,13 @@ interface EsriRequestInterceptor {
   [key: string]: unknown;
 }
 
-type EsriInterceptorList = Array<unknown> | undefined;
+type EsriInterceptorList = unknown[] | undefined;
 
 const isEsriRequestInterceptor = (
   candidate: unknown
 ): candidate is EsriRequestInterceptor => {
   if (!isUnknownValueMap(candidate)) return false;
-  const record = candidate as Record<string, unknown>;
+  const record = candidate as { [key: string]: unknown };
 
   const { before, error: errorHandler } = record;
   if (before !== undefined && typeof before !== "function") return false;
@@ -1234,10 +1235,13 @@ const isObjectType = (v: unknown): v is object =>
 const asEsriRequest = (
   v: unknown
 ):
-  | ((url: string, options: Record<string, unknown>) => Promise<unknown>)
+  | ((url: string, options: { [key: string]: unknown }) => Promise<unknown>)
   | null =>
   typeof v === "function"
-    ? (v as (url: string, options: Record<string, unknown>) => Promise<unknown>)
+    ? (v as (
+        url: string,
+        options: { [key: string]: unknown }
+      ) => Promise<unknown>)
     : null;
 
 // Type guard för esriConfig-objekt
@@ -1779,7 +1783,7 @@ export class FmeFlowApiClient {
           this.basePath.slice(1),
           "repositories"
         );
-        const raw = await this.request<unknown>(listEndpoint, {
+        const raw = await this.request(listEndpoint, {
           signal,
           cacheHint: false, // Undvik cache över tokens
           query: { limit: NETWORK_CONFIG.API_QUERY_LIMIT, offset: 0 },
@@ -1814,7 +1818,7 @@ export class FmeFlowApiClient {
       "parameters",
       parameter
     );
-    const response = await this.request<unknown>(endpoint, {
+    const response = await this.request(endpoint, {
       signal,
       cacheHint: false, // Avaktivera cache
       repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -1838,7 +1842,7 @@ export class FmeFlowApiClient {
     const endpoint = this.workspaceEndpoint(repo, workspace, "parameters");
     return this.withApiError(
       async () => {
-        const response = await this.request<unknown>(endpoint, {
+        const response = await this.request(endpoint, {
           signal,
           cacheHint: false, // Avaktivera cache
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -1896,13 +1900,13 @@ export class FmeFlowApiClient {
     workspace: string,
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse<unknown>> {
+  ): Promise<ApiResponse> {
     const repo = this.resolveRepository(repository);
     // V4 API: Use /workspaces/{repo}/{workspace}
     const endpoint = this.workspaceEndpoint(repo, workspace);
     return this.withApiError(
       () =>
-        this.request<unknown>(endpoint, {
+        this.request(endpoint, {
           signal,
           cacheHint: false, // Undvik cross-repo/token-kontaminering
           repositoryContext: repo, // Lägg till repo-kontext för cache-scoping
@@ -2111,11 +2115,8 @@ export class FmeFlowApiClient {
   ): Promise<ApiResponse> {
     const resolveStatus = (value: Response | EsriResponseLike): number => {
       if (typeof value.status === "number") return value.status;
-      if (
-        "httpStatus" in value &&
-        typeof (value as EsriResponseLike).httpStatus === "number"
-      ) {
-        return (value as EsriResponseLike).httpStatus ?? 0;
+      if ("httpStatus" in value && typeof value.httpStatus === "number") {
+        return value.httpStatus ?? 0;
       }
       return 0;
     };
@@ -2134,7 +2135,9 @@ export class FmeFlowApiClient {
         "get" in response.headers &&
         typeof response.headers.get === "function"
       ) {
-        return response.headers as { get(name: string): string | null };
+        return response.headers as {
+          get: (name: string) => string | null;
+        };
       }
       return undefined;
     })();
@@ -2143,10 +2146,21 @@ export class FmeFlowApiClient {
 
     const parseJsonText = async (textSource: unknown): Promise<unknown> => {
       try {
-        const text =
-          typeof textSource === "function"
-            ? await (textSource as () => Promise<string>)()
-            : String(textSource ?? "");
+        let text = "";
+        if (typeof textSource === "function") {
+          text = await (textSource as () => Promise<string>)();
+        } else if (typeof textSource === "string") {
+          text = textSource;
+        } else if (
+          typeof textSource === "number" ||
+          typeof textSource === "boolean"
+        ) {
+          text = String(textSource);
+        } else if (textSource == null) {
+          text = "";
+        } else {
+          throw new Error("Unsupported text source type");
+        }
         return text ? JSON.parse(text) : {};
       } catch (error) {
         throw makeError("WEBHOOK_NON_JSON", status, error);
@@ -2246,7 +2260,7 @@ export class FmeFlowApiClient {
         : normalizedEndpoint
           ? buildUrl(this.config.serverUrl, ...baseSegments, normalizedEndpoint)
           : buildUrl(this.config.serverUrl, ...baseSegments);
-    const headers: Record<string, string> = {
+    const headers: { [key: string]: string } = {
       ...(options.headers || {}),
     };
     const query: PrimitiveParams = { ...(options.query || {}) };

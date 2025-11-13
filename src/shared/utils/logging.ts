@@ -18,9 +18,11 @@ const loadLoggingModule = (): Promise<LoggingModule> => {
   return loggingModulePromise;
 };
 
+type LoggingFunction = (...params: unknown[]) => void;
+
 const invokeConditional = (
-  accessor: (mod: LoggingModule) => ((...args: any[]) => void) | undefined,
-  args: readonly any[]
+  accessor: (mod: LoggingModule) => LoggingFunction | undefined,
+  args: unknown[]
 ): void => {
   void loadLoggingModule()
     .then((mod) => {
@@ -32,10 +34,10 @@ const invokeConditional = (
     .catch(() => undefined);
 };
 
-export const logDebug = (...args: any[]): void => {
+export const logDebug = (...args: unknown[]): void => {
   invokeConditional((mod) => mod.conditionalLog, args);
 };
 
-export const logWarn = (...args: any[]): void => {
+export const logWarn = (...args: unknown[]): void => {
   invokeConditional((mod) => mod.conditionalWarn, args);
 };
