@@ -1,5 +1,4 @@
-import type React from "react";
-import type { ImmutableObject, IMState } from "jimu-core";
+import type { React, ImmutableObject, IMState } from "jimu-core";
 import type { fmeActions } from "../extensions/store";
 import type FmeFlowApiClient from "../shared/api";
 import type {
