@@ -682,7 +682,7 @@ export const useSettingStyles = <TStyles>(
     themeHookRef.current = resolveUseThemeHook();
   }
 
-  React.useEffect(() => {
+  hooks.useEffectOnce(() => {
     if (themeHookRef.current === useFallbackTheme) {
       loadUseThemeHook().then((hook) => {
         if (hook !== themeHookRef.current) {
@@ -691,7 +691,7 @@ export const useSettingStyles = <TStyles>(
         }
       });
     }
-  }, []);
+  });
 
   const activeHook = themeHookRef.current ?? useFallbackTheme;
   const theme = activeHook();

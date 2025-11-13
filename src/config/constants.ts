@@ -1,6 +1,10 @@
 import { FmeActionType, FormFieldType, ParameterType, ViewMode } from "./enums";
 import type { ServiceMode, UnitConversion } from "./types";
 
+// =============================================================================
+// REDUX ACTIONS
+// =============================================================================
+
 export const FME_ACTION_TYPES = Object.freeze([
   FmeActionType.SET_VIEW_MODE,
   FmeActionType.RESET_STATE,
@@ -23,71 +27,9 @@ export const FME_ACTION_TYPES = Object.freeze([
   FmeActionType.APPLY_WORKSPACE_DATA,
 ] as const);
 
-export const LAYER_CONFIG = Object.freeze({
-  title: "",
-  listMode: "hide",
-  elevationInfo: { mode: "on-the-ground" },
-});
-
-export const DEFAULT_DRAWING_HEX = "#0079C1";
-export const DEFAULT_OUTLINE_WIDTH = 2; // Slightly thicker for better visibility on maps
-export const DEFAULT_FILL_OPACITY = 0.25; // Increased from 0.2 (20%) to 0.25 (25%) for better area distinction
-
-export const UPLOAD_PARAM_TYPES = Object.freeze([
-  "FILENAME",
-  "FILENAME_MUSTEXIST",
-  "DIRNAME",
-  "DIRNAME_MUSTEXIST",
-  "DIRNAME_SRC",
-  "LOOKUP_FILE",
-  "REPROJECTION_FILE",
-] as const);
-
-export const FME_FLOW_API = Object.freeze({
-  BASE_PATH: "/fmeapiv4",
-  MAX_URL_LENGTH: 4000,
-  WEBHOOK_EXCLUDE_KEYS: [] as const,
-  WEBHOOK_LOG_WHITELIST: Object.freeze([
-    "opt_responseformat",
-    "opt_showresult",
-    "opt_servicemode",
-  ] as const),
-});
-
-export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 200; // Increased from 160 - allows more descriptive messages
-
-export const VALIDATION_LIMITS = Object.freeze({
-  MAX_TEXT_LENGTH: 5000, // Reduced from 10000 - reasonable limit, prevents performance issues
-  IPV4_OCTET_MAX: 255,
-  IPV4_OCTET_MIN: 0,
-  MAX_GEOMETRY_VERTICES: 5000, // Reduced from 10000 - improves rendering performance on complex polygons
-  SLIDER_DEFAULT_MAX: 100,
-  RGB_MAX: 255,
-  RGB_MIN: 0,
-} as const);
-
-export const SETTING_CONSTANTS = Object.freeze({
-  VALIDATION: {
-    DEFAULT_TTL_VALUE: "",
-    DEFAULT_TTC_VALUE: "",
-  },
-  LIMITS: {
-    MAX_M2_CAP: 10_000_000_000,
-    MAX_REQUEST_TIMEOUT_MS: 600_000,
-  },
-  DIRECTIVES: {
-    DESCRIPTION_MAX: 512,
-    TAG_MAX: 128,
-  },
-  COLORS: {
-    BACKGROUND_DARK: "#181818",
-  },
-  TEXT: {
-    LARGE_AREA_MESSAGE_MAX: LARGE_AREA_MESSAGE_CHAR_LIMIT,
-  },
-});
-
-export const FAST_TM_TAG = "fast";
+// =============================================================================
+// VIEW & ROUTING
+// =============================================================================
 
 export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
   [ViewMode.STARTUP_VALIDATION]: ViewMode.STARTUP_VALIDATION,
@@ -98,6 +40,18 @@ export const VIEW_ROUTES: { readonly [key in ViewMode]: ViewMode } = {
   [ViewMode.DRAWING]: ViewMode.INITIAL,
   [ViewMode.INITIAL]: ViewMode.INITIAL,
 };
+
+export const DEFAULT_LOADING_STATE = Object.freeze({
+  modules: false,
+  submission: false,
+  workspaces: false,
+  parameters: false,
+  geometryValidation: false,
+} as const);
+
+// =============================================================================
+// ARCGIS & ESRI
+// =============================================================================
 
 export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/widgets/Sketch/SketchViewModel",
@@ -113,48 +67,120 @@ export const ESRI_MODULES_TO_LOAD = Object.freeze([
   "esri/Graphic",
 ] as const);
 
-export const WORKSPACE_ITEM_TYPE = "workspace";
+export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
+  "esriRequest",
+  "esriConfig",
+  "projection",
+  "webMercatorUtils",
+  "SpatialReference",
+] as const);
 
-export const PREFETCH_CONFIG = Object.freeze({
-  DEFAULT_CHUNK_SIZE: 5, // Reduced from 10 - faster initial response, better perceived performance
-  MIN_CHUNK_SIZE: 1,
-  MAX_CHUNK_SIZE: 15, // Reduced from 25 - prevents overwhelming the browser/network
+export const ESRI_MOCK_FALLBACKS = Object.freeze({
+  esriRequest: null,
+  esriConfig: {},
+  projection: null,
+  webMercatorUtils: null,
+  SpatialReference: null,
 } as const);
 
-export const ERROR_NAMES = Object.freeze({
-  CANCELLED_PROMISE: "CancelledPromiseError",
-  ABORT: "AbortError",
+export const LAYER_CONFIG = Object.freeze({
+  title: "",
+  listMode: "hide",
+  elevationInfo: { mode: "on-the-ground" },
 });
 
-export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
-export const NO_REPLY_REGEX = /no-?reply/i;
-export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i;
+// =============================================================================
+// DRAWING & GEOMETRY
+// =============================================================================
 
-export const FORBIDDEN_HOSTNAME_SUFFIXES = Object.freeze([
-  "localhost",
-  ".localhost",
-  ".local",
-  ".internal",
-  ".intranet",
-  ".home",
-  ".lan",
-  ".localdomain",
+export const DEFAULT_DRAWING_HEX = "#0079C1";
+export const DEFAULT_OUTLINE_WIDTH = 2;
+export const DEFAULT_FILL_OPACITY = 0.25;
+
+export const DRAWING_MODE_TABS = Object.freeze([
+  {
+    value: "POLYGON" as const,
+    label: "optPolygon",
+    icon: "polygon.svg",
+    tooltip: "tipDrawPolygon",
+    hideLabel: true,
+  },
+  {
+    value: "RECTANGLE" as const,
+    label: "optRectangle",
+    icon: "rectangle.svg",
+    tooltip: "tipDrawRectangle",
+    hideLabel: true,
+  },
 ] as const);
 
-export const PRIVATE_IPV4_RANGES = Object.freeze([
-  { start: [10, 0, 0, 0], end: [10, 255, 255, 255] },
-  { start: [100, 64, 0, 0], end: [100, 127, 255, 255] },
-  { start: [127, 0, 0, 0], end: [127, 255, 255, 255] },
-  { start: [169, 254, 0, 0], end: [169, 254, 255, 255] },
-  { start: [172, 16, 0, 0], end: [172, 31, 255, 255] },
-  { start: [192, 168, 0, 0], end: [192, 168, 255, 255] },
-  { start: [0, 0, 0, 0], end: [0, 255, 255, 255] },
+export const WKID = Object.freeze({
+  WGS84: 4326,
+  WEB_MERCATOR: 3857,
+});
+
+export const GEODESIC_SEGMENT_LENGTH_METERS = 50;
+export const MIN_PLANAR_SEGMENT_DEGREES = 1e-6;
+export const DEGREES_PER_METER = 1 / 111319.49079327358;
+
+export const GEOMETRY_CONSTS = Object.freeze({
+  M2_PER_KM2: 1_000_000,
+  AREA_DECIMALS: 2,
+  METERS_PER_KILOMETER: 1_000,
+  SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
+  VERTICES_PER_MS_ESTIMATE: 100,
+});
+
+export const UNIT_CONVERSIONS: readonly UnitConversion[] = Object.freeze([
+  {
+    factor: 0.3048,
+    label: "ft²",
+    keywords: ["foot", "feet"],
+    largeUnit: {
+      threshold: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      factor: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
+      label: "mi²",
+    },
+  },
+  { factor: 0.3048006096, label: "ft²", keywords: [] },
+  { factor: 1609.344, label: "mi²", keywords: ["mile"] },
+  {
+    factor: GEOMETRY_CONSTS.METERS_PER_KILOMETER,
+    label: "km²",
+    keywords: ["kilometer"],
+  },
+  { factor: 0.9144, label: "yd²", keywords: ["yard"] },
+  { factor: 0.0254, label: "in²", keywords: ["inch"] },
+  { factor: 0.01, label: "cm²", keywords: ["centimeter"] },
+  { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
+  { factor: 1852, label: "nm²", keywords: ["nautical"] },
+  { factor: 1, label: "m²", keywords: ["meter"] },
 ] as const);
 
-export const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)(\?.*)?$/i;
-export const MAX_URL_LENGTH = 4000;
+// =============================================================================
+// FME FLOW API
+// =============================================================================
 
-export const ABORT_REGEX = /abort/i;
+export const FME_FLOW_API = Object.freeze({
+  BASE_PATH: "/fmeapiv4",
+  MAX_URL_LENGTH: 4000,
+  WEBHOOK_EXCLUDE_KEYS: [] as const,
+  WEBHOOK_LOG_WHITELIST: Object.freeze([
+    "opt_responseformat",
+    "opt_showresult",
+    "opt_servicemode",
+  ] as const),
+});
+
+export const FME_ENDPOINT_PATTERN =
+  /\/fmeapiv[34]\/repositories\/[^/]+\/items\/[^/]+\/run/i;
+
+export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
+  "sync",
+  "async",
+] as const);
+
+export const FAST_TM_TAG = "fast";
 
 export const TM_PARAM_KEYS = Object.freeze([
   "tm_ttc",
@@ -184,279 +210,19 @@ export const PUBLISHED_PARAM_EXCLUDE_SET: ReadonlySet<string> = new Set([
   ...OPTIONAL_OPT_KEYS,
 ]);
 
-export const ALLOWED_SERVICE_MODES: readonly ServiceMode[] = Object.freeze([
-  "sync",
-  "async",
-] as const);
-
-export const GEOMETRY_CONSTS = Object.freeze({
-  M2_PER_KM2: 1_000_000,
-  AREA_DECIMALS: 2,
-  METERS_PER_KILOMETER: 1_000,
-  SQUARE_FEET_PER_SQUARE_MILE: 27_878_400,
-  VERTICES_PER_MS_ESTIMATE: 100, // Estimated vertices processed per millisecond for logging
-});
-
-export const UNIT_CONVERSIONS: readonly UnitConversion[] = Object.freeze([
-  {
-    factor: 0.3048,
-    label: "ft²",
-    keywords: ["foot", "feet"],
-    largeUnit: {
-      threshold: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
-      factor: GEOMETRY_CONSTS.SQUARE_FEET_PER_SQUARE_MILE,
-      label: "mi²",
-    },
-  },
-  { factor: 0.3048006096, label: "ft²", keywords: [] },
-  { factor: 1609.344, label: "mi²", keywords: ["mile"] },
-  {
-    factor: GEOMETRY_CONSTS.METERS_PER_KILOMETER,
-    label: "km²",
-    keywords: ["kilometer"],
-  },
-  { factor: 0.9144, label: "yd²", keywords: ["yard"] },
-  { factor: 0.0254, label: "in²", keywords: ["inch"] },
-  { factor: 0.01, label: "cm²", keywords: ["centimeter"] },
-  { factor: 0.001, label: "mm²", keywords: ["millimeter"] },
-  { factor: 1852, label: "nm²", keywords: ["nautical"] },
-  { factor: 1, label: "m²", keywords: ["meter"] },
-] as const);
-
-export const DEFAULT_ERROR_ICON = "error";
-
-export const ICON_BY_EXACT_CODE = Object.freeze<{
-  readonly [code: string]: string;
-}>({
-  GEOMETRY_SERIALIZATION_FAILED: "polygon",
-  MAP_MODULES_LOAD_FAILED: "map",
-  FORM_INVALID: "warning",
-});
-
-export const TOKEN_ICON_PRIORITY = Object.freeze([
-  { token: "GEOMETRY", icon: "polygon" },
-  { token: "AREA", icon: "polygon" },
-  { token: "MAP", icon: "map" },
-  { token: "MODULE", icon: "map" },
-  { token: "FORM", icon: "warning" },
-  { token: "TOKEN", icon: "person-lock" },
-  { token: "AUTH", icon: "person-lock" },
-  { token: "REPOSITORY", icon: "folder" },
-  { token: "REPO", icon: "folder" },
-  { token: "DATA", icon: "data" },
-  { token: "NETWORK", icon: "shared-no" },
-  { token: "OFFLINE", icon: "shared-no" },
-  { token: "CONNECTION", icon: "shared-no" },
-  { token: "REQUEST", icon: "shared-no" },
-  { token: "SERVER", icon: "feature-service" },
-  { token: "GATEWAY", icon: "feature-service" },
-  { token: "URL", icon: "link-tilted" },
-  { token: "TIMEOUT", icon: "time" },
-  { token: "CONFIG", icon: "setting" },
-  { token: "EMAIL", icon: "email" },
-] as const);
-
-export const MIN_TOKEN_LENGTH = 10;
-
-export const WKID = Object.freeze({
-  WGS84: 4326,
-  WEB_MERCATOR: 3857,
-});
-
-export const GEODESIC_SEGMENT_LENGTH_METERS = 50;
-export const MIN_PLANAR_SEGMENT_DEGREES = 1e-6;
-export const DEGREES_PER_METER = 1 / 111319.49079327358;
-
-export const HTTP_STATUS_CODES = Object.freeze({
-  OK: 200,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  BAD_REQUEST: 400,
-  TIMEOUT: 408,
-  GATEWAY_TIMEOUT: 504,
-  TOO_MANY_REQUESTS: 429,
-  BAD_GATEWAY: 502,
-  SERVICE_UNAVAILABLE: 503,
-  NETWORK_ERROR: 0,
-  SERVER_ERROR_MIN: 500,
-  SERVER_ERROR_MAX: 599,
-});
-
-// HTTP Status Ranges
-export const HTTP_STATUS_RANGES = Object.freeze({
-  SUCCESS_MIN: 200,
-  SUCCESS_MAX: 399,
-  CLIENT_ERROR_MIN: 400,
-  CLIENT_ERROR_MAX: 499,
-  SERVER_ERROR_MIN: 500,
-  SERVER_ERROR_MAX: 599,
-  MIN_VALID: 100,
-  MAX_VALID: 599,
-});
-
-// HTTP Status Classification Helpers
-export const isSuccessStatus = (status?: number): boolean =>
-  typeof status === "number" &&
-  status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
-  status <= HTTP_STATUS_RANGES.SUCCESS_MAX;
-
-export const isServerError = (status?: number): boolean =>
-  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN;
-
-export const isClientError = (status?: number): boolean =>
-  typeof status === "number" &&
-  status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
-  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX;
-
-export const isHttpStatus = (n: unknown): n is number =>
-  typeof n === "number" &&
-  n >= HTTP_STATUS_RANGES.MIN_VALID &&
-  n <= HTTP_STATUS_RANGES.MAX_VALID;
-
-export const isRetryableStatus = (status?: number): boolean => {
-  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true;
-  if (isServerError(status)) return true;
-  return (
-    status === HTTP_STATUS_CODES.TIMEOUT ||
-    status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS
-  );
-};
-
 // =============================================================================
-// TIME CONSTANTS
+// WORKSPACE & PARAMETERS
 // =============================================================================
-// Time Constants (milliseconds)
-export const TIME_CONSTANTS = Object.freeze({
-  SECOND: 1000,
-  MINUTE: 60 * 1000,
-  FIVE_MINUTES: 5 * 60 * 1000,
-  TEN_MINUTES: 10 * 60 * 1000,
-  MAX_RESPONSE_TIME: 300000, // 5 minutes
-  SLOW_REQUEST_THRESHOLD: 1000, // 1 second - standard performance monitoring threshold
-  DEBOUNCE_VALIDATION_MS: 300, // Input validation debounce - balances responsiveness with request reduction
-  AUTO_DOWNLOAD_DELAY_MS: 150, // Delay before auto-download - allows result screen to render
-  POPUP_CLOSE_DELAY_MS: 100, // Delay for UI transitions - ensures popup animations complete
-  BLOB_URL_CLEANUP_DELAY_MS: 120000, // 2 minutes - safety margin for slow connections and large file downloads
-  STARTUP_TIMEOUT_MS: 15000, // 15 seconds - maximum wait time for startup validation if implemented
-  MIN_LOADING_DELAY_MS: 400, // Minimum loading indicator display - prevents flicker while maintaining responsiveness
-});
 
-// Network Configuration
-export const NETWORK_CONFIG = Object.freeze({
-  MAX_HISTORY_SIZE: 100, // Increased from 50 - better debugging capability without significant memory impact
-  API_QUERY_LIMIT: 500, // Reduced from 1000 - faster API responses, better pagination UX
-  RANDOM_ID_LENGTH: 8, // Length of random ID strings (slice produces 8 chars from position 2)
-  MAX_RETRY_ATTEMPTS: 3, // Maximum number of retry attempts for failed requests
-  MAX_CONCURRENT_PREFETCH: 6, // Increased from 5 - modern browsers handle 6 well, faster prefetching
-});
-
-// Version Detection Configuration
-export const VERSION_DETECTION_CONFIG = Object.freeze({
-  MIN_YEAR: 2020, // Minimum valid year for FME version detection
-  MAX_YEAR: 2100, // Maximum valid year for FME version detection
-  MAX_MINOR_VERSION: 100, // Maximum minor version number (0-99)
-});
-
-// Hash Algorithm Configuration
-export const HASH_CONFIG = Object.freeze({
-  DJB2_INITIAL: 5381, // Initial hash value for DJB2 algorithm (Dan Bernstein)
-});
-
-// Safety Limits Configuration
-export const SAFETY_LIMITS = Object.freeze({
-  MAX_WINDOW_HIERARCHY_ITERATIONS: 100, // Maximum iterations when traversing window hierarchy
-});
-
-// UI Configuration
-export const UI_CONFIG = Object.freeze({
-  OPACITY_SCALE_FACTOR: 100, // Convert 0-1 opacity to 0-100%
-  OUTLINE_WIDTH_SLIDER_MIN: 0, // Minimum outline width slider value
-  OUTLINE_WIDTH_SLIDER_MAX: 10, // Maximum outline width slider value
-  OUTLINE_WIDTH_MIN: 0.1, // Minimum actual outline width in pixels
-  OUTLINE_WIDTH_MAX: 5, // Maximum actual outline width in pixels
-  OUTLINE_WIDTH_INCREMENT: 0.5, // Outline width step increment
-  OUTLINE_WIDTH_PRECISION: 10, // Decimal precision for outline width (tenths)
-  AREA_INPUT_STEP: 1000, // Reduced from 10000 - finer control for area inputs, better UX
-  PERCENT_SLIDER_MAX: 100, // Maximum value for percentage sliders
-  ICON_SIZE_SMALL: 16, // Small icon size in pixels
-  ICON_SIZE_MEDIUM: 18, // Medium icon size in pixels
-  ICON_SIZE_LARGE: 24, // Large icon size in pixels
-  LOADING_SPINNER_SIZE: 32, // Loading spinner width/height in pixels
-});
-
-// Tooltip Configuration
-export const TOOLTIP_CONFIG = Object.freeze({
-  DELAY_ENTER_MS: 500, // Delay before tooltip appears - industry standard prevents accidental triggers
-  DELAY_NEXT_MS: 300, // No delay for sequential tooltips - improves discoverability
-  DELAY_LEAVE_MS: 300, // Brief delay before hiding - allows users to move cursor back without tooltip disappearing
-  DELAY_TOUCH_MS: 700, // Long-press threshold for touch devices - standard to prevent accidental activation
-});
-
-// Loading State UI Configuration
-export const LOADING_UI_CONFIG = Object.freeze({
-  DELAY_MS: 1000, // Initial delay before showing loading state - prevents spinner for quick operations
-  DETAIL_DELAY_MS: 2000, // Delay before showing detailed loading info - indicates longer operation in progress
-  CYCLE_INTERVAL_MS: 4000, // Interval for rotating loading messages - maintains engagement without distraction
-});
-
-export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
-  INVALID_RESPONSE_FORMAT: "errorTokenIssue",
-  WEBHOOK_AUTH_ERROR: "errorTokenIssue",
-  WEBHOOK_TIMEOUT: "requestTimedOut",
-  REPOSITORIES_ERROR: "errorRepositoryAccess",
-  REPOSITORY_ITEMS_ERROR: "errorRepositoryAccess",
-  JOB_SUBMISSION_ERROR: "errorJobSubmission",
-  INVALID_CONFIG: "errorSetupRequired",
-  CONFIG_INCOMPLETE: "errorSetupRequired",
-  configMissing: "errorSetupRequired",
-  HTTPS_REQUIRED: "require_https",
-  INVALID_REQUEST_URL: "invalid_url",
-  GEOMETRY_MISSING: "geometryMissingCode",
-  GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
-  GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
-  URL_TOO_LONG: "urlTooLongMessage",
-  WEBHOOK_URL_TOO_LONG: "urlTooLongMessage",
-  PARAMETER_VALIDATION_ERROR: "errorParameterValidation",
-  WORKSPACE_PARAMETERS_ERROR: "errorWorkspaceParameters",
-};
-
-export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
-  401: "errorTokenIssue",
-  408: "requestTimedOut",
-  429: "rateLimitExceeded",
-  431: "headersTooLargeMessage",
-};
-
-export const MESSAGE_PATTERNS = Object.freeze([
-  { pattern: /timeout/i, key: "requestTimedOut" },
-  { pattern: /cors/i, key: "corsBlocked" },
-  { pattern: /url.*too/i, key: "urlTooLongMessage" },
-  {
-    pattern: /remote_dataset_workspace_required/i,
-    key: "REMOTE_DATASET_WORKSPACE_REQUIRED",
-  },
-] as const);
-
-export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
-  require_https: "require_https",
-  no_query_or_hash: "invalid_url",
-  invalid_url: "invalid_url",
-};
-
-export const REQUIRED_CONFIG_FIELDS = Object.freeze([
-  "fmeServerUrl",
-  "fmeServerToken",
-  "repository",
-] as const);
-
-export const STATUS_PROPERTIES = Object.freeze([
-  "status",
-  "statusCode",
-  "httpStatus",
-] as const);
-
+export const WORKSPACE_ITEM_TYPE = "workspace";
 export const DEFAULT_REPOSITORY = "_";
+export const EMPTY_WORKSPACES = Object.freeze([]);
+
+export const PREFETCH_CONFIG = Object.freeze({
+  DEFAULT_CHUNK_SIZE: 5,
+  MIN_CHUNK_SIZE: 1,
+  MAX_CHUNK_SIZE: 15,
+} as const);
 
 export const SKIPPED_PARAMETER_NAMES = Object.freeze(
   new Set([
@@ -497,7 +263,7 @@ export const MULTI_SELECT_TYPES = Object.freeze(
     ParameterType.LISTBOX,
     ParameterType.LOOKUP_LISTBOX,
     ParameterType.ATTRIBUTE_LIST,
-    ParameterType.listbox, // FME V4
+    ParameterType.listbox,
   ])
 );
 
@@ -555,20 +321,42 @@ export const PARAMETER_FIELD_TYPE_MAP: Readonly<{
   [ParameterType.SCRIPTED]: FormFieldType.SCRIPTED,
 });
 
-export const ESRI_GLOBAL_MOCK_KEYS = Object.freeze([
-  "esriRequest",
-  "esriConfig",
-  "projection",
-  "webMercatorUtils",
-  "SpatialReference",
+export const V4_TYPE_MAP = Object.freeze({
+  FLOAT: "number",
+  INTEGER: "number",
+  BOOLEAN: "boolean",
+  STRING: "text",
+  TEXT: "text",
+} as const);
+
+export const MAX_SEPARATOR_LENGTH = 64;
+export const DEFAULT_SEPARATOR_REGEX = /\|/;
+export const NO_SLIDER_KEYWORDS = Object.freeze([
+  "no slider",
+  "noslider",
+  "without slider",
+] as const);
+
+// =============================================================================
+// FILE UPLOAD & HANDLING
+// =============================================================================
+
+export const UPLOAD_PARAM_TYPES = Object.freeze([
+  "FILENAME",
+  "FILENAME_MUSTEXIST",
+  "DIRNAME",
+  "DIRNAME_MUSTEXIST",
+  "DIRNAME_SRC",
+  "LOOKUP_FILE",
+  "REPROJECTION_FILE",
 ] as const);
 
 export const FILE_UPLOAD = Object.freeze({
   DEFAULT_MAX_SIZE_MB: 150,
   ONE_MB_IN_BYTES: 1024 * 1024,
   GEOMETRY_PREVIEW_MAX_LENGTH: 1500,
-  MAX_FILENAME_LENGTH: 128, // Maximum length for uploaded file names
-  MAX_NAMESPACE_LENGTH: 64, // Maximum length for upload namespace/subfolder
+  MAX_FILENAME_LENGTH: 128,
+  MAX_NAMESPACE_LENGTH: 64,
   DEFAULT_ALLOWED_EXTENSIONS: Object.freeze([
     ".zip",
     ".kmz",
@@ -607,6 +395,186 @@ export const FILE_UPLOAD = Object.freeze({
   ] as const),
 });
 
+export const ALLOWED_FILE_EXTENSIONS = /\.(zip|kmz|json|geojson|gml)(\?.*)?$/i;
+
+// =============================================================================
+// FORM FIELDS & UI COMPONENTS
+// =============================================================================
+
+export const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  "SELECT" as FormFieldType,
+  "COORDSYS" as FormFieldType,
+  "ATTRIBUTE_NAME" as FormFieldType,
+  "DB_CONNECTION" as FormFieldType,
+  "WEB_CONNECTION" as FormFieldType,
+  "REPROJECTION_FILE" as FormFieldType,
+]);
+
+export const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  "MULTI_SELECT" as FormFieldType,
+  "ATTRIBUTE_LIST" as FormFieldType,
+]);
+
+export const TEXT_OR_FILE_MODES = Object.freeze({
+  TEXT: "text" as const,
+  FILE: "file" as const,
+});
+
+export const TEXT_INPUT_TYPES = Object.freeze([
+  "text",
+  "email",
+  "tel",
+  "search",
+  "password",
+  "number",
+] as const);
+
+export const PLACEHOLDER_KIND_MAP = Object.freeze({
+  email: "phEmail",
+  phone: "phPhone",
+  search: "phSearch",
+} as const);
+
+// =============================================================================
+// VALIDATION & LIMITS
+// =============================================================================
+
+export const VALIDATION_LIMITS = Object.freeze({
+  MAX_TEXT_LENGTH: 5000,
+  IPV4_OCTET_MAX: 255,
+  IPV4_OCTET_MIN: 0,
+  MAX_GEOMETRY_VERTICES: 5000,
+  SLIDER_DEFAULT_MAX: 100,
+  RGB_MAX: 255,
+  RGB_MIN: 0,
+} as const);
+
+export const SETTING_CONSTANTS = Object.freeze({
+  VALIDATION: {
+    DEFAULT_TTL_VALUE: "",
+    DEFAULT_TTC_VALUE: "",
+  },
+  LIMITS: {
+    MAX_M2_CAP: 10_000_000_000,
+    MAX_REQUEST_TIMEOUT_MS: 600_000,
+  },
+  DIRECTIVES: {
+    DESCRIPTION_MAX: 512,
+    TAG_MAX: 128,
+  },
+  COLORS: {
+    BACKGROUND_DARK: "#181818",
+  },
+  TEXT: {
+    LARGE_AREA_MESSAGE_MAX: 200,
+  },
+});
+
+export const LARGE_AREA_MESSAGE_CHAR_LIMIT = 200;
+
+export const REQUIRED_CONFIG_FIELDS = Object.freeze([
+  "fmeServerUrl",
+  "fmeServerToken",
+  "repository",
+] as const);
+
+export const MAX_VISIBILITY_REGEX_LENGTH = 512;
+export const DEFAULT_MAX_PATTERN_LENGTH = 512;
+
+// =============================================================================
+// EMAIL & REGEX PATTERNS
+// =============================================================================
+
+export const EMAIL_REGEX = /^[^\s@]{1,64}@[^\s@]{1,253}\.[^\s@]{2,63}$/;
+export const NO_REPLY_REGEX = /no-?reply/i;
+export const EMAIL_PLACEHOLDER = /\{\s*email\s*\}/i;
+
+export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/;
+export const OFFSET_SUFFIX_RE = /[+-]\d{2}:\d{2}$/;
+export const FRACTION_SUFFIX_RE = /\.\d{1,3}$/;
+
+export const ABORT_REGEX = /abort/i;
+export const ABORT_ERROR_NAMES = Object.freeze(
+  new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"])
+);
+
+export const ERROR_LABEL_PATTERN =
+  /^(?:error|fel|warning|varning|info)\s*[:\-–—]?\s*/i;
+
+// =============================================================================
+// NETWORK & HTTP
+// =============================================================================
+
+export const HTTP_STATUS_CODES = Object.freeze({
+  OK: 200,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  BAD_REQUEST: 400,
+  TIMEOUT: 408,
+  GATEWAY_TIMEOUT: 504,
+  TOO_MANY_REQUESTS: 429,
+  BAD_GATEWAY: 502,
+  SERVICE_UNAVAILABLE: 503,
+  NETWORK_ERROR: 0,
+  SERVER_ERROR_MIN: 500,
+  SERVER_ERROR_MAX: 599,
+});
+
+export const HTTP_STATUS_RANGES = Object.freeze({
+  SUCCESS_MIN: 200,
+  SUCCESS_MAX: 399,
+  CLIENT_ERROR_MIN: 400,
+  CLIENT_ERROR_MAX: 499,
+  SERVER_ERROR_MIN: 500,
+  SERVER_ERROR_MAX: 599,
+  MIN_VALID: 100,
+  MAX_VALID: 599,
+});
+
+export const isSuccessStatus = (status?: number): boolean =>
+  typeof status === "number" &&
+  status >= HTTP_STATUS_RANGES.SUCCESS_MIN &&
+  status <= HTTP_STATUS_RANGES.SUCCESS_MAX;
+
+export const isServerError = (status?: number): boolean =>
+  typeof status === "number" && status >= HTTP_STATUS_RANGES.SERVER_ERROR_MIN;
+
+export const isClientError = (status?: number): boolean =>
+  typeof status === "number" &&
+  status >= HTTP_STATUS_RANGES.CLIENT_ERROR_MIN &&
+  status <= HTTP_STATUS_RANGES.CLIENT_ERROR_MAX;
+
+export const isHttpStatus = (n: unknown): n is number =>
+  typeof n === "number" &&
+  n >= HTTP_STATUS_RANGES.MIN_VALID &&
+  n <= HTTP_STATUS_RANGES.MAX_VALID;
+
+export const isRetryableStatus = (status?: number): boolean => {
+  if (!status || status < HTTP_STATUS_RANGES.MIN_VALID) return true;
+  if (isServerError(status)) return true;
+  return (
+    status === HTTP_STATUS_CODES.TIMEOUT ||
+    status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS
+  );
+};
+
+export const NETWORK_CONFIG = Object.freeze({
+  MAX_HISTORY_SIZE: 100,
+  API_QUERY_LIMIT: 500,
+  RANDOM_ID_LENGTH: 8,
+  MAX_RETRY_ATTEMPTS: 3,
+  MAX_CONCURRENT_PREFETCH: 6,
+});
+
+export const DEFAULT_NETWORK_CONFIG = Object.freeze({
+  enabled: true,
+  logLevel: "debug" as const,
+  bodyPreviewLimit: 1024,
+  warnSlowMs: 1000,
+});
+
 export const NETWORK_INDICATORS = Object.freeze([
   "failed to fetch",
   "networkerror",
@@ -628,17 +596,34 @@ export const PROXY_INDICATORS = Object.freeze([
   "proxy",
 ] as const);
 
-// =============================================================================
-// SCATTERED CONSTANTS CONSOLIDATED FROM CODEBASE
-// =============================================================================
+export const MAX_URL_LENGTH = 4000;
 
-// From: shared/api.ts
-export const DEFAULT_NETWORK_CONFIG = Object.freeze({
-  enabled: true,
-  logLevel: "debug" as const,
-  bodyPreviewLimit: 1024,
-  warnSlowMs: TIME_CONSTANTS.SLOW_REQUEST_THRESHOLD,
-});
+export const FORBIDDEN_HOSTNAME_SUFFIXES = Object.freeze([
+  "localhost",
+  ".localhost",
+  ".local",
+  ".internal",
+  ".intranet",
+  ".home",
+  ".lan",
+  ".localdomain",
+] as const);
+
+export const PRIVATE_IPV4_RANGES = Object.freeze([
+  { start: [10, 0, 0, 0], end: [10, 255, 255, 255] },
+  { start: [100, 64, 0, 0], end: [100, 127, 255, 255] },
+  { start: [127, 0, 0, 0], end: [127, 255, 255, 255] },
+  { start: [169, 254, 0, 0], end: [169, 254, 255, 255] },
+  { start: [172, 16, 0, 0], end: [172, 31, 255, 255] },
+  { start: [192, 168, 0, 0], end: [192, 168, 255, 255] },
+  { start: [0, 0, 0, 0], end: [0, 255, 255, 255] },
+] as const);
+
+export const LOOPBACK_IPV6 = "::1";
+
+// =============================================================================
+// SECURITY & PRIVACY
+// =============================================================================
 
 export const SENSITIVE_KEY_PATTERNS = Object.freeze([
   "token",
@@ -651,131 +636,64 @@ export const SENSITIVE_KEY_PATTERNS = Object.freeze([
 export const REDACT_AUTH_REGEX = /authorization="?[^"]+"?/gi;
 export const REDACT_TOKEN_REGEX = /(token|fmetoken)=([^&\s]+)/gi;
 
-export const DETAIL_VALUE_LIMIT = 256;
-export const DETAIL_MESSAGE_KEYS = Object.freeze([
-  "message",
-  "detail",
-  "statusText",
-] as const);
+export const MIN_TOKEN_LENGTH = 10;
 
-export const V4_TYPE_MAP = Object.freeze({
-  FLOAT: "number",
-  INTEGER: "number",
-  BOOLEAN: "boolean",
-  STRING: "text",
-  TEXT: "text",
-} as const);
+// =============================================================================
+// TIME CONSTANTS
+// =============================================================================
 
-export const ESRI_MOCK_FALLBACKS = Object.freeze({
-  esriRequest: null,
-  esriConfig: {},
-  projection: null,
-  webMercatorUtils: null,
-  SpatialReference: null,
-} as const);
-
-export const FME_ENDPOINT_PATTERN =
-  /\/fmeapiv[34]\/repositories\/[^/]+\/items\/[^/]+\/run/i;
-
-// From: shared/utils/conversion.ts
-export const PLACEHOLDER_KIND_MAP = Object.freeze({
-  email: "phEmail",
-  phone: "phPhone",
-  search: "phSearch",
-} as const);
-
-// From: shared/utils/error.ts (duplicates removed - already in main constants)
-// DEFAULT_ERROR_ICON, ICON_BY_EXACT_CODE, TOKEN_ICON_PRIORITY, ABORT_REGEX are already in constants.ts
-
-export const ABORT_ERROR_NAMES = Object.freeze(
-  new Set(["AbortError", "ABORT_ERR", "ERR_ABORTED"])
-);
-
-// From: runtime/components/fields.tsx
-export const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
-  "SELECT" as FormFieldType,
-  "COORDSYS" as FormFieldType,
-  "ATTRIBUTE_NAME" as FormFieldType,
-  "DB_CONNECTION" as FormFieldType,
-  "WEB_CONNECTION" as FormFieldType,
-  "REPROJECTION_FILE" as FormFieldType,
-]);
-
-export const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
-  "MULTI_SELECT" as FormFieldType,
-  "ATTRIBUTE_LIST" as FormFieldType,
-]);
-
-export const TEXT_OR_FILE_MODES = Object.freeze({
-  TEXT: "text" as const,
-  FILE: "file" as const,
+export const TIME_CONSTANTS = Object.freeze({
+  SECOND: 1000,
+  MINUTE: 60 * 1000,
+  FIVE_MINUTES: 5 * 60 * 1000,
+  TEN_MINUTES: 10 * 60 * 1000,
+  MAX_RESPONSE_TIME: 300000,
+  SLOW_REQUEST_THRESHOLD: 1000,
+  DEBOUNCE_VALIDATION_MS: 300,
+  AUTO_DOWNLOAD_DELAY_MS: 150,
+  POPUP_CLOSE_DELAY_MS: 100,
+  BLOB_URL_CLEANUP_DELAY_MS: 120000,
+  STARTUP_TIMEOUT_MS: 15000,
+  MIN_LOADING_DELAY_MS: 400,
 });
 
-// From: shared/utils/fme.ts
-// ALLOWED_SERVICE_MODES already defined in main constants, moved to avoid duplication
+// =============================================================================
+// UI CONFIGURATION
+// =============================================================================
 
-export const LOOPBACK_IPV6 = "::1";
+export const UI_CONFIG = Object.freeze({
+  OPACITY_SCALE_FACTOR: 100,
+  OUTLINE_WIDTH_SLIDER_MIN: 0,
+  OUTLINE_WIDTH_SLIDER_MAX: 10,
+  OUTLINE_WIDTH_MIN: 0.1,
+  OUTLINE_WIDTH_MAX: 5,
+  OUTLINE_WIDTH_INCREMENT: 0.5,
+  OUTLINE_WIDTH_PRECISION: 10,
+  AREA_INPUT_STEP: 1000,
+  PERCENT_SLIDER_MAX: 100,
+  ICON_SIZE_SMALL: 16,
+  ICON_SIZE_MEDIUM: 18,
+  ICON_SIZE_LARGE: 24,
+  LOADING_SPINNER_SIZE: 32,
+});
 
-// From: shared/utils/format.ts
-export const HTML_ENTITY_MAP = Object.freeze({
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-} as const);
+export const TOOLTIP_CONFIG = Object.freeze({
+  DELAY_ENTER_MS: 500,
+  DELAY_NEXT_MS: 300,
+  DELAY_LEAVE_MS: 300,
+  DELAY_TOUCH_MS: 700,
+});
 
-export const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g;
-export const MAX_HTML_CODE_POINT = 0x10ffff;
+export const LOADING_UI_CONFIG = Object.freeze({
+  DELAY_MS: 1000,
+  DETAIL_DELAY_MS: 2000,
+  CYCLE_INTERVAL_MS: 4000,
+});
 
-export const ERROR_LABEL_PATTERN =
-  /^(?:error|fel|warning|varning|info)\s*[:\-–—]?\s*/i;
+// =============================================================================
+// ICONS & VISUAL ELEMENTS
+// =============================================================================
 
-export const ISO_LOCAL_DATE = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
-export const ISO_LOCAL_TIME = /^([0-9]{2}):([0-9]{2})(?::([0-9]{2}))?$/;
-
-export const OFFSET_SUFFIX_RE = /[+-]\d{2}:\d{2}$/;
-export const FRACTION_SUFFIX_RE = /\.\d{1,3}$/;
-
-// GEOMETRY_CONSTS and UNIT_CONVERSIONS already defined in main constants
-
-// From: shared/services/logging.ts
-export const DEBUG_STYLES = Object.freeze({
-  section: "font-weight: bold; color: #0066cc; font-size: 1.2em",
-  subsection: "font-weight: bold; color: #0088cc",
-  success: "color: #00cc00",
-  warning: "color: #ff9900",
-  error: "color: #cc0000",
-  info: "color: #666666",
-  dim: "color: #999999",
-} as const);
-
-// From: shared/services/parameters.ts
-export const MAX_SEPARATOR_LENGTH = 64;
-export const DEFAULT_SEPARATOR_REGEX = /\|/;
-export const NO_SLIDER_KEYWORDS = Object.freeze([
-  "no slider",
-  "noslider",
-  "without slider",
-] as const);
-
-// From: shared/utils/regex.ts
-export const DEFAULT_MAX_PATTERN_LENGTH = 512;
-
-// From: extensions/store.ts
-export const ERROR_SEVERITY_RANK = Object.freeze({
-  ERROR: 3,
-  WARNING: 2,
-  INFO: 1,
-} as const);
-
-export const ERROR_SCOPE_PRIORITY = Object.freeze({
-  general: 0,
-  export: 1,
-  import: 2,
-} as const);
-
-// From: runtime/components/ui.tsx
 export const LOCAL_ICON_SOURCES = Object.freeze({
   error: "error.svg",
   map: "map.svg",
@@ -801,45 +719,160 @@ export const ALERT_ICON_MAP = Object.freeze({
   success: "success",
 } as const);
 
-export const TEXT_INPUT_TYPES = Object.freeze([
-  "text",
-  "email",
-  "tel",
-  "search",
-  "password",
-  "number",
+export const DEFAULT_ERROR_ICON = "error";
+
+export const ICON_BY_EXACT_CODE = Object.freeze<{
+  readonly [code: string]: string;
+}>({
+  GEOMETRY_SERIALIZATION_FAILED: "polygon",
+  MAP_MODULES_LOAD_FAILED: "map",
+  FORM_INVALID: "warning",
+});
+
+export const TOKEN_ICON_PRIORITY = Object.freeze([
+  { token: "GEOMETRY", icon: "polygon" },
+  { token: "AREA", icon: "polygon" },
+  { token: "MAP", icon: "map" },
+  { token: "MODULE", icon: "map" },
+  { token: "FORM", icon: "warning" },
+  { token: "TOKEN", icon: "person-lock" },
+  { token: "AUTH", icon: "person-lock" },
+  { token: "REPOSITORY", icon: "folder" },
+  { token: "REPO", icon: "folder" },
+  { token: "DATA", icon: "data" },
+  { token: "NETWORK", icon: "shared-no" },
+  { token: "OFFLINE", icon: "shared-no" },
+  { token: "CONNECTION", icon: "shared-no" },
+  { token: "REQUEST", icon: "shared-no" },
+  { token: "SERVER", icon: "feature-service" },
+  { token: "GATEWAY", icon: "feature-service" },
+  { token: "URL", icon: "link-tilted" },
+  { token: "TIMEOUT", icon: "time" },
+  { token: "CONFIG", icon: "setting" },
+  { token: "EMAIL", icon: "email" },
 ] as const);
 
-// From: shared/validations.ts (NO_REPLY_REGEX moved here for centralization)
-// Already present as NO_REPLY_REGEX in main constants
+// =============================================================================
+// ERROR HANDLING & MAPPING
+// =============================================================================
 
-// From: shared/visibility.ts
-export const MAX_VISIBILITY_REGEX_LENGTH = 512;
+export const ERROR_NAMES = Object.freeze({
+  CANCELLED_PROMISE: "CancelledPromiseError",
+  ABORT: "AbortError",
+});
 
-// From: runtime/components/workflow.tsx
-export const DRAWING_MODE_TABS = Object.freeze([
+export const ERROR_CODE_TO_KEY: { readonly [code: string]: string } = {
+  INVALID_RESPONSE_FORMAT: "errorTokenIssue",
+  WEBHOOK_AUTH_ERROR: "errorTokenIssue",
+  WEBHOOK_TIMEOUT: "requestTimedOut",
+  REPOSITORIES_ERROR: "errorRepositoryAccess",
+  REPOSITORY_ITEMS_ERROR: "errorRepositoryAccess",
+  JOB_SUBMISSION_ERROR: "errorJobSubmission",
+  INVALID_CONFIG: "errorSetupRequired",
+  CONFIG_INCOMPLETE: "errorSetupRequired",
+  configMissing: "errorSetupRequired",
+  HTTPS_REQUIRED: "require_https",
+  INVALID_REQUEST_URL: "invalid_url",
+  GEOMETRY_MISSING: "geometryMissingCode",
+  GEOMETRY_TYPE_INVALID: "geometryTypeInvalidCode",
+  GEOMETRY_SERIALIZATION_FAILED: "geometrySerializationFailedCode",
+  URL_TOO_LONG: "urlTooLongMessage",
+  WEBHOOK_URL_TOO_LONG: "urlTooLongMessage",
+  PARAMETER_VALIDATION_ERROR: "errorParameterValidation",
+  WORKSPACE_PARAMETERS_ERROR: "errorWorkspaceParameters",
+};
+
+export const STATUS_TO_KEY_MAP: { readonly [status: number]: string } = {
+  401: "errorTokenIssue",
+  408: "requestTimedOut",
+  429: "rateLimitExceeded",
+  431: "headersTooLargeMessage",
+};
+
+export const MESSAGE_PATTERNS = Object.freeze([
+  { pattern: /timeout/i, key: "requestTimedOut" },
+  { pattern: /cors/i, key: "corsBlocked" },
+  { pattern: /url.*too/i, key: "urlTooLongMessage" },
   {
-    value: "POLYGON" as const,
-    label: "optPolygon",
-    icon: "polygon.svg",
-    tooltip: "tipDrawPolygon",
-    hideLabel: true,
-  },
-  {
-    value: "RECTANGLE" as const,
-    label: "optRectangle",
-    icon: "rectangle.svg",
-    tooltip: "tipDrawRectangle",
-    hideLabel: true,
+    pattern: /remote_dataset_workspace_required/i,
+    key: "REMOTE_DATASET_WORKSPACE_REQUIRED",
   },
 ] as const);
 
-export const EMPTY_WORKSPACES = Object.freeze([]);
+export const SERVER_URL_REASON_TO_KEY: { readonly [reason: string]: string } = {
+  require_https: "require_https",
+  no_query_or_hash: "invalid_url",
+  invalid_url: "invalid_url",
+};
 
-export const DEFAULT_LOADING_STATE = Object.freeze({
-  modules: false,
-  submission: false,
-  workspaces: false,
-  parameters: false,
-  geometryValidation: false,
+export const STATUS_PROPERTIES = Object.freeze([
+  "status",
+  "statusCode",
+  "httpStatus",
+] as const);
+
+export const ERROR_SEVERITY_RANK = Object.freeze({
+  ERROR: 3,
+  WARNING: 2,
+  INFO: 1,
 } as const);
+
+export const ERROR_SCOPE_PRIORITY = Object.freeze({
+  general: 0,
+  export: 1,
+  import: 2,
+} as const);
+
+// =============================================================================
+// HTML & TEXT FORMATTING
+// =============================================================================
+
+export const HTML_ENTITY_MAP = Object.freeze({
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+} as const);
+
+export const HTML_ENTITY_REGEX = /&(?:amp|lt|gt|quot|#39);/g;
+export const MAX_HTML_CODE_POINT = 0x10ffff;
+
+export const DETAIL_VALUE_LIMIT = 256;
+export const DETAIL_MESSAGE_KEYS = Object.freeze([
+  "message",
+  "detail",
+  "statusText",
+] as const);
+
+// =============================================================================
+// DEBUGGING & LOGGING
+// =============================================================================
+
+export const DEBUG_STYLES = Object.freeze({
+  section: "font-weight: bold; color: #0066cc; font-size: 1.2em",
+  subsection: "font-weight: bold; color: #0088cc",
+  success: "color: #00cc00",
+  warning: "color: #ff9900",
+  error: "color: #cc0000",
+  info: "color: #666666",
+  dim: "color: #999999",
+} as const);
+
+// =============================================================================
+// ALGORITHM & UTILITY CONSTANTS
+// =============================================================================
+
+export const VERSION_DETECTION_CONFIG = Object.freeze({
+  MIN_YEAR: 2020,
+  MAX_YEAR: 2100,
+  MAX_MINOR_VERSION: 100,
+});
+
+export const HASH_CONFIG = Object.freeze({
+  DJB2_INITIAL: 5381,
+});
+
+export const SAFETY_LIMITS = Object.freeze({
+  MAX_WINDOW_HIERARCHY_ITERATIONS: 100,
+});

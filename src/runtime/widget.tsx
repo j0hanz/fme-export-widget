@@ -249,8 +249,9 @@ function WidgetContent(
   /* Race condition-guard: förhindrar multipla draw-complete-triggers */
   const isCompletingRef = React.useRef(false);
   const completionControllerRef = React.useRef<AbortController | null>(null);
-  const [popupClientId] = React.useState(() => Symbol(`fme-popup-${widgetId}`));
-  const popupClientIdRef = React.useRef(popupClientId);
+  const popupClientIdRef = React.useRef<symbol>(
+    Symbol(`fme-popup-${widgetId}`)
+  );
 
   const previousWidgetId = hooks.usePrevious(widgetId);
   hooks.useUpdateEffect(() => {
@@ -259,8 +260,7 @@ function WidgetContent(
       if (oldSymbol) {
         popupSuppressionManager.release(oldSymbol);
       }
-      const newSymbol = Symbol(`fme-popup-${widgetId}`);
-      popupClientIdRef.current = newSymbol;
+      popupClientIdRef.current = Symbol(`fme-popup-${widgetId}`);
     }
   }, [widgetId, previousWidgetId]);
 
