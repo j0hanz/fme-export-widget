@@ -24,6 +24,8 @@ import {
   extractErrorMessage,
   isFileObject,
   isFiniteNumber,
+  isIntegerValue,
+  isNumericString,
   maskToken,
   safeParseUrl,
   toTrimmedString,
@@ -175,30 +177,6 @@ export const shouldUploadRemoteDataset = (
 
 /* Number Validation Helpers */
 
-/** Parses value to finite number, returns null if invalid. */
-const parseAsNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const num = Number(trimmed);
-    return Number.isFinite(num) ? num : null;
-  }
-  return null;
-};
-
-/** Type guard for integer values (including numeric strings). */
-export const isInt = (value: unknown): value is number => {
-  const num = parseAsNumber(value);
-  return num !== null && Number.isInteger(num);
-};
-
-/** Type guard for finite numbers (including numeric strings). */
-export const isNum = (value: unknown): value is number => {
-  const num = parseAsNumber(value);
-  return num !== null;
-};
-
 /** Validates parameter type matches expected type. Returns error key or null. */
 export const validateParameterType = (
   paramType: string,
@@ -211,9 +189,11 @@ export const validateParameterType = (
 
   switch (paramType) {
     case INTEGER:
-      return isInt(value) ? null : `${paramName}:integer`;
+      return isIntegerValue(value) ? null : `${paramName}:integer`;
     case FLOAT:
-      return isNum(value) ? null : `${paramName}:number`;
+      return isFiniteNumber(value) || isNumericString(value)
+        ? null
+        : `${paramName}:number`;
     default:
       return null;
   }

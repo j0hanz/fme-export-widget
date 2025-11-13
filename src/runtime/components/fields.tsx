@@ -94,60 +94,67 @@ const TEXT_OR_FILE_MODES = {
 
 const toDisplayString = (value: unknown): string => toStringValue(value) ?? "";
 
+// Helper: Check if value matches a configured toggle value
+const matchesToggleValue = (current: unknown, configured: unknown): boolean => {
+  if (configured === undefined) return false;
+  return areToggleValuesEqual(current, configured);
+};
+
+// Helper: Resolve boolean from value without config
+const resolveDefaultBoolean = (value: unknown): boolean => {
+  const booleanCandidate = toBooleanValue(value);
+  if (booleanCandidate !== undefined) return booleanCandidate;
+
+  if (typeof value === "number") return value !== 0;
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed !== "" && trimmed !== "0";
+  }
+
+  return Boolean(value);
+};
+
 const resolveToggleChecked = (
   current: unknown,
   config?: ToggleFieldConfig
 ): boolean => {
   if (config) {
-    if (
-      config.checkedValue !== undefined &&
-      areToggleValuesEqual(current, config.checkedValue)
-    ) {
-      return true;
-    }
-    if (
-      config.uncheckedValue !== undefined &&
-      areToggleValuesEqual(current, config.uncheckedValue)
-    ) {
-      return false;
-    }
+    if (matchesToggleValue(current, config.checkedValue)) return true;
+    if (matchesToggleValue(current, config.uncheckedValue)) return false;
   }
-
-  const booleanCandidate = toBooleanValue(current);
-  if (booleanCandidate !== undefined) {
-    return booleanCandidate;
-  }
-
-  if (typeof current === "number") {
-    return current !== 0;
-  }
-
-  if (typeof current === "string") {
-    const trimmed = current.trim();
-    if (!trimmed) return false;
-    if (trimmed === "0") return false;
-  }
-
-  return Boolean(current);
+  return resolveDefaultBoolean(current);
 };
 
 const resolveToggleOutputValue = (
   checked: boolean,
   config?: ToggleFieldConfig
 ): FormPrimitive => {
-  if (checked) {
-    if (config?.checkedValue !== undefined) {
-      return config.checkedValue as FormPrimitive;
-    }
-    return true as FormPrimitive;
-  }
-  if (config?.uncheckedValue !== undefined) {
-    return config.uncheckedValue as FormPrimitive;
-  }
-  return false as FormPrimitive;
+  const checkedValue = config?.checkedValue;
+  const uncheckedValue = config?.uncheckedValue;
+
+  return checked
+    ? ((checkedValue !== undefined ? checkedValue : true) as FormPrimitive)
+    : ((uncheckedValue !== undefined
+        ? uncheckedValue
+        : false) as FormPrimitive);
 };
 
 /* Hjälpfunktioner för rendering */
+
+// Helper: Convert FormPrimitive to display string
+const toInputString = (value: FormPrimitive): string => {
+  return typeof value === "string" || typeof value === "number"
+    ? String(value)
+    : "";
+};
+
+// Helper: Parse number input with comma-to-dot conversion
+const parseNumberInput = (input: string): number | null => {
+  if (input === "") return null;
+  const normalized = Number(input.replace(/,/g, "."));
+  return Number.isFinite(normalized) ? normalized : null;
+};
 
 // Renderar textbaserade inmatningsfält med typvalidering
 const renderTextInput = (
@@ -162,29 +169,18 @@ const renderTextInput = (
   } = {}
 ): JSX.Element => {
   const { readOnly, maxLength, overrides } = options;
-  // Hanterar numerisk input med komma-till-punkt-konvertering
+
   const handleChange = (inputValue: string) => {
     if (inputType === "number") {
-      if (inputValue === "") {
-        onChange(null);
-        return;
-      }
-      const numericValue = Number(inputValue.replace(/,/g, "."));
-      onChange(Number.isFinite(numericValue) ? numericValue : null);
+      onChange(parseNumberInput(inputValue));
     } else {
       onChange(inputValue);
     }
   };
 
-  // Konverterar värde till sträng för input
-  const stringValue =
-    typeof value === "string" || typeof value === "number" ? String(value) : "";
-
-  // Kombinerar readOnly och overrides.disabled
-  const finalDisabled =
-    overrides && typeof overrides.disabled !== "undefined"
-      ? overrides.disabled
-      : readOnly;
+  const stringValue = toInputString(value);
+  const disabled =
+    overrides?.disabled !== undefined ? overrides.disabled : readOnly;
 
   return (
     <Input
@@ -193,7 +189,7 @@ const renderTextInput = (
       value={stringValue}
       placeholder={placeholder}
       onChange={handleChange}
-      disabled={finalDisabled}
+      disabled={disabled}
       maxLength={maxLength}
     />
   );

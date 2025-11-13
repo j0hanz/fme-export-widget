@@ -173,6 +173,12 @@ export function createCorrelationId(prefix = "net"): string {
 
 /* URL-sanitering och parametervald */
 
+// Helper: Build base URL from parsed or raw URL
+const buildBaseUrl = (parsed: URL | null, raw: string): string => {
+  if (parsed) return `${parsed.origin}${parsed.pathname}`;
+  return redactSensitiveText(raw.split("?")[0] || "");
+};
+
 // URL & Parameter Sanitization
 // Sanerar URL och query-parametrar, maskerar känsliga värden
 function sanitizeUrl(
@@ -183,13 +189,8 @@ function sanitizeUrl(
   const params = buildSearchParams(parsed, query);
   const sanitized = sanitizeParams(params);
   const search = serializeParams(sanitized);
+  const base = buildBaseUrl(parsed, url);
 
-  if (!parsed) {
-    const base = redactSensitiveText(url.split("?")[0] || "");
-    return search ? `${base}?${search}` : base;
-  }
-
-  const base = `${parsed.origin}${parsed.pathname}`;
   return search ? `${base}?${search}` : base;
 }
 
@@ -197,9 +198,7 @@ function sanitizeUrl(
 function parseUrl(url: string): URL | null {
   if (!url) return null;
   try {
-    const parsed = safeParseUrl(url);
-    if (parsed) return parsed;
-    return new URL(url, "http://localhost");
+    return safeParseUrl(url) || new URL(url, "http://localhost");
   } catch {
     return null;
   }
@@ -211,31 +210,29 @@ function extractPath(url: string): string {
   return parsed?.pathname || url.split("?")[0] || url;
 }
 
-// Bygger URLSearchParams från URL och ytterligare query-parameter
-function buildSearchParams(
-  parsed: URL | null,
-  query?: PrimitiveParams | URLSearchParams | string | null
-): URLSearchParams {
-  const params = new URLSearchParams(parsed?.search || "");
-  if (!query) return params;
-
+// Helper: Merge additional query params into URLSearchParams
+const mergeQueryParams = (
+  params: URLSearchParams,
+  query: PrimitiveParams | URLSearchParams | string
+): void => {
   if (typeof query === "string") {
-    const extra = new URLSearchParams(query);
-    extra.forEach((value, key) => {
+    new URLSearchParams(query).forEach((value, key) => {
       params.set(key, value);
     });
-    return params;
+    return;
   }
 
   if (query instanceof URLSearchParams) {
     query.forEach((value, key) => {
       params.set(key, value);
     });
-    return params;
+    return;
   }
 
+  // Handle PrimitiveParams object
   Object.entries(query).forEach(([key, value]) => {
     if (value == null) return;
+
     if (Array.isArray(value)) {
       params.delete(key);
       value.forEach((v) => {
@@ -251,7 +248,15 @@ function buildSearchParams(
       params.set(key, stringValue);
     }
   });
+};
 
+// Bygger URLSearchParams från URL och ytterligare query-parameter
+function buildSearchParams(
+  parsed: URL | null,
+  query?: PrimitiveParams | URLSearchParams | string | null
+): URLSearchParams {
+  const params = new URLSearchParams(parsed?.search || "");
+  if (query) mergeQueryParams(params, query);
   return params;
 }
 

@@ -109,6 +109,19 @@ export const isNonNegativeNumber = (value: unknown): value is number =>
 export const isPositiveNumber = (value: unknown): value is number =>
   isFiniteNumber(value) && value > 0;
 
+/** Type guard for integer values (exact numeric integers, excludes numeric strings). */
+export const isIntegerValue = (value: unknown): value is number =>
+  isFiniteNumber(value) && Number.isInteger(value);
+
+/** Type guard for numeric strings that can be parsed to finite numbers. */
+export const isNumericString = (value: unknown): boolean => {
+  if (!isString(value)) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const num = Number(trimmed);
+  return Number.isFinite(num);
+};
+
 export const isValidNumber = (
   value: unknown,
   options?: {

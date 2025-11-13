@@ -35,8 +35,10 @@ import {
   extractTemporalParts,
   isEmpty,
   isFileObject,
+  isFiniteNumber,
   isNonEmptyTrimmedString,
   isNonNegativeNumber,
+  isNumericString,
   isPlainObject,
   mergeMetadata,
   normalizeParameterValue,
@@ -55,7 +57,6 @@ import {
 import { logWarn } from "../utils/logging";
 import { createSafeRegExp, escapeForCharacterClass } from "../utils/regex";
 import {
-  isNum,
   validateParameterChoices as validateParamChoices,
   validateParameterType as validateParamType,
 } from "../validations";
@@ -1817,7 +1818,7 @@ export class ParameterFormService {
         hasValue &&
         (field.type === FormFieldType.NUMBER ||
           field.type === FormFieldType.NUMERIC_INPUT) &&
-        !isNum(value)
+        !(isFiniteNumber(value) || isNumericString(value))
       ) {
         errors[field.name] = "";
         continue;

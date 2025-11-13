@@ -365,35 +365,30 @@ const createTypedError = (
   };
 };
 
-export const createNetworkError = (
-  messageKey: string,
-  options: ErrorFactoryOptions = {}
-): SerializableErrorState =>
-  createTypedError(ErrorTypeEnum.NETWORK, messageKey, options);
+// Specialized error creators using createTypedError
+const ERROR_CREATORS: {
+  [K in ErrorTypeEnum]: (
+    messageKey: string,
+    options?: ErrorFactoryOptions
+  ) => SerializableErrorState;
+} = {
+  [ErrorTypeEnum.NETWORK]: (messageKey, options = {}) =>
+    createTypedError(ErrorTypeEnum.NETWORK, messageKey, options),
+  [ErrorTypeEnum.VALIDATION]: (messageKey, options = {}) =>
+    createTypedError(ErrorTypeEnum.VALIDATION, messageKey, options),
+  [ErrorTypeEnum.CONFIG]: (messageKey, options = {}) =>
+    createTypedError(ErrorTypeEnum.CONFIG, messageKey, options),
+  [ErrorTypeEnum.GEOMETRY]: (messageKey, options = {}) =>
+    createTypedError(ErrorTypeEnum.GEOMETRY, messageKey, options),
+  [ErrorTypeEnum.MODULE]: (messageKey, options = {}) =>
+    createTypedError(ErrorTypeEnum.MODULE, messageKey, options),
+};
 
-export const createValidationError = (
-  messageKey: string,
-  options: ErrorFactoryOptions = {}
-): SerializableErrorState =>
-  createTypedError(ErrorTypeEnum.VALIDATION, messageKey, options);
-
-export const createConfigError = (
-  messageKey: string,
-  options: ErrorFactoryOptions = {}
-): SerializableErrorState =>
-  createTypedError(ErrorTypeEnum.CONFIG, messageKey, options);
-
-export const createGeometryError = (
-  messageKey: string,
-  options: ErrorFactoryOptions = {}
-): SerializableErrorState =>
-  createTypedError(ErrorTypeEnum.GEOMETRY, messageKey, options);
-
-export const createModuleError = (
-  messageKey: string,
-  options: ErrorFactoryOptions = {}
-): SerializableErrorState =>
-  createTypedError(ErrorTypeEnum.MODULE, messageKey, options);
+export const createNetworkError = ERROR_CREATORS[ErrorTypeEnum.NETWORK];
+export const createValidationError = ERROR_CREATORS[ErrorTypeEnum.VALIDATION];
+export const createConfigError = ERROR_CREATORS[ErrorTypeEnum.CONFIG];
+export const createGeometryError = ERROR_CREATORS[ErrorTypeEnum.GEOMETRY];
+export const createModuleError = ERROR_CREATORS[ErrorTypeEnum.MODULE];
 
 export const formatErrorPresentation = (
   error: SerializableErrorState | ErrorState,
