@@ -12,6 +12,7 @@ import {
   REDACT_AUTH_REGEX,
   REDACT_TOKEN_REGEX,
   SENSITIVE_KEY_PATTERNS,
+  TM_PARAM_KEYS,
   V4_PARAMETER_TYPE_MAP,
 } from "../config/constants";
 import type {
@@ -49,7 +50,6 @@ import {
   FME_FLOW_API,
   FmeFlowApiError,
   HttpMethod,
-  PUBLISHED_PARAM_EXCLUDE_SET,
 } from "../config/index";
 import { conditionalLog } from "./services/logging";
 import {
@@ -1710,11 +1710,11 @@ export class FmeFlowApiClient {
     // Om redan i rätt format, returnera direkt
     if (hasPublishedParameters(parameters)) return parameters;
 
-    // Filtrera bort exkluderade parametrar (opt_, tm_, etc.)
+    // Filtrera bort endast TM-parametrar (tm_*) - opt_* parametrar behövs av FME Flow
     const publishedParameters: PublishedParameterEntry[] = Object.entries(
       parameters
     )
-      .filter(([name]) => !PUBLISHED_PARAM_EXCLUDE_SET.has(name))
+      .filter(([name]) => !TM_PARAM_KEYS.includes(name))
       .map(([name, value]) => ({ name, value }));
 
     return buildSubmitBody(publishedParameters, parameters);

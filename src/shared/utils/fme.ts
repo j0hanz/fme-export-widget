@@ -154,9 +154,7 @@ export const buildOrderResultView = (
         : result.email;
     infoLines.push(`${translate("lblEmail")}: ${masked}`);
   }
-  if (result.code && isFailure) {
-    infoLines.push(`${translate("lblErrorCode")}: ${result.code}`);
-  }
+  // Note: Error code is displayed by StateView component, not added to infoLines
 
   // Determine message text
   let messageText: string | null = null;
