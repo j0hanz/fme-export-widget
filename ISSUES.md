@@ -1,4 +1,4 @@
-# ISSUES
+# ISSUES that needs to be adressed and solved
 
 ## 1. Deprecated Popup API Usage
 
