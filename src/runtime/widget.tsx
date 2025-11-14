@@ -593,12 +593,6 @@ function WidgetContent(
     }
   });
 
-  const resetReduxToInitialDrawing = hooks.useEventCallback(() => {
-    fmeDispatch.resetToDrawing();
-    updateAreaWarning(false);
-    updateDrawingSession({ isActive: false, clickCount: 0 });
-  });
-
   const [moduleRetryKey, setModuleRetryKey] = React.useState(0);
 
   const requestModuleReload = hooks.useEventCallback(() => {
@@ -1639,7 +1633,11 @@ function WidgetContent(
     if (sketchViewModel) {
       safeCancelSketch(sketchViewModel);
     }
-    resetReduxToInitialDrawing();
+
+    /* Återställer till initial state och sätter STARTUP_VALIDATION för nästa öppning */
+    fmeDispatch.resetState();
+    fmeDispatch.setViewMode(ViewMode.STARTUP_VALIDATION);
+
     closeOtherWidgets();
     if (jimuMapView) {
       enablePopupGuard(jimuMapView);
@@ -1672,14 +1670,9 @@ function WidgetContent(
       if (jimuMapView) {
         enablePopupGuard(jimuMapView);
       }
-      const currentViewMode = viewModeRef.current;
-      if (
-        currentViewMode === ViewMode.ORDER_RESULT ||
-        currentViewMode === ViewMode.EXPORT_FORM ||
-        currentViewMode === ViewMode.WORKSPACE_SELECTION
-      ) {
-        resetReduxToInitialDrawing();
-      }
+
+      /* Återställ alltid till STARTUP_VALIDATION när widget öppnas igen */
+      fmeDispatch.setViewMode(ViewMode.STARTUP_VALIDATION);
 
       /* Kör alltid validering när widget öppnas igen */
       runStartupValidation();
@@ -1690,9 +1683,9 @@ function WidgetContent(
     jimuMapView,
     closeOtherWidgets,
     enablePopupGuard,
-    resetReduxToInitialDrawing,
     stateDetector,
     runStartupValidation,
+    fmeDispatch,
   ]);
 
   /* Rensar ritresurser vid kritiska fel */

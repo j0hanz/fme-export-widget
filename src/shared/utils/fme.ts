@@ -208,11 +208,11 @@ export const buildOrderResultView = (
       type: "primary" as const,
     });
   } else {
-    // Failure
+    // Failure case
     actions.push({
       label: translate("btnRetry"),
       onClick: () => {
-        handlers.onBack?.();
+        handlers.onReuseGeography?.();
       },
       type: "primary" as const,
     });
