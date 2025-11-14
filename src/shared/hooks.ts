@@ -54,19 +54,6 @@ const hasLoadFunction = (
   return typeof Reflect.get(candidate, "load") === "function";
 };
 
-const isGeometryOperatorContainer = (
-  value: unknown
-): value is EsriModules["geometryOperators"] =>
-  typeof value === "object" && value !== null;
-
-const extractGeometryOperators = (
-  candidate: unknown
-): EsriModules["geometryOperators"] | null => {
-  if (typeof candidate !== "object" || candidate === null) return null;
-  const operators = Reflect.get(candidate, "operators");
-  return isGeometryOperatorContainer(operators) ? operators : null;
-};
-
 const isWorkspaceItemDetail = (
   value: unknown
 ): value is WorkspaceItemDetail => {
@@ -307,12 +294,6 @@ export const useEsriModules = (
           /* Non-critical projection module warmup failure */
         }
 
-        // Extrahera geometry operators från async eller sync engine
-        const fallbackOperators =
-          extractGeometryOperators(geometryEngineAsync) ??
-          extractGeometryOperators(geometryEngine) ??
-          null;
-
         const modules: EsriModules = {
           SketchViewModel,
           GraphicsLayer,
@@ -325,7 +306,6 @@ export const useEsriModules = (
           Polyline,
           Polygon,
           Graphic,
-          geometryOperators: fallbackOperators,
         };
 
         setState({
@@ -333,34 +313,6 @@ export const useEsriModules = (
           loading: false,
           errorKey: null,
         });
-
-        void (async () => {
-          try {
-            const [operatorsModule] = await loadArcgisModules([
-              "esri/geometry/operators",
-            ]);
-            if (cancelled) return;
-            if (!isGeometryOperatorContainer(operatorsModule)) return;
-            const optionalOperators = operatorsModule;
-            if (!optionalOperators) return;
-
-            setState((prev) => {
-              if (!prev.modules) return prev;
-              if (prev.modules.geometryOperators === optionalOperators) {
-                return prev;
-              }
-              return {
-                ...prev,
-                modules: {
-                  ...prev.modules,
-                  geometryOperators: optionalOperators,
-                },
-              };
-            });
-          } catch {
-            /* Optional geometry operators module unavailable */
-          }
-        })();
       } catch (error) {
         if (!cancelled) {
           setState({ modules: null, loading: false, errorKey: "errorMapInit" });

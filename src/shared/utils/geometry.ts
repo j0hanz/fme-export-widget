@@ -869,56 +869,6 @@ const calcAreaViaGeometryService = async (
   return 0;
 };
 
-// Tvingar area operator till function eller null
-const coerceAreaOperator = (
-  candidate: unknown
-):
-  | ((geometry: __esri.Geometry, unit?: string) => number | Promise<number>)
-  | null => {
-  return typeof candidate === "function"
-    ? (candidate as (
-        geometry: __esri.Geometry,
-        unit?: string
-      ) => number | Promise<number>)
-    : null;
-};
-
-// Väljer geodesic/planar operator från operators record
-const pickGeometryOperator = (
-  operators: unknown,
-  geographic: boolean
-):
-  | ((geometry: __esri.Geometry, unit?: string) => number | Promise<number>)
-  | null => {
-  if (!operators) return null;
-  if (typeof operators === "function") {
-    return operators as (
-      geometry: __esri.Geometry,
-      unit?: string
-    ) => number | Promise<number>;
-  }
-
-  if (typeof operators !== "object") {
-    return null;
-  }
-
-  const record = operators as { [key: string]: unknown };
-  const lookupOrder = geographic
-    ? ["geodesicArea", "geodesic", "planarArea", "planar"]
-    : ["planarArea", "planar", "geodesicArea", "geodesic"];
-
-  for (const key of lookupOrder) {
-    const fn = coerceAreaOperator(record[key]);
-    if (fn) return fn;
-  }
-
-  if (record.area) {
-    return pickGeometryOperator(record.area, geographic);
-  }
-
-  return null;
-};
-
 // Skapar lista med area-strategier för resilient beräkning
 const createAreaStrategies = (
   polygon: __esri.Polygon,
@@ -926,26 +876,6 @@ const createAreaStrategies = (
   geographic: boolean
 ): AreaStrategy[] => {
   const strategies: AreaStrategy[] = [];
-
-  const operatorFn = pickGeometryOperator(
-    modules?.geometryOperators,
-    geographic
-  );
-  if (operatorFn) {
-    strategies.push(async () => {
-      try {
-        const usesUnits = operatorFn.length >= 2;
-        const result = usesUnits
-          ? operatorFn(polygon, "square-meters")
-          : operatorFn(polygon);
-        const area = isPromiseLike(result) ? await result : result;
-        if (typeof area === "number" && Math.abs(area) > 0) {
-          return Math.abs(area);
-        }
-      } catch {}
-      return 0;
-    });
-  }
 
   if (modules?.geometryEngineAsync) {
     strategies.push(() =>

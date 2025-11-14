@@ -142,12 +142,12 @@ const closePopupSafely = (
   popup: __esri.Popup | null | undefined
 ): void => {
   try {
-    if (popup && isPopupInternal(popup) && typeof popup.close === "function") {
-      popup.close();
-      return;
-    }
     if (view && typeof view.closePopup === "function") {
       view.closePopup();
+      return;
+    }
+    if (popup && isPopupInternal(popup) && typeof popup.close === "function") {
+      popup.close();
     }
   } catch {}
 };
