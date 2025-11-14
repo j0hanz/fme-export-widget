@@ -1111,16 +1111,33 @@ export interface JobDirectives {
 
 export interface JobResult {
   readonly id: number;
+  readonly jobID?: number;
   readonly status: JobStatus;
   readonly statusMessage?: string;
   readonly timeSubmitted?: string;
   readonly timeStarted?: string;
   readonly timeFinished?: string;
+  readonly url?: string;
+  readonly serviceResponse?: FmeServiceInfo;
   readonly result?: {
     readonly numFeaturesOutput?: number;
     readonly statusMessage?: string;
     readonly logMessages?: readonly string[];
-  };
+    readonly serviceResponse?: FmeServiceInfo;
+    readonly downloadUrl?: string;
+    readonly url?: string;
+    readonly outputs?: readonly UnknownValueMap[];
+    readonly files?: ReadonlyArray<{
+      readonly path?: string;
+      readonly name?: string;
+      readonly href?: string;
+      readonly url?: string;
+      readonly size?: number;
+    }>;
+    readonly data?: UnknownValueMap;
+    readonly [key: string]: unknown;
+  } & UnknownValueMap;
+  readonly [key: string]: unknown;
 }
 
 export interface EsriModules {

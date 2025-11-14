@@ -64,12 +64,12 @@ export default {
   submittingOrderSync: "Processing export…",
   msgOrderCancelled: "Export cancelled",
   msgOrderTimeout:
-    "Export cancelled due to time limit. FME Flow workspace exceeded maximum runtime",
+    "Export cancelled due to time limit. The FME Flow workspace exceeded its maximum runtime",
   msgNoResult: "Nothing available",
   msgJobCancelled: "Job cancelled",
   msgJobTimeout: "Job exceeded time limit",
   msgJobFailed: "Job failed in FME Flow",
-  msgProcessingWait: "Processing. Please wait…",
+  msgProcessingWait: "Processing… please wait…",
   msgValidating: "Validating parameter values…",
   msgUploading: "Uploading data source…",
   msgConfiguring: "Configuring FME Flow job…",
@@ -81,18 +81,18 @@ export default {
   msgPleaseWait: "This can take a few minutes…",
   msgProcessingActive: "FME Flow processing…",
   msgLargeArea:
-    "The area ({current}) is large and may result in longer processing time",
+    "The selected area ({current}) is large and may result in longer processing time",
   msgLargeAreaThreshold:
-    "The area {current} is large and may result in longer processing time. Recommended area is below {threshold}",
+    "The selected area ({current}) is large and may result in longer processing time. A recommended area is below {threshold}",
   msgNoWorkspaces: "No workspaces found in this repository",
   msgAsyncForced:
     "The area {area} is large and may result in longer processing time",
   forcedAsyncArea:
-    "The area {area} is large and may result in longer processing time",
+    "The selected area ({area}) is too large and may result in longer processing time",
   forcedAsyncUrlLength:
-    "URL length ({urlLength} characters) exceeds limit. Automatically switched to email notification mode",
+    "The URL length ({urlLength} characters) exceeds the allowed limit. Automatically switched to email notification mode",
   msgNoGeometry: "No area selected. Draw an area on the map",
-  msgGeomReady: "Area defined ({rings} polygons, {vertices} vertices)",
+  msgGeomReady: "Area defined with {rings} polygons and {vertices} vertices",
   msgContactSupport: "Please contact support at {email}",
   msgEmailSent: "Email notification will be sent when job is complete",
   msgTableEmpty: "No rows have been added",

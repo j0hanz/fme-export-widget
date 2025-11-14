@@ -31,6 +31,7 @@ import type {
   EsriResponseLike,
   FmeExportConfig,
   FmeFlowConfig,
+  FmeServiceInfo,
   InstrumentedRequestOptions,
   JobResult,
   NetworkConfig,
@@ -41,8 +42,6 @@ import type {
   SubmitParametersPayload,
   TMDirectives,
   UnknownValueMap,
-  WebhookErrorCode,
-  WindowWithEsriConfig,
   WorkspaceParameter,
 } from "../config/index";
 import {
@@ -60,15 +59,12 @@ import {
   extractHostFromUrl,
   extractRepositoryNames,
   interceptorExists,
-  isJson,
   isNonNegativeNumber,
   loadArcgisModules,
   makeScopeId,
   normalizeToLowerCase,
-  safeLogParams,
   safeParseUrl,
   toNonEmptyTrimmedString,
-  toNumberValue,
   toTrimmedString,
 } from "./utils";
 import {
@@ -76,7 +72,7 @@ import {
   mapErrorFromNetwork,
   safeAbortController,
 } from "./utils/error";
-import { createWebhookArtifacts, parseNonNegativeInt } from "./utils/fme";
+import { parseNonNegativeInt } from "./utils/fme";
 import {
   extractHttpStatus,
   isRetryableError,
@@ -428,6 +424,247 @@ function inferOk(status?: number): boolean | undefined {
 
 const isUnknownValueMap = (value: unknown): value is UnknownValueMap =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const HTTP_URL_PATTERN = /^https?:\/\//i;
+
+const createAbortError = (): Error => {
+  try {
+    return new DOMException("Aborted", "AbortError");
+  } catch {
+    const error = new Error("AbortError");
+    error.name = "AbortError";
+    return error;
+  }
+};
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+};
+
+const delayWithSignal = (ms: number, signal?: AbortSignal): Promise<void> => {
+  if (!ms || ms <= 0) {
+    throwIfAborted(signal);
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let abortHandler: (() => void) | null = null;
+
+    const cleanup = (): void => {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
+    };
+
+    const rejectWithAbort = (): void => {
+      cleanup();
+      reject(createAbortError());
+    };
+
+    if (signal?.aborted) {
+      rejectWithAbort();
+      return;
+    }
+
+    abortHandler = rejectWithAbort;
+    if (signal) {
+      signal.addEventListener("abort", abortHandler);
+    }
+
+    timeoutId = setTimeout(
+      () => {
+        cleanup();
+        resolve();
+      },
+      Math.max(0, ms)
+    );
+  });
+};
+
+const toHttpUrl = (value: unknown): string | undefined => {
+  const candidate = toNonEmptyTrimmedString(value);
+  return candidate && HTTP_URL_PATTERN.test(candidate) ? candidate : undefined;
+};
+
+const extractFirstUrlCandidate = (
+  value: unknown,
+  depth = 0
+): string | undefined => {
+  if (depth > 5 || value == null) return undefined;
+
+  const direct = toHttpUrl(value);
+  if (direct) return direct;
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const match = extractFirstUrlCandidate(entry, depth + 1);
+      if (match) return match;
+    }
+    return undefined;
+  }
+
+  if (isUnknownValueMap(value)) {
+    for (const entry of Object.values(value)) {
+      const match = extractFirstUrlCandidate(entry, depth + 1);
+      if (match) return match;
+    }
+  }
+
+  return undefined;
+};
+
+const findFirstMessage = (
+  messages?: readonly unknown[]
+): string | undefined => {
+  if (!Array.isArray(messages)) return undefined;
+  for (const entry of messages) {
+    const trimmed = toTrimmedString(entry);
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+};
+
+const normalizePathSegment = (segment?: string | null): string => {
+  if (!segment) return "";
+  return segment.replace(/\\+/g, "/").replace(/^\/+|\/+$/g, "");
+};
+
+const buildResourcePathReference = (
+  connection: string,
+  namespace: string,
+  fileName: string
+): string => {
+  const normalizedConnection =
+    normalizePathSegment(connection) || FME_FLOW_API.TEMP_RESOURCE_CONNECTION;
+  const normalizedNamespace = normalizePathSegment(namespace);
+  const parts = [normalizedConnection];
+  if (normalizedNamespace) parts.push(normalizedNamespace);
+  parts.push(fileName);
+  return parts.join("/");
+};
+
+const RESOURCE_PATH_KEYS = [
+  "path",
+  "fullPath",
+  "relativePath",
+  "resourcePath",
+  "filePath",
+  "savedPath",
+  "targetPath",
+];
+
+const RESOURCE_URL_KEYS = ["href", "url", "downloadUrl"] as const;
+const RESOURCE_COLLECTION_KEYS = ["file", "files", "items", "data"];
+
+const extractUploadedResourcePath = (value: unknown): string | undefined => {
+  if (typeof value === "string") {
+    const trimmed = toTrimmedString(value);
+    return trimmed || undefined;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const candidate = extractUploadedResourcePath(entry);
+      if (candidate) return candidate;
+    }
+    return undefined;
+  }
+
+  if (!isUnknownValueMap(value)) return undefined;
+
+  for (const key of RESOURCE_PATH_KEYS) {
+    const candidate = toTrimmedString(value[key]);
+    if (candidate) return candidate;
+  }
+
+  for (const key of RESOURCE_URL_KEYS) {
+    const candidate = toTrimmedString(value[key]);
+    if (candidate) return candidate;
+  }
+
+  for (const key of RESOURCE_COLLECTION_KEYS) {
+    const nested = extractUploadedResourcePath(value[key]);
+    if (nested) return nested;
+  }
+
+  return undefined;
+};
+
+const toJobIdValue = (value: unknown): number | undefined => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+};
+
+const extractJobIdFromRecord = (candidate: unknown): number | undefined => {
+  if (!isUnknownValueMap(candidate)) return undefined;
+  return (
+    toJobIdValue(candidate.jobID) ||
+    toJobIdValue(candidate.jobId) ||
+    toJobIdValue(candidate.id)
+  );
+};
+
+const extractJobId = (jobResult?: JobResult | null): number | undefined => {
+  if (!jobResult || typeof jobResult !== "object") return undefined;
+  return (
+    toJobIdValue(jobResult.id) ||
+    toJobIdValue(jobResult.jobID) ||
+    extractJobIdFromRecord(jobResult.serviceResponse) ||
+    extractJobIdFromRecord(jobResult.result?.serviceResponse)
+  );
+};
+
+const buildServiceResponseFromJobResult = (
+  jobResult?: JobResult | null
+): FmeServiceInfo | undefined => {
+  if (!jobResult || typeof jobResult !== "object") return undefined;
+
+  const message =
+    toTrimmedString(jobResult.statusMessage) ||
+    toTrimmedString(jobResult.result?.statusMessage) ||
+    findFirstMessage(jobResult.result?.logMessages);
+
+  const url =
+    toHttpUrl(jobResult.url) ||
+    toHttpUrl(jobResult.serviceResponse?.url) ||
+    toHttpUrl(jobResult.result?.serviceResponse?.url) ||
+    toHttpUrl(jobResult.result?.downloadUrl) ||
+    toHttpUrl(jobResult.result?.url) ||
+    extractFirstUrlCandidate(jobResult.result?.files) ||
+    extractFirstUrlCandidate(jobResult.result?.outputs) ||
+    extractFirstUrlCandidate(jobResult.result?.data);
+
+  if (!message && !url && jobResult.status === undefined) {
+    return undefined;
+  }
+
+  const jobId = extractJobId(jobResult);
+
+  return {
+    status: jobResult.status as string | undefined,
+    message: message || undefined,
+    jobID: jobId,
+    id: jobId,
+    url: url || undefined,
+  };
+};
 
 const coerceDetailValue = (value: unknown, depth = 0): string | null => {
   if (value == null) return null;
@@ -972,7 +1209,6 @@ export function resetEsriCache(): void {
   _webMercatorUtils = undefined;
   _SpatialReference = undefined;
   _loadPromise = null;
-  _cachedMaxUrlLength = null;
 }
 
 // Kontrollerar om alla ArcGIS-moduler är laddade
@@ -1140,25 +1376,6 @@ const asProjection = (
   isLoaded?: () => boolean;
 } | null => (isObjectType(v) ? (v as { [key: string]: unknown }) : null);
 
-/* Helper-funktioner för FME-token-interceptors */
-
-// Skapar typat fel med kod, status och orsak
-const makeError = (
-  code: WebhookErrorCode,
-  status?: number,
-  cause?: unknown
-): Error & { code: WebhookErrorCode; status?: number; cause?: unknown } => {
-  const error = new Error(code) as Error & {
-    code: WebhookErrorCode;
-    status?: number;
-    cause?: unknown;
-  };
-  error.code = code;
-  if (status != null) error.status = status;
-  if (cause !== undefined) error.cause = cause;
-  return error;
-};
-
 // Kontrollerar om FME-token är cachelagrad för host
 const hasCachedToken = (hostKey: string): boolean =>
   Object.prototype.hasOwnProperty.call(_fmeTokensByHost, hostKey);
@@ -1286,38 +1503,6 @@ async function addFmeInterceptor(
   );
 }
 
-/* URL-längd-validering via Esri-konfiguration */
-
-let _cachedMaxUrlLength: number | null = null;
-
-// Hämtar maximal URL-längd från Esri config eller default (1900)
-const getMaxUrlLength = (): number => {
-  // Försök hämta från window.esriConfig först
-  const windowLength = (() => {
-    if (typeof window === "undefined") return undefined;
-    const rawMaxLength = (window as WindowWithEsriConfig)?.esriConfig?.request
-      ?.maxUrlLength;
-    const numeric = toNumberValue(rawMaxLength) ?? Number(rawMaxLength);
-    return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
-  })();
-
-  if (windowLength !== undefined) return windowLength;
-
-  // Använd cachelagrad längd om tillgänglig
-  if (_cachedMaxUrlLength !== null) return _cachedMaxUrlLength;
-
-  // Hämta från laddad Esri-modul och cachea
-  const esriConfigModule = asEsriConfig(_esriConfig);
-  const configuredMaxLength = esriConfigModule?.request?.maxUrlLength;
-  const numeric =
-    typeof configuredMaxLength === "number"
-      ? configuredMaxLength
-      : Number(configuredMaxLength);
-  _cachedMaxUrlLength =
-    Number.isFinite(numeric) && numeric > 0 ? numeric : 1900;
-  return _cachedMaxUrlLength;
-};
-
 /* Esri-konfiguration för FME Flow API */
 
 // Säkerställer att Esri config har tillräcklig maxUrlLength
@@ -1357,7 +1542,7 @@ const buildNMDirectives = (): null => {
 };
 
 // Skapar request-body för FME-jobb-submit (TM/NM + parameters)
-const makeSubmitBody = (
+const buildSubmitBody = (
   publishedParameters: PublishedParameterEntry[],
   params: PrimitiveParams
 ): SubmitParametersPayload => {
@@ -1464,44 +1649,43 @@ export class FmeFlowApiClient {
       .replace(/[^A-Za-z0-9_-]/g, "-")
       .slice(0, FILE_UPLOAD.MAX_NAMESPACE_LENGTH);
     const namespace = sanitizedNamespace || createCorrelationId("upload");
+    if (typeof FormData === "undefined") {
+      throw makeFlowError("FORMDATA_UNSUPPORTED");
+    }
 
+    const connection = FME_FLOW_API.TEMP_RESOURCE_CONNECTION;
     const endpoint = buildUrl(
       this.config.serverUrl,
-      "fmedataupload",
-      repository,
-      workspace,
-      safeName
+      this.basePath.slice(1),
+      "resources",
+      "connections",
+      connection,
+      "upload"
     );
 
     const query: PrimitiveParams = {
-      opt_fullpath: "true",
-      opt_responseformat: "json",
-      opt_namespace: namespace,
+      overwrite: "true",
     };
+    if (namespace) {
+      query.path = namespace;
+    }
 
-    const headers: { [key: string]: string } = {
-      Accept: "application/json",
-      "Content-Type":
-        file instanceof File && file.type
-          ? file.type
-          : "application/octet-stream",
-    };
+    const formData = new FormData();
+    formData.append("file", file, safeName);
 
-    const response = await this.request<{
-      file?: { path?: string; name?: string; size?: number };
-      session?: string;
-    }>(endpoint, {
-      method: HttpMethod.PUT,
-      headers,
-      body: file,
+    const response = await this.request<unknown>(endpoint, {
+      method: HttpMethod.POST,
+      headers: { Accept: "application/json" },
+      body: formData,
       query,
       signal: options?.signal,
       cacheHint: false,
       repositoryContext: repository,
     });
 
-    const fileInfo = response.data?.file;
-    const resolvedPath = toTrimmedString(fileInfo?.path) ?? null;
+    const resolvedPath =
+      extractUploadedResourcePath(response.data) ||
+      buildResourcePathReference(connection, namespace, safeName);
 
     if (!resolvedPath) {
       throw makeFlowError("DATA_UPLOAD_ERROR", response.status);
@@ -1533,7 +1717,7 @@ export class FmeFlowApiClient {
       .filter(([name]) => !PUBLISHED_PARAM_EXCLUDE_SET.has(name))
       .map(([name, value]) => ({ name, value }));
 
-    return makeSubmitBody(publishedParameters, parameters);
+    return buildSubmitBody(publishedParameters, parameters);
   }
 
   // Bygger repository-endpoint med basepath och segment
@@ -1550,6 +1734,17 @@ export class FmeFlowApiClient {
   private jobsEndpoint(): string {
     return buildUrl(this.config.serverUrl, this.basePath.slice(1), "jobs");
   }
+
+  private jobResultEndpoint(jobId: number | string): string {
+    return buildUrl(
+      this.config.serverUrl,
+      this.basePath.slice(1),
+      "jobs",
+      String(jobId),
+      "result"
+    );
+  }
+
   private workspaceEndpoint(
     repository: string,
     workspace: string,
@@ -1795,280 +1990,114 @@ export class FmeFlowApiClient {
     );
   }
 
-  // Kör workspace via data-download (stream) med webhook
-  async runDataDownload(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository?: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse> {
-    const targetRepository = this.resolveRepository(repository);
-    return await this.runDownloadWebhook(
-      workspace,
-      parameters,
-      targetRepository,
-      signal
+  private async getJobResult(
+    jobId: number,
+    options?: { signal?: AbortSignal; longPoll?: boolean }
+  ): Promise<ApiResponse<JobResult>> {
+    const endpoint = this.jobResultEndpoint(jobId);
+    const query: PrimitiveParams = {};
+    if (options?.longPoll) {
+      query.longPoll = "true";
+      query.longPollInterval = FME_FLOW_API.JOB_RESULT_LONG_POLL_INTERVAL_SEC;
+    }
+
+    return this.withApiError(
+      () =>
+        this.request<JobResult>(endpoint, {
+          signal: options?.signal,
+          cacheHint: false,
+          query,
+        }),
+      "JOB_RESULT_ERROR",
+      "JOB_RESULT_ERROR"
     );
   }
 
-  // Kör workspace synkront med direktsvar
+  private async waitForJobResult(
+    jobId: number,
+    signal?: AbortSignal
+  ): Promise<ApiResponse<JobResult>> {
+    const maxWait = Math.max(0, FME_FLOW_API.JOB_RESULT_MAX_WAIT_MS);
+    const pollDelay = Math.max(0, FME_FLOW_API.JOB_RESULT_POLL_INTERVAL_MS);
+    const deadline =
+      maxWait > 0 ? Date.now() + maxWait : Number.POSITIVE_INFINITY;
+    let attempt = 0;
+
+    while (true) {
+      throwIfAborted(signal);
+
+      const response = await this.getJobResult(jobId, {
+        signal,
+        longPoll: attempt === 0,
+      });
+
+      throwIfAborted(signal);
+
+      if (response.status !== HTTP_STATUS_CODES.ACCEPTED) {
+        return response;
+      }
+
+      if (Date.now() >= deadline) {
+        throw makeFlowError("JOB_RESULT_TIMEOUT", HTTP_STATUS_CODES.TIMEOUT);
+      }
+
+      await delayWithSignal(pollDelay, signal);
+      attempt += 1;
+    }
+  }
+
   async runWorkspace(
     workspace: string,
     parameters: PrimitiveParams = {},
     repository?: string,
     signal?: AbortSignal
-  ): Promise<ApiResponse> {
-    return await this.runDataDownload(
+  ): Promise<ApiResponse<{ serviceResponse: FmeServiceInfo }>> {
+    throwIfAborted(signal);
+
+    const submissionResponse = await this.submitJob(
       workspace,
       parameters,
       repository,
       signal
     );
-  }
 
-  // Kör workspace via webhook för data-download/stream
-  private async runDownloadWebhook(
-    workspace: string,
-    parameters: PrimitiveParams = {},
-    repository: string,
-    signal?: AbortSignal
-  ): Promise<ApiResponse> {
-    try {
-      const webhookOptions = {
-        requireHttps: this.config.requireHttps,
-      };
+    throwIfAborted(signal);
 
-      const {
-        baseUrl: webhookUrl,
-        params,
-        fullUrl,
-      } = createWebhookArtifacts(
-        this.config.serverUrl,
-        repository,
-        workspace,
-        parameters,
-        this.config.token,
-        webhookOptions
-      );
-
-      // Kontrollera URL-längd mot maxlängd
-      const maxLen = getMaxUrlLength();
-      if (Number.isFinite(maxLen) && maxLen > 0 && fullUrl.length > maxLen) {
-        throw makeError("URL_TOO_LONG", 0);
-      }
-
-      // Logga parametrar (whitelistad) för felsökning
-      safeLogParams(
-        "WEBHOOK_CALL",
-        webhookUrl,
-        params,
-        FME_FLOW_API.WEBHOOK_LOG_WHITELIST
-      );
-
-      await ensureEsri();
-      const esriRequestFn = asEsriRequest(_esriRequest);
-      if (!esriRequestFn) {
-        throw makeFlowError("ARCGIS_MODULE_ERROR");
-      }
-
-      const requestHeaders = {
-        Accept: "application/json",
-        "Cache-Control": "no-cache",
-      };
-
-      // Komponera timeout-aware AbortSignal för esriRequest
-      const controller = new AbortController();
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
-      let didTimeout = false;
-      const onAbort = () => {
-        controller.abort();
-      };
-      try {
-        // Länka extern signal om tillgänglig
-        if (signal) {
-          if (signal.aborted) controller.abort();
-          else signal.addEventListener("abort", onAbort);
-        }
-
-        // Sätt timeout om konfigurerad
-        const timeoutMs =
-          typeof this.config.timeout === "number" && this.config.timeout > 0
-            ? this.config.timeout
-            : undefined;
-        if (timeoutMs) {
-          timeoutId = setTimeout(() => {
-            didTimeout = true;
-            try {
-              controller.abort();
-            } catch {}
-          }, timeoutMs);
-        }
-
-        // Instrumenterad GET-request via webhook
-        const response = await instrumentedRequest<EsriResponseLike>({
-          method: "GET",
-          url: fullUrl,
-          transport: "fme-webhook",
-          query: params,
-          correlationId: createCorrelationId("webhook"),
-          responseInterpreter: {
-            status: getEsriResponseStatus,
-            ok: getEsriResponseOk,
-            size: getEsriResponseSize,
-          },
-          execute: () => {
-            const requestOptions: EsriRequestOptions = {
-              method: "get",
-              responseType: "json",
-              headers: requestHeaders,
-              signal: controller.signal,
-            };
-            if (typeof timeoutMs === "number" && timeoutMs > 0) {
-              requestOptions.timeout = timeoutMs;
-            }
-            return esriRequestFn(
-              fullUrl,
-              requestOptions
-            ) as Promise<EsriResponseLike>;
-          },
-        });
-
-        return this.parseWebhookResponse(response);
-      } catch (error) {
-        // Hantera abort-fel, särskilt timeout
-        if (isAbortError(error)) {
-          if (didTimeout) {
-            throw makeError("WEBHOOK_TIMEOUT", 408, error);
-          }
-        }
-        throw error instanceof Error ? error : new Error(String(error));
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
-        try {
-          if (signal) signal.removeEventListener("abort", onAbort);
-        } catch {}
-      }
-    } catch (err) {
-      if (err instanceof FmeFlowApiError) throw err;
-      if ((err as { code?: string } | null)?.code) {
-        throw err instanceof Error ? err : new Error(String(err));
-      }
-      const status = extractHttpStatus(err);
-      throw makeFlowError("DATA_DOWNLOAD_ERROR", status || 0);
-    }
-  }
-
-  // Parsar webhook-respons och hanterar fel
-  private async parseWebhookResponse(
-    response: Response | EsriResponseLike
-  ): Promise<ApiResponse> {
-    const resolveStatus = (value: Response | EsriResponseLike): number => {
-      if (typeof value.status === "number") return value.status;
-      if ("httpStatus" in value && typeof value.httpStatus === "number") {
-        return value.httpStatus ?? 0;
-      }
-      return 0;
-    };
-
-    const status = resolveStatus(response);
-
-    if (status === 401 || status === 403) {
-      throw makeError("WEBHOOK_AUTH_ERROR", status);
+    const submissionData = submissionResponse.data;
+    if (!submissionData) {
+      throw makeFlowError("JOB_SUBMISSION_EMPTY", submissionResponse.status);
     }
 
-    const headerGetter = (() => {
-      if (response instanceof Response) return response.headers;
-      if (
-        typeof response.headers === "object" &&
-        response.headers &&
-        "get" in response.headers &&
-        typeof response.headers.get === "function"
-      ) {
-        return response.headers as {
-          get: (name: string) => string | null;
+    const immediateServiceResponse =
+      buildServiceResponseFromJobResult(submissionData) || undefined;
+    const jobId = extractJobId(submissionData);
+
+    if (!jobId) {
+      if (immediateServiceResponse) {
+        return {
+          data: { serviceResponse: immediateServiceResponse },
+          status: submissionResponse.status,
+          statusText: submissionResponse.statusText,
         };
       }
-      return undefined;
-    })();
-
-    const contentType = headerGetter?.get("content-type") || undefined;
-
-    const parseJsonText = async (textSource: unknown): Promise<unknown> => {
-      try {
-        let text = "";
-        if (typeof textSource === "function") {
-          text = await (textSource as () => Promise<string>)();
-        } else if (typeof textSource === "string") {
-          text = textSource;
-        } else if (
-          typeof textSource === "number" ||
-          typeof textSource === "boolean"
-        ) {
-          text = String(textSource);
-        } else if (textSource == null) {
-          text = "";
-        } else {
-          throw new Error("Unsupported text source type");
-        }
-        return text ? JSON.parse(text) : {};
-      } catch (error) {
-        throw makeError("WEBHOOK_NON_JSON", status, error);
-      }
-    };
-
-    const parseJsonResponse = async (
-      value: Response | EsriResponseLike
-    ): Promise<unknown> => {
-      if (value instanceof Response) {
-        try {
-          return await value.json();
-        } catch (error) {
-          throw makeError("WEBHOOK_NON_JSON", status, error);
-        }
-      }
-
-      if (typeof value.json === "function") {
-        try {
-          return await value.json();
-        } catch (error) {
-          throw makeError("WEBHOOK_NON_JSON", status, error);
-        }
-      }
-
-      if (value.data !== undefined) {
-        return value.data;
-      }
-
-      if (value.json !== undefined) {
-        return value.json;
-      }
-
-      if (typeof value.text === "function" || typeof value.text === "string") {
-        return parseJsonText(value.text);
-      }
-
-      return undefined;
-    };
-
-    const data = await parseJsonResponse(response);
-
-    if (!data || typeof data !== "object") {
-      throw makeError("WEBHOOK_NON_JSON", status, response);
+      throw makeFlowError("JOB_ID_MISSING", submissionResponse.status);
     }
 
-    if (contentType && !isJson(contentType)) {
-      throw makeError("WEBHOOK_NON_JSON", status, { contentType });
-    }
+    const finalResponse = await this.waitForJobResult(jobId, signal);
+    throwIfAborted(signal);
 
-    const statusText =
-      response instanceof Response
-        ? response.statusText
-        : (response.statusText ?? "");
+    const finalServiceResponse =
+      buildServiceResponseFromJobResult(finalResponse.data) ||
+      immediateServiceResponse;
+
+    if (!finalServiceResponse) {
+      throw makeFlowError("JOB_RESULT_EMPTY", finalResponse.status);
+    }
 
     return {
-      data,
-      status,
-      statusText,
+      data: { serviceResponse: finalServiceResponse },
+      status: finalResponse.status,
+      statusText: finalResponse.statusText,
     };
   }
 

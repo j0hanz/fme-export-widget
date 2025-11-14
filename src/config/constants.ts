@@ -185,6 +185,10 @@ export const FME_FLOW_API = Object.freeze({
     "opt_showresult",
     "opt_servicemode",
   ] as const),
+  JOB_RESULT_POLL_INTERVAL_MS: 2000,
+  JOB_RESULT_MAX_WAIT_MS: 300000,
+  JOB_RESULT_LONG_POLL_INTERVAL_SEC: 10,
+  TEMP_RESOURCE_CONNECTION: "Temp",
 });
 
 export const FME_ENDPOINT_PATTERN =
@@ -583,6 +587,7 @@ export const ERROR_LABEL_PATTERN =
 
 export const HTTP_STATUS_CODES = Object.freeze({
   OK: 200,
+  ACCEPTED: 202,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
   NOT_FOUND: 404,
@@ -729,7 +734,7 @@ export const TIME_CONSTANTS = Object.freeze({
   POPUP_CLOSE_DELAY_MS: 100,
   BLOB_URL_CLEANUP_DELAY_MS: 120000,
   STARTUP_TIMEOUT_MS: 15000,
-  MIN_LOADING_DELAY_MS: 400,
+  MIN_LOADING_DELAY_MS: 1000,
 });
 
 // =============================================================================
