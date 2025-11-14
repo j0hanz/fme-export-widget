@@ -1634,9 +1634,9 @@ function WidgetContent(
       safeCancelSketch(sketchViewModel);
     }
 
-    /* Återställer till initial state och sätter STARTUP_VALIDATION för nästa öppning */
+    // Återställer Redux-state
     fmeDispatch.resetState();
-    fmeDispatch.setViewMode(ViewMode.STARTUP_VALIDATION);
+    fmeDispatch.setViewMode(ViewMode.DRAWING);
 
     closeOtherWidgets();
     if (jimuMapView) {
@@ -1645,7 +1645,7 @@ function WidgetContent(
   });
 
   hooks.useUpdateEffect(() => {
-    /* Återställer endast vid stängning av widget (inte vid minimering) */
+    /* Återställer och förbereder för nästa öppning vid stängning av widget */
     if (
       stateDetector.isTransition(
         prevRuntimeState,
@@ -1653,9 +1653,21 @@ function WidgetContent(
         STATE_TRANSITIONS.TO_CLOSED
       )
     ) {
-      handleReset();
+      /* Vid stängning: sätt STARTUP_VALIDATION för nästa öppning */
+      submissionAbort.cancel();
+      setSubmissionPhase("idle");
+      fmeDispatch.setLoadingFlag("submission", false);
+      fmeDispatch.setLoadingFlag("geometryValidation", false);
+      resetGraphicsAndMeasurements();
+      updateAreaWarning(false);
+      updateDrawingSession({ isActive: false, clickCount: 0 });
+      if (sketchViewModel) {
+        safeCancelSketch(sketchViewModel);
+      }
+      fmeDispatch.resetState();
+      fmeDispatch.setViewMode(ViewMode.STARTUP_VALIDATION);
     }
-  }, [runtimeState, prevRuntimeState, handleReset, stateDetector]);
+  }, [runtimeState, prevRuntimeState, stateDetector]);
 
   /* Stänger popups när widget öppnas */
   hooks.useUpdateEffect(() => {
