@@ -43,7 +43,6 @@ import type {
   ButtonProps,
   ButtonTabsProps,
   FieldProps,
-  FormPrimitive,
   FormProps,
   GroupButtonConfig,
   InputProps,
@@ -70,12 +69,9 @@ import {
   getErrorIconSrc,
   resolveMessageOrKey,
   styleCss,
-  toBooleanValue,
-  toTrimmedString,
-  toTrimmedStringOrEmpty,
 } from "../../shared/utils";
-import { isStringOrNumber } from "../../shared/utils/conversion";
 import defaultMessages from "../translations/default";
+// Removed schedule validation imports from "../../shared/validations"
 import dataIcon from "../../assets/icons/data.svg";
 import emailIcon from "../../assets/icons/email.svg";
 import errorIcon from "../../assets/icons/error.svg";
@@ -86,7 +82,6 @@ import linkTiltedIcon from "../../assets/icons/link-tilted.svg";
 import mapIcon from "../../assets/icons/map.svg";
 import personLockIcon from "../../assets/icons/person-lock.svg";
 import polygonIcon from "../../assets/icons/polygon.svg";
-import rectangleIcon from "../../assets/icons/rectangle.svg";
 import settingIcon from "../../assets/icons/setting.svg";
 import sharedNoIcon from "../../assets/icons/shared-no.svg";
 import successIcon from "../../assets/icons/success.svg";
@@ -113,7 +108,6 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   email: emailIcon,
   info: infoIcon,
   success: successIcon,
-  rectangle: rectangleIcon,
 };
 
 type AlertVariant = NonNullable<React.ComponentProps<typeof JimuAlert>["type"]>;
@@ -160,67 +154,13 @@ const withId = (
 const applyComponentStyles = (
   base: Array<SerializedStyles | undefined>,
   customStyle?: React.CSSProperties
-) =>
-  [...base, styleCss(customStyle)].filter((value): value is SerializedStyles =>
-    Boolean(value)
-  );
+) => [...base, styleCss(customStyle)].filter(Boolean);
 
 // Applicerar fullbredd-stil med anpassad stil
 const applyFullWidthStyles = (
   styles: UiStyles,
   customStyle?: React.CSSProperties
 ) => applyComponentStyles([styles.fullWidth], customStyle);
-
-type LoadingEntry = React.ReactNode | null | undefined;
-
-const collectLoadingMessages = (
-  primary: readonly LoadingEntry[],
-  extras?: readonly React.ReactNode[]
-): {
-  readonly messages: readonly React.ReactNode[];
-  readonly signature: string;
-} => {
-  const seenStrings = new Set<string>();
-  const collected: React.ReactNode[] = [];
-
-  const pushEntry = (entry: React.ReactNode | null | undefined) => {
-    if (entry === null || entry === undefined) {
-      return;
-    }
-
-    if (typeof entry === "string") {
-      const trimmed = entry.trim();
-      if (!trimmed || seenStrings.has(trimmed)) {
-        return;
-      }
-      seenStrings.add(trimmed);
-      collected.push(trimmed);
-      return;
-    }
-
-    collected.push(entry);
-  };
-
-  primary.forEach(pushEntry);
-
-  if (extras) {
-    extras.forEach(pushEntry);
-  }
-
-  const signature = collected
-    .map((value, index) => {
-      if (typeof value === "string") {
-        return value;
-      }
-      if (React.isValidElement(value) && value.key != null) {
-        return String(value.key);
-      }
-      return `node-${index}`;
-    })
-    .join("|");
-
-  return { messages: collected, signature };
-};
 
 // Bygger vanliga ARIA-attribut för formulärinmatningar
 const getFormAria = (opts: {
@@ -242,9 +182,9 @@ const wrapWithTooltip = (
   element: React.ReactElement,
   opts: {
     tooltip?: React.ReactNode;
-    placement?: TooltipProps["placement"];
+    placement?: TooltipProps["placement"] | "auto";
     block?: boolean;
-    jimuCss?: ReturnType<typeof css>;
+    jimuCss?: SerializedStyles | readonly SerializedStyles[];
     jimuStyle?: React.CSSProperties;
     styles: UiStyles;
   }
@@ -252,36 +192,51 @@ const wrapWithTooltip = (
   const { tooltip, placement, block, jimuCss, jimuStyle, styles } = opts;
   if (!tooltip) return element;
 
-  const wrapperCss = [
-    jimuCss,
-    styleCss(jimuStyle),
-    block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
-  ].filter((value): value is SerializedStyles => Boolean(value));
+  const normalizedCss: SerializedStyles[] = Array.isArray(jimuCss)
+    ? jimuCss.filter(Boolean)
+    : jimuCss
+      ? [jimuCss]
+      : [];
+
+  const wrapperCss = applyComponentStyles(
+    [
+      ...normalizedCss,
+      block ? styles.tooltipWrap.block : styles.tooltipWrap.inline,
+    ],
+    jimuStyle
+  );
+
+  const tooltipPlacement = sanitizeTooltipPlacement(placement);
 
   return (
     <span css={wrapperCss}>
-      <Tooltip content={tooltip} placement={placement}>
+      <Tooltip content={tooltip} placement={tooltipPlacement}>
         <span css={styles.tooltipWrap.anchor}>{element}</span>
       </Tooltip>
     </span>
   );
 };
 
-// Sanerar tooltip-placering
-const sanitizeTooltipPlacement = (placement: TooltipProps["placement"]) =>
-  placement;
+// Sanerar tooltip-placering (ersätter auto med top)
+const sanitizeTooltipPlacement = (
+  placement: TooltipProps["placement"] | "auto" | undefined
+) => (placement === "auto" ? config.tooltip.position.top : placement);
 
 // Skapar tooltip-ankare med stöd för disabled element
 const createTooltipAnchor = (
   child: React.ReactElement,
   tooltipContent: React.ReactNode
 ) => {
-  const childProps = child.props || {};
+  const childProps = (child.props || {}) as {
+    disabled?: boolean;
+    "aria-disabled"?: boolean;
+  };
   const isDisabled = childProps.disabled || childProps["aria-disabled"];
 
   if (!isDisabled) return child;
 
-  const ariaLabel = toTrimmedString(tooltipContent);
+  const ariaLabel =
+    typeof tooltipContent === "string" ? tooltipContent : undefined;
 
   // Inaktiverade element ska INTE vara fokusbara enligt WCAG 2.1.1
   return (
@@ -292,10 +247,7 @@ const createTooltipAnchor = (
 };
 
 // Returnerar required-markering med tooltip
-const getRequiredMark = (
-  translate: (k: string, vars?: { [key: string]: string | number }) => string,
-  styles: UiStyles
-) => (
+const getRequiredMark = (translate: TranslateFn, styles: UiStyles) => (
   <Tooltip content={translate("valRequiredField")} placement="bottom">
     <span
       css={styles.typo.required}
@@ -423,40 +375,6 @@ export const Checkbox: React.FC<React.ComponentProps<typeof JimuCheckbox>> = (
   props
 ) => <JimuCheckbox {...props} />;
 
-type TextInputTypeName =
-  | "text"
-  | "email"
-  | "select"
-  | "file"
-  | "date"
-  | "datetime-local"
-  | "month"
-  | "search"
-  | "tel"
-  | "week"
-  | "password"
-  | "datetime"
-  | "time";
-
-const TEXT_INPUT_TYPES: readonly TextInputTypeName[] = [
-  "text",
-  "email",
-  "select",
-  "file",
-  "date",
-  "datetime-local",
-  "month",
-  "search",
-  "tel",
-  "week",
-  "password",
-  "datetime",
-  "time",
-] as const;
-
-const isTextInputType = (candidate: string): candidate is TextInputTypeName =>
-  (TEXT_INPUT_TYPES as readonly string[]).includes(candidate);
-
 // Input-komponent
 export const Input: React.FC<InputProps> = (props) => {
   const {
@@ -477,9 +395,10 @@ export const Input: React.FC<InputProps> = (props) => {
   const styles = useStyles();
   const isFileInput = type === "file";
 
-  const [hookValue, hookHandleValueChange] = useValue<
-    FormPrimitive | undefined
-  >(controlled as FormPrimitive | undefined, defaultValue ?? "");
+  const [hookValue, hookHandleValueChange] = useValue(
+    controlled,
+    defaultValue || ""
+  );
   const [value, handleValueChange] = isFileInput
     ? [undefined, undefined]
     : [hookValue, hookHandleValueChange];
@@ -503,7 +422,6 @@ export const Input: React.FC<InputProps> = (props) => {
   const handleBlur = hooks.useEventCallback(
     (evt: React.FocusEvent<HTMLInputElement>) => {
       if (onBlur) {
-        // För filinmatning, skicka tom sträng; för textinmatning, skicka värde
         onBlur(isFileInput ? "" : evt.target.value);
       }
     }
@@ -511,30 +429,47 @@ export const Input: React.FC<InputProps> = (props) => {
 
   const aria = getFormAria({ id, required, errorText });
 
-  // För filinmatning, använd nativt input-element
   if (isFileInput) {
     return (
       <input
         {...restProps}
+        id={id}
+        style={style}
         type="file"
         onChange={handleChange}
         onBlur={handleBlur}
         required={required}
         title={errorText}
         {...aria}
-        id={id}
-        style={style}
         css={applyFullWidthStyles(styles, style)}
       />
     );
   }
 
-  // För andra inmatningstyper, använd TextInput med kontrollerat state
-  const textInputType: TextInputTypeName = isTextInputType(type)
-    ? type
-    : "text";
-
-  const textInputValue = isStringOrNumber(value) ? value : "";
+  const supportedTypes: ReadonlySet<
+    React.ComponentProps<typeof TextInput>["type"]
+  > = new Set([
+    "text",
+    "email",
+    "password",
+    "search",
+    "tel",
+    "date",
+    "datetime-local",
+    "month",
+    "time",
+    "week",
+    "datetime",
+    "select",
+    "file",
+  ]);
+  const textInputType =
+    type !== "number" &&
+    supportedTypes.has(type as React.ComponentProps<typeof TextInput>["type"])
+      ? (type as React.ComponentProps<typeof TextInput>["type"])
+      : "text";
+  const textInputValue =
+    typeof value === "number" || typeof value === "string" ? value : "";
 
   return (
     <TextInput
@@ -550,7 +485,7 @@ export const Input: React.FC<InputProps> = (props) => {
       maxLength={maxLength}
       title={errorText}
       {...aria}
-      css={applyFullWidthStyles(styles, props.style)}
+      css={applyFullWidthStyles(styles, style)}
     />
   );
 };
@@ -581,7 +516,7 @@ export const TextArea: React.FC<TextAreaProps> = ({
     }
   );
 
-  const validationMessage = props.errorText;
+  const validationMessage = props.validationMessage ?? props.errorText;
 
   const aria = getFormAria({
     id: props.id,
@@ -590,17 +525,24 @@ export const TextArea: React.FC<TextAreaProps> = ({
     errorSuffix: "error",
   });
 
+  const restProps = props;
+
+  const textAreaProps = {
+    ...restProps,
+    value,
+    onChange: handleChange,
+    onBlur: handleBlur,
+    css: applyComponentStyles(
+      [styles.fullWidth, styles.textareaResize],
+      props.style
+    ),
+    ...aria,
+    rows,
+  };
+
   return (
     <JimuTextArea
-      {...props}
-      value={value}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      css={applyComponentStyles(
-        [styles.fullWidth, styles.textareaResize],
-        props.style
-      )}
-      {...aria}
+      {...(textAreaProps as React.ComponentProps<typeof JimuTextArea>)}
     />
   );
 };
@@ -846,12 +788,12 @@ export const Select: React.FC<SelectProps> = ({
     return val;
   });
 
+  type SelectChangeEvent = { target?: { value?: string | number } } | undefined;
+
   const handleSingleSelectChange = hooks.useEventCallback(
-    (evt: unknown, selectedValue?: string | number) => {
+    (evt: SelectChangeEvent, selectedValue?: string | number) => {
       const rawValue =
-        selectedValue !== undefined
-          ? selectedValue
-          : (evt as { target?: { value?: string | number } })?.target?.value;
+        selectedValue !== undefined ? selectedValue : evt?.target?.value;
       const newValue = coerceValue(rawValue);
       setInternalValue(newValue);
       onChange?.(newValue);
@@ -942,7 +884,8 @@ export const Select: React.FC<SelectProps> = ({
   }
 
   const stringValue =
-    internalValue != null && isStringOrNumber(internalValue)
+    internalValue != null &&
+    (typeof internalValue === "string" || typeof internalValue === "number")
       ? String(internalValue)
       : undefined;
 
@@ -956,7 +899,7 @@ export const Select: React.FC<SelectProps> = ({
           value={searchTerm}
           placeholder={translate("phSearch")}
           onChange={(val) => {
-            setSearchTerm(toTrimmedStringOrEmpty(val));
+            setSearchTerm(typeof val === "string" ? val : "");
           }}
           onKeyDown={(evt: React.KeyboardEvent<HTMLInputElement>) => {
             if (evt.key === "Enter" && allowCustomValues) {
@@ -1055,56 +998,35 @@ export const Button: React.FC<ButtonProps> = ({
     translate("ariaButton")
   );
 
-  // Absorberar stil från inkommande props
-  const {
-    style: jimuStyle,
-    css: jimuCss,
-    ...restJimuProps
-  } = jimuProps as {
-    style?: React.CSSProperties;
-    css?: SerializedStyles | SerializedStyles[];
-  };
-
+  // Absorberar stil/css från inkommande props så inga inline-attribut vidare
+  const { style: jimuStyle, css: jimuCss, ...restJimuProps } = jimuProps;
   const normalizedJimuCss: SerializedStyles[] = Array.isArray(jimuCss)
-    ? jimuCss.filter(Boolean)
+    ? [...jimuCss]
     : jimuCss
       ? [jimuCss]
       : [];
-  const tooltipCss = normalizedJimuCss[0];
-
   const hasTooltip = !!tooltip && !tooltipDisabled;
-
-  // Map widget's color/type values to jimu-ui Button colors
-  const jimuColor:
-    | "primary"
-    | "secondary"
-    | "error"
-    | "warning"
-    | "info"
-    | "success"
-    | "default"
-    | "inherit" =
-    color === "danger" || type === "danger"
-      ? "error"
-      : color === "link"
-        ? "default"
-        : (color as
-            | "primary"
-            | "secondary"
-            | "error"
-            | "warning"
-            | "info"
-            | "success"
-            | "default"
-            | "inherit") || "default";
+  const buttonCss = !hasTooltip
+    ? applyComponentStyles([styles.relative, ...normalizedJimuCss], jimuStyle)
+    : [styles.relative];
+  const resolvedType:
+    | React.ComponentProps<typeof JimuButton>["type"]
+    | undefined = type;
+  const resolvedColor:
+    | React.ComponentProps<typeof JimuButton>["color"]
+    | undefined = color;
+  const resolvedSize = size;
+  const resolvedVariant:
+    | React.ComponentProps<typeof JimuButton>["variant"]
+    | undefined = variant;
 
   const buttonElement = (
     <JimuButton
       {...restJimuProps}
-      type={type}
-      color={jimuColor}
-      variant={variant}
-      size={size}
+      type={resolvedType}
+      color={resolvedColor}
+      variant={resolvedVariant}
+      size={resolvedSize}
       htmlType={htmlType}
       icon={!text && !!icon}
       onClick={handleClick}
@@ -1113,11 +1035,7 @@ export const Button: React.FC<ButtonProps> = ({
       aria-live={loading ? "polite" : undefined}
       aria-label={ariaLabel}
       title={tooltip ? undefined : jimuProps.title}
-      css={[
-        styles.relative,
-        ...(!hasTooltip ? normalizedJimuCss : []),
-        !hasTooltip ? styleCss(jimuStyle) : undefined,
-      ].filter((value): value is SerializedStyles => Boolean(value))}
+      css={buttonCss}
       block={block}
       tabIndex={jimuProps.tabIndex ?? 0}
     >
@@ -1136,7 +1054,7 @@ export const Button: React.FC<ButtonProps> = ({
         tooltip,
         placement: tooltipPlacement,
         block,
-        jimuCss: tooltipCss,
+        jimuCss: normalizedJimuCss,
         jimuStyle,
         styles,
       })
@@ -1156,6 +1074,7 @@ type AlertComponentProps = Omit<
   jimuVariant?: AlertComponentBaseProps["variant"];
   tooltipPlacement?: TooltipProps["placement"];
   withIcon?: AlertComponentBaseProps["withIcon"];
+  css?: SerializedStyles | readonly SerializedStyles[];
 };
 
 export const Alert: React.FC<AlertComponentProps> = ({
@@ -1176,15 +1095,13 @@ export const Alert: React.FC<AlertComponentProps> = ({
     children ?? (text != null ? <span>{text}</span> : null);
   const resolvedVariant: AlertDisplayVariant =
     variant === "icon" && !iconKey ? "default" : variant;
-  const { css: jimuCss, ...restAlertProps } = rest as {
-    css?: SerializedStyles | SerializedStyles[];
-  } & AlertComponentBaseProps;
-  const normalizedAlertCss: SerializedStyles[] = Array.isArray(jimuCss)
-    ? jimuCss.filter(Boolean)
+
+  const { css: jimuCss, ...restAlertProps } = rest;
+  const normalizedJimuCss: SerializedStyles[] = Array.isArray(jimuCss)
+    ? [...jimuCss]
     : jimuCss
       ? [jimuCss]
       : [];
-  const tooltipCss = normalizedAlertCss[0];
 
   if (resolvedVariant === "icon") {
     const tooltipContent =
@@ -1208,10 +1125,11 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles(
-          [styles.alert, ...(shouldWrapWithTooltip ? [] : normalizedAlertCss)],
-          style
-        )}
+        css={
+          shouldWrapWithTooltip
+            ? [styles.alert]
+            : applyComponentStyles([styles.alert, ...normalizedJimuCss], style)
+        }
       >
         {iconKey ? (
           <div css={styles.alertIcon}>
@@ -1229,7 +1147,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       tooltip: tooltipContent,
       placement: sanitizeTooltipPlacement(tooltipPlacement),
       block: true,
-      jimuCss: tooltipCss,
+      jimuCss: normalizedJimuCss,
       jimuStyle: style,
       styles,
     });
@@ -1243,7 +1161,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
         withIcon={false}
         variant={jimuVariant}
         className={className}
-        css={applyComponentStyles([styles.alert, ...normalizedAlertCss], style)}
+        css={applyComponentStyles([styles.alert, ...normalizedJimuCss], style)}
       />
     );
   }
@@ -1255,7 +1173,7 @@ export const Alert: React.FC<AlertComponentProps> = ({
       withIcon={false}
       variant={jimuVariant}
       className={className}
-      css={applyComponentStyles([styles.alert, ...normalizedAlertCss], style)}
+      css={applyComponentStyles([styles.alert, ...normalizedJimuCss], style)}
     >
       <div css={styles.alertContent}>
         {iconKey ? (
@@ -1288,18 +1206,14 @@ export const ButtonTabs: React.FC<ButtonTabsProps> = ({
   const isControlled = controlled !== undefined;
   const currentValue = isControlled ? controlled : uncontrolledValue;
 
-  const handleChange = hooks.useEventCallback((newValue: string | number) => {
-    // Bevara typen från items-arrayen istället för controlled
+  const handleChange = hooks.useEventCallback((newValue: TabItem["value"]) => {
     const targetItem = items.find((item) => item.value === newValue);
-    const final =
-      targetItem && typeof targetItem.value === "number"
-        ? Number(newValue)
-        : newValue;
+    const finalValue = targetItem ? targetItem.value : newValue;
     if (!isControlled) {
-      setUncontrolledValue(final);
+      setUncontrolledValue(finalValue);
     }
-    onChange?.(final);
-    onTabChange?.(final);
+    onChange?.(finalValue);
+    onTabChange?.(finalValue);
   });
 
   return (
@@ -1361,6 +1275,29 @@ const StateView: React.FC<StateViewProps> = ({
   const [activeLoadingMessageIndex, setActiveLoadingMessageIndex] =
     React.useState(0);
 
+  // Samlar unika laddningsmeddelanden
+  const seenStrings = new Set<string>();
+  const loadingMessages: React.ReactNode[] = [];
+  const appendLoadingMessage = (
+    value: React.ReactNode | null | undefined
+  ): void => {
+    if (value === null || value === undefined) {
+      return;
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed || seenStrings.has(trimmed)) {
+        return;
+      }
+      seenStrings.add(trimmed);
+      loadingMessages.push(trimmed);
+      return;
+    }
+
+    loadingMessages.push(value);
+  };
+
   const loadingMessageFromState =
     state.kind === "loading" ? state.message : undefined;
   const loadingDetailFromState =
@@ -1370,21 +1307,28 @@ const StateView: React.FC<StateViewProps> = ({
       ? state.messages
       : undefined;
 
-  const snapshotMessages =
-    snapshot && Array.isArray(snapshot.messages)
-      ? snapshot.messages
-      : undefined;
+  appendLoadingMessage(snapshot?.message ?? loadingMessageFromState);
+  appendLoadingMessage(snapshot?.detail ?? loadingDetailFromState);
 
-  const { messages: loadingMessages, signature: messageSignature } =
-    collectLoadingMessages(
-      [
-        snapshot?.message ?? loadingMessageFromState,
-        snapshot?.detail ?? loadingDetailFromState,
-      ],
-      snapshotMessages ?? loadingExtrasFromState
-    );
+  const extraMessages =
+    (snapshot?.messages && Array.isArray(snapshot.messages)
+      ? snapshot.messages
+      : loadingExtrasFromState) ?? [];
+
+  for (const message of extraMessages) {
+    appendLoadingMessage(message);
+  }
 
   const messageCount = loadingMessages.length;
+  const messageSignature = loadingMessages
+    .map((value, index) => {
+      if (typeof value === "string") return value;
+      if (React.isValidElement(value) && value.key != null) {
+        return String(value.key);
+      }
+      return `node-${index}`;
+    })
+    .join("|");
 
   // Återställer meddelandeindex vid ändring
   hooks.useEffectWithPreviousValues(() => {
@@ -1404,20 +1348,15 @@ const StateView: React.FC<StateViewProps> = ({
 
   // Cyklar genom meddelanden om det finns fler än ett
   hooks.useEffectWithPreviousValues(() => {
-    let detailTimer: ReturnType<typeof setTimeout> | null = null;
-    let cycleTimer: ReturnType<typeof setInterval> | null = null;
-
-    const cleanup = () => {
-      if (detailTimer) clearTimeout(detailTimer);
-      if (cycleTimer) clearInterval(cycleTimer);
-    };
-
     if (!showLoading || messageCount <= 1) {
-      return cleanup;
+      return undefined;
     }
 
     const detailDelay = config.loading.detailDelay ?? config.loading.delay;
     const cycleInterval = config.loading.cycleInterval ?? 0;
+
+    let detailTimer: ReturnType<typeof setTimeout> | null = null;
+    let cycleTimer: ReturnType<typeof setInterval> | null = null;
 
     detailTimer = setTimeout(() => {
       setActiveLoadingMessageIndex((prev) => {
@@ -1613,7 +1552,7 @@ const StateView: React.FC<StateViewProps> = ({
       ? renderLoadingState()
       : renderStateByKind();
 
-  const shouldCenter = toBooleanValue(center) ?? showLoading;
+  const shouldCenter = typeof center === "boolean" ? center : showLoading;
 
   return (
     <div

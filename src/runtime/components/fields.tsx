@@ -4,24 +4,19 @@ import { type css, hooks, jsx, React } from "jimu-core";
 import { DatePicker as JimuDatePicker } from "jimu-ui/basic/date-picker";
 import { TagInput as JimuTagInput, MultiSelect, RichDisplayer } from "jimu-ui";
 import {
-  type AttributeNamesFieldProps,
   type DynamicFieldProps,
   FILE_UPLOAD,
   type FileFieldConfig,
   type FileValidationResult,
   FormFieldType,
   type FormPrimitive,
-  MULTI_VALUE_FIELD_TYPES,
   type NormalizedTextOrFile,
   type OptionItem,
-  SELECT_FIELD_TYPES,
   type SelectValue,
   type TableColumnConfig,
-  TEXT_OR_FILE_MODES,
   type TextOrFileMode,
   type ToggleFieldConfig,
   type TranslateFn,
-  UI_CONFIG,
   type UiStyles,
 } from "../../config/index";
 import { useUiStyles as useConfigStyles } from "../../config/style";
@@ -44,7 +39,6 @@ import {
   inputToFmeTime,
   isFileObject,
   isNonEmptyTrimmedString,
-  isPlainObject,
   makePlaceholders,
   normalizedRgbToHex,
   normalizeFormValue,
@@ -55,7 +49,6 @@ import {
   toBooleanValue,
   toStringValue,
   toTrimmedString,
-  toTrimmedStringOrEmpty,
 } from "../../shared/utils";
 import defaultMessages from "../translations/default";
 import {
@@ -76,69 +69,84 @@ import {
   useStyles as useUiStyles,
 } from "./ui";
 
+// Fälttyper som använder select/dropdown-komponenter
+const SELECT_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  FormFieldType.SELECT,
+  FormFieldType.COORDSYS,
+  FormFieldType.ATTRIBUTE_NAME,
+  FormFieldType.DB_CONNECTION,
+  FormFieldType.WEB_CONNECTION,
+  FormFieldType.REPROJECTION_FILE,
+]);
+
+// Fälttyper som stödjer flera värden (array)
+const MULTI_VALUE_FIELD_TYPES: ReadonlySet<FormFieldType> = new Set([
+  FormFieldType.MULTI_SELECT,
+  FormFieldType.ATTRIBUTE_LIST,
+]);
+
+// Lägen för TEXT_OR_FILE-fält (text vs filuppladdning)
+const TEXT_OR_FILE_MODES = {
+  TEXT: "text" as const,
+  FILE: "file" as const,
+};
+
 const toDisplayString = (value: unknown): string => toStringValue(value) ?? "";
-
-// Helper: Check if value matches a configured toggle value
-const matchesToggleValue = (current: unknown, configured: unknown): boolean => {
-  if (configured === undefined) return false;
-  return areToggleValuesEqual(current, configured);
-};
-
-// Helper: Resolve boolean from value without config
-const resolveDefaultBoolean = (value: unknown): boolean => {
-  const booleanCandidate = toBooleanValue(value);
-  if (booleanCandidate !== undefined) return booleanCandidate;
-
-  if (typeof value === "number") return value !== 0;
-
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed !== "" && trimmed !== "0";
-  }
-
-  return Boolean(value);
-};
 
 const resolveToggleChecked = (
   current: unknown,
   config?: ToggleFieldConfig
 ): boolean => {
   if (config) {
-    if (matchesToggleValue(current, config.checkedValue)) return true;
-    if (matchesToggleValue(current, config.uncheckedValue)) return false;
+    if (
+      config.checkedValue !== undefined &&
+      areToggleValuesEqual(current, config.checkedValue)
+    ) {
+      return true;
+    }
+    if (
+      config.uncheckedValue !== undefined &&
+      areToggleValuesEqual(current, config.uncheckedValue)
+    ) {
+      return false;
+    }
   }
-  return resolveDefaultBoolean(current);
+
+  const booleanCandidate = toBooleanValue(current);
+  if (booleanCandidate !== undefined) {
+    return booleanCandidate;
+  }
+
+  if (typeof current === "number") {
+    return current !== 0;
+  }
+
+  if (typeof current === "string") {
+    const trimmed = current.trim();
+    if (!trimmed) return false;
+    if (trimmed === "0") return false;
+  }
+
+  return Boolean(current);
 };
 
 const resolveToggleOutputValue = (
   checked: boolean,
   config?: ToggleFieldConfig
 ): FormPrimitive => {
-  const checkedValue = config?.checkedValue;
-  const uncheckedValue = config?.uncheckedValue;
-
-  return checked
-    ? ((checkedValue !== undefined ? checkedValue : true) as FormPrimitive)
-    : ((uncheckedValue !== undefined
-        ? uncheckedValue
-        : false) as FormPrimitive);
+  if (checked) {
+    if (config?.checkedValue !== undefined) {
+      return config.checkedValue as FormPrimitive;
+    }
+    return true as FormPrimitive;
+  }
+  if (config?.uncheckedValue !== undefined) {
+    return config.uncheckedValue as FormPrimitive;
+  }
+  return false as FormPrimitive;
 };
 
 /* Hjälpfunktioner för rendering */
-
-// Helper: Convert FormPrimitive to display string
-const toInputString = (value: FormPrimitive): string => {
-  return typeof value === "string" || typeof value === "number"
-    ? String(value)
-    : "";
-};
-
-// Helper: Parse number input with comma-to-dot conversion
-const parseNumberInput = (input: string): number | null => {
-  if (input === "") return null;
-  const normalized = Number(input.replace(/,/g, "."));
-  return Number.isFinite(normalized) ? normalized : null;
-};
 
 // Renderar textbaserade inmatningsfält med typvalidering
 const renderTextInput = (
@@ -153,18 +161,29 @@ const renderTextInput = (
   } = {}
 ): JSX.Element => {
   const { readOnly, maxLength, overrides } = options;
-
-  const handleChange = (inputValue: string) => {
+  // Hanterar numerisk input med komma-till-punkt-konvertering
+  const handleChange = (val: string) => {
     if (inputType === "number") {
-      onChange(parseNumberInput(inputValue));
+      if (val === "") {
+        onChange(null);
+        return;
+      }
+      const num = Number(val.replace(/,/g, "."));
+      onChange(Number.isFinite(num) ? num : null);
     } else {
-      onChange(inputValue);
+      onChange(val);
     }
   };
 
-  const stringValue = toInputString(value);
-  const disabled =
-    overrides?.disabled !== undefined ? overrides.disabled : readOnly;
+  // Konverterar värde till sträng för input
+  const stringValue =
+    typeof value === "string" || typeof value === "number" ? String(value) : "";
+
+  // Kombinerar readOnly och overrides.disabled
+  const finalDisabled =
+    overrides && typeof overrides.disabled !== "undefined"
+      ? overrides.disabled
+      : readOnly;
 
   return (
     <Input
@@ -173,7 +192,7 @@ const renderTextInput = (
       value={stringValue}
       placeholder={placeholder}
       onChange={handleChange}
-      disabled={disabled}
+      disabled={finalDisabled}
       maxLength={maxLength}
     />
   );
@@ -191,8 +210,8 @@ const renderDateTimeInput = (
     type={inputType}
     value={toDisplayString(value)}
     placeholder={placeholder}
-    onChange={(newValue) => {
-      onChange(newValue as FormPrimitive);
+    onChange={(val) => {
+      onChange(val as FormPrimitive);
     }}
     disabled={disabled}
   />
@@ -209,24 +228,21 @@ const normalizeTextOrFileValue = (
     !Array.isArray(rawValue) &&
     "mode" in rawValue
   ) {
-    const textOrFileObject = rawValue as { [key: string]: unknown };
-    if (
-      textOrFileObject.mode === TEXT_OR_FILE_MODES.FILE &&
-      isFileObject(textOrFileObject.file)
-    ) {
+    const obj = rawValue as { [key: string]: unknown };
+    if (obj.mode === TEXT_OR_FILE_MODES.FILE && isFileObject(obj.file)) {
       return {
         mode: TEXT_OR_FILE_MODES.FILE,
-        file: textOrFileObject.file,
+        file: obj.file,
         fileName:
-          typeof textOrFileObject.fileName === "string"
-            ? textOrFileObject.fileName
-            : getFileDisplayName(textOrFileObject.file, translate),
+          typeof obj.fileName === "string"
+            ? obj.fileName
+            : getFileDisplayName(obj.file, translate),
       };
     }
-    if (textOrFileObject.mode === TEXT_OR_FILE_MODES.TEXT) {
+    if (obj.mode === TEXT_OR_FILE_MODES.TEXT) {
       return {
         mode: TEXT_OR_FILE_MODES.TEXT,
-        text: toDisplayString(textOrFileObject.text),
+        text: toDisplayString(obj.text),
       };
     }
   }
@@ -242,6 +258,10 @@ const normalizeTextOrFileValue = (
     text: toDisplayString(rawValue),
   };
 };
+
+// Kontrollerar om värde är ett vanligt objekt (ej array/null)
+const isPlainObject = (value: unknown): value is { [key: string]: unknown } =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 // Normaliserar tabellrader från olika inputformat till enhetlig struktur
 const normalizeTableRows = (
@@ -427,6 +447,19 @@ const resolveFileDisplayValue = (
   return undefined;
 };
 
+// ============================================
+// Attribute Names Field (Added: Oct 24, 2025)
+// ============================================
+
+interface AttributeNamesFieldProps {
+  readonly value: FormPrimitive;
+  readonly onChange: (value: FormPrimitive) => void;
+  readonly field: DynamicFieldProps["field"];
+  readonly jimuMapView?: __esri.MapView | __esri.SceneView | null;
+  readonly disabled?: boolean;
+  readonly placeholder?: string;
+}
+
 const AttributeNamesField: React.FC<AttributeNamesFieldProps> = ({
   value,
   onChange,
@@ -578,8 +611,8 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   const isMulti = MULTI_VALUE_FIELD_TYPES.has(field.type);
   // TEXT_OR_FILE kräver särskild hantering utan normalisering
   const bypassNormalization = field.type === FormFieldType.TEXT_OR_FILE;
-  const fieldValue: FormPrimitive = bypassNormalization
-    ? (value ?? null)
+  const fieldValue = bypassNormalization
+    ? value
     : normalizeFormValue(value, isMulti);
   const placeholders = makePlaceholders(translate, field.label);
 
@@ -684,7 +717,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         value={toDisplayString(fieldValue)}
         placeholder={placeholders.enter}
         onChange={(val) => {
-          onChange(val);
+          onChange(val as FormPrimitive);
         }}
         disabled={isDisabled}
         rows={field.rows}
@@ -745,7 +778,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
                         value={r}
                         placeholder={field.placeholder || placeholders.enter}
                         onChange={(val) => {
-                          const s = toTrimmedStringOrEmpty(val);
+                          const s = typeof val === "string" ? val : "";
                           updateRow(i, s);
                         }}
                         disabled={isDisabled}
@@ -1110,8 +1143,6 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
     // Use AttributeNamesField for runtime attribute discovery
     return (
       <AttributeNamesField
-        name={field.name}
-        label={field.label}
         value={fieldValue}
         onChange={onChange}
         field={field}
@@ -1426,26 +1457,29 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
   };
 
   const renderRadioField = (): JSX.Element => {
-    // Renderar radioknappsgrupp med coerce-stöd för numeriska alternativ
+    // Renderar radioknappsgrupp med coerce-stöd
     const options = field.options || [];
     const coerce = computeSelectCoerce(true, options);
-    const stringValue = toStringValue(fieldValue) ?? undefined;
+    const stringValue =
+      fieldValue === null || fieldValue === undefined
+        ? undefined
+        : (toStringValue(fieldValue) ?? undefined);
 
-    const handleChange = hooks.useEventCallback((raw: string) => {
+    const handleChange = (raw: string) => {
       if (coerce === "number") {
         const nextNumber = Number(raw);
         if (Number.isFinite(nextNumber)) {
           onChange(nextNumber as FormPrimitive);
-          return;
+        } else {
+          const matchingOption = options.find(
+            (opt) => String(opt.value) === raw
+          );
+          onChange(matchingOption?.value ?? raw);
         }
-
-        const matchingOption = options.find((opt) => String(opt.value) === raw);
-        onChange((matchingOption?.value ?? raw) as FormPrimitive);
         return;
       }
-
       onChange(raw as FormPrimitive);
-    });
+    };
 
     return (
       <Radio
@@ -1536,7 +1570,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
       <Slider
         value={safeValue}
         min={field.min ?? 0}
-        max={field.max ?? UI_CONFIG.PERCENT_SLIDER_MAX}
+        max={field.max ?? 100}
         step={field.step ?? 1}
         decimalPrecision={precision}
         onChange={(value) => {
@@ -1689,7 +1723,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         mode="date"
         value={isoValue}
         onChange={(dateTime) => {
-          const raw = toTrimmedStringOrEmpty(dateTime);
+          const raw = typeof dateTime === "string" ? dateTime : "";
           const datePart = raw.split("T")[0] || "";
           const out = inputToFmeDate(datePart);
           onChange(out as FormPrimitive);
@@ -1808,7 +1842,7 @@ const useStyles = (): UiStyles => useConfigStyles();
 const useValue = useControlledValue;
 
 const applyComponentStyles = (
-  base: Array<ReturnType<typeof css> | undefined | false>,
+  base: ReadonlyArray<ReturnType<typeof css> | undefined | false>,
   customStyle?: React.CSSProperties
 ) => [...base, styleCss(customStyle)].filter(Boolean);
 
@@ -1886,7 +1920,7 @@ export const DateTimePickerWrapper: React.FC<{
     fallbackDate;
 
   const handleChange = hooks.useEventCallback(
-    (rawValue: unknown, _label: string) => {
+    (rawValue: number | Date | null | undefined, _label: string) => {
       if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
         const next = new Date(rawValue);
         if (mode === "date") next.setHours(0, 0, 0, 0);
@@ -2051,7 +2085,7 @@ export const MultiSelectControl: React.FC<{
           value={searchTerm}
           placeholder={translate("phSearch")}
           onChange={(val) => {
-            setSearchTerm(toTrimmedStringOrEmpty(val));
+            setSearchTerm(typeof val === "string" ? val : "");
           }}
           disabled={disabled}
         />

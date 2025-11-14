@@ -3,12 +3,14 @@ import type {
   IMState,
   IMThemeVariables,
   React,
+  SerializedStyles,
   WidgetState,
 } from "jimu-core";
 import type {
   Alert as JimuAlert,
   NumericInput as JimuNumericInput,
 } from "jimu-ui";
+import type { BrandFunctionColors } from "jimu-theme";
 import type { fmeActions } from "../extensions/store";
 import type FmeFlowApiClient from "../shared/api";
 import type { buildSymbols } from "../shared/utils/arcgis";
@@ -265,6 +267,7 @@ export type LoadingFlagKey = keyof LoadingState;
 export interface BaseProps {
   readonly className?: string;
   readonly style?: React.CSSProperties;
+  readonly css?: SerializedStyles | readonly SerializedStyles[];
   readonly disabled?: boolean;
   readonly loading?: boolean;
   readonly onClick?: () => void;
@@ -316,7 +319,7 @@ export interface ButtonProps extends BaseProps {
   readonly children?: React.ReactNode;
   readonly type?: "default" | "primary" | "secondary" | "tertiary" | "danger";
   readonly block?: boolean;
-  readonly color?: string;
+  readonly color?: BrandFunctionColors | "default" | "inherit";
   readonly htmlType?: "submit" | "button" | "reset";
   readonly title?: string;
   readonly tabIndex?: number;
@@ -494,6 +497,7 @@ export interface TextAreaProps extends BaseProps {
   readonly rows?: number;
   readonly defaultValue?: string;
   readonly errorText?: string;
+  readonly validationMessage?: string;
   readonly required?: boolean;
   readonly id?: string;
   readonly maxLength?: number;
