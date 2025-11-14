@@ -82,6 +82,7 @@ import linkTiltedIcon from "../../assets/icons/link-tilted.svg";
 import mapIcon from "../../assets/icons/map.svg";
 import personLockIcon from "../../assets/icons/person-lock.svg";
 import polygonIcon from "../../assets/icons/polygon.svg";
+import rectangleIcon from "../../assets/icons/rectangle.svg";
 import settingIcon from "../../assets/icons/setting.svg";
 import sharedNoIcon from "../../assets/icons/shared-no.svg";
 import successIcon from "../../assets/icons/success.svg";
@@ -96,6 +97,7 @@ const LOCAL_ICON_SOURCES: { readonly [key: string]: string } = {
   error: errorIcon,
   map: mapIcon,
   polygon: polygonIcon,
+  rectangle: rectangleIcon,
   warning: warningIcon,
   "person-lock": personLockIcon,
   folder: folderIcon,
