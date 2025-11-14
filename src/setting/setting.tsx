@@ -298,6 +298,45 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     serverValidation.ok && trimmedLocalServerUrl
       ? normalizeBaseUrl(trimmedLocalServerUrl) || undefined
       : undefined;
+  const [debouncedConnectionInputs, setDebouncedConnectionInputs] =
+    React.useState<{ serverUrl?: string; token?: string }>(() => ({
+      serverUrl: normalizedLocalServerUrl || undefined,
+      token: trimmedLocalToken || undefined,
+    }));
+  const updateDebouncedConnectionInputs = hooks.useEventCallback(
+    (serverUrlValue?: string, tokenValue?: string) => {
+      setDebouncedConnectionInputs((prev) => {
+        if (prev.serverUrl === serverUrlValue && prev.token === tokenValue) {
+          return prev;
+        }
+        return {
+          serverUrl: serverUrlValue,
+          token: tokenValue,
+        };
+      });
+    }
+  );
+  const debouncedConnectionUpdater = useDebounce(
+    updateDebouncedConnectionInputs,
+    TIME_CONSTANTS.DEBOUNCE_VALIDATION_MS
+  );
+  hooks.useEffectWithPreviousValues(() => {
+    const nextServer = normalizedLocalServerUrl || undefined;
+    const nextToken = trimmedLocalToken || undefined;
+
+    if (!nextServer || !nextToken) {
+      debouncedConnectionUpdater.cancel();
+      updateDebouncedConnectionInputs(nextServer, nextToken);
+      return;
+    }
+
+    debouncedConnectionUpdater(nextServer, nextToken);
+  }, [
+    normalizedLocalServerUrl,
+    trimmedLocalToken,
+    debouncedConnectionUpdater,
+    updateDebouncedConnectionInputs,
+  ]);
   const [localSupportEmail, setLocalSupportEmail] = React.useState<string>(() =>
     getStringConfig("supportEmail")
   );
@@ -537,12 +576,19 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   }, [configFillOpacity]);
 
   /* Avgör om repositories ska hämtas */
-  const canFetchRepos = Boolean(normalizedLocalServerUrl && tokenValidation.ok);
+  const effectiveServerUrl = debouncedConnectionInputs.serverUrl;
+  const effectiveToken = debouncedConnectionInputs.token;
+  const canFetchRepos = Boolean(
+    effectiveServerUrl &&
+      effectiveToken &&
+      serverValidation.ok &&
+      tokenValidation.ok
+  );
 
   /* Query hook för repositories (ersätter manuell loadRepositories) */
   const repositoriesQuery = useRepositories(
-    normalizedLocalServerUrl,
-    trimmedLocalToken,
+    effectiveServerUrl,
+    effectiveToken,
     { enabled: canFetchRepos }
   );
 
@@ -685,6 +731,7 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     validateConnectionMutation.reset();
     debouncedServerValidation.cancel();
     debouncedTokenValidation.cancel();
+    debouncedConnectionUpdater.cancel();
     /* Query hook hanterar cleanup automatiskt */
   });
 

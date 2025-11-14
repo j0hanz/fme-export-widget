@@ -196,7 +196,6 @@ const performServerHandshake = async (params: {
   try {
     const serverInfo = await params.client.testConnection(params.signal);
     params.steps.serverUrl = ValidationStepStatus.OK;
-    params.steps.token = ValidationStepStatus.OK;
     params.steps.version = extractFmeVersion(serverInfo);
     return null;
   } catch (error) {
@@ -207,6 +206,55 @@ const performServerHandshake = async (params: {
       token: params.token,
       signal: params.signal,
     });
+  }
+};
+
+const verifyTokenWithoutRepository = async (params: {
+  client: NonNullable<ReturnType<typeof createFmeClient>>;
+  steps: CheckSteps;
+  serverUrl: string;
+  token?: string | null;
+  signal?: AbortSignal;
+}): Promise<ConnectionValidationResult | null> => {
+  if (!params.token) {
+    params.steps.token = ValidationStepStatus.FAIL;
+    return createTokenErrorResult(params.steps, 0);
+  }
+
+  try {
+    await params.client.getRepositories(params.signal);
+    params.steps.token = ValidationStepStatus.OK;
+    params.steps.repository = ValidationStepStatus.SKIP;
+    return null;
+  } catch (error) {
+    if (isAbortError(error)) {
+      return createAbortedResult(params.steps, (error as Error).message);
+    }
+
+    const status = extractHttpStatus(error);
+
+    if (status === HTTP_STATUS_CODES.UNAUTHORIZED) {
+      params.steps.token = ValidationStepStatus.FAIL;
+      return createTokenErrorResult(params.steps, status);
+    }
+
+    if (status === HTTP_STATUS_CODES.FORBIDDEN) {
+      const rawMessage = extractErrorMessage(error);
+      const proxyDetected = hasProxyError(rawMessage);
+      return handleForbiddenError(
+        {
+          steps: params.steps,
+          status,
+          serverUrl: params.serverUrl,
+          token: params.token,
+          signal: params.signal,
+        },
+        proxyDetected
+      );
+    }
+
+    params.steps.token = ValidationStepStatus.FAIL;
+    return createNetworkOrServerErrorResult(error, params.steps, status);
   }
 };
 
@@ -230,6 +278,7 @@ const validateRepositoryStep = async (params: {
   try {
     await params.client.validateRepository(params.repository, params.signal);
     params.steps.repository = ValidationStepStatus.OK;
+    params.steps.token = ValidationStepStatus.OK;
     return { warnings };
   } catch (error) {
     const status = extractHttpStatus(error);
@@ -239,8 +288,12 @@ const validateRepositoryStep = async (params: {
 
     if (isAuthError) {
       params.steps.repository = ValidationStepStatus.SKIP;
+      params.steps.token = ValidationStepStatus.FAIL;
       warnings.push("repositoryNotAccessible");
-      return { warnings };
+      return {
+        warnings,
+        failure: createTokenErrorResult(params.steps, status),
+      };
     }
 
     params.steps.repository = ValidationStepStatus.FAIL;
@@ -294,6 +347,20 @@ export async function validateConnection(
 
         if (handshakeFailure) {
           return handshakeFailure;
+        }
+
+        if (!repository) {
+          const tokenVerification = await verifyTokenWithoutRepository({
+            client,
+            steps,
+            serverUrl,
+            token,
+            signal,
+          });
+
+          if (tokenVerification) {
+            return tokenVerification;
+          }
         }
 
         const { warnings, failure } = await validateRepositoryStep({
