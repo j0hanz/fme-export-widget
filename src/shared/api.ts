@@ -1554,19 +1554,20 @@ export class FmeFlowApiClient {
 
     // TM-parametrar som ska filtreras bort
     const SERVICE_DIRECTIVE_KEYS = [
-      'opt_servicemode',
-      'opt_responseformat',
-      'opt_showresult',
-      'opt_requesteremail',
+      "opt_servicemode",
+      "opt_responseformat",
+      "opt_showresult",
+      "opt_requesteremail",
     ];
 
     // Bygger lista med publicerade parametrar
     const publishedParameters: PublishedParameterEntry[] = Object.entries(
       parameters
     )
-      .filter(([name]) => 
-        !TM_PARAM_KEYS.some((key) => key === name) &&
-        !SERVICE_DIRECTIVE_KEYS.includes(name)
+      .filter(
+        ([name]) =>
+          !TM_PARAM_KEYS.some((key) => key === name) &&
+          !SERVICE_DIRECTIVE_KEYS.includes(name)
       )
       .map(([name, value]) => ({ name, value }));
 
@@ -1821,10 +1822,14 @@ export class FmeFlowApiClient {
 
     // Bygger service-mode query-parametrar
     const query: PrimitiveParams = {};
-    if (parameters.opt_servicemode) query.opt_servicemode = parameters.opt_servicemode;
-    if (parameters.opt_responseformat) query.opt_responseformat = parameters.opt_responseformat;
-    if (parameters.opt_showresult) query.opt_showresult = parameters.opt_showresult;
-    if (parameters.opt_requesteremail) query.opt_requesteremail = parameters.opt_requesteremail;
+    if (parameters.opt_servicemode)
+      query.opt_servicemode = parameters.opt_servicemode;
+    if (parameters.opt_responseformat)
+      query.opt_responseformat = parameters.opt_responseformat;
+    if (parameters.opt_showresult)
+      query.opt_showresult = parameters.opt_showresult;
+    if (parameters.opt_requesteremail)
+      query.opt_requesteremail = parameters.opt_requesteremail;
 
     return this.withApiError(
       () =>
@@ -2056,14 +2061,17 @@ export class FmeFlowApiClient {
         this.config.token
       ) {
         // Bestäm endpoint-typ för token-injektion
-        const isRestApiEndpoint = endpoint.includes('/jobs') || endpoint.includes('/fmeapiv4');
-        const isWebhookEndpoint = endpoint.includes('/fmedatadownload') || endpoint.includes('/fmedatastreaming');
-        
+        const isRestApiEndpoint =
+          endpoint.includes("/jobs") || endpoint.includes("/fmeapiv4");
+        const isWebhookEndpoint =
+          endpoint.includes("/fmedatadownload") ||
+          endpoint.includes("/fmedatastreaming");
+
         // Lägg till fmetoken i query om ej webhook-endpoint
         if (!query.fmetoken && (isWebhookEndpoint || !isRestApiEndpoint)) {
           query.fmetoken = this.config.token;
         }
-        
+
         // Lägg till Authorization-header
         const authHeaders = {
           ...(requestOptions.headers ?? {}),

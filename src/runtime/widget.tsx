@@ -760,6 +760,12 @@ function WidgetContent(
     return null;
   });
 
+  /* Synkroniserar logging-tillstånd när config ändras */
+  hooks.useUpdateEffect(() => {
+    const enabled = Boolean(config?.enableLogging);
+    setLoggingEnabled(enabled);
+  }, [config?.enableLogging]);
+
   hooks.useUpdateEffect(() => {
     if (viewMode !== ViewMode.EXPORT_FORM || !configRef.current) {
       clearModeNotice();

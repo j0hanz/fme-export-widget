@@ -283,6 +283,9 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
   const [localRequireHttps, setLocalRequireHttps] = React.useState<boolean>(
     () => getBooleanConfig("requireHttps")
   );
+  const [localEnableLogging, setLocalEnableLogging] = React.useState<boolean>(
+    () => getBooleanConfig("enableLogging")
+  );
   const selectedRepository = getStringConfig("repository") || "";
   const configServerUrl = getStringConfig("fmeServerUrl") || "";
   const configToken = getStringConfig("fmeServerToken") || "";
@@ -544,9 +547,6 @@ function SettingContent(props: AllWidgetSettingProps<IMWidgetConfig>) {
     () =>
       (getNumberConfig("drawingFillOpacity") ?? DEFAULT_FILL_OPACITY) *
       UI_CONFIG.OPACITY_SCALE_FACTOR
-  );
-  const [localEnableLogging, setLocalEnableLogging] = React.useState<boolean>(
-    () => getBooleanConfig("enableLogging", false)
   );
 
   const configOutlineWidth = getNumberConfig("drawingOutlineWidth");
