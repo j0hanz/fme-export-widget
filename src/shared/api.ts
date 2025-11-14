@@ -1612,12 +1612,17 @@ export class FmeFlowApiClient {
     workspace: string,
     ...segments: string[]
   ): string {
+    // V4 API expects workspace name without .fmw extension in URL path
+    const workspaceName = workspace.endsWith('.fmw') 
+      ? workspace.slice(0, -4) 
+      : workspace;
+    
     return buildUrl(
       this.config.serverUrl,
       this.basePath.slice(1),
       "workspaces",
       repository,
-      workspace,
+      workspaceName,
       ...segments
     );
   }
