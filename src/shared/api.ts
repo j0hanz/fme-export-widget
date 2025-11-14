@@ -1552,11 +1552,22 @@ export class FmeFlowApiClient {
     // Om redan i rätt format, returnera direkt
     if (hasPublishedParameters(parameters)) return parameters;
 
-    // Filtrera bort endast TM-parametrar (tm_*) - opt_* parametrar behövs av FME Flow
+    // TM-parametrar som ska filtreras bort
+    const SERVICE_DIRECTIVE_KEYS = [
+      'opt_servicemode',
+      'opt_responseformat',
+      'opt_showresult',
+      'opt_requesteremail',
+    ];
+
+    // Bygger lista med publicerade parametrar
     const publishedParameters: PublishedParameterEntry[] = Object.entries(
       parameters
     )
-      .filter(([name]) => !TM_PARAM_KEYS.some((key) => key === name))
+      .filter(([name]) => 
+        !TM_PARAM_KEYS.some((key) => key === name) &&
+        !SERVICE_DIRECTIVE_KEYS.includes(name)
+      )
       .map(([name, value]) => ({ name, value }));
 
     return buildSubmitBody(publishedParameters, parameters);
@@ -1808,12 +1819,20 @@ export class FmeFlowApiClient {
       ...jobRequest,
     };
 
+    // Bygger service-mode query-parametrar
+    const query: PrimitiveParams = {};
+    if (parameters.opt_servicemode) query.opt_servicemode = parameters.opt_servicemode;
+    if (parameters.opt_responseformat) query.opt_responseformat = parameters.opt_responseformat;
+    if (parameters.opt_showresult) query.opt_showresult = parameters.opt_showresult;
+    if (parameters.opt_requesteremail) query.opt_requesteremail = parameters.opt_requesteremail;
+
     return this.withApiError(
       () =>
         this.request<JobResult>(endpoint, {
           method: HttpMethod.POST,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(bodyWithWorkspace),
+          query,
           signal,
           cacheHint: false,
         }),
