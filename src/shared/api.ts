@@ -1612,8 +1612,9 @@ export class FmeFlowApiClient {
     workspace: string,
     ...segments: string[]
   ): string {
-    // V4 API expects workspace name without .fmw extension in URL path
-    const workspaceName = workspace.endsWith('.fmw') 
+    // V4 API quirk: /submit endpoint doesn't want .fmw, but other endpoints do
+    const isSubmitEndpoint = segments.length > 0 && segments[0] === 'submit';
+    const workspaceName = isSubmitEndpoint && workspace.endsWith('.fmw')
       ? workspace.slice(0, -4) 
       : workspace;
     
