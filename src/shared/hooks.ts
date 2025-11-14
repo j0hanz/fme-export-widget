@@ -1329,11 +1329,26 @@ export function useMinLoadingTime(
   minimumMs = TIME_CONSTANTS.MIN_LOADING_DELAY_MS
 ) {
   const startTimesRef = React.useRef<{ [key: string]: number }>({});
+  const timersRef = React.useRef<{ [key: string]: number }>({});
+  const mountedRef = React.useRef(true);
+
+  const clearTimer = (flag: string) => {
+    const timerId = timersRef.current[flag];
+    if (typeof timerId === "number") {
+      if (typeof window !== "undefined") {
+        window.clearTimeout(timerId);
+      } else {
+        clearTimeout(timerId);
+      }
+      delete timersRef.current[flag];
+    }
+  };
 
   const setFlag = hooks.useEventCallback((flag: string, value: boolean) => {
     if (value) {
       // Loading startar - sätt omedelbart och spara starttid
       startTimesRef.current[flag] = Date.now();
+      clearTimer(flag);
       reduxDispatch(
         fmeActions.setLoadingFlag(flag as LoadingFlagKey, true, widgetId)
       );
@@ -1345,12 +1360,20 @@ export function useMinLoadingTime(
         const remaining = Math.max(0, minimumMs - elapsed);
 
         if (remaining > 0) {
-          setTimeout(() => {
+          clearTimer(flag);
+          const timeoutId = (typeof window !== "undefined"
+            ? window.setTimeout
+            : setTimeout)(() => {
+            delete timersRef.current[flag];
+            if (!mountedRef.current) {
+              return;
+            }
             reduxDispatch(
               fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
             );
             delete startTimesRef.current[flag];
-          }, remaining);
+          }, remaining) as unknown as number;
+          timersRef.current[flag] = timeoutId;
         } else {
           reduxDispatch(
             fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
@@ -1358,11 +1381,19 @@ export function useMinLoadingTime(
           delete startTimesRef.current[flag];
         }
       } else {
+        clearTimer(flag);
         reduxDispatch(
           fmeActions.setLoadingFlag(flag as LoadingFlagKey, false, widgetId)
         );
       }
     }
+  });
+
+  hooks.useUnmount(() => {
+    mountedRef.current = false;
+    Object.keys(timersRef.current).forEach((flag) => {
+      clearTimer(flag);
+    });
   });
 
   return setFlag;

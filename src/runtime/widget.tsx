@@ -133,7 +133,17 @@ function WidgetContent(
   const widgetId = normalizeWidgetId({ id, widgetId: widgetIdProp });
 
   /* Skapar Redux-selektorer för detta widget */
-  const selectors = createFmeSelectors(widgetId);
+  const selectorsRef = React.useRef<{
+    widgetId: string;
+    selectors: ReturnType<typeof createFmeSelectors>;
+  } | null>(null);
+  if (!selectorsRef.current || selectorsRef.current.widgetId !== widgetId) {
+    selectorsRef.current = {
+      widgetId,
+      selectors: createFmeSelectors(widgetId),
+    };
+  }
+  const selectors = selectorsRef.current.selectors;
 
   /* Hämtar individuella state-properties med optimerad memoization */
   const viewMode = ReactRedux.useSelector(selectors.selectViewMode);
@@ -691,7 +701,7 @@ function WidgetContent(
   } = mapResources;
 
   /* Synkar modulers laddningsstatus med Redux med minimum display time */
-  const setLoadingFlag = useMinLoadingTime(dispatch, props.id);
+  const setLoadingFlag = useMinLoadingTime(dispatch, widgetId);
 
   hooks.useUpdateEffect(() => {
     setLoadingFlag("modules", Boolean(modulesLoading));
